@@ -1,0 +1,19 @@
+{
+  "name": "flashback",
+  "version": "1.0.0",
+  "description": "A workspace to evaluate and create documents for long term memorization and concept connection",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WeirdCatAFK/Flashback.git"
+  },
+  "author": "Daniel Pineda Torres",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/WeirdCatAFK/Flashback/issues"
+  },
+  "homepage": "https://github.com/WeirdCatAFK/Flashback#readme"
+}
