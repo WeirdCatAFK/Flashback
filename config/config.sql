@@ -30,7 +30,7 @@ CREATE TABLE `Tags` (
 CREATE TABLE `Documents` (
     `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `name` VARCHAR(255) NOT NULL,
-    `path` TEXT NOT NULL,
+    `path` VARCHAR(255) NOT NULL,
     `media_type_id` INT NOT NULL,
     FOREIGN KEY (`media_type_id`) REFERENCES `File_Extensions`(`id`)
 );
@@ -39,11 +39,14 @@ CREATE TABLE `Documents` (
 CREATE TABLE `Flashcards` (
     `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `document_id` INT NOT NULL,
+    `name` VARCHAR(30) NULL,
     `text_renderer_id` INT NOT NULL,
     `front` TEXT NULL,
     `back` TEXT NULL,
     FOREIGN KEY (`document_id`) REFERENCES `Documents`(`id`),
     FOREIGN KEY (`text_renderer_id`) REFERENCES `Text_Renderers`(`id`)
+    --Name index to optimze graphing
+    INDEX ('name')
 );
 
 -- To choose markdown flavor or plain text
@@ -85,7 +88,7 @@ CREATE TABLE `Document_Tags` (
     INDEX (`document_id`, `tag_id`)
 );
 
--- To store pairs between tags and flashcards ids to make connections on graph view
+-- To store pairs between tags and flashcard ids to make connections on graph view
 CREATE TABLE `Flashcard_Tags` (
     `id` INT NOT NULL AUTO_INCREMENT PRIMARY KEY,
     `flashcard_id` INT NOT NULL,
