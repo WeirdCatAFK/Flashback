@@ -1,6 +1,12 @@
 -- Enable foreign key support
 PRAGMA foreign_keys = ON;
 
+-- To store all the tags
+CREATE TABLE Tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL
+);
+
 -- To store the pairs between tags and document ids to make connections on graph view
 CREATE TABLE Document_Tags (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -11,14 +17,6 @@ CREATE TABLE Document_Tags (
 );
 
 CREATE INDEX idx_document_tags ON Document_Tags (document_id, tag_id);
-
---To store all the tags
-CREATE TABLE Tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    tag_type_id INTEGER NOT NULL,
-    FOREIGN KEY (tag_type_id) REFERENCES Tag_Types(id)
-);
 
 -- To store which method used to play the media
 CREATE TABLE Media_Types (
@@ -37,17 +35,6 @@ CREATE TABLE Document_Connections (
 
 CREATE INDEX idx_document_connections ON Document_Connections (origin_id, destiny_id);
 
--- To store pairs between tags and flashcard ids to make connections on graph view
-CREATE TABLE Flashcard_Tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    flashcard_id INTEGER NOT NULL,
-    tag_id INTEGER NOT NULL,
-    FOREIGN KEY (flashcard_id) REFERENCES Flashcards(id),
-    FOREIGN KEY (tag_id) REFERENCES Tags(id)
-);
-
-CREATE INDEX idx_flashcard_tags ON Flashcard_Tags (flashcard_id, tag_id);
-
 -- To store all the flashcards on relation to the documents made
 CREATE TABLE Flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -56,19 +43,22 @@ CREATE TABLE Flashcards (
     back TEXT,
     text_renderer_id INTEGER NOT NULL,
     document_id INTEGER NOT NULL,
-    highlight_id BIGINT NOT NULL,
+    highlight_id INTEGER NOT NULL,
+    tts_id INTEGER NOT NULL,
+    -- New column for TTS voice
     FOREIGN KEY (text_renderer_id) REFERENCES Text_Renderers(id),
     FOREIGN KEY (document_id) REFERENCES Documents(id),
-    FOREIGN KEY (highlight_id) REFERENCES Highlight(id)
+    FOREIGN KEY (highlight_id) REFERENCES Highlight(id),
+    FOREIGN KEY (tts_id) REFERENCES TTS_Voices(id) -- Foreign key reference to TTS_Voices table
 );
 
 CREATE INDEX idx_flashcards_name ON Flashcards (name);
 
---To store the flashcards relative position on relation to the documents on the workspace
+-- To store the flashcards relative position on relation to the documents on the workspace
 CREATE TABLE Highlight (
-    id BIGINT UNSIGNED PRIMARY KEY AUTOINCREMENT,
-    Position_text BIGINT,
-    Position_pdf BIGINT,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    Position_text INTEGER,
+    Position_pdf INTEGER,
     FOREIGN KEY (Position_text) REFERENCES Position_text(id),
     FOREIGN KEY (Position_pdf) REFERENCES Position_pdf(id)
 );
@@ -81,10 +71,10 @@ CREATE TABLE File_Extensions (
     FOREIGN KEY (media_type_id) REFERENCES Media_Types(id)
 );
 
---For pdf based files, to store flashcard relative position on relation to PDF documents
+-- For pdf based files, to store flashcard relative position on relation to PDF documents
 CREATE TABLE Position_pdf (
-    id BIGINT UNSIGNED PRIMARY KEY AUTOINCREMENT,
-    page BIGINT NOT NULL,
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    page INTEGER NOT NULL,
     x FLOAT NOT NULL,
     y FLOAT NOT NULL
 );
@@ -106,12 +96,6 @@ CREATE TABLE Documents (
     FOREIGN KEY (media_type_id) REFERENCES Media_Types(id)
 );
 
--- To store if a tag will be hereditary or not (and any other type that occurs to me)
-CREATE TABLE Tag_Types (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL
-);
-
 -- To store the pairs of ids of flashcards to make connections on graph view
 CREATE TABLE Flashcard_Connections (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -123,11 +107,11 @@ CREATE TABLE Flashcard_Connections (
 
 CREATE INDEX idx_flashcard_connections ON Flashcard_Connections (origin_id, destiny_id);
 
---For pdf based files, to store flashcard relative position to files that store media on text, md, txt or else
+-- For pdf based files, to store flashcard relative position to files that store media on text, md, txt or else
 CREATE TABLE Position_text (
-    id BIGINT UNSIGNED PRIMARY KEY AUTOINCREMENT,
-    start BIGINT NOT NULL,
-end BIGINT NOT NULL
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    start INTEGER NOT NULL,
+end INTEGER NOT NULL
 );
 
 CREATE INDEX idx_position_text ON Position_text (start,end
@@ -144,3 +128,24 @@ CREATE TABLE Flashcard_Media (
 );
 
 CREATE INDEX idx_flashcard_media ON Flashcard_Media (flashcard_id, media_type_id);
+
+-- To describe inheritance from tags made on documents to tags on flashcards
+CREATE TABLE Flashcard_Inherited_Tags (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    flashcard_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    FOREIGN KEY (flashcard_id) REFERENCES Flashcards(id),
+    FOREIGN KEY (tag_id) REFERENCES Tags(id)
+);
+
+CREATE INDEX idx_flashcard_inherited_tags ON Flashcard_Inherited_Tags (flashcard_id, tag_id);
+
+-- To store types of TTS voices
+CREATE TABLE TTS_Voices (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    voice_name TEXT NOT NULL,
+    language TEXT NOT NULL,
+    gender TEXT NOT NULL
+);
+
+CREATE INDEX idx_tts_voices ON TTS_Voices (voice_name, language, gender);
