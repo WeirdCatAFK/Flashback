@@ -1,44 +1,53 @@
-const sqlite3 = require("sqlite3");
+// Setup.js
+
+const sqlite3 = require("sqlite3").verbose();
 const fs = require("fs");
+const path = require("path");
 
-// Create new connection
-const db = new sqlite3.Database("./flashback.db", (err) => {
-  if (err) {
-    console.error("Error opening database:", err.message);
-    return;
-  }
+// Path to the SQLite database
+const dbPath = './flashback.db';
 
-  if (db) {
-    console.log("Database connection established.");
+// Path to the config SQL file
+const configPath = path.join(__dirname, './config/init.sql');
 
-    db.get("PRAGMA database_list;", (err, row) => {
+// Check if the database file exists
+if (!fs.existsSync(dbPath)) {
+  console.log("Database not found, creating a new one...");
+
+  // Create a new SQLite database
+  const db = new sqlite3.Database(dbPath, (err) => {
+    if (err) {
+      console.error("Error creating database:", err.message);
+    } else {
+      console.log("New database created successfully.");
+    }
+  });
+
+  // Read SQL from the configuration file
+  fs.readFile(configPath, 'utf-8', (err, sql) => {
+    if (err) {
+      console.error("Error reading config SQL file:", err.message);
+      return;
+    }
+
+    // Execute the SQL statements from the file
+    db.exec(sql, (err) => {
       if (err) {
-        console.error("Error executing PRAGMA statement:", err.message);
-      } else if (!row) {
-        console.log("Database is null, running configuration...");
-
-        const config = fs.readFileSync("./config/config.sql", "utf8");
-        db.exec(config, (err) => {
-          if (err) {
-            console.error("Error executing config.sql:", err.message);
-          } else {
-            console.log("Configuration applied successfully.");
-          }
-        });``
+        console.error("Error executing SQL from config file:", err.message);
       } else {
-        console.log("Database is not null, configuration not needed.");
+        console.log("Database setup completed using config file.");
       }
-    });
-  } else {
-    console.log("Database is null, running configuration...");
 
-    const config = fs.readFileSync("./config/config.sql", "utf8");
-    db.exec(config, (err) => {
-      if (err) {
-        console.error("Error executing config.sql:", err.message);
-      } else {
-        console.log("Configuration applied successfully.");
-      }
+      // Close the database connection
+      db.close((err) => {
+        if (err) {
+          console.error("Error closing the database:", err.message);
+        } else {
+          console.log("Database connection closed.");
+        }
+      });
     });
-  }
-});
+  });
+} else {
+  console.log("Database already exists.");
+}

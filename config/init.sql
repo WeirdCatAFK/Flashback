@@ -39,6 +39,7 @@ CREATE INDEX idx_document_connections ON Document_Connections (origin_id, destin
 CREATE TABLE Flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT,
+    next_recall date,
     front TEXT,
     back TEXT,
     text_renderer_id INTEGER NOT NULL,
