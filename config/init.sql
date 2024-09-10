@@ -38,14 +38,14 @@ CREATE INDEX idx_document_connections ON Document_Connections (origin_id, destin
 -- To store all the flashcards on relation to the documents made
 CREATE TABLE Flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT,
+    name varchar(255) NULL,
     next_recall date,
     front TEXT,
     back TEXT,
     text_renderer_id INTEGER NOT NULL,
-    document_id INTEGER NOT NULL,
-    highlight_id INTEGER NOT NULL,
     tts_id INTEGER NOT NULL,
+    document_id INTEGER NULL,
+    highlight_id INTEGER NULL,
     -- New column for TTS voice
     FOREIGN KEY (text_renderer_id) REFERENCES Text_Renderers(id),
     FOREIGN KEY (document_id) REFERENCES Documents(id),
@@ -149,4 +149,4 @@ CREATE TABLE TTS_Voices (
     gender TEXT NOT NULL
 );
 
-CREATE INDEX idx_tts_voices ON TTS_Voices (voice_name, language, gender);
+--Stored procedures
