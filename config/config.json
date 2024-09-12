@@ -1,3 +1,16 @@
 {
-    "default_workspace": ".//.flashback"
+    "config": {
+        "current": {
+            "workspace_id": 0
+        },
+        "workspaces": [
+            {   
+                "id": 0,
+                "name": "Flashback",
+                "description": "This is the default workspace",
+                "path": "./flashback",
+                "db": "./data/flashback.db"
+            }
+        ]
+    }
 }
