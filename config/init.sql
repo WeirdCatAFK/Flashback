@@ -84,7 +84,7 @@ CREATE TABLE Documents (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
     path TEXT NOT NULL,
-    media_type_id INTEGER NOT NULL
+    media_type_id INTEGER NOT NULL,
     FOREIGN KEY (media_type_id) REFERENCES Media_types(id)
 );
 
