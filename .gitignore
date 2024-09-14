@@ -129,7 +129,10 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-#Flashback
-flashback.db
-.reference_Files
-.flashback
+#Flashback workspace
+.flashback/
+
+#For development purposes
+.testFiles/
+
+# JSON that contains current config
