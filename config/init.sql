@@ -19,7 +19,7 @@ CREATE TABLE Document_Tags (
 CREATE INDEX idx_document_tags ON Document_Tags (document_id, tag_id);
 
 -- To store which method used to play the media
-CREATE TABLE Media_Types (
+CREATE TABLE Media_types (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL
 );
@@ -39,7 +39,7 @@ CREATE INDEX idx_document_connections ON Document_Connections (origin_id, destin
 CREATE TABLE Flashcards (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NULL,
-    next_recall DATE,
+    next_recall DATETIME,
     front TEXT,
     back TEXT,
     text_renderer_id INTEGER NOT NULL,
@@ -85,6 +85,7 @@ CREATE TABLE Documents (
     name TEXT NOT NULL,
     path TEXT NOT NULL,
     media_type_id INTEGER NOT NULL
+    FOREIGN KEY (media_type_id) REFERENCES Media_types(id)
 );
 
 -- To store the pairs of ids of flashcards to make connections on graph view
