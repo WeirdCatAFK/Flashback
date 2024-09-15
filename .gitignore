@@ -136,3 +136,5 @@ dist
 .testFiles/
 
 # JSON that contains current config
+
+test.js
