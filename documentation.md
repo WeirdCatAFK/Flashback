@@ -14,8 +14,9 @@ graph LR
   D --Electron API Exposure--> A
 ```
 
-So most calls
+### File reading and managing
 
+The API, as it's built 
 
 ## Sqlite3 data dictionary
 
@@ -91,7 +92,6 @@ Taking into account that the
 
 This table outlines the columns, data types, and a brief description of each column in the schema.
 
-
 # Why Flashback?
 
 A more bookish storysh approach to explain why all of this
@@ -104,7 +104,7 @@ One of the modern challenges of high specialization careers and skill learning i
 
 I'd like to say that your brain graph will be your final solution to learning, but it isn't, about a year ago I was talking to one of my proffesor friends at Uni, about how I was planning to make the ultimate learning tool, I would become the most skilled and connossieur of the software engineers on Uni, how I was different and I had everything planned out, apart from other sad conclusions that I adquired that night, one thing was clear **Skill** can't be aquired by **Knowledege** flashback is a tool to optimize knowledge so it can be read and memorized so you can plan the connections between concepts and can plan ahead how you want to understand a topic, but as much as I'd like to say that taking the effort to make a Brain graph will make you more skilled at your job, I worry that this is not what you are looking for, remembering all the recipes from the book will not make you a chef, but it may open your eyes to make you more eager on the kitchen. As a disclaimer, I'd like to add that **Knowledge and memorization** are essential tools to develop a skill, and even if you don't think you need to memorize things, any software engineer will appreciate the discussion of making the data structure more efficient for data retrieval (wink, wink, your brain), so don't be frailed and take responsability on how you design your brain
 
-I'd like to think that most brains work similar to a graph, and they self optimize all the time (How cool is that!) ask any programmer, or psycology student about neurons and they will tell you amazing thins that they can make, heck even right now all that you know is contained on a graph of your brain. The language of the brain is one we can't speak really, but it can make us speak, so taking time to optimize things has an ultimate advantage. Here it's a 3 layered neuron structure
+I'd like to think that most brains work similar to a graph, and they self optimize all the time (How cool is that!) ask any programmer, or psycology student about neurons and they will tell you amazing thins that they can make, heck even right now all that you know is contained on a graph of your brain. The language of the brain is one we can't speak really, but it can make us speak, so taking time to optimize things has an ultimate advantage. Here it's a 3 layer neuron structure just to show how complex your brain can wire your thoughts
 
 ```mermaid
 graph LR;
@@ -134,7 +134,6 @@ graph LR;
 
 Brains are complex and that's ok, retropropagation, communicator neurons, and self optimizations trough simulations are all ocurrences of the brain, so I want to make something clear. Flashback it's not a 1 to 1 map, it's an abstraction, it's an approach to make all that we know readable to our brains and make it stay present, all the analysis of the graph will be made by inference on where to make new connections and subject inference to face values, the scope of Flashback will be to make a really good map of what we want to stay, and track how much of it has developed on our brains, Flashback will not be doing the optimizations that dreams and late night reflections will do, however it may make the things that you need to remember more present on your life
 
-
 ### Why flashcards?
 
 Flashcards mimic something important on our brains, a pair of neurons, flashcards have to sides of information, the front, and the back, each one exists as itself as a neuron encapsulating one concept, when using flashcards this phenomenon is
@@ -146,8 +145,5 @@ graph TD
 ```
 
 Text after graph lol
-
-
-
 
 <style>#mermaid-1726959917926{font-family:sans-serif;font-size:16px;fill:#333;}#mermaid-1726959917926 .error-icon{fill:#552222;}#mermaid-1726959917926 .error-text{fill:#552222;stroke:#552222;}#mermaid-1726959917926 .edge-thickness-normal{stroke-width:2px;}#mermaid-1726959917926 .edge-thickness-thick{stroke-width:3.5px;}#mermaid-1726959917926 .edge-pattern-solid{stroke-dasharray:0;}#mermaid-1726959917926 .edge-pattern-dashed{stroke-dasharray:3;}#mermaid-1726959917926 .edge-pattern-dotted{stroke-dasharray:2;}#mermaid-1726959917926 .marker{fill:#333333;}#mermaid-1726959917926 .marker.cross{stroke:#333333;}#mermaid-1726959917926 svg{font-family:sans-serif;font-size:16px;}#mermaid-1726959917926 .label{font-family:sans-serif;color:#333;}#mermaid-1726959917926 .label text{fill:#333;}#mermaid-1726959917926 .node rect,#mermaid-1726959917926 .node circle,#mermaid-1726959917926 .node ellipse,#mermaid-1726959917926 .node polygon,#mermaid-1726959917926 .node path{fill:#ECECFF;stroke:#9370DB;stroke-width:1px;}#mermaid-1726959917926 .node .label{text-align:center;}#mermaid-1726959917926 .node.clickable{cursor:pointer;}#mermaid-1726959917926 .arrowheadPath{fill:#333333;}#mermaid-1726959917926 .edgePath .path{stroke:#333333;stroke-width:1.5px;}#mermaid-1726959917926 .flowchart-link{stroke:#333333;fill:none;}#mermaid-1726959917926 .edgeLabel{background-color:#e8e8e8;text-align:center;}#mermaid-1726959917926 .edgeLabel rect{opacity:0.5;background-color:#e8e8e8;fill:#e8e8e8;}#mermaid-1726959917926 .cluster rect{fill:#ffffde;stroke:#aaaa33;stroke-width:1px;}#mermaid-1726959917926 .cluster text{fill:#333;}#mermaid-1726959917926 div.mermaidTooltip{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:sans-serif;font-size:12px;background:hsl(80,100%,96.2745098039%);border:1px solid #aaaa33;border-radius:2px;pointer-events:none;z-index:100;}#mermaid-1726959917926:root{--mermaid-font-family:sans-serif;}#mermaid-1726959917926:root{--mermaid-alt-font-family:sans-serif;}#mermaid-1726959917926 flowchart{fill:apa;}</style>
