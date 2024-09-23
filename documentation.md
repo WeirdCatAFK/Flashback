@@ -111,7 +111,7 @@ Here is each data ype and purpose for the db
 
 # Why Flashback?
 
-A more bookish storysh approach to explain why flashback is this way, and why i want to make flashback
+A more bookish storish approach to explain why flashback is this way, and why i want to make flashback
 
 ## Your Brain graph
 
@@ -149,7 +149,7 @@ graph LR;
 
 ```
 
-Brains are complex and that's ok, retropropagation, communicator neurons, and self optimizations trough simulations are all ocurrences of the brain, so I want to make something clear. Flashback it's not a 1 to 1 map, it's an abstraction, it's an approach to make all that we know readable to our brains and make it stay present, all the analysis of the graph will be made by inference on where to make new connections and subject inference to face values, the scope of Flashback will be to make a really good map of what we want to stay, and track how much of it has developed on our brains, Flashback will not be doing the optimizations that dreams and late night reflections will do, however it may make the things that you need to remember more present on your life
+Brains are complex and that's ok, retropropagation, communicator neurons, and self optimizations trough simulations are all ocurrences of the brain, the computational hability to use 3 layered neural networks to work efficiently it's practically a new occurrence, so I want to make something clear. Flashback it's not a 1 to 1 map, it's an abstraction, it's an approach to make all that we know readable to our brains and make it stay present, all the analysis of the graph will be made by inference on where to make new connections and subject inference to face values, the scope of Flashback will be to make a really good map of what we want to stay, and track how much of it has developed on our brains, Flashback will not be doing the optimizations that dreams and late night reflections will do, however it may make the things that you need to remember more present on your life
 
 ### Why flashcards?
 
