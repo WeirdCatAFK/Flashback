@@ -1,40 +1,50 @@
 PRAGMA foreign_keys = ON;
 
--- Nodes table
-CREATE TABLE IF NOT EXISTS Nodes (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT
+-- Node Types
+CREATE TABLE IF NOT EXISTS Node_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR
 );
 
--- Folders table
+-- Nodes
+CREATE TABLE IF NOT EXISTS Nodes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  type_id INTEGER,
+  presence FLOAT,
+  FOREIGN KEY (type_id) REFERENCES Node_types(id)
+);
+
+CREATE INDEX idx_node_presence ON Nodes (presence);
+
+-- Folders
 CREATE TABLE IF NOT EXISTS Folders (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR,
   filepath VARCHAR,
-  node_id INTEGER,
-  FOREIGN KEY (node_id) REFERENCES Nodes (id) ON DELETE CASCADE
+  node_id INTEGER FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE
 );
 
-CREATE INDEX idx_path_retrieval ON Folders (filepath);
+CREATE INDEX idx_folder_path_retrieval ON Folders (filepath);
 
-CREATE INDEX idx_name_retrieval ON Folders (name);
+CREATE INDEX idx_folder_name_retrieval ON Folders (name);
 
--- Documents table
+-- Documents
 CREATE TABLE IF NOT EXISTS Documents (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   folder_id INTEGER,
   name VARCHAR,
   filepath VARCHAR,
   file_extension VARCHAR,
   node_id INTEGER,
-  FOREIGN KEY (folder_id) REFERENCES Folders (id) ON DELETE CASCADE,
-  FOREIGN KEY (node_id) REFERENCES Nodes (id) ON DELETE CASCADE
+  FOREIGN KEY (folder_id) REFERENCES Folders(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_doc_name_search ON Documents (name);
 
--- Flashcard_highlight table
+-- Flashcard Highlights
 CREATE TABLE IF NOT EXISTS Flashcard_highlight (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   page INTEGER,
   x1 FLOAT,
   y1 FLOAT,
@@ -44,9 +54,9 @@ CREATE TABLE IF NOT EXISTS Flashcard_highlight (
 end INTEGER
 );
 
--- Flashcards table
+-- Flashcards
 CREATE TABLE IF NOT EXISTS Flashcards (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   document_id INTEGER,
   node_id INTEGER,
   highlight_id INTEGER,
@@ -54,75 +64,153 @@ CREATE TABLE IF NOT EXISTS Flashcards (
   front TEXT,
   back TEXT,
   audio VARCHAR,
-  presence INTEGER,
   next_recall DATETIME,
-  FOREIGN KEY (document_id) REFERENCES Documents (id) ON DELETE CASCADE,
-  FOREIGN KEY (highlight_id) REFERENCES Flashcard_highlight (id),
-  FOREIGN KEY (node_id) REFERENCES Nodes (id) ON DELETE CASCADE
+  FOREIGN KEY (document_id) REFERENCES Documents(id) ON DELETE CASCADE,
+  FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE,
+  FOREIGN KEY (highlight_id) REFERENCES Flashcard_highlight(id) ON DELETE
+  SET
+    NULL
 );
 
 CREATE INDEX idx_document ON Flashcards (document_id);
 
-CREATE INDEX idx_flash_name_search ON Flashcards (name);
+CREATE INDEX idx_highlight ON Flashcards (highlight_id);
 
-CREATE INDEX idx_presence ON Flashcards (presence);
+CREATE INDEX idx_flashcard_name_search ON Flashcards (name);
 
--- Flashcard_info table
+-- Flashcard Info
 CREATE TABLE IF NOT EXISTS Flashcard_info (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   flashcard_id INTEGER,
   text_renderer VARCHAR,
   tts_voice VARCHAR,
-  FOREIGN KEY (flashcard_id) REFERENCES Flashcards (id)
+  FOREIGN KEY (flashcard_id) REFERENCES Flashcards(id) ON DELETE CASCADE
 );
 
--- Media_types table
+-- Media Types
 CREATE TABLE IF NOT EXISTS Media_types (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-  name VARCHAR,
-  file_extension VARCHAR,
-  path_js VARCHAR
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name INTEGER,
+  file_extension VARCHAR
 );
 
--- Media table
+-- Media
 CREATE TABLE IF NOT EXISTS Media (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-  filepath VARCHAR,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  media BLOB,
   media_type_id INTEGER,
-  FOREIGN KEY (media_type_id) REFERENCES Media_types (id)
+  FOREIGN KEY (media_type_id) REFERENCES Media_types(id)
 );
 
-CREATE INDEX idx_filepath_retrieval ON Media (filepath);
-
--- Flashcard_media table
+-- Flashcard Media
 CREATE TABLE IF NOT EXISTS Flashcard_media (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   flashcard_id INTEGER,
   front_media_id INTEGER,
   back_media_id INTEGER,
-  FOREIGN KEY (flashcard_id) REFERENCES Flashcards (id),
-  FOREIGN KEY (front_media_id) REFERENCES Media (id),
-  FOREIGN KEY (back_media_id) REFERENCES Media (id)
+  FOREIGN KEY (flashcard_id) REFERENCES Flashcards(id) ON DELETE CASCADE,
+  FOREIGN KEY (front_media_id) REFERENCES Media(id) ON DELETE
+  SET
+    NULL,
+    FOREIGN KEY (back_media_id) REFERENCES Media(id) ON DELETE
+  SET
+    NULL
 );
 
--- Relation_types table
-CREATE TABLE IF NOT EXISTS Relation_types (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+-- Tags
+CREATE TABLE IF NOT EXISTS Tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR,
+  FOREIGN KEY (id) REFERENCES Nodes(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_tag_name_retrieval ON Tags (name);
+
+-- Connection Types
+CREATE TABLE IF NOT EXISTS Connection_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR
 );
 
--- Node_connections table
+CREATE INDEX idx_connection_type_name_search ON Connection_types (name);
+
+-- Node Connections
 CREATE TABLE IF NOT EXISTS Node_connections (
-  id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   origin_id INTEGER,
   destiny_id INTEGER,
-  relation_type_id INTEGER,
-  FOREIGN KEY (relation_type_id) REFERENCES Relation_types (id)
+  connection_type_id INTEGER,
+  FOREIGN KEY (origin_id) REFERENCES Nodes(id) ON DELETE CASCADE,
+  FOREIGN KEY (destiny_id) REFERENCES Nodes(id) ON DELETE CASCADE,
+  FOREIGN KEY (connection_type_id) REFERENCES Connection_types(id)
 );
 
-CREATE INDEX idx_relationship_retrieval ON Node_connections (origin_id, destiny_id);
+CREATE INDEX idx_node_connection_retrieval ON Node_connections (origin_id, destiny_id);
 
-CREATE INDEX idx_type ON Node_connections (relation_type_id);
+CREATE INDEX idx_node_type_retrieval ON Node_connections (connection_type_id);
 
--- Inherited_tags table
-CREATE TABLE IF NOT EXISTS Inherited_tags
+-- Inherited Tags
+CREATE TABLE IF NOT EXISTS Inherited_tags (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connection_id INTEGER,
+  tag_id INTEGER,
+  FOREIGN KEY (connection_id) REFERENCES Node_connections(id) ON DELETE CASCADE,
+  FOREIGN KEY (tag_id) REFERENCES Tags(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_inherited_connection_retrieval ON Inherited_tags (connection_id);
+
+CREATE INDEX idx_inherited_tag_retrieval ON Inherited_tags (tag_id);
+
+-- Path
+CREATE TABLE IF NOT EXISTS Path (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR
+);
+
+CREATE INDEX idx_path_name_search ON Path (name);
+
+-- Path Connections
+CREATE TABLE IF NOT EXISTS Path_connections (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  connection_id INTEGER,
+  path_id INTEGER,
+  FOREIGN KEY (connection_id) REFERENCES Node_connections(id) ON DELETE CASCADE,
+  FOREIGN KEY (path_id) REFERENCES Path(id) ON DELETE CASCADE
+);
+
+CREATE INDEX idx_path_connection_retrieval ON Path_connections (connection_id);
+
+-- Entries for Media_types--
+INSERT INTO
+  Media_types (name, file_extension)
+VALUES
+  ('Image', 'jpg'),
+  ('Image', 'png'),
+  ('Image', 'gif'),
+  ('Audio', 'mp3'),
+  ('Audio', 'wav'),
+  ('Video', 'mp4'),
+  ('Video', 'avi'),
+  ('Document', 'pdf'),
+  ('Document', 'docx'),
+  ('Document', 'txt'),
+  ('Document', 'doc');
+
+-- Entries for Node_types
+INSERT INTO
+  Node_types (name)
+VALUES
+  ('Folder'),
+  ('Document'),
+  ('Flashcard'),
+  ('Tag');
+
+-- Entries for Connection_types
+INSERT INTO
+  Connection_types (name)
+VALUES
+  ('Inherits'),
+  ('Contains'),
+  ('Links'),
+  ('Is related to');

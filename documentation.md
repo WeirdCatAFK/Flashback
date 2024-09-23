@@ -4,9 +4,7 @@ Flashback is a document annotation tool designed to facilitate the organization 
 
 # How is Flashback built?
 
-# Flashback API
-
-Flashback tries to accomplish something difficult, it takes an unordered structure (your documents) and makes an ordered structure (Your brain graph) to store all the connections, and surely web front end tools are difficult to manage, so most of flashback will be designed to work making API calls to control Files and update the database
+Flashback is built on react as it's frontend, electron as an encapsulation tool and an API rest made in express to manage all the file dataFlashback tries to accomplish something difficult, it takes an unordered structure (your documents) and makes an ordered structure (Your brain graph) to store all the connections, and surely web front end tools are difficult to manage, so most of flashback will be designed to work making API calls to control Files and update the database.
 
 ```mermaid
 graph LR
@@ -14,87 +12,106 @@ graph LR
   D --Electron API Exposure--> A
 ```
 
-### File reading and managing
+## API
 
-The API, as it's built 
+### Database data dictionary
 
-## Sqlite3 data dictionary
+Flashback API stores an abstraction of your workspace file tree in order to analyze it to a node
 
-Taking into account that the
+| Table Name          | Purpose                                                                                                                                                                    |
+| ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nodes               | Provides an abstraction, that transforms flashcards, documents, folders and tags to a single type of data, nodes                                                           |
+| Folders             | Provides a copy of all the folders on your file tree workspace (Will not update if updated outside the flashback editor)                                                  |
+| Documents           | Provides a copy of all the folders on your file tree workspace (Will not update if updated outside the flashback editor)                                                   |
+| Flashcards          | Stores all the data of the flashacards made fromthe documents                                                                                                              |
+| Flashcard_highlight | Contains some positional values that indicate where a flashcard gets it's information                                                                                      |
+| Flashcard_info      | Contains an extension of the flashcard table that is non optimized, it contains the flashcard configuration                                                                |
+| Media               | Contains blobs of media to be reconstructed later                                                                                                                          |
+| Media_types         | Provides Media info, like file extension and name                                                                                                                          |
+| Flashcard_media     | Associates Media with flashcards for loading                                                                                                                               |
+| Node_types          | Provides an easier way to access to the node types (ej: tag_node, flashcard_node, document_node or  any special amorfous nodes)                                          |
+| Node_connections    | As Nodes it's an abstraction of all your documents, the reason of this abstraction it's to ease the connections representing them as a pair of nodes and a connection type |
+| Connection_types    | Provides the type of relationship of nodes, referenced by Node_connections                                                                                                 |
+| Inherited_tags      | References a connection to indicate that it's created by a tag that is related to a document so it can be inherited by the flashcards                                      |
 
-| **Table**            | **Column** | **Data Type** | **Description**                                                                   |
-| -------------------------- | ---------------- | ------------------- | --------------------------------------------------------------------------------------- |
-| **Documents**        | id               | INTEGER             | Unique identifier for the document, primary key.                                        |
-|                            | folder_id        | INTEGER             | ID of the folder where the document is located, foreign key from the `Folders` table. |
-|                            | name             | VARCHAR             | Name of the document.                                                                   |
-|                            | filepath         | VARCHAR             | Filepath of the document.                                                               |
-|                            | file_extension   | VARCHAR             | File extension of the document.                                                         |
-| **Flashcards**       | id               | INTEGER             | Unique identifier for the flashcard, primary key.                                       |
-|                            | document_id      | INTEGER             | ID of the related document, foreign key from the `Documents` table.                   |
-|                            | highlight_id     | INTEGER             | ID of the related highlight, foreign key from the `Highlight` table.                  |
-|                            | tts_id           | INTEGER             | ID of the related TTS voice, foreign key from the `TTS_voices` table.                 |
-|                            | text_renderer_id | INTEGER             | ID of the related text renderer, foreign key from the `Text_renderer` table.          |
-|                            | name             | VARCHAR             | Name of the flashcard, it should .                                                      |
-|                            | front            | TEXT                | Front text of the flashcard.                                                            |
-|                            | back             | TEXT                | Back text of the flashcard.                                                             |
-|                            | audio            | VARCHAR             | Filepath for the audio related to the flashcard.                                        |
-|                            | presence         | INTEGER             | Presence indicator for the flashcard.                                                   |
-|                            | next_recall      | DATETIME            | Date and time for the next recall of the flashcard.                                     |
-| **Highlight**        | id               | INTEGER             | Unique identifier for the highlight, primary key.                                       |
-|                            | page             | INTEGER             | Page number where the highlight is located.                                             |
-|                            | x1               | FLOAT               | X1 coordinate of the highlight on the page.                                             |
-|                            | y1               | FLOAT               | Y1 coordinate of the highlight on the page.                                             |
-|                            | x2               | INTEGER             | X2 coordinate of the highlight on the page.                                             |
-|                            | y2               | INTEGER             | Y2 coordinate of the highlight on the page.                                             |
-|                            | start            | INTEGER             | Start position of the highlight in the text.                                            |
-|                            | end              | INTEGER             | End position of the highlight in the text.                                              |
-| **Inherited_tags**   | id               | INTEGER             | Unique identifier for the inherited tag, primary key.                                   |
-|                            | connection_id    | INTEGER             | ID of the connection, foreign key from the `Node_connections` table.                  |
-|                            | tag_id           | INTEGER             | ID of the related tag, foreign key from the `Tags` table.                             |
-| **Node_connections** | id               | INTEGER             | Unique identifier for the connection, primary key.                                      |
-|                            | origin_id        | INTEGER             | ID of the origin node in the connection.                                                |
-|                            | destiny_id       | INTEGER             | ID of the destiny node in the connection.                                               |
-|                            | relation_type_id | INTEGER             | ID of the relationship type, foreign key from the `Relation_types` table.             |
-| **Nodes**            | id               | INTEGER             | Unique identifier for the node, primary key.                                            |
-|                            | tag_id           | INTEGER             | ID of the related tag, foreign key from the `Tags` table.                             |
-|                            | folder_id        | INTEGER             | ID of the related folder, foreign key from the `Folders` table.                       |
-|                            | document_id      | INTEGER             | ID of the related document, foreign key from the `Documents` table.                   |
-|                            | flashcard_id     | INTEGER             | ID of the related flashcard, foreign key from the `Flashcards` table.                 |
-| **Path**             | id               | INTEGER             | Unique identifier for the path, primary key.                                            |
-|                            | name             | VARCHAR             | Name of the path.                                                                       |
-| **Path_connections** | id               | INTEGER             | Unique identifier for the path connection, primary key.                                 |
-|                            | connection_id    | INTEGER             | ID of the related connection, foreign key from the `Node_connections` table.          |
-|                            | path_id          | INTEGER             | ID of the related path, foreign key from the `Path` table.                            |
-| **Tags**             | id               | INTEGER             | Unique identifier for the tag, primary key.                                             |
-|                            | name             | VARCHAR             | Name of the tag.                                                                        |
-| **Text_renderer**    | id               | INTEGER             | Unique identifier for the text renderer, primary key.                                   |
-|                            | name             | VARCHAR             | Name of the text renderer.                                                              |
-|                            | filepath         | VARCHAR             | Filepath of the text renderer.                                                          |
-| **TTS_voices**       | id               | INTEGER             | Unique identifier for the TTS voice, primary key.                                       |
-|                            | name             | VARCHAR             | Name of the TTS voice.                                                                  |
-|                            | filepath         | VARCHAR             | Filepath of the TTS voice.                                                              |
-| **Flashcard_media**  | id               | INTEGER             | Unique identifier for the flashcard media, primary key.                                 |
-|                            | flashcard_id     | INTEGER             | ID of the related flashcard, foreign key from the `Flashcards` table.                 |
-|                            | front_media_id   | INTEGER             | ID of the related front media, foreign key from the `Media` table.                    |
-|                            | back_media_id    | INTEGER             | ID of the related back media, foreign key from the `Media` table.                     |
-| **Media**            | id               | INTEGER             | Unique identifier for the media, primary key.                                           |
-|                            | filepath         | VARCHAR             | Filepath of the media.                                                                  |
-|                            | media_type_id    | INTEGER             | ID of the media type, foreign key from the `Media_types` table.                       |
-| **Media_types**      | id               | INTEGER             | Unique identifier for the media type, primary key.                                      |
-|                            | name             | VARCHAR             | Name of the media type.                                                                 |
-|                            | file_extension   | VARCHAR             | File extension of the media type.                                                       |
-|                            | path_js          | VARCHAR             | JavaScript file path associated with the media type.                                    |
-| **Relation_types**   | id               | INTEGER             | Unique identifier for the relation type, primary key.                                   |
-|                            | name             | VARCHAR             | Name of the relation type.                                                              |
-| **Folders**          | id               | INTEGER             | Unique identifier for the folder, primary key.                                          |
-|                            | name             | VARCHAR             | Name of the folder.                                                                     |
-|                            | filepath         | VARCHAR             | Filepath of the folder.                                                                 |
+Here is each data ype and purpose for the db
 
-This table outlines the columns, data types, and a brief description of each column in the schema.
+| Table Name          | Field              | Type     | Constraints                             | Description                                                             |
+| ------------------- | ------------------ | -------- | --------------------------------------- | ----------------------------------------------------------------------- |
+| Node_types          | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each node type                                    |
+|                     | name               | VARCHAR  |                                         | Name of the node type                                                   |
+| Nodes               | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each node                                         |
+|                     | type_id            | INTEGER  | FOREIGN KEY                             | References Node_types(id)                                               |
+|                     | presence           | FLOAT    |                                         | Abstract value representing how present a node is on the graph          |
+| Folders             | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each folder                                       |
+|                     | name               | VARCHAR  |                                         | Name of the folder                                                      |
+|                     | filepath           | VARCHAR  |                                         | File path of the folder                                                 |
+|                     | node_id            | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+| Documents           | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each document                                     |
+|                     | folder_id          | INTEGER  | FOREIGN KEY                             | References Folders(id), ON DELETE CASCADE                               |
+|                     | name               | VARCHAR  |                                         | Name of the document                                                    |
+|                     | filepath           | VARCHAR  |                                         | File path of the documents                                              |
+|                     | file_extension     | VARCHAR  |                                         | File extension of the document                                          |
+|                     | node_id            | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+| Flashcard_highlight | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each flashcard highlight                          |
+|                     | page               | INTEGER  |                                         | Page number of the highlight                                            |
+|                     | x1                 | FLOAT    |                                         | X-coordinate of the starting point for non text based files             |
+|                     | y1                 | FLOAT    |                                         | Y-coordinate of the starting point for non text based files            |
+|                     | x2                 | INTEGER  |                                         | X-coordinate of the ending point for non text based files              |
+|                     | y2                 | INTEGER  |                                         | Y-coordinate of the ending point for non text based files              |
+|                     | start              | INTEGER  | NOT NULL                                | Starting position of the highlight for text based files                 |
+|                     | end                | INTEGER  |                                         | Ending position of the highlight for text based files                  |
+| Flashcards          | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each flashcard                                    |
+|                     | document_id        | INTEGER  | FOREIGN KEY                             | References Documents(id), ON DELETE CASCADE                             |
+|                     | node_id            | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+|                     | highlight_id       | INTEGER  | FOREIGN KEY                             | References Flashcard_highlight(id), ON DELETE SET NULL                  |
+|                     | name               | VARCHAR  |                                         | Name of the flashcard                                                   |
+|                     | front              | TEXT     |                                         | Front side content of the flashcard                                     |
+|                     | back               | TEXT     |                                         | Back side content of the flashcard                                      |
+|                     | audio              | VARCHAR  |                                         | Audio file associated with the flashcard                                |
+|                     | next_recall        | DATETIME |                                         | Next scheduled recall date/time for the flashcard                       |
+| Flashcard_info      | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each flashcard info entry                         |
+|                     | flashcard_id       | INTEGER  | FOREIGN KEY                             | References Flashcards(id), ON DELETE CASCADE                            |
+|                     | text_renderer      | VARCHAR  |                                         | Text renderer used for the flashcard                                    |
+|                     | tts_voice          | VARCHAR  |                                         | Text-to-speech voice used for the flashcard                             |
+| Media_types         | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each media type                                   |
+|                     | name               | INTEGER  |                                         | Name of the media type                                                  |
+|                     | file_extension     | VARCHAR  |                                         | File extension associated with the media type                           |
+| Media               | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each media item                                   |
+|                     | media              | BLOB     |                                         | Binary data of the media item                                           |
+|                     | media_type_id      | INTEGER  | FOREIGN KEY                             | References Media_types(id)                                              |
+| Flashcard_media     | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each flashcard media association                  |
+|                     | flashcard_id       | INTEGER  | FOREIGN KEY                             | References Flashcards(id), ON DELETE CASCADE                            |
+|                     | front_media_id     | INTEGER  | FOREIGN KEY                             | References Media(id), ON DELETE SET NULL                                |
+|                     | back_media_id      | INTEGER  | FOREIGN KEY                             | References Media(id), ON DELETE SET NULL                                |
+| Tags                | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT, FOREIGN KEY | Unique identifier for each tag, References Nodes(id), ON DELETE CASCADE |
+|                     | name               | VARCHAR  |                                         | Name of the tag                                                         |
+| Connection_types    | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each connection type                              |
+|                     | name               | VARCHAR  |                                         | Name of the connection type                                             |
+| Node_connections    | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each node connection                              |
+|                     | origin_id          | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+|                     | destiny_id         | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+|                     | connection_type_id | INTEGER  | FOREIGN KEY                             | References Connection_types(id)                                         |
+| Inherited_tags      | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each inherited tag                                |
+|                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
+|                     | tag_id             | INTEGER  | FOREIGN KEY                             | References Tags(id), ON DELETE CASCADE                                  |
+| Path                | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each path                                         |
+|                     | name               | VARCHAR  |                                         | Name of the path                                                        |
+| Path_connections    | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each path connection                              |
+|                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
+|                     | path_id            | INTEGER  | FOREIGN KEY                             | References Path(id), ON DELETE CASCADE                                  |
+
+### Config routes
+
+### Files routes
+
+### Flashcards routes
+
+### Nodes routes
 
 # Why Flashback?
 
-A more bookish storysh approach to explain why all of this
+A more bookish storysh approach to explain why flashback is this way, and why i want to make flashback
 
 ## Your Brain graph
 
