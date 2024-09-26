@@ -1,7 +1,26 @@
-PRAGMA foreign_keys = ON;
+PRAGMA foreign_keys = OFF;
 
 -- Node Types
 CREATE TABLE IF NOT EXISTS Node_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR
+);
+
+-- Media Types
+CREATE TABLE IF NOT EXISTS Media_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name INTEGER,
+  file_extension VARCHAR
+);
+
+-- Connection Types
+CREATE TABLE IF NOT EXISTS Connection_types (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name VARCHAR
+);
+
+-- Path
+CREATE TABLE IF NOT EXISTS Path (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR
 );
@@ -21,7 +40,8 @@ CREATE TABLE IF NOT EXISTS Folders (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name VARCHAR,
   filepath VARCHAR,
-  node_id INTEGER FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE
+  node_id INTEGER,
+  FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE
 );
 
 CREATE INDEX idx_folder_path_retrieval ON Folders (filepath);
@@ -87,13 +107,6 @@ CREATE TABLE IF NOT EXISTS Flashcard_info (
   FOREIGN KEY (flashcard_id) REFERENCES Flashcards(id) ON DELETE CASCADE
 );
 
--- Media Types
-CREATE TABLE IF NOT EXISTS Media_types (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name INTEGER,
-  file_extension VARCHAR
-);
-
 -- Media
 CREATE TABLE IF NOT EXISTS Media (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -126,14 +139,6 @@ CREATE TABLE IF NOT EXISTS Tags (
 
 CREATE INDEX idx_tag_name_retrieval ON Tags (name);
 
--- Connection Types
-CREATE TABLE IF NOT EXISTS Connection_types (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name VARCHAR
-);
-
-CREATE INDEX idx_connection_type_name_search ON Connection_types (name);
-
 -- Node Connections
 CREATE TABLE IF NOT EXISTS Node_connections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -162,14 +167,6 @@ CREATE INDEX idx_inherited_connection_retrieval ON Inherited_tags (connection_id
 
 CREATE INDEX idx_inherited_tag_retrieval ON Inherited_tags (tag_id);
 
--- Path
-CREATE TABLE IF NOT EXISTS Path (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name VARCHAR
-);
-
-CREATE INDEX idx_path_name_search ON Path (name);
-
 -- Path Connections
 CREATE TABLE IF NOT EXISTS Path_connections (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -181,7 +178,7 @@ CREATE TABLE IF NOT EXISTS Path_connections (
 
 CREATE INDEX idx_path_connection_retrieval ON Path_connections (connection_id);
 
--- Entries for Media_types--
+-- Entries for Media_types
 INSERT INTO
   Media_types (name, file_extension)
 VALUES
@@ -214,3 +211,5 @@ VALUES
   ('Contains'),
   ('Links'),
   ('Is related to');
+
+PRAGMA foreign_keys = ON;
