@@ -16,7 +16,7 @@ graph LR
 
 ### Database data dictionary
 
-Flashback API stores an abstraction of your workspace file tree in order to analyze it to a node
+Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db are detected and will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
