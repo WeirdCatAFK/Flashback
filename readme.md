@@ -14,6 +14,34 @@ graph LR
 
 ## API
 
+### Workspaces
+
+Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer
+
+Within the api configuration of these workspaces are on the file ``config/config.json`` which contains the property ``config`` which contains relevant data for the workspaces
+
+```javascript
+//This is how the default config looks
+{
+    "config": {
+        "current": {
+            "workspace_id": 0
+        },
+        "workspaces": [
+            {   
+                "id": 0,
+                "name": "Flashback",
+                "description": "This is the default workspace",
+                "path": "./flashback",
+                "db": "./data/flashback.db"
+            }
+        ]
+    }
+}
+```
+
+As you use the app, it updates the current workspace on which you are working, this is relevant most routes call this information to realize operations on the db or on the file system
+
 ### Database data dictionary
 
 Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db are detected and will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
