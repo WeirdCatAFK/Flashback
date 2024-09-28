@@ -24,6 +24,7 @@ class DatabaseManager {
     this.all = util.promisify(this.db.all.bind(this.db));
     this.run = util.promisify(this.db.run.bind(this.db));
     this.each = util.promisify(this.db.each.bind(this.db));
+    this.serialize = util.promisify(this.db.serialize.bind(this.db));
   }
 
   async checkDatabaseIntegrity() {
