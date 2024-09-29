@@ -5,7 +5,7 @@ const util = require("util");
 class DatabaseManager {
   constructor() {
     const config = JSON.parse(
-      fs.readFileSync("./config/config.json", "utf8")
+      fs.readFileSync("./data/config.json", "utf8")
     ).config;
     const currentWorkspace = config.workspaces.find(
       (workspace) => workspace.id === config.current.workspace_id

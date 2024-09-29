@@ -7,7 +7,7 @@
             {   
                 "id": 0,
                 "name": "Flashback",
-                "description": "This is the default workspace",
+                "description": "",
                 "path": "./flashback",
                 "db": "./data/flashback.db"
             }
