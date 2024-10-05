@@ -271,12 +271,31 @@ Brains are complex and that's ok, retropropagation, communicator neurons, and se
 
 ### Why flashcards?
 
-Flashcards mimic something important on our brains, a pair of neurons, flashcards have to sides of information, the front, and the back, each one exists as itself as a neuron encapsulating one concept, when using flashcards this phenomenon is
+Flashcards mimic something important on our brains, a pair of neurons, flashcards have to sides of information, the front, and the back, each one exists as itself as a neuron encapsulating one concept, when using flashcards this phenomenon can be easily be trained onto our brains, since the correct exposure to flashcards will connect your brain graph on a similar matter
 
 ```mermaid
 graph TD
   A((Activator Neuron)) -->|Connects to| B((Response Neuron))
   C((Front content)) -->|Connects to| D((Back content))
+  Concept--> Definition
+  
+
 ```
 
-Text after graph lol
+So while explaining to my friends how to make a proper path route to create connection an epifanhy appeared in front of me, the correct way to make flashcards is designing them to contain multiple activator and response neurons as in the next example
+
+Lets suppose we want to learn french, and we make a simple card to remember the translation of the word dog
+
+```mermaid
+graph TD
+  Dog--> Chien
+  
+```
+
+This simple flashcard will be useful, of course, but consider that you will only remember that ``Dog`` means ``Chien`` this is a didactic problem, since you will never relate the word ``Chien`` to the concept of a dog, so if we take a bit more of effort we can make a flashcard with multiple activator neurons, first lets resolve the bridging problem between the word ``Dog`` the word ``house`` and the ``Concept of a dog`` we can address this by adding the image of a dog
+
+```mermaid
+graph TD
+  Dog--> Chien[Chien<br/><img src='https://github.com/WeirdCatAFK/Flashback/blob/main/readme/Dog_image.webp' width='40' height='40' />]
+
+```
