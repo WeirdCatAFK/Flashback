@@ -14,37 +14,9 @@ graph LR
 
 ## API
 
-### Workspaces
-
-Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer
-
-Within the api configuration of these workspaces are on the file ``config/config.json`` which contains the property ``config`` which contains relevant data for the workspaces
-
-```javascript
-//This is how the default config looks
-{
-    "config": {
-        "current": {
-            "workspace_id": 0
-        },
-        "workspaces": [
-            {   
-                "id": 0,
-                "name": "Flashback",
-                "description": "This is the default workspace",
-                "path": "./flashback",
-                "db": "./data/flashback.db"
-            }
-        ]
-    }
-}
-```
-
-As you use the app, it updates the current workspace on which you are working, this is relevant most routes call this information to realize operations on the db or on the file system
-
 ### Database data dictionary
 
-Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db are detected and will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
+Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db, like adding a new table are detected will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -129,13 +101,131 @@ Here is each data ype and purpose for the db
 |                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
 |                     | path_id            | INTEGER  | FOREIGN KEY                             | References Path(id), ON DELETE CASCADE                                  |
 
-### Config routes
+### Config
 
-### Files routes
+When the api calls the config router within the ``/config/`` route, it will be checking if the ``config.json`` file is available to write, or is the right structure if not, it will remake the config.json to match the ``init_config.json`` within the init folder
 
-### Flashcards routes
+#### Config Routes
 
-### Nodes routes
+#### Workspaces
+
+Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer
+
+Within the api configuration of these workspaces are on the file ``config/data/config.json`` which contains the property ``config`` which contains relevant data for the workspaces
+
+```javascript
+//This is how the default config looks, on workspaces it contains a list with the configuration of all the workspaces
+{
+    "config": {
+        "current": {
+            "workspace_id": 0
+        },
+        "workspaces": [
+            {   
+                "id": 0,
+                "name": "Flashback",
+                "description": "This is the default workspace",
+                "path": "./flashback",
+                "db": "./data/flashback.db" 	//most db paths will be contained within flashback api on the data folder for convenience, but this path
+						//may be changed for naming purposes
+            }
+        ]
+    }
+}
+```
+
+As you use the app, it updates the current workspace on which you are working, this is relevant most routes call this information to realize operations on the db or on the file system
+
+#### Workspaces routes
+
+You should make a call to the api with the route ``config/workspaces``
+
+1. **Create a new workspace (POST /)**
+
+   - Description: Creates a new workspace with a name, description, path, and database (db).
+   - Request body:
+     - `name` (string): Name of the workspace (URL-encoded).
+     - `description` (string): Description of the workspace (URL-encoded).
+     - `path` (string): Path to the workspace (URL-encoded).
+     - `db` (string): Database associated with the workspace (URL-encoded).
+   - Success response:
+     - Code: 201
+     - Message: JSON object containing the newly created workspace.
+   - Error response:
+     - Code: 400
+     - Message: "Missing required fields."
+2. **Delete a workspace (DELETE /:id)**
+
+   - Description: Deletes a workspace by ID and reassigns the IDs of the remaining workspaces.
+   - URL parameter:
+     - `id` (integer): ID of the workspace to delete.
+   - Success response:
+     - Code: 200
+     - Message: "Workspace [ID] deleted and IDs reassigned."
+   - Error response:
+     - Code: 404
+     - Message: "Workspace not found."
+     - Code: 500
+     - Message: "Error updating the configuration file."
+3. **Change the current workspace (PUT /current)**
+
+   - Description: Changes the current workspace by setting the workspace ID.
+   - Request body:
+     - `workspace_id` (integer): The ID of the workspace to set as the current one.
+   - Success response:
+     - Code: 200
+     - Message: "Current workspace set to [workspace_id]."
+   - Error response:
+     - Code: 400
+     - Message: "Invalid workspace_id: must be a valid number."
+     - Code: 404
+     - Message: "Workspace not found."
+     - Code: 500
+     - Message: "Error saving the updated configuration."
+4. **Rename a workspace (PUT /:id)**
+
+   - Description: Renames a workspace by its ID.
+   - URL parameter:
+     - `id` (integer): ID of the workspace to rename.
+   - Request body:
+     - `new_name` (string): The new name for the workspace.
+   - Success response:
+     - Code: 200
+     - Message: JSON object of the updated workspace.
+   - Error response:
+     - Code: 404
+     - Message: "Workspace not found."
+5. **Get current workspace (GET /current)**
+
+   - Description: Retrieves the current active workspace.
+   - Success response:
+     - Code: 200
+     - Message: JSON object of the current workspace.
+6. **Get all workspaces (GET /)**
+
+   - Description: Retrieves all the workspaces.
+   - Success response:
+     - Code: 200
+     - Message: JSON array containing all workspaces.
+7. **Get workspace by ID (GET /:id)**
+
+   - Description: Retrieves a workspace by its ID.
+   - URL parameter:
+     - `id` (integer): ID of the workspace to retrieve.
+   - Success response:
+     - Code: 200
+     - Message: JSON object of the workspace.
+   - Error response:
+     - Code: 404
+     - Message: "Workspace not found."
+
+### Files
+
+Since Flashback makes a copy of all your file routes to be stored as nodes, take onto consideration that you may not modify the files outside of the flashback app, and if you are to do it, you should make it using the routes within the files module ``/files/`` to ensure everything updates within your brain diagram
+
+### Flashcards
+
+### Nodes
 
 # Why Flashback?
 
