@@ -17,8 +17,7 @@ class DatabaseManager {
 
     this.init_sql = fs.readFileSync("./config/init/init.sql", "utf8");
     this.integrity_sql = fs.readFileSync("./config/init/integrity.sql", "utf8");
-
-    this.db = new sqlite3.Database(currentWorkspace.db);
+    this.db = new sqlite3.Database(decodeURI(currentWorkspace.db));
 
     this.get = util.promisify(this.db.get.bind(this.db));
     this.all = util.promisify(this.db.all.bind(this.db));
