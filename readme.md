@@ -296,6 +296,6 @@ This simple flashcard will be useful, of course, but consider that you will only
 
 ```mermaid
 graph TD
-  Dog--> Chien[Chien<br/><img src='readme/Dog_image.webp' width='40' height='40' />]
+  Dog--> Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
 
 ```
