@@ -334,8 +334,8 @@ If you're a programmer, you might notice an issue: this looks like a decision tr
 
 ```mermaid
 graph TD
-  Dog_Male[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.webp' width='40' height='40' />] --> Picture_Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
-  Dog_Female[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.webp' width='40' height='40' />] --> Picture_Chienne[Chienne<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
+  Dog_Male[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.png' width='40' height='40' />] --> Picture_Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
+  Dog_Female[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.png' width='40' height='40' />] --> Picture_Chienne[Chienne<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
 ```
 
 This is a multi-neuron entry flashcard, which essentially means two flashcards for two different concepts. Now, let's examine the neuron mapping:
