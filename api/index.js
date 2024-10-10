@@ -19,6 +19,6 @@ app.use((req, res, next) => {
   return res.status(404).json({ code: 404, message: "Url no encontrada" });
 });
 
-app.listen(process.env.PORT || 3000, () => {
-  console.log("Server is running on port 3000");
+app.listen(process.env.PORT || 50500, () => {
+  console.log("Server is running on port 50500");
 });
