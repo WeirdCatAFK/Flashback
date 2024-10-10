@@ -13,8 +13,7 @@ graph LR
 ```
 
 ## API
-
-### Database data dictionary
+### Database
 
 Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db, like adding a new table are detected will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
 
@@ -100,6 +99,7 @@ Here is each data ype and purpose for the db
 | Path_connections    | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each path connection                              |
 |                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
 |                     | path_id            | INTEGER  | FOREIGN KEY                             | References Path(id), ON DELETE CASCADE                                  |
+
 
 ### Config
 
