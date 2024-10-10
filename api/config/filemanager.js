@@ -2,6 +2,7 @@ const fs = require("fs");
 const path = require("path");
 const { promisify } = require("util");
 
+//This class is focused on managing the files on the workspace without resolving paths directly on the code of the routers
 class FileManager {
   constructor() {
     const config = JSON.parse(
