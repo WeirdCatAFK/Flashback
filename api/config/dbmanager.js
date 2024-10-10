@@ -28,8 +28,9 @@ class DatabaseManager {
 
   async checkDatabaseIntegrity() {
     try {
+      // Checking if all 16 tables exist (may change later for a different integrity test)
       const result = await this.get(this.integrity_sql);
-      return result["COUNT(*)"] === 16; // Checking if all 16 tables exist (may change later for a different integrity test)
+      return result["COUNT(*)"] === 16; 
     } catch (error) {
       console.error("Error checking database integrity:", error);
       return false;
