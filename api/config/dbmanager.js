@@ -4,6 +4,7 @@ const util = require("util");
 
 class DatabaseManager {
   constructor() {
+
     const config = JSON.parse(
       fs.readFileSync("./data/config.json", "utf8")
     ).config;

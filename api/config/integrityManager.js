@@ -3,6 +3,7 @@ const path = require("path");
 
 const initConfigPath = path.join(__dirname, "../config/init/init_config.json");
 const configPath = path.join(__dirname, "../data/config.json");
+const dataDirectory = path.dirname(configPath); // Get the directory where the config resides
 
 class IntegrityManager {
   constructor() {}
@@ -11,6 +12,9 @@ class IntegrityManager {
     let config;
 
     try {
+      // Ensure the data directory exists
+      await fs.promises.mkdir(dataDirectory, { recursive: true });
+
       // Check if config file exists
       if (fs.existsSync(configPath)) {
         try {
