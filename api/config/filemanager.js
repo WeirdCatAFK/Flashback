@@ -1,8 +1,5 @@
 const fs = require("fs");
 const path = require("path");
-const { promisify } = require("util");
-
-//This class is focused on managing the files on the workspace without resolving paths directly on the code of the routers
 class FileManager {
   constructor() {
     const config = JSON.parse(
@@ -26,25 +23,26 @@ class FileManager {
   }
 
   async getFileTree(directoryPath = this.filesPath) {
-    try {
-      const stats = fs.statSync(directoryPath);
-      const name = path.basename(directoryPath);
+    const stats = await fs.promises.stat(directoryPath);
+    const name = path.basename(directoryPath);
 
-      const item = {
-        name: name,
-        type: stats.isDirectory() ? "folder" : path.extname(name).substring(1),
-      };
-      if (stats.isDirectory()) {
-        item.children = fs
-          .readdirSync(directoryPath)
-          .map((child) => this.getFileTree(path.join(directoryPath, child)));
-      }
+    const item = {
+      name: name,
+      type: stats.isDirectory() ? "folder" : path.extname(name).substring(1),
+      children: [],
+    };
 
-      return item;
-    } catch (error) {
-      console.error(`Error getting file tree: ${error.message}`);
-      throw error;
+    if (stats.isDirectory()) {
+      const files = await fs.promises.readdir(directoryPath);
+      item.children = await Promise.all(
+        files.map(async (child) => {
+          const childPath = path.join(directoryPath, child);
+          return await this.getFileTree(childPath); // Recursively get child items
+        })
+      );
     }
+
+    return item;
   }
 
   async getFileStats(fileName) {

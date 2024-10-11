@@ -3,7 +3,7 @@ const app = express();
 const morgan = require("morgan");
 
 const config = require("./routes/config");
-
+const files = require("./routes/files");
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -14,6 +14,8 @@ app.get("/", (req, res, next) => {
 });
 
 app.use("/config", config);
+
+app.use("/files", files);
 
 app.use((req, res, next) => {
   return res.status(404).json({ code: 404, message: "Url no encontrada" });
