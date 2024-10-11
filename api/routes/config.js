@@ -31,7 +31,6 @@ if (fs.existsSync(configPath)) {
 }
 
 config_router.use(express.json());
-
 //Get the config json
 config_router.get("/", async (req, res, next) => {
   return res.status(200).json({ code: 200, message: config });
