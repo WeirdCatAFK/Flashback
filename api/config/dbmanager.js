@@ -12,7 +12,17 @@ class DatabaseManager {
     );
 
     if (!currentWorkspace) {
-      throw new Error("Current workspace not found in config.");
+      console.log("Current workspace not found, defaulting workspace");
+      try {
+        config.current.workspace_id = 0;
+        fs.writeFileSync(
+          "./data/config.json",
+          JSON.stringify({ config: config }, null, 2)
+        );
+        console.log("Defaulted workspace");
+      } catch (error) {
+        console.error("Couldn't set default workspace: ", error);
+      }
     }
 
     this.init_sql = fs.readFileSync("./config/init/init.sql", "utf8");
