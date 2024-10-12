@@ -4,7 +4,6 @@ const util = require("util");
 
 class DatabaseManager {
   constructor() {
-
     const config = JSON.parse(
       fs.readFileSync("./data/config.json", "utf8")
     ).config;
@@ -18,20 +17,48 @@ class DatabaseManager {
 
     this.init_sql = fs.readFileSync("./config/init/init.sql", "utf8");
     this.integrity_sql = fs.readFileSync("./config/init/integrity.sql", "utf8");
-    this.db = new sqlite3.Database(decodeURI(currentWorkspace.db));
+    this.dbPath = decodeURI(currentWorkspace.db);
+
+    if (!fs.existsSync(this.dbPath)) {
+      console.log("Database file doesn't exist, creating a new one.");
+    }
+
+    this.db = new sqlite3.Database(this.dbPath);
 
     this.get = util.promisify(this.db.get.bind(this.db));
     this.all = util.promisify(this.db.all.bind(this.db));
     this.run = util.promisify(this.db.run.bind(this.db));
     this.each = util.promisify(this.db.each.bind(this.db));
     this.serialize = util.promisify(this.db.serialize.bind(this.db));
+    try {
+      console.log("Running database integrity check...");
+      const isIntact = this.checkDatabaseIntegrity();
+
+      if (isIntact) {
+        console.log("Database integrity passed. No initialization required.");
+      } else {
+        console.log(
+          "Database integrity check failed. Initializing database..."
+        );
+        this.initializeDatabase();
+        console.log("Database initialized successfully.");
+      }
+    } catch (error) {
+      console.error("Error during integrity check or initialization:", error);
+      throw new Error(
+        "Database integrity validation and initialization failed."
+      );
+    }
   }
 
   async checkDatabaseIntegrity() {
     try {
-      // Checking if all 16 tables exist (may change later for a different integrity test)
       const result = await this.get(this.integrity_sql);
-      return result["COUNT(*)"] === 16; 
+      if (!result) {
+        console.log("No result returned for integrity check query.");
+        return false;
+      }
+      return result["COUNT(*)"] === 16;
     } catch (error) {
       console.error("Error checking database integrity:", error);
       return false;
@@ -47,25 +74,30 @@ class DatabaseManager {
           .split(";")
           .filter((stmt) => stmt.trim() !== "");
 
-        statements.forEach((statement) => {
-          this.db.run(statement, (err) => {
+        (async () => {
+          for (const statement of statements) {
+            try {
+              await this.run(statement);
+              console.log(`Executed: ${statement}`);
+            } catch (err) {
+              console.error(`Error executing statement: ${statement}`, err);
+              this.db.run("ROLLBACK;");
+              reject(err);
+              return;
+            }
+          }
+
+          this.db.run("COMMIT;", (err) => {
             if (err) {
-              console.error("Error executing statement:", statement);
-              console.error("Error details:", err);
+              console.error("Error committing transaction:", err);
+              this.db.run("ROLLBACK;");
+              reject(err);
+            } else {
+              console.log("Database initialized successfully");
+              resolve();
             }
           });
-        });
-
-        this.db.run("COMMIT;", (err) => {
-          if (err) {
-            console.error("Error committing transaction:", err);
-            this.db.run("ROLLBACK;");
-            reject(err);
-          } else {
-            console.log("Database initialized successfully");
-            resolve();
-          }
-        });
+        })();
       });
     });
   }
