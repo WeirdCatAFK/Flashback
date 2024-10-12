@@ -1,48 +1,77 @@
 const sqlite3 = require("sqlite3").verbose();
 const fs = require("fs");
 const util = require("util");
+const path = require("path");
 
 class DatabaseManager {
   constructor() {
-    const config = JSON.parse(
-      fs.readFileSync("./data/config.json", "utf8")
-    ).config;
+    this.initializeConfig();
+    this.setupDatabase();
+    this.initializeDatabase();
+  }
+
+  initializeConfig() {
+    const configPath = path.join(
+      __dirname,
+      "../../",
+      "api",
+      "data",
+      "config.json"
+    );
+    const config = JSON.parse(fs.readFileSync(configPath, "utf8")).config;
+
     const currentWorkspace = config.workspaces.find(
       (workspace) => workspace.id === config.current.workspace_id
     );
 
     if (!currentWorkspace) {
-      console.log("Current workspace not found, defaulting workspace");
-      try {
-        config.current.workspace_id = 0;
-        fs.writeFileSync(
-          "./data/config.json",
-          JSON.stringify({ config: config }, null, 2)
-        );
-        console.log("Defaulted workspace");
-      } catch (error) {
-        console.error("Couldn't set default workspace: ", error);
-      }
+      this.defaultWorkspace(config, configPath);
     }
 
-    this.init_sql = fs.readFileSync("./config/init/init.sql", "utf8");
-    this.integrity_sql = fs.readFileSync("./config/init/integrity.sql", "utf8");
     this.dbPath = decodeURI(currentWorkspace.db);
+  }
+
+  defaultWorkspace(config, configPath) {
+    console.log("Current workspace not found, defaulting workspace");
+    try {
+      config.current.workspace_id = 0;
+      fs.writeFileSync(configPath, JSON.stringify({ config }, null, 2));
+      console.log("Defaulted workspace");
+    } catch (error) {
+      console.error("Couldn't set default workspace: ", error);
+      throw error;
+    }
+  }
+
+  setupDatabase() {
+    this.init_sql = fs.readFileSync(
+      path.join(__dirname, "init", "init.sql"),
+      "utf8"
+    );
+    this.integrity_sql = fs.readFileSync(
+      path.join(__dirname, "init", "integrity.sql"),
+      "utf8"
+    );
 
     if (!fs.existsSync(this.dbPath)) {
       console.log("Database file doesn't exist, creating a new one.");
     }
 
     this.db = new sqlite3.Database(this.dbPath);
+    this.promisifyDbMethods();
+  }
 
-    this.get = util.promisify(this.db.get.bind(this.db));
-    this.all = util.promisify(this.db.all.bind(this.db));
-    this.run = util.promisify(this.db.run.bind(this.db));
-    this.each = util.promisify(this.db.each.bind(this.db));
+  promisifyDbMethods() {
+    ["get", "all", "run", "each"].forEach((method) => {
+      this[method] = util.promisify(this.db[method].bind(this.db));
+    });
     this.serialize = util.promisify(this.db.serialize.bind(this.db));
+  }
+
+  async initializeDatabase() {
     try {
       console.log("Running database integrity check...");
-      const isIntact = this.checkDatabaseIntegrity();
+      const isIntact = await this.checkDatabaseIntegrity();
 
       if (isIntact) {
         console.log("Database integrity passed. No initialization required.");
@@ -50,7 +79,7 @@ class DatabaseManager {
         console.log(
           "Database integrity check failed. Initializing database..."
         );
-        this.initializeDatabase();
+        await this.runInitQueries();
         console.log("Database initialized successfully.");
       }
     } catch (error) {
@@ -64,18 +93,14 @@ class DatabaseManager {
   async checkDatabaseIntegrity() {
     try {
       const result = await this.get(this.integrity_sql);
-      if (!result) {
-        console.log("No result returned for integrity check query.");
-        return false;
-      }
-      return result["COUNT(*)"] === 16;
+      return result && result["COUNT(*)"] === 16;
     } catch (error) {
       console.error("Error checking database integrity:", error);
       return false;
     }
   }
 
-  async initializeDatabase() {
+  async runInitQueries() {
     return new Promise((resolve, reject) => {
       this.db.serialize(() => {
         this.db.run("BEGIN TRANSACTION;");
@@ -84,7 +109,7 @@ class DatabaseManager {
           .split(";")
           .filter((stmt) => stmt.trim() !== "");
 
-        (async () => {
+        const executeStatements = async () => {
           for (const statement of statements) {
             try {
               await this.run(statement);
@@ -107,19 +132,11 @@ class DatabaseManager {
               resolve();
             }
           });
-        })();
+        };
+
+        executeStatements();
       });
     });
-  }
-
-  async initialize() {
-    const isIntact = await this.checkDatabaseIntegrity();
-    if (!isIntact) {
-      console.log("Database integrity check failed. Reinitializing...");
-      await this.initializeDatabase();
-    } else {
-      console.log("Database integrity check passed.");
-    }
   }
 
   async close() {
@@ -135,6 +152,4 @@ class DatabaseManager {
   }
 }
 
-const dbManager = new DatabaseManager();
-
-module.exports = dbManager;
+module.exports = new DatabaseManager();
