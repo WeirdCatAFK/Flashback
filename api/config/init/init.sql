@@ -68,9 +68,9 @@ CREATE TABLE IF NOT EXISTS Flashcard_highlight (
   page INTEGER,
   x1 FLOAT,
   y1 FLOAT,
-  x2 INTEGER,
-  y2 INTEGER,
-  start INTEGER NOT NULL,
+  x2 FLOAT,
+  y2 FLOAT,
+  start INTEGER,
 end INTEGER
 );
 
