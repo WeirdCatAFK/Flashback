@@ -1,7 +1,6 @@
 const express = require("express");
 const app = express();
 const morgan = require("morgan");
-
 const integrityCheck = require("./config/integrityManager");
 
 app.use(morgan("dev"));
@@ -16,15 +15,17 @@ async function startApp() {
     process.exit(1);
   }
 
+  //Loading modules here to ensure integrity before loading anything else that uses the config
+  const config = require("./routes/config");
+  const files = require("./routes/files");
+
   app.get("/", (req, res, next) => {
     res.status(200);
     return res.send("Welcome to flashback");
   });
 
-  //Loading modules here to ensure integrity before loading anything else that uses the config
-  const config = require("./routes/config");
-  const files = require("./routes/files");
   app.use("/config", config);
+  
   app.use("/files", files);
 
   app.use((req, res, next) => {
