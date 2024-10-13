@@ -13,9 +13,38 @@ graph LR
 ```
 
 ## API
+
+### Workspaces
+
+Flashback is an annotation software that has features of a file manager, so the first thing the app does it's to set a workspace as on this document a workspace refers to a directory (folder) on your computer that contains files that will be annotated or modified with flashback. Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer, but as for cooperative learning, after making the main app I will spend some time making a server setup for flashback.
+
+Within the api configuration of these workspaces are on the file ``config/data/config.json`` which contains the property ``config`` which contains relevant data for the workspaces, on the next code block, you'll see the default configuration file, when the config json is not readable it defaults to this, flashback is able to handle relative and absolute paths to it's data, so the default workspace is set on a folder ``.flashback``
+
+```javascript
+//This is how the default config looks, on workspaces it contains a list with the configuration of all the workspaces
+{
+    "config": {
+        "current": {
+            "workspace_id": 0
+        },
+        "workspaces": [
+            {   
+                "id": 0,
+                "name": "Flashback",
+                "description": "This is the default workspace",
+                "path": "./.flashback",
+                "db": "./data/flashback.db" 	//most db paths will be contained within flashback api on the data folder for convenience,
+						//but this path may be changed for naming purposes
+            }
+        ]
+    }
+}
+```
+
+Check the routes for workspaces 
+
 ### Database
 
-Flashback API stores an abstraction of your workspace file tree along with your flashcards and relevant information to work on our environment, if you want to modify flashback be careful, most structure modifications on the sqlite db, like adding a new table are detected will delete your database, if you want to modify flashback on any form make a copy of your database or   use the currently unexistant import or export function (will be added later on development after testing of efficient file reactions)
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -33,7 +62,7 @@ Flashback API stores an abstraction of your workspace file tree along with your 
 | Connection_types    | Provides the type of relationship of nodes, referenced by Node_connections                                                                                                 |
 | Inherited_tags      | References a connection to indicate that it's created by a tag that is related to a document so it can be inherited by the flashcards                                      |
 
-Here is each data ype and purpose for the db
+Here is the complete design of the database
 
 | Table Name          | Field              | Type     | Constraints                             | Description                                                             |
 | ------------------- | ------------------ | -------- | --------------------------------------- | ----------------------------------------------------------------------- |
@@ -56,9 +85,9 @@ Here is each data ype and purpose for the db
 |                     | page               | INTEGER  |                                         | Page number of the highlight                                            |
 |                     | x1                 | FLOAT    |                                         | X-coordinate of the starting point for non text based files             |
 |                     | y1                 | FLOAT    |                                         | Y-coordinate of the starting point for non text based files            |
-|                     | x2                 | INTEGER  |                                         | X-coordinate of the ending point for non text based files              |
-|                     | y2                 | INTEGER  |                                         | Y-coordinate of the ending point for non text based files              |
-|                     | start              | INTEGER  | NOT NULL                                | Starting position of the highlight for text based files                 |
+|                     | x2                 | FLOAT    |                                         | X-coordinate of the ending point for non text based files              |
+|                     | y2                 | FLOAT    |                                         | Y-coordinate of the ending point for non text based files              |
+|                     | start              | INTEGER  |                                         | Starting position of the highlight for text based files                 |
 |                     | end                | INTEGER  |                                         | Ending position of the highlight for text based files                  |
 | Flashcards          | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each flashcard                                    |
 |                     | document_id        | INTEGER  | FOREIGN KEY                             | References Documents(id), ON DELETE CASCADE                             |
@@ -100,146 +129,19 @@ Here is each data ype and purpose for the db
 |                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
 |                     | path_id            | INTEGER  | FOREIGN KEY                             | References Path(id), ON DELETE CASCADE                                  |
 
-
-### Config
-
-When the api calls the config router within the ``/config/`` route, it will be checking if the ``config.json`` file is available to write, or is the right structure if not, it will remake the config.json to match the ``init_config.json`` within the init folder
-
-#### Config Routes
-
-#### Workspaces
-
-Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer
-
-Within the api configuration of these workspaces are on the file ``config/data/config.json`` which contains the property ``config`` which contains relevant data for the workspaces
-
-```javascript
-//This is how the default config looks, on workspaces it contains a list with the configuration of all the workspaces
-{
-    "config": {
-        "current": {
-            "workspace_id": 0
-        },
-        "workspaces": [
-            {   
-                "id": 0,
-                "name": "Flashback",
-                "description": "This is the default workspace",
-                "path": "./flashback",
-                "db": "./data/flashback.db" 	//most db paths will be contained within flashback api on the data folder for convenience, but this path
-						//may be changed for naming purposes
-            }
-        ]
-    }
-}
-```
-
-As you use the app, it updates the current workspace on which you are working, this is relevant most routes call this information to realize operations on the db or on the file system
-
-#### Workspaces routes
-
-You should make a call to the api with the route ``config/workspaces``
-
-1. **Create a new workspace (POST /)**
-
-   - Description: Creates a new workspace with a name, description, path, and database (db).
-   - Request body:
-     - `name` (string): Name of the workspace (URL-encoded).
-     - `description` (string): Description of the workspace (URL-encoded).
-     - `path` (string): Path to the workspace (URL-encoded).
-     - `db` (string): Database associated with the workspace (URL-encoded).
-   - Success response:
-     - Code: 201
-     - Message: JSON object containing the newly created workspace.
-   - Error response:
-     - Code: 400
-     - Message: "Missing required fields."
-2. **Delete a workspace (DELETE /:id)**
-
-   - Description: Deletes a workspace by ID and reassigns the IDs of the remaining workspaces.
-   - URL parameter:
-     - `id` (integer): ID of the workspace to delete.
-   - Success response:
-     - Code: 200
-     - Message: "Workspace [ID] deleted and IDs reassigned."
-   - Error response:
-     - Code: 404
-     - Message: "Workspace not found."
-     - Code: 500
-     - Message: "Error updating the configuration file."
-3. **Change the current workspace (PUT /current)**
-
-   - Description: Changes the current workspace by setting the workspace ID.
-   - Request body:
-     - `workspace_id` (integer): The ID of the workspace to set as the current one.
-   - Success response:
-     - Code: 200
-     - Message: "Current workspace set to [workspace_id]."
-   - Error response:
-     - Code: 400
-     - Message: "Invalid workspace_id: must be a valid number."
-     - Code: 404
-     - Message: "Workspace not found."
-     - Code: 500
-     - Message: "Error saving the updated configuration."
-4. **Rename a workspace (PUT /:id)**
-
-   - Description: Renames a workspace by its ID.
-   - URL parameter:
-     - `id` (integer): ID of the workspace to rename.
-   - Request body:
-     - `new_name` (string): The new name for the workspace.
-   - Success response:
-     - Code: 200
-     - Message: JSON object of the updated workspace.
-   - Error response:
-     - Code: 404
-     - Message: "Workspace not found."
-5. **Get current workspace (GET /current)**
-
-   - Description: Retrieves the current active workspace.
-   - Success response:
-     - Code: 200
-     - Message: JSON object of the current workspace.
-6. **Get all workspaces (GET /)**
-
-   - Description: Retrieves all the workspaces.
-   - Success response:
-     - Code: 200
-     - Message: JSON array containing all workspaces.
-7. **Get workspace by ID (GET /:id)**
-
-   - Description: Retrieves a workspace by its ID.
-   - URL parameter:
-     - `id` (integer): ID of the workspace to retrieve.
-   - Success response:
-     - Code: 200
-     - Message: JSON object of the workspace.
-   - Error response:
-     - Code: 404
-     - Message: "Workspace not found."
-
-### Files
-
-Since Flashback makes a copy of all your file routes to be stored as nodes, take onto consideration that you may not modify the files outside of the flashback app, and if you are to do it, you should make it using the routes within the files module ``/files/`` to ensure everything updates within your brain diagram
-
-### Flashcards
-
-### Nodes
-
 # Why Flashback?
 
 A more bookish storish approach to explain why flashback is this way, and why i want to make flashback
 
 ## Your Brain graph
 
-One of the modern challenges of high specialization careers and skill learning it's that most of the knowledge made arround these challenges it's on a language different that the one of your brain, making skill aquisition as hard as it can get, althought there is no correct way of organizing data, most complex non man-made data structures can be represented by graphs, so is our brain, Flashback focusses on the way our brain works to make an specialized data structure that can be easily read by your brain, and my brain, this study method is not new, but I can assure you transforming classic ways to transfer knowledge onto something optimized for learning is time consumming, so on efforts to make this a leaser struggle flashback is my solution to the world, to people who struggle grasping concepts to the people who want to optimze learning
+One of the modern challenges of high specialization careers and skill learning it's that most of the knowledge made arround these challenges it's on a language different that the one of your brain, making skill aquisition as hard as it can get, althought there is no correct way of organizing data, most complex non man-made data structures can be represented by graphs, so is our brain, Flashback focusses on the way our brain works to make an specialized data structure that can be easily read by your brain, and my brain, this study method is not new, but I can assure you transforming classic ways to transfer knowledge onto something optimized for learning is time consumming, so on efforts to make this a leaser struggle flashback is my solution to the world, to people who struggle grasping concepts to the people who want to optimize learning and absorbing information
 
 ### What is and what isn't your Brain graph
 
-I'd like to say that your brain graph will be your final solution to learning, but it isn't, about a year ago I was talking to one of my proffesor friends at Uni, about how I was planning to make the ultimate learning tool, I would become the most skilled and connossieur of the software engineers on Uni, how I was different and I had everything planned out, apart from other sad conclusions that I adquired that night, one thing was clear **Skill** can't be aquired by **Knowledege** flashback is a tool to optimize knowledge so it can be read and memorized so you can plan the connections between concepts and can plan ahead how you want to understand a topic, but as much as I'd like to say that taking the effort to make a Brain graph will make you more skilled at your job, I worry that this is not what you are looking for, remembering all the recipes from the book will not make you a chef, but it may open your eyes to make you more eager on the kitchen. As a disclaimer, I'd like to add that **Knowledge and memorization** are essential tools to develop a skill, and even if you don't think you need to memorize things, any software engineer will appreciate the discussion of making the data structure more efficient for data retrieval (wink, wink, your brain), so don't be frailed and take responsability on how you design your brain
+I'd like to say that your brain graph will be your final solution to learning, but it isn't, about a year ago I was talking to one of my proffesor friends at Uni, about how I was planning to make the ultimate learning tool, I would become the most skilled and connossieur of the software engineers on Uni, how I was different and I had everything planned out, apart from other sad conclusions that I adquired that night, one thing was clear **Skill** can't be aquired by **Knowledege** flashback is a tool to optimize knowledge so it can be read and memorized, you can plan the connections between concepts and plan ahead how you want to understand a topic, but as much as I'd like to say that taking the effort to make a Brain graph will make you more skilled at your job, I worry that this is not what you are searching for, remembering all the recipes from the book will not make you a chef, but it may open your eyes to make you more eager on the kitchen. As a disclaimer, I'd like to add that **Knowledge and memorization** are essential tools to develop a skill, and even if you don't think you need to memorize things, any software engineer will appreciate the discussion of making the data structure more efficient for data retrieval (wink, wink, your brain), so don't be frailed and take responsability on how you design your brain
 
-I'd like to think that most brains work similar to a graph, and they self optimize all the time (How cool is that!) ask any programmer, or psycology student about neurons and they will tell you amazing thins that they can make, heck even right now all that you know is contained on a graph of your brain. The language of the brain is one we can't speak really, but it can make us speak, so taking time to optimize things has an ultimate advantage. Here it's a 3 layer neuron structure just to show how complex your brain can wire your thoughts
+I'd like to think that most brains work similar to a graph, and they self optimize all the time (How cool is that!) ask any programmer, or psycology student about neurons and they will tell you amazing things that they can make, heck even right now all that you know is contained on a graph of your brain. The language of the brain is one we can't speak really, but it can make us speak, so taking time to optimize things has an ultimate advantage. Here it's a 3 layer neuron structure just to show how complex your brain can wire your thoughts
 
 ```mermaid
 graph LR;
@@ -267,7 +169,7 @@ graph LR;
 
 ```
 
-Brains are complex and that's ok, retropropagation, communicator neurons, and self optimizations trough simulations are all ocurrences of the brain, the computational hability to use 3 layered neural networks to work efficiently it's practically a new occurrence, so I want to make something clear. Flashback it's not a 1 to 1 map, it's an abstraction, it's an approach to make all that we know readable to our brains and make it stay present, all the analysis of the graph will be made by inference on where to make new connections and subject inference to face values, the scope of Flashback will be to make a really good map of what we want to stay, and track how much of it has developed on our brains, Flashback will not be doing the optimizations that dreams and late night reflections will do, however it may make the things that you need to remember more present on your life
+Brains are complex and that's ok, retropropagation, communicator neurons, and self optimizations trough simulations are all ocurrences of the brain, the computational hability to use 3 layered neural networks to work efficiently it's practically a new occurrence, since we've been teaching rocks how to think, so I want to make something clear. Flashback it's not a 1 to 1 map, it's an abstraction, it's an approach to make all that we know readable to our brains and make it stay present, all the analysis of the graph will be made by inference on where to make new connections and subject inference to face values, the scope of Flashback will be to make a really good map of what we want to stay, and track how much of it has developed on our brains, Flashback will not be doing the optimizations that dreams and late night reflections will do, however it may make the things that you need to remember more present on your life. Ultimately flashback is a readable set of instructions
 
 ### Why flashcards?
 
