@@ -134,7 +134,7 @@ dist
 
 
 #Flashback workspace
-.flashback/
+.flashback/*
 
 #current data that it's created on demand
 data
