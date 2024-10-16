@@ -29,6 +29,37 @@ if (fs.existsSync(configPath)) {
     .catch((err) => console.error("Error creating config file:", err));
 }
 
+// Workspace Retrieval and info
+
+// Get all workspaces
+workspaces_router.get("/", (req, res) => {
+  res.status(200).json(config.config.workspaces);
+});
+
+// Get current workspace
+workspaces_router.get("/current", (req, res) => {
+  const currentWorkspace = config.config.workspaces.find(
+    (ws) => ws.id === config.config.current.workspace_id
+  );
+  res.status(200).json(currentWorkspace);
+});
+
+// Get workspace by ID
+workspaces_router.get("/:id", (req, res) => {
+  const workspaceId = parseInt(req.params.id);
+  const workspace = config.config.workspaces.find(
+    (ws) => ws.id === workspaceId
+  );
+
+  if (!workspace) {
+    return res.status(404).json({ message: "Workspace not found" });
+  }
+
+  res.status(200).json(workspace);
+});
+
+// Workspace Creation and Management
+
 // Create a new workspace
 workspaces_router.post("/", async (req, res) => {
   let { name, description, path, db } = req.body;
@@ -53,35 +84,7 @@ workspaces_router.post("/", async (req, res) => {
   }
 });
 
-// Delete a workspace
-workspaces_router.delete("/:id", async (req, res) => {
-  const workspaceId = parseInt(req.params.id);
-  const workspaceIndex = config.config.workspaces.findIndex(
-    (ws) => ws.id === workspaceId
-  );
-
-  if (workspaceIndex === -1) {
-    return res.status(404).json({ code: 404, message: "Workspace not found" });
-  }
-  config.config.workspaces.splice(workspaceIndex, 1);
-  config.config.workspaces = config.config.workspaces.map((ws, index) => ({
-    ...ws,
-    id: index,
-  }));
-  try {
-    await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2));
-    res.status(200).json({
-      code: 200,
-      message: `Workspace ${workspaceId} deleted and IDs reassigned`,
-    });
-  } catch (error) {
-    res
-      .status(500)
-      .json({ code: 500, message: "Error updating the configuration file" });
-  }
-});
-
-/// Change the current workspace
+// Change the current workspace
 workspaces_router.put("/current", async (req, res) => {
   let { workspace_id } = req.body;
   workspace_id = Number(workspace_id);
@@ -136,31 +139,34 @@ workspaces_router.put("/:id/name", async (req, res) => {
   res.status(200).json(workspace);
 });
 
-// Get current workspace
-workspaces_router.get("/current", (req, res) => {
-  const currentWorkspace = config.config.workspaces.find(
-    (ws) => ws.id === config.config.current.workspace_id
-  );
-  res.status(200).json(currentWorkspace);
-});
+//Workspace Deletion
 
-// Get all workspaces
-workspaces_router.get("/", (req, res) => {
-  res.status(200).json(config.config.workspaces);
-});
-
-// Get workspace by ID
-workspaces_router.get("/:id", (req, res) => {
+// Delete a workspace
+workspaces_router.delete("/:id", async (req, res) => {
   const workspaceId = parseInt(req.params.id);
-  const workspace = config.config.workspaces.find(
+  const workspaceIndex = config.config.workspaces.findIndex(
     (ws) => ws.id === workspaceId
   );
 
-  if (!workspace) {
-    return res.status(404).json({ message: "Workspace not found" });
+  if (workspaceIndex === -1) {
+    return res.status(404).json({ code: 404, message: "Workspace not found" });
   }
-
-  res.status(200).json(workspace);
+  config.config.workspaces.splice(workspaceIndex, 1);
+  config.config.workspaces = config.config.workspaces.map((ws, index) => ({
+    ...ws,
+    id: index,
+  }));
+  try {
+    await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2));
+    res.status(200).json({
+      code: 200,
+      message: `Workspace ${workspaceId} deleted and IDs reassigned`,
+    });
+  } catch (error) {
+    res
+      .status(500)
+      .json({ code: 500, message: "Error updating the configuration file" });
+  }
 });
 
 module.exports = workspaces_router;
