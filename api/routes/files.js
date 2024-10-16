@@ -1,5 +1,5 @@
 const express = require("express");
-const db = require("./../config/dbmanager.js");
+const dbManager = require("./../config/dbmanager.js");
 const fileManager = require("./../config/fileManager.js"); //File manager module that handles workspace level applications to ease path resolving
 const file_router = express.Router();
 
