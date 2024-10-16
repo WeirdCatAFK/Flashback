@@ -18,6 +18,7 @@ async function startApp() {
   //Loading modules here to ensure integrity before loading anything else that uses the config
   const config = require("./routes/config");
   const files = require("./routes/files");
+  const upload = require("./routes/upload");
 
   app.get("/", (req, res, next) => {
     res.status(200);
@@ -28,6 +29,8 @@ async function startApp() {
   
   app.use("/files", files);
 
+  app.use("/upload",upload);
+  
   app.use((req, res, next) => {
     return res.status(404).json({ code: 404, message: "Url no encontrada" });
   });
