@@ -41,10 +41,186 @@ Within the api configuration of these workspaces are on the file ``config/data/c
 }
 ```
 
-Check the routes for workspaces 
+#### Routes
 
+**Get all workspaces**
+
+- **Method**: `GET`
+- **Endpoint**: `config/workspaces`
+- **Description**: Retrieves a list of all the workspaces stored in the configuration file.
+- **Requirements**: None.
+- **Response**:
+  - `200 OK`: Returns an array of all workspaces.
+
+```bash
+GET /config/workspaces
+Response: 200 OK
+[
+  { "id": 0, "name": "Workspace1", "description": "Description", "path": "/path/to/workspace", "db": "/path/to/db" },
+  { "id": 1, "name": "Workspace2", "description": "Another description", "path": "/path/to/another/workspace", "db": "/path/to/another/db" }
+]
+```
+
+---
+
+**Get current workspace**
+
+- **Method**: `GET`
+- **Endpoint**: `config/workspaces/current`
+- **Description**: Retrieves the current active workspace based on the `workspace_id` in the config.
+- **Requirements**:
+  - The `config.json` file must contain a valid `current.workspace_id`.
+- **Response**:
+  - `200 OK`: Returns the currently active workspace.
+
+```bash
+GET /config/workspaces/current
+Response: 200 OK
+{
+  "id": 0,
+  "name": "Workspace1",
+  "description": "Description",
+  "path": "/path/to/workspace",
+  "db": "/path/to/db"
+}
+```
+
+---
+
+**Get workspace by ID**
+
+- **Method**: `GET`
+- **Endpoint**: `config/workspaces/:id`
+- **Description**: Retrieves a specific workspace by its `id`.
+- **Requirements**:
+  - `id` (path parameter): Must be a valid integer representing the workspace ID.
+- **Response**:
+  - `200 OK`: Returns the workspace with the specified ID.
+
+```bash
+GET /config/workspaces/1
+Response: 200 OK
+{
+  "id": 1,
+  "name": "Workspace2",
+  "description": "Another description",
+  "path": "/path/to/another/workspace",
+  "db": "/path/to/another/db"
+}
+```
+
+---
+
+**Create a new workspace**
+
+- **Method**: `POST`
+- **Endpoint**: `config/workspaces`
+- **Description**: Creates a new workspace and appends it to the config.
+- **Requirements**:
+  - **Request Body** (JSON):
+    - `name`: The name of the workspace (string, required).
+    - `description`: A description of the workspace (string, required).
+    - `path`: The file system path where the workspace is located (string, required).
+    - `db`: The database path of the workspace (string, required).
+- **Response**:
+  - `201 Created`: Returns the newly created workspace.
+
+```bash
+POST /config/workspaces
+Request Body:
+{
+  "name": "Workspace3",
+  "description": "My new workspace",
+  "path": "/path/to/new/workspace",
+  "db": "/path/to/new/db"
+}
+Response: 201 Created
+{
+  "id": 2,
+  "name": "Workspace3",
+  "description": "My new workspace",
+  "path": "/path/to/new/workspace",
+  "db": "/path/to/new/db"
+}
+```
+
+---
+
+**Change the current workspace**
+
+- **Method**: `PUT`
+- **Endpoint**: `config/workspaces/current`
+- **Description**: Changes the current active workspace by setting its `workspace_id`.
+- **Requirements**:
+  - **Request Body** (JSON):
+    - `workspace_id`: The ID of the workspace to set as the current one (number, required).
+- **Response**:
+  - `200 OK`: Confirms the new active workspace.
+
+```bash
+PUT /config/workspaces/current
+Request Body:
+{
+  "workspace_id": 1
+}
+Response: 200 OK
+{
+  "code": 200,
+  "message": "Current workspace set to 1"
+}
+```
+
+---
+
+**Rename a workspace**
+
+- **Method**: `PUT`
+- **Endpoint**: `config/workspaces/:id/name`
+- **Description**: Renames a specific workspace by its `id`.
+- **Requirements**:
+  - `id` (path parameter): The ID of the workspace to rename (number, required).
+  - **Request Body** (JSON):
+    - `new_name`: The new name for the workspace (string, required).
+- **Response**:
+  - `200 OK`: Returns the updated workspace.
+
+```bash
+PUT /config/workspaces/1/name
+Request Body:
+{
+  "new_name": "Renamed Workspace"
+}
+Response: 200 OK
+{
+  "id": 1,
+  "name": "Renamed Workspace",
+  "description": "Another description",
+  "path": "/path/to/another/workspace",
+  "db": "/path/to/another/db"
+}
+```
+
+---
+
+**Delete a workspace**
+
+- **Method**: `DELETE`
+- **Endpoint**: `config/workspaces/:id`
+- **Description**: Deletes a specific workspace by its `id` and reassigns IDs to the remaining workspaces.
+- **Requirements**:
+  - `id` (path parameter): The ID of the workspace to delete (number, required).
+- **Response**:
+  - `200 OK`: Confirms deletion and reassignment of workspace IDs.
+
+```bash
+DELETE /config/workspaces/1
+Response: 200 OK
+{
+  "code": 200,
+  "message": "Workspace 1 deleted and IDs reassigned"
+}
+```
 ### Database
-
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
