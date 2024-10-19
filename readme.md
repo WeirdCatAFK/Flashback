@@ -52,13 +52,19 @@ Within the api configuration of these workspaces are on the file ``config/data/c
 - **Response**:
   - `200 OK`: Returns an array of all workspaces.
 
-```bash
-GET /config/workspaces
-Response: 200 OK
+```javascript
+fetch('/config/workspaces')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 [
   { "id": 0, "name": "Workspace1", "description": "Description", "path": "/path/to/workspace", "db": "/path/to/db" },
   { "id": 1, "name": "Workspace2", "description": "Another description", "path": "/path/to/another/workspace", "db": "/path/to/another/db" }
 ]
+*/
 ```
 
 ---
@@ -73,9 +79,14 @@ Response: 200 OK
 - **Response**:
   - `200 OK`: Returns the currently active workspace.
 
-```bash
-GET /config/workspaces/current
-Response: 200 OK
+```javascript
+fetch('/config/workspaces/current')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "id": 0,
   "name": "Workspace1",
@@ -83,6 +94,7 @@ Response: 200 OK
   "path": "/path/to/workspace",
   "db": "/path/to/db"
 }
+*/
 ```
 
 ---
@@ -97,9 +109,14 @@ Response: 200 OK
 - **Response**:
   - `200 OK`: Returns the workspace with the specified ID.
 
-```bash
-GET /config/workspaces/1
-Response: 200 OK
+```javascript
+fetch('/config/workspaces/1')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "id": 1,
   "name": "Workspace2",
@@ -107,6 +124,7 @@ Response: 200 OK
   "path": "/path/to/another/workspace",
   "db": "/path/to/another/db"
 }
+*/
 ```
 
 ---
@@ -125,16 +143,25 @@ Response: 200 OK
 - **Response**:
   - `201 Created`: Returns the newly created workspace.
 
-```bash
-POST /config/workspaces
-Request Body:
-{
-  "name": "Workspace3",
-  "description": "My new workspace",
-  "path": "/path/to/new/workspace",
-  "db": "/path/to/new/db"
-}
-Response: 201 Created
+```javascript
+const workspace = {
+  name: "Workspace3",
+  description: "My new workspace",
+  path: "/path/to/new/workspace",
+  db: "/path/to/new/db"
+};
+
+fetch('/config/workspaces', {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(workspace)
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "id": 2,
   "name": "Workspace3",
@@ -142,6 +169,7 @@ Response: 201 Created
   "path": "/path/to/new/workspace",
   "db": "/path/to/new/db"
 }
+*/
 ```
 
 ---
@@ -157,17 +185,23 @@ Response: 201 Created
 - **Response**:
   - `200 OK`: Confirms the new active workspace.
 
-```bash
-PUT /config/workspaces/current
-Request Body:
-{
-  "workspace_id": 1
-}
-Response: 200 OK
+```javascript
+fetch('/config/workspaces/current', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ workspace_id: 1 })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "code": 200,
   "message": "Current workspace set to 1"
 }
+*/
 ```
 
 ---
@@ -184,13 +218,18 @@ Response: 200 OK
 - **Response**:
   - `200 OK`: Returns the updated workspace.
 
-```bash
-PUT /config/workspaces/1/name
-Request Body:
-{
-  "new_name": "Renamed Workspace"
-}
-Response: 200 OK
+```javascript
+fetch('/config/workspaces/1/name', {
+  method: 'PUT',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify({ new_name: "Renamed Workspace" })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "id": 1,
   "name": "Renamed Workspace",
@@ -198,6 +237,7 @@ Response: 200 OK
   "path": "/path/to/another/workspace",
   "db": "/path/to/another/db"
 }
+*/
 ```
 
 ---
@@ -212,13 +252,21 @@ Response: 200 OK
 - **Response**:
   - `200 OK`: Confirms deletion and reassignment of workspace IDs.
 
-```bash
-DELETE /config/workspaces/1
-Response: 200 OK
+```javascript
+fetch('/config/workspaces/1', {
+  method: 'DELETE'
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response:
+/*
 {
   "code": 200,
   "message": "Workspace 1 deleted and IDs reassigned"
 }
+*/
 ```
 ### Database
 
@@ -304,6 +352,124 @@ Here is the complete design of the database
 | Path_connections    | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each path connection                              |
 |                     | connection_id      | INTEGER  | FOREIGN KEY                             | References Node_connections(id), ON DELETE CASCADE                      |
 |                     | path_id            | INTEGER  | FOREIGN KEY                             | References Path(id), ON DELETE CASCADE                                  |
+
+### FileManaging
+
+#### Routes
+
+**Upload a file**
+
+- **Method**: `POST`
+- **Endpoint**: `/upload`
+- **Description**: Uploads a file to a specified path within the current workspace.
+- **Requirements**: 
+  - The request must be sent as `multipart/form-data`.
+  - A file must be included in the request with the field name "file".
+  - The relative path within the workspace can be specified using the "relativePath" field.
+- **Request Body**:
+  - `file`: The file to be uploaded (required)
+  - `relativePath`: The relative path within the workspace where the file should be saved (optional)
+- **Response**:
+  - `200 OK`: File uploaded successfully
+  - `400 Bad Request`: No file uploaded or invalid path
+  - `500 Internal Server Error`: Error during file upload or saving
+
+**Example 1: Basic file upload**
+
+```javascript
+const formData = new FormData();
+formData.append('file', new File(['file content'], 'example.txt'));
+formData.append('relativePath', '/subdirectory/in/workspace');
+
+fetch('/upload', {
+  method: 'POST',
+  body: formData
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "File uploaded successfully",
+  "file": {
+    "originalname": "example.txt",
+    "filename": "example.txt",
+    "path": "/path/to/workspace/subdirectory/in/workspace/example.txt",
+    "size": 1234
+  }
+}
+*/
+```
+
+**Example 2: Upload to multiple nested directories**
+
+```javascript
+const formData = new FormData();
+formData.append('file', new File(['file content'], 'report.pdf'));
+formData.append('relativePath', '/projects/2023/q2/reports');
+
+fetch('/upload', {
+  method: 'POST',
+  body: formData
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "File uploaded successfully",
+  "file": {
+    "originalname": "report.pdf",
+    "filename": "report.pdf",
+    "path": "/path/to/workspace/projects/2023/q2/reports/report.pdf",
+    "size": 5678
+  }
+}
+*/
+```
+
+**Notes**:
+- If a file with the same name already exists in the specified path, the new file will be renamed to avoid conflicts (e.g., "example_1.txt").
+- The server ensures that files are only saved within the current workspace for security reasons.
+- If no `relativePath` is provided, the file will be saved in the root of the current workspace.
+- The maximum file size limit is determined by your server configuration.
+- When specifying a `relativePath` with multiple nested directories (as in Example 2), the server will automatically create any directories that don't exist.
+
+**Error Responses**:
+
+1. No file uploaded:
+
+```json
+{
+  "code": 400,
+  "message": "No file uploaded"
+}
+```
+
+2. Invalid path (attempting to upload outside the workspace):
+
+```json
+{
+  "code": 400,
+  "message": "Invalid path"
+}
+```
+
+3. Server error:
+
+```json
+{
+  "code": 500,
+  "message": "Error handling file upload",
+  "error": "Detailed error message"
+}
+```
 
 # Why Flashback?
 

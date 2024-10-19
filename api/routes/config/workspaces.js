@@ -3,8 +3,9 @@ const fs = require("fs");
 const path = require("path");
 const workspaces_router = express.Router();
 
-const initConfigPath = path.join(__dirname, "../config/init/init_config.json");
-const configPath = path.join(__dirname, "../data/config.json");
+const initConfigPath = path.join(__dirname, "./../../config/init/init_config.json");
+const configPath = path.join(__dirname, "./../../data/config.json");
+
 
 let config;
 if (fs.existsSync(configPath)) {
