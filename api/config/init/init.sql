@@ -41,6 +41,7 @@ CREATE TABLE IF NOT EXISTS Folders (
   name VARCHAR,
   filepath VARCHAR,
   node_id INTEGER,
+  parent_folder_id INTEGER,
   FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE
 );
 
@@ -203,13 +204,10 @@ VALUES
   ('Flashcard'),
   ('Tag');
 
--- Entries for Connection_types
 INSERT INTO
-  Connection_types (name)
+   Connection_types (name)
 VALUES
-  ('Inherits'),
-  ('Contains'),
-  ('Links'),
-  ('Is related to');
+  ('Undefined');
+
 
 PRAGMA foreign_keys = ON;
