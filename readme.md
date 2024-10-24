@@ -268,7 +268,10 @@ fetch('/config/workspaces/1', {
 }
 */
 ```
+
 ### Database
+
+Flashback creates a complementary sqlite db for your data, it contains 
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -299,6 +302,7 @@ Here is the complete design of the database
 |                     | name               | VARCHAR  |                                         | Name of the folder                                                      |
 |                     | filepath           | VARCHAR  |                                         | File path of the folder                                                 |
 |                     | node_id            | INTEGER  | FOREIGN KEY                             | References Nodes(id), ON DELETE CASCADE                                 |
+|                     | parent_folder_id   | INTEGER  |                                         | References Folders(id) and indicates if a folder has a parent           |
 | Documents           | id                 | INTEGER  | PRIMARY KEY, AUTOINCREMENT              | Unique identifier for each document                                     |
 |                     | folder_id          | INTEGER  | FOREIGN KEY                             | References Folders(id), ON DELETE CASCADE                               |
 |                     | name               | VARCHAR  |                                         | Name of the document                                                    |
@@ -362,7 +366,7 @@ Here is the complete design of the database
 - **Method**: `POST`
 - **Endpoint**: `/upload`
 - **Description**: Uploads a file to a specified path within the current workspace.
-- **Requirements**: 
+- **Requirements**:
   - The request must be sent as `multipart/form-data`.
   - A file must be included in the request with the field name "file".
   - The relative path within the workspace can be specified using the "relativePath" field.
@@ -435,6 +439,7 @@ fetch('/upload', {
 ```
 
 **Notes**:
+
 - If a file with the same name already exists in the specified path, the new file will be renamed to avoid conflicts (e.g., "example_1.txt").
 - The server ensures that files are only saved within the current workspace for security reasons.
 - If no `relativePath` is provided, the file will be saved in the root of the current workspace.
