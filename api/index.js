@@ -19,6 +19,10 @@ async function startApp() {
   const config = require("./routes/config");
   const files = require("./routes/files");
   const upload = require("./routes/upload");
+  const paths = require("./routes/paths");
+  const tags = require("./routes/tags");
+  const nodes = require("./routes/nodes");
+
 
   app.get("/", (req, res, next) => {
     res.status(200);
@@ -26,11 +30,17 @@ async function startApp() {
   });
 
   app.use("/config", config);
-  
+
   app.use("/files", files);
 
-  app.use("/upload",upload);
-  
+  app.use("/upload", upload);
+
+  app.use("/paths", paths);
+
+  app.use("/tags", tags);
+
+  app.use("/nodes", nodes);
+
   app.use((req, res, next) => {
     return res.status(404).json({ code: 404, message: "Url no encontrada" });
   });
