@@ -1,24 +1,221 @@
 const express = require("express");
-const dbManager = require("./../config/dbmanager.js");
-const fileManager = require("./../config/filemanager.js"); //File manager module that handles workspace level applications to ease path resolving
-const file_router = express.Router();
+const path = require("path");
+const files_router = express.Router();
+const fileManager = require("./../config/filemanager");
+files_router.use(express.json());
 
-file_router.get("/", async function (req, res, next) {
+// Get file tree
+files_router.get("/tree", async (req, res) => {
   try {
-    fileTree = await fileManager.getFileTree();
+    const tree = await fileManager.getDatabaseFileTree();
+    res.status(200).json({
+      code: 200,
+      tree: tree,
+    });
   } catch (error) {
-    return res.status(500).json({ code: 505, message: error });
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
   }
-  return res.status(200).json({ code: 200, message: fileTree });
 });
-file_router.get("/search/:name([A-Za-z]+)", async function (req, res, next) {
-    const fileName = decodeURI(req.params.name)
-    console.log(fileName);
-    try{
-        results = fileManager.searchFiles(fileName)
-        return res.status(200).json({code: 200, message: results});
-    }catch(error) {
-        return res.status(500).json({ code: 500, message: error });
-    } 
-})
-module.exports = file_router;
+
+// Search files and folders
+files_router.get("/search", async (req, res) => {
+  try {
+    const { term } = req.query;
+    if (!term) {
+      return res.status(400).json({
+        code: 400,
+        error: "Search term is required",
+      });
+    }
+    const results = await fileManager.searchDatabase(term);
+    res.status(200).json({
+      code: 200,
+      results: results,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Read file
+files_router.get("/:path(*)", async (req, res) => {
+  try {
+    const filePath = req.params.path;
+    const { content, extension } = await fileManager.readFile(filePath);
+    res.status(200).json({
+      code: 200,
+      content: content,
+      extension: extension,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Create file
+files_router.post("/:path(*)", async (req, res) => {
+  try {
+    const filePath = req.params.path;
+    const { content } = req.body;
+    if (content === undefined) {
+      return res.status(400).json({
+        code: 400,
+        error: "Content is required",
+      });
+    }
+    const result = await fileManager.createFile(filePath, content);
+    res.status(201).json({
+      code: 201,
+      file: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Write to file
+files_router.put("/:path(*)", async (req, res) => {
+  try {
+    const filePath = req.params.path;
+    const { content } = req.body;
+    if (content === undefined) {
+      return res.status(400).json({
+        code: 400,
+        error: "Content is required",
+      });
+    }
+    await fileManager.writeFile(filePath, content);
+    res.status(200).json({
+      code: 200,
+      message: "File updated successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Change file extension
+files_router.patch("/:path(*)/extension", async (req, res) => {
+  try {
+    const filePath = req.params.path;
+    const { newExtension } = req.body;
+    if (!newExtension) {
+      return res.status(400).json({
+        code: 400,
+        error: "New extension is required",
+      });
+    }
+    const result = await fileManager.changeFileExtension(
+      filePath,
+      newExtension
+    );
+    res.status(200).json({
+      code: 200,
+      file: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Move file
+files_router.post("/:path(*)/move", async (req, res) => {
+  try {
+    const sourcePath = req.params.path;
+    const { destination } = req.body;
+    if (!destination) {
+      return res.status(400).json({
+        code: 400,
+        error: "Destination path is required",
+      });
+    }
+    await fileManager.movePath(sourcePath, destination);
+    res.status(200).json({
+      code: 200,
+      message: "File moved successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Delete file
+files_router.delete("/:path(*)", async (req, res) => {
+  try {
+    const filePath = req.params.path;
+    await fileManager.deletePath(filePath);
+    res.status(200).json({
+      code: 200,
+      message: "File deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Create folder
+files_router.post("/folder/:path(*)", async (req, res) => {
+  try {
+    const folderPath = req.params.path;
+    const result = await fileManager.createFolder(folderPath);
+    res.status(201).json({
+      code: 201,
+      folder: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Move folder
+files_router.post("/folder/:path(*)/move", async (req, res) => {
+  try {
+    const sourcePath = req.params.path;
+    const { destination } = req.body;
+    if (!destination) {
+      return res.status(400).json({
+        code: 400,
+        error: "Destination path is required",
+      });
+    }
+    await fileManager.movePath(sourcePath, destination);
+    res.status(200).json({
+      code: 200,
+      message: "Folder moved successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+module.exports = files_router;
