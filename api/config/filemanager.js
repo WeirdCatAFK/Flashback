@@ -1,5 +1,7 @@
 const fs = require("fs");
 const path = require("path");
+const db = require("./../config/dbmanager");
+
 class FileManager {
   constructor() {
     const config = JSON.parse(
@@ -17,133 +19,590 @@ class FileManager {
       ? currentWorkspace.path
       : path.resolve(__dirname, "../../", currentWorkspace.path);
   }
+  static FILE_TYPES = {
+    // Text files
+    txt: { encoding: "utf8", binary: false },
+    md: { encoding: "utf8", binary: false },
+    json: { encoding: "utf8", binary: false },
+    csv: { encoding: "utf8", binary: false },
+    xml: { encoding: "utf8", binary: false },
+    html: { encoding: "utf8", binary: false },
+    css: { encoding: "utf8", binary: false },
+    js: { encoding: "utf8", binary: false },
+    ts: { encoding: "utf8", binary: false },
+
+    // Binary files
+    pdf: { binary: true },
+    doc: { binary: true },
+    docx: { binary: true },
+    xls: { binary: true },
+    xlsx: { binary: true },
+    zip: { binary: true },
+    rar: { binary: true },
+
+    // Image files
+    jpg: { binary: true },
+    jpeg: { binary: true },
+    png: { binary: true },
+    gif: { binary: true },
+    bmp: { binary: true },
+    svg: { encoding: "utf8", binary: false }, // SVG is text-based XML
+
+    // Audio/Video files
+    mp3: { binary: true },
+    wav: { binary: true },
+    mp4: { binary: true },
+    avi: { binary: true },
+
+    // Default handling for unknown extensions
+    default: { binary: true },
+  };
 
   async getCurrentFilePath() {
     return this.filesPath;
   }
 
-  async getFileTree(directoryPath = this.filesPath) {
-    const stats = await fs.promises.stat(directoryPath);
-    const name = path.basename(directoryPath);
+  async createDatabaseNode(type, presence = 0.0) {
+    await db.run(
+      "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = ?), ?)",
+      [type, presence]
+    );
+    const result = await db.get("SELECT last_insert_rowid() as lastID");
+    return result.lastID;
+  }
 
-    const item = {
-      name: name,
-      type: stats.isDirectory() ? "folder" : path.extname(name).substring(1),
-      children: [],
-    };
+  async createOrGetFolderEntry(name, absolutePath, parentFolderId = null) {
+    const existingFolder = await db.get(
+      "SELECT id, node_id FROM Folders WHERE filepath = ?",
+      [absolutePath]
+    );
 
-    if (stats.isDirectory()) {
-      const files = await fs.promises.readdir(directoryPath);
-      item.children = await Promise.all(
-        files.map(async (child) => {
-          const childPath = path.join(directoryPath, child);
-          return await this.getFileTree(childPath); // Recursively get child items
-        })
+    if (existingFolder) {
+      return existingFolder;
+    }
+
+    const nodeId = await this.createDatabaseNode("Folder");
+
+    await db.run(
+      "INSERT INTO Folders (name, filepath, node_id, parent_folder_id) VALUES (?, ?, ?, ?)",
+      [name, absolutePath, nodeId, parentFolderId]
+    );
+
+    const folderResult = await db.get("SELECT last_insert_rowid() as lastID");
+
+    if (parentFolderId) {
+      const parentNodeId = await db.get(
+        "SELECT node_id FROM Folders WHERE id = ?",
+        [parentFolderId]
+      );
+      await db.run(
+        "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, ?)",
+        [parentNodeId.node_id, nodeId, 1]
       );
     }
 
-    return item;
+    return {
+      id: folderResult.lastID,
+      node_id: nodeId,
+    };
   }
 
-  async getFileStats(fileName) {
+  async initializeWorkspace() {
+    let transaction = false;
     try {
-      const filePath = path.join(this.filesPath, fileName);
-      return fs.statSync(filePath);
-    } catch (error) {
-      console.error(`Error getting file stats: ${error.message}`);
-      throw error;
-    }
-  }
+      if (!fs.existsSync(this.filesPath)) {
+        await db.run("BEGIN TRANSACTION");
+        transaction = true;
 
-  async listFiles(directoryPath = this.filesPath) {
-    try {
-      return fs.readdirSync(directoryPath);
-    } catch (error) {
-      console.error(`Error listing files: ${error.message}`);
-      throw error;
-    }
-  }
+        fs.mkdirSync(this.filesPath, { recursive: true });
+        await this.createOrGetFolderEntry(
+          path.basename(this.filesPath),
+          this.filesPath
+        );
 
-  async searchFiles(pattern, directoryPath = this.filesPath) {
-    try {
-      const files = await this.listFiles(directoryPath);
-      return files.filter((file) => file.match(new RegExp(pattern)));
-    } catch (error) {
-      console.error(`Error searching files: ${error.message}`);
-      throw error;
-    }
-  }
-
-  async ensureDir() {
-    if (!fs.existsSync(this.filesPath)) {
-      fs.mkdirSync(this.filesPath, { recursive: true });
-      console.log("Created workspace files directory:", this.filesPath);
-    }
-  }
-
-  async saveFile(fileName, content) {
-    try {
-      const filePath = path.join(this.filesPath, fileName);
-      fs.writeFileSync(filePath, content, "utf8");
-      console.log(`File ${fileName} saved in workspace.`);
-    } catch (error) {
-      console.error(`Error saving file: ${error.message}`);
-      throw error;
-    }
-  }
-
-  async deleteFile(fileName) {
-    try {
-      const filePath = path.join(this.filesPath, fileName);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        console.log(`File ${fileName} deleted from workspace.`);
-      } else {
-        throw new Error(`File ${fileName} not found.`);
+        await db.run("COMMIT");
+        transaction = false;
+        console.log("Initialized workspace directory:", this.filesPath);
       }
     } catch (error) {
-      console.error(`Error deleting file: ${error.message}`);
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
       throw error;
     }
   }
 
-  async loadFile(fileName) {
+  async getDatabaseFileTree(startPath = this.filesPath) {
+    const query = `
+      WITH RECURSIVE
+        tree AS (
+          SELECT 
+            f.id, 
+            f.name, 
+            f.filepath, 
+            f.parent_folder_id,
+            n.presence,
+            1 as level
+          FROM Folders f
+          JOIN Nodes n ON f.node_id = n.id
+          WHERE f.parent_folder_id IS NULL
+          
+          UNION ALL
+          
+          SELECT 
+            f.id, 
+            f.name, 
+            f.filepath, 
+            f.parent_folder_id,
+            n.presence,
+            tree.level + 1
+          FROM Folders f
+          JOIN Nodes n ON f.node_id = n.id
+          JOIN tree ON f.parent_folder_id = tree.id
+        )
+      SELECT 
+        t.*,
+        d.id as document_id,
+        d.name as document_name,
+        d.filepath as document_path,
+        dn.presence as document_presence
+      FROM tree t
+      LEFT JOIN Documents d ON d.folder_id = t.id
+      LEFT JOIN Nodes dn ON d.node_id = dn.id
+      ORDER BY t.level, t.name, d.name
+    `;
+
+    const results = await db.all(query);
+    return this.buildTreeFromResults(results);
+  }
+
+  async createFile(relativePath, content) {
+    let transaction = false;
     try {
-      const filePath = path.join(this.filesPath, fileName);
-      if (!fs.existsSync(filePath)) {
-        throw new Error(
-          `File ${fileName} not found in workspace with path ${filePath}`
+      const absolutePath = path.join(this.filesPath, relativePath);
+      const dirPath = path.dirname(absolutePath);
+      const fileName = path.basename(absolutePath);
+      const fileExtension = path.extname(fileName).toLowerCase().slice(1);
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Ensure parent directory exists
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+      }
+      const parentFolder = await this.createOrGetFolderEntry(
+        path.basename(dirPath),
+        dirPath
+      );
+
+      // Create document node and entry
+      const nodeId = await this.createDatabaseNode("Document");
+      await db.run(
+        "INSERT INTO Documents (folder_id, name, filepath, file_extension, node_id) VALUES (?, ?, ?, ?, ?)",
+        [parentFolder.id, fileName, absolutePath, fileExtension, nodeId]
+      );
+
+      const documentResult = await db.get(
+        "SELECT last_insert_rowid() as lastID"
+      );
+
+      await fs.promises.writeFile(absolutePath, content);
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return {
+        id: documentResult.lastID,
+        node_id: nodeId,
+      };
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+
+  async deletePath(relativePath) {
+    let transaction = false;
+    try {
+      const absolutePath = path.join(this.filesPath, relativePath);
+
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error(`Path ${relativePath} not found.`);
+      }
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      const stats = await fs.promises.stat(absolutePath);
+      if (stats.isDirectory()) {
+        await db.run("DELETE FROM Folders WHERE filepath = ?", [absolutePath]);
+        await fs.promises.rm(absolutePath, { recursive: true });
+      } else {
+        await db.run("DELETE FROM Documents WHERE filepath = ?", [
+          absolutePath,
+        ]);
+        await fs.promises.unlink(absolutePath);
+      }
+
+      await db.run("COMMIT");
+      transaction = false;
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+
+  async movePath(sourceRelativePath, destRelativePath) {
+    let transaction = false;
+    try {
+      const sourcePath = path.join(this.filesPath, sourceRelativePath);
+      const destPath = path.join(this.filesPath, destRelativePath);
+      const destDir = path.dirname(destPath);
+
+      if (!fs.existsSync(sourcePath)) {
+        throw new Error(`Source ${sourceRelativePath} not found.`);
+      }
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Ensure destination directory exists
+      if (!fs.existsSync(destDir)) {
+        fs.mkdirSync(destDir, { recursive: true });
+      }
+      const destFolder = await this.createOrGetFolderEntry(
+        path.basename(destDir),
+        destDir
+      );
+
+      const stats = await fs.promises.stat(sourcePath);
+      if (stats.isDirectory()) {
+        await db.run(
+          "UPDATE Folders SET name = ?, filepath = ?, parent_folder_id = ? WHERE filepath = ?",
+          [path.basename(destPath), destPath, destFolder.id, sourcePath]
+        );
+      } else {
+        await db.run(
+          "UPDATE Documents SET name = ?, filepath = ?, folder_id = ? WHERE filepath = ?",
+          [path.basename(destPath), destPath, destFolder.id, sourcePath]
         );
       }
-      return fs.readFileSync(filePath, "utf8");
+
+      await fs.promises.rename(sourcePath, destPath);
+
+      await db.run("COMMIT");
+      transaction = false;
     } catch (error) {
-      console.error(`Error loading file: ${error.message}`);
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
       throw error;
     }
   }
 
-  async copyFile(sourceFileName, destinationFileName) {
+  async searchDatabase(searchTerm) {
+    const searchTermLower = searchTerm.toLowerCase();
+    const exactPattern = searchTerm;
+    const containsPattern = `%${searchTerm}%`;
+    const startPattern = `${searchTerm}%`;
+    const wordBoundaryPattern = `% ${searchTerm}%`;
+
+    const folders = await db.all(
+      `
+      SELECT DISTINCT
+        f.id,
+        f.name,
+        f.filepath,
+        n.presence,
+        CASE
+          WHEN LOWER(f.name) = LOWER(?) THEN 1
+          WHEN f.name LIKE ? THEN 2
+          WHEN LOWER(f.name) LIKE LOWER(?) THEN 3
+          WHEN LOWER(f.name) LIKE LOWER(?) THEN 4
+          ELSE 5
+        END as match_quality
+      FROM Folders f
+      JOIN Nodes n ON f.node_id = n.id
+      WHERE 
+        f.name LIKE ? OR
+        LOWER(f.name) LIKE LOWER(?) OR
+        LOWER(f.name) LIKE LOWER(?) OR
+        LOWER(f.name) LIKE LOWER(?)
+      ORDER BY 
+        match_quality ASC,
+        n.presence DESC,
+        f.name ASC
+      `,
+      [
+        exactPattern,
+        startPattern,
+        containsPattern,
+        wordBoundaryPattern,
+        startPattern,
+        containsPattern,
+        wordBoundaryPattern,
+        `%${searchTermLower}%`,
+      ]
+    );
+
+    const documents = await db.all(
+      `
+      SELECT DISTINCT
+        d.id,
+        d.name,
+        d.filepath,
+        d.file_extension,
+        n.presence,
+        f.name as folder_name,
+        CASE
+          WHEN LOWER(d.name) = LOWER(?) THEN 1
+          WHEN d.name LIKE ? THEN 2
+          WHEN LOWER(d.name) LIKE LOWER(?) THEN 3
+          WHEN LOWER(d.name) LIKE LOWER(?) THEN 4
+          ELSE 5
+        END as match_quality
+      FROM Documents d
+      JOIN Nodes n ON d.node_id = n.id
+      LEFT JOIN Folders f ON d.folder_id = f.id
+      WHERE 
+        d.name LIKE ? OR
+        LOWER(d.name) LIKE LOWER(?) OR
+        LOWER(d.name) LIKE LOWER(?) OR
+        LOWER(d.name) LIKE LOWER(?)
+      ORDER BY 
+        match_quality ASC,
+        n.presence DESC,
+        d.name ASC
+      `,
+      [
+        exactPattern,
+        startPattern,
+        containsPattern,
+        wordBoundaryPattern,
+        startPattern,
+        containsPattern,
+        wordBoundaryPattern,
+        `%${searchTermLower}%`,
+      ]
+    );
+
+    return {
+      folders,
+      documents,
+      metadata: {
+        total: folders.length + documents.length,
+        folderCount: folders.length,
+        docCount: documents.length,
+      },
+    };
+  }
+
+  async updateNodePresence(nodeId, presence) {
+    await db.run("UPDATE Nodes SET presence = ? WHERE id = ?", [
+      presence,
+      nodeId,
+    ]);
+  }
+
+  async readFile(relativePath) {
+    const absolutePath = path.join(this.filesPath, relativePath);
+    const extension = path.extname(absolutePath).toLowerCase().slice(1);
+
+    const fileType =
+      FileOperations.FILE_TYPES[extension] || FileOperations.FILE_TYPES.default;
+
     try {
-      const sourcePath = path.join(this.filesPath, sourceFileName);
-      const destinationPath = path.join(this.filesPath, destinationFileName);
-      fs.copyFileSync(sourcePath, destinationPath);
-      console.log(`File ${sourceFileName} copied to ${destinationFileName}.`);
+      let content;
+
+      if (fileType.binary) {
+        content = await fs.promises.readFile(absolutePath);
+      } else {
+        content = await fs.promises.readFile(absolutePath, fileType.encoding);
+      }
+
+      return {
+        content,
+        extension,
+        binary: fileType.binary,
+        encoding: fileType.encoding,
+      };
     } catch (error) {
-      console.error(`Error copying file: ${error.message}`);
+      throw new Error(`Error reading file ${relativePath}: ${error.message}`);
+    }
+  }
+
+  async writeFile(relativePath, content) {
+    const absolutePath = path.join(this.filesPath, relativePath);
+    const extension = path.extname(absolutePath).toLowerCase().slice(1);
+
+    const fileType =
+      FileOperations.FILE_TYPES[extension] || FileOperations.FILE_TYPES.default;
+
+    try {
+      await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
+
+      const fileExists = await fs.promises
+        .access(absolutePath)
+        .then(() => true)
+        .catch(() => false);
+
+      if (!fileExists) {
+        throw new Error(`File ${relativePath} not found.`);
+      }
+
+      if (fileType.binary) {
+        const buffer = Buffer.isBuffer(content)
+          ? content
+          : Buffer.from(content);
+        await fs.promises.writeFile(absolutePath, buffer);
+      } else {
+        const textContent =
+          typeof content === "string" ? content : content.toString();
+        await fs.promises.writeFile(
+          absolutePath,
+          textContent,
+          fileType.encoding
+        );
+      }
+    } catch (error) {
+      throw new Error(`Error writing file ${relativePath}: ${error.message}`);
+    }
+  }
+
+  static isBinaryFile(extension) {
+    const fileType =
+      FileOperations.FILE_TYPES[extension.toLowerCase()] ||
+      FileOperations.FILE_TYPES.default;
+    return fileType.binary;
+  }
+
+  static getFileEncoding(extension) {
+    const fileType =
+      FileOperations.FILE_TYPES[extension.toLowerCase()] ||
+      FileOperations.FILE_TYPES.default;
+    return fileType.encoding || null;
+  }
+
+  async changeFileExtension(relativePath, newExtension) {
+    let transaction = false;
+    try {
+      const absolutePath = path.join(this.filesPath, relativePath);
+      const newPath = absolutePath.replace(/\.[^/.]+$/, `.${newExtension}`);
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Update database record
+      await db.run(
+        "UPDATE Documents SET filepath = ?, file_extension = ? WHERE filepath = ?",
+        [newPath, newExtension, absolutePath]
+      );
+
+      // Rename file
+      await fs.promises.rename(absolutePath, newPath);
+
+      const document = await db.get(
+        "SELECT id, node_id FROM Documents WHERE filepath = ?",
+        [newPath]
+      );
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return document;
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
       throw error;
     }
   }
 
-  async moveFile(sourceFileName, destinationFileName) {
+  async createFolder(relativePath) {
+    let transaction = false;
     try {
-      const sourcePath = path.join(this.filesPath, sourceFileName);
-      const destinationPath = path.join(this.filesPath, destinationFileName);
-      fs.renameSync(sourcePath, destinationPath);
-      console.log(`File ${sourceFileName} moved to ${destinationFileName}.`);
+      const absolutePath = path.join(this.filesPath, relativePath);
+      const parentPath = path.dirname(absolutePath);
+      const folderName = path.basename(absolutePath);
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Ensure parent directory exists
+      if (!fs.existsSync(parentPath)) {
+        fs.mkdirSync(parentPath, { recursive: true });
+      }
+      const parentFolder = await this.createOrGetFolderEntry(
+        path.basename(parentPath),
+        parentPath
+      );
+
+      // Create the new folder
+      fs.mkdirSync(absolutePath);
+      const result = await this.createOrGetFolderEntry(
+        folderName,
+        absolutePath,
+        parentFolder.id
+      );
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return result;
     } catch (error) {
-      console.error(`Error moving file: ${error.message}`);
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
       throw error;
     }
+  }
+  buildTreeFromResults(results) {
+    const tree = {};
+    const lookup = {};
+
+    // First pass: create folder nodes
+    results.forEach((row) => {
+      if (!lookup[row.id]) {
+        const folder = {
+          id: row.id,
+          name: row.name,
+          type: "folder",
+          presence: row.presence,
+          children: [],
+          documents: [],
+        };
+        lookup[row.id] = folder;
+
+        if (row.parent_folder_id === null) {
+          tree[row.id] = folder;
+        }
+      }
+    });
+
+    // Second pass: build hierarchy and add documents
+    results.forEach((row) => {
+      // Add documents to their folders
+      if (row.document_id) {
+        lookup[row.id].documents.push({
+          id: row.document_id,
+          name: row.document_name,
+          type: "document",
+          presence: row.document_presence,
+        });
+      }
+
+      // Build folder hierarchy
+      if (row.parent_folder_id && lookup[row.id]) {
+        lookup[row.parent_folder_id].children.push(lookup[row.id]);
+      }
+    });
+
+    return tree;
   }
 }
 
