@@ -437,6 +437,368 @@ fetch('/upload', {
 }
 */
 ```
+**Get File Tree**
+
+- **Method**: `GET`
+- **Endpoint**: `/tree`
+- **Description**: Retrieves the hierarchical structure of files and folders in the database.
+- **Response**:
+  - `200 OK`: Successfully retrieved file tree
+  - `500 Internal Server Error`: Server error occurred
+
+**Example**:
+
+```javascript
+fetch('/files/tree')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "tree": [
+    {
+      "name": "folder1",
+      "type": "directory",
+      "children": [
+        {
+          "name": "file1.txt",
+          "type": "file"
+        }
+      ]
+    }
+  ]
+}
+*/
+```
+
+**Search Files and Folders**
+
+- **Method**: `GET`
+- **Endpoint**: `/search`
+- **Description**: Search for files and folders using a search term.
+- **Query Parameters**:
+  - `term` (required): Search term to find files and folders
+- **Response**:
+  - `200 OK`: Search results found
+  - `400 Bad Request`: Missing search term
+  - `500 Internal Server Error`: Server error occurred
+
+**Example**:
+
+```javascript
+fetch('/files/search?term=example')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "results": [
+    {
+      "name": "example.txt",
+      "path": "/folder1/example.txt",
+      "type": "file"
+    }
+  ]
+}
+*/
+```
+
+**Read File**
+
+- **Method**: `GET`
+- **Endpoint**: `/:path(*)`
+- **Description**: Read the contents of a specific file.
+- **Parameters**:
+  - `path`: Full path to the file
+- **Response**:
+  - `200 OK`: File contents retrieved successfully
+  - `500 Internal Server Error`: Error reading file
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/example.txt')
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "content": "file content here",
+  "extension": "txt"
+}
+*/
+```
+
+**Create File**
+
+- **Method**: `POST`
+- **Endpoint**: `/:path(*)`
+- **Description**: Create a new file with specified content.
+- **Request Body**:
+  - `content`: The content to write to the file (required)
+- **Response**:
+  - `201 Created`: File created successfully
+  - `400 Bad Request`: Missing content
+  - `500 Internal Server Error`: Error creating file
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/newfile.txt', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    content: 'Hello, World!'
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 201,
+  "file": {
+    "name": "newfile.txt",
+    "path": "/folder1/newfile.txt",
+    "type": "file"
+  }
+}
+*/
+```
+
+**Write to File**
+
+- **Method**: `PUT`
+- **Endpoint**: `/:path(*)`
+- **Description**: Update the contents of an existing file.
+- **Request Body**:
+  - `content`: The new content for the file (required)
+- **Response**:
+  - `200 OK`: File updated successfully
+  - `400 Bad Request`: Missing content
+  - `500 Internal Server Error`: Error updating file
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/example.txt', {
+  method: 'PUT',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    content: 'Updated content'
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "File updated successfully"
+}
+*/
+```
+
+**Change File Extension**
+
+- **Method**: `PATCH`
+- **Endpoint**: `/:path(*)/extension`
+- **Description**: Change the extension of an existing file.
+- **Request Body**:
+  - `newExtension`: The new file extension (required)
+- **Response**:
+  - `200 OK`: Extension changed successfully
+  - `400 Bad Request`: Missing new extension
+  - `500 Internal Server Error`: Error changing extension
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/example.txt/extension', {
+  method: 'PATCH',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    newExtension: 'md'
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "file": {
+    "name": "example.md",
+    "path": "/folder1/example.md",
+    "type": "file"
+  }
+}
+*/
+```
+
+**Move File**
+
+- **Method**: `POST`
+- **Endpoint**: `/:path(*)/move`
+- **Description**: Move a file to a new location.
+- **Request Body**:
+  - `destination`: The new path for the file (required)
+- **Response**:
+  - `200 OK`: File moved successfully
+  - `400 Bad Request`: Missing destination path
+  - `500 Internal Server Error`: Error moving file
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/example.txt/move', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    destination: '/folder2/example.txt'
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "File moved successfully"
+}
+*/
+```
+
+**Delete File**
+
+- **Method**: `DELETE`
+- **Endpoint**: `/:path(*)`
+- **Description**: Delete a specific file.
+- **Response**:
+  - `200 OK`: File deleted successfully
+  - `500 Internal Server Error`: Error deleting file
+
+**Example**:
+
+```javascript
+fetch('/files/folder1/example.txt', {
+  method: 'DELETE'
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "File deleted successfully"
+}
+*/
+```
+
+**Create Folder**
+
+- **Method**: `POST`
+- **Endpoint**: `/folder/:path(*)`
+- **Description**: Create a new folder.
+- **Response**:
+  - `201 Created`: Folder created successfully
+  - `500 Internal Server Error`: Error creating folder
+
+**Example**:
+
+```javascript
+fetch('/files/folder/newfolder', {
+  method: 'POST'
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 201,
+  "folder": {
+    "name": "newfolder",
+    "path": "/newfolder",
+    "type": "directory"
+  }
+}
+*/
+```
+
+**Move Folder**
+
+- **Method**: `POST`
+- **Endpoint**: `/folder/:path(*)/move`
+- **Description**: Move a folder to a new location.
+- **Request Body**:
+  - `destination`: The new path for the folder (required)
+- **Response**:
+  - `200 OK`: Folder moved successfully
+  - `400 Bad Request`: Missing destination path
+  - `500 Internal Server Error`: Error moving folder
+
+**Example**:
+
+```javascript
+fetch('/files/folder/folder1/move', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json'
+  },
+  body: JSON.stringify({
+    destination: '/folder2/folder1'
+  })
+})
+  .then(response => response.json())
+  .then(data => console.log(data))
+  .catch(error => console.error('Error:', error));
+
+// Response
+/*
+{
+  "code": 200,
+  "message": "Folder moved successfully"
+}
+*/
+```
+
+**Notes**:
+
+- All paths in endpoints support nested directories
+- All responses are in JSON format
+- Server errors (500) include detailed error messages in the response
+- File paths should be URL-encoded when they contain special characters
+- The wildcard `*` in the path parameter allows for handling nested paths
+- When moving files or folders, the destination path must be within the allowed directory structure
 
 **Notes**:
 
