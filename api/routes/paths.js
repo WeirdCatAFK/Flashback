@@ -1,5 +1,6 @@
 const express = require("express");
 const paths_router = express.Router();
+const db = require("./../config/dbmanager");
 
 
 paths_router.use(express.json());
