@@ -15,7 +15,7 @@ class FileManager {
       throw new Error("Current workspace not found in config.");
     }
 
-    this.filesPath = path.isAbsolute(currentWorkspace.path)
+    this.filePath = path.isAbsolute(currentWorkspace.path)
       ? currentWorkspace.path
       : path.resolve(__dirname, "../../", currentWorkspace.path);
   }
@@ -59,7 +59,7 @@ class FileManager {
   };
 
   async getCurrentFilePath() {
-    return this.filesPath;
+    return this.filePath;
   }
 
   async createDatabaseNode(type, presence = 0.0) {
@@ -110,19 +110,19 @@ class FileManager {
   async initializeWorkspace() {
     let transaction = false;
     try {
-      if (!fs.existsSync(this.filesPath)) {
+      if (!fs.existsSync(this.filePath)) {
         await db.run("BEGIN TRANSACTION");
         transaction = true;
 
-        fs.mkdirSync(this.filesPath, { recursive: true });
+        fs.mkdirSync(this.filePath, { recursive: true });
         await this.createOrGetFolderEntry(
-          path.basename(this.filesPath),
-          this.filesPath
+          path.basename(this.filePath),
+          this.filePath
         );
 
         await db.run("COMMIT");
         transaction = false;
-        console.log("Initialized workspace directory:", this.filesPath);
+        console.log("Initialized workspace directory:", this.filePath);
       }
     } catch (error) {
       if (transaction) {
@@ -132,7 +132,7 @@ class FileManager {
     }
   }
 
-  async getDatabaseFileTree(startPath = this.filesPath) {
+  async getDatabaseFileTree(startPath = this.filePath) {
     const query = `
       WITH RECURSIVE
         tree AS (
@@ -179,7 +179,7 @@ class FileManager {
   async createFile(relativePath, content) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filesPath, relativePath);
+      const absolutePath = path.join(this.filePath, relativePath);
       const dirPath = path.dirname(absolutePath);
       const fileName = path.basename(absolutePath);
       const fileExtension = path.extname(fileName).toLowerCase().slice(1);
@@ -227,7 +227,7 @@ class FileManager {
   async deletePath(relativePath) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filesPath, relativePath);
+      const absolutePath = path.join(this.filePath, relativePath);
 
       if (!fs.existsSync(absolutePath)) {
         throw new Error(`Path ${relativePath} not found.`);
@@ -260,8 +260,8 @@ class FileManager {
   async movePath(sourceRelativePath, destRelativePath) {
     let transaction = false;
     try {
-      const sourcePath = path.join(this.filesPath, sourceRelativePath);
-      const destPath = path.join(this.filesPath, destRelativePath);
+      const sourcePath = path.join(this.filePath, sourceRelativePath);
+      const destPath = path.join(this.filePath, destRelativePath);
       const destDir = path.dirname(destPath);
 
       if (!fs.existsSync(sourcePath)) {
@@ -410,7 +410,7 @@ class FileManager {
   }
 
   async readFile(relativePath) {
-    const absolutePath = path.join(this.filesPath, relativePath);
+    const absolutePath = path.join(this.filePath, relativePath);
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =
@@ -437,7 +437,7 @@ class FileManager {
   }
 
   async writeFile(relativePath, content) {
-    const absolutePath = path.join(this.filesPath, relativePath);
+    const absolutePath = path.join(this.filePath, relativePath);
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =
@@ -491,7 +491,7 @@ class FileManager {
   async changeFileExtension(relativePath, newExtension) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filesPath, relativePath);
+      const absolutePath = path.join(this.filePath, relativePath);
       const newPath = absolutePath.replace(/\.[^/.]+$/, `.${newExtension}`);
 
       await db.run("BEGIN TRANSACTION");
@@ -526,7 +526,7 @@ class FileManager {
   async createFolder(relativePath) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filesPath, relativePath);
+      const absolutePath = path.join(this.filePath, relativePath);
       const parentPath = path.dirname(absolutePath);
       const folderName = path.basename(absolutePath);
 
@@ -603,6 +603,41 @@ class FileManager {
     });
 
     return tree;
+  }
+
+  async renameFile(relativePath, newName) {
+    let transaction = false;
+    try {
+      const absolutePath = path.join(this.filePath, relativePath);
+      const newPath = path.join(path.dirname(absolutePath), newName);
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Update database
+      await db.run("UPDATE Documents SET filepath = ? WHERE filepath = ?", [
+        newPath,
+        absolutePath,
+      ]);
+
+      // Rename file
+      await fs.promises.rename(absolutePath, newPath);
+
+      const document = await db.get(
+        "SELECT id, node_id FROM Documents WHERE filepath = ?",
+        [newPath]
+      );
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return document;
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
   }
 }
 
