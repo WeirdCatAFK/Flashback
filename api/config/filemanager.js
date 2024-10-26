@@ -131,46 +131,87 @@ class FileManager {
       throw error;
     }
   }
+  buildTreeFromResults(results) {
+    const tree = {};
+    const lookup = {};
 
-  async getDatabaseFileTree(startPath = this.filePath) {
+    // First pass: create folder nodes
+    results.forEach((row) => {
+      if (!lookup[row.id]) {
+        const folder = {
+          id: row.id,
+          name: row.name,
+          type: "folder",
+          presence: row.presence,
+          children: [],
+          documents: [], // Stores document objects
+        };
+        lookup[row.id] = folder;
+
+        if (row.parent_folder_id === null) {
+          tree[row.id] = folder;
+        }
+      }
+    });
+
+    results.forEach((row) => {
+      // Add documents to their respective folders
+      if (row.document_id) {
+        lookup[row.id].documents.push({
+          id: row.document_id,
+          name: row.document_name,
+          type: "document",
+          presence: row.document_presence,
+        });
+      }
+
+      // Build folder hierarchy
+      if (row.parent_folder_id && lookup[row.id]) {
+        lookup[row.parent_folder_id].children.push(lookup[row.id]);
+      }
+    });
+
+    return tree;
+  }
+  async getDatabaseFileTree() {
     const query = `
-      WITH RECURSIVE
-        tree AS (
-          SELECT 
-            f.id, 
-            f.name, 
-            f.filepath, 
-            f.parent_folder_id,
-            n.presence,
-            1 as level
-          FROM Folders f
-          JOIN Nodes n ON f.node_id = n.id
-          WHERE f.parent_folder_id IS NULL
-          
-          UNION ALL
-          
-          SELECT 
-            f.id, 
-            f.name, 
-            f.filepath, 
-            f.parent_folder_id,
-            n.presence,
-            tree.level + 1
-          FROM Folders f
-          JOIN Nodes n ON f.node_id = n.id
-          JOIN tree ON f.parent_folder_id = tree.id
-        )
-      SELECT 
-        t.*,
-        d.id as document_id,
-        d.name as document_name,
-        d.filepath as document_path,
-        dn.presence as document_presence
-      FROM tree t
-      LEFT JOIN Documents d ON d.folder_id = t.id
-      LEFT JOIN Nodes dn ON d.node_id = dn.id
-      ORDER BY t.level, t.name, d.name
-    `;
+    WITH RECURSIVE
+      tree AS (
+        SELECT 
+          f.id, 
+          f.name, 
+          f.filepath, 
+          f.parent_folder_id,
+          n.presence,
+          1 as level
+        FROM Folders f
+        JOIN Nodes n ON f.node_id = n.id
+        WHERE f.parent_folder_id IS NULL
+        
+        UNION ALL
+        
+        SELECT 
+          f.id, 
+          f.name, 
+          f.filepath, 
+          f.parent_folder_id,
+          n.presence,
+          tree.level + 1
+        FROM Folders f
+        JOIN Nodes n ON f.node_id = n.id
+        JOIN tree ON f.parent_folder_id = tree.id
+      )
+    SELECT 
+      t.*,
+      d.id as document_id,
+      d.name as document_name,
+      d.filepath as document_path,
+      dn.presence as document_presence
+    FROM tree t
+    LEFT JOIN Documents d ON d.folder_id = t.id
+    LEFT JOIN Nodes dn ON d.node_id = dn.id
+    ORDER BY t.level, t.name, d.name
+  `;
 
     const results = await db.all(query);
     return this.buildTreeFromResults(results);
@@ -561,49 +602,6 @@ class FileManager {
       throw error;
     }
   }
-  buildTreeFromResults(results) {
-    const tree = {};
-    const lookup = {};
-
-    // First pass: create folder nodes
-    results.forEach((row) => {
-      if (!lookup[row.id]) {
-        const folder = {
-          id: row.id,
-          name: row.name,
-          type: "folder",
-          presence: row.presence,
-          children: [],
-          documents: [],
-        };
-        lookup[row.id] = folder;
-
-        if (row.parent_folder_id === null) {
-          tree[row.id] = folder;
-        }
-      }
-    });
-
-    // Second pass: build hierarchy and add documents
-    results.forEach((row) => {
-      // Add documents to their folders
-      if (row.document_id) {
-        lookup[row.id].documents.push({
-          id: row.document_id,
-          name: row.document_name,
-          type: "document",
-          presence: row.document_presence,
-        });
-      }
-
-      // Build folder hierarchy
-      if (row.parent_folder_id && lookup[row.id]) {
-        lookup[row.parent_folder_id].children.push(lookup[row.id]);
-      }
-    });
-
-    return tree;
-  }
 
   async renameFile(relativePath, newName) {
     let transaction = false;
@@ -632,6 +630,45 @@ class FileManager {
       transaction = false;
 
       return document;
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+  async renameFolder(relativePath, newName) {
+    let transaction = false;
+    try {
+      const absolutePath = path.join(this.filePath, relativePath);
+      const folderStats = await fs.promises.stat(absolutePath);
+
+      if (!folderStats.isDirectory()) {
+        throw new Error("relativePath must be a directory");
+      }
+
+      const newPath = path.join(path.dirname(absolutePath), newName);
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      await db.run("UPDATE Folders SET filepath = ? WHERE filepath = ?", [
+        newPath,
+        absolutePath,
+      ]);
+
+      await db.run(
+        "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+        [absolutePath, newPath, `${absolutePath}%`]
+      );
+
+      // Rename the folder in the filesystem
+      await fs.promises.rename(absolutePath, newPath);
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return { message: "Folder renamed successfully", newPath };
     } catch (error) {
       if (transaction) {
         await db.run("ROLLBACK");
