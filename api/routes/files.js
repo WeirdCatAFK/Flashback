@@ -1,5 +1,4 @@
 const express = require("express");
-const path = require("path");
 const files_router = express.Router();
 const fileManager = require("./../config/filemanager");
 files_router.use(express.json());
