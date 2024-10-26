@@ -160,6 +160,30 @@ files_router.post("/:path(*)/move", async (req, res) => {
   }
 });
 
+// Rename File
+files_router.put("/:path(*)/rename", async (req, res) => {
+  try {
+    const sourcePath = req.params.path;
+    const { newName } = req.body;
+    if (!newName) {
+      return res.status(400).json({
+        code: 400,
+        error: "newName is required",
+      });
+    }
+    await fileManager.renameFile(sourcePath, newName);
+    res.status(200).json({
+      code: 200,
+      message: "File moved successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
 // Delete file
 files_router.delete("/:path(*)", async (req, res) => {
   try {
