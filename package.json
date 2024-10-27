@@ -1,19 +1,41 @@
 {
   "name": "flashback",
-  "version": "1.0.0",
-  "description": "A workspace to evaluate and create documents for long term memorization and concept connection",
-  "main": "main.js",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "vite",
+    "build": "vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "init": "npm install && cd api && npm install",
+    "api": "cd api && npm start"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WeirdCatAFK/Flashback.git"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "author": "Daniel Pineda Torres",
   "license": "ISC",
   "bugs": {
     "url": "https://github.com/WeirdCatAFK/Flashback/issues"
   },
-  "homepage": "https://github.com/WeirdCatAFK/Flashback#readme"
+  "homepage": "https://github.com/WeirdCatAFK/Flashback#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "electron": "^33.0.2",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.1",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.13",
+    "globals": "^15.11.0",
+    "vite": "^5.4.9"
+  }
 }

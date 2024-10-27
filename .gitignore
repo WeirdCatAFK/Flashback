@@ -129,10 +129,6 @@ dist
 .yarn/install-state.gz
 .pnp.*
 
-
-#Flashback
-
-
 #Flashback workspace
 .flashback/*
 
@@ -145,3 +141,6 @@ data
 # quick test file
 
 test.js
+
+# Vite
+dist-react
