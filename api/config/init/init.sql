@@ -225,7 +225,8 @@ VALUES
 INSERT INTO
    Connection_types (name)
 VALUES
-  ('Undefined');
+  (''),
+  ('Tagged');
 
 
 PRAGMA foreign_keys = ON;
