@@ -2,7 +2,7 @@ const express = require("express");
 const app = express();
 const morgan = require("morgan");
 const integrityCheck = require("./config/integrityManager");
-const cors = "./config/cors";
+const cors = require("./config/cors")
 
 app.use(cors);
 app.use(morgan("dev"));
