@@ -84,7 +84,6 @@ CREATE TABLE IF NOT EXISTS Flashcards (
   name VARCHAR,
   front TEXT,
   back TEXT,
-  audio VARCHAR,
   next_recall DATETIME,
   FOREIGN KEY (document_id) REFERENCES Documents(id) ON DELETE CASCADE,
   FOREIGN KEY (node_id) REFERENCES Nodes(id) ON DELETE CASCADE,
@@ -183,17 +182,36 @@ CREATE INDEX idx_path_connection_retrieval ON Path_connections (connection_id);
 INSERT INTO
   Media_types (name, file_extension)
 VALUES
+  ('Document', 'txt'),
+  ('Document', 'md'),
+  ('Document', 'json'),
+  ('Document', 'csv'),
+  ('Document', 'xml'),
+  ('Document', 'html'),
+  ('Document', 'css'),
+  ('Document', 'js'),
+  ('Document', 'ts'),
+  ('Document', 'pdf'),
+  ('Document', 'doc'),
+  ('Document', 'docx'),
+  ('Document', 'xls'),
+  ('Document', 'xlsx'),
+  ('Document', 'svg'), 
+
   ('Image', 'jpg'),
+  ('Image', 'jpeg'),
   ('Image', 'png'),
   ('Image', 'gif'),
+  ('Image', 'bmp'),
+
   ('Audio', 'mp3'),
   ('Audio', 'wav'),
+
   ('Video', 'mp4'),
   ('Video', 'avi'),
-  ('Document', 'pdf'),
-  ('Document', 'docx'),
-  ('Document', 'txt'),
-  ('Document', 'doc');
+
+  ('Archive', 'zip'),
+  ('Archive', 'rar');
 
 -- Entries for Node_types
 INSERT INTO
