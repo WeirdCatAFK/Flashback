@@ -3,8 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "src/electron/main",
   "scripts": {
-    "dev": "vite",
+    "dev:react": "vite",
+    "dev:electron": "electron .",
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
