@@ -2,7 +2,9 @@ const express = require("express");
 const app = express();
 const morgan = require("morgan");
 const integrityCheck = require("./config/integrityManager");
+const cors = "./config/cors";
 
+app.use(cors);
 app.use(morgan("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
@@ -23,7 +25,6 @@ async function startApp() {
   const tags = require("./routes/tags");
   const nodes = require("./routes/nodes");
 
-
   app.get("/", (req, res, next) => {
     res.status(200);
     return res.send("Welcome to flashback");
@@ -40,7 +41,7 @@ async function startApp() {
   app.use("/tags", tags);
 
   app.use("/nodes", nodes);
-  
+
   app.use((req, res, next) => {
     return res.status(404).json({ code: 404, message: "Url no encontrada" });
   });
