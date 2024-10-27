@@ -131,11 +131,11 @@ class FileManager {
       throw error;
     }
   }
+
   buildTreeFromResults(results) {
     const tree = {};
     const lookup = {};
 
-    // First pass: create folder nodes
     results.forEach((row) => {
       if (!lookup[row.id]) {
         const folder = {
@@ -155,17 +155,22 @@ class FileManager {
     });
 
     results.forEach((row) => {
-      // Add documents to their respective folders
       if (row.document_id) {
+        const fileExtension = path.extname(row.document_path).substring(1);
+        const fileType =
+          FileManager.FILE_TYPES[fileExtension] ||
+          FileManager.FILE_TYPES.default;
+
         lookup[row.id].documents.push({
           id: row.document_id,
           name: row.document_name,
           type: "document",
           presence: row.document_presence,
+          file_extension: fileExtension,
+          encoding: fileType.binary ? 0 : 1,
         });
       }
 
-      // Build folder hierarchy
       if (row.parent_folder_id && lookup[row.id]) {
         lookup[row.parent_folder_id].children.push(lookup[row.id]);
       }
@@ -173,6 +178,7 @@ class FileManager {
 
     return tree;
   }
+
   async getDatabaseFileTree() {
     const query = `
     WITH RECURSIVE
