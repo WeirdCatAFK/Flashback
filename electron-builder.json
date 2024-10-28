@@ -1,0 +1,20 @@
+{
+    "appId": "com.dpineda.flashback",
+    "files": [
+        "electron",
+        "dist-react"
+    ],
+    "icon": "flashback.ico",
+    "mac": {
+        "target": "dmg"
+    },
+    "linux": {
+        "target": "AppImage",
+        "category": "Utility"
+    },
+    "win": {
+        "target": [
+            "msi"
+        ]
+    }
+}
