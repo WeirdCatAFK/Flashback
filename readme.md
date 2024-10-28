@@ -271,7 +271,7 @@ fetch('/config/workspaces/1', {
 
 ### Database
 
-Flashback creates a complementary sqlite db for your data, it contains 
+Flashback creates a complementary sqlite db for your data, it contains
 
 | Table Name          | Purpose                                                                                                                                                                    |
 | ------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -437,6 +437,7 @@ fetch('/upload', {
 }
 */
 ```
+
 **Get File Tree**
 
 - **Method**: `GET`
@@ -893,46 +894,45 @@ graph TD
 
 While explaining to my friends how to create the right paths for building connections, an epiphany struck me: the best way to design flashcards is to incorporate multiple activator and response neurons. Here's an example:
 
-Let’s suppose we want to learn French, and we create a simple card to remember the translation of the word "dog."
+Let's suppose we want to learn French, and we create a simple card to remember the translation of the word "dog."
 
 ```mermaid
 graph TD
   Dog --> Chien
 ```
 
-This simple flashcard is useful, of course, but it only helps you remember that "Dog" means "Chien." This presents a learning problem because you’re not connecting the word "Chien" to the concept of a dog. So, with a bit more effort, we can create a flashcard with multiple activator neurons. First, let’s bridge the gap between the word "Dog" and the *concept* of a dog. We can address this by adding a picture of a dog:
+This simple flashcard is useful, of course, but it only helps you remember that "Dog" means "Chien." This presents a learning problem because you're not connecting the word "Chien" to the concept of a dog. So, with a bit more effort, we can create a flashcard with multiple activator neurons. First, let's bridge the gap between the word "Dog" and the *concept* of a dog. We can address this by adding a picture of a dog:
 
 ```mermaid
 graph TD
-  Dog --> Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
+  Dog --> Chien["Chien<br/>🐕"]
 ```
 
 Now, our neuron mapping looks like this:
 
 ```mermaid
 graph TD
-  Dog((Dog)) --> Picture((Dog_picture<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />))
+  Dog((Dog)) --> Picture(("Dog picture<br/>🐕"))
   Dog --> Chien((The_french_word_chien))
 ```
 
-We’ve created a multi-connection flashcard by simply adding the picture of a dog. Now, when recalling the word "Dog," we’ll also remember that in French, dogs are called "Chiens." But wait—actually, not all dogs. French is a gendered language. This doesn't mean what you might think; it refers to the grammatical classification of words into groups that affect pronunciation where the identificators of gender are on different phonetical classification for ease of recognition
+We've created a multi-connection flashcard by simply adding the picture of a dog. Now, when recalling the word "Dog," we'll also remember that in French, dogs are called "Chiens." But wait—actually, not all dogs. French is a gendered language. This doesn't mean what you might think; it refers to the grammatical classification of words into groups that affect pronunciation where the identificators of gender are on different phonetical classification for ease of recognition
 
 To capture this, we need to modify our flashcard to remember that a masculine dog is "chien," and a feminine dog is "chienne." Let's create new flashcards:
 
 ```mermaid
 graph TD
-  Dog --> Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' /> <img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.webp' width='40' height='40' /><br>]
-
-  Dog --> Chienne[Chienne<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' /> <img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.webp' width='40' height='40' /><br>]
+  Dog --> Chien["Chien<br/>🐕 ♂️"]
+  Dog --> Chienne["Chienne<br/>🐕 ♀️"]
 ```
 
-Now we have a flashcard containing both concepts. However, this isn't entirely efficient. When the activator neuron for "Dog" is triggered, you'll relate it to both "chien" and "chienne," which could blur the distinction between them. Here’s how this neuron mapping looks:
+Now we have a flashcard containing both concepts. However, this isn't entirely efficient. When the activator neuron for "Dog" is triggered, you'll relate it to both "chien" and "chienne," which could blur the distinction between them. Here's how this neuron mapping looks:
 
 ```mermaid
 graph TD
-  Dog((Dog)) --> Picture((Dog<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />))
-  Dog --> Male((Male<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.png' width='40' height='40' />))
-  Dog --> Female((Female<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.png' width='40' height='40' />))
+  Dog((Dog)) --> Picture(("Dog<br/>🐕"))
+  Dog --> Male(("Male<br/>♂️"))
+  Dog --> Female(("Female<br/>♀️"))
   Dog --> Chien((Chien))
   Dog --> Chienne((Chienne))
   Picture --> Chien
@@ -941,21 +941,21 @@ graph TD
   Female --> Chienne
 ```
 
-If you're a programmer, you might notice an issue: this looks like a decision tree. But is not exactly a decision tree, and that's the problem. In decision trees or simple logistic models, relationships are often built around containers (in this case, "dog"). However, when optimizing your brain graph, it’s important to remember that all neurons in an efficient neuron map should be entry points to the graph. So, we need to rethink how we design flashcards. Here’s a better approach:
+If you're a programmer, you might notice an issue: this is poorly optimized graph, this looks more like a decision tree, when accessing the node Dog we have to evaluate all choices to select which one is the one we are refering to. So with a little bit of reestructuring we can design our flashcards better:
 
 ```mermaid
 graph TD
-  Dog_Male[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.png' width='40' height='40' />] --> Picture_Chien[Chien<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
-  Dog_Female[Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.png' width='40' height='40' />] --> Picture_Chienne[Chienne<br/><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />]
+  Dog_Male["Dog<br/>♂️"] --> Picture_Chien["Chien<br/>🐕"]
+  Dog_Female["Dog<br/>♀️"] --> Picture_Chienne["Chienne<br/>🐕"]
 ```
 
 This is a multi-neuron entry flashcard, which essentially means two flashcards for two different concepts. Now, let's examine the neuron mapping:
 
 ```mermaid
 graph TD
-  Dog((Dog<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Dog_image.webp' width='40' height='40' />))
-  Male((Male<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Male-sign-emoji.png' width='40' height='40' />))
-  Female((Female<br><img src='https://raw.githubusercontent.com/WeirdCatAFK/Flashback/main/readme/Female-sign-emoji.png' width='40' height='40' />))
+  Dog(("Dog<br/>🐕"))
+  Male(("Male<br/>♂️"))
+  Female(("Female<br/>♀️"))
   Chienne((Chienne))
   Chien((Chien))
   Male --> Chien
@@ -964,4 +964,4 @@ graph TD
   Dog --> Chien
 ```
 
-It may look simpler, but the simpler the graph, the easier it is to traverse. What's remarkable is that the front of the flashcard can be any activator neuron, and there are no unnecessary connections. When you are exposed to the word "Dog," both "Chien" and "Chienne" neurons will activate. However, if you're exposed to the concept of a female dog, both the "Female" and "Dog" neurons will fire, with "Chienne" being activated more strongly than "Chien," and vice versa. So try to make your flashcards with as many activator neurons as you can, since these will help you optimize your own mind for faster clarity of concepts
+It may look simpler, but this graph is easier to traverse. What's remarkable is that the front of the flashcard can be any activator neuron, and there are no unnecessary connections. When you are exposed to the word "Dog," both "Chien" and "Chienne" neurons will activate. However, if you're exposed to the concept of a female dog, both the "Female" and "Dog" neurons will fire, with "Chienne" being activated more strongly than "Chien," and vice versa. So try to make your flashcards with as many activator neurons as you can, since these will help you optimize your own mind for faster clarity of concepts
