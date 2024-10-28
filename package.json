@@ -3,15 +3,20 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "main": "src/electron/main",
+  "main": "src/electron/main.js",
   "scripts": {
+    "dev":"npm-run-all --parallel dev:react dev:electron",
     "dev:react": "vite",
-    "dev:electron": "electron .",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev:api": "cd api && npm start",
+    "fund_init": "npm install && cd api && npm install",
+    
     "build": "vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "init": "npm install && cd api && npm install",
-    "api": "cd api && npm start"
+    "dist:mac": "npm run build && electron-builder --mac --arm64",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:linux": "npm run build && electron-builder --linux --x64"
   },
   "repository": {
     "type": "git",
@@ -32,12 +37,15 @@
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
+    "cross-env": "^7.0.3",
     "electron": "^33.0.2",
+    "electron-builder": "^25.1.8",
     "eslint": "^9.13.0",
     "eslint-plugin-react": "^7.37.1",
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.13",
     "globals": "^15.11.0",
+    "npm-run-all": "^4.1.5",
     "vite": "^5.4.9"
   }
 }
