@@ -1,6 +1,6 @@
-const express = require("express");
+import express from 'express';
 const analysis_router = express.Router();
-const db = require("./../config/dbmanager");
+import db from './../config/dbmanager.js';
 
 
 analysis_router.use(express.json());
@@ -10,4 +10,4 @@ analysis_router.get("/", async (req, res, next) => {
 });
 
 
-module.exports = analysis_router;
+export default analysis_router;

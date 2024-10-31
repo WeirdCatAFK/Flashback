@@ -1,6 +1,7 @@
-const express = require("express");
+import express from "express";
+import db from "../config/dbmanager.js";
+
 const nodes_router = express.Router();
-const db = require("../config/dbmanager");
 
 // Get graph data formatted for D3.js force-directed graph
 nodes_router.get("/graph", async (req, res) => {
@@ -62,12 +63,12 @@ nodes_router.get("/graph", async (req, res) => {
     `);
 
     // Calculate graph metrics for better visualization
-    const maxPresence = Math.max(...nodes.map(n => n.presence));
-    const maxConnections = Math.max(...nodes.map(n => n.connection_count));
+    const maxPresence = Math.max(...nodes.map((n) => n.presence));
+    const maxConnections = Math.max(...nodes.map((n) => n.connection_count));
 
     // Format data specifically for D3.js
     const graphData = {
-      nodes: nodes.map(node => ({
+      nodes: nodes.map((node) => ({
         id: node.id,
         name: node.name,
         category: node.category,
@@ -84,26 +85,28 @@ nodes_router.get("/graph", async (req, res) => {
         vx: undefined,
         vy: undefined,
         fx: null,
-        fy: null
+        fy: null,
       })),
-      links: links.map(link => ({
+      links: links.map((link) => ({
         id: link.id,
         source: link.source,
         target: link.target,
         type: link.type,
         // Scale link strength based on number of shared tags
         value: link.strength,
-        inheritedTags: link.inherited_tags ? link.inherited_tags.split(',') : []
+        inheritedTags: link.inherited_tags
+          ? link.inherited_tags.split(",")
+          : [],
       })),
       // Add categories for creating a color scale in D3
-      categories: [...new Set(nodes.map(n => n.category))],
+      categories: [...new Set(nodes.map((n) => n.category))],
       // Add metadata for visualization configuration
       metadata: {
         maxPresence,
         maxConnections,
         nodeCount: nodes.length,
-        linkCount: links.length
-      }
+        linkCount: links.length,
+      },
     };
 
     res.json(graphData);
@@ -118,7 +121,8 @@ nodes_router.get("/:id/details", async (req, res) => {
   try {
     const [nodeDetails, connections] = await Promise.all([
       // Get detailed node information
-      db.get(`
+      db.get(
+        `
         SELECT 
           n.id,
           n.presence,
@@ -141,10 +145,13 @@ nodes_router.get("/:id/details", async (req, res) => {
         LEFT JOIN Flashcards fc ON n.id = fc.node_id
         LEFT JOIN Tags t ON n.id = t.id
         WHERE n.id = ?
-      `, [req.params.id]),
+      `,
+        [req.params.id]
+      ),
 
       // Get connected nodes information
-      db.all(`
+      db.all(
+        `
         SELECT 
           nc.id as connection_id,
           n2.id as connected_node_id,
@@ -169,7 +176,9 @@ nodes_router.get("/:id/details", async (req, res) => {
         WHERE (nc.origin_id = ? OR nc.destiny_id = ?)
         AND n2.id != ?
         GROUP BY nc.id
-      `, [req.params.id, req.params.id, req.params.id, req.params.id])
+      `,
+        [req.params.id, req.params.id, req.params.id, req.params.id]
+      ),
     ]);
 
     if (!nodeDetails) {
@@ -182,9 +191,13 @@ nodes_router.get("/:id/details", async (req, res) => {
       connections: connections,
       metrics: {
         totalConnections: connections.length,
-        incomingConnections: connections.filter(c => c.direction === 'incoming').length,
-        outgoingConnections: connections.filter(c => c.direction === 'outgoing').length
-      }
+        incomingConnections: connections.filter(
+          (c) => c.direction === "incoming"
+        ).length,
+        outgoingConnections: connections.filter(
+          (c) => c.direction === "outgoing"
+        ).length,
+      },
     });
   } catch (error) {
     console.error("Error fetching node details:", error);
@@ -195,14 +208,17 @@ nodes_router.get("/:id/details", async (req, res) => {
 // Update node position (for saving graph layout)
 nodes_router.patch("/:id/position", async (req, res) => {
   const { x, y } = req.body;
-  
+
   try {
     // Store positions in a new table or as metadata
-    await db.run(`
+    await db.run(
+      `
       INSERT OR REPLACE INTO Node_layout (node_id, x, y)
       VALUES (?, ?, ?)
-    `, [req.params.id, x, y]);
-    
+    `,
+      [req.params.id, x, y]
+    );
+
     res.json({ message: "Position updated successfully" });
   } catch (error) {
     console.error("Error updating node position:", error);
@@ -212,4 +228,4 @@ nodes_router.patch("/:id/position", async (req, res) => {
 
 // The rest of the nodes_router implementation remains the same...
 
-module.exports = nodes_router;
+export default nodes_router;

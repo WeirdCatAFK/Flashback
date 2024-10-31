@@ -1,6 +1,6 @@
-const express = require("express");
+import express from 'express';
 const paths_router = express.Router();
-const db = require("./../config/dbmanager");
+import db from '../config/dbmanager.js';
 
 
 paths_router.use(express.json());
@@ -10,4 +10,4 @@ paths_router.get("/", async (req, res, next) => {
 });
 
 
-module.exports = paths_router;
+export default paths_router;

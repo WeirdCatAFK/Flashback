@@ -1,6 +1,7 @@
-const express = require("express");
+import express from "express";
+import fileManager from "../config/filemanager.js";
+
 const files_router = express.Router();
-const fileManager = require("./../config/filemanager");
 files_router.use(express.json());
 
 // Get file tree
@@ -241,4 +242,4 @@ files_router.post("/folder/:path(*)/move", async (req, res) => {
   }
 });
 
-module.exports = files_router;
+export default files_router;

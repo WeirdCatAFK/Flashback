@@ -1,6 +1,6 @@
-const express = require("express");
+import express from 'express';
 const tags_router = express.Router();
-const db = require("./../config/dbmanager");
+import db from '../config/dbmanager.js';
 
 tags_router.use(express.json());
 
@@ -597,4 +597,4 @@ tags_router.delete("/flashcard/:flashcardId/tag/:tagId", async (req, res) => {
   }
 });
 
-module.exports = tags_router;
+export default tags_router;

@@ -1,15 +1,16 @@
-const fs = require("fs");
-const path = require("path");
-const db = require("./../config/dbmanager");
+import fs from "fs";
+import path from "path";
+import { fileURLToPath } from "url";
+import db from "./dbmanager.js";
+import { ConfigManager } from "./configmanager.js";
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 class FileManager {
   constructor() {
-    const config = JSON.parse(
-      fs.readFileSync("./data/config.json", "utf8")
-    ).config;
-    const currentWorkspace = config.workspaces.find(
-      (workspace) => workspace.id === config.current.workspace_id
-    );
+    this.configManager = new ConfigManager();
+    const currentWorkspace = this.configManager.current_workspace;
 
     if (!currentWorkspace) {
       throw new Error("Current workspace not found in config.");
@@ -461,7 +462,7 @@ class FileManager {
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =
-      FileOperations.FILE_TYPES[extension] || FileOperations.FILE_TYPES.default;
+      FileManager.FILE_TYPES[extension] || FileManager.FILE_TYPES.default;
 
     try {
       let content;
@@ -488,7 +489,7 @@ class FileManager {
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =
-      FileOperations.FILE_TYPES[extension] || FileOperations.FILE_TYPES.default;
+      FileManager.FILE_TYPES[extension] || FileManager.FILE_TYPES.default;
 
     try {
       await fs.promises.mkdir(path.dirname(absolutePath), { recursive: true });
@@ -523,15 +524,15 @@ class FileManager {
 
   static isBinaryFile(extension) {
     const fileType =
-      FileOperations.FILE_TYPES[extension.toLowerCase()] ||
-      FileOperations.FILE_TYPES.default;
+      FileManager.FILE_TYPES[extension.toLowerCase()] ||
+      FileManager.FILE_TYPES.default;
     return fileType.binary;
   }
 
   static getFileEncoding(extension) {
     const fileType =
-      FileOperations.FILE_TYPES[extension.toLowerCase()] ||
-      FileOperations.FILE_TYPES.default;
+      FileManager.FILE_TYPES[extension.toLowerCase()] ||
+      FileManager.FILE_TYPES.default;
     return fileType.encoding || null;
   }
 
@@ -685,4 +686,4 @@ class FileManager {
 }
 
 const fileManager = new FileManager();
-module.exports = fileManager;
+export default fileManager;

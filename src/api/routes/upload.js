@@ -1,9 +1,9 @@
-const express = require("express");
-const multer = require("multer");
-const fileManager = require("./../config/filemanager");
-const db = require("./../config/dbmanager");
-const path = require("path");
-const fs = require("fs");
+import express from 'express';
+import multer from 'multer';
+import fileManager from '../config/filemanager.js';
+import db from '../config/dbmanager.js';
+import path from 'path';
+import fs from 'fs';
 
 
 const upload_router = express.Router();
@@ -230,7 +230,7 @@ upload_router.post("/", upload.single("file"), async (req, res) => {
       return res.status(400).json({ code: 400, message: "No file uploaded" });
     }
 
-    // Get the final path for the file
+    // Final path
     const resolvedPath = parentFolderId
       ? path.join(workspacePath, normalizeFilePath(relativePath).join(path.sep))
       : workspacePath;
@@ -298,4 +298,4 @@ function getUniqueFilename(directory, originalFilename) {
   return filename;
 }
 
-module.exports = upload_router;
+export default upload_router;

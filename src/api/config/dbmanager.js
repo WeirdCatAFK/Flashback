@@ -1,46 +1,47 @@
-const sqlite3 = require("sqlite3").verbose();
-const fs = require("fs");
-const util = require("util");
-const path = require("path");
+import fs from "fs";
+import util from "util";
+import path from "path";
+import sqlite3 from "sqlite3";
+import { fileURLToPath } from 'url';
+import { ConfigManager } from './configmanager.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 class DatabaseManager {
   constructor() {
-    this.initializeConfig();
-    this.setupDatabase();
+    this.configManager = new ConfigManager();
     this.initializeDatabase();
   }
 
-  initializeConfig() {
-    const configPath = path.join(
-      __dirname,
-      "../../",
-      "api",
-      "data",
-      "config.json"
-    );
-    const config = JSON.parse(fs.readFileSync(configPath, "utf8")).config;
+  async initializeDatabase() {
+    try {
+      this.dbPath = this.getDBPath();
+      this.setupDatabase();
+      this.promisifyDbMethods();
 
-    const currentWorkspace = config.workspaces.find(
-      (workspace) => workspace.id === config.current.workspace_id
-    );
+      console.log("Running database integrity check...");
+      const isIntact = await this.checkDatabaseIntegrity();
 
-    if (!currentWorkspace) {
-      this.defaultWorkspace(config, configPath);
+      if (isIntact) {
+        console.log("Database integrity passed. No initialization required.");
+      } else {
+        console.log("Database integrity check failed. Initializing database...");
+        await this.runInitQueries();
+        console.log("Database initialized successfully.");
+      }
+    } catch (error) {
+      console.error("Error during initialization:", error);
+      throw new Error("Database initialization failed.");
     }
-
-    this.dbPath = decodeURI(currentWorkspace.db);
   }
 
-  defaultWorkspace(config, configPath) {
-    console.log("Current workspace not found, defaulting workspace");
-    try {
-      config.current.workspace_id = 0;
-      fs.writeFileSync(configPath, JSON.stringify({ config }, null, 2));
-      console.log("Defaulted workspace");
-    } catch (error) {
-      console.error("Couldn't set default workspace: ", error);
-      throw error;
+  getDBPath() {
+    const currentWorkspace = this.configManager.current_workspace;
+    if (!currentWorkspace) {
+      throw new Error("Current workspace not found in config");
     }
+    return decodeURI(currentWorkspace.db);
   }
 
   setupDatabase() {
@@ -58,7 +59,6 @@ class DatabaseManager {
     }
 
     this.db = new sqlite3.Database(this.dbPath);
-    this.promisifyDbMethods();
   }
 
   promisifyDbMethods() {
@@ -66,28 +66,6 @@ class DatabaseManager {
       this[method] = util.promisify(this.db[method].bind(this.db));
     });
     this.serialize = util.promisify(this.db.serialize.bind(this.db));
-  }
-
-  async initializeDatabase() {
-    try {
-      console.log("Running database integrity check...");
-      const isIntact = await this.checkDatabaseIntegrity();
-
-      if (isIntact) {
-        console.log("Database integrity passed. No initialization required.");
-      } else {
-        console.log(
-          "Database integrity check failed. Initializing database..."
-        );
-        await this.runInitQueries();
-        console.log("Database initialized successfully.");
-      }
-    } catch (error) {
-      console.error("Error during integrity check or initialization:", error);
-      throw new Error(
-        "Database integrity validation and initialization failed."
-      );
-    }
   }
 
   async checkDatabaseIntegrity() {
@@ -152,4 +130,4 @@ class DatabaseManager {
   }
 }
 
-module.exports = new DatabaseManager();
+export default new DatabaseManager();

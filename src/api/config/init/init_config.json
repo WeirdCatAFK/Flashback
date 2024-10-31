@@ -4,12 +4,12 @@
             "workspace_id": 0
         },
         "workspaces": [
-            {   
+            {
                 "id": 0,
                 "name": "Flashback",
                 "description": "",
-                "path": "./.flashback",
-                "db": "./data/flashback.db"
+                "path": "./../.flashback",
+                "db": "src/api/data/flashback.db"
             }
         ]
     }

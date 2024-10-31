@@ -1,46 +1,47 @@
-const fs = require("fs");
-const path = require("path");
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { ConfigManager } from './configmanager.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const initConfigPath = path.join(__dirname, "../config/init/init_config.json");
-const configPath = path.join(__dirname, "../data/config.json");
-const dataDirectory = path.dirname(configPath); // Get the directory where the config resides
 
 class IntegrityManager {
-  constructor() {}
+  constructor() {
+    this.configManager = new ConfigManager();
+  }
 
   async checkConfigIntegrity() {
-    let config;
-
     try {
       // Ensure the data directory exists
-      await fs.promises.mkdir(dataDirectory, { recursive: true });
+      await fs.promises.mkdir(path.dirname(this.configManager.configPath), { recursive: true });
 
       // Check if config file exists
-      if (fs.existsSync(configPath)) {
+      if (fs.existsSync(this.configManager.configPath)) {
         try {
           // Try to load the existing config file
-          config = require(configPath);
+          this.configManager.loadConfig();
         } catch (error) {
           console.error("Error loading config.json:", error);
           // If loading the config fails, attempt to restore from init_config
-          config = require(initConfigPath);
-          await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2));
+          const initConfig = JSON.parse(await fs.promises.readFile(initConfigPath, 'utf8'));
+          this.configManager.config = initConfig;
+          this.configManager.saveConfig();
           console.log("Config file restored from init_config.");
         }
       } else {
         // If config file doesn't exist, create it from init_config
         console.log("Config file not found, loading default config.");
-        const initConfig = require(initConfigPath);
-        config = initConfig;
-
-        await fs.promises.writeFile(configPath, JSON.stringify(initConfig, null, 2));
+        const initConfig = JSON.parse(await fs.promises.readFile(initConfigPath, 'utf8'));
+        this.configManager.config = initConfig;
+        this.configManager.saveConfig();
         console.log("Config file created from init_config.");
       }
-      
-      // If we get here, the config is usable
+
       return true;
     } catch (error) {
-      // If any error occurs, log it and return false
       console.error("Error ensuring config integrity:", error);
       return false;
     }
@@ -48,4 +49,4 @@ class IntegrityManager {
 }
 
 const integrityManager = new IntegrityManager();
-module.exports = integrityManager;
+export default integrityManager;

@@ -1,7 +1,7 @@
-const express = require("express");
+import express from 'express';
 const flashcards_router = express.Router();
-const db = require("../config/dbmanager");
-const multer = require("multer");
+import db from '../config/dbmanager';
+import multer from 'multer';
 const upload = multer();
 
 // Create a new flashcard linked to a document
@@ -436,4 +436,4 @@ flashcards_router.post("/:id/highlight", async (req, res) => {
   });
 });
 
-module.exports = flashcards_router;
+export default flashcards_router;
