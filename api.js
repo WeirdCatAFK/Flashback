@@ -1,4 +1,3 @@
-// In another file
 import BackendAPI from './src/api/client.js';
 async function main() {
   const server = new BackendAPI({

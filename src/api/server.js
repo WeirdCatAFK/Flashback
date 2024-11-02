@@ -9,7 +9,7 @@ class FlashbackServer {
 
     this.port = options.port || process.env.PORT || 50500;
 
-    this.logFormat = options.logFormat || 'dev';
+    this.logFormat = options.logFormat || "dev";
 
     this.initializeMiddleware();
   }
@@ -57,13 +57,15 @@ class FlashbackServer {
     await this.initializeRoutes();
 
     return new Promise((resolve, reject) => {
-      this.server = this.app.listen(this.port, () => {
-        console.log(`Server is running on port ${this.port}`);
-        resolve(this.server);
-      }).on('error', (err) => {
-        console.error("Failed to start server:", err);
-        reject(err);
-      });
+      this.server = this.app
+        .listen(this.port, () => {
+          console.log(`Server is running on port ${this.port}`);
+          resolve(this.server);
+        })
+        .on("error", (err) => {
+          console.error("Failed to start server:", err);
+          reject(err);
+        });
     });
   }
 
@@ -87,4 +89,3 @@ class FlashbackServer {
 }
 
 export default FlashbackServer;
-
