@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import path from "path";
 import isDev from "./util.js";
-import BackendAPI from "./../api/client.js";
+import BackendAPI from "./../api/server.js";
 
 let backendServer = null;
 
