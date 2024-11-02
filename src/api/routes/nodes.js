@@ -226,6 +226,5 @@ nodes_router.patch("/:id/position", async (req, res) => {
   }
 });
 
-// The rest of the nodes_router implementation remains the same...
 
 export default nodes_router;
