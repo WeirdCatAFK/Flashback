@@ -1,4 +1,4 @@
-import BackendAPI from './src/api/client.js';
+import BackendAPI from './src/api/server.js';
 async function main() {
   const server = new BackendAPI({
     port: 50500,  

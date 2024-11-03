@@ -29,17 +29,20 @@ class FlashbackServer {
     const { default: pathsRouter } = await import("./routes/paths.js");
     const { default: tagsRouter } = await import("./routes/tags.js");
     const { default: nodesRouter } = await import("./routes/nodes.js");
-
+    const { default: flashcardRouter } = await import("./routes/flashcards.js");
+    const { default: analysisRouter } = await import("./routes/analysis.js");
     this.app.get("/", (req, res) => {
       res.status(200).send("Welcome to flashback");
     });
 
     this.app.use("/config", configRouter);
+    this.app.use("/flashcards", flashcardRouter);
     this.app.use("/files", filesRouter);
     this.app.use("/upload", uploadRouter);
     this.app.use("/paths", pathsRouter);
     this.app.use("/tags", tagsRouter);
     this.app.use("/nodes", nodesRouter);
+    this.app.use("/analysis", analysisRouter)
 
     this.app.use((req, res) => {
       res.status(404).json({ code: 404, message: "Url no encontrada" });

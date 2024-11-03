@@ -14,6 +14,10 @@ graph LR
 
 ## API
 
+For more information on the routes of the API, check the [API documentation](https://github.com/WeirdCatAFK/Flashback/blob/main/src/api/Documentation.md).
+
+**Note:** This documentation might also be available on the api folder at the src file
+
 ### Workspaces
 
 Flashback is an annotation software that has features of a file manager, so the first thing the app does it's to set a workspace as on this document a workspace refers to a directory (folder) on your computer that contains files that will be annotated or modified with flashback. Flashback is meant to be able to hand multiple workspaces, though it may not be the best option to separate what you learn on different spaces, it may help if you are trying to implement a community workspace or simply have multiple people on the same computer, but as for cooperative learning, after making the main app I will spend some time making a server setup for flashback.
