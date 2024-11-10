@@ -136,25 +136,28 @@ class FileManager {
   buildTreeFromResults(results) {
     const tree = {};
     const lookup = {};
+    const rootDocuments = []; // Array to store root-level documents
 
+    // First pass: Create folder structure
     results.forEach((row) => {
-      if (!lookup[row.id]) {
+      if (row.folder_id && !lookup[row.folder_id]) {
         const folder = {
-          id: row.id,
-          name: row.name,
+          id: row.folder_id,
+          name: row.folder_name,
           type: "folder",
-          presence: row.presence,
+          presence: row.folder_presence,
           children: [],
           documents: [], // Stores document objects
         };
-        lookup[row.id] = folder;
+        lookup[row.folder_id] = folder;
 
         if (row.parent_folder_id === null) {
-          tree[row.id] = folder;
+          tree[row.folder_id] = folder;
         }
       }
     });
 
+    // Second pass: Add documents and establish folder hierarchy
     results.forEach((row) => {
       if (row.document_id) {
         const fileExtension = path.extname(row.document_path).substring(1);
@@ -162,54 +165,73 @@ class FileManager {
           FileManager.FILE_TYPES[fileExtension] ||
           FileManager.FILE_TYPES.default;
 
-        lookup[row.id].documents.push({
+        const document = {
           id: row.document_id,
           name: row.document_name,
           type: "document",
           presence: row.document_presence,
           file_extension: fileExtension,
           encoding: fileType.binary ? 0 : 1,
-        });
+        };
+
+        if (row.folder_id && lookup[row.folder_id]) {
+          // Document belongs to a folder
+          lookup[row.folder_id].documents.push(document);
+        } else {
+          // Root-level document
+          rootDocuments.push(document);
+        }
       }
 
-      if (row.parent_folder_id && lookup[row.id]) {
-        lookup[row.parent_folder_id].children.push(lookup[row.id]);
+      if (row.parent_folder_id && lookup[row.folder_id]) {
+        lookup[row.parent_folder_id].children.push(lookup[row.folder_id]);
       }
     });
 
-    return tree;
+    // Add root documents to the tree
+    return {
+      ...tree,
+      rootDocuments,
+    };
   }
 
   async getDatabaseFileTree() {
     const query = `
-    WITH RECURSIVE
-      tree AS (
-        SELECT 
-          f.id, 
-          f.name, 
-          f.filepath, 
-          f.parent_folder_id,
-          n.presence,
-          1 as level
-        FROM Folders f
-        JOIN Nodes n ON f.node_id = n.id
-        WHERE f.parent_folder_id IS NULL
-        
-        UNION ALL
-        
-        SELECT 
-          f.id, 
-          f.name, 
-          f.filepath, 
-          f.parent_folder_id,
-          n.presence,
-          tree.level + 1
-        FROM Folders f
-        JOIN Nodes n ON f.node_id = n.id
-        JOIN tree ON f.parent_folder_id = tree.id
-      )
+   WITH RECURSIVE
+  tree AS (
     SELECT 
-      t.*,
+      f.id, 
+      f.name, 
+      f.filepath, 
+      f.parent_folder_id,
+      n.presence,
+      1 as level
+    FROM Folders f
+    JOIN Nodes n ON f.node_id = n.id
+    WHERE f.parent_folder_id IS NULL
+    
+    UNION ALL
+    
+    SELECT 
+      f.id, 
+      f.name, 
+      f.filepath, 
+      f.parent_folder_id,
+      n.presence,
+      tree.level + 1
+    FROM Folders f
+    JOIN Nodes n ON f.node_id = n.id
+    JOIN tree ON f.parent_folder_id = tree.id
+  ),
+  all_items AS (
+    -- Folder-associated documents
+    SELECT 
+      t.id as folder_id,
+      t.name as folder_name,
+      t.filepath as folder_path,
+      t.parent_folder_id,
+      t.presence as folder_presence,
+      t.level,
       d.id as document_id,
       d.name as document_name,
       d.filepath as document_path,
@@ -217,9 +239,29 @@ class FileManager {
     FROM tree t
     LEFT JOIN Documents d ON d.folder_id = t.id
     LEFT JOIN Nodes dn ON d.node_id = dn.id
-    ORDER BY t.level, t.name, d.name
+    
+    UNION ALL
+    
+    -- Root-level documents (no folder association)
+    SELECT 
+      NULL as folder_id,
+      NULL as folder_name,
+      NULL as folder_path,
+      NULL as parent_folder_id,
+      NULL as folder_presence,
+      1 as level,
+      d.id as document_id,
+      d.name as document_name,
+      d.filepath as document_path,
+      n.presence as document_presence
+    FROM Documents d
+    JOIN Nodes n ON d.node_id = n.id
+    WHERE d.folder_id IS NULL
+  )
+SELECT *
+FROM all_items
+ORDER BY level, folder_name, document_name;
   `;
-
     const results = await db.all(query);
     return this.buildTreeFromResults(results);
   }
