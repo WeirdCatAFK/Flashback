@@ -1,32 +1,69 @@
-import { useState } from "react";
-import reactLogo from "./assets/react.svg";
+import React, { lazy, Suspense, useState } from "react";
 import "./App.css";
 
-function App() {
-  const [count, setCount] = useState(0);
+const DocumentsView = lazy(() => import("./views/Documents"));
+const FlashcardsView = lazy(() => import("./views/Flashcards"));
+const GraphView = lazy(() => import("./views/Graph"));
+
+const App = () => {
+  const [activeView, setActiveView] = useState("documents");
+
+  const renderView = () => {
+    switch (activeView) {
+      case "documents":
+        return (
+          <Suspense fallback={<div>Loading...</div>}>
+            <DocumentsView />
+          </Suspense>
+        );
+      case "flashcards":
+        return (
+          <Suspense fallback={<div>Loading...</div>}>
+            <FlashcardsView />
+          </Suspense>
+        );
+      case "graph":
+        return (
+          <Suspense fallback={<div>Loading...</div>}>
+            <GraphView />
+          </Suspense>
+        );
+      default:
+        return <div>Select a view from the sidebar</div>;
+    }
+  };
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank"></a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
+    <div id="main-container">
+      <div className="toolbar">
+        <button className="btn-toolbar">File</button>
+        <button className="btn-toolbar">Edit</button>
+        <button className="btn-toolbar">View</button>
+        <button className="btn-toolbar">Annotate</button>
       </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.jsx</code> and save to test HMR
-        </p>
+      <div className="app-container">
+        <div className="sidebar">
+          <button
+            onClick={() => setActiveView("documents")}
+            style={{
+              backgroundImage: "url('./assets/icons/Document_ico.png')",
+            }}
+          ></button>
+          <button
+            onClick={() => setActiveView("flashcards")}
+            style={{
+              backgroundImage: "url('./assets/icons/Flashcards_ico.png')",
+            }}
+          ></button>
+          <button
+            onClick={() => setActiveView("graph")}
+            style={{ backgroundImage: "url('./assets/icons/Graph_ico.png')" }}
+          ></button>
+        </div>
+        <div className="main-content">{renderView()}</div>
       </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    </div>
   );
-}
+};
 
 export default App;
