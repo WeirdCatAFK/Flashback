@@ -80,7 +80,7 @@ upload_router.post("/", upload.single("file"), async (req, res) => {
 
     // Create node for document
     await db.run(
-      'INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = "Document"), 1.0)'
+      'INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = "Document"), 0.0)'
     );
 
     const nodeResult = await db.get("SELECT last_insert_rowid() as lastID");
@@ -242,7 +242,7 @@ upload_router.post("/", upload.single("file"), async (req, res) => {
 
     // Create node for document
     await db.run(
-      'INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = "Document"), 1.0)'
+      'INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = "Document"), 0.0)'
     );
 
     // Get the last inserted node ID
