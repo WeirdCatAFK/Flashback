@@ -1,7 +1,7 @@
 import React, { lazy, Suspense, useState } from "react";
 import "./App.css";
 
-const DocumentsView = lazy(() => import("./views/Documents"));
+const DocumentView = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
 const GraphView = lazy(() => import("./views/Graph"));
 
@@ -13,7 +13,7 @@ const App = () => {
       case "documents":
         return (
           <Suspense fallback={<div>Loading...</div>}>
-            <DocumentsView />
+            <DocumentView />
           </Suspense>
         );
       case "flashcards":
