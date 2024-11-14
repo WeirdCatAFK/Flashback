@@ -1,8 +1,14 @@
 import { useState } from "react";
 import "./FileExplorer.css";
 
-export default function FileExplorer({ tree }) {
+export default function FileExplorer({ tree, sendFileID }) {
+  //On this context id's are relative to the db, not as an element of the dom
   const [expand, setExpand] = useState(false);
+
+  function handleClick(fileData) {
+    sendFileID(fileData);
+  }
+
   if (tree.key == 0) {
     //If node is the first, only render it's contents
     {
@@ -21,7 +27,13 @@ export default function FileExplorer({ tree }) {
             }}
           >
             {tree.items.map((item) => {
-              return <FileExplorer key={item.key} tree={item} />;
+              return (
+                <FileExplorer
+                  key={item.key}
+                  tree={item}
+                  sendFileID={sendFileID}
+                />
+              );
             })}
           </div>
         </div>
@@ -48,12 +60,32 @@ export default function FileExplorer({ tree }) {
           }}
         >
           {tree.items.map((item) => {
-            return <FileExplorer key={item.key} tree={item} />;
+            return (
+              <FileExplorer
+                key={item.key}
+                tree={item}
+                sendFileID={sendFileID}
+              />
+            );
           })}
         </div>
       </div>
     );
   } else {
-    return <div className="file">📄 {tree.name}</div>;
+    return (
+      <div
+        className="file"
+        onClick={() => {
+          tree.id;
+          const fileData = {
+            id: tree.id,
+            presence: tree.presence,
+          };
+          handleClick(fileData);
+        }}
+      >
+        📄 {tree.name}
+      </div>
+    );
   }
 }
