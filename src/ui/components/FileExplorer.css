@@ -1,0 +1,57 @@
+
+
+.folder,
+.file {
+  cursor: pointer;
+  font-size: 11px;
+  color: #000000;
+  white-space: nowrap; /* Prevent text from wrapping to a new line */
+  overflow: hidden; /* Hide overflow text */
+  text-overflow: ellipsis; 
+  max-width: 100%; 
+  padding-top: 0;
+  padding-bottom: 0;
+}
+
+/* Folder styles */
+.folder {
+  display: block;
+  align-items: center;
+}
+
+.folder:hover {
+  background-color: #f4845f;
+  color: #ffffff;
+}
+
+/* File styles */
+.file {
+  padding-left: 10px;
+}
+
+.file:hover {
+  background-color: #f4845f;
+  color: #ffffff;
+}
+
+/* Expandable content */
+.folder + div {
+  margin-left: 10px;
+  border-left: 1px solid #3c3f41;
+  
+}
+
+/* Icons and animations */
+.folder > span::before {
+  content: "▸";
+  display: inline-block;
+  color: #000000;
+  transition: transform 0.2s ease;
+  margin-right: 5px;
+}
+
+.folder.open > span::before {
+  transform: rotate(90deg);
+  color: #000000;
+}
+
