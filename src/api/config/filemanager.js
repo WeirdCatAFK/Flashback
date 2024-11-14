@@ -132,7 +132,6 @@ class FileManager {
       throw error;
     }
   }
-
   async getDatabaseFileTree() {
     const query = `
       WITH RECURSIVE
@@ -223,10 +222,10 @@ class FileManager {
   }
 
   buildTreeFromResults(results) {
-    // Use Map for better performance with large datasets
     const folderMap = new Map();
     const rootItems = [];
     const fileTypeCache = new Map();
+    let keyCounter = 1; // Counter for generating unique keys
 
     const getFileType = (fileExtension) => {
       if (fileTypeCache.has(fileExtension)) {
@@ -238,12 +237,13 @@ class FileManager {
       return fileType;
     };
 
-    // Process folders first using Set for tracking
+    // Process folders first
     const processedFolders = new Set();
 
     for (const row of results) {
       if (row.folder_id && !processedFolders.has(row.folder_id)) {
         const folder = {
+          key: keyCounter++, // Add unique key
           id: row.folder_id,
           name: row.folder_name,
           is_folder: true,
@@ -262,12 +262,13 @@ class FileManager {
       }
     }
 
-    // Process documents in a single pass
+    // Process documents
     for (const row of results) {
       if (row.document_id) {
         const fileType = getFileType(row.file_extension);
 
         const document = {
+          key: keyCounter++, // Add unique key
           id: row.document_id,
           name: row.document_name,
           is_folder: false,
@@ -285,7 +286,9 @@ class FileManager {
       }
     }
 
+    // Create root with a key
     return {
+      key: 0, // Root always has key 0
       id: 0,
       name: "root",
       is_folder: true,
@@ -293,6 +296,7 @@ class FileManager {
       items: rootItems,
     };
   }
+
   async createFile(relativePath, content) {
     let transaction = false;
     try {
