@@ -180,18 +180,6 @@ axios.post('/config/reset')
     .catch(error => console.error(error));
   ```
 
-  #### 1.4.7 Delete a Workspace
-
-  - **Method:** `DELETE /config/workspaces/:id`
-  - **Description:** Deletes a workspace by ID.
-  - **Example:**
-
-  ```javascript
-  axios.delete('/config/workspaces/0') // Replace 0 with the workspace ID to delete
-    .then(response => console.log(response.data))
-    .catch(error => console.error(error));
-  ```
-
 ## 2. Files Endpoint
 
 ### 2.1 Get File Tree
@@ -269,26 +257,6 @@ axios.post('/files/my-folder/my-file.txt', {
 ```javascript
 axios.put('/files/my-folder/my-file.txt', {
     content: 'Updated content'
-  })
-  .then(response => console.log(response.data))
-  .catch(error => console.error(error));
-```
-
-### 2.6 Change File Extension
-
-- **Endpoint:** `PATCH /files/:path(*)/extension`
-- **Description:** Changes the file extension of the specified file.
-- **Request Body:**
-  ```json
-  {
-    "newExtension": "newext"
-  }
-  ```
-- **Example:**
-
-```javascript
-axios.patch('/files/my-folder/my-file.txt/extension', {
-    newExtension: 'md'
   })
   .then(response => console.log(response.data))
   .catch(error => console.error(error));
@@ -446,47 +414,6 @@ axios.post('/flashcards/your-flashcard-id/media', {
   })
   .then(response => console.log(response.data))
   .catch(error => console.error(error));
-```
-
-### 3.5 Update TTS Voice
-
-- **Endpoint:** `PUT /:id/tts`
-- **Description:** Updates the TTS voice of a flashcard.
-- **Request Body:**
-  ```json
-  {
-    "voice": "new-voice"
-  }
-  ```
-- **Example:**
-
-```javascript
-axios.put('/flashcards/your-flashcard-id/tts', {
-    voice: 'new-voice'
-  })
-  .then(response => console.log(response.data))
-  .catch(error => console.error(error));
-```
-
-### 3.6 Update Text Renderer
-
-- **Endpoint:** `PUT /:id/renderer`
-- **Description:** Updates the text renderer of a flashcard.
-- **Request Body:**
-  ```json
-  {
-    "renderer": "new-renderer"
-  }
-  ```
-- **Example:**
-
-```javascript
-axios.put('/flashcards/your-flashcard-id/renderer', {
-    renderer: 'new-renderer'
-  })
-  .then(response => console.log(response.data))
-  .catch(error =>
-
 ```
 
 ## 4. Tags Endpoints
