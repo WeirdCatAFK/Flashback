@@ -1,5 +1,3 @@
-
-
 .folder,
 .file {
   cursor: pointer;
@@ -7,8 +5,8 @@
   color: #000000;
   white-space: nowrap; /* Prevent text from wrapping to a new line */
   overflow: hidden; /* Hide overflow text */
-  text-overflow: ellipsis; 
-  max-width: 100%; 
+  text-overflow: ellipsis;
+  max-width: 100%;
   padding-top: 0;
   padding-bottom: 0;
 }
@@ -38,7 +36,6 @@
 .folder + div {
   margin-left: 10px;
   border-left: 1px solid #3c3f41;
-  
 }
 
 /* Icons and animations */
@@ -55,3 +52,47 @@
   color: #000000;
 }
 
+.button-container {
+  display: flex;
+}
+.button-container :hover {
+  background-color: #f4845f;
+  border: none;
+}
+
+.add-doc,
+.add-folder {
+  background-color: #6c757d;
+  border-radius: 0%;
+  cursor: pointer;
+  font-size: 11px;
+  max-width: 100%;
+  width: 50%;
+  padding: 0%;
+}
+
+.add-doc :hover,
+.add-folder :hover {
+  background-color: #f4845f;
+  border-radius: 0%;
+  cursor: pointer;
+  font-size: 11px;
+  max-width: 100%;
+
+  padding-left: 20%;
+}
+
+
+.drag-over {
+  border: 2px dashed #666;
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+.drop-message {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  font-size: 1.2em;
+  color: #666;
+}

@@ -1,91 +1,103 @@
 import { useState } from "react";
 import "./FileExplorer.css";
 
-export default function FileExplorer({ tree, sendFileID }) {
-  //On this context id's are relative to the db, not as an element of the dom
-  const [expand, setExpand] = useState(false);
+const File = ({ name, id, presence, onFileClick }) => {
+  const handleClick = () => {
+    onFileClick({ id, presence });
+  };
 
-  function handleClick(fileData) {
-    sendFileID(fileData);
-  }
+  return (
+    <div className="file" onClick={handleClick}>
+      📄 {name}
+    </div>
+  );
+};
 
-  if (tree.key == 0) {
-    //If node is the first, only render it's contents
-    {
-      return (
-        <div
-          style={{
-            backgroundColor: "#CED4DA",
-            height: "100%",
-            maxWidth: "100%",
-          }}
-        >
-          <div
-            style={{
-              paddingLeft: 1,
-              maxWidth: "100%",
-            }}
-          >
-            {tree.items.map((item) => {
-              return (
-                <FileExplorer
-                  key={item.key}
-                  tree={item}
-                  sendFileID={sendFileID}
-                />
-              );
-            })}
-          </div>
-        </div>
-      );
-    }
-  }
-  if (tree.is_folder) {
-    return (
+const Folder = ({ name, isOpen, onToggle, children }) => {
+  return (
+    <div style={{ backgroundColor: "#CED4DA", height: "100%", maxWidth: "100%" }}>
       <div
-        style={{ backgroundColor: "#CED4DA", height: "100%", maxWidth: "100%" }}
+        className={`folder ${isOpen ? "open" : ""}`}
+        onClick={onToggle}
       >
-        <div
-          className={`folder ${expand ? "open" : ""}`}
-          onClick={() => setExpand(!expand)}
-        >
-          <span>📁 {tree.name}</span>
-        </div>
-
-        <div
-          style={{
-            paddingLeft: 1,
-            maxWidth: "100%",
-            display: expand ? "block" : "none",
-          }}
-        >
-          {tree.items.map((item) => {
-            return (
-              <FileExplorer
-                key={item.key}
-                tree={item}
-                sendFileID={sendFileID}
-              />
-            );
-          })}
-        </div>
+        <span>📁 {name}</span>
       </div>
-    );
-  } else {
-    return (
+
       <div
-        className="file"
-        onClick={() => {
-          tree.id;
-          const fileData = {
-            id: tree.id,
-            presence: tree.presence,
-          };
-          handleClick(fileData);
+        style={{
+          paddingLeft: 1,
+          maxWidth: "100%",
+          display: isOpen ? "block" : "none",
         }}
       >
-        📄 {tree.name}
+        {children}
       </div>
+    </div>
+  );
+};
+
+const RootFolder = ({ children }) => {
+  return (
+    <div
+      style={{
+        backgroundColor: "#CED4DA",
+        height: "100%",
+        maxWidth: "100%",
+      }}
+    >
+      <div
+        style={{
+          paddingLeft: 1,
+          maxWidth: "100%",
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
+
+export default function FileExplorer({ tree, sendFileID }) {
+  const [expand, setExpand] = useState(false);
+
+  if (tree.key === 0) {
+    return (
+      <RootFolder>
+        {tree.items.map((item) => (
+          <FileExplorer
+            key={item.key}
+            tree={item}
+            sendFileID={sendFileID}
+          />
+        ))}
+      </RootFolder>
     );
   }
+
+  if (tree.is_folder) {
+    return (
+      <Folder
+        name={tree.name}
+        isOpen={expand}
+        onToggle={() => setExpand(!expand)}
+      >
+        {tree.items.map((item) => (
+          <FileExplorer
+            key={item.key}
+            tree={item}
+            sendFileID={sendFileID}
+          />
+        ))}
+      </Folder>
+    );
+  }
+
+  return (
+    <File
+      name={tree.name}
+      id={tree.id}
+      presence={tree.presence}
+      onFileClick={sendFileID}
+    />
+  );
 }
