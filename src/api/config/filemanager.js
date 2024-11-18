@@ -1063,56 +1063,17 @@ class FileManager {
     let transaction = false;
     try {
       const newPath = path.join(path.dirname(absolutePath), newName);
+      const fileExtension = path.extname(newName).toLowerCase().substring(1); // Remove the dot from extension
 
       console.log(`Renaming file from ${absolutePath} to ${newPath}`);
 
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
-      // Update database
+      // Update database (filepath, name, and file_extension)
       const result = await db.run(
-        "UPDATE Documents SET filepath = ? WHERE filepath = ?",
-        [newPath, absolutePath]
-      );
-
-      console.log(`Database update result: ${JSON.stringify(result)}`);
-
-      // Rename file
-      await fs.promises.rename(absolutePath, newPath);
-
-      const document = await db.get(
-        "SELECT id, node_id FROM Documents WHERE filepath = ?",
-        [newPath]
-      );
-
-      await db.run("COMMIT");
-      transaction = false;
-
-      return document;
-    } catch (error) {
-      console.log(error);
-      console.error(`Error during renameFile: ${error.message}`);
-      if (transaction) {
-        await db.run("ROLLBACK");
-      }
-      throw error;
-    }
-  }
-
-  async renameFile(absolutePath, newName) {
-    let transaction = false;
-    try {
-      const newPath = path.join(path.dirname(absolutePath), newName);
-
-      console.log(`Renaming file from ${absolutePath} to ${newPath}`);
-
-      await db.run("BEGIN TRANSACTION");
-      transaction = true;
-
-      // Update database (filepath and name)
-      const result = await db.run(
-        "UPDATE Documents SET filepath = ?, name = ? WHERE filepath = ?",
-        [newPath, newName, absolutePath]
+        "UPDATE Documents SET filepath = ?, name = ?, file_extension = ? WHERE filepath = ?",
+        [newPath, newName, fileExtension, absolutePath]
       );
 
       console.log(`Database update result: ${JSON.stringify(result)}`);

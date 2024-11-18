@@ -106,7 +106,7 @@ files_router.get("/:id([0-9]{1,3})", async (req, res) => {
   }
 });
 
-// Rename routes
+// Rename File
 files_router.put("/:id([0-9]{1,3})/rename", async (req, res) => {
   const file_id = req.params.id;
   const new_name = req.body.rename;
@@ -126,6 +126,8 @@ files_router.put("/:id([0-9]{1,3})/rename", async (req, res) => {
     res.status(500).json({ code: 500, error: error.message });
   }
 });
+
+// Rename Folder
 
 files_router.put("/folder/:id([0-9]{1,3})/rename", async (req, res) => {
   const origin_id = req.params.id;
