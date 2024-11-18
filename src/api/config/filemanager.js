@@ -298,6 +298,9 @@ class FileManager {
   }
 
   async createFile(relativePath, content) {
+    if (!content) {
+      content = "";
+    }
     let transaction = false;
     try {
       const absolutePath = path.join(this.filePath, relativePath);
@@ -312,16 +315,27 @@ class FileManager {
       if (!fs.existsSync(dirPath)) {
         fs.mkdirSync(dirPath, { recursive: true });
       }
-      const parentFolder = await this.createOrGetFolderEntry(
-        path.basename(dirPath),
-        dirPath
-      );
+
+      // Only create a folder node if dirPath is different from this.filePath
+      let parentFolder = null;
+      if (dirPath !== this.filePath) {
+        parentFolder = await this.createOrGetFolderEntry(
+          path.basename(dirPath),
+          dirPath
+        );
+      }
 
       // Create document node and entry
       const nodeId = await this.createDatabaseNode("Document");
       await db.run(
         "INSERT INTO Documents (folder_id, name, filepath, file_extension, node_id) VALUES (?, ?, ?, ?, ?)",
-        [parentFolder.id, fileName, absolutePath, fileExtension, nodeId]
+        [
+          parentFolder ? parentFolder.id : null,
+          fileName,
+          absolutePath,
+          fileExtension,
+          nodeId,
+        ]
       );
 
       const documentResult = await db.get(
@@ -345,11 +359,9 @@ class FileManager {
     }
   }
 
-  async deletePath(relativePath) {
+  async deletePath(absolutePath) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filePath, relativePath);
-
       if (!fs.existsSync(absolutePath)) {
         throw new Error(`Path ${relativePath} not found.`);
       }
@@ -378,7 +390,7 @@ class FileManager {
     }
   }
 
-  async moveFile(sourceRelativePath, destRelativePath) {
+  async moveFile(sourceRelativePath, destRelativePath, isRootMove = false) {
     let transaction = false;
     try {
       const sourcePath = path.join(this.filePath, sourceRelativePath);
@@ -403,10 +415,13 @@ class FileManager {
         fs.mkdirSync(destDir, { recursive: true });
       }
 
-      const destFolder = await this.createOrGetFolderEntry(
-        path.basename(destDir),
-        destDir
-      );
+      let destFolder = null;
+      if (!isRootMove) {
+        destFolder = await this.createOrGetFolderEntry(
+          path.basename(destDir),
+          destDir
+        );
+      }
 
       const stats = await fs.promises.stat(sourcePath);
       if (stats.isDirectory()) {
@@ -423,7 +438,12 @@ class FileManager {
         // Update the main folder
         await db.run(
           "UPDATE Folders SET name = ?, filepath = ?, parent_folder_id = ? WHERE filepath = ?",
-          [path.basename(destPath), destPath, destFolder.id, sourcePath]
+          [
+            path.basename(destPath),
+            destPath,
+            isRootMove ? null : destFolder.id,
+            sourcePath,
+          ]
         );
 
         // Update all child folders' paths
@@ -451,7 +471,12 @@ class FileManager {
         // Update document record
         await db.run(
           "UPDATE Documents SET name = ?, filepath = ?, folder_id = ? WHERE filepath = ?",
-          [path.basename(destPath), destPath, destFolder.id, sourcePath]
+          [
+            path.basename(destPath),
+            destPath,
+            isRootMove ? null : destFolder.id,
+            sourcePath,
+          ]
         );
       }
 
@@ -468,6 +493,164 @@ class FileManager {
       }
       throw error;
     }
+  }
+  async moveFolder(sourceFolderId, targetFolderId, isRootMove = false) {
+    let transaction = false;
+    try {
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Get source folder info
+      const sourceFolder = await this.getFolderInfo(sourceFolderId);
+      if (!sourceFolder) throw new Error("Source folder not found");
+
+      // Get target folder info
+      const targetFolder = await this.getFolderInfo(targetFolderId);
+      if (!targetFolder) throw new Error("Target folder not found");
+
+      // Prevent moving a folder into itself or its subfolders
+      if (targetFolder.filepath.startsWith(sourceFolder.filepath)) {
+        throw new Error("Cannot move a folder into itself or its subfolders");
+      }
+
+      // Calculate new destination path
+      const destinationPath = path.join(
+        targetFolder.filepath,
+        sourceFolder.name
+      );
+      if (fs.existsSync(destinationPath)) {
+        throw new Error(
+          "A folder with this name already exists in the destination"
+        );
+      }
+
+      // Update the source folder's parent_folder_id and filepath
+      await db.run(
+        `UPDATE Folders 
+         SET parent_folder_id = ?, filepath = ?
+         WHERE id = ?`,
+        [isRootMove ? null : targetFolderId, destinationPath, sourceFolderId]
+      );
+
+      // Get all subfolders of the source folder
+      const subfolders = await this.getAllSubfolders(sourceFolderId);
+
+      // Update paths for all subfolders
+      for (const subfolder of subfolders) {
+        const newSubfolderPath = subfolder.filepath.replace(
+          sourceFolder.filepath,
+          destinationPath
+        );
+
+        await db.run(
+          `UPDATE Folders 
+           SET filepath = ?
+           WHERE id = ?`,
+          [newSubfolderPath, subfolder.id]
+        );
+      }
+
+      // Update paths for all documents in the source folder and subfolders
+      await db.run(
+        `UPDATE Documents 
+         SET filepath = REPLACE(filepath, ?, ?)
+         WHERE folder_id IN (
+           WITH RECURSIVE subfolder_tree AS (
+             SELECT id FROM Folders WHERE id = ?
+             UNION ALL
+             SELECT f.id 
+             FROM Folders f
+             JOIN subfolder_tree st ON f.parent_folder_id = st.id
+           )
+           SELECT id FROM subfolder_tree
+         )`,
+        [sourceFolder.filepath, destinationPath, sourceFolderId]
+      );
+
+      // Perform the actual file system move
+      await fs.promises.rename(sourceFolder.filepath, destinationPath);
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return { message: "Folder moved successfully", newPath: destinationPath };
+    } catch (error) {
+      if (transaction) {
+        console.error("Error during folder move:", error);
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+
+  // Helper function to get all subfolders
+  async getAllSubfolders(folderId) {
+    return await db.all(
+      `WITH RECURSIVE subfolder_tree AS (
+         SELECT id, filepath, parent_folder_id 
+         FROM Folders 
+         WHERE parent_folder_id = ?
+         UNION ALL
+         SELECT f.id, f.filepath, f.parent_folder_id
+         FROM Folders f
+         JOIN subfolder_tree st ON f.parent_folder_id = st.id
+       )
+       SELECT * FROM subfolder_tree`,
+      [folderId]
+    );
+  }
+
+  // Helper function to get folder info
+  async getFolderInfo(folderId) {
+    return await db.get(
+      `SELECT id, name, filepath, parent_folder_id, node_id
+       FROM Folders
+       WHERE id = ?`,
+      [folderId]
+    );
+  }
+
+  // Helper function to get folder information from the database
+  async getFolderInfo(folderId) {
+    const row = await db.get(
+      `SELECT filepath, name, node_id, parent_folder_id FROM Folders WHERE id = ?`,
+      [folderId]
+    );
+    return row;
+  }
+
+  // Helper function to update folder and its children's paths in the database
+  async updateFolderPaths(sourceFolder, destinationPath, newParentFolderId) {
+    // Update the source folder's path
+    await db.run(
+      "UPDATE Folders SET name = ?, filepath = ?, parent_folder_id = ? WHERE id = ?",
+      [
+        sourceFolder.name, // Folder name remains the same
+        destinationPath, // New folder path
+        newParentFolderId, // New parent folder ID
+        sourceFolder.id,
+      ]
+    );
+
+    // Update all child folders' paths recursively
+    await db.run(
+      "UPDATE Folders SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+      [
+        sourceFolder.filepath + "\\",
+        destinationPath + "\\",
+        sourceFolder.filepath + "\\%",
+      ]
+    );
+
+    // Update all documents within the folder and its subfolders
+    await db.run(
+      "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+      [
+        sourceFolder.filepath + "\\",
+        destinationPath + "\\",
+        sourceFolder.filepath + "\\%",
+      ]
+    );
   }
 
   async searchDatabase(searchTerm) {
@@ -687,42 +870,69 @@ class FileManager {
     }
   }
 
-  async createFolder(relativePath) {
+  async createFolder(name) {
     let transaction = false;
-    try {
-      const absolutePath = path.join(this.filePath, relativePath);
-      const parentPath = path.dirname(absolutePath);
-      const folderName = path.basename(absolutePath);
+    const workspace_path = this.filePath;
 
+    try {
+      // Start a database transaction
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
-      // Ensure parent directory exists
-      if (!fs.existsSync(parentPath)) {
-        fs.mkdirSync(parentPath, { recursive: true });
-      }
-      const parentFolder = await this.createOrGetFolderEntry(
-        path.basename(parentPath),
-        parentPath
+      // 1. Create a node for the folder (type_id 1 is for folders based on your Node_types table)
+      await db.run("INSERT INTO Nodes (type_id, presence) VALUES (1, 0.0)");
+
+      // Get the last inserted node ID
+      const nodeResult = await db.get("SELECT last_insert_rowid() as id");
+      const nodeId = nodeResult.id;
+
+      // 2. Construct the folder path
+      const folderPath = path.join(workspace_path, name);
+
+      // 3. Create folder in the database
+      await db.run(
+        `INSERT INTO Folders (name, filepath, node_id, parent_folder_id) 
+         VALUES (?, ?, ?, ?)`,
+        [name, folderPath, nodeId, null]
       );
 
-      // Create the new folder
-      fs.mkdirSync(absolutePath);
-      const result = await this.createOrGetFolderEntry(
-        folderName,
-        absolutePath,
-        parentFolder.id
-      );
+      // Get the last inserted folder ID
+      const folderResult = await db.get("SELECT last_insert_rowid() as id");
+      const folderId = folderResult.id;
 
+      // 4. Create the actual folder in the filesystem
+      fs.mkdir(folderPath, { recursive: true }, (err) => {
+        console.error("Couldn't create folder");
+      });
+
+      // Commit the transaction
       await db.run("COMMIT");
       transaction = false;
 
-      return result;
+      return {
+        message: "Folder created successfully",
+        folderId: folderId,
+        nodeId: nodeId,
+        path: folderPath,
+      };
     } catch (error) {
+      console.error("Error creating folder:", error);
+
+      // Rollback the transaction in case of any errors
       if (transaction) {
         await db.run("ROLLBACK");
       }
-      throw error;
+
+      // If the folder was created in the filesystem but the database operations failed,
+      // try to clean up the folder
+      try {
+        const folderPath = path.join(workspace_path, name);
+        fs.rm(folderPath, { recursive: true });
+      } catch (cleanupError) {
+        console.error("Error cleaning up folder:", cleanupError);
+      }
+
+      throw new Error(`Failed to create folder: ${error.message}`);
     }
   }
 
@@ -757,6 +967,7 @@ class FileManager {
 
       return document;
     } catch (error) {
+      console.log(error);
       console.error(`Error during renameFile: ${error.message}`);
       if (transaction) {
         await db.run("ROLLBACK");
@@ -764,6 +975,7 @@ class FileManager {
       throw error;
     }
   }
+
   async renameFile(absolutePath, newName) {
     let transaction = false;
     try {
@@ -805,6 +1017,7 @@ class FileManager {
 
   async renameFolder(absolutePath, newName) {
     let transaction = false;
+    console.log(absolutePath);
     try {
       // Input validation
       if (!absolutePath || !newName) {
@@ -818,20 +1031,19 @@ class FileManager {
 
       // Calculate new paths
       const newPath = path.join(path.dirname(absolutePath), newName);
-
+      console.log(newPath);
       // Check if target path already exists
       try {
         await fs.promises.access(newPath);
         throw new Error("A folder with this name already exists");
       } catch (err) {
-        // Error means path doesn't exist, which is what we want
-        if (err.code !== "ENOENT") throw err;
+        if (err.code !== "ENOENT") throw err; // Error means path doesn't exist
       }
 
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
-      // First verify the folder exists in database
+      // Verify the folder exists in the database
       const folder = await db.get("SELECT id FROM Folders WHERE filepath = ?", [
         absolutePath,
       ]);
@@ -840,23 +1052,23 @@ class FileManager {
         throw new Error("Folder not found in database");
       }
 
-      // Update the folder's own path
+      // Update the folder's own path in the database
       await db.run(
         "UPDATE Folders SET filepath = ?, name = ? WHERE filepath = ?",
         [newPath, newName, absolutePath]
       );
 
-      // Update all child folders' paths
-      await db.run(
-        "UPDATE Folders SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
-        [absolutePath, newPath, `${absolutePath}/%`]
-      );
+      // Update all child folders' paths more explicitly
+      await db.run("UPDATE Folders SET filepath = ? WHERE filepath LIKE ?", [
+        newPath + "\\",
+        absolutePath + "\\%",
+      ]);
 
-      // Update all documents' paths
-      await db.run(
-        "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
-        [absolutePath, newPath, `${absolutePath}/%`]
-      );
+      // Update all documents' paths more explicitly
+      await db.run("UPDATE Documents SET filepath = ? WHERE filepath LIKE ?", [
+        newPath + "\\",
+        absolutePath + "\\%",
+      ]);
 
       // Rename the folder in the filesystem last (in case DB updates fail)
       await fs.promises.rename(absolutePath, newPath);

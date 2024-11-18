@@ -1,26 +1,12 @@
 import express from "express";
 import fileManager from "../config/filemanager.js";
 import db from "../config/dbmanager.js";
+import path from "path";
 
 const files_router = express.Router();
 files_router.use(express.json());
 
-// Get file tree
-files_router.get("/tree", async (req, res) => {
-  try {
-    const tree = await fileManager.getDatabaseFileTree();
-    res.status(200).json({
-      code: 200,
-      tree: tree,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message,
-    });
-  }
-});
-
+// More specific routes first
 // Search files and folders
 files_router.get("/search", async (req, res) => {
   try {
@@ -44,7 +30,54 @@ files_router.get("/search", async (req, res) => {
   }
 });
 
-// Read file
+// Get file tree
+files_router.get("/tree", async (req, res) => {
+  try {
+    const tree = await fileManager.getDatabaseFileTree();
+    res.status(200).json({
+      code: 200,
+      tree: tree,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Specific path routes for files and folders
+files_router.get("/folder/:id([0-9]{1,3})/path", async (req, res) => {
+  try {
+    const wrkspce_root = await fileManager.getCurrentFilePath();
+    const file_id = req.params.id;
+    const rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
+      file_id,
+    ]);
+    const filepath = rows?.filepath; //This is also absolute
+    const relative_path = path.relative(wrkspce_root, filepath);
+    res.status(200).json({ code: 200, message: relative_path });
+  } catch (error) {
+    res.status(500).json({ code: 500, error: error.message });
+  }
+});
+
+files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
+  try {
+    const wrkspce_root = await fileManager.getCurrentFilePath();
+    const file_id = req.params.id;
+    const rows = await db.get(`SELECT filepath FROM Documents WHERE id = ?`, [
+      file_id,
+    ]);
+    const filepath = rows?.filepath; //This is also absolute
+    const relative_path = path.relative(wrkspce_root, filepath);
+    res.status(200).json({ code: 200, message: relative_path });
+  } catch (error) {
+    res.status(500).json({ code: 500, error: error.message });
+  }
+});
+
+// Read file route with specific ID pattern
 files_router.get("/:id([0-9]{1,3})", async (req, res) => {
   try {
     const file_id = req.params.id;
@@ -73,7 +106,7 @@ files_router.get("/:id([0-9]{1,3})", async (req, res) => {
   }
 });
 
-// Rename File
+// Rename routes
 files_router.put("/:id([0-9]{1,3})/rename", async (req, res) => {
   const file_id = req.params.id;
   const new_name = req.body.rename;
@@ -94,12 +127,11 @@ files_router.put("/:id([0-9]{1,3})/rename", async (req, res) => {
   }
 });
 
-// Rename Folder
 files_router.put("/folder/:id([0-9]{1,3})/rename", async (req, res) => {
-  const file_id = req.params.id;
+  const origin_id = req.params.id;
   const new_name = req.body.rename;
   const rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
-    file_id,
+    origin_id,
   ]);
   const filepath = rows?.filepath;
 
@@ -115,78 +147,23 @@ files_router.put("/folder/:id([0-9]{1,3})/rename", async (req, res) => {
   }
 });
 
-//Get Absolute FilePath given it's id
-//For a File
-files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
-  try {
-    const file_id = req.params.id;
-    const rows = await db.get(`SELECT filepath FROM Documents WHERE id = ?`, [
-      file_id,
-    ]);
-    const filepath = rows?.filepath;
-    res.status.json({ code: 200, message: filepath });
-  } catch (error) {
-    res.status(500).json({ code: 500, error: error.message });
-  }
-});
-
-//Get Absolute FilePath given it's id
-//For a Folder
-files_router.get("folder/:id([0-9]{1,3})/path", async (req, res) => {
-  const file_id = req.params.id;
-  const rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
-    file_id,
-  ]);
-  const filepath = rows?.filepath;
-});
-
-//Get Relative FilePath given it's id
-//For a File
-files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
-  try {
-    const wrkspce_root = fileManager.getCurrentFilePath();
-    const file_id = req.params.id;
-    const rows = await db.get(`SELECT filepath FROM Documents WHERE id = ?`, [
-      file_id,
-    ]);
-    const filepath = rows?.filepath; //This is also absolute
-    const relative_path = path.relative(wrkspce_root, filepath);
-    res.status(200).json({ code: 200, message: relative_path });
-  } catch (error) {
-    res.status(500).json({ code: 500, error: error.message });
-  }
-});
-
-//Get Relative FilePath given it's id
-//For a Folder
-files_router.get("folder/:id([0-9]{1,3})/path", async (req, res) => {
-  try {
-    const wrkspce_root = fileManager.getCurrentFilePath();
-    const file_id = req.params.id;
-    const rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
-      file_id,
-    ]);
-    const filepath = rows?.filepath; //This is also absolute
-    const relative_path = path.relative(wrkspce_root, filepath);
-    res.status(200).json({ code: 200, message: relative_path });
-  } catch (error) {
-    res.status(500).json({ code: 500, error: error.message });
-  }
-});
-
-// Move file
+// Move routes
+// Move file to another folder
 files_router.post(
-  "/:id([0-9]{1,3})/move/:folder_id([0-9]{1,3})",
+  "/:id([0-9]{1,3})/move/:folder_id(|[0-9]{1,3})",
   async (req, res) => {
     try {
-      const wrkspce_root = fileManager.getCurrentFilePath();
+      const wrkspce_root = await fileManager.getCurrentFilePath();
       const file_id = req.params.id;
+      const folder_id = req.params.folder_id;
+      const isRootMove = folder_id === "0";
 
       // Retrieve the file's current path
-      let rows = await db.get(`SELECT filepath FROM Documents WHERE id = ?`, [
-        file_id,
-      ]);
-      const filepath = rows?.filepath;
+      const fileRow = await db.get(
+        `SELECT filepath FROM Documents WHERE id = ?`,
+        [file_id]
+      );
+      const filepath = fileRow?.filepath;
 
       if (!filepath) {
         return res.status(404).json({
@@ -195,30 +172,37 @@ files_router.post(
         });
       }
 
-      const folder_id = req.params.folder_id;
-
-      // Retrieve the target folder's path
-      rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
-        folder_id,
-      ]);
-      const folderPath = rows?.filepath;
-
-      if (!folderPath) {
-        return res.status(404).json({
-          code: 404,
-          error: "Target folder not found",
-        });
-      }
-
       // Retrieve the file's name
-      rows = await db.get(`SELECT name FROM Documents WHERE id = ?`, [file_id]);
-      const filename = rows?.name;
+      const nameRow = await db.get(`SELECT name FROM Documents WHERE id = ?`, [
+        file_id,
+      ]);
+      const filename = nameRow?.name;
 
       if (!filename) {
         return res.status(404).json({
           code: 404,
           error: "File name not found",
         });
+      }
+
+      // Handle root folder case (0) and regular folders differently
+      let folderPath;
+      if (isRootMove) {
+        folderPath = wrkspce_root;
+      } else {
+        // Retrieve the target folder's path
+        const folderRow = await db.get(
+          `SELECT filepath FROM Folders WHERE id = ?`,
+          [folder_id]
+        );
+
+        if (!folderRow?.filepath) {
+          return res.status(404).json({
+            code: 404,
+            error: "Target folder not found",
+          });
+        }
+        folderPath = folderRow.filepath;
       }
 
       // Calculate relative paths
@@ -236,14 +220,19 @@ files_router.post(
         });
       }
 
-      // Perform the move operation
-      await fileManager.movePath(sourceRelativePath, destinationRelativePath);
+      // Perform the move operation with the root move flag
+      await fileManager.moveFile(
+        sourceRelativePath,
+        destinationRelativePath,
+        isRootMove
+      );
 
       res.status(200).json({
         code: 200,
         message: "File moved successfully",
       });
     } catch (error) {
+      console.log(error);
       res.status(500).json({
         code: 500,
         error: error.message,
@@ -252,73 +241,53 @@ files_router.post(
   }
 );
 
-//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Move folder to another folder
+files_router.post(
+  "/folder/:id([0-9]{1,3})/move/:folder_id(|[0-9]{1,3})",
+  async (req, res) => {
+    try {
+      const source_folder_id = req.params.id;
+      const target_folder_id = req.params.folder_id;
+      await fileManager.moveFolder(source_folder_id, target_folder_id);
+      res.status(200).json({
+        code: 200,
+        message: "Folder moved successfully",
+      });
+    } catch (error) {
+      res.status(500).json({
+        code: 500,
+        message: "Failed to move Folder",
+      });
+    }
+  }
+);
 
+// Create routes
+
+// Create folder
+files_router.post("/folder/:name(*)", async (req, res) => {
+  try {
+    const folder_name = req.params.name;
+    const result = await fileManager.createFolder(folder_name);
+    res.status(200).json({
+      code: 200,
+      folder: result,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
 // Create file
 files_router.post("/:path(*)", async (req, res) => {
   try {
     const filePath = req.params.path;
     const { content } = req.body;
-    if (content === undefined) {
-      return res.status(400).json({
-        code: 400,
-        error: "Content is required",
-      });
-    }
     const result = await fileManager.createFile(filePath, content);
     res.status(201).json({
       code: 201,
-      file: result,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message,
-    });
-  }
-});
-
-// Write to file
-files_router.put("/:path(*)", async (req, res) => {
-  try {
-    const filePath = req.params.path;
-    const { content } = req.body;
-    if (content === undefined) {
-      return res.status(400).json({
-        code: 400,
-        error: "Content is required",
-      });
-    }
-    await fileManager.writeFile(filePath, content);
-    res.status(200).json({
-      code: 200,
-      message: "File updated successfully",
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message,
-    });
-  }
-});
-
-// Change file extension
-files_router.patch("/:path(*)/extension", async (req, res) => {
-  try {
-    const filePath = req.params.path;
-    const { newExtension } = req.body;
-    if (!newExtension) {
-      return res.status(400).json({
-        code: 400,
-        error: "New extension is required",
-      });
-    }
-    const result = await fileManager.changeFileExtension(
-      filePath,
-      newExtension
-    );
-    res.status(200).json({
-      code: 200,
       file: result,
     });
   } catch (error) {
@@ -337,47 +306,6 @@ files_router.delete("/:path(*)", async (req, res) => {
     res.status(200).json({
       code: 200,
       message: "File deleted successfully",
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message,
-    });
-  }
-});
-
-// Create folder
-files_router.post("/folder/:path(*)", async (req, res) => {
-  try {
-    const folderPath = req.params.path;
-    const result = await fileManager.createFolder(folderPath);
-    res.status(201).json({
-      code: 201,
-      folder: result,
-    });
-  } catch (error) {
-    res.status(500).json({
-      code: 500,
-      error: error.message,
-    });
-  }
-});
-
-// Move folder
-files_router.post("/folder/:path(*)/move", async (req, res) => {
-  try {
-    const sourcePath = req.params.path;
-    const { destination } = req.body;
-    if (!destination) {
-      return res.status(400).json({
-        code: 400,
-        error: "Destination path is required",
-      });
-    }
-    await fileManager.moveFile(sourcePath, destination);
-    res.status(200).json({
-      code: 200,
-      message: "Folder moved successfully",
     });
   } catch (error) {
     res.status(500).json({

@@ -9,10 +9,38 @@ export default function FileExplorer({
   sendRefreshStatus,
 }) {
   const [expand, setExpand] = useState(false);
-  //Root Folder 📂
+
   if (tree.key === 0) {
+    async function handleOnDrop(e) {
+      // Only handle if it's dropped directly on root (not bubbled)
+      if (e.target.closest(".root-folder")) {
+        const dragged_id = e.dataTransfer.getData("id");
+        const isFolder = e.dataTransfer.getData("isFolder") === "true";
+        
+        try {
+          const response = await axios.post(
+            `http://localhost:50500/files${isFolder ? '/folder' : ''}/${dragged_id}/move/0`
+          );
+          console.log(`${isFolder ? 'Folder' : 'File'} moved successfully:`, response.data);
+          sendRefreshStatus(true);
+        } catch (error) {
+          console.error(`Error moving ${isFolder ? 'folder' : 'file'}:`, 
+            error.response ? error.response.data : error.message
+          );
+        }
+      }
+    }
+
+    function handleOnDragOver(e) {
+      e.preventDefault();
+    }
+
     return (
-      <RootFolder sendRefreshStatus={sendRefreshStatus}>
+      <RootFolder
+        sendRefreshStatus={sendRefreshStatus}
+        onDrop={handleOnDrop}
+        onDragOver={handleOnDragOver}
+      >
         {tree.items.map((item) => (
           <FileExplorer
             key={item.key}
@@ -25,7 +53,7 @@ export default function FileExplorer({
       </RootFolder>
     );
   }
-  //Folder 📁
+
   if (tree.is_folder) {
     function toggle() {
       setExpand(!expand);
@@ -51,7 +79,7 @@ export default function FileExplorer({
       </Folder>
     );
   }
-  //File 📄
+
   return (
     <File
       name={tree.name}
@@ -62,10 +90,14 @@ export default function FileExplorer({
   );
 }
 
-//File component 📄
 const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
+
+  function handleOnDragStart(e, id, isFolder) {
+    e.dataTransfer.setData("id", id);
+    e.dataTransfer.setData("isFolder", isFolder);
+  }
 
   function handleClick() {
     if (!isRenaming) {
@@ -86,10 +118,9 @@ const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
         });
         setIsRenaming(false);
         sendRefreshStatus(true);
-        ``;
       } catch (error) {
         console.error("Failed to rename file:", error);
-        setNewName(name); // Reset to original name if failed
+        setNewName(name);
       }
     } else if (e.key === "Escape") {
       setIsRenaming(false);
@@ -102,6 +133,8 @@ const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
       className="file"
       onClick={handleClick}
       onContextMenu={handleRightClick}
+      draggable
+      onDragStart={(e) => handleOnDragStart(e, id, false)}
     >
       {isRenaming ? (
         <input
@@ -122,8 +155,6 @@ const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
   );
 };
 
-//Folder component
-
 const Folder = ({
   name,
   isOpen,
@@ -135,6 +166,36 @@ const Folder = ({
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
+
+  async function handleOnDrop(e) {
+    // Stop event from bubbling to parent folders
+    e.stopPropagation();
+    
+    const dragged_id = e.dataTransfer.getData("id");
+    const isFolder = e.dataTransfer.getData("isFolder") === "true";
+    
+    try {
+      const response = await axios.post(
+        `http://localhost:50500/files${isFolder ? '/folder' : ''}/${dragged_id}/move/${id}`
+      );
+      console.log(`${isFolder ? 'Folder' : 'File'} moved successfully:`, response.data);
+      sendRefreshStatus(true);
+    } catch (error) {
+      console.error(`Error moving ${isFolder ? 'folder' : 'file'}:`,
+        error.response ? error.response.data : error.message
+      );
+    }
+  }
+
+  function handleOnDragStart(e, id, isFolder) {
+    e.dataTransfer.setData("id", id);
+    e.dataTransfer.setData("isFolder", isFolder);
+  }
+
+  function handleOnDragOver(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   function handleClick() {
     if (!isRenaming) {
@@ -174,6 +235,10 @@ const Folder = ({
         className={`folder ${isOpen ? "open" : ""}`}
         onClick={handleClick}
         onContextMenu={handleRightClick}
+        draggable
+        onDragStart={(e) => handleOnDragStart(e, id, true)}
+        onDrop={handleOnDrop}
+        onDragOver={handleOnDragOver}
       >
         <span>
           {isRenaming ? (
@@ -207,20 +272,121 @@ const Folder = ({
   );
 };
 
-//Root Folder 📂
-const RootFolder = ({ children, sendRefreshStatus }) => {
-  function handleCreateFolderClick() {
-    sendRefreshStatus(true);
+const RootFolder = ({ children, sendRefreshStatus, onDrop, onDragOver }) => {
+  const [isDragging, setIsDragging] = useState(false);
+
+  async function handleCreateFolderClick() {
+    try {
+      await axios.post("http://localhost:50500/files/folder/new_folder");
+      sendRefreshStatus(true);
+    } catch (error) {
+      console.error("Failed to create new folder:", error)
+    }
   }
 
-  function handleCreateFileClick() {
-    sendRefreshStatus(true);
+  async function handleCreateFileClick() {
+    try {
+      await axios.post("http://localhost:50500/files/new_file");
+      sendRefreshStatus(true);
+    } catch (error) {
+      console.error("Failed to create new file:", error);
+    }
   }
+
+  const handleDragEnter = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragLeave = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    onDragOver(e);
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+
+    // Check if it's an internal drag operation
+    const draggedId = e.dataTransfer.getData("id");
+    if (draggedId) {
+      onDrop(e);
+      return;
+    }
+
+    // Handle file upload
+    const files = Array.from(e.dataTransfer.files);
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        await axios.post("http://localhost:50500/upload", formData, {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        });
+        console.log("File uploaded successfully:", file.name);
+        sendRefreshStatus(true);
+      } catch (error) {
+        console.error("Error uploading file:", error);
+      }
+    }
+  };
 
   return (
     <div
-      style={{ backgroundColor: "#CED4DA", height: "100%", maxWidth: "100%" }}
+      className="root-folder"
+      style={{
+        backgroundColor: "#CED4DA",
+        height: "100%",
+        maxWidth: "100%",
+        position: "relative",
+      }}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
     >
+      {isDragging && (
+        <div
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.1)",
+            border: "2px dashed #666",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              padding: "20px",
+              backgroundColor: "white",
+              borderRadius: "8px",
+              boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
+            }}
+          >
+            Drop files here to upload
+          </div>
+        </div>
+      )}
       <div className="header-cont">
         <div className="workspace-name-cont">
           <span className="workspace-name">Flashback</span>

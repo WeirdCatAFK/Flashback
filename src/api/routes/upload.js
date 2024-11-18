@@ -1,10 +1,9 @@
-import express from 'express';
-import multer from 'multer';
-import fileManager from '../config/filemanager.js';
-import db from '../config/dbmanager.js';
-import path from 'path';
-import fs from 'fs';
-
+import express from "express";
+import multer from "multer";
+import fileManager from "../config/filemanager.js";
+import db from "../config/dbmanager.js";
+import path from "path";
+import fs from "fs";
 
 const upload_router = express.Router();
 const upload = multer();
@@ -288,13 +287,19 @@ upload_router.post("/", upload.single("file"), async (req, res) => {
 });
 
 function getUniqueFilename(directory, originalFilename) {
-  let filename = originalFilename;
+  // Replace spaces with underscores in the original filename
+  let filename = originalFilename.replace(/\s+/g, "_");
+
   let counter = 1;
+  // Ensure the filename is unique by checking if it already exists in the directory
   while (fs.existsSync(path.join(directory, filename))) {
     const parsedFilename = path.parse(originalFilename);
-    filename = `${parsedFilename.name}_${counter}${parsedFilename.ext}`;
+    filename = `${parsedFilename.name.replace(/\s+/g, "_")}_${counter}${
+      parsedFilename.ext
+    }`;
     counter++;
   }
+
   return filename;
 }
 
