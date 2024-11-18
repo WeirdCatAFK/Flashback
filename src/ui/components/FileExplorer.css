@@ -82,7 +82,6 @@
   padding-left: 20%;
 }
 
-
 .drag-over {
   border: 2px dashed #666;
   background-color: rgba(0, 0, 0, 0.1);
@@ -95,4 +94,76 @@
   transform: translate(-50%, -50%);
   font-size: 1.2em;
   color: #666;
+}
+
+/* Header Buttons and workspace name*/
+
+/* Styles for the create buttons container */
+.header-cont {
+  display: flex;
+  justify-content: end;
+  background-color: #ced4da;
+}
+
+.workspace-name-cont {
+  width: 100%;
+}
+
+.workspace-name {
+  cursor: auto;
+  font-size: 15px;
+  justify-content: start;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  padding: 1px;
+  font-style: bold;
+}
+
+.create-fold-btn,
+.create-doc-btn {
+  background-color: #ced4da; 
+  color: #000000;
+  border: none;
+  padding: 5px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: background-color 0.3s;
+  display: inline-flex;
+  align-items: center;
+  border-radius: 0px;
+}
+
+/* Hover effect for buttons */
+.create-fold-btn:hover,
+.create-doc-btn:hover {
+  background-color: #f4845f;
+  color: #000000;
+}
+
+/* Adjust button containers */
+.create-fold-cont,
+.create-doc-container {
+  display: flex;
+  align-items: center;
+}
+
+.file input, .folder input {
+  background: transparent;
+  border: 1px solid #666;
+  padding: 2px 4px;
+  font-size: inherit;
+  width: 80%;
+}
+
+.file input:focus, .folder input:focus {
+  outline: none;
+  border-color: #0066cc;
+}
+
+.file {
+  cursor: move; /* Show move cursor on files */
+}
+
+.folder {
+  cursor: pointer; /* Show pointer on folders */
 }

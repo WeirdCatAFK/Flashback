@@ -378,15 +378,21 @@ class FileManager {
     }
   }
 
-  async movePath(sourceRelativePath, destRelativePath) {
+  async moveFile(sourceRelativePath, destRelativePath) {
     let transaction = false;
     try {
       const sourcePath = path.join(this.filePath, sourceRelativePath);
       const destPath = path.join(this.filePath, destRelativePath);
       const destDir = path.dirname(destPath);
 
+      // Validate source exists
       if (!fs.existsSync(sourcePath)) {
         throw new Error(`Source ${sourceRelativePath} not found.`);
+      }
+
+      // Check if destination already exists
+      if (fs.existsSync(destPath)) {
+        throw new Error(`Destination ${destRelativePath} already exists.`);
       }
 
       await db.run("BEGIN TRANSACTION");
@@ -396,6 +402,7 @@ class FileManager {
       if (!fs.existsSync(destDir)) {
         fs.mkdirSync(destDir, { recursive: true });
       }
+
       const destFolder = await this.createOrGetFolderEntry(
         path.basename(destDir),
         destDir
@@ -403,21 +410,58 @@ class FileManager {
 
       const stats = await fs.promises.stat(sourcePath);
       if (stats.isDirectory()) {
+        // Get the source folder's node_id before updating
+        const sourceFolder = await db.get(
+          "SELECT node_id FROM Folders WHERE filepath = ?",
+          [sourcePath]
+        );
+
+        if (!sourceFolder) {
+          throw new Error("Source folder not found in database");
+        }
+
+        // Update the main folder
         await db.run(
           "UPDATE Folders SET name = ?, filepath = ?, parent_folder_id = ? WHERE filepath = ?",
           [path.basename(destPath), destPath, destFolder.id, sourcePath]
         );
+
+        // Update all child folders' paths
+        await db.run(
+          "UPDATE Folders SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+          [sourcePath + "/", destPath + "/", sourcePath + "/%"]
+        );
+
+        // Update all documents within this folder and its subfolders
+        await db.run(
+          "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+          [sourcePath + "/", destPath + "/", sourcePath + "/%"]
+        );
       } else {
+        // Get the source document's node_id before updating
+        const sourceDoc = await db.get(
+          "SELECT node_id FROM Documents WHERE filepath = ?",
+          [sourcePath]
+        );
+
+        if (!sourceDoc) {
+          throw new Error("Source document not found in database");
+        }
+
+        // Update document record
         await db.run(
           "UPDATE Documents SET name = ?, filepath = ?, folder_id = ? WHERE filepath = ?",
           [path.basename(destPath), destPath, destFolder.id, sourcePath]
         );
       }
 
+      // Perform the actual file system move
       await fs.promises.rename(sourcePath, destPath);
 
       await db.run("COMMIT");
       transaction = false;
+
+      return { message: "File moved successfully", newPath: destPath };
     } catch (error) {
       if (transaction) {
         await db.run("ROLLBACK");
@@ -530,8 +574,7 @@ class FileManager {
     ]);
   }
 
-  async readFile(relativePath) {
-    const absolutePath = path.join(this.filePath, relativePath);
+  async readFile(absolutePath) {
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =
@@ -683,20 +726,23 @@ class FileManager {
     }
   }
 
-  async renameFile(relativePath, newName) {
+  async renameFile(absolutePath, newName) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filePath, relativePath);
       const newPath = path.join(path.dirname(absolutePath), newName);
+
+      console.log(`Renaming file from ${absolutePath} to ${newPath}`);
 
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
       // Update database
-      await db.run("UPDATE Documents SET filepath = ? WHERE filepath = ?", [
-        newPath,
-        absolutePath,
-      ]);
+      const result = await db.run(
+        "UPDATE Documents SET filepath = ? WHERE filepath = ?",
+        [newPath, absolutePath]
+      );
+
+      console.log(`Database update result: ${JSON.stringify(result)}`);
 
       // Rename file
       await fs.promises.rename(absolutePath, newPath);
@@ -711,38 +757,108 @@ class FileManager {
 
       return document;
     } catch (error) {
+      console.error(`Error during renameFile: ${error.message}`);
       if (transaction) {
         await db.run("ROLLBACK");
       }
       throw error;
     }
   }
-  async renameFolder(relativePath, newName) {
+  async renameFile(absolutePath, newName) {
     let transaction = false;
     try {
-      const absolutePath = path.join(this.filePath, relativePath);
-      const folderStats = await fs.promises.stat(absolutePath);
-
-      if (!folderStats.isDirectory()) {
-        throw new Error("relativePath must be a directory");
-      }
-
       const newPath = path.join(path.dirname(absolutePath), newName);
+
+      console.log(`Renaming file from ${absolutePath} to ${newPath}`);
 
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
-      await db.run("UPDATE Folders SET filepath = ? WHERE filepath = ?", [
-        newPath,
+      // Update database (filepath and name)
+      const result = await db.run(
+        "UPDATE Documents SET filepath = ?, name = ? WHERE filepath = ?",
+        [newPath, newName, absolutePath]
+      );
+
+      console.log(`Database update result: ${JSON.stringify(result)}`);
+
+      // Rename file in the filesystem
+      await fs.promises.rename(absolutePath, newPath);
+
+      const document = await db.get(
+        "SELECT id, node_id FROM Documents WHERE filepath = ?",
+        [newPath]
+      );
+
+      await db.run("COMMIT");
+      transaction = false;
+
+      return document;
+    } catch (error) {
+      console.error(`Error during renameFile: ${error.message}`);
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
+
+  async renameFolder(absolutePath, newName) {
+    let transaction = false;
+    try {
+      // Input validation
+      if (!absolutePath || !newName) {
+        throw new Error("Both absolutePath and newName are required");
+      }
+
+      const folderStats = await fs.promises.stat(absolutePath);
+      if (!folderStats.isDirectory()) {
+        throw new Error("absolutePath must be a directory");
+      }
+
+      // Calculate new paths
+      const newPath = path.join(path.dirname(absolutePath), newName);
+
+      // Check if target path already exists
+      try {
+        await fs.promises.access(newPath);
+        throw new Error("A folder with this name already exists");
+      } catch (err) {
+        // Error means path doesn't exist, which is what we want
+        if (err.code !== "ENOENT") throw err;
+      }
+
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // First verify the folder exists in database
+      const folder = await db.get("SELECT id FROM Folders WHERE filepath = ?", [
         absolutePath,
       ]);
 
+      if (!folder) {
+        throw new Error("Folder not found in database");
+      }
+
+      // Update the folder's own path
       await db.run(
-        "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
-        [absolutePath, newPath, `${absolutePath}%`]
+        "UPDATE Folders SET filepath = ?, name = ? WHERE filepath = ?",
+        [newPath, newName, absolutePath]
       );
 
-      // Rename the folder in the filesystem
+      // Update all child folders' paths
+      await db.run(
+        "UPDATE Folders SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+        [absolutePath, newPath, `${absolutePath}/%`]
+      );
+
+      // Update all documents' paths
+      await db.run(
+        "UPDATE Documents SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
+        [absolutePath, newPath, `${absolutePath}/%`]
+      );
+
+      // Rename the folder in the filesystem last (in case DB updates fail)
       await fs.promises.rename(absolutePath, newPath);
 
       await db.run("COMMIT");

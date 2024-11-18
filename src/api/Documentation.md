@@ -212,12 +212,12 @@ axios.get('/files/search', { params: { term: 'example' } })
 
 ### 2.3 Read File Content
 
-- **Endpoint:** `GET /files/:path(*)`
-- **Description:** Reads file content by the specified path.
+- **Endpoint:** `GET /files/:id(*)`
+- **Description:** Reads file content by the specified db id.
 - **Example:**
 
 ```javascript
-axios.get('/files/my-folder/my-file.txt')
+axios.get('/files/1')
   .then(response => console.log(response.data))
   .catch(error => console.error(error));
 ```
