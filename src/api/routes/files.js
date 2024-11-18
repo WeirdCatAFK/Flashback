@@ -262,8 +262,6 @@ files_router.post(
   }
 );
 
-// Create routes
-
 // Create folder
 files_router.post("/folder/:name(*)", async (req, res) => {
   try {
@@ -298,11 +296,56 @@ files_router.post("/:path(*)", async (req, res) => {
   }
 });
 
-// Delete file
-files_router.delete("/:path(*)", async (req, res) => {
+
+// Delete folder
+files_router.delete("/folder/:id([0-9]{1,3})", async (req, res) => {
   try {
-    const filePath = req.params.path;
-    await fileManager.deletePath(filePath);
+    const folder_id = req.params.id;
+
+    const folderRow = await db.get(
+      `SELECT filepath FROM Folders WHERE id = ?`,
+      [folder_id]
+    );
+
+    if (!folderRow?.filepath) {
+      return res.status(404).json({
+        code: 404,
+        error: "Target folder not found",
+      });
+    }
+    const folderPath = folderRow.filepath;
+    await fileManager.deleteFolder(folderPath);
+    res.status(200).json({
+      code: 200,
+      message: "Folder deleted successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Delete file
+files_router.delete("/:id([0-9]{1,3})", async (req, res) => {
+  try {
+    const file_id = req.params.id;
+    
+    const folderRow = await db.get(
+      `SELECT filepath FROM Documents WHERE id = ?`,
+      [file_id]
+    );
+
+    if (!folderRow?.filepath) {
+      return res.status(404).json({
+        code: 404,
+        error: "Target folder not found",
+      });
+    }
+    const filePath = folderRow.filepath;
+
+    await fileManager.deleteFile(filePath);
     res.status(200).json({
       code: 200,
       message: "File deleted successfully",
@@ -314,5 +357,6 @@ files_router.delete("/:path(*)", async (req, res) => {
     });
   }
 });
+
 
 export default files_router;

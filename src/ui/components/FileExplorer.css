@@ -50,6 +50,7 @@
 .folder.open > span::before {
   transform: rotate(90deg);
   color: #000000;
+
 }
 
 .button-container {
@@ -166,4 +167,13 @@
 
 .folder {
   cursor: pointer; /* Show pointer on folders */
+}
+
+.file:hover .delete-btn,
+.folder:hover .delete-btn {
+  visibility: visible !important;
+}
+
+.delete-btn:hover {
+  transform: scale(1.1);
 }

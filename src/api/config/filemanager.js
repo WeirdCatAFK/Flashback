@@ -359,25 +359,24 @@ class FileManager {
     }
   }
 
-  async deletePath(absolutePath) {
+  async deleteFile(absolutePath) {
     let transaction = false;
     try {
       if (!fs.existsSync(absolutePath)) {
-        throw new Error(`Path ${relativePath} not found.`);
+        throw new Error(`File ${absolutePath} not found.`);
       }
 
       await db.run("BEGIN TRANSACTION");
       transaction = true;
 
       const stats = await fs.promises.stat(absolutePath);
-      if (stats.isDirectory()) {
-        await db.run("DELETE FROM Folders WHERE filepath = ?", [absolutePath]);
-        await fs.promises.rm(absolutePath, { recursive: true });
-      } else {
+      if (stats.isFile()) {
         await db.run("DELETE FROM Documents WHERE filepath = ?", [
           absolutePath,
         ]);
         await fs.promises.unlink(absolutePath);
+      } else {
+        throw new Error(`Path ${absolutePath} is not a file.`);
       }
 
       await db.run("COMMIT");
@@ -390,6 +389,130 @@ class FileManager {
     }
   }
 
+  async deleteFolder(absolutePath) {
+    let transaction = false;
+    try {
+      if (!fs.existsSync(absolutePath)) {
+        throw new Error(`Folder ${absolutePath} not found.`);
+      }
+      console.log(absolutePath);
+      await db.run("BEGIN TRANSACTION");
+      transaction = true;
+
+      // Check if the path is a directory
+      const stats = await fs.promises.stat(absolutePath);
+      if (stats.isDirectory()) {
+        // Find the folder by filepath to get its ID and children
+        const folder = await db.get(
+          "SELECT id FROM Folders WHERE filepath = ?",
+          [absolutePath]
+        );
+        if (!folder) {
+          throw new Error(
+            `Folder with path ${absolutePath} not found in the database.`
+          );
+        }
+
+        // Get all child folders using LIKE for path matching
+        const childFolders = await db.all(
+          "SELECT id FROM Folders WHERE filepath LIKE ?",
+          [absolutePath + "\\%"] // Match all subfolders with the same prefix
+        );
+
+        // Create array of all folder IDs including the current folder
+        const allFolderIds = [folder.id, ...childFolders.map((f) => f.id)];
+
+        // SQLite doesn't handle array parameters well, so we'll construct the IN clause safely
+        const placeholders = allFolderIds.map(() => "?").join(",");
+
+        // Delete documents in these folders
+        // First, get all document IDs that will be deleted
+        const documentsToDelete = await db.all(
+          `SELECT id FROM Documents WHERE folder_id IN (${placeholders})`,
+          allFolderIds
+        );
+        const documentIds = documentsToDelete.map((doc) => doc.id);
+
+        if (documentIds.length > 0) {
+          const docPlaceholders = documentIds.map(() => "?").join(",");
+
+          // Delete flashcard media
+          await db.run(
+            `DELETE FROM Flashcard_media WHERE flashcard_id IN (
+                        SELECT id FROM Flashcards WHERE document_id IN (${docPlaceholders})
+                    )`,
+            documentIds
+          );
+
+          // Delete flashcard info
+          await db.run(
+            `DELETE FROM Flashcard_info WHERE flashcard_id IN (
+                        SELECT id FROM Flashcards WHERE document_id IN (${docPlaceholders})
+                    )`,
+            documentIds
+          );
+
+          // Delete flashcard highlights
+          await db.run(
+            `DELETE FROM Flashcard_highlight WHERE id IN (
+                        SELECT highlight_id FROM Flashcards WHERE document_id IN (${docPlaceholders})
+                    )`,
+            documentIds
+          );
+
+          // Delete flashcards
+          await db.run(
+            `DELETE FROM Flashcards WHERE document_id IN (${docPlaceholders})`,
+            documentIds
+          );
+
+          // Finally delete the documents
+          await db.run(
+            `DELETE FROM Documents WHERE id IN (${docPlaceholders})`,
+            documentIds
+          );
+        }
+
+        // Delete folder-related data
+        // Delete inherited tags first (due to foreign key constraints)
+        await db.run(
+          `DELETE FROM Inherited_tags WHERE connection_id IN (
+                    SELECT id FROM Node_connections WHERE origin_id IN (
+                        SELECT node_id FROM Folders WHERE id IN (${placeholders})
+                    )
+                )`,
+          allFolderIds
+        );
+
+        // Delete node connections
+        await db.run(
+          `DELETE FROM Node_connections WHERE origin_id IN (
+                    SELECT node_id FROM Folders WHERE id IN (${placeholders})
+                )`,
+          allFolderIds
+        );
+
+        // Delete the folders
+        await db.run(
+          `DELETE FROM Folders WHERE id IN (${placeholders})`,
+          allFolderIds
+        );
+
+        // Delete from filesystem
+        await fs.promises.rm(absolutePath, { recursive: true });
+      } else {
+        throw new Error(`Path ${absolutePath} is not a folder.`);
+      }
+
+      await db.run("COMMIT");
+      transaction = false;
+    } catch (error) {
+      if (transaction) {
+        await db.run("ROLLBACK");
+      }
+      throw error;
+    }
+  }
   async moveFile(sourceRelativePath, destRelativePath, isRootMove = false) {
     let transaction = false;
     try {

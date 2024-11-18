@@ -16,15 +16,21 @@ export default function FileExplorer({
       if (e.target.closest(".root-folder")) {
         const dragged_id = e.dataTransfer.getData("id");
         const isFolder = e.dataTransfer.getData("isFolder") === "true";
-        
+
         try {
           const response = await axios.post(
-            `http://localhost:50500/files${isFolder ? '/folder' : ''}/${dragged_id}/move/0`
+            `http://localhost:50500/files${
+              isFolder ? "/folder" : ""
+            }/${dragged_id}/move/0`
           );
-          console.log(`${isFolder ? 'Folder' : 'File'} moved successfully:`, response.data);
+          console.log(
+            `${isFolder ? "Folder" : "File"} moved successfully:`,
+            response.data
+          );
           sendRefreshStatus(true);
         } catch (error) {
-          console.error(`Error moving ${isFolder ? 'folder' : 'file'}:`, 
+          console.error(
+            `Error moving ${isFolder ? "folder" : "file"}:`,
             error.response ? error.response.data : error.message
           );
         }
@@ -110,6 +116,20 @@ const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
     setIsRenaming(true);
   }
 
+  async function handleDelete(e) {
+    e.stopPropagation(); // Prevent file selection when deleting
+
+    if (window.confirm(`Are you sure you want to delete ${name}?`)) {
+      try {
+        await axios.delete(`http://localhost:50500/files/${id}`);
+        console.log("File deleted successfully");
+        sendRefreshStatus(true);
+      } catch (error) {
+        console.error("Failed to delete file:", error);
+      }
+    }
+  }
+
   async function handleRename(e) {
     if (e.key === "Enter") {
       try {
@@ -135,22 +155,55 @@ const File = ({ name, id, onFileClick, sendRefreshStatus }) => {
       onContextMenu={handleRightClick}
       draggable
       onDragStart={(e) => handleOnDragStart(e, id, false)}
+      style={{
+        display: "flex",
+        justifyContent: "space-between",
+        alignItems: "center",
+        minWidth: 0, // This allows flex items to shrink below their minimum content size
+      }}
     >
-      {isRenaming ? (
-        <input
-          type="text"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onKeyDown={handleRename}
-          onBlur={() => {
-            setIsRenaming(false);
-            setNewName(name);
-          }}
-          autoFocus
-        />
-      ) : (
-        <>📄 {name}</>
-      )}
+      <div
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          flexGrow: 1,
+          minWidth: 0, // Allows text to truncate
+        }}
+      >
+        {isRenaming ? (
+          <input
+            type="text"
+            value={newName}
+            onChange={(e) => setNewName(e.target.value)}
+            onKeyDown={handleRename}
+            onBlur={() => {
+              setIsRenaming(false);
+              setNewName(name);
+            }}
+            autoFocus
+            style={{ width: "100%" }}
+          />
+        ) : (
+          <>📄 {name}</>
+        )}
+      </div>
+      <button
+        onClick={handleDelete}
+        className="delete-btn"
+        style={{
+          background: "none",
+          border: "none",
+          cursor: "pointer",
+          color: "#ff4444",
+          padding: "2px 6px",
+          marginLeft: "8px",
+          visibility: "hidden",
+          flexShrink: 0,
+        }}
+      >
+        🗑️
+      </button>
     </div>
   );
 };
@@ -166,22 +219,45 @@ const Folder = ({
 }) => {
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(name);
+  async function handleDelete(e) {
+    e.stopPropagation(); // Prevent folder toggle when deleting
+
+    if (
+      window.confirm(
+        `Are you sure you want to delete folder ${name} and all its contents?`
+      )
+    ) {
+      try {
+        await axios.delete(`http://localhost:50500/files/folder/${id}`);
+        console.log("Folder deleted successfully");
+        sendRefreshStatus(true);
+      } catch (error) {
+        console.error("Failed to delete folder:", error);
+      }
+    }
+  }
 
   async function handleOnDrop(e) {
     // Stop event from bubbling to parent folders
     e.stopPropagation();
-    
+
     const dragged_id = e.dataTransfer.getData("id");
     const isFolder = e.dataTransfer.getData("isFolder") === "true";
-    
+
     try {
       const response = await axios.post(
-        `http://localhost:50500/files${isFolder ? '/folder' : ''}/${dragged_id}/move/${id}`
+        `http://localhost:50500/files${
+          isFolder ? "/folder" : ""
+        }/${dragged_id}/move/${id}`
       );
-      console.log(`${isFolder ? 'Folder' : 'File'} moved successfully:`, response.data);
+      console.log(
+        `${isFolder ? "Folder" : "File"} moved successfully:`,
+        response.data
+      );
       sendRefreshStatus(true);
     } catch (error) {
-      console.error(`Error moving ${isFolder ? 'folder' : 'file'}:`,
+      console.error(
+        `Error moving ${isFolder ? "folder" : "file"}:`,
         error.response ? error.response.data : error.message
       );
     }
@@ -239,8 +315,24 @@ const Folder = ({
         onDragStart={(e) => handleOnDragStart(e, id, true)}
         onDrop={handleOnDrop}
         onDragOver={handleOnDragOver}
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          minWidth: 0, // Allow flex items to shrink below their minimum content size
+        }}
       >
-        <span>
+        <span
+          style={{
+            display: "flex",
+            alignItems: "center",
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+            flexGrow: 1,
+            minWidth: 0, // Allows text to truncate
+          }}
+        >
           {isRenaming ? (
             <input
               type="text"
@@ -252,11 +344,28 @@ const Folder = ({
                 setNewName(name);
               }}
               autoFocus
+              style={{ width: "100%" }}
             />
           ) : (
             <>📁 {name}</>
           )}
         </span>
+        <button
+          onClick={handleDelete}
+          className="delete-btn"
+          style={{
+            background: "none",
+            border: "none",
+            cursor: "pointer",
+            color: "#ff4444",
+            padding: "2px 6px",
+            marginLeft: "8px",
+            visibility: "hidden",
+            flexShrink: 0, // Prevent button from shrinking
+          }}
+        >
+          🗑️
+        </button>
       </div>
 
       <div
@@ -271,7 +380,6 @@ const Folder = ({
     </div>
   );
 };
-
 const RootFolder = ({ children, sendRefreshStatus, onDrop, onDragOver }) => {
   const [isDragging, setIsDragging] = useState(false);
 
@@ -280,7 +388,7 @@ const RootFolder = ({ children, sendRefreshStatus, onDrop, onDragOver }) => {
       await axios.post("http://localhost:50500/files/folder/new_folder");
       sendRefreshStatus(true);
     } catch (error) {
-      console.error("Failed to create new folder:", error)
+      console.error("Failed to create new folder:", error);
     }
   }
 
