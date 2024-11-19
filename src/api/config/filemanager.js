@@ -891,6 +891,7 @@ class FileManager {
 
       if (fileType.binary) {
         content = await fs.promises.readFile(absolutePath);
+        return;
       } else {
         content = await fs.promises.readFile(absolutePath, fileType.encoding);
       }
@@ -906,8 +907,7 @@ class FileManager {
     }
   }
 
-  async writeFile(relativePath, content) {
-    const absolutePath = path.join(this.filePath, relativePath);
+  async writeFile(absolutePath, content) {
     const extension = path.extname(absolutePath).toLowerCase().slice(1);
 
     const fileType =

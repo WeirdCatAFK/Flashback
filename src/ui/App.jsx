@@ -1,8 +1,8 @@
 import React, { lazy, Suspense, useState } from "react";
-import "./App.css";
+import './App.css';
 
 const DocumentView = lazy(() => import("./views/Documents"));
-const FlashcardsView = lazy(() => import("./views/Flashcards"));
+const FlashcardsView = lazy(() => import("./views/Flashcards")); 
 const GraphView = lazy(() => import("./views/Graph"));
 
 const App = () => {
@@ -45,18 +45,21 @@ const App = () => {
         <div className="sidebar">
           <button
             onClick={() => setActiveView("documents")}
+            className={activeView === "documents" ? "active" : ""}
             style={{
               backgroundImage: "url('./assets/icons/Document_ico.png')",
             }}
           ></button>
           <button
             onClick={() => setActiveView("flashcards")}
+            className={activeView === "flashcards" ? "active" : ""}
             style={{
               backgroundImage: "url('./assets/icons/Flashcards_ico.png')",
             }}
           ></button>
           <button
             onClick={() => setActiveView("graph")}
+            className={activeView === "graph" ? "active" : ""}
             style={{ backgroundImage: "url('./assets/icons/Graph_ico.png')" }}
           ></button>
         </div>

@@ -45,14 +45,13 @@ files_router.get("/tree", async (req, res) => {
     });
   }
 });
-
-// Specific path routes for files and folders
+//Get folder path
 files_router.get("/folder/:id([0-9]{1,3})/path", async (req, res) => {
   try {
     const wrkspce_root = await fileManager.getCurrentFilePath();
-    const file_id = req.params.id;
+    const folder_id = req.params.id;
     const rows = await db.get(`SELECT filepath FROM Folders WHERE id = ?`, [
-      file_id,
+      folder_id,
     ]);
     const filepath = rows?.filepath; //This is also absolute
     const relative_path = path.relative(wrkspce_root, filepath);
@@ -61,7 +60,7 @@ files_router.get("/folder/:id([0-9]{1,3})/path", async (req, res) => {
     res.status(500).json({ code: 500, error: error.message });
   }
 });
-
+//Get file path
 files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
   try {
     const wrkspce_root = await fileManager.getCurrentFilePath();
@@ -77,16 +76,39 @@ files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
   }
 });
 
-// Read file route with specific ID pattern
+//Get folder name
+files_router.get("/folder/:id([0-9]{1,3})/name", async (req, res) => {
+  try {
+    const folder_id = req.params.id;
+    const rows = await db.get(`SELECT name FROM Folders WHERE id = ?`, [
+      folder_id,
+    ]);
+    const name = rows?.name;
+    res.status(200).json({ code: 200, name: name });
+  } catch (error) {
+    res.status(500).json({ code: 500, error: error.message });
+  }
+});
+//Get file name
+files_router.get("/:id([0-9]{1,3})/name", async (req, res) => {
+  try {
+    const file_id = req.params.id;
+    const rows = await db.get(`SELECT name FROM Documents WHERE id = ?`, [
+      file_id,
+    ]);
+    const name = rows?.name;
+    res.status(200).json({ code: 200, name: name });
+  } catch (error) {
+    res.status(500).json({ code: 500, error: error.message });
+  }
+});
+
+// Read file
 files_router.get("/:id([0-9]{1,3})", async (req, res) => {
   try {
     const file_id = req.params.id;
     const filepath = await db.get(
       `SELECT filepath FROM Documents WHERE id = ?`,
-      [file_id]
-    );
-    const file_extension = await db.get(
-      `SELECT file_extension FROM Documents WHERE id = ?`,
       [file_id]
     );
 
@@ -97,6 +119,28 @@ files_router.get("/:id([0-9]{1,3})", async (req, res) => {
       code: 200,
       extension: extension,
       content: content,
+    });
+  } catch (error) {
+    res.status(500).json({
+      code: 500,
+      error: error.message,
+    });
+  }
+});
+
+// Write File
+files_router.put("/:id([0-9]{1,3})/write", async (req, res) => {
+  try {
+    const file_id = req.params.id;
+    const content = req.body.content;
+    const rows = await db.get(`SELECT filepath FROM Documents WHERE id = ?`, [
+      file_id,
+    ]);
+
+    await fileManager.writeFile(rows.filepath, content);
+    res.status(200).json({
+      code: 200,
+      message: "File writed succesfully",
     });
   } catch (error) {
     res.status(500).json({
@@ -128,7 +172,6 @@ files_router.put("/:id([0-9]{1,3})/rename", async (req, res) => {
 });
 
 // Rename Folder
-
 files_router.put("/folder/:id([0-9]{1,3})/rename", async (req, res) => {
   const origin_id = req.params.id;
   const new_name = req.body.rename;
@@ -298,7 +341,6 @@ files_router.post("/:path(*)", async (req, res) => {
   }
 });
 
-
 // Delete folder
 files_router.delete("/folder/:id([0-9]{1,3})", async (req, res) => {
   try {
@@ -333,7 +375,7 @@ files_router.delete("/folder/:id([0-9]{1,3})", async (req, res) => {
 files_router.delete("/:id([0-9]{1,3})", async (req, res) => {
   try {
     const file_id = req.params.id;
-    
+
     const folderRow = await db.get(
       `SELECT filepath FROM Documents WHERE id = ?`,
       [file_id]
@@ -359,6 +401,5 @@ files_router.delete("/:id([0-9]{1,3})", async (req, res) => {
     });
   }
 });
-
 
 export default files_router;

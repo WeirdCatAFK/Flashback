@@ -1,0 +1,149 @@
+/* FlashCardMaker.css */
+.flashcard-maker-container {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 20px;
+    background-color: #f5f5f5;
+    min-height: 100vh;
+  }
+  
+  .flashcard-list, .document-flashcards {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 20px;
+    justify-content: center;
+    width: 100%;
+    max-width: 1200px;
+  }
+  
+  .flashcard-form {
+    background-color: white;
+    padding: 30px;
+    border-radius: 15px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    width: 100%;
+    max-width: 600px;
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+  }
+  
+  .flashcard-form input,
+  .flashcard-form textarea {
+    width: 100%;
+    padding: 12px;
+    border: 2px solid #e0e0e0;
+    border-radius: 8px;
+    font-size: 16px;
+    transition: border-color 0.3s ease;
+  }
+  
+  .flashcard-form textarea {
+    min-height: 100px;
+    resize: vertical;
+  }
+  
+  .flashcard-form input:focus,
+  .flashcard-form textarea:focus {
+    outline: none;
+    border-color: #FF5722; /* Fiat orange */
+  }
+  
+  button {
+    background-color: #FF5722; /* Fiat orange */
+    color: white;
+    border: none;
+    padding: 12px 24px;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.3s ease;
+  }
+  
+  button:hover {
+    background-color: #F4511E; /* Darker orange */
+  }
+  
+  button:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+  }
+  
+  .flashcard-item {
+    width: 300px;
+    height: 200px;
+    perspective: 1000px;
+    cursor: pointer;
+  }
+  
+  .flashcard-content {
+    width: 100%;
+    height: 100%;
+    position: relative;
+    transition: transform 0.6s;
+    transform-style: preserve-3d;
+  }
+  
+  .flashcard-item.flipped .flashcard-content {
+    transform: rotateY(180deg);
+  }
+  
+  .flashcard-front, .flashcard-back {
+    position: absolute;
+    width: 100%;
+    height: 100%;
+    backface-visibility: hidden;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 20px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+  }
+  
+  .flashcard-front {
+    background-color: white;
+    color: #424242; /* Dark gray */
+    border: 2px solid #e0e0e0;
+  }
+  
+  .flashcard-back {
+    background-color: white; /* Dark gray */
+    color: white;
+    transform: rotateY(180deg);
+  }
+  
+  .flashcard-front strong,
+  .flashcard-back strong {
+    font-size: 18px;
+    margin-bottom: 10px;
+    text-align: center;
+  }
+  
+  .flashcard-front p,
+  .flashcard-back p {
+    text-align: center;
+    margin: 0;
+    font-size: 16px;
+    line-height: 1.5;
+  }
+  
+  h1, h2 {
+    color: #424242; /* Dark gray */
+    text-align: center;
+    margin: 0;
+  }
+  
+  h1 {
+    font-size: 32px;
+    margin-bottom: 20px;
+  }
+  
+  h2 {
+    font-size: 24px;
+    margin-bottom: 15px;
+  }

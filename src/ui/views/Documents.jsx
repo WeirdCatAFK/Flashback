@@ -10,8 +10,8 @@ function DocumentView() {
   const [selectedFile, setSelectedFile] = useState({ id: 0 });
   const [selectedFolder, setSelectedFolder] = useState({ id: 0 });
   const [updateStatus, setUpdateStatus] = useState(true);
+  const [editorStats, setEditorStats] = useState({});
 
-  // These will be loaded with request to the backend server
   const [fileTree, setFileTree] = useState(null);
   const [error, setError] = useState(null);
 
@@ -24,7 +24,6 @@ function DocumentView() {
           // Access the tree property from the response data
           setFileTree(response.data.tree);
           setUpdateStatus(false);
-          console.log("updated!");
         })
         .catch((error) => {
           console.error(error);
@@ -44,8 +43,10 @@ function DocumentView() {
   function handleUpdateStatus(boolean) {
     setUpdateStatus(boolean);
   }
+  function handleEditorStats(editorStats) {
+    setEditorStats(editorStats);
+  }
 
-  // Show loading state while waiting for the data
   if (!fileTree) {
     return <div>Loading...</div>;
   }
@@ -58,24 +59,23 @@ function DocumentView() {
     <div className="document-view">
       <div className="file-explorer">
         <FileExplorer
-          tree={fileTree} // This is now the correct tree structure
+          tree={fileTree}
           sendFileID={handleFileSelect}
           sendFolderID={handleFolderSelect}
           sendRefreshStatus={handleUpdateStatus}
         />
       </div>
-      <div>
-        <p>
-          Selected File: {selectedFile.id}
-          <br />
-          Selected Folder: {selectedFolder.id}
-        </p>
-      </div>
       <div className="file-renderer">
-        <FileRenderer file={selectedFile} sendRefreshStatus={handleUpdateStatus} />
+        <FileRenderer
+          selectedFile={selectedFile}
+          sendEditorStats={handleEditorStats}
+        />
       </div>
       <div className="flashcard-maker">
-        <FlashcardMaker file={selectedFile} sendRefreshStatus={handleUpdateStatus} />
+        <FlashcardMaker
+          selectedFile={selectedFile}
+          editorStats={editorStats}
+        />
       </div>
     </div>
   );
