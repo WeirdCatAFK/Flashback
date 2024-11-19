@@ -1,0 +1,39 @@
+  .editor-wrapper {
+    min-height: 100%;
+    min-width: 100%;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .editor-wrapper .quill {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .editor-wrapper .ql-container {
+    flex: 1;
+    overflow-y: auto;
+  }
+  
+  .editor-wrapper .ql-toolbar {
+    flex-shrink: 0;
+  }
+
+  .editor-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px;
+    background-color: #f8f9fa;
+    border-bottom: 1px solid #e2e8f0;
+  }
+
+  .save-status {
+    font-size: 0.875rem;
+    color: #e0e0e0;
+  }
+
+  .editor-wrapper .ql-editor {
+    min-height: 100%;
+  }

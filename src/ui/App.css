@@ -11,7 +11,9 @@
   display: flex;
   flex-direction: column;
   height: 100vh;
+  width: 100vw;
   background-color: #f7f8fa;
+  overflow: hidden;
 }
 
 /* Toolbar */
@@ -21,7 +23,8 @@
   background-color: #FBF6EE;
   height: 32px;
   align-items: center;
-  width: 100vw;
+  width: 100%; /* Changed from 100vw to 100% */
+  flex-shrink: 0; /* Prevents the toolbar from shrinking */
 }
 
 .toolbar button {
@@ -44,16 +47,19 @@
 /* App container */
 .app-container {
   display: flex;
-  height: 100%;
+  flex: 1; /* Use flex: 1 to fill the remaining space */
+  overflow: hidden; /* Prevents any overflow */
+  width: 100%;
 }
 
 /* Sidebar */
 .sidebar {
-  width: 38px;
+  width: 50px;
   background-color: #343a40;
   display: flex;
   flex-direction: column;
   align-items: center;
+  flex-shrink: 0; /* Prevents the sidebar from shrinking */
 }
 
 .sidebar button {
@@ -72,6 +78,7 @@
   position: relative;
   z-index: 1;
   outline: none;
+  flex-shrink: 0; /* Prevents the buttons from shrinking */
 }
 
 .sidebar button:not(:first-child) {
@@ -92,4 +99,5 @@
   display: block;
   flex-grow: 1;
   background-color: #fff;
+  overflow: auto; /* Allow content overflow to scroll if needed */
 }

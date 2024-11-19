@@ -1,42 +1,72 @@
-import express from 'express';
+import express from "express";
 const flashcards_router = express.Router();
-import db from '../config/dbmanager.js';
-import multer from 'multer';
+import db from "../config/dbmanager.js";
+import multer from "multer";
 const upload = multer();
 
-// Create a new flashcard linked to a document
 flashcards_router.post("/", async (req, res) => {
   const { document_id, name, front, back } = req.body;
 
+  console.log("Received POST request to create flashcard with data:", {
+    document_id,
+    name,
+    front,
+    back,
+  });
+
+  if (!document_id || !name || !front || !back) {
+    console.log("Missing required fields in the request body.");
+    return res.status(400).json({ error: "Missing required fields" });
+  }
+
   try {
+    // Ensure database operations are serialized
+    console.log("Serializing database operations...");
     await db.serialize();
 
-    // Create node for flashcard
-    const nodeResult = await db.run(
-      "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = 'Flashcard'), 1.0)"
+    // Step 1: Create a new Node for the flashcard
+    console.log("Creating a new Node for the flashcard...");
+    const nodeId = db.run(
+      "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = 'Flashcard'), 0.0)",
+      function (err) {
+        if (err) {
+          console.error("Error inserting into Nodes table:", err);
+          return reject(err);
+        }
+        console.log("Node created with ID:", this.lastID);
+        resolve(this.lastID);
+      }
     );
-    const nodeId = nodeResult.lastID;
 
-    // Create flashcard
-    const flashcardResult = await db.run(
+    // Step 2: Create a new Flashcard entry linked to the created node and the document
+    console.log("Creating a new Flashcard entry...");
+    const flashcardId = await db.run(
       "INSERT INTO Flashcards (document_id, node_id, name, front, back) VALUES (?, ?, ?, ?, ?)",
-      [document_id, nodeId, name, front, back]
+      [document_id, nodeId, name, front, back],
+      function (err) {
+        if (err) {
+          console.error("Error inserting into Flashcards table:", err);
+          return reject(err);
+        }
+        console.log("Flashcard created with ID:", this.lastID);
+        resolve(this.lastID);
+      }
     );
 
-    // Initialize flashcard info with values
-    await db.run(
-      "INSERT INTO Flashcard_info (flashcard_id, text_renderer, tts_voice) VALUES (?, 'markdown', 'default')",
-      [flashcardResult.lastID]
-    );
-
+    // Step 3: Return success response with created flashcard ID
+    console.log("Flashcard created successfully with ID:", flashcardId);
     res.status(201).json({
+      success: true,
+      flashcardId,
       message: "Flashcard created successfully",
-      flashcard_id: flashcardResult.lastID,
-      node_id: nodeId,
     });
   } catch (error) {
+    // Error handling
     console.error("Error creating flashcard:", error);
-    res.status(500).json({ error: "Failed to create flashcard" });
+    res.status(500).json({
+      error: "Failed to create flashcard",
+      details: error.message,
+    });
   }
 });
 

@@ -1,9 +1,9 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./FileRenderer.css";
 import axios from "axios";
 import QuillEditor from "./quill/quillEditor.jsx";
 
-export default function FileRenderer({ selectedFile, sendEditorStats}) {
+export default function FileRenderer({ selectedFile, sendEditorStats }) {
   const [fileData, setFileData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -51,7 +51,7 @@ export default function FileRenderer({ selectedFile, sendEditorStats}) {
       name={selectedFile.name}
       onChange={() => {}}
       fileId={selectedFile.id}
-      sendEditorStats = {sendEditorStats}
+      sendEditorStats={sendEditorStats}
     />
   );
 }

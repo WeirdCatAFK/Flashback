@@ -1,7 +1,8 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect , useCallback} from "react";
 import ReactQuill from "react-quill";
 import axios from "axios";
 import "react-quill/dist/quill.snow.css";
+import isEqual from "lodash"
 
 // Constants remain the same
 const EDITOR_CONFIG = {
@@ -84,7 +85,7 @@ const styles = `
 
   .save-status {
     font-size: 0.875rem;
-    color: #718096;
+    color: #e0e0e0;
   }
 
   .editor-wrapper .ql-editor {
@@ -92,7 +93,12 @@ const styles = `
   }
 `;
 
-const QuillEditor = ({ initialValue = "", onChange, fileId, sendEditorStats }) => {
+const QuillEditor = ({
+  initialValue = "",
+  onChange,
+  fileId,
+  sendEditorStats,
+}) => {
   const [editorStats, setEditorStats] = useState({
     ...INITIAL_EDITOR_STATE,
     content: {
@@ -104,48 +110,34 @@ const QuillEditor = ({ initialValue = "", onChange, fileId, sendEditorStats }) =
   const quillRef = useRef(null);
   const saveTimeoutRef = useRef(null);
 
-  // Updated state updaters to trigger sendEditorStats
-  const updateEditorStats = (updates) => {
-    setEditorStats((prevState) => {
-      const newState = {
-        ...prevState,
-        ...updates,
-      };
-      // Send updated stats after state update
-      if (sendEditorStats) {
-        sendEditorStats(newState);
-      }
-      return newState;
-    });
-  };
+  // Improved state management with memoized update functions
+  const createUpdater = useCallback(
+    (key) => (updates) => {
+      setEditorStats((prevState) => {
+        const newState = {
+          ...prevState,
+          [key]: {
+            ...prevState[key],
+            ...updates,
+          },
+        };
 
-  const updateContent = (updates) => {
-    updateEditorStats({
-      content: {
-        ...editorStats.content,
-        ...updates,
-      },
-    });
-  };
+        // Only send stats if they've actually changed
+        if (!isEqual(prevState, newState)) {
+          sendEditorStats(newState);
+        }
 
-  const updateDocument = (updates) => {
-    updateEditorStats({
-      document: {
-        ...editorStats.document,
-        ...updates,
-      },
-    });
-  };
+        return newState;
+      });
+    },
+    [sendEditorStats]
+  );
 
-  const updateSelection = (updates) => {
-    updateEditorStats({
-      selection: {
-        ...editorStats.selection,
-        ...updates,
-      },
-    });
-  };
-
+  // Create specific updaters
+  const updateEditorStats = createUpdater(null);
+  const updateContent = createUpdater("content");
+  const updateDocument = createUpdater("document");
+  const updateSelection = createUpdater("selection");
   // API Calls
   const fetchFileName = async () => {
     try {
@@ -197,14 +189,14 @@ const QuillEditor = ({ initialValue = "", onChange, fileId, sendEditorStats }) =
       lastChange: delta,
       length: editor.getLength(),
     };
-    
+
     updateContent(updates);
     updateDocument({ isDirty: true });
 
     if (onChange) {
       onChange(value);
     }
-    
+
     debounceSave();
   };
 

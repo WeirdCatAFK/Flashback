@@ -27,6 +27,12 @@ app.on("ready", () => {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
+    titleBarStyle: "hidden",
+    titleBarOverlay: {
+      color: "#FBF6EE",
+      symbolColor: "#000",
+      height: 20,
+    },
     webPreferences: {
       nodeIntegration: true,
     },

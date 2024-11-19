@@ -1,21 +1,27 @@
 .document-view {
   display: flex;
   height: 100%;
+  width: 100%;
 }
 
 .file-explorer {
   width: 24vh;
   height: 100%;
   white-space: nowrap;
+  width: 20vw;
 }
 
 .file-renderer {
   display: flex;
   height: 100%;
-  width: 100vh;
+  width: 80vw;
+  overflow-y: scroll,
+
 
 }
 
 .flashcard-maker {
-  width: 65vh;
+  width: 40vw;
+  overflow-y: scroll
+
 }

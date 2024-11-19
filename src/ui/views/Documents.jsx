@@ -43,6 +43,7 @@ function DocumentView() {
   function handleUpdateStatus(boolean) {
     setUpdateStatus(boolean);
   }
+  
   function handleEditorStats(editorStats) {
     setEditorStats(editorStats);
   }
@@ -71,12 +72,14 @@ function DocumentView() {
           sendEditorStats={handleEditorStats}
         />
       </div>
-      <div className="flashcard-maker">
-        <FlashcardMaker
-          selectedFile={selectedFile}
-          editorStats={editorStats}
-        />
-      </div>
+      {selectedFile.id !== 0 && (
+        <div className="flashcard-maker">
+          <FlashcardMaker
+            documentId={selectedFile.id}
+            editorStats={editorStats}
+          />
+        </div>
+      )}
     </div>
   );
 }
