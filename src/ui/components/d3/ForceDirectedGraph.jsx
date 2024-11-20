@@ -1,237 +1,174 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useEffect } from "react";
 import * as d3 from "d3";
-import { Card, CardContent } from "@/components/ui/card";
 
-export default function ForceDirectedGraph() {
+export default function ForceDirectedGraph({ data }) {
   const svgRef = useRef(null);
-  const [graphData, setGraphData] = useState(null);
-  const [selectedNode, setSelectedNode] = useState(null);
-  const [simulation, setSimulation] = useState(null);
 
-  // Fetch graph data
   useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const response = await fetch("http://localhost:50500/nodes/graph");
-        const data = await response.json();
-        setGraphData(data);
-      } catch (error) {
-        console.error("Error fetching graph data:", error);
-      }
-    };
+    const width = 1800;
+    const height = 900;
 
-    fetchData();
-  }, []);
-
-  // Initialize and update the force simulation
-  useEffect(() => {
-    if (!graphData || !svgRef.current) return;
-
-    const width = 800;
-    const height = 600;
-
-    // Clear existing SVG content
+    // Clear the SVG for re-renders
     d3.select(svgRef.current).selectAll("*").remove();
 
-    // Create SVG
+    // Create the SVG container
     const svg = d3
       .select(svgRef.current)
       .attr("width", width)
-      .attr("height", height);
+      .attr("height", height)
+      .attr("viewBox", `0 0 ${width} ${height}`)
+      .style("max-width", "100%")
+      .style("height", "auto")
+      .call(
+        d3.zoom().on("zoom", (event) => {
+          g.attr("transform", event.transform);
+        })
+      );
 
-    // Add zoom behavior
-    const zoom = d3
-      .zoom()
-      .scaleExtent([0.1, 4])
-      .on("zoom", (event) => {
-        container.attr("transform", event.transform);
-      });
+    // Add a container group to support zooming/panning
+    const g = svg.append("g");
 
-    svg.call(zoom);
+    // Color scale based on node type
+    const color = d3.scaleOrdinal(d3.schemeCategory10);
 
-    // Create container for zoom transforms
-    const container = svg.append("g");
+    // Extract nodes and links from the provided data
+    const nodes = data.message.nodes.map((d) => ({ ...d }));
+    const links = data.message.links.map((d) => ({ ...d }));
 
-    // Create color scale based on node categories
-    const colorScale = d3
-      .scaleOrdinal()
-      .domain(graphData.categories)
-      .range(d3.schemeCategory10);
-
-    // Initialize force simulation
-    const sim = d3
-      .forceSimulation(graphData.nodes)
+    // Create the force simulation
+    const simulation = d3
+      .forceSimulation(nodes)
       .force(
         "link",
         d3
-          .forceLink(graphData.links)
+          .forceLink(links)
           .id((d) => d.id)
-          .distance(100)
-          .strength((l) => 0.1 + l.value * 0.1)
+          .distance(150)
       )
-      .force(
-        "charge",
-        d3.forceManyBody().strength((d) => -100 * d.weight)
-      )
-      .force("center", d3.forceCenter(width / 2, height / 2))
-      .force(
-        "collision",
-        d3.forceCollide().radius((d) => d.radius + 5)
-      );
+      .force("charge", d3.forceManyBody().strength(-300))
+      .force("center", d3.forceCenter(width / 2, height / 2));
 
-    // Create links
-    const links = container
-      .selectAll(".link")
-      .data(graphData.links)
-      .join("line")
-      .attr("class", "link")
+    // Add links to the SVG
+    const link = g
+      .append("g")
       .attr("stroke", "#999")
       .attr("stroke-opacity", 0.6)
-      .attr("stroke-width", (d) => Math.sqrt(d.value));
+      .selectAll("line")
+      .data(links)
+      .join("line")
+      .attr("stroke-width", (d) => Math.sqrt(d.value) || 2);
 
-    // Create nodes
-    const nodes = container
-      .selectAll(".node")
-      .data(graphData.nodes)
-      .join("g")
-      .attr("class", "node")
-      .call(
-        d3
-          .drag()
-          .on("start", dragStarted)
-          .on("drag", dragged)
-          .on("end", dragEnded)
-      );
+    // Add the translucent growing circle before the nodes
+    const presenceCircle = g
+      .append("g")
+      .selectAll("circle.presence")
+      .data(nodes)
+      .join("circle")
+      .attr("class", "presence")
+      .attr("fill", "rgba(0, 123, 255, 0.3)") // Light blue with transparency
+      .attr("r", (d) => d.presence * 5 || 0)  // Adjust the multiplier for size
+      .attr("cx", (d) => d.x)
+      .attr("cy", (d) => d.y);
 
-    // Add circles to nodes
-    nodes
-      .append("circle")
-      .attr("r", (d) => d.radius)
-      .attr("fill", (d) => colorScale(d.category))
+    // Add nodes to the SVG
+    const node = g
+      .append("g")
       .attr("stroke", "#fff")
-      .attr("stroke-width", 1.5);
+      .attr("stroke-width", 1.5)
+      .selectAll("circle")
+      .data(nodes)
+      .join("circle")
+      .attr("r", 8)
+      .attr("fill", (d) => color(d.type))
+      .call(drag(simulation))
+      .on("mouseover", handleMouseOver)
+      .on("mouseout", handleMouseOut)
+      .on("click", handleClick);
 
-    // Add labels to nodes
-    nodes
-      .append("text")
-      .text((d) => d.name)
-      .attr("dx", (d) => d.radius + 5)
-      .attr("dy", ".35em")
-      .attr("font-size", "12px")
-      .attr("fill", "#333");
+    // Add titles directly next to nodes
+    const title = g
+      .append("g")
+      .selectAll("text")
+      .data(nodes)
+      .join("text")
+      .attr("x", (d) => d.x + 10)  // Position the title to the right of the node
+      .attr("y", (d) => d.y)
+      .attr("font-size", "14px")  // Increase the font size
+      .attr("fill", "#333")
+      .text((d) => d.name || d.id);  // Display the name or ID of the node
 
-    // Handle node click for details
-    nodes.on("click", async (event, d) => {
-      event.stopPropagation();
-      try {
-        const response = await fetch(
-          `http://localhost:50500/nodes/${d.id}/details`
-        );
-        const details = await response.json();
-        setSelectedNode(details);
-      } catch (error) {
-        console.error("Error fetching node details:", error);
-      }
-    });
-
-    // Update positions on simulation tick
-    sim.on("tick", () => {
-      links
+    // Update positions on each tick
+    simulation.on("tick", () => {
+      link
         .attr("x1", (d) => d.source.x)
         .attr("y1", (d) => d.source.y)
         .attr("x2", (d) => d.target.x)
         .attr("y2", (d) => d.target.y);
 
-      nodes.attr("transform", (d) => `translate(${d.x},${d.y})`);
+      node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
+      title.attr("x", (d) => d.x + 10).attr("y", (d) => d.y);  // Update title position
+      presenceCircle.attr("cx", (d) => d.x).attr("cy", (d) => d.y); // Update presence circle position
     });
 
-    // Drag functions
-    function dragStarted(event) {
-      if (!event.active) sim.alphaTarget(0.3).restart();
-      event.subject.fx = event.subject.x;
-      event.subject.fy = event.subject.y;
+    // Drag behavior functions
+    function drag(simulation) {
+      return d3
+        .drag()
+        .on("start", (event) => {
+          if (!event.active) simulation.alphaTarget(0.3).restart();
+          event.subject.fx = event.subject.x;
+          event.subject.fy = event.subject.y;
+        })
+        .on("drag", (event) => {
+          event.subject.fx = event.x;
+          event.subject.fy = event.y;
+        })
+        .on("end", (event) => {
+          if (!event.active) simulation.alphaTarget(0);
+          event.subject.fx = null;
+          event.subject.fy = null;
+        });
     }
 
-    function dragged(event) {
-      event.subject.fx = event.x;
-      event.subject.fy = event.y;
+    // Mouseover event to highlight node
+    function handleMouseOver(event, d) {
+      d3.select(this).attr("stroke-width", 3);
+      tooltip
+        .style("visibility", "visible")
+        .text(`${d.name || d.id}`)
+        .style("top", `${event.pageY - 10}px`)
+        .style("left", `${event.pageX + 10}px`);
     }
 
-    function dragEnded(event) {
-      if (!event.active) sim.alphaTarget(0);
-      event.subject.fx = null;
-      event.subject.fy = null;
-
-      // Save node position
-      fetch(`http://localhost:50500/nodes/${event.subject.id}/position`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          x: event.subject.x,
-          y: event.subject.y,
-        }),
-      }).catch(console.error);
+    // Mouseout event to remove highlight
+    function handleMouseOut() {
+      d3.select(this).attr("stroke-width", 1.5);
+      tooltip.style("visibility", "hidden");
     }
 
-    setSimulation(sim);
+    // Click event to handle additional interactions
+    function handleClick(event, d) {
+      alert(`Clicked on node: ${d.name || d.id}`);
+    }
 
+    // Tooltip for nodes (optional)
+    const tooltip = d3
+      .select("body")
+      .append("div")
+      .attr("class", "tooltip")
+      .style("position", "absolute")
+      .style("visibility", "hidden")
+      .style("background", "#f9f9f9")
+      .style("padding", "8px")
+      .style("border-radius", "4px")
+      .style("box-shadow", "0px 0px 10px rgba(0, 0, 0, 0.1)");
+
+    // Cleanup on component unmount
     return () => {
-      sim.stop();
+      simulation.stop();
+      tooltip.remove();
     };
-  }, [graphData]);
+  }, [data]);
 
-  return (
-    <div className="flex gap-4">
-      <div className="border rounded-lg p-4 bg-white">
-        <svg ref={svgRef} className="w-full h-full" />
-      </div>
-
-      {selectedNode && (
-        <Card className="w-80">
-          <CardContent className="p-4">
-            <h3 className="text-lg font-semibold mb-2">
-              {selectedNode.node.name}
-            </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Type: {selectedNode.node.type}
-            </p>
-
-            <div className="space-y-2">
-              <h4 className="font-medium">
-                Connections ({selectedNode.metrics.totalConnections})
-              </h4>
-              <div className="text-sm">
-                <p>Incoming: {selectedNode.metrics.incomingConnections}</p>
-                <p>Outgoing: {selectedNode.metrics.outgoingConnections}</p>
-              </div>
-
-              <div className="mt-4">
-                <h4 className="font-medium mb-2">Connected Nodes</h4>
-                <div className="space-y-2 max-h-60 overflow-y-auto">
-                  {selectedNode.connections.map((conn) => (
-                    <div
-                      key={conn.connection_id}
-                      className="text-sm p-2 bg-gray-50 rounded"
-                    >
-                      <p className="font-medium">{conn.connected_node_name}</p>
-                      <p className="text-gray-600">
-                        {conn.connection_type} ({conn.direction})
-                      </p>
-                      {conn.shared_tags && (
-                        <p className="text-gray-500 text-xs mt-1">
-                          Tags: {conn.shared_tags}
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-      )}
-    </div>
-  );
+  return <svg ref={svgRef}></svg>;
 }

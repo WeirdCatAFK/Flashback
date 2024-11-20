@@ -3,8 +3,7 @@ const flashcards_router = express.Router();
 import db from "../config/dbmanager.js";
 import multer from "multer";
 const upload = multer();
-
-//Create a flashcard
+// Create a flashcard
 flashcards_router.post("/", async (req, res) => {
   const { document_id, name, front, back } = req.body;
 
@@ -27,32 +26,46 @@ flashcards_router.post("/", async (req, res) => {
 
     // Create a new Node for the flashcard
     console.log("Creating a new Node for the flashcard...");
-    const nodeId = db.run(
-      "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = 'Flashcard'), 0.0)",
-      function (err) {
-        if (err) {
-          console.error("Error inserting into Nodes table:", err);
-          return reject(err);
-        }
-        console.log("Node created with ID:", this.lastID);
-        resolve(this.lastID);
-      }
+    await db.run(
+      "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = 'Flashcard'), 0.0)"
     );
+
+    // Retrieve the ID of the newly created node
+    console.log("Retrieving the ID of the created Node...");
+    const nodeIdResult = await db.get("SELECT last_insert_rowid() AS id");
+    const nodeId = nodeIdResult.id;
+
+    // Retrieve the node ID of the associated document
+    console.log("Retrieving the node ID of the associated document...");
+    const documentNodeIdResult = await db.get(
+      "SELECT node_id FROM Documents WHERE id = ?",
+      [document_id]
+    );
+    const documentNodeId = documentNodeIdResult.node_id;
+
+    // Connect the newly created flashcard node to the document node
+    console.log("Connecting the flashcard node to the document node...");
+    await db.run(
+      "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, (SELECT id FROM Connection_types WHERE name = 'Tagged'))",
+      [nodeId, documentNodeId]
+    );
+
+    // Retrieve the ID of the newly created node connection
+    console.log("Retrieving the ID of the created Node connection...");
+    const connectionIdResult = await db.get("SELECT last_insert_rowid() AS id");
+    const connectionId = connectionIdResult.id;
 
     // Create a new Flashcard entry linked to the created node and the document
     console.log("Creating a new Flashcard entry...");
-    const flashcardId = await db.run(
+    await db.run(
       "INSERT INTO Flashcards (document_id, node_id, name, front, back) VALUES (?, ?, ?, ?, ?)",
-      [document_id, nodeId, name, front, back],
-      function (err) {
-        if (err) {
-          console.error("Error inserting into Flashcards table:", err);
-          return reject(err);
-        }
-        console.log("Flashcard created with ID:", this.lastID);
-        resolve(this.lastID);
-      }
+      [document_id, nodeId, name, front, back]
     );
+
+    // Retrieve the ID of the newly created flashcard
+    console.log("Retrieving the ID of the created Flashcard...");
+    const flashcardIdResult = await db.get("SELECT last_insert_rowid() AS id");
+    const flashcardId = flashcardIdResult.id;
 
     // Return success response with created flashcard ID
     console.log("Flashcard created successfully with ID:", flashcardId);
@@ -70,8 +83,6 @@ flashcards_router.post("/", async (req, res) => {
     });
   }
 });
-
-
 
 // Get all flashcards for a document
 flashcards_router.get("/document/:documentId", async (req, res) => {
