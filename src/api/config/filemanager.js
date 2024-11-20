@@ -338,6 +338,23 @@ class FileManager {
         ]
       );
 
+      // Create node connection if there's a parent folder
+      if (parentFolder) {
+        // Get the parent folder's node_id
+        const parentNodeResult = await db.get(
+          "SELECT node_id FROM Folders WHERE id = ?",
+          [parentFolder.id]
+        );
+
+        if (parentNodeResult && parentNodeResult.node_id) {
+          // Create connection from parent folder's node to document's node
+          await db.run(
+            "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, ?)",
+            [parentNodeResult.node_id, nodeId, 1] // Using connection_type_id 1 (empty string type)
+          );
+        }
+      }
+
       const documentResult = await db.get(
         "SELECT last_insert_rowid() as lastID"
       );
@@ -358,7 +375,6 @@ class FileManager {
       throw error;
     }
   }
-
   async deleteFile(absolutePath) {
     let transaction = false;
     try {
@@ -513,6 +529,7 @@ class FileManager {
       throw error;
     }
   }
+
   async moveFile(sourceRelativePath, destRelativePath, isRootMove = false) {
     let transaction = false;
     try {
@@ -548,9 +565,9 @@ class FileManager {
 
       const stats = await fs.promises.stat(sourcePath);
       if (stats.isDirectory()) {
-        // Get the source folder's node_id before updating
+        // Get the source folder's node_id and current parent folder
         const sourceFolder = await db.get(
-          "SELECT node_id FROM Folders WHERE filepath = ?",
+          "SELECT f.node_id, f.parent_folder_id, pf.node_id as parent_node_id FROM Folders f LEFT JOIN Folders pf ON f.parent_folder_id = pf.id WHERE f.filepath = ?",
           [sourcePath]
         );
 
@@ -569,6 +586,22 @@ class FileManager {
           ]
         );
 
+        // If there was a previous parent, remove old connection
+        if (sourceFolder.parent_node_id) {
+          await db.run(
+            "DELETE FROM Node_connections WHERE origin_id = ? AND destiny_id = ?",
+            [sourceFolder.parent_node_id, sourceFolder.node_id]
+          );
+        }
+
+        // Create new connection if moving to a folder (whether from root or another folder)
+        if (destFolder) {
+          await db.run(
+            "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, ?)",
+            [destFolder.node_id, sourceFolder.node_id, 1]
+          );
+        }
+
         // Update all child folders' paths
         await db.run(
           "UPDATE Folders SET filepath = REPLACE(filepath, ?, ?) WHERE filepath LIKE ?",
@@ -581,9 +614,12 @@ class FileManager {
           [sourcePath + "/", destPath + "/", sourcePath + "/%"]
         );
       } else {
-        // Get the source document's node_id before updating
+        // Get the source document's details including its current parent folder
         const sourceDoc = await db.get(
-          "SELECT node_id FROM Documents WHERE filepath = ?",
+          `SELECT d.node_id, d.folder_id, f.node_id as parent_node_id 
+           FROM Documents d 
+           LEFT JOIN Folders f ON d.folder_id = f.id 
+           WHERE d.filepath = ?`,
           [sourcePath]
         );
 
@@ -601,15 +637,29 @@ class FileManager {
             sourcePath,
           ]
         );
+
+        // If there was a previous parent, remove old connection
+        if (sourceDoc.parent_node_id) {
+          await db.run(
+            "DELETE FROM Node_connections WHERE origin_id = ? AND destiny_id = ?",
+            [sourceDoc.parent_node_id, sourceDoc.node_id]
+          );
+        }
+
+        // Create new connection if moving to a folder (whether from root or another folder)
+        if (destFolder) {
+          await db.run(
+            "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, ?)",
+            [destFolder.node_id, sourceDoc.node_id, 1]
+          );
+        }
       }
 
-      // Perform the actual file system move
+      // Move the actual file or directory
       await fs.promises.rename(sourcePath, destPath);
 
       await db.run("COMMIT");
       transaction = false;
-
-      return { message: "File moved successfully", newPath: destPath };
     } catch (error) {
       if (transaction) {
         await db.run("ROLLBACK");
@@ -617,6 +667,7 @@ class FileManager {
       throw error;
     }
   }
+
   async moveFolder(sourceFolderId, targetFolderId, isRootMove = false) {
     let transaction = false;
     try {
@@ -627,23 +678,51 @@ class FileManager {
       const sourceFolder = await this.getFolderInfo(sourceFolderId);
       if (!sourceFolder) throw new Error("Source folder not found");
 
-      // Get target folder info
-      const targetFolder = await this.getFolderInfo(targetFolderId);
-      if (!targetFolder) throw new Error("Target folder not found");
+      // Get target folder info if not moving to root
+      let targetFolder = null;
+      if (!isRootMove) {
+        targetFolder = await this.getFolderInfo(targetFolderId);
+        if (!targetFolder) throw new Error("Target folder not found");
+      }
 
-      // Prevent moving a folder into itself or its subfolders
-      if (targetFolder.filepath.startsWith(sourceFolder.filepath)) {
+      // If moving to a folder, prevent moving a folder into itself or its subfolders
+      if (
+        targetFolder &&
+        targetFolder.filepath.startsWith(sourceFolder.filepath)
+      ) {
         throw new Error("Cannot move a folder into itself or its subfolders");
       }
 
       // Calculate new destination path
-      const destinationPath = path.join(
-        targetFolder.filepath,
-        sourceFolder.name
-      );
+      const destinationPath = targetFolder
+        ? path.join(targetFolder.filepath, sourceFolder.name)
+        : path.join(this.filePath, sourceFolder.name);
+
       if (fs.existsSync(destinationPath)) {
         throw new Error(
           "A folder with this name already exists in the destination"
+        );
+      }
+
+      // Get current parent folder's node_id if it exists
+      const currentParentFolder = sourceFolder.parent_folder_id
+        ? await this.getFolderInfo(sourceFolder.parent_folder_id)
+        : null;
+
+      // Update node connections for the source folder
+      if (currentParentFolder) {
+        // Remove old connection
+        await db.run(
+          "DELETE FROM Node_connections WHERE origin_id = ? AND destiny_id = ?",
+          [currentParentFolder.node_id, sourceFolder.node_id]
+        );
+      }
+
+      // Create new connection if moving to a folder
+      if (targetFolder) {
+        await db.run(
+          "INSERT INTO Node_connections (origin_id, destiny_id, connection_type_id) VALUES (?, ?, ?)",
+          [targetFolder.node_id, sourceFolder.node_id, 1]
         );
       }
 
@@ -655,10 +734,26 @@ class FileManager {
         [isRootMove ? null : targetFolderId, destinationPath, sourceFolderId]
       );
 
-      // Get all subfolders of the source folder
-      const subfolders = await this.getAllSubfolders(sourceFolderId);
+      // Get all subfolders of the source folder with their node information
+      const subfolders = await db.all(
+        `WITH RECURSIVE subfolder_tree AS (
+           SELECT f.id, f.filepath, f.parent_folder_id, f.node_id,
+                  p.node_id as parent_node_id
+           FROM Folders f
+           LEFT JOIN Folders p ON f.parent_folder_id = p.id
+           WHERE f.parent_folder_id = ?
+           UNION ALL
+           SELECT f.id, f.filepath, f.parent_folder_id, f.node_id,
+                  p.node_id as parent_node_id
+           FROM Folders f
+           LEFT JOIN Folders p ON f.parent_folder_id = p.id
+           JOIN subfolder_tree st ON f.parent_folder_id = st.id
+         )
+         SELECT * FROM subfolder_tree`,
+        [sourceFolderId]
+      );
 
-      // Update paths for all subfolders
+      // Update paths and node connections for all subfolders
       for (const subfolder of subfolders) {
         const newSubfolderPath = subfolder.filepath.replace(
           sourceFolder.filepath,
@@ -671,6 +766,9 @@ class FileManager {
            WHERE id = ?`,
           [newSubfolderPath, subfolder.id]
         );
+
+        // Node connections for subfolders don't need to be updated since
+        // their parent-child relationships within the moved structure remain the same
       }
 
       // Update paths for all documents in the source folder and subfolders

@@ -4,6 +4,7 @@ import db from "../config/dbmanager.js";
 import multer from "multer";
 const upload = multer();
 
+//Create a flashcard
 flashcards_router.post("/", async (req, res) => {
   const { document_id, name, front, back } = req.body;
 
@@ -24,7 +25,7 @@ flashcards_router.post("/", async (req, res) => {
     console.log("Serializing database operations...");
     await db.serialize();
 
-    // Step 1: Create a new Node for the flashcard
+    // Create a new Node for the flashcard
     console.log("Creating a new Node for the flashcard...");
     const nodeId = db.run(
       "INSERT INTO Nodes (type_id, presence) VALUES ((SELECT id FROM Node_types WHERE name = 'Flashcard'), 0.0)",
@@ -38,7 +39,7 @@ flashcards_router.post("/", async (req, res) => {
       }
     );
 
-    // Step 2: Create a new Flashcard entry linked to the created node and the document
+    // Create a new Flashcard entry linked to the created node and the document
     console.log("Creating a new Flashcard entry...");
     const flashcardId = await db.run(
       "INSERT INTO Flashcards (document_id, node_id, name, front, back) VALUES (?, ?, ?, ?, ?)",
@@ -53,7 +54,7 @@ flashcards_router.post("/", async (req, res) => {
       }
     );
 
-    // Step 3: Return success response with created flashcard ID
+    // Return success response with created flashcard ID
     console.log("Flashcard created successfully with ID:", flashcardId);
     res.status(201).json({
       success: true,
@@ -69,6 +70,8 @@ flashcards_router.post("/", async (req, res) => {
     });
   }
 });
+
+
 
 // Get all flashcards for a document
 flashcards_router.get("/document/:documentId", async (req, res) => {

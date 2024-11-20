@@ -97,7 +97,8 @@
   color: #666;
 }
 
-/* Header Buttons and workspace name*/
+
+
 
 /* Styles for the create buttons container */
 .header-cont {
@@ -177,3 +178,4 @@
 .delete-btn:hover {
   transform: scale(1.1);
 }
+

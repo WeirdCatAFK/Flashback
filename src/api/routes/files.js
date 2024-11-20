@@ -45,6 +45,7 @@ files_router.get("/tree", async (req, res) => {
     });
   }
 });
+
 //Get folder path
 files_router.get("/folder/:id([0-9]{1,3})/path", async (req, res) => {
   try {
@@ -60,6 +61,7 @@ files_router.get("/folder/:id([0-9]{1,3})/path", async (req, res) => {
     res.status(500).json({ code: 500, error: error.message });
   }
 });
+
 //Get file path
 files_router.get("/:id([0-9]{1,3})/path", async (req, res) => {
   try {
@@ -193,6 +195,8 @@ files_router.put("/folder/:id([0-9]{1,3})/rename", async (req, res) => {
 });
 
 // Move routes
+
+
 // Move file to another folder
 files_router.post(
   "/:id([0-9]{1,3})/move/:folder_id(|[0-9]{1,3})",

@@ -14,11 +14,11 @@
 .file-renderer {
   display: flex;
   height: 100%;
-  width: 80vw;
-  overflow-y: scroll,
-
-
+  width: 100%;
+  overflow-y: auto; /* Prevents document scrolling */
 }
+
+
 
 .flashcard-maker {
   width: 40vw;

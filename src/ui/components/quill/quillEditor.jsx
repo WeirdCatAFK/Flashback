@@ -254,7 +254,7 @@ const QuillEditor = ({
   );
 
   return (
-    <div className="editor-wrapper h-full flex flex-col">
+    <div className="editor-wrapper">
       <style>{styles}</style>
       {renderHeader()}
       <ReactQuill

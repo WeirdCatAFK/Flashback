@@ -1,8 +1,11 @@
 import "./Graph.css";
+import ForceDirectedGraph from './../components/d3/ForceDirectedGraph.jsx';
+
+
 const GraphView = () => {
   return (
     <div>
-      <h1>Graphs!</h1>
+      <ForceDirectedGraph></ForceDirectedGraph>
     </div>
   );
 };
