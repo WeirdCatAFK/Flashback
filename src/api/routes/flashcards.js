@@ -3,6 +3,7 @@ const flashcards_router = express.Router();
 import db from "../config/dbmanager.js";
 import multer from "multer";
 const upload = multer();
+
 // Create a flashcard
 flashcards_router.post("/", async (req, res) => {
   const { document_id, name, front, back } = req.body;
@@ -55,10 +56,10 @@ flashcards_router.post("/", async (req, res) => {
     const connectionIdResult = await db.get("SELECT last_insert_rowid() AS id");
     const connectionId = connectionIdResult.id;
 
-    // Create a new Flashcard entry linked to the created node and the document
+    // Create a new Flashcard entry linked to the created node and the document, setting next_recall to the current date
     console.log("Creating a new Flashcard entry...");
     await db.run(
-      "INSERT INTO Flashcards (document_id, node_id, name, front, back) VALUES (?, ?, ?, ?, ?)",
+      "INSERT INTO Flashcards (document_id, node_id, name, front, back, next_recall) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)",
       [document_id, nodeId, name, front, back]
     );
 
