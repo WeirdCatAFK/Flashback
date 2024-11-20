@@ -113,10 +113,120 @@ flashcards_router.get("/folder/:folderId", async (req, res) => {
       [req.params.folderId]
     );
 
-    res.json(flashcards);
+    res.status(200).json(flashcards);
   } catch (error) {
     console.error("Error fetching folder flashcards:", error);
     res.status(500).json({ error: "Failed to fetch folder flashcards" });
+  }
+});
+
+// Get flashcards due for review
+flashcards_router.get("/due", async (req, res) => {
+  try {
+    const dueFlashcards = await db.all(
+      `SELECT f.id, f.name, f.front, f.back, f.next_recall,
+              d.name as document_name, d.filepath as document_path
+       FROM Flashcards f
+       LEFT JOIN Documents d ON f.document_id = d.id
+       WHERE f.next_recall <= datetime('now')
+       ORDER BY f.next_recall ASC`
+    );
+
+    res.status(200).json(dueFlashcards);
+  } catch (error) {
+    console.error("Error fetching due flashcards:", error);
+    res.status(500).json({ error: "Failed to fetch due flashcards" });
+  }
+});
+
+// Update next recall date after review
+flashcards_router.put("/:id/review", async (req, res) => {
+  const { next_recall } = req.body;
+
+  try {
+    await db.run("UPDATE Flashcards SET next_recall = ? WHERE id = ?", [
+      next_recall,
+      req.params.id,
+    ]);
+
+    res.status(200).json({ message: "Review date updated successfully" });
+  } catch (error) {
+    console.error("Error updating review date:", error);
+    res.status(500).json({ error: "Failed to update review date" });
+  }
+});
+
+// Get flashcard presence
+flashcards_router.get("/:id/presence", async (req, res) => {
+  try {
+    const row = await db.get(
+      "SELECT presence FROM Nodes WHERE id = (SELECT node_id FROM Flashcards WHERE id = ?)",
+      [req.params.id]
+    );
+
+    if (row) {
+      const presence = row.presence;
+      res.status(200).json({ presence });
+    } else {
+      res.status(404).json({ error: "Flashcard not found" });
+    }
+  } catch (error) {
+    console.error("Error fetching flashcard presence:", error);
+    res.status(500).json({ error: "Failed to fetch flashcard presence" });
+  }
+});
+
+// Update flashcard presence
+flashcards_router.put("/:id/presence", async (req, res) => {
+  const { presence } = req.body; // Expecting presence to be passed in the request body
+
+  if (typeof presence !== "number") {
+    return res.status(400).json({ error: "Presence must be a number" });
+  }
+
+  try {
+    // Update the presence of the node associated with the flashcard
+    const result = await db.run(
+      "UPDATE Nodes SET presence = ? WHERE id = (SELECT node_id FROM Flashcards WHERE id = ?)",
+      [presence, req.params.id]
+    );
+
+    res.status(200).json({ message: "Presence updated successfully" });
+  } catch (error) {
+    console.error("Error updating presence:", error);
+    res.status(500).json({ error: "Failed to update presence" });
+  }
+});
+
+// Delete a flashcard
+flashcards_router.delete("/:id", async (req, res) => {
+  try {
+    await db.run("DELETE FROM Flashcards WHERE id = ?", [req.params.id]);
+
+    res.json({ message: "Review date updated successfully" });
+  } catch (error) {
+    console.error("Error updating review date:", error);
+    res.status(500).json({ error: "Failed to update review date" });
+  }
+});
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+// Get all flashcards with a specific tag
+flashcards_router.get("/tag/:tagId", async (req, res) => {
+  try {
+    const flashcards = await db.all(
+      `SELECT DISTINCT f.id, f.name, f.front, f.back
+     FROM Flashcards f
+     JOIN Node_connections nc ON f.node_id = nc.destiny_id
+     WHERE nc.origin_id = ?`,
+      [req.params.tagId]
+    );
+
+    res.json(flashcards);
+  } catch (error) {
+    console.error("Error fetching tagged flashcards:", error);
+    res.status(500).json({ error: "Failed to fetch tagged flashcards" });
   }
 });
 
@@ -281,24 +391,6 @@ flashcards_router.post("/:id/highlight", async (req, res) => {
     console.error("Error adding highlight:", error);
     res.status(500).json({ error: "Failed to add highlight" });
   }
-  // Get flashcards due for review
-  flashcards_router.get("/due", async (req, res) => {
-    try {
-      const dueFlashcards = await db.all(
-        `SELECT f.id, f.name, f.front, f.back, f.next_recall,
-              d.name as document_name, d.filepath as document_path
-       FROM Flashcards f
-       LEFT JOIN Documents d ON f.document_id = d.id
-       WHERE f.next_recall <= datetime('now')
-       ORDER BY f.next_recall ASC`
-      );
-
-      res.json(dueFlashcards);
-    } catch (error) {
-      console.error("Error fetching due flashcards:", error);
-      res.status(500).json({ error: "Failed to fetch due flashcards" });
-    }
-  });
 
   // Get detailed flashcard information
   flashcards_router.get("/:id/details", async (req, res) => {
@@ -339,41 +431,6 @@ flashcards_router.post("/:id/highlight", async (req, res) => {
     } catch (error) {
       console.error("Error fetching flashcard details:", error);
       res.status(500).json({ error: "Failed to fetch flashcard details" });
-    }
-  });
-
-  // Update next recall date after review
-  flashcards_router.put("/:id/review", async (req, res) => {
-    const { next_recall } = req.body;
-
-    try {
-      await db.run("UPDATE Flashcards SET next_recall = ? WHERE id = ?", [
-        next_recall,
-        req.params.id,
-      ]);
-
-      res.json({ message: "Review date updated successfully" });
-    } catch (error) {
-      console.error("Error updating review date:", error);
-      res.status(500).json({ error: "Failed to update review date" });
-    }
-  });
-
-  // Get all flashcards with a specific tag
-  flashcards_router.get("/tag/:tagId", async (req, res) => {
-    try {
-      const flashcards = await db.all(
-        `SELECT DISTINCT f.id, f.name, f.front, f.back
-       FROM Flashcards f
-       JOIN Node_connections nc ON f.node_id = nc.destiny_id
-       WHERE nc.origin_id = ?`,
-        [req.params.tagId]
-      );
-
-      res.json(flashcards);
-    } catch (error) {
-      console.error("Error fetching tagged flashcards:", error);
-      res.status(500).json({ error: "Failed to fetch tagged flashcards" });
     }
   });
 

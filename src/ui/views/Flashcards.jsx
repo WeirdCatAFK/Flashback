@@ -1,11 +1,13 @@
-import './Flashcards.css';
+import "./Flashcards.css";
+
+import FlashcardTrainer from "./../components/FlashcardTrainer.jsx";
+
 const FlashcardView = () => {
-    return (
-      <div>
-        <h1>Flashcards!</h1>
-      </div>
-    );
-  };
-  
-  export default FlashcardView;
-  
+  return (
+    <div>
+      <FlashcardTrainer></FlashcardTrainer>
+    </div>
+  );
+};
+
+export default FlashcardView;
