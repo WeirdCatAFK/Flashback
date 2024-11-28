@@ -5,6 +5,7 @@ import multer from "multer";
 const upload = multer();
 
 // Create a flashcard
+
 flashcards_router.post("/", async (req, res) => {
   const { document_id, name, front, back } = req.body;
 
@@ -86,6 +87,7 @@ flashcards_router.post("/", async (req, res) => {
 });
 
 // Get all flashcards for a document
+
 flashcards_router.get("/document/:documentId", async (req, res) => {
   try {
     const flashcards = await db.all(
@@ -121,6 +123,7 @@ flashcards_router.get("/folder/:folderId", async (req, res) => {
 });
 
 // Get flashcards due for review
+
 flashcards_router.get("/due", async (req, res) => {
   try {
     const dueFlashcards = await db.all(
@@ -140,6 +143,7 @@ flashcards_router.get("/due", async (req, res) => {
 });
 
 // Update next recall date after review
+
 flashcards_router.put("/:id/review", async (req, res) => {
   const { next_recall } = req.body;
 
@@ -157,6 +161,7 @@ flashcards_router.put("/:id/review", async (req, res) => {
 });
 
 // Get flashcard presence
+
 flashcards_router.get("/:id/presence", async (req, res) => {
   try {
     const row = await db.get(
@@ -177,6 +182,7 @@ flashcards_router.get("/:id/presence", async (req, res) => {
 });
 
 // Update flashcard presence
+
 flashcards_router.put("/:id/presence", async (req, res) => {
   const { presence } = req.body; // Expecting presence to be passed in the request body
 
@@ -198,15 +204,67 @@ flashcards_router.put("/:id/presence", async (req, res) => {
   }
 });
 
-// Delete a flashcard
 flashcards_router.delete("/:id", async (req, res) => {
-  try {
-    await db.run("DELETE FROM Flashcards WHERE id = ?", [req.params.id]);
+  const flashcardId = req.params.id;
 
-    res.json({ message: "Review date updated successfully" });
+  try {
+    // Start a transaction to ensure all deletions are atomic
+    await db.run("BEGIN TRANSACTION");
+
+    // First, find the node_id associated with the flashcard
+    const nodeResult = await db.get(
+      "SELECT node_id FROM Flashcards WHERE id = ?",
+      [flashcardId]
+    );
+
+    if (!nodeResult || !nodeResult.node_id) {
+      await db.run("ROLLBACK");
+      return res.status(404).json({ error: "Flashcard not found" });
+    }
+
+    const nodeId = nodeResult.node_id;
+
+    // Delete related records in Node_connections where this node is either origin or destiny
+    await db.run(
+      "DELETE FROM Inherited_tags WHERE connection_id IN (SELECT id FROM Node_connections WHERE origin_id = ? OR destiny_id = ?)",
+      [nodeId, nodeId]
+    );
+    await db.run(
+      "DELETE FROM Path_connections WHERE connection_id IN (SELECT id FROM Node_connections WHERE origin_id = ? OR destiny_id = ?)",
+      [nodeId, nodeId]
+    );
+    await db.run(
+      "DELETE FROM Node_connections WHERE origin_id = ? OR destiny_id = ?",
+      [nodeId, nodeId]
+    );
+
+    // Delete related records in Flashcard_media
+    await db.run("DELETE FROM Flashcard_media WHERE flashcard_id = ?", [
+      flashcardId,
+    ]);
+
+    // Delete related records in Flashcard_info
+    await db.run("DELETE FROM Flashcard_info WHERE flashcard_id = ?", [
+      flashcardId,
+    ]);
+
+    // Delete the flashcard itself (this will trigger cascading deletes for document_id and node_id)
+    await db.run("DELETE FROM Flashcards WHERE id = ?", [flashcardId]);
+
+    // Delete the associated node
+    await db.run("DELETE FROM Nodes WHERE id = ?", [nodeId]);
+
+    // Commit the transaction
+    await db.run("COMMIT");
+
+    res.json({
+      message: "Flashcard and related connections deleted successfully",
+    });
   } catch (error) {
-    console.error("Error updating review date:", error);
-    res.status(500).json({ error: "Failed to update review date" });
+    // Rollback the transaction in case of error
+    await db.run("ROLLBACK");
+    console.error("Error deleting flashcard:", error);
+    res.status(500).json({ error: "Failed to delete flashcard" });
   }
 });
 

@@ -58,6 +58,16 @@ export default function ForceDirectedGraph({ data }) {
       .join("line")
       .attr("stroke-width", (d) => Math.sqrt(d.value) || 2);
 
+    // Function to calculate presence circle radius
+    const calculatePresenceRadius = (presence) => {
+      if (presence === undefined || presence === null) return 0;
+      // Ensure presence is treated as a float and handle edge cases
+      const presenceValue = parseFloat(presence);
+      if (isNaN(presenceValue)) return 0;
+      // Scale the presence value (adjust multiplier as needed)
+      return presenceValue * 5;
+    };
+
     // Add the translucent growing circle before the nodes
     const presenceCircle = g
       .append("g")
@@ -66,7 +76,7 @@ export default function ForceDirectedGraph({ data }) {
       .join("circle")
       .attr("class", "presence")
       .attr("fill", "rgba(0, 123, 255, 0.3)") // Light blue with transparency
-      .attr("r", (d) => d.presence * 5 || 0)  // Adjust the multiplier for size
+      .attr("r", (d) => calculatePresenceRadius(d.presence))
       .attr("cx", (d) => d.x)
       .attr("cy", (d) => d.y);
 
@@ -91,11 +101,15 @@ export default function ForceDirectedGraph({ data }) {
       .selectAll("text")
       .data(nodes)
       .join("text")
-      .attr("x", (d) => d.x + 10)  // Position the title to the right of the node
+      .attr("x", (d) => d.x + 10)
       .attr("y", (d) => d.y)
-      .attr("font-size", "14px")  // Increase the font size
+      .attr("font-size", "14px")
       .attr("fill", "#333")
-      .text((d) => d.name || d.id);  // Display the name or ID of the node
+      .text((d) => {
+        // Include presence value in the label if it exists
+        const presenceText = d.presence ? ` (${parseFloat(d.presence).toFixed(2)})` : '';
+        return `${d.name || d.id}${presenceText}`;
+      });
 
     // Update positions on each tick
     simulation.on("tick", () => {
@@ -106,8 +120,8 @@ export default function ForceDirectedGraph({ data }) {
         .attr("y2", (d) => d.target.y);
 
       node.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
-      title.attr("x", (d) => d.x + 10).attr("y", (d) => d.y);  // Update title position
-      presenceCircle.attr("cx", (d) => d.x).attr("cy", (d) => d.y); // Update presence circle position
+      title.attr("x", (d) => d.x + 10).attr("y", (d) => d.y);
+      presenceCircle.attr("cx", (d) => d.x).attr("cy", (d) => d.y);
     });
 
     // Drag behavior functions
@@ -130,12 +144,12 @@ export default function ForceDirectedGraph({ data }) {
         });
     }
 
-    // Mouseover event to highlight node
+    // Enhanced mouseover event to show presence value
     function handleMouseOver(event, d) {
       d3.select(this).attr("stroke-width", 3);
       tooltip
         .style("visibility", "visible")
-        .text(`${d.name || d.id}`)
+        .html(`${d.name || d.id}<br>Presence: ${d.presence ? parseFloat(d.presence).toFixed(2) : 'N/A'}`)
         .style("top", `${event.pageY - 10}px`)
         .style("left", `${event.pageX + 10}px`);
     }
@@ -148,10 +162,10 @@ export default function ForceDirectedGraph({ data }) {
 
     // Click event to handle additional interactions
     function handleClick(event, d) {
-      alert(`Clicked on node: ${d.name || d.id}`);
+      alert(`Clicked on node: ${d.name || d.id}\nPresence: ${d.presence ? parseFloat(d.presence).toFixed(2) : 'N/A'}`);
     }
 
-    // Tooltip for nodes (optional)
+    // Enhanced tooltip for nodes
     const tooltip = d3
       .select("body")
       .append("div")

@@ -1,17 +1,27 @@
-import React, { useRef, useState, useEffect , useCallback} from "react";
+import React, { useRef, useState, useEffect, useCallback } from "react";
 import ReactQuill from "react-quill";
 import axios from "axios";
 import "react-quill/dist/quill.snow.css";
-import isEqual from "lodash"
+import isEqual from "lodash";
+import hljs from "highlight.js";
 
 // Constants remain the same
 const EDITOR_CONFIG = {
   modules: {
+    syntax: {
+      highlight: function (text, language) {
+        const validLanguage = hljs.getLanguage(language)
+          ? language
+          : "plaintext";
+        return hljs.highlight(text, { language: validLanguage }).value;
+      },
+    },
     toolbar: [
       [{ header: [1, 2, 3, false] }],
       ["bold", "italic", "underline", "strike"],
       [{ list: "ordered" }, { list: "bullet" }],
       [{ color: [] }, { background: [] }],
+      ["code-block"], // Add code-block to toolbar
       ["clean"],
       ["link"],
     ],
@@ -27,6 +37,7 @@ const EDITOR_CONFIG = {
     "color",
     "background",
     "link",
+    "code-block", // Add code-block format
   ],
 };
 
@@ -131,6 +142,33 @@ const QuillEditor = ({
       });
     },
     [sendEditorStats]
+  );
+  const renderLanguageSelector = () => (
+    <select
+      onChange={(e) => {
+        const quill = quillRef.current.getEditor();
+        const selection = quill.getSelection();
+        if (selection) {
+          quill.format("code-block", e.target.value);
+        }
+      }}
+    >
+      <option value="">Select Language</option>
+      {[
+        "javascript",
+        "python",
+        "cpp",
+        "java",
+        "html",
+        "css",
+        "sql",
+        "typescript",
+      ].map((lang) => (
+        <option key={lang} value={lang}>
+          {lang}
+        </option>
+      ))}
+    </select>
   );
 
   // Create specific updaters
@@ -257,6 +295,7 @@ const QuillEditor = ({
     <div className="editor-wrapper">
       <style>{styles}</style>
       {renderHeader()}
+      {renderLanguageSelector()} {/* Add language selector */}
       <ReactQuill
         ref={quillRef}
         value={editorStats.content.value}

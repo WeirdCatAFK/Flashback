@@ -32,9 +32,7 @@ export default function FlashcardTrainer() {
   };
 
   const calculateNextRecall = (presence) => {
-    // Calculate days until next review based on presence^2
     const daysUntilNextReview = Math.pow(presence, 2);
-    // Convert days to milliseconds and add to current time
     return new Date(Date.now() + daysUntilNextReview * 24 * 60 * 60 * 1000).toISOString();
   };
 
@@ -44,7 +42,6 @@ export default function FlashcardTrainer() {
     const flashcard = dueFlashcards[currentFlashcardIndex];
     
     try {
-      // First, get current presence
       const presenceResponse = await axios.get(
         `http://localhost:50500/flashcards/${flashcard.id}/presence`
       );
@@ -52,11 +49,10 @@ export default function FlashcardTrainer() {
       let newPresence;
       let nextRecall;
 
-      // Calculate new presence and next recall based on review type
       switch (reviewType) {
         case "Again":
           newPresence = 0;
-          nextRecall = new Date().toISOString(); // Due immediately
+          nextRecall = new Date().toISOString();
           break;
         case "Challenging":
           newPresence = currentPresence + 0.5;
@@ -83,10 +79,23 @@ export default function FlashcardTrainer() {
       );
 
       setFlipped(false);
-      if (currentFlashcardIndex < dueFlashcards.length - 1) {
-        setCurrentFlashcardIndex(currentFlashcardIndex + 1);
+      
+      if (reviewType === "Again") {
+        // Move the current flashcard to the end of the queue
+        const updatedFlashcards = [
+          ...dueFlashcards.slice(0, currentFlashcardIndex),
+          ...dueFlashcards.slice(currentFlashcardIndex + 1),
+          dueFlashcards[currentFlashcardIndex]
+        ];
+        setDueFlashcards(updatedFlashcards);
+        // Don't increment the index since we removed the current card
       } else {
-        setDueFlashcards([]);
+        // For other review types, proceed as before
+        if (currentFlashcardIndex < dueFlashcards.length - 1) {
+          setCurrentFlashcardIndex(currentFlashcardIndex + 1);
+        } else {
+          setDueFlashcards([]);
+        }
       }
     } catch (err) {
       console.error("Error reviewing flashcard:", err);

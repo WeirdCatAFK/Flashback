@@ -25,7 +25,7 @@ function FlashcardForm({ currentFlashcard, onChange, onAdd }) {
         value={currentFlashcard.back}
         onChange={onChange}
       ></textarea>
-      <button onClick={onAdd}>Add Flashcard</button>
+      <button onClick={onAdd}>Plot Flashcard</button>
     </div>
   );
 }
@@ -98,7 +98,7 @@ function FlashcardList({ title, flashcards, onDelete, showDeleteButton }) {
 
 // Main FlashCardMaker Component
 export default function FlashCardMaker({ documentId }) {
-  const [flashcards, setFlashcards] = useState([]);
+  const [plottedFlashcard, setPlottedFlashcard] = useState(null);
   const [currentFlashcard, setCurrentFlashcard] = useState({
     name: "",
     front: "",
@@ -129,28 +129,26 @@ export default function FlashCardMaker({ documentId }) {
     setCurrentFlashcard((prev) => ({ ...prev, [name]: value }));
   };
 
-  const addFlashcard = () => {
+  const plotFlashcard = () => {
     if (!currentFlashcard.name || !currentFlashcard.front || !currentFlashcard.back) {
       console.warn("Incomplete flashcard data:", currentFlashcard);
       return;
     }
-    setFlashcards((prev) => [...prev, currentFlashcard]);
+    setPlottedFlashcard(currentFlashcard);
     setCurrentFlashcard({ name: "", front: "", back: "" });
   };
 
   const saveFlashcards = async () => {
+    if (!plottedFlashcard) return;
+
     try {
-      await Promise.all(
-        flashcards.map((flashcard) =>
-          axios.post("http://localhost:50500/flashcards/", {
-            document_id: documentId,
-            name: flashcard.name,
-            front: flashcard.front,
-            back: flashcard.back,
-          })
-        )
-      );
-      setFlashcards([]);
+      await axios.post("http://localhost:50500/flashcards/", {
+        document_id: documentId,
+        name: plottedFlashcard.name,
+        front: plottedFlashcard.front,
+        back: plottedFlashcard.back,
+      });
+      setPlottedFlashcard(null);
       fetchDocumentFlashcards();
     } catch (error) {
       console.error("Error saving flashcards:", error);
@@ -177,15 +175,20 @@ export default function FlashCardMaker({ documentId }) {
       <FlashcardForm
         currentFlashcard={currentFlashcard}
         onChange={handleInputChange}
-        onAdd={addFlashcard}
+        onAdd={plotFlashcard}
       />
-      <FlashcardList
-        title="Plotted"
-        flashcards={flashcards}
-        showDeleteButton={false}
-      />
-      <button onClick={saveFlashcards} disabled={flashcards.length === 0}>
-        Save Flashcards
+      {plottedFlashcard && (
+        <FlashcardList
+          title="Plotted"
+          flashcards={[plottedFlashcard]}
+          showDeleteButton={false}
+        />
+      )}
+      <button 
+        onClick={saveFlashcards} 
+        disabled={!plottedFlashcard}
+      >
+        Save Flashcard
       </button>
       {loading ? (
         <p>Loading flashcards...</p>
