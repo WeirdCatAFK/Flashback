@@ -1,8 +1,10 @@
 {
     "appId": "com.dpineda.flashback",
     "files": [
-        "electron",
-        "dist-react"
+        "dist-react",
+        "src/api",
+        "src/electron",
+        "public"
     ],
     "icon": "flashback.ico",
     "mac": {

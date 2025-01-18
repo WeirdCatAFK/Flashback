@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import path from "path";
 import isDev from "./util.js";
-import BackendAPI from "./../api/server.js";
+import BackendAPI from "../api/server.js";
 
 let backendServer = null;
 
@@ -40,7 +40,8 @@ app.on("ready", () => {
   if (isDev()) {
     mainWindow.loadURL("http://localhost:51234");
   } else {
-    mainWindow.loadFile(path.join(app.getAppPath(), "/dist-react/index.html"));
+    mainWindow.loadFile(path.join(app.getAppPath(), "dist-react/index.html"));
+
   }
 });
 
@@ -49,10 +50,11 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     const mainWindow = new BrowserWindow({});
     if (isDev()) {
+      console.log("Activating")
       mainWindow.loadURL("http://localhost:51234");
     } else {
       mainWindow.loadFile(
-        path.join(app.getAppPath(), "/dist-react/index.html")
+        path.join(app.getAppPath(), "dist-react/index.html")
       );
     }
   }

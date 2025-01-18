@@ -4,18 +4,22 @@
   "version": "0.0.0",
   "type": "module",
   "main": "src/electron/main.js",
+  "description": "The memorization app",
   "scripts": {
+
     "dev": "npm-run-all --parallel dev:react dev:electron",
     "dev:react": "vite",
     "dev:electron": "cross-env NODE_ENV=development electron .",
     "dev:api": "nodemon api.js",
     "dev:web": "npm-run-all --parallel dev:react dev:api",
-    "build": "vite build",
-    "lint": "eslint .",
-    "preview": "vite preview",
+    "react:build": "vite build",
     "dist:mac": "npm run build && electron-builder --mac --arm64",
     "dist:win": "npm run build && electron-builder --win --x64",
-    "dist:linux": "npm run build && electron-builder --linux --x64"
+    "dist:linux": "npm run build && electron-builder --linux --x64",
+    "build": "vite build",
+    "lint": "eslint .",
+    "electron": "electron ."
+
   },
   "repository": {
     "type": "git",
