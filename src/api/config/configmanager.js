@@ -1,21 +1,20 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from 'url';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { app } from "electron";
+const userDataPath = app.getPath("userData");
 
 class ConfigManager {
   constructor() {
-    this.configPath = path.join(__dirname, '../../', 'api', 'data', 'config.json');
+    this.configPath = path.join(userDataPath, "data", "config.json");
     this.loadConfig();
   }
 
   loadConfig() {
     try {
-      this._config = JSON.parse(fs.readFileSync(this.configPath, 'utf8'));
+      this._config = JSON.parse(fs.readFileSync(this.configPath, "utf8"));
     } catch (error) {
-      console.error('Error loading config file:', error);
+      console.error("Error loading config file:", error);
       this._config = { config: { current: {}, workspaces: [] } };
     }
   }
@@ -24,7 +23,7 @@ class ConfigManager {
     try {
       fs.writeFileSync(this.configPath, JSON.stringify(this._config, null, 2));
     } catch (error) {
-      console.error('Error saving config file:', error);
+      console.error("Error saving config file:", error);
     }
   }
 

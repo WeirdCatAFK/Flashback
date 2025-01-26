@@ -1,11 +1,9 @@
 import fs from "fs";
 import path from "path";
-import { fileURLToPath } from "url";
 import db from "./dbmanager.js";
 import { ConfigManager } from "./configmanager.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+import { app } from "electron";
+const userDataPath = app.getPath("userData");
 
 class FileManager {
   constructor() {
@@ -16,9 +14,7 @@ class FileManager {
       throw new Error("Current workspace not found in config.");
     }
 
-    this.filePath = path.isAbsolute(currentWorkspace.path)
-      ? currentWorkspace.path
-      : path.resolve(__dirname, "../../", currentWorkspace.path);
+    this.filePath = path.join(userDataPath, "data", currentWorkspace.path);
   }
   static FILE_TYPES = {
     // Text files
