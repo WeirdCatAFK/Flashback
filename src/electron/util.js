@@ -1,5 +1,6 @@
 // util.js
-export default function isDev() {
+function isDev() {
     return process.env.NODE_ENV === "development";
   }
   
+export { isDev };

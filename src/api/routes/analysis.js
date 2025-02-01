@@ -1,6 +1,6 @@
 import express from 'express';
 const analysis_router = express.Router();
-import db from './../config/dbmanager.js';
+import db from '../config/DatabaseManager.js';
 
 
 analysis_router.use(express.json());

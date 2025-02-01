@@ -1,23 +1,22 @@
 import express from "express";
-import { ConfigManager } from '../../config/configmanager.js';
+import ConfigManager from "../config/ConfigManager.js";
 const workspaces_router = express.Router();
-const configManager = new ConfigManager();
 
 // Get all workspaces
 workspaces_router.get("/", (req, res) => {
-  res.status(200).json(configManager.config.config.workspaces);
+  res.status(200).json(ConfigManager.config.config.workspaces);
 });
 
 // Get current workspace
 workspaces_router.get("/current", (req, res) => {
-  const currentWorkspace = configManager.current_workspace;
+  const currentWorkspace = ConfigManager.current_workspace;
   res.status(200).json(currentWorkspace);
 });
 
 // Get workspace by ID
 workspaces_router.get("/:id", (req, res) => {
   const workspaceId = parseInt(req.params.id);
-  const workspace = configManager.config.config.workspaces.find(
+  const workspace = ConfigManager.config.config.workspaces.find(
     (ws) => ws.id === workspaceId
   );
 
@@ -38,13 +37,13 @@ workspaces_router.post("/", async (req, res) => {
 
   if (name && description && path && db) {
     const newWorkspace = {
-      id: configManager.config.config.workspaces.length,
+      id: ConfigManager.config.config.workspaces.length,
       name,
       description,
       path,
       db,
     };
-    configManager.addWorkspace(newWorkspace);
+    ConfigManager.addWorkspace(newWorkspace);
     res.status(201).json({ code: 200, message: newWorkspace });
   } else {
     res.status(400).json({ code: 400, message: "Missing required fields" });
@@ -63,14 +62,14 @@ workspaces_router.put("/current", async (req, res) => {
   }
 
   if (
-    !configManager.config.config.workspaces.some((ws) => ws.id === workspace_id)
+    !ConfigManager.config.config.workspaces.some((ws) => ws.id === workspace_id)
   ) {
     return res.status(404).json({
       code: 404,
       message: "Workspace not found",
     });
   }
-  configManager.current_workspace = workspace_id;
+  ConfigManager.current_workspace = workspace_id;
   res.status(200).json({
     code: 200,
     message: `Current workspace set to ${workspace_id}`,
@@ -81,8 +80,8 @@ workspaces_router.put("/current", async (req, res) => {
 workspaces_router.put("/:id/name", async (req, res) => {
   const workspaceId = parseInt(req.params.id);
   const { new_name } = req.body;
-  configManager.updateWorkspace(workspaceId, { name: new_name });
-  const updatedWorkspace = configManager.config.config.workspaces.find(
+  ConfigManager.updateWorkspace(workspaceId, { name: new_name });
+  const updatedWorkspace = ConfigManager.config.config.workspaces.find(
     (ws) => ws.id === workspaceId
   );
   res.status(200).json(updatedWorkspace);
@@ -91,7 +90,7 @@ workspaces_router.put("/:id/name", async (req, res) => {
 // Delete a workspace
 workspaces_router.delete("/:id", async (req, res) => {
   const workspaceId = parseInt(req.params.id);
-  const workspaceIndex = configManager.config.config.workspaces.findIndex(
+  const workspaceIndex = ConfigManager.config.config.workspaces.findIndex(
     (ws) => ws.id === workspaceId
   );
 
@@ -99,13 +98,13 @@ workspaces_router.delete("/:id", async (req, res) => {
     return res.status(404).json({ code: 404, message: "Workspace not found" });
   }
 
-  configManager.config.config.workspaces.splice(workspaceIndex, 1);
-  configManager.config.config.workspaces =
-    configManager.config.config.workspaces.map((ws, index) => ({
+  ConfigManager.config.config.workspaces.splice(workspaceIndex, 1);
+  ConfigManager.config.config.workspaces =
+    ConfigManager.config.config.workspaces.map((ws, index) => ({
       ...ws,
       id: index,
     }));
-  configManager.saveConfig();
+  ConfigManager.saveConfig();
 
   res.status(200).json({
     code: 200,

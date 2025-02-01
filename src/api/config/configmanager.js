@@ -69,4 +69,4 @@ class ConfigManager {
   }
 }
 
-export { ConfigManager };
+export default new ConfigManager();

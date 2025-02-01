@@ -2,38 +2,36 @@
 //Integrity used as "correct"
 import fs from "fs";
 import path from "path";
-import { ConfigManager } from "./configmanager.js";
-import { init_config } from "./init/init_config.js";
+import ConfigManager from "./ConfigManager.js";
+import { init_config } from "./init.js";
 
 class IntegrityManager {
-  constructor() {
-    this.configManager = new ConfigManager();
-  }
+  constructor() {}
 
   async checkConfigIntegrity() {
     try {
       // Ensure the data directory exists
-      await fs.promises.mkdir(path.dirname(this.configManager.configPath), {
+      await fs.promises.mkdir(path.dirname(ConfigManager.configPath), {
         recursive: true,
       });
 
       // Check if config file exists
-      if (fs.existsSync(this.configManager.configPath)) {
+      if (fs.existsSync(ConfigManager.configPath)) {
         try {
           // Try to load the existing config file
-          this.configManager.loadConfig();
+          ConfigManager.loadConfig();
         } catch (error) {
           console.error("Error loading config.json:", error);
           // If loading the config fails, attempt to restore from init_config
-          this.configManager.config = init_config;
-          this.configManager.saveConfig();
+          ConfigManager.config = init_config;
+          ConfigManager.saveConfig();
           console.log("Config file restored from init_config.");
         }
       } else {
         // If config file doesn't exist, create it from init_config
         console.log("Config file not found, loading default config.");
-        this.configManager.config = init_config;
-        this.configManager.saveConfig();
+        ConfigManager.config = init_config;
+        ConfigManager.saveConfig();
         console.log("Config file created from init_config.");
       }
 
@@ -45,5 +43,4 @@ class IntegrityManager {
   }
 }
 
-const integrityManager = new IntegrityManager();
-export default integrityManager;
+export default new IntegrityManager();

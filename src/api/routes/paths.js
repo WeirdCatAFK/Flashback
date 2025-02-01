@@ -1,6 +1,6 @@
 import express from 'express';
 const paths_router = express.Router();
-import db from '../config/dbmanager.js';
+import db from '../config/DatabaseManager.js';
 
 
 paths_router.use(express.json());

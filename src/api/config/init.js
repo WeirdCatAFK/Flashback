@@ -253,7 +253,7 @@ const init_config = {
         name: "Flashback",
         description: "",
         path: "flashback",
-        db: "flashback.db",
+        db: "flashback.db", 
       },
     ],
   },

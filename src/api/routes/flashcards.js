@@ -1,6 +1,6 @@
 import express from "express";
 const flashcards_router = express.Router();
-import db from "../config/dbmanager.js";
+import db from "../config/DatabaseManager.js";
 import multer from "multer";
 const upload = multer();
 

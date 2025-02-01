@@ -1,15 +1,27 @@
 import morgan from "morgan";
 import express from "express";
-import cors from "./config/cors.js";
-import integrityCheck from "./config/integrityManager.js";
+import cors from "./config/CorsPolicy.js";
+import integrityCheck from "./config/IntegrityManager.js";
 
-class FlashbackServer {
+class api {
   constructor(options = {}) {
     this.app = express();
 
+    // Default options
     this.port = options.port || process.env.PORT || 50500;
-
     this.logFormat = options.logFormat || "dev";
+
+    //Options for IP binding
+    this.host = options.host || "localhost"; // Default to localhost
+    this.isLocalhost = options.isLocalhost ?? true; // Default to true
+
+    // If isLocalhost is false, bind to the provided host (IP address)
+    if (!this.isLocalhost && this.host === "localhost") {
+      console.warn(
+        "Warning: isLocalhost is false, but host is set to localhost. Binding to all interfaces (0.0.0.0)."
+      );
+      this.host = "0.0.0.0";
+    }
 
     this.initializeMiddleware();
   }
@@ -42,7 +54,7 @@ class FlashbackServer {
     this.app.use("/paths", pathsRouter);
     this.app.use("/tags", tagsRouter);
     this.app.use("/nodes", nodesRouter);
-    this.app.use("/analysis", analysisRouter)
+    this.app.use("/analysis", analysisRouter);
 
     this.app.use((req, res) => {
       res.status(404).json({ code: 404, message: "Url no encontrada" });
@@ -91,4 +103,4 @@ class FlashbackServer {
   }
 }
 
-export default FlashbackServer;
+export default api;

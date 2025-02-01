@@ -1,33 +1,35 @@
 import { app, BrowserWindow } from "electron";
 import path from "path";
-import isDev from "./util.js";
-import BackendAPI from "../api/server.js";
+import { isDev } from "./util.js";
+import APIinstance from "../api/api.js";
 
-let backendServer = null;
-
-async function startBackendServer() {
-  backendServer = new BackendAPI({
+// We start the backend process (node.js)
+async function start_node_backend() {
+  const api = new APIinstance({
+    host: "",
     port: 50500,
     logFormat: "dev",
+    isLocalhost: true,
   });
 
   try {
-    await backendServer.start();
-    console.log("Backend server started successfully in main process");
+    await api.start();
+    console.log("Backend process started successfully");
   } catch (error) {
-    console.error("Failed to start backend server:", error);
+    console.error("Failed to start backend process:", error);
     app.quit();
   }
 }
 
-await startBackendServer();
+await start_node_backend();
 
-// Main app initialization
+// We initialize the frontend process (chromium)
 app.on("ready", () => {
   const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     titleBarStyle: "hidden",
+    autoHideMenuBar: true,
     titleBarOverlay: {
       color: "#FBF6EE",
       symbolColor: "#000",
@@ -41,7 +43,6 @@ app.on("ready", () => {
     mainWindow.loadURL("http://localhost:51234");
   } else {
     mainWindow.loadFile(path.join(app.getAppPath(), "dist-react/index.html"));
-
   }
 });
 
@@ -50,12 +51,10 @@ app.on("activate", () => {
   if (BrowserWindow.getAllWindows().length === 0) {
     const mainWindow = new BrowserWindow({});
     if (isDev()) {
-      console.log("Activating")
-      mainWindow.loadURL("http://localhost:51234");
+      console.log("Activating");
+      mainWindow.loadURL("https://www.youtube.com/");
     } else {
-      mainWindow.loadFile(
-        path.join(app.getAppPath(), "dist-react/index.html")
-      );
+      mainWindow.loadFile(path.join(app.getAppPath(), "dist-react/index.html"));
     }
   }
 });

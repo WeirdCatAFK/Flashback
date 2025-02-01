@@ -1,6 +1,6 @@
 import express from "express";
-import fileManager from "../config/filemanager.js";
-import db from "../config/dbmanager.js";
+import fileManager from "../config/FileManager.js";
+import db from "../config/DatabaseManager.js";
 import path from "path";
 
 const files_router = express.Router();

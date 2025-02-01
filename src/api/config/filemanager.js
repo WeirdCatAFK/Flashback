@@ -1,17 +1,16 @@
 import fs from "fs";
 import path from "path";
-import db from "./dbmanager.js";
-import { ConfigManager } from "./configmanager.js";
+import db from "./DatabaseManager.js";
+import ConfigManager from "./ConfigManager.js";
 import { app } from "electron";
 const userDataPath = app.getPath("userData");
 
 class FileManager {
   constructor() {
-    this.configManager = new ConfigManager();
-    const currentWorkspace = this.configManager.current_workspace;
+    const currentWorkspace = ConfigManager.current_workspace;
 
     if (!currentWorkspace) {
-      throw new Error("Current workspace not found in config.");
+      throw new Error("Current workspace not found in ConfigManager.");
     }
 
     this.filePath = path.join(userDataPath, "data", currentWorkspace.path);
@@ -1264,5 +1263,4 @@ class FileManager {
   }
 }
 
-const fileManager = new FileManager();
-export default fileManager;
+export default new FileManager();
