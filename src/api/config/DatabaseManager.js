@@ -3,7 +3,7 @@ import util from "util";
 import sqlite3 from "sqlite3";
 import path from "path";
 import ConfigManager from "./ConfigManager.js";
-import { init_sql, integrity_sql } from "./init.js";
+import { init_sql, integrity_sql } from "./Init.js";
 import { app } from "electron";
 
 const userDataPath = app.getPath("userData");

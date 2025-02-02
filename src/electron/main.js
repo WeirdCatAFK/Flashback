@@ -4,24 +4,20 @@ import { isDev } from "./util.js";
 import APIinstance from "../api/api.js";
 
 // We start the backend process (node.js)
-async function start_node_backend() {
-  const api = new APIinstance({
-    host: "",
-    port: 50500,
-    logFormat: "dev",
-    isLocalhost: true,
-  });
+const api = new APIinstance({
+  host: "",
+  port: 50500,
+  logFormat: "dev",
+  isLocalhost: true,
+});
 
-  try {
-    await api.start();
-    console.log("Backend process started successfully");
-  } catch (error) {
-    console.error("Failed to start backend process:", error);
-    app.quit();
-  }
+try {
+  await api.start();
+  console.log("Backend process started successfully");
+} catch (error) {
+  console.error("Failed to start backend process:", error);
+  app.quit();
 }
-
-await start_node_backend();
 
 // We initialize the frontend process (chromium)
 app.on("ready", () => {
@@ -62,6 +58,7 @@ app.on("activate", () => {
 // Handle all windows closed
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
+    api.stop();
     app.quit();
   }
 });

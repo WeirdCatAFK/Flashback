@@ -3,7 +3,7 @@
 import fs from "fs";
 import path from "path";
 import ConfigManager from "./ConfigManager.js";
-import { init_config } from "./init.js";
+import { init_config } from "./Init.js";
 
 class IntegrityManager {
   constructor() {}
