@@ -295,7 +295,6 @@ const QuillEditor = ({
     <div className="editor-wrapper">
       <style>{styles}</style>
       {renderHeader()}
-      {renderLanguageSelector()} {/* Add language selector */}
       <ReactQuill
         ref={quillRef}
         value={editorStats.content.value}
