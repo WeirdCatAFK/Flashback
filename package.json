@@ -1,0 +1,53 @@
+{
+  "name": "flashback",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "src/electron/main.js",
+  "description": "The memorization workspace",
+  "scripts": {
+    "dev": "npm-run-all --parallel dev:react dev:electron",
+    "dev:react": "vite",
+    "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev:api": "nodemon test_api.js",
+    "dev:web": "npm-run-all --parallel dev:react dev:api",
+    "react:build": "vite build",
+    "dist:mac": "npm run build && electron-builder --mac --arm64",
+    "dist:win": "npm run build && electron-builder --win --x64",
+    "dist:linux": "npm run build && electron-builder --linux --x64",
+    "build": "vite build",
+    "lint": "eslint .",
+    "electron": "electron ."
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/WeirdCatAFK/Flashback.git"
+  },
+  "dependencies": {
+    "lodash": "^4.17.21",
+    "npm": "^10.9.0",
+    "quill": "^2.0.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "author": "Daniel Pineda Torres",
+  "bugs": {
+    "url": "https://github.com/WeirdCatAFK/Flashback/issues"
+  },
+  "homepage": "https://github.com/WeirdCatAFK/Flashback#readme",
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@types/react": "^18.3.11",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.2",
+    "electron-builder": "^25.1.8",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react": "^7.37.1",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.13",
+    "vite": "^5.4.9",
+    "npm-run-all": "^4.1.5"
+  }
+}
