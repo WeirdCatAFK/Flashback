@@ -1,8 +1,7 @@
 //This is the entry point of the project
 import { app, BrowserWindow } from "electron";
-import { exec } from "child_process";
 import { isDev } from "./utils.js";
-
+import spawn from './../api/spawn.js';
 // We initialize the fronted process (chromium)
 app.on("ready", () => {
   const mainWindow = new BrowserWindow({
@@ -22,6 +21,8 @@ app.on("ready", () => {
       enableRemoteModule: true,
     },
   });
+  // We spawn the api process as a child process
+  spawn();
   if (isDev()) {
     mainWindow.loadURL("http://localhost:51234");
   } else {
@@ -29,7 +30,8 @@ app.on("ready", () => {
   }
 });
 
-// Closing the app properly
+
+// Closing the app 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();

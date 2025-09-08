@@ -131,3 +131,6 @@ dist
 
 # Vite
 dist-react
+
+#Standalone api data
+/data*
