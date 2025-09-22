@@ -5,6 +5,8 @@ the config file
 */
 import path from "path";
 import fs from 'fs'
+import defaultConfig from './../init/ConfigJSON.js';
+
 let dataPath = "";
 let configPath = "";
 function validateConfig({ env }) {
@@ -39,13 +41,6 @@ function validateConfig({ env }) {
     if (error.code === "ENOENT") {
       console.warn("Config file not doesn't exist: ", configPath);
       console.log('Creating config file...');
-
-      const defaultConfig = {
-        port: 50500,
-        logFormat: "dev",
-        host: "localhost",
-        isLocalhost: true,
-      }
       try {
         fs.mkdirSync(path.dirname(configPath), { recursive: true });
         fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));

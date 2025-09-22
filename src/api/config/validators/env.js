@@ -11,10 +11,9 @@ function validateEnv() {
     console.log("running in node environment");
     return "node"
   };
-  // Default value falsy for short circuit evaluation
 
   console.log("Couldn't identify the environment");
-  return "";
+  return false;
 }
 
 export default validateEnv;

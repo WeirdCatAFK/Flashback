@@ -12,24 +12,27 @@
     "dev:api": "nodemon src/api/main.js",
     "dev:web": "npm-run-all --parallel dev:react dev:api",
     "react:build": "vite build",
-    "dist:mac": "npm run build && electron-builder --mac --arm64",
-    "dist:win": "npm run build && electron-builder --win --x64",
-    "dist:linux": "npm run build && electron-builder --linux --x64",
+    "dist:mac": "npm run electron:rebuild && npm run build && electron-builder --mac --arm64",
+    "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
+    "dist:linux": "npm run electron:rebuild && npm run build && electron-builder --linux --x64",
     "build": "vite build",
     "lint": "eslint .",
-    "electron": "electron ."
+    "electron": "electron .",
+    "electron:rebuild": "electron-rebuild"
+
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WeirdCatAFK/Flashback.git"
   },
   "dependencies": {
+    "better-sqlite3": "^12.2.0",
+    "electron": "^38.1.2",
     "express": "^5.1.0",
     "lodash": "^4.17.21",
     "morgan": "^1.10.1",
     "nodemon": "^3.1.10",
     "npm": "^10.9.0",
-    "quill": "^2.0.2",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -44,8 +47,8 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
     "cross-env": "^7.0.3",
-    "electron": "^33.0.2",
     "electron-builder": "^25.1.8",
+    "electron-rebuild": "^3.2.9",
     "eslint": "^9.13.0",
     "eslint-plugin-react": "^7.37.1",
     "eslint-plugin-react-hooks": "^5.0.0",
