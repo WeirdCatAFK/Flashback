@@ -1,22 +1,20 @@
 //This module should read the config.jhson file and return all the data\
 import path from "path";
 import fs from 'fs'
-import validateEnv from './../config/validators/env.js';
-const env = validateEnv();
 let configPath = "";
 let dataPath = "";
 export async function get() {
-    if (env === "electron") {
+    if (process.versions.electron) {
         dataPath = process.env.USER_DATA_PATH;
         configPath = path.join(dataPath, "config.json");
     }
-    if (env === "node") {
+    if (process.versions.node) {
         // Since not in electron we don't have direct access to the appData folder
         dataPath = process.cwd();
         configPath = path.join(dataPath, "data", "config.json");
     }
-    if (!env) {
-        console.log("Couldn't identify the environment");
+    if (!(process.versions.electron || process.versions.node)) {
+        console.log("Not running in electron or node environment");
         return false;
     }
 

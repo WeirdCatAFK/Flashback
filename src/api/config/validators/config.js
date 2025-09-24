@@ -9,18 +9,19 @@ import defaultConfig from './../init/ConfigJSON.js';
 
 let dataPath = "";
 let configPath = "";
-function validateConfig({ env }) {
-  if (env === "electron") {
+function validateConfig() {
+  if (process.versions.electron) {
     dataPath = process.env.USER_DATA_PATH;
     configPath = path.join(dataPath, "config.json");
+    console.log("running in electron environment");
   }
-  if (env === "node") {
+  if (process.versions.node) {
     dataPath = process.cwd();
     configPath = path.join(dataPath, "data", "config.json");
+    console.log("running in node environment");
   }
-  // After definition of the path, the process will be the same for both config files
-  if (!env) {
-    console.log("Couldn't identify the environment");
+  if (!(process.versions.electron || process.versions.node)) {
+    console.log("Not running in electron or node environment");
     return false;
   }
 

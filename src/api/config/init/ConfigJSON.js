@@ -3,4 +3,6 @@ export default {
     logFormat: "dev",
     host: "localhost",
     isLocalhost: true,
+    isCustomPath: false,
+    customPath: ""
 }
