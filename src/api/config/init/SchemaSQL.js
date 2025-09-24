@@ -1,6 +1,6 @@
 export default
     `
--- SQLite database export
+
 PRAGMA foreign_keys = ON;
 
 BEGIN TRANSACTION;
@@ -204,7 +204,6 @@ CREATE TABLE IF NOT EXISTS "Connections" (
 -- Indexes
 CREATE INDEX IF NOT EXISTS "Connections_type_index"
 ON "Connections" ("type_id");
-
 COMMIT;
-
 `
+

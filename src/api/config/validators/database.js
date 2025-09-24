@@ -2,7 +2,6 @@
 import db from "./../../access/database.js";
 import SchemaSQL from '../init/SchemaSQL.js';
 
-// List of required tables
 const requiredTables = [
   "Flashcards",
   "FlashcardContent",
@@ -30,7 +29,27 @@ function tableExists(name) {
 
 function rebuildDatabase() {
   console.warn("Rebuilding database from schema...");
-  db.exec(SchemaSQL);
+  try {
+    db.exec(SchemaSQL);
+  } catch (err) {
+    console.error("Error rebuilding database:", err);
+    return false;
+  }
+  console.log("Inserting default data...");
+  try {
+    // I know It's not the cleanest way to do this, but it works
+    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("disconection", "false");
+    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("inherited", "true");
+
+    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Flashcard");
+    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Folder");
+    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Document");
+    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Tag");
+  } catch (err) {
+    console.error("Error inserting default data:", err);
+    return false;
+  }
+  console.log("Default data inserted.");
 }
 
 function validateDatabase() {
@@ -52,7 +71,7 @@ function validateDatabase() {
       }
     }
 
-    return true; // DB operational
+    return true;
   } catch (err) {
     console.error("Validation error:", err);
     rebuildDatabase();
