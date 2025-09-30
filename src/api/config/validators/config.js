@@ -5,7 +5,7 @@ the config file
 */
 import path from "path";
 import fs from 'fs'
-import defaultConfig from './../init/ConfigJSON.js';
+import defaultConfig from './../defaults/ConfigJSON.js';
 
 let dataPath = "";
 let configPath = "";

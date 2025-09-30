@@ -1,6 +1,6 @@
 export default
     `
-
+-- SQLite database export
 PRAGMA foreign_keys = ON;
 
 BEGIN TRANSACTION;
@@ -137,8 +137,7 @@ CREATE TABLE IF NOT EXISTS "PedagogicalCategories" (
     "id" INTEGER PRIMARY KEY NOT NULL,
     "name" VARCHAR(500),
     "priority" INTEGER,
-    "node_id" INTEGER,
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
+    "description" TEXT
 );
 
 -- Indexes

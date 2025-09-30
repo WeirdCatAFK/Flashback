@@ -19,7 +19,6 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:rebuild": "electron-rebuild"
-
   },
   "repository": {
     "type": "git",

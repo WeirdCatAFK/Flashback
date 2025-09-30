@@ -1,6 +1,6 @@
 // validators/database.js
 import db from "./../../access/database.js";
-import SchemaSQL from '../init/SchemaSQL.js';
+import SchemaSQL from '../defaults/SchemaSQL.js';
 
 const requiredTables = [
   "Flashcards",
@@ -37,7 +37,7 @@ function rebuildDatabase() {
   }
   console.log("Inserting default data...");
   try {
-    // I know It's not the cleanest way to do this, but it works
+
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("disconection", "false");
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("inherited", "true");
 
@@ -45,6 +45,17 @@ function rebuildDatabase() {
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Folder");
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Document");
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Tag");
+    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("PedagogicalCategory");
+
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Definition", 0, "The definition of a word or concept");
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Terminology", 0, "The usage of a word");
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Symbol", 0, "The usage of symbols");
+
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Concept", 1, "An abstract idea");
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Example", 1, "Examples of usage");
+
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Exercise", 2, "Apply knowledge in a practical task or problem");
+    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Procedure", 2, "Execute a method or algorithm step by step");
   } catch (err) {
     console.error("Error inserting default data:", err);
     return false;

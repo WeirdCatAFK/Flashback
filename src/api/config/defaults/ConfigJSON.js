@@ -4,5 +4,6 @@ export default {
     host: "localhost",
     isLocalhost: true,
     isCustomPath: false,
-    customPath: ""
+    customPath: "",
+    username: "dreamer"
 }

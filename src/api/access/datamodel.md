@@ -301,7 +301,6 @@ Supporting entities capture content, references, pedagogical context, relationsh
 | id      | integer (PK) | Unique identifier. |
 | name    | varchar(500) | Category name (definition, concept, relation, etc.). |
 | priority| integer      | Priority for review ordering. |
-| node_id | integer (FK) | Integration into graph. |
 
 ---
 
