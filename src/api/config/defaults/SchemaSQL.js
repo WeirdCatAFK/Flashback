@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS "Flashcards" (
     "last_recall" TIMESTAMP,
     "name" VARCHAR NOT NULL,
     "presence" FLOAT,
+    "fileIndex" INTEGER,
     FOREIGN KEY("category_id") REFERENCES "PedagogicalCategories"("id"),
     FOREIGN KEY("content_id") REFERENCES "FlashcardContent"("id"),
     FOREIGN KEY("document_id") REFERENCES "Documents"("id"),

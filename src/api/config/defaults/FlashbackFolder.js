@@ -1,4 +1,6 @@
-export default {
-    "globalId": "",
-    "tags": [],
+export default function newMetadata() {
+    return {
+        "globalId": "",
+        "tags": [],
+    }
 }
