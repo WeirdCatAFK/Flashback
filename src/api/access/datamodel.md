@@ -82,7 +82,7 @@ Inteligencia_Artificial
         // where editor is a custom object that is interpreted by the frontend to make calls to the api
         "html": "<Front>What is KNN?</img src = editor.media.visualization></Front><Back>K-Nearest Neighbors algorithm</imgsrc = editor.media.neighbor></Back>", 
         "media": {"visualization": "./media/visualization.png",
-          "neighbor": 
+          "neighbor": "./media/neighbor.png" 
          }
       },
       "vanillaData": {
