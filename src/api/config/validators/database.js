@@ -19,6 +19,11 @@ const requiredTables = [
   "ReviewLogs",
 ];
 
+/**
+ * Checks if a table with the given name exists in the database.
+ * @param {string} name The name of the table to check.
+ * @returns {boolean} True if the table exists, false otherwise.
+ */
 function tableExists(name) {
   const stmt = db.prepare(
     "SELECT name FROM sqlite_master WHERE type='table' AND name = ?"
@@ -27,6 +32,10 @@ function tableExists(name) {
   return !!row;
 }
 
+/**
+ * Rebuilds the database from the schema, then inserts default data.
+ * @returns {boolean} True if the database was rebuilt and default data was inserted, false otherwise.
+ */
 function rebuildDatabase() {
   console.warn("Rebuilding database from schema...");
   try {
@@ -65,6 +74,13 @@ function rebuildDatabase() {
   console.log("Default data inserted.");
 }
 
+/**
+ * Validates the database by performing a quick integrity check and
+ * checking for the presence of all required tables. If any
+ * errors are found, the database is rebuilt from the schema and
+ * default data is inserted.
+ * @returns {boolean} True if the database is valid, false otherwise.
+ */
 function validateDatabase() {
   try {
     // quick integrity check
