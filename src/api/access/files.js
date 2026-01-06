@@ -128,7 +128,73 @@ export default class Files {
 
         return candidate;
     }
+_regenerateIdentities(absPath) {
+        let items = [];
+        
+        // Process the folder itself (metadata lives inside it at .flashback)
+        // We assume the caller (copy) handled the creation/copying, we just update metadata.
+        const folderRel = path.relative(this.workspaceRoot, absPath);
+        
+        let folderMeta = this.getMetadata(folderRel, true);
+        if (!folderMeta) folderMeta = newFolderMetadata(); // Fallback
+        
+        // REGENERATE IDENTITY
+        const oldFolderHash = folderMeta.globalHash;
+        folderMeta.globalHash = crypto.randomUUID();
+        folderMeta.copiedFrom = oldFolderHash; // distinct from original
+        folderMeta.createdAt = new Date().toISOString();
+        
+        this.writeMetadata(folderRel, folderMeta, true);
 
+        items.push({
+            type: 'folder',
+            relativePath: folderRel,
+            absolutePath: absPath,
+            globalHash: folderMeta.globalHash,
+            name: path.basename(absPath)
+        });
+
+        // Process Children
+        const entries = fs.readdirSync(absPath, { withFileTypes: true });
+        
+        for (const entry of entries) {
+            // Skip metadata files themselves
+            if (entry.name === '.flashback' || entry.name.endsWith('.flashback')) continue;
+
+            const entryAbsPath = path.join(absPath, entry.name);
+            const entryRel = path.relative(this.workspaceRoot, entryAbsPath);
+
+            if (entry.isDirectory()) {
+                // Recurse
+                const childItems = this._regenerateIdentities(entryAbsPath);
+                items = items.concat(childItems);
+            } else {
+                // Process File
+                let fileMeta = this.getMetadata(entryRel, false);
+                if (!fileMeta) fileMeta = newFileMetadata();
+
+                // REGENERATE IDENTITY
+                const oldFileHash = fileMeta.globalHash;
+                fileMeta.globalHash = crypto.randomUUID();
+                fileMeta.copiedFrom = oldFileHash;
+                fileMeta.createdAt = new Date().toISOString();
+                // Ensure name matches new filename (if renamed during copy)
+                fileMeta.name = entry.name; 
+
+                this.writeMetadata(entryRel, fileMeta, false);
+
+                items.push({
+                    type: 'file',
+                    relativePath: entryRel,
+                    absolutePath: entryAbsPath,
+                    globalHash: fileMeta.globalHash,
+                    name: entry.name
+                });
+            }
+        }
+        
+        return items;
+    }
 
     /**
      * Reads the metadata associated with the given relative path.
@@ -406,94 +472,63 @@ export default class Files {
      * @throws {Error} If the item already exists at the given relative path with the new name.
      * @returns {string} The globalHash of the copied item (different from the original).
      */
+    
     copy(relPath, newRelPath, isFolder = false) {
         const src = this.safePath(relPath);
         const dest = this.safePath(newRelPath);
 
-        if (!this.exists(relPath)) {
-            throw new Error("Source does not exist");
-        }
+        if (!this.exists(relPath)) throw new Error("Source does not exist");
 
         const srcDir = path.dirname(src);
         const destDir = path.dirname(dest);
 
         try {
-            // Ensure destination parent exists
-            if (!fs.existsSync(destDir)) {
-                fs.mkdirSync(destDir, { recursive: true });
+            if (!fs.existsSync(destDir)) fs.mkdirSync(destDir, { recursive: true });
+
+            let finalDest = dest;
+
+            // Handle name collision (rename if in same folder)
+            if (fs.existsSync(dest)) {
+                // Auto-rename if collision:
+                 if (srcDir === destDir || fs.existsSync(dest)) {
+                    const newName = this._resolveCopyName(destDir, path.basename(dest));
+                    finalDest = path.join(destDir, newName);
+                }
             }
 
-            /* =========================
-               FILE COPY
-            ========================= */
-            if (!isFolder) {
-                let finalDest = dest;
+            if (isFolder) {
+                // Recursive copy of content and metadata files
+                fs.cpSync(src, finalDest, { recursive: true });
+                
+                // Regenerate Identities and Return List
+                // We pass the final destination path
+                return this._regenerateIdentities(finalDest);
 
-                // If copying into the same directory, rename automatically
-                if (srcDir === destDir && fs.existsSync(dest)) {
-                    const newName = this._resolveCopyName(
-                        destDir,
-                        path.basename(dest)
-                    );
-                    finalDest = path.join(destDir, newName);
-                } else if (fs.existsSync(dest)) {
-                    throw new Error("Destination file already exists");
-                }
-
-                // Copy file contents
+            } else {
+                // Single File Copy
                 fs.copyFileSync(src, finalDest);
-
-                // Clone metadata
+                
+                // Handle Metadata
                 const srcMeta = this.getMetadata(relPath, false);
                 let newMeta = srcMeta ? structuredClone(srcMeta) : newFileMetadata();
-
-                // New identity
-                const oldHash = newMeta.globalHash;
+                
                 newMeta.globalHash = crypto.randomUUID();
-                newMeta.copiedFrom = oldHash;
+                newMeta.copiedFrom = srcMeta?.globalHash;
                 newMeta.name = path.basename(finalDest);
                 newMeta.createdAt = new Date().toISOString();
-
-                // Write metadata
+                
                 const destRel = path.relative(this.workspaceRoot, finalDest);
                 this.writeMetadata(destRel, newMeta, false);
 
-                return newMeta.globalHash;
+                return [{
+                    type: 'file',
+                    relativePath: destRel,
+                    absolutePath: finalDest,
+                    globalHash: newMeta.globalHash,
+                    name: newMeta.name
+                }];
             }
 
-            /* =========================
-               FOLDER COPY
-            ========================= */
-            if (isFolder) {
-                if (fs.existsSync(dest)) {
-                    throw new Error("Destination folder already exists");
-                }
-
-                // Copy directory tree
-                fs.cpSync(src, dest, { recursive: true });
-
-                // Rewrite the folder-level .flashback
-                const folderMetaPath = path.join(dest, ".flashback");
-
-                let folderMeta;
-                if (fs.existsSync(folderMetaPath)) {
-                    folderMeta = JSON.parse(fs.readFileSync(folderMetaPath, "utf-8"));
-                } else {
-                    folderMeta = newFolderMetadata();
-                }
-
-                // New identity
-                folderMeta.globalHash = crypto.randomUUID();
-                folderMeta.createdAt = new Date().toISOString();
-
-                fs.writeFileSync(
-                    folderMetaPath,
-                    JSON.stringify(folderMeta, null, 2),
-                    "utf-8"
-                );
-
-                return folderMeta.globalHash;
-            }
         } catch (error) {
             console.error("Error copying:", error);
             throw error;
