@@ -20,9 +20,9 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as config } from "./config";
+import { get as config } from "./config.js";
 import newFileMetadata from "./../config/defaults/FlashbackFile.js";
-import newFolderMetadata from "./../config/defaults/FlashbackFolder";
+import newFolderMetadata from "./../config/defaults/FlashbackFolder.js";
 
 export default class Files {
     /**
