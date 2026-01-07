@@ -19,7 +19,7 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:rebuild": "electron-rebuild",
-    "test": "node --test src/api/access/tests/document.tests.js"
+    "test": "node --test src/api/access/tests/documents.tests.js"
   },
   "repository": {
     "type": "git",

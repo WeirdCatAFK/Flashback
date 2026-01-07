@@ -7,6 +7,7 @@ import db from './../database.js';
 import validate from './../../config/validate.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
+console.log('Using USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 if (!validate()) {
     console.error("Validation failed. May be an initialization issue.");
@@ -43,6 +44,7 @@ describe('Documents Orchestrator Integration Tests', () => {
     });
 
     after(() => {
+        
         cleanup();
     });
 
