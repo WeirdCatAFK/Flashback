@@ -1,4 +1,5 @@
 export default {
+    "name": null,
     "globalHash": null,
     "lastRecall": null,
     "level": 0,

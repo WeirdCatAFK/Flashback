@@ -257,7 +257,7 @@ export default class Documents {
      * @param {string[]} tagNames - array of tag names to sync
      */
     _syncTags(nodeId, tagNames) {
-        // 1. Ensure Tag Nodes exist (NodeType = 'Tag')
+        // Ensure Tag Nodes exist (NodeType = 'Tag')
         const tagType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
         // Safety check
         if (!tagType) throw new Error("NodeType 'Tag' missing in DB. Check rebuildDatabase.");
@@ -275,7 +275,7 @@ export default class Documents {
             }
         }
 
-        // 2. Get Connection Type (ConnectionType = 'tag')
+        // Get Connection Type (ConnectionType = 'tag')
         // CHANGED: 'Association' -> 'tag'
         const connType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
         if (!connType) throw new Error("ConnectionType 'tag' missing in DB.");
@@ -288,10 +288,9 @@ export default class Documents {
 
         const currentTagIds = currentConns.map(c => c.destiny_id);
 
-        // ... (rest of the add/remove logic is the same) ...
         for (const tid of targetTagIds) {
             if (!currentTagIds.includes(tid)) {
-                this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id, is_directed) VALUES (?, ?, ?, 1)").run(nodeId, tid, connType.id);
+                this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)").run(nodeId, tid, connType.id);
             }
         }
         for (const conn of currentConns) {
@@ -369,7 +368,7 @@ export default class Documents {
 
             let conn = this.db.prepare(`SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?`).get(parentNodeId, child.node_id, hierarchyType.id);
             if (!conn) {
-                const info = this.db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id, is_directed) VALUES (?, ?, ?, 1)`).run(parentNodeId, child.node_id, hierarchyType.id);
+                const info = this.db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)`).run(parentNodeId, child.node_id, hierarchyType.id);
                 conn = { id: info.lastInsertRowid };
             }
 
@@ -408,7 +407,7 @@ export default class Documents {
         for (const fc of flashcards) {
             let conn = this.db.prepare(`SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?`).get(docNodeId, fc.node_id, hierarchyType.id);
             if (!conn) {
-                const info = this.db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id, is_directed) VALUES (?, ?, ?, 1)`).run(docNodeId, fc.node_id, hierarchyType.id);
+                const info = this.db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)`).run(docNodeId, fc.node_id, hierarchyType.id);
                 conn = { id: info.lastInsertRowid };
             }
             this.db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(conn.id);
@@ -472,7 +471,7 @@ export default class Documents {
     exists(relativePath, derived = false, isFolder = false) {
         if (derived) {
             const table = isFolder ? 'Folders' : 'Documents';
-            return this.db.prepare(`SELECT id FROM ${table} WHERE relative_path = ?`).get(relativePath);
+            return this.db.prepare(`SELECT id, name, global_hash FROM ${table} WHERE relative_path = ?`).get(relativePath);
         }
         return this.files.exists(relativePath);
     }
@@ -934,7 +933,9 @@ export default class Documents {
 
             const transaction = this.db.transaction(() => {
                 const table = isFolder ? 'Folders' : 'Documents';
-                const entity = this.db.prepare(`SELECT id, node_id, global_hash, folder_id FROM ${table} WHERE absolute_path = ?`).get(absPath);
+
+                const entity = this.db.prepare(`SELECT id, node_id, global_hash FROM ${table} WHERE absolute_path = ?`).get(absPath);
+
                 if (!entity) throw new Error(`${table} entry not found for ${absPath}`);
 
                 if (metadata.globalHash && metadata.globalHash !== entity.global_hash) {
@@ -1194,7 +1195,8 @@ export default class Documents {
             // Derived
             const transaction = this.db.transaction(() => {
                 // Update Flashcard current state
-                const fc = this.db.prepare(`SELECT id FROM Flashcards WHERE global_hash = ?`).get(flashcardHash);
+                const fc = this.db.prepare(`SELECT id, document_id FROM Flashcards WHERE global_hash = ?`).get(flashcardHash);
+
                 if (fc) {
                     this.db.prepare(`UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?`)
                         .run(timestamp, newLevel, fc.id);
@@ -1205,6 +1207,7 @@ export default class Documents {
                     `).run(fc.id, timestamp, outcome, easeFactor, newLevel);
 
                     // Update Presence
+                    // Now fc.document_id is defined, so this will actually work!
                     this.propagatePresence(fc.document_id);
                 }
             });

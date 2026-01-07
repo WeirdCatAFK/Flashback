@@ -73,6 +73,7 @@ Inteligencia_Artificial
   "excludedTags": ["AI"],
   "flashcards": [
     {
+    "name": "KNN"
     "globalHash": "identifier",
     "lastRecall": "2025-09-14T15:30:00Z", # ISO 8601 Format,
     "level" : 6, # Number of consecutive positive recalls,
