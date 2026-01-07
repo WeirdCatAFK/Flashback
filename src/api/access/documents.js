@@ -1038,6 +1038,84 @@ export default class Documents {
 
     }
 
+        /**
+         * Adds a media file to the given flashcard in the given document.
+         * Validates the given flashcard hash and document path, then adds the media file to the document's "media" folder.
+         * Updates the database with the new media file information.
+         * @param {string} relativePath - The relative path to the document containing the flashcard.
+         * @param {string} flashcardHash - The globalHash of the target flashcard.
+         * @param {Buffer} mediaBuffer - The raw file content of the media.
+         * @param {string} mediaName - The filename (e.g., "diagram.png").
+         * @throws {Error} If the file does not exist, the media file already exists, or the flashcard at the given index does not exist.
+         */
+    addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {
+        try {
+            // Preparation & Validation
+            const metadata = this.files.getMetadata(relativePath);
+            if (!metadata || !metadata.flashcards) throw new Error("Document metadata not found.");
+
+            const cardIndex = metadata.flashcards.findIndex(f => f.globalHash === flashcardHash);
+            if (cardIndex === -1) throw new Error(`Flashcard with hash ${flashcardHash} not found in ${relativePath}`);
+
+            // Canonical: Write to Disk (using Custom Media logic as a generic container)
+            // We use addCustomMedia from Files.js because it simply places the file in the correct 
+            // document-specific media folder without forcing it into a 'vanilla' slot structure.
+            try {
+                this.files.addCustomMedia(relativePath, mediaBuffer, mediaName, cardIndex);
+            } catch (fsError) {
+                console.error("Canonical media write failed:", fsError);
+                throw fsError;
+            }
+
+            // Derived: Update Database (Media Table Only)
+            try {
+                const docDirRel = path.dirname(relativePath);
+                const mediaWorkspacePath = path.join(docDirRel, "media", mediaName);
+                const mediaAbsPath = this.files.safePath(mediaWorkspacePath);
+
+                // SHA-256 Hash for Media Table deduplication/integrity
+                const mediaHash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
+
+                const mediaTransaction = this.db.transaction(() => {
+                    // Insert/Update Media Table
+                    const mediaStmt = this.db.prepare(`
+                        INSERT INTO Media (hash, name, relative_path, absolute_path)
+                        VALUES (?, ?, ?, ?)
+                        ON CONFLICT(hash) DO UPDATE SET 
+                            relative_path=excluded.relative_path,
+                            absolute_path=excluded.absolute_path
+                    `);
+                    mediaStmt.run(mediaHash, mediaName, mediaWorkspacePath, mediaAbsPath);
+
+                    // Note: We deliberately DO NOT update FlashcardContent here.
+                    // This function is for "registering" the asset. 
+                    // The user/frontend is expected to reference this media via 
+                    // custom_html (e.g. <img src="./media/foo.png">) which works 
+                    // because the file is physically present and valid.
+                });
+
+                mediaTransaction();
+                console.log(`Media asset ${mediaName} added to context of ${flashcardHash}`);
+
+            } catch (dbError) {
+                console.error("Database sync failed for media. Rolling back file...", dbError);
+                // Rollback: Attempt to remove the file we just wrote
+                try {
+                    this.files.removeCustomMedia(relativePath, mediaName);
+                } catch (cleanupError) {
+                    console.error("Failed to cleanup orphaned media file during rollback:", cleanupError);
+                }
+                throw dbError;
+            }
+
+        } catch (error) {
+            console.error("Error in addMediaToFlashcard:", error);
+            throw error;
+        }
+
+    }
+
+
     /**
      * Updates/Adds media to a flashcard.
      * Handles both file system writes (Canonical) and database updates (Derived).
