@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS "Flashcards" (
     "fileIndex" INTEGER,
     FOREIGN KEY("category_id") REFERENCES "PedagogicalCategories"("id"),
     FOREIGN KEY("content_id") REFERENCES "FlashcardContent"("id"),
-    FOREIGN KEY("document_id") REFERENCES "Documents"("id"),
+    FOREIGN KEY("document_id") REFERENCES "Documents"("id") ON DELETE CASCADE,
     FOREIGN KEY("node_id") REFERENCES "Nodes"("id"),
     FOREIGN KEY("reference_id") REFERENCES "FlashcardReference"("id")
 );
@@ -88,7 +88,7 @@ CREATE TABLE IF NOT EXISTS "ReviewLogs" (
     "outcome" INTEGER,
     "ease_factor" FLOAT,
     "level" INTEGER,
-    FOREIGN KEY("flashcard_id") REFERENCES "Flashcards"("id")
+    FOREIGN KEY("flashcard_id") REFERENCES "Flashcards"("id") ON DELETE CASCADE
 );
 
 -- Indexes
@@ -114,13 +114,13 @@ CREATE TABLE IF NOT EXISTS "InheritedTags" (
     "id" INTEGER PRIMARY KEY NOT NULL,
     "connection_id" INTEGER,
     "tag_id" INTEGER,
-    FOREIGN KEY("connection_id") REFERENCES "Connections"("id"),
-    FOREIGN KEY("tag_id") REFERENCES "Tags"("id")
+    FOREIGN KEY("connection_id") REFERENCES "Connections"("id") ON DELETE CASCADE,
+    FOREIGN KEY("tag_id") REFERENCES "Tags"("id") ON DELETE CASCADE
 );
 
 -- Indexes
 CREATE INDEX IF NOT EXISTS "InheritedTags_connection_index"
-ON "InheritedTags" ("connection_id");
+ON "InheritedTags" ("connection_id"); 
 
 -- "Default values are ["disconection", "inherited"]
 CREATE TABLE IF NOT EXISTS "ConnectionTypes" (
@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS "Tags" (
     "name" VARCHAR(500),
     "node_id" INTEGER,
     "presence" FLOAT,
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
+    FOREIGN KEY("node_id") REFERENCES "Nodes"("id") ON DELETE CASCADE
 );
 
 -- Indexes
@@ -166,7 +166,7 @@ CREATE TABLE IF NOT EXISTS "Documents" (
     "absolute_path" VARCHAR(500),
     "name" VARCHAR,
     "presence" FLOAT,
-    FOREIGN KEY("folder_id") REFERENCES "Folders"("id"),
+    FOREIGN KEY("folder_id") REFERENCES "Folders"("id") ON DELETE CASCADE,
     FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
 );
 
@@ -196,8 +196,8 @@ CREATE TABLE IF NOT EXISTS "Connections" (
     "origin_id" INTEGER NOT NULL,
     "destiny_id" INTEGER NOT NULL,
     "type_id" INTEGER,
-    FOREIGN KEY("destiny_id") REFERENCES "Nodes"("id"),
-    FOREIGN KEY("origin_id") REFERENCES "Nodes"("id"),
+    FOREIGN KEY("destiny_id") REFERENCES "Nodes"("id") ON DELETE CASCADE,
+    FOREIGN KEY("origin_id") REFERENCES "Nodes"("id") ON DELETE CASCADE,
     FOREIGN KEY("type_id") REFERENCES "ConnectionTypes"("id")
 );
 
@@ -205,5 +205,35 @@ CREATE TABLE IF NOT EXISTS "Connections" (
 CREATE INDEX IF NOT EXISTS "Connections_type_index"
 ON "Connections" ("type_id");
 COMMIT;
-`
 
+CREATE TRIGGER IF NOT EXISTS delete_document_node
+AFTER DELETE ON Documents
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delete_folder_node
+AFTER DELETE ON Folders
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delete_flashcard_node
+AFTER DELETE ON Flashcards
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delete_tag_node
+AFTER DELETE ON Tags
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delete_flashcard_content
+AFTER DELETE ON Flashcards
+BEGIN
+    DELETE FROM FlashcardContent WHERE id = OLD.content_id;
+    DELETE FROM FlashcardReference WHERE id = OLD.reference_id;
+END;
+`

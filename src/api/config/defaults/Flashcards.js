@@ -2,6 +2,7 @@ export default {
     "globalHash": null,
     "lastRecall": null,
     "level": 0,
+    "presence": 0,
     "tags": [],
     "category": null,
     "isCustom": false,

@@ -8,6 +8,7 @@ The Flashback system maintains data in **two synchronized layers**:
    - Human-readable JSON format (hidden by default for convenience).
    - Serves as the _source of truth_ for documents, annotations, flashcards, tags, and media references.
    - Designed for portability, packaging, and sharing of study materials.
+
 2. **Derived Data Layer**
 
    - Stored in a **SQLite database**.
@@ -74,15 +75,17 @@ Inteligencia_Artificial
     {
     "globalHash": "identifier",
     "lastRecall": "2025-09-14T15:30:00Z", # ISO 8601 Format,
-    "level" : 6, # Number of consecutive positive recalls
+    "level" : 6, # Number of consecutive positive recalls,
+    "easeFactor": 0.45,
+    "presence": 0.57,
       "tags": ["Definition", "Supervised Learning"],
       "category": "Concept",
       "customData": {
         // where editor is a custom object that is interpreted by the frontend to make calls to the api
         // If your flashcard contains any customData it will be interpreted as custom by the api
-        "html": "<Front>What is KNN?</img src = editor.media.visualization></Front><Back>K-Nearest Neighbors algorithm</imgsrc = editor.media.neighbor></Back>", 
+        "html": "<Front>What is KNN?</img src = editor.media.visualization></Front><Back>K-Nearest Neighbors algorithm</imgsrc = editor.media.neighbor></Back>",
         "media": {"visualization": "./media/visualization.png",
-          "neighbor": "./media/neighbor.png" 
+          "neighbor": "./media/neighbor.png"
          }
       },
       "vanillaData": {
@@ -127,6 +130,7 @@ Flashback supports two complementary metadata systems:
    - Can be applied at folder, file, or flashcard level.
    - Tags propagate downward (inheritance), creating implicit relationships between items across the tree.
    - This allows cross-cutting connections beyond strict file hierarchy (e.g., two unrelated flashcards both tagged `"Linear Algebra"`).
+
 2. **Categories**
 
    - Define the pedagogical role of a flashcard.
@@ -136,6 +140,7 @@ Flashback supports two complementary metadata systems:
      - `"Concept"` → abstract ideas
      - `"Question"` → applied recall
      - `"Exercise"` → problem-solving
+
    - Categories are hierarchical, supporting progression from simple to complex learning stages.
    - The system may allow custom extension or reordering of categories per project.
 
@@ -170,36 +175,45 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
   - Links to `FlashcardContent` (text, media), optional `FlashcardReference` (position in document), and `PedagogicalCategories`.
   - Connected to the knowledge graph via a `node_id` (in `Nodes`).
   - Trackable attributes like `last_recall`, `name`, and `presence`.
+
 - **FlashcardContent**
 
   - Stores the actual front/back text, media (images, sounds), and optional rendered/custom HTML.
+
 - **FlashcardReference**
 
   - Anchors a flashcard to a document position, page, or bounding box.
   - Allows spatial or positional memory association.
+
 - **Documents** and **Folders**
 
   - Hierarchical organization of knowledge sources.
   - Each has a `node_id` for integration into the graph.
   - Both can carry a `presence` metric for measuring familiarity.
+
 - **PedagogicalCategories**
 
   - Defines priority for reviewing flashcards (e.g., definitions before concepts).
+
 - **Tags**
 
   - Labels to organize and cluster concepts.
   - Tags inherit through `Connections` using `InheritedTags`.
+
 - **Connections** and **ConnectionTypes**
 
   - Define graph edges between `Nodes`.
   - `is_directed` marks whether the relationship has directionality.
+
 - **Nodes** and **NodeTypes**
 
   - Universal graph nodes that can represent flashcards, documents, tags, or categories.
   - Provide flexible abstraction for connections.
+
 - **Media**
 
   - Repository of static assets (images, audio, etc.), retrievable by `hash` or `name`.
+
 - **ReviewLogs**
 
   - Tracks spaced repetition history per flashcard.
@@ -211,15 +225,14 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Flashcards
 
-
 | Column       | Type         | Description                                                        |
 | ------------ | ------------ | ------------------------------------------------------------------ |
 | id           | integer (PK) | Unique identifier for each flashcard.                              |
 | global_hash  | varchar(500) | Global hash for deduplication and synchronization.                 |
 | node_id      | integer (FK) | Links flashcard into the knowledge graph.                          |
-| document_id  | integer (FK) | References the source document, if any.                            |
+| document_id  | integer (FK) | References the source document, if any. **(ON DELETE CASCADE)**    |
 | category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                  |
-| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                   |
+| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                    |
 | reference_id | integer (FK) | Anchors flashcard to a document position.                          |
 | last_recall  | timestamp    | Last time the flashcard was recalled.                              |
 | name         | varchar(500) | Optional descriptive name of the flashcard.                        |
@@ -230,7 +243,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 ---
 
 ### Table: FlashcardContent
-
 
 | Column      | Type         | Description                               |
 | ----------- | ------------ | ----------------------------------------- |
@@ -248,7 +260,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: FlashcardReference
 
-
 | Column | Type         | Description                                               |
 | ------ | ------------ | --------------------------------------------------------- |
 | id     | integer (PK) | Unique identifier for reference.                          |
@@ -262,22 +273,20 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Documents
 
-
-| Column        | Type         | Description                   |
-| ------------- | ------------ | ----------------------------- |
-| id            | integer (PK) | Unique document identifier.   |
-| folder_id     | integer (FK) | Parent folder.                |
-| node_id       | integer (FK) | Integration into graph.       |
-| global_hash   | varchar(500) | Hash for deduplication/sync.  |
-| relative_path | varchar(500) | Relative path to file.        |
-| absolute_path | varchar(500) | Absolute path to file.        |
-| name          | varchar(500) | Display name of the document. |
-| presence      | float        | Familiarity/usage score.      |
+| Column        | Type         | Description                            |
+| ------------- | ------------ | -------------------------------------- |
+| id            | integer (PK) | Unique document identifier.            |
+| folder_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE)** |
+| node_id       | integer (FK) | Integration into graph.                |
+| global_hash   | varchar(500) | Hash for deduplication/sync.           |
+| relative_path | varchar(500) | Relative path to file.                 |
+| absolute_path | varchar(500) | Absolute path to file.                 |
+| name          | varchar(500) | Display name of the document.          |
+| presence      | float        | Familiarity/usage score.               |
 
 ---
 
 ### Table: Folders
-
 
 | Column        | Type         | Description               |
 | ------------- | ------------ | ------------------------- |
@@ -293,7 +302,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: PedagogicalCategories
 
-
 | Column   | Type         | Description                                          |
 | -------- | ------------ | ---------------------------------------------------- |
 | id       | integer (PK) | Unique identifier.                                   |
@@ -304,30 +312,27 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Tags
 
-
-| Column   | Type         | Description              |
-| -------- | ------------ | ------------------------ |
-| id       | integer (PK) | Unique identifier.       |
-| name     | varchar(500) | Tag label.               |
-| node_id  | integer (FK) | Integration into graph.  |
-| presence | float        | Familiarity/usage score. |
+| Column   | Type         | Description                                     |
+| -------- | ------------ | ----------------------------------------------- |
+| id       | integer (PK) | Unique identifier.                              |
+| name     | varchar(500) | Tag label.                                      |
+| node_id  | integer (FK) | Integration into graph. **(ON DELETE CASCADE)** |
+| presence | float        | Familiarity/usage score.                        |
 
 ---
 
 ### Table: Connections
 
-
-| Column     | Type         | Description                       |
-| ---------- | ------------ | --------------------------------- |
-| id         | integer (PK) | Unique identifier for connection. |
-| origin_id  | integer (FK) | Source node.                      |
-| destiny_id | integer (FK) | Target node.                      |
-| type_id    | integer (FK) | Type of connection.               |
+| Column     | Type         | Description                          |
+| ---------- | ------------ | ------------------------------------ |
+| id         | integer (PK) | Unique identifier for connection.    |
+| origin_id  | integer (FK) | Source node. **(ON DELETE CASCADE)** |
+| destiny_id | integer (FK) | Target node. **(ON DELETE CASCADE)** |
+| type_id    | integer (FK) | Type of connection.                  |
 
 ---
 
 ### Table: Nodes
-
 
 | Column  | Type         | Description                   |
 | ------- | ------------ | ----------------------------- |
@@ -337,7 +342,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 ---
 
 ### Table: Media
-
 
 | Column        | Type         | Description                       |
 | ------------- | ------------ | --------------------------------- |
@@ -351,7 +355,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: NodeTypes
 
-
 | Column | Type         | Description                                                 |
 | ------ | ------------ | ----------------------------------------------------------- |
 | id     | integer (PK) | Unique identifier.                                          |
@@ -360,7 +363,6 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 ---
 
 ### Table: ConnectionTypes
-
 
 | Column      | Type         | Description                                             |
 | ----------- | ------------ | ------------------------------------------------------- |
@@ -372,25 +374,21 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: InheritedTags
 
-
-| Column        | Type         | Description                      |
-| ------------- | ------------ | -------------------------------- |
-| id            | integer (PK) | Unique identifier.               |
-| connection_id | integer (FK) | Connection carrying the tag.     |
-| tag_id        | integer (FK) | Tag applied through inheritance. |
+| Column        | Type         | Description                                              |
+| ------------- | ------------ | -------------------------------------------------------- |
+| id            | integer (PK) | Unique identifier.                                       |
+| connection_id | integer (FK) | Connection carrying the tag. **(ON DELETE CASCADE)**     |
+| tag_id        | integer (FK) | Tag applied through inheritance. **(ON DELETE CASCADE)** |
 
 ---
 
 ### Table: ReviewLogs
 
-
-| Column       | Type         | Description                                |
-| ------------ | ------------ | ------------------------------------------ |
-| id           | integer (PK) | Unique identifier.                         |
-| flashcard_id | integer (FK) | Reviewed flashcard.                        |
-| timestamp    | timestamp    | When the review occurred.                  |
-| outcome      | integer      | Result of recall (e.g., success, failure). |
-| ease_factor  | float        | Spaced repetition ease factor.             |
-| level        | integer      | Current level/stage in SRS algorithm.      |
-
----
+| Column       | Type         | Description                                 |
+| ------------ | ------------ | ------------------------------------------- |
+| id           | integer (PK) | Unique identifier.                          |
+| flashcard_id | integer (FK) | Reviewed flashcard. **(ON DELETE CASCADE)** |
+| timestamp    | timestamp    | When the review occurred.                   |
+| outcome      | integer      | Result of recall (e.g., success, failure).  |
+| ease_factor  | float        | Spaced repetition ease factor.              |
+| level        | integer      | Current level/stage in SRS algorithm.       |

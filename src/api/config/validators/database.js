@@ -56,7 +56,7 @@ function rebuildDatabase() {
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Folder");
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Document");
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Tag");
-    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("PedagogicalCategory");
+    
 
     db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Definition", 0, "The definition of a word or concept");
     db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Terminology", 0, "The usage of a word");
