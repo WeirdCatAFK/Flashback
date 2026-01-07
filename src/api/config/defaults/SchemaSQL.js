@@ -180,7 +180,7 @@ ON "Documents" ("presence");
 -- Actually desembodied from the rest of tables because it stores all media wich will be requested by the frontend with the route/media/hash so to speak
 CREATE TABLE IF NOT EXISTS "Media" (
     "id" INTEGER PRIMARY KEY NOT NULL,
-    "hash" VARCHAR(500),
+    "hash" VARCHAR(500) UNIQUE,
     "name" VARCHAR(500),
     "relative_path" VARCHAR(500),
     "absolute_path" VARCHAR
