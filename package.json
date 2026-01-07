@@ -19,7 +19,10 @@
     "lint": "eslint .",
     "electron": "electron .",
     "electron:rebuild": "electron-rebuild",
-    "test": "node --test src/api/access/tests/documents.tests.js"
+    "test": "npm run test:docs && npm run test:performance && npm run test:media",
+    "test:docs": "node --test tests/documents.test.js",
+    "test:performance": "node --test tests/performance.test.js",
+    "test:media": "node --test tests/media.test.js"
   },
   "repository": {
     "type": "git",
