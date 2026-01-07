@@ -1,10 +1,10 @@
 export default {
+    "globalHash": null,
     "lastRecall": null,
     "level": 0,
     "tags": [],
-    "categories": [],
+    "category": null,
     "isCustom": false,
-    "isVanilla": true,
     "customData": {
         "html": ""
     },

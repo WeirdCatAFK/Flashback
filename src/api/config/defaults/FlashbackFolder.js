@@ -1,6 +1,6 @@
 export default function newMetadata() {
     return {
-        "globalId": "",
+        "globalHash": "",
         "tags": [],
     }
 }
