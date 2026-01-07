@@ -49,7 +49,7 @@ function rebuildDatabase() {
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("connection", "false");
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("disconection", "false");
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("inheritance", "true");
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("tagging", "false");
+    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("tag", "false");
     db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("reference", "true");
 
     db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Flashcard");

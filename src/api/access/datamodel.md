@@ -54,7 +54,7 @@ Inteligencia_Artificial
 
 ```json
 {
-  "globalId": "unique-folder-hash", # A hash that is defined by the creator and the timestamp of when it was created
+  "globalHash": "unique-folder-hash", # A hash that is defined by the creator and the timestamp of when it was created
   "tags": ["Artificial Intelligence", "Course", "Fall 2024"],
 }
 
@@ -67,19 +67,19 @@ Inteligencia_Artificial
 
 ```json
 {
-  "globalId": "unique-file-hash",# A hash that is defined by the creator and the timestamp of when it was created
+  "globalHash": "unique-file-hash",# A hash that is defined by the creator and the timestamp of when it was created
   "tags": ["Lecture", "KNN"],
   "excludedTags": ["AI"],
   "flashcards": [
     {
+    "globalHash": "identifier",
     "lastRecall": "2025-09-14T15:30:00Z", # ISO 8601 Format,
     "level" : 6, # Number of consecutive positive recalls
       "tags": ["Definition", "Supervised Learning"],
-      "categories": ["Concept"],
-      "isCustom": true,
-      "isVanilla": false,
+      "category": "Concept",
       "customData": {
         // where editor is a custom object that is interpreted by the frontend to make calls to the api
+        // If your flashcard contains any customData it will be interpreted as custom by the api
         "html": "<Front>What is KNN?</img src = editor.media.visualization></Front><Back>K-Nearest Neighbors algorithm</imgsrc = editor.media.neighbor></Back>", 
         "media": {"visualization": "./media/visualization.png",
           "neighbor": "./media/neighbor.png" 
