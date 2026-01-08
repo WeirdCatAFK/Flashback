@@ -1,12 +1,27 @@
-/* Orchestrator file that makes all the necessary calls to the database and file system Ensuring that both canonical and derived data are updated
-Methods are operations that are normally reflected on file explorers, specifically for the flasback data model which manages a tree-like structure
-knowledge representation graph.
+/* A bridge for the operations of the flashback canonical data system.
+ Default: all file operations are handled inside the flashback directory at userData.
+ If the config provides a custom path it will be used instead to mount files elsewhere.
+
+ Some things to be aware of:
+ Since the system uses a derived data system, the file reads are done at the document.js level
+ The canonical data system is a group of jsons with metadata and a media file at root level of folders check out datamodel.md
+ The canonical data makes all writes to the file system, document.js makes all writes to the database and calls  files.js
+
+ Las rutas relativas se resuelven contra el workspaceRoot.
+ The metadata of the files is stored as <file>.flashback o <folder>/.flashback
+ The globalHash is inmutable after generated, copying a file will generate a new one.
+ Insecure operations throw errors to be handled by the UI
+
 */
+
 import path from 'path';
+import fs from 'fs';
 import { get as config } from './config.js';
 import Files from './files.js';
 import db from './database.js';
 import crypto from 'crypto';
+import AdmZip from 'adm-zip';
+import os from 'os';
 
 export default class Documents {
     constructor() {
@@ -82,13 +97,13 @@ export default class Documents {
     /**
      * Updates a flashcard in the database by its global hash.
      * @param {object} data - An object containing the following properties:
-     *   - globalHash: The global hash of the flashcard.
-     *   - lastRecall: The ISO 8601 datetime string of the last recall.
-     *   - level: The level of the flashcard.
-     *   - tags: An array of tag names.
-     *   - category: The category name of the flashcard.
-     *   - customData: An object containing custom data for the flashcard.
-     *   - vanillaData: An object containing vanilla data for the flashcard.
+     * - globalHash: The global hash of the flashcard.
+     * - lastRecall: The ISO 8601 datetime string of the last recall.
+     * - level: The level of the flashcard.
+     * - tags: An array of tag names.
+     * - category: The category name of the flashcard.
+     * - customData: An object containing custom data for the flashcard.
+     * - vanillaData: An object containing vanilla data for the flashcard.
      * @throws {Error} If the flashcard with the given global hash does not exist.
      */
     _updateFlashcard(data) {
@@ -806,7 +821,7 @@ export default class Documents {
 
                             if (item.type === 'folder') {
                                 // Insert Folder
-                                this.db.prepare(`
+                                const info = this.db.prepare(`
                                 INSERT INTO Folders 
                                 (node_id, global_hash, relative_path, absolute_path, name, presence)
                                 VALUES (?, ?, ?, ?, ?, 0)
@@ -1037,17 +1052,261 @@ export default class Documents {
         } catch (error) { console.error("Error in importFile orchestrator:", error); throw error; }
 
     }
-
-        /**
-         * Adds a media file to the given flashcard in the given document.
-         * Validates the given flashcard hash and document path, then adds the media file to the document's "media" folder.
-         * Updates the database with the new media file information.
-         * @param {string} relativePath - The relative path to the document containing the flashcard.
-         * @param {string} flashcardHash - The globalHash of the target flashcard.
-         * @param {Buffer} mediaBuffer - The raw file content of the media.
-         * @param {string} mediaName - The filename (e.g., "diagram.png").
-         * @throws {Error} If the file does not exist, the media file already exists, or the flashcard at the given index does not exist.
+    /**
+         * EXPORT PACKAGE
+         * Zips a folder from the workspace to a temporary file for export.
+         * The zip file will contain the folder itself as the root element.
+         * @param {string} relativePath - The relative path of the folder to export.
+         * @returns {string} - The absolute path to the generated zip file.
          */
+    exportPackage(relativePath) {
+        // 1. Resolve and Validate Path
+        const sourcePath = this.files.safePath(relativePath);
+
+        if (!fs.existsSync(sourcePath)) {
+            throw new Error(`Export failed: Path not found - ${relativePath}`);
+        }
+
+        const stats = fs.statSync(sourcePath);
+        if (!stats.isDirectory()) {
+            throw new Error(`Export failed: Can only export folders as packages.`);
+        }
+
+        // 2. Initialize Zip
+        const zip = new AdmZip();
+        // We use the folder name as the zip root so extracting it keeps files contained
+        const folderName = path.basename(sourcePath) || "Backup";
+
+        // 3. Add content
+        // addLocalFolder(localPath, zipPath) puts the contents of localPath into zipPath inside the archive
+        zip.addLocalFolder(sourcePath, folderName);
+
+        // 4. Save to Temp
+        const tempDir = os.tmpdir();
+        // Format: FolderName_Export_Timestamp.zip
+        const zipFileName = `${folderName}_Export_${Date.now()}.zip`;
+        const zipFilePath = path.join(tempDir, zipFileName);
+
+        try {
+            zip.writeZip(zipFilePath);
+            console.log(`Exported package '${folderName}' to ${zipFilePath}`);
+            return zipFilePath;
+        } catch (error) {
+            console.error("Failed to write export zip:", error);
+            throw error;
+        }
+    }
+    /**
+     * Imports a course package from an external directory.
+     * Recursively copies the structure, sanitizes learning data, and registers everything in the database.
+     * @param {string} externalPath - The absolute path to the source folder.
+     * @param {string} [targetRelPath=""] - The destination relative path in the workspace.
+     */
+    importPackage(externalPath, targetRelPath = "") {
+        // Ensure source exists
+        if (!fs.existsSync(externalPath)) throw new Error(`Source path not found: ${externalPath}`);
+
+        // Define root name and create it
+        const folderName = path.basename(externalPath);
+
+        // We rely on createFolder to handle the root creation (and it creates a new hash)
+        try {
+            this.createFolder(folderName, targetRelPath);
+        } catch (e) {
+            // If it exists, we rethrow for now as safe default.
+            throw e;
+        }
+
+        const newRootRel = path.join(targetRelPath, folderName);
+
+        // Apply Metadata for Root if exists
+        const rootMetaPath = path.join(externalPath, ".flashback");
+        if (fs.existsSync(rootMetaPath)) {
+            try {
+                const raw = fs.readFileSync(rootMetaPath, 'utf-8');
+                const meta = JSON.parse(raw);
+
+                // Sanitize Root
+                delete meta.lastRecall;
+                delete meta.level;
+                delete meta.easeFactor;
+                meta.presence = 0;
+
+                // Keep the NEW hash generated by createFolder
+                const currentMeta = this.files.getMetadata(newRootRel, true);
+                if (currentMeta) meta.globalHash = currentMeta.globalHash;
+
+                this.updateMetadata(newRootRel, meta, true);
+            } catch (err) {
+                console.warn("Failed to import root metadata:", err);
+            }
+        }
+
+        // Helper to crawl
+        const crawl = (src, destRel) => {
+            const entries = fs.readdirSync(src, { withFileTypes: true });
+
+            for (const entry of entries) {
+                const srcPath = path.join(src, entry.name);
+                const entryRel = path.join(destRel, entry.name);
+
+                // Skip metadata files
+                if (entry.name === ".flashback" || entry.name.endsWith(".flashback")) continue;
+
+                if (entry.isDirectory()) {
+                    if (entry.name === "media") {
+                        // Media Folder Handling: Copy physically and register in Media table
+                        const mediaDestAbs = this.files.safePath(entryRel);
+                        if (!fs.existsSync(mediaDestAbs)) fs.mkdirSync(mediaDestAbs, { recursive: true });
+
+                        const mediaFiles = fs.readdirSync(srcPath);
+                        for (const mFile of mediaFiles) {
+                            const mSrc = path.join(srcPath, mFile);
+                            const mDest = path.join(mediaDestAbs, mFile);
+
+                            if (fs.lstatSync(mSrc).isFile()) {
+                                fs.copyFileSync(mSrc, mDest);
+
+                                // Register in Media Table
+                                const mBuf = fs.readFileSync(mDest);
+                                const mHash = crypto.createHash('sha256').update(mBuf).digest('hex');
+                                const mRel = path.join(destRel, "media", mFile); // workspace relative
+
+                                this.db.prepare(`
+                                    INSERT INTO Media (hash, name, relative_path, absolute_path)
+                                    VALUES (?, ?, ?, ?)
+                                    ON CONFLICT(hash) DO UPDATE SET relative_path=excluded.relative_path, absolute_path=excluded.absolute_path
+                                `).run(mHash, mFile, mRel, mDest);
+                            }
+                        }
+
+                    } else {
+                        // Normal Folder
+                        this.createFolder(entry.name, destRel);
+
+                        // Metadata
+                        const metaPath = path.join(srcPath, ".flashback");
+                        if (fs.existsSync(metaPath)) {
+                            const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+                            delete meta.lastRecall; delete meta.level; delete meta.easeFactor; meta.presence = 0;
+
+                            const current = this.files.getMetadata(entryRel, true);
+                            meta.globalHash = current.globalHash;
+                            this.updateMetadata(entryRel, meta, true);
+                        }
+
+                        // Recurse
+                        crawl(srcPath, entryRel);
+                    }
+                } else {
+                    // File
+                    const content = fs.readFileSync(srcPath, 'utf-8');
+                    let meta = null;
+                    const metaPath = srcPath + ".flashback";
+                    if (fs.existsSync(metaPath)) {
+                        meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+
+                        // Sanitize Flashcards
+                        if (meta.flashcards && Array.isArray(meta.flashcards)) {
+                            meta.flashcards.forEach(fc => {
+                                // TEST FIX: Delete lastRecall so it becomes undefined in the object
+                                delete fc.lastRecall;
+
+                                // TEST FIX: Set level to 0 explicitly so DB gets an integer (not null)
+                                fc.level = 0;
+
+                                delete fc.easeFactor;
+                                fc.presence = 0;
+                                fc.globalHash = crypto.randomUUID(); // Fresh ID
+                            });
+                        }
+
+                        delete meta.lastRecall;
+                        delete meta.level;
+                        delete meta.easeFactor;
+                        meta.presence = 0;
+                        meta.globalHash = crypto.randomUUID(); // Fresh ID for file
+                    }
+
+                    this.importFile(entry.name, destRel, content, meta);
+                }
+            }
+        };
+
+        crawl(externalPath, newRootRel);
+        console.log(`Package ${folderName} imported successfully.`);
+    }
+
+    /**
+         * PROCESS ZIP PACKAGE
+         * Handles the unpacking of a zipped course package and initiates the import process.
+         * Designed to be called by an API endpoint that handles the file upload.
+         * @param {string} zipFilePath - The absolute path to the uploaded .zip file.
+         * @param {string} [targetRelPath=""] - The destination path in the workspace.
+         */
+    processZipPackage(zipFilePath, targetRelPath = "") {
+        // 1. Validation
+        if (!fs.existsSync(zipFilePath)) throw new Error("Zip file not found: " + zipFilePath);
+
+        // 2. Prepare Temp Directory
+        // Create a unique temp directory in the system temp folder
+        const tempId = crypto.randomUUID();
+        const zipName = path.basename(zipFilePath, '.zip');
+        const tempRoot = path.join(os.tmpdir(), 'flashback_imports', tempId);
+
+        try {
+            // 3. Extract Zip
+            const zip = new AdmZip(zipFilePath);
+            // We extract to tempRoot/zipName to contain the files cleanly
+            // This prevents "zip bomb" style pollution of the temp folder
+            const extractPath = path.join(tempRoot, zipName);
+
+            // Create the directory first (adm-zip handles this but good practice)
+            fs.mkdirSync(extractPath, { recursive: true });
+
+            zip.extractAllTo(extractPath, true);
+
+            // 4. Determine Package Root
+            // Sometimes zips contain a single root folder. If so, we use that as the package source.
+            // Otherwise, we use the container folder we just created (extractPath).
+            let packageSourcePath = extractPath;
+            const entries = fs.readdirSync(extractPath, { withFileTypes: true })
+                .filter(e => !e.name.startsWith('.') && e.name !== '__MACOSX');
+
+            if (entries.length === 1 && entries[0].isDirectory()) {
+                packageSourcePath = path.join(extractPath, entries[0].name);
+            }
+
+            // 5. Import
+            console.log(`Processing package from: ${packageSourcePath}`);
+            this.importPackage(packageSourcePath, targetRelPath);
+
+        } catch (error) {
+            console.error("Error processing zip package:", error);
+            throw error;
+        } finally {
+            // 6. Cleanup
+            // Remove the temporary extraction directory
+            try {
+                if (fs.existsSync(tempRoot)) {
+                    fs.rmSync(tempRoot, { recursive: true, force: true });
+                }
+            } catch (cleanupError) {
+                console.warn("Failed to cleanup temp import directory:", cleanupError);
+            }
+        }
+    }
+
+    /**
+     * Adds a media file to the given flashcard in the given document.
+     * Validates the given flashcard hash and document path, then adds the media file to the document's "media" folder.
+     * Updates the database with the new media file information.
+     * @param {string} relativePath - The relative path to the document containing the flashcard.
+     * @param {string} flashcardHash - The globalHash of the target flashcard.
+     * @param {Buffer} mediaBuffer - The raw file content of the media.
+     * @param {string} mediaName - The filename (e.g., "diagram.png").
+     * @throws {Error} If the file does not exist, the media file already exists, or the flashcard at the given index does not exist.
+     */
     addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {
         try {
             // Preparation & Validation
@@ -1408,8 +1667,7 @@ export default class Documents {
 
     /**
      * Retrieves the entire graph data structure of the knowledge base.
-     * 
-     * @returns {object} An object containing two properties:
+     * * @returns {object} An object containing two properties:
      * - nodes {array}: An array of objects representing the nodes in the graph.
      * - edges {array}: An array of objects representing the edges in the graph.
      */
@@ -1585,5 +1843,3 @@ export default class Documents {
         transaction();
     }
 }
-
-

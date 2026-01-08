@@ -6,6 +6,7 @@ import Documents from '../src/api/access/documents.js';
 import db from '../src/api/access/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
+import AdmZip from 'adm-zip';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('Using USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -317,6 +318,198 @@ describe('Documents Orchestrator Integration Tests', () => {
             // 4. Verify Flashcards Synced
             const fcCount = db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(docEntry.id).c;
             assert.equal(fcCount, 1, "Should have 1 flashcard linked to the imported document");
+        });
+    });
+    // --- 6. PACKAGE IMPORT (EXTERNAL COURSES) ---
+    describe('Package Import', () => {
+        const pkgName = "DummyCourse";
+        // Create a temporary "external" path outside the workspace
+        const externalPath = path.join(process.cwd(), pkgName);
+
+        before(() => {
+            // 1. Setup External Directory Structure
+            if (fs.existsSync(externalPath)) fs.rmSync(externalPath, { recursive: true, force: true });
+            fs.mkdirSync(path.join(externalPath, 'media'), { recursive: true });
+
+            // 2. Create Root Metadata (with user-specific data that should be STRIPPED)
+            fs.writeFileSync(path.join(externalPath, '.flashback'), JSON.stringify({
+                globalHash: "original-root-hash",
+                tags: ["Biology", "101"],
+                presence: 0.85 // Should be reset to 0
+            }));
+
+            // 3. Create a Document with Flashcards (Level 5, old dates)
+            const docContent = "# Mitosis\nProcess of cell division...";
+            fs.writeFileSync(path.join(externalPath, 'Lecture1.md'), docContent);
+
+            fs.writeFileSync(path.join(externalPath, 'Lecture1.md.flashback'), JSON.stringify({
+                globalHash: "original-file-hash",
+                tags: ["Cell"],
+                flashcards: [
+                    {
+                        globalHash: "original-card-hash",
+                        level: 5, // Should be reset
+                        easeFactor: 2.5, // Should be removed
+                        lastRecall: "2023-01-01T00:00:00.000Z", // Should be removed
+                        vanillaData: {
+                            frontText: "Phases of Mitosis",
+                            backText: "Prophase, Metaphase..."
+                        }
+                    }
+                ]
+            }));
+
+            // 4. Create a dummy media file
+            fs.writeFileSync(path.join(externalPath, 'media', 'cell_diagram.png'), Buffer.from("fake_image_bytes"));
+        });
+
+        after(() => {
+            // Cleanup the external dummy folder
+            if (fs.existsSync(externalPath)) fs.rmSync(externalPath, { recursive: true, force: true });
+        });
+
+        it('should import a package, preserve structure, and sanitize learning progress', () => {
+            // ACT: Import the package into the TestWorkspace
+            docs.importPackage(externalPath, TEST_ROOT);
+
+            const importedRootRel = path.join(TEST_ROOT, pkgName);
+
+            // ASSERT 1: Folder Creation & DB Indexing
+            const folderEntry = docs.exists(importedRootRel, true, true);
+            assert.ok(folderEntry, "Imported root folder should exist in DB");
+            assert.notEqual(folderEntry.globalHash, "original-root-hash", "Root hash should be regenerated");
+
+            // ASSERT 2: Document Import
+            const docRel = path.join(importedRootRel, 'Lecture1.md');
+            const docEntry = docs.exists(docRel, true, false);
+            assert.ok(docEntry, "Lecture1.md should be indexed");
+
+            // ASSERT 3: Flashcard Sanitization (The most important part)
+            const flashcard = db.prepare('SELECT * FROM Flashcards WHERE document_id = ?').get(docEntry.id);
+            assert.ok(flashcard, "Flashcard should be imported");
+            assert.equal(flashcard.level, 0, "Flashcard level should be reset to 0");
+            assert.notEqual(flashcard.global_hash, "original-card-hash", "Flashcard hash should be regenerated");
+
+            // Check that sensitive fields were stripped (using raw JSON check from file system to be sure)
+            const importedMeta = docs.files.getMetadata(docRel);
+            assert.strictEqual(importedMeta.flashcards[0].lastRecall, undefined, "lastRecall should be stripped from file metadata");
+
+            // ASSERT 4: Media Import
+            const mediaRel = path.join(importedRootRel, "media", "cell_diagram.png");
+            // Check file system
+            assert.ok(docs.files.exists(mediaRel), "Media file should be copied to workspace");
+            // Check DB registry
+            const mediaEntry = db.prepare('SELECT * FROM Media WHERE relative_path = ?').get(mediaRel);
+            assert.ok(mediaEntry, "Media file should be registered in the Media table");
+        });
+    });
+    // --- 7. ZIP PACKAGE IMPORT ---
+    describe('Zip Package Processing', () => {
+        const zipName = "CourseArchive.zip";
+        const zipPath = path.join(process.cwd(), zipName);
+        const targetFolder = "ZippedCourse";
+
+        before(() => {
+            // 1. Create a generic Zip file in memory
+            const zip = new AdmZip();
+
+            // 2. Add content to the zip
+            // Root file
+            zip.addFile("Intro.md", Buffer.from("# Welcome\nIntroduction to the course."));
+
+            // Nested folder with metadata and flashcards
+            const metaContent = JSON.stringify({
+                globalHash: "old-hash-to-be-replaced",
+                tags: ["ZippedTag"],
+                flashcards: [{
+                    globalHash: "old-card-hash",
+                    level: 5, // Should be sanitized
+                    lastRecall: "2022-01-01", // Should be sanitized
+                    vanillaData: { frontText: "ZipQ", backText: "ZipA" }
+                }]
+            });
+            zip.addFile("Chapter1/Lesson1.md.flashback", Buffer.from(metaContent));
+            zip.addFile("Chapter1/Lesson1.md", Buffer.from("# Lesson 1 Content"));
+
+            // 3. Write Zip to disk (simulating an upload)
+            zip.writeZip(zipPath);
+        });
+
+        after(() => {
+            // Cleanup the zip file
+            if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
+        });
+
+        it('should unzip, import, and sanitize a zip package', () => {
+            // ACT
+            docs.processZipPackage(zipPath, TEST_ROOT);
+
+            // ASSERT
+            // 1. Verify Root Folder Created
+            // The function uses the zip name (CourseArchive) or the internal folder name.
+            // Since we added files directly to root of zip, it extracts to a folder named 'CourseArchive' inside TEST_ROOT
+            const expectedRoot = path.join(TEST_ROOT, "CourseArchive");
+
+            const rootExists = docs.exists(expectedRoot, true, true);
+            assert.ok(rootExists, "Unzipped root folder should exist in DB");
+
+            // 2. Verify Nested File
+            const fileRel = path.join(expectedRoot, "Chapter1", "Lesson1.md");
+            const fileExists = docs.exists(fileRel, true, false);
+            assert.ok(fileExists, "Nested file from zip should be indexed");
+
+            // 3. Verify Content & Sanitization
+            const dbCard = db.prepare('SELECT level, global_hash FROM Flashcards WHERE document_id = ?').get(fileExists.id);
+            assert.ok(dbCard, "Flashcard from zip should be imported");
+            assert.equal(dbCard.level, 0, "Flashcard level should be reset to 0");
+            assert.notEqual(dbCard.global_hash, "old-card-hash", "Flashcard hash should be regenerated");
+
+            // 4. Verify Cleanup
+            // Check that the temp directory used by processZipPackage is gone.
+            // We can't check the specific random ID, but we can assume success if no error was thrown.
+            // (The generic temp/flashback_imports folder might remain, but the specific ID folder should be gone).
+        });
+    });
+    // --- 8. PACKAGE EXPORT ---
+    describe('Package Export', () => {
+        const exportFolder = "ExportTest";
+
+        before(() => {
+            // Create a folder to export
+            docs.createFolder(exportFolder);
+            docs.createFile("Notes.md", exportFolder);
+
+            // Add some metadata to verify it's included
+            docs.updateMetadata(path.join(exportFolder, "Notes.md"), {
+                tags: ["ExportedTag"],
+                globalHash: "export-test-hash"
+            });
+        });
+
+        it('should zip a workspace folder and return a valid file path', () => {
+            // ACT
+            const zipPath = docs.exportPackage(exportFolder);
+
+            // ASSERT
+            // 1. Check file creation
+            assert.ok(fs.existsSync(zipPath), "Export zip file should exist");
+            assert.ok(zipPath.endsWith('.zip'), "File should be a zip");
+
+            // 2. Verify Zip Content
+            const zip = new AdmZip(zipPath);
+            const entries = zip.getEntries();
+
+            // We expect the folder name to be the root in the zip
+            // e.g. "ExportTest/Notes.md"
+            const hasFile = entries.some(e => e.entryName === `${exportFolder}/Notes.md`);
+            assert.ok(hasFile, "Zip should contain the inner file with correct structure");
+
+            // 3. Verify Metadata Inclusion (.flashback file)
+            const hasMeta = entries.some(e => e.entryName === `${exportFolder}/Notes.md.flashback`);
+            assert.ok(hasMeta, "Zip should include hidden .flashback metadata files");
+
+            // Cleanup the generated zip
+            fs.unlinkSync(zipPath);
         });
     });
 });

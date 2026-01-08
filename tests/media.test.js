@@ -42,7 +42,6 @@ describe('Media & Binary Operations', () => {
     });
 
     it('should attach an image file to a flashcard (Manual/Low-level)', () => {
-        // ... (Keep your existing low-level test here if you want) ...
         const docName = "VisualNotes_LowLevel.md";
         const imgName = "blue_pixel_ll.png";
 
