@@ -6,10 +6,10 @@
   "main": "src/electron/main.js",
   "description": "The memorization workspace",
   "scripts": {
-    "dev": "npm-run-all --parallel dev:react dev:electron",
+    "dev": "npm run electron:rebuild && npm-run-all --parallel dev:react dev:electron",
     "dev:react": "vite",
     "dev:electron": "cross-env NODE_ENV=development electron .",
-    "dev:api": "nodemon src/api/main.js",
+    "dev:api": "npm rebuild && nodemon src/api/main.js",
     "dev:web": "npm-run-all --parallel dev:react dev:api",
     "react:build": "vite build",
     "dist:mac": "npm run electron:rebuild && npm run build && electron-builder --mac --arm64",
