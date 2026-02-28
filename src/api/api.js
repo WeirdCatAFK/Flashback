@@ -5,6 +5,15 @@ import express from "express";
 import cors from './config/cors.js';
 import morgan from "morgan";
 class api {
+/**
+ * Constructor for the api class.
+ * 
+ * @param {object} config - Configuration options for the api.
+ * @param {number} [config.port=3000] - The port number to bind to.
+ * @param {string} [config.logFormat="dev"] - The log format to use.
+ * @param {string} [config.host="localhost"] - The host to bind to.
+ * @param {boolean} [config.isLocalhost=true] - Whether to bind to localhost or all interfaces.
+ */
   constructor(config = {}) {
     this.app = express();
 
@@ -22,13 +31,11 @@ class api {
       );
       this.host = "0.0.0.0";
     }
-    // Any previous preparing for the workspace should be built here
-    // Like db integrity checks or config file checkup
 
     this.build();
   }
   /*Builds the api as you would normally in express, take into consideration
- that is asynchronousm runs along the constructor*/
+ that is asynchronous and runs along the constructor*/
   async build() {
     // Middleware mounting
     this.app.use(cors);
