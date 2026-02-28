@@ -474,7 +474,18 @@ describe('Documents Orchestrator Integration Tests', () => {
     describe('Package Export', () => {
         const exportFolder = "ExportTest";
 
+        const cleanupExport = () => {
+            try {
+                if (docs.exists(exportFolder, true, true)) {
+                    docs.delete(exportFolder, true);
+                }
+            } catch (e) {
+                // Ignore if doesn't exist
+            }
+        };
+
         before(() => {
+            cleanupExport();
             // Create a folder to export
             docs.createFolder(exportFolder);
             docs.createFile("Notes.md", exportFolder);
@@ -486,7 +497,12 @@ describe('Documents Orchestrator Integration Tests', () => {
             });
         });
 
+        after(() => {
+            cleanupExport();
+        });
+
         it('should zip a workspace folder and return a valid file path', () => {
+
             // ACT
             const zipPath = docs.exportPackage(exportFolder);
 
