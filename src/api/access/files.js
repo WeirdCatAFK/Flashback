@@ -45,10 +45,8 @@ export default class Files {
                 throw new Error("Custom path provided is not absolute");
             }
         } else {
-            if (!process.env.USER_DATA_PATH) {
-                throw new Error("USER_DATA_PATH is not defined in environment");
-            }
-            this.workspaceRoot = path.join(process.env.USER_DATA_PATH, "workspace");
+            const baseDir = process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
+            this.workspaceRoot = path.join(baseDir, "workspace");
         }
 
         if (!fs.existsSync(this.workspaceRoot)) {

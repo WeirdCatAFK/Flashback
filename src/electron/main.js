@@ -3,7 +3,7 @@ import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
-import spawn from './../api/spawn.js';
+import spawn from './api_process.js';
 
 // Reconstruct __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -15,10 +15,7 @@ let isQuitting = false;
 
 // Helper to get the icon path correctly in both Dev and Prod
 function getIconPath() {
-  // Assuming flashback.ico is in the root of the project
-  // In dev: ../../flashback.ico (relative to src/electron/main.js)
-  // In prod: usually adjacent to resources or handled differently, 
-  // but for this structure, we target the root file.
+  // flashback.ico is in the root
   return path.join(__dirname, "../../flashback.ico");
 }
 

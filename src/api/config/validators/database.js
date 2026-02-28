@@ -40,38 +40,42 @@ function rebuildDatabase() {
   console.warn("Rebuilding database from schema...");
   try {
     db.exec(SchemaSQL);
+    console.log("Database schema applied.");
   } catch (err) {
-    console.error("Error rebuilding database:", err);
+    console.error("Error rebuilding database schema:", err);
     return false;
   }
+
   console.log("Inserting default data...");
   try {
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("connection", "false");
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("disconection", "false");
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("inheritance", "true");
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("tag", "false");
-    db.prepare('INSERT INTO ConnectionTypes (name, is_directed) VALUES ( ?, ? )').run("reference", "true");
+    const insertConnectionType = db.prepare('INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES (?, ?)');
+    insertConnectionType.run("connection", "false");
+    insertConnectionType.run("disconnection", "false"); // Fixed typo from 'disconection'
+    insertConnectionType.run("inheritance", "true");
+    insertConnectionType.run("tag", "false");
+    insertConnectionType.run("reference", "true");
 
-    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Flashcard");
-    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Folder");
-    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Document");
-    db.prepare('INSERT INTO NodeTypes (name) VALUES ( ? )').run("Tag");
+    const insertNodeType = db.prepare('INSERT OR IGNORE INTO NodeTypes (name) VALUES (?)');
+    insertNodeType.run("Flashcard");
+    insertNodeType.run("Folder");
+    insertNodeType.run("Document");
+    insertNodeType.run("Tag");
 
+    const insertCategory = db.prepare('INSERT OR IGNORE INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)');
+    insertCategory.run("Definition", 0, "The definition of a word or concept");
+    insertCategory.run("Terminology", 0, "The usage of a word");
+    insertCategory.run("Symbol", 0, "The usage of symbols");
+    insertCategory.run("Concept", 1, "An abstract idea");
+    insertCategory.run("Example", 1, "Examples of usage");
+    insertCategory.run("Exercise", 2, "Apply knowledge in a practical task or problem");
+    insertCategory.run("Procedure", 2, "Execute a method or algorithm step by step");
 
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Definition", 0, "The definition of a word or concept");
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Terminology", 0, "The usage of a word");
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Symbol", 0, "The usage of symbols");
-
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Concept", 1, "An abstract idea");
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Example", 1, "Examples of usage");
-
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Exercise", 2, "Apply knowledge in a practical task or problem");
-    db.prepare('INSERT INTO PedagogicalCategories (name, priority, description) VALUES ( ?, ? , ?)').run("Procedure", 2, "Execute a method or algorithm step by step");
+    console.log("Default data inserted successfully.");
+    return true;
   } catch (err) {
     console.error("Error inserting default data:", err);
     return false;
   }
-  console.log("Default data inserted.");
 }
 
 /**
