@@ -5,7 +5,7 @@
 
  Some things to be aware of:
  Since the system uses a derived data system, the file reads are done at the document.js level
- The canonical data system is a group of jsons with metadata and a media file at root level of folders check out datamodel.md
+ The canonical data system is a group of jsons with metadata and a media file at root level of folders check out DATAMODEL.md
  The canonical data makes all writes to the file system, document.js makes all writes to the database and calls  files.js
 
  Las rutas relativas se resuelven contra el workspaceRoot.
