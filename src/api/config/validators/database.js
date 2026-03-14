@@ -33,13 +33,15 @@ function tableExists(name) {
 }
 
 /**
- * Rebuilds the database schema and populates default data in a single transaction.
- * @returns {boolean} True if the database was rebuilt and initialized successfully.
+ * Performs the core database schema and default data initialization.
+ * This function should NOT start its own transaction.
  */
-const rebuildDatabase = db.transaction(() => {
+function performRebuild() {
   console.warn("Rebuilding database from schema...");
   try {
-    db.exec(SchemaSQL);
+    // Remove manual transaction control from schema if present to avoid nested transactions
+    const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, '');
+    db.exec(cleanSchema);
 
     const insertConnectionType = db.prepare('INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES (?, ?)');
     for (const ct of connectionTypes) {
@@ -60,8 +62,16 @@ const rebuildDatabase = db.transaction(() => {
     return true;
   } catch (err) {
     console.error("Critical error during database rebuild:", err);
-    throw err; // Transaction will rollback automatically
+    throw err;
   }
+}
+
+/**
+ * Rebuilds the database schema and populates default data in a single transaction.
+ * @returns {boolean} True if the database was rebuilt and initialized successfully.
+ */
+const rebuildDatabase = db.transaction(() => {
+  return performRebuild();
 });
 
 /**
@@ -72,17 +82,24 @@ const rebuildDatabase = db.transaction(() => {
  * @returns {boolean} True if the database is valid or was successfully repaired.
  */
 function validateDatabase() {
+  const handleRebuild = () => {
+    if (db.inTransaction) {
+      return performRebuild();
+    }
+    return rebuildDatabase();
+  };
+
   try {
     const integrity = db.prepare("PRAGMA integrity_check").get();
     if (integrity.integrity_check !== "ok") {
       console.error("DB integrity check failed:", integrity.integrity_check);
-      return rebuildDatabase();
+      return handleRebuild();
     }
 
     for (const table of requiredTables) {
       if (!tableExists(table)) {
         console.warn(`Database missing required table: ${table}. Attempting repair...`);
-        return rebuildDatabase();
+        return handleRebuild();
       }
     }
 
@@ -90,7 +107,7 @@ function validateDatabase() {
   } catch (err) {
     console.error("Database validation failed, attempting rebuild:", err.message);
     try {
-      return rebuildDatabase();
+      return handleRebuild();
     } catch (rebuildErr) {
       return false;
     }

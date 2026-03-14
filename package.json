@@ -16,10 +16,11 @@
     "electron:rebuild": "electron-rebuild -f --debug",
     "electron:start": "electron .",
     "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
-    "test": "npm run test:docs && npm run test:performance && npm run test:media",
+    "test": "npm run test:docs && npm run test:performance && npm run test:media && npm run test:subscriptions",
     "test:docs": "node --test tests/documents.test.js",
     "test:performance": "node --test tests/performance.test.js",
-    "test:media": "node --test tests/media.test.js"
+    "test:media": "node --test tests/media.test.js",
+    "test:subscriptions": "node --test tests/subscriptions.test.js"
   },
   "repository": {
     "type": "git",
@@ -27,7 +28,7 @@
   },
   "dependencies": {
     "adm-zip": "^0.5.16",
-    "better-sqlite3": "^12.2.0",
+    "better-sqlite3": "^12.8.0",
     "chardet": "^2.1.1",
     "electron": "^38.1.2",
     "express": "^5.1.0",

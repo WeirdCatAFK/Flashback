@@ -328,15 +328,29 @@ export default class Documents {
      */
     _syncDocumentFlashcards(documentId, flashcardsData) {
         if (!Array.isArray(flashcardsData)) return;
-        const existingRows = this.db.prepare('SELECT id, node_id, global_hash FROM Flashcards WHERE document_id = ?').all(documentId);
+        const existingRows = this.db.prepare('SELECT id, node_id, global_hash, level, last_recall FROM Flashcards WHERE document_id = ?').all(documentId);
         const existingMap = new Map(existingRows.map(r => [r.global_hash, r]));
         const incomingHashes = new Set();
 
         flashcardsData.forEach((fcData, index) => {
             fcData.fileIndex = index;
             incomingHashes.add(fcData.globalHash);
-            if (existingMap.has(fcData.globalHash)) {
-                this._updateFlashcard(fcData);
+            
+            const existing = existingMap.get(fcData.globalHash);
+            if (existing) {
+                // Determine merged level: 
+                // If incoming has progress (level > 0), use it (allows updates from files).
+                // Otherwise, preserve existing DB progress.
+                const mergedLevel = (fcData.level > 0) ? fcData.level : (existing.level ?? 0);
+                const mergedRecall = (fcData.level > 0) ? fcData.lastRecall : (existing.last_recall ?? fcData.lastRecall);
+
+                const mergedData = {
+                    ...fcData,
+                    level: mergedLevel,
+                    lastRecall: mergedRecall
+                };
+                
+                this._updateFlashcard(mergedData);
                 this.db.prepare('UPDATE Flashcards SET fileIndex = ? WHERE global_hash = ?').run(index, fcData.globalHash);
             } else {
                 this._createFlashcard(fcData, documentId);
