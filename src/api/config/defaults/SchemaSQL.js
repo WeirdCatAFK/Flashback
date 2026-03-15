@@ -192,6 +192,19 @@ ON "Media" ("hash");
 CREATE INDEX IF NOT EXISTS "Media_index_3"
 ON "Media" ("name");
 
+CREATE TABLE IF NOT EXISTS "Subscriptions" (
+    "id" INTEGER PRIMARY KEY NOT NULL,
+    "magazine_id" VARCHAR(500) UNIQUE,
+    "issue_id" VARCHAR(500),
+    "version" VARCHAR(100),
+    "target_path" VARCHAR(500),
+    "last_sync" TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+-- Indexes
+CREATE INDEX IF NOT EXISTS "Subscriptions_magazine_id_index"
+ON "Subscriptions" ("magazine_id");
+
 CREATE TABLE IF NOT EXISTS "Connections" (
     "id" INTEGER PRIMARY KEY NOT NULL,
     "origin_id" INTEGER NOT NULL,

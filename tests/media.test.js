@@ -6,20 +6,14 @@ import crypto from 'crypto';
 import validate from '../src/api/config/validate.js';
 import process from 'process';
 
-
-// --- SETUP ENVIRONMENT ---
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
-console.log('Using USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 if (!validate()) {
-    console.error("Validation failed. May be an initialization issue.");
-    if (!validate()) {
-        process.exit(1);
-    }
-    console.log("Validation passed.");
+    process.exit(1);
 }
+
 import Documents from '../src/api/access/documents.js';
-import db from '../src/api/access/database.js'; // Needed to verify SQL tables
+import db from '../src/api/access/database.js';
 
 const docs = new Documents();
 const TEST_ROOT = "MediaTestWorkspace";
@@ -58,14 +52,12 @@ describe('Media & Binary Operations', () => {
         assert.ok(fs.existsSync(mediaPath), "Media file should exist on disk");
     });
 
-    // --- NEW TEST FOR addMediaToFlashcard ---
-    it('should orchestrate media addition: Write to Disk AND Update DB', () => {
+    it('should orchestrate media addition: Write to Disk AND Update DB', async () => {
         const docName = "OrchestratedMedia.md";
         const fcHash = "unique-hash-999";
         const mediaName = "diagram.png";
 
-        // 1. Setup Document
-        docs.createFile(docName, TEST_ROOT);
+        await docs.createFile(docName, TEST_ROOT);
         const metadata = {
             tags: ["Science"],
             flashcards: [
@@ -77,54 +69,40 @@ describe('Media & Binary Operations', () => {
             ]
         };
         const relPath = path.join(TEST_ROOT, docName);
-        docs.updateFile(relPath, "# Science", metadata);
+        await docs.updateFile(relPath, "# Science", metadata);
 
-        // 2. Create Dummy Buffer
         const mediaBuffer = Buffer.from("fake-image-data-integrity-check");
         const expectedHash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
 
-        // 3. EXECUTE THE FUNCTION
-        docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
+        await docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
 
-        // 4. VERIFY: File System (Canonical)
         const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
         assert.ok(fs.existsSync(fullPath), "File should be created in the media folder");
         assert.equal(fs.readFileSync(fullPath, 'utf-8'), "fake-image-data-integrity-check", "Content on disk must match");
 
-        // 5. VERIFY: Database (Derived)
         const mediaEntry = db.prepare('SELECT * FROM Media WHERE name = ?').get(mediaName);
 
         assert.ok(mediaEntry, "Media table should have an entry");
         assert.equal(mediaEntry.hash, expectedHash, "DB Hash should match the SHA256 of the buffer");
-        // Verify path normalization in DB
-        // Windows might use backslashes, check if your code normalizes or keep as is. 
-        // We use 'includes' to be safe across OS tests.
         assert.ok(mediaEntry.relative_path.includes(mediaName), "Relative path in DB should be correct");
 
-        // 6. VERIFY: Metadata Update
         const updatedMeta = docs.files.getMetadata(relPath);
         const card = updatedMeta.flashcards.find(f => f.globalHash === fcHash);
-        // The key in customData.media is usually the filename or name without ext depending on implementation
-        // Your files.js uses: targetCard.customData.media[trimmedName] = ...
         const trimmedName = mediaName.split('.')[0];
         assert.ok(card.customData.media[trimmedName], "Metadata should reference the new media");
     });
 
-    it('should rollback file creation if database fails', () => {
-        // This is an advanced test. To simulate this, we'd need to mock DB failure.
-        // For now, we can test the pre-validation logic.
-
+    it('should rollback file creation if database fails', async () => {
         const docName = "FailTest.md";
-        docs.createFile(docName, TEST_ROOT);
+        await docs.createFile(docName, TEST_ROOT);
 
         const buffer = Buffer.from("data");
 
-        // Expect Error: Flashcard hash not found
-        assert.throws(() => {
-            docs.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png");
-        }, /Flashcard with hash non-existent-hash not found/);
+        await assert.rejects(
+            docs.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png"),
+            /Flashcard non-existent-hash not found/
+        );
 
-        // Verify no file was written
         const failPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'fail.png');
         assert.equal(fs.existsSync(failPath), false, "File should not be written on logic error");
     });
