@@ -3,7 +3,6 @@
  * Manages magazine subscriptions, checks for updates, and handles the import and merging of new issues.
  */
 
-import db from './database.js';
 import Documents from './documents.js';
 import AdmZip from 'adm-zip';
 import os from 'os';
@@ -13,16 +12,7 @@ import crypto from 'crypto';
 
 export default class Subscriptions {
     constructor() {
-        this.db = db;
         this.documents = new Documents();
-    }
-
-    /**
-     * Subscribes the current user to a magazine.
-     */
-    subscribe(magazineId, userId) {
-        console.log(`User ${userId} subscribing to magazine ${magazineId}`);
-        // To be implemented: API call + DB entry
     }
 
     /**
@@ -46,7 +36,7 @@ export default class Subscriptions {
             const importRootPath = path.join(tempRoot, issueFolderName);
             zip.extractAllTo(tempRoot, true);
 
-            // 2. Read issue metadata (for version tracking)
+            // 2. Read issue metadata 
             let issueMetadata = null;
             try {
                 const rootMetaPath = path.join(importRootPath, '.flashback');
@@ -118,35 +108,31 @@ export default class Subscriptions {
             // 4. Update Subscriptions table & Root Metadata
             if (issueMetadata && issueMetadata.subscription) {
                 const sub = issueMetadata.subscription;
-                this.db.transaction(() => {
-                    this.documents.query.upsertSubscription({
-                        magazineId: sub.magazineId,
-                        issueId: sub.issueId,
-                        version: sub.version,
-                        targetPath: targetRelPath
-                    });
-                })();
+                this.documents.query.upsertSubscription({
+                    magazineId: sub.magazineId,
+                    issueId: sub.issueId,
+                    version: sub.version,
+                    targetPath: targetRelPath
+                });
 
                 const targetMeta = this.documents.files.getMetadata(targetRelPath, true) || {};
                 targetMeta.subscription = sub;
                 this.documents.files.writeMetadata(targetRelPath, targetMeta, true);
             }
 
-            // 5. 2Deletion of removed content
+            // 5. Deletion of removed content
             const targetFolder = this.documents.query.getFolderByPath(targetRelPath);
             if (targetFolder) {
                 const prefix = targetFolder.absolute_path + path.sep;
-                const escapedPrefix = prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
-                const existingDocs = this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`).all(escapedPrefix);
-                const existingFolders = this.db.prepare(`SELECT absolute_path, relative_path FROM Folders WHERE absolute_path LIKE ? || '%' ESCAPE '\\' AND absolute_path != ?`).all(escapedPrefix, targetFolder.absolute_path);
+                const existingDocs = this.documents.query.getDocumentsByAbsPathPrefix(prefix);
+                const existingFolders = this.documents.query.getFoldersByAbsPathPrefix(prefix, targetFolder.absolute_path);
 
                 for (const doc of existingDocs) {
                     if (!processedPaths.has(doc.absolute_path)) {
                         await this.documents.delete(doc.relative_path, false);
                     }
                 }
-                // Sort by path length descending to delete children first
-                existingFolders.sort((a,b) => b.absolute_path.length - a.absolute_path.length);
+                existingFolders.sort((a, b) => b.absolute_path.length - a.absolute_path.length);
                 for (const folder of existingFolders) {
                     if (!processedPaths.has(folder.absolute_path)) {
                         const stillThere = this.documents.query.getFolderByPath(folder.relative_path);

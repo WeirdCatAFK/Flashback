@@ -210,6 +210,44 @@ class DocumentQuery {
         }
     }
 
+    getFlashcardByHash(hash) {
+        return this.db.prepare('SELECT id, document_id FROM Flashcards WHERE global_hash = ?').get(hash);
+    }
+
+    getAllFlashcardSrsState() {
+        return this.db.prepare('SELECT global_hash, level, ease_factor, last_recall FROM Flashcards').all();
+    }
+
+    restoreFlashcardSrsState(globalHash, level, easeFactor, lastRecall) {
+        this.db.prepare(`
+            UPDATE Flashcards SET level = ?, ease_factor = ?, last_recall = ? WHERE global_hash = ?
+        `).run(level, easeFactor, lastRecall, globalHash);
+    }
+
+    updateFlashcardReview(id, timestamp, level) {
+        this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
+            .run(timestamp, level, id);
+    }
+
+    insertReviewLog(data) {
+        this.db.prepare(`
+            INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level);
+    }
+
+    getLeitnerBoxes() {
+        return this.db.prepare('SELECT level, COUNT(*) as count FROM Flashcards GROUP BY level ORDER BY level ASC').all();
+    }
+
+    getFlashcardCount() {
+        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get().c;
+    }
+
+    getMasteredFlashcardCount(threshold) {
+        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
+    }
+
     // --- Tags ---
 
     getTagByName(name) {
@@ -319,6 +357,16 @@ class DocumentQuery {
 
     deleteDocumentByAbsPath(absPath) {
         this.db.prepare('DELETE FROM Documents WHERE absolute_path = ?').run(absPath);
+    }
+
+    getDocumentsByAbsPathPrefix(absPrefix) {
+        return this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .all(this._escapeLike(absPrefix));
+    }
+
+    getFoldersByAbsPathPrefix(absPrefix, excludeAbsPath) {
+        return this.db.prepare(`SELECT absolute_path, relative_path FROM Folders WHERE absolute_path LIKE ? || '%' ESCAPE '\\' AND absolute_path != ?`)
+            .all(this._escapeLike(absPrefix), excludeAbsPath);
     }
 
     // --- Search & Graph ---

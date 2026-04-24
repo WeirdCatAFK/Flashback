@@ -7,7 +7,6 @@ const tables = [];
 // Helper to add table to the list
 const addTable = (name, builder) => {
     const sql = k.schema.createTable(name, builder).toString();
-    // Fix #1: createTable doesn't support IF NOT EXISTS natively, so we patch it
     tables.push(sql.replace(/^create table /i, 'create table if not exists '));
 };
 

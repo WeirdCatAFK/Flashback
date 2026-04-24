@@ -1,7 +1,11 @@
 // validators/database.js
 import db from "./../../access/database.js";
-import SchemaSQL from '../defaults/SchemaSQL.js';
-import { connectionTypes, nodeTypes, pedagogicalCategories } from '../defaults/DefaultData.js';
+import SchemaSQL from "../defaults/SchemaSQL.js";
+import {
+  connectionTypes,
+  nodeTypes,
+  pedagogicalCategories,
+} from "../defaults/DefaultData.js";
 
 const requiredTables = [
   "Flashcards",
@@ -26,9 +30,9 @@ const requiredTables = [
  * @returns {boolean} True if the table exists, false otherwise.
  */
 function tableExists(name) {
-  const row = db.prepare(
-    "SELECT name FROM sqlite_master WHERE type='table' AND name = ?"
-  ).get(name);
+  const row = db
+    .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
+    .get(name);
   return !!row;
 }
 
@@ -37,23 +41,28 @@ function tableExists(name) {
  * This function should NOT start its own transaction.
  */
 function performRebuild() {
-  console.warn("Rebuilding database from schema...");
   try {
     // Remove manual transaction control from schema if present to avoid nested transactions
-    const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, '');
+    const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, "");
     db.exec(cleanSchema);
 
-    const insertConnectionType = db.prepare('INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES (?, ?)');
+    const insertConnectionType = db.prepare(
+      "INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES (?, ?)",
+    );
     for (const ct of connectionTypes) {
       insertConnectionType.run(ct.name, ct.is_directed);
     }
 
-    const insertNodeType = db.prepare('INSERT OR IGNORE INTO NodeTypes (name) VALUES (?)');
+    const insertNodeType = db.prepare(
+      "INSERT OR IGNORE INTO NodeTypes (name) VALUES (?)",
+    );
     for (const nt of nodeTypes) {
       insertNodeType.run(nt);
     }
 
-    const insertCategory = db.prepare('INSERT OR IGNORE INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)');
+    const insertCategory = db.prepare(
+      "INSERT OR IGNORE INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)",
+    );
     for (const cat of pedagogicalCategories) {
       insertCategory.run(cat.name, cat.priority, cat.description);
     }
@@ -99,14 +108,16 @@ function validateDatabase() {
 
     for (const table of requiredTables) {
       if (!tableExists(table)) {
-        console.warn(`Database missing required table: ${table}. Attempting repair...`);
         return handleRebuild();
       }
     }
 
     return true;
   } catch (err) {
-    console.error("Database validation failed, attempting rebuild:", err.message);
+    console.error(
+      "Database validation failed, attempting rebuild:",
+      err.message,
+    );
     try {
       return handleRebuild();
     } catch (rebuildErr) {
@@ -116,4 +127,3 @@ function validateDatabase() {
 }
 
 export default validateDatabase;
-

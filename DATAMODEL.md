@@ -73,7 +73,7 @@ Inteligencia_Artificial
   "excludedTags": ["AI"],
   "flashcards": [
     {
-    "name": 
+    "name": "optional descriptive name",
     "globalHash": "identifier",
     "lastRecall": "2025-09-14T15:30:00Z", # ISO 8601 Format,
     "level" : 6, # Number of consecutive positive recalls,
@@ -135,15 +135,19 @@ Flashback supports two complementary metadata systems:
 2. **Categories**
 
    - Define the pedagogical role of a flashcard.
-   - Default categories are:
+   - Default categories, grouped by priority:
 
-     - `"Definition"` → basic terminology
-     - `"Concept"` → abstract ideas
-     - `"Question"` → applied recall
-     - `"Exercise"` → problem-solving
+     | Priority | Category      | Description                                    |
+     | -------- | ------------- | ---------------------------------------------- |
+     | 0        | `Definition`  | The definition of a word or concept            |
+     | 0        | `Terminology` | The usage of a word                            |
+     | 0        | `Symbol`      | The usage of symbols                           |
+     | 1        | `Concept`     | An abstract idea                               |
+     | 1        | `Example`     | Examples of usage                              |
+     | 2        | `Exercise`    | Apply knowledge in a practical task or problem |
+     | 2        | `Procedure`   | Execute a method or algorithm step by step     |
 
-   - Categories are hierarchical, supporting progression from simple to complex learning stages.
-   - The system may allow custom extension or reordering of categories per project.
+   - Lower priority number = reviewed first. Categories are seeded at startup via `DefaultData.js`.
 
 ---
 
@@ -164,6 +168,34 @@ Inteligencia_Artificial
 │   └── sound.mp3
 
 ```
+
+## Access Module Hierarchy
+
+All data operations flow through `src/api/access/`. Modules are organised in three tiers — lower tiers have no knowledge of anything above them.
+
+```
+Tier 1 — Primitives
+  config.js     Resolves the config path and owns config.json I/O (cached singleton).
+  database.js   Opens dreams.db and exports the better-sqlite3 connection singleton.
+
+Tier 2 — Single-resource access
+  query.js      All parameterised SQL statements. The only layer allowed to call db.prepare().
+  files.js      All filesystem operations. The only layer allowed to read/write .flashback sidecars.
+
+Tier 3 — Orchestration
+  srs.js          Coordinates review submissions: updates Flashcards and inserts ReviewLogs in one transaction.
+  documents.js    Main orchestrator. Coordinates files + query + srs to keep both layers in sync.
+  subscriptions.js Coordinates issue import/merge on top of documents.
+```
+
+**Rules that keep this stable long-term:**
+- `query.js` and `files.js` never import each other.
+- `srs.js` and `documents.js` never import each other.
+- `subscriptions.js` is the only module allowed to import `documents.js`.
+- Raw `db.prepare()` calls outside `query.js` are not allowed.
+- Filesystem access outside `files.js` is not allowed (except temp-dir work in orchestrators).
+
+---
 
 # Derived data model
 
@@ -220,26 +252,33 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
   - Tracks spaced repetition history per flashcard.
   - Includes `timestamp`, `outcome`, `ease_factor`, and `level` for performance analysis.
 
+- **Subscriptions**
+
+  - Tracks magazine/course subscriptions. One row per `magazine_id`.
+  - Stores the current `issue_id`, `version`, `target_path` (where in the workspace the content lives), and `last_sync` timestamp.
+  - Updated on each `importIssue()` call by `Subscriptions.js`.
+
 ---
 
 ## Data Dictionary
 
 ### Table: Flashcards
 
-| Column       | Type         | Description                                                        |
-| ------------ | ------------ | ------------------------------------------------------------------ |
-| id           | integer (PK) | Unique identifier for each flashcard.                              |
-| global_hash  | varchar(500) | Global hash for deduplication and synchronization.                 |
-| node_id      | integer (FK) | Links flashcard into the knowledge graph.                          |
-| document_id  | integer (FK) | References the source document, if any. **(ON DELETE CASCADE)**    |
-| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                  |
-| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                    |
-| reference_id | integer (FK) | Anchors flashcard to a document position.                          |
-| last_recall  | timestamp    | Last time the flashcard was recalled.                              |
-| name         | varchar(500) | Optional descriptive name of the flashcard.                        |
-| presence     | float        | Familiarity/strength metric (derived from reviews).                |
-| level        | integer      | Number of consecutive positive recalls                             |
-| fileIndex    | integer      | A neccesity to identify the order of flashcards that each file has |
+| Column       | Type         | Description                                                     |
+| ------------ | ------------ | --------------------------------------------------------------- |
+| id           | integer (PK) | Unique identifier for each flashcard.                           |
+| global_hash  | varchar(500) | Global hash for deduplication and synchronization.              |
+| node_id      | integer (FK) | Links flashcard into the knowledge graph.                       |
+| document_id  | integer (FK) | References the source document, if any. **(ON DELETE CASCADE)** |
+| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).               |
+| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                 |
+| reference_id | integer (FK) | Anchors flashcard to a document position.                       |
+| last_recall  | timestamp    | Last time the flashcard was recalled.                           |
+| name         | varchar(500) | Optional descriptive name of the flashcard.                     |
+| origin       | varchar(500) | Source identifier (e.g., subscription magazine_id).             |
+| presence     | float        | Familiarity/strength metric (derived from reviews).             |
+| level        | integer      | Number of consecutive positive recalls.                         |
+| fileIndex    | integer      | Position of the flashcard within its source file.               |
 
 ---
 
@@ -274,41 +313,45 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Documents
 
-| Column        | Type         | Description                            |
-| ------------- | ------------ | -------------------------------------- |
-| id            | integer (PK) | Unique document identifier.            |
-| folder_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE)** |
-| node_id       | integer (FK) | Integration into graph.                |
-| global_hash   | varchar(500) | Hash for deduplication/sync.           |
-| relative_path | varchar(500) | Relative path to file.                 |
-| absolute_path | varchar(500) | Absolute path to file.                 |
-| name          | varchar(500) | Display name of the document.          |
-| presence      | float        | Familiarity/usage score.               |
+| Column        | Type         | Description                                         |
+| ------------- | ------------ | --------------------------------------------------- |
+| id            | integer (PK) | Unique document identifier.                         |
+| folder_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE)**              |
+| node_id       | integer (FK) | Integration into graph.                             |
+| global_hash   | varchar(500) | Hash for deduplication/sync.                        |
+| relative_path | varchar(500) | Relative path to file.                              |
+| absolute_path | varchar(500) | Absolute path to file.                              |
+| name          | varchar(500) | Display name of the document.                       |
+| origin        | varchar(500) | Source identifier (e.g., subscription magazine_id). |
+| encoding      | varchar(20)  | Detected character encoding of the file.            |
+| presence      | float        | Familiarity/usage score.                            |
 
 ---
 
 ### Table: Folders
 
-| Column        | Type         | Description                                              |
-| ------------- | ------------ | -------------------------------------------------------- |
-| id            | integer (PK) | Unique folder identifier.                                |
-| global_hash   | varchar(500) | Hash for deduplication.                                  |
-| node_id       | integer (FK) | Integration into graph.                                  |
-| parent_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE, nullable = root)**  |
-| relative_path | varchar(500) | Relative path to folder.                                 |
-| absolute_path | varchar(500) | Absolute path to folder.                                 |
-| name          | varchar(500) | Folder name.                                             |
-| presence      | float        | Familiarity/usage score.                                 |
+| Column        | Type         | Description                                             |
+| ------------- | ------------ | ------------------------------------------------------- |
+| id            | integer (PK) | Unique folder identifier.                               |
+| global_hash   | varchar(500) | Hash for deduplication.                                 |
+| node_id       | integer (FK) | Integration into graph.                                 |
+| parent_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE, nullable = root)** |
+| relative_path | varchar(500) | Relative path to folder.                                |
+| absolute_path | varchar(500) | Absolute path to folder.                                |
+| name          | varchar(500) | Folder name.                                            |
+| origin        | varchar(500) | Source identifier (e.g., subscription magazine_id).     |
+| presence      | float        | Familiarity/usage score.                                |
 
 ---
 
 ### Table: PedagogicalCategories
 
-| Column   | Type         | Description                                          |
-| -------- | ------------ | ---------------------------------------------------- |
-| id       | integer (PK) | Unique identifier.                                   |
-| name     | varchar(500) | Category name (definition, concept, relation, etc.). |
-| priority | integer      | Priority for review ordering.                        |
+| Column      | Type         | Description                                          |
+| ----------- | ------------ | ---------------------------------------------------- |
+| id          | integer (PK) | Unique identifier.                                   |
+| name        | varchar(500) | Category name (definition, concept, relation, etc.). |
+| priority    | integer      | Priority for review ordering (lower = reviewed first). |
+| description | text         | Human-readable description of the category.         |
 
 ---
 
@@ -319,6 +362,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | id       | integer (PK) | Unique identifier.                              |
 | name     | varchar(500) | Tag label.                                      |
 | node_id  | integer (FK) | Integration into graph. **(ON DELETE CASCADE)** |
+| origin   | varchar(500) | Source identifier (e.g., subscription magazine_id). |
 | presence | float        | Familiarity/usage score.                        |
 
 ---
@@ -370,7 +414,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | ----------- | ------------ | ------------------------------------------------------- |
 | id          | integer (PK) | Unique identifier.                                      |
 | name        | varchar(500) | Type of connection (default: disconnection, inherited). |
-| is_directed | boolean      | Whether the edge is directional.                        |
+| is_directed | integer      | Whether the edge is directional (1 = true, 0 = false).  |
 
 ---
 
@@ -397,95 +441,14 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ---
 
-## Migration Protocol
+### Table: Subscriptions
 
-SQLite does not apply `CREATE TABLE IF NOT EXISTS` to columns added to existing tables. Any schema change beyond creating a new table requires an explicit migration. Flashback uses SQLite's built-in `PRAGMA user_version` as the schema version counter.
+| Column      | Type         | Description                                              |
+| ----------- | ------------ | -------------------------------------------------------- |
+| id          | integer (PK) | Unique identifier.                                       |
+| magazine_id | varchar(500) | Unique identifier for the subscription source.           |
+| issue_id    | varchar(500) | Identifier of the last imported issue.                   |
+| version     | varchar(100) | Version string of the last imported issue.               |
+| target_path | varchar(500) | Relative workspace path where the content was installed. |
+| last_sync   | timestamp    | Timestamp of the last successful import.                 |
 
-### How it works
-
-1. `SchemaSQL.js` exports a `SCHEMA_VERSION` integer alongside `schemaSQL`.
-2. On startup, `validateDatabase()` reads `PRAGMA user_version` from the open connection.
-3. If `user_version < SCHEMA_VERSION`, the validator runs all pending migrations in order, then sets `PRAGMA user_version = SCHEMA_VERSION`.
-4. Migrations are defined in `src/api/config/defaults/Migrations.js` as an ordered array — one entry per version bump.
-
-### When to add a migration
-
-A new migration is required whenever `SchemaSQL.js` changes in a way that does not self-apply to existing databases:
-
-- Adding a column to an existing table (`ALTER TABLE … ADD COLUMN`)
-- Adding an index to an existing table (`CREATE INDEX IF NOT EXISTS` is safe; include anyway for clarity)
-- Dropping or renaming a column (use a table rebuild: rename → create new → copy → drop old)
-- Changing a column's type or constraint
-- Adding a new table that has FK references to existing tables where insert order matters
-
-A migration is **not** required when:
-
-- Adding a brand-new table with no FK dependencies (the `IF NOT EXISTS` guard handles it)
-- Changing default seed data in `DefaultData.js` (handled by `INSERT OR IGNORE`)
-
-### Migration file structure
-
-`src/api/config/defaults/Migrations.js`:
-
-```js
-// Each entry corresponds to one version increment.
-// version: the user_version value AFTER this migration runs.
-// up: function that receives the db connection and executes the change.
-
-const migrations = [
-  {
-    version: 1,
-    description: "Add parent_id to Folders for hierarchy traversal",
-    up(db) {
-      db.prepare("ALTER TABLE Folders ADD COLUMN parent_id INTEGER REFERENCES Folders(id) ON DELETE CASCADE").run();
-    }
-  },
-  // Next migration goes here:
-  // {
-  //   version: 2,
-  //   description: "...",
-  //   up(db) { ... }
-  // }
-];
-
-export default migrations;
-```
-
-### Validator integration
-
-`validateDatabase()` in `src/api/config/validators/database.js` should run migrations before the table-existence check:
-
-```js
-import migrations from '../defaults/Migrations.js';
-import { SCHEMA_VERSION } from '../defaults/SchemaSQL.js';
-
-function applyMigrations(db) {
-  const current = db.pragma("user_version", { simple: true });
-  const pending = migrations.filter(m => m.version > current);
-  if (pending.length === 0) return;
-
-  db.transaction(() => {
-    for (const migration of pending) {
-      console.log(`Applying migration v${migration.version}: ${migration.description}`);
-      migration.up(db);
-    }
-    db.pragma(`user_version = ${SCHEMA_VERSION}`);
-  })();
-}
-```
-
-Call `applyMigrations(db)` at the start of `validateDatabase()`, before the integrity check and table verification.
-
-### Rules
-
-- **Never edit a past migration.** If a migration shipped to users, it is immutable. Add a new version instead.
-- **Migrations run inside a transaction.** If any step fails the whole migration rolls back and the app refuses to start rather than leaving the schema half-applied.
-- **`SCHEMA_VERSION` in `SchemaSQL.js` must match the highest `version` in `Migrations.js`.** A mismatch at startup is a programmer error and should throw, not silently continue.
-- **Test every migration against a database at the previous version**, not just a fresh one. The test suite deletes and recreates `dreams.db`, so it only covers fresh installs. Migration correctness must be verified separately.
-
-### Version history
-
-| Version | Description                                          |
-| ------- | ---------------------------------------------------- |
-| 0       | Initial schema (all tables, triggers, default data)  |
-| 1       | Added `parent_id` to `Folders`                       |

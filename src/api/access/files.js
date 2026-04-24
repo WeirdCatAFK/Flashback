@@ -20,7 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as config } from "./config.js";
+import { get as getConfig, getWorkspacePath } from "./config.js";
 import newFileMetadata from "./../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "./../config/defaults/FlashbackFolder.js";
 
@@ -36,18 +36,7 @@ export default class Files {
      * If the workspace root does not exist, it will be created recursively.
      */
     constructor() {
-        this.config = config();
-
-        if (this.config.isCustomPath) {
-            if (path.isAbsolute(this.config.customPath)) {
-                this.workspaceRoot = this.config.customPath;
-            } else {
-                throw new Error("Custom path provided is not absolute");
-            }
-        } else {
-            const baseDir = process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
-            this.workspaceRoot = path.join(baseDir, "workspace");
-        }
+        this.workspaceRoot = getWorkspacePath();
 
         if (!fs.existsSync(this.workspaceRoot)) {
             fs.mkdirSync(this.workspaceRoot, { recursive: true });
@@ -286,7 +275,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || this.config.username || "unknown";
+            metadata.createdBy = metadata.createdBy || getConfig().username || "unknown";
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(fileRel, metadata, false);
@@ -323,7 +312,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFolderMetadata();
             metadata = this._ensureGlobalHash(metadata, true);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || this.config.username || "unknown";
+            metadata.createdBy = metadata.createdBy || getConfig().username || "unknown";
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(folderRel, metadata, true);
