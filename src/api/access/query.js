@@ -35,11 +35,30 @@ class DocumentQuery {
 
     insertFolder(data) {
         const stmt = this.db.prepare(`
-            INSERT INTO Folders (node_id, global_hash, relative_path, absolute_path, name, presence)
-            VALUES (?, ?, ?, ?, ?, 0)
+            INSERT INTO Folders (node_id, global_hash, parent_id, relative_path, absolute_path, name, presence)
+            VALUES (?, ?, ?, ?, ?, ?, 0)
         `);
-        const info = stmt.run(data.nodeId, data.globalHash, data.relativePath, data.absolutePath, data.name);
-        return info;
+        return stmt.run(data.nodeId, data.globalHash, data.parentId ?? null, data.relativePath, data.absolutePath, data.name);
+    }
+
+    getFolderByAbsolutePath(absPath) {
+        return this.db.prepare('SELECT * FROM Folders WHERE absolute_path = ?').get(absPath);
+    }
+
+    getFolderByNodeId(nodeId) {
+        return this.db.prepare('SELECT * FROM Folders WHERE node_id = ?').get(nodeId);
+    }
+
+    getFolderParentId(folderId) {
+        return this.db.prepare('SELECT parent_id FROM Folders WHERE id = ?').get(folderId);
+    }
+
+    getChildDocuments(folderId) {
+        return this.db.prepare('SELECT id, node_id, relative_path FROM Documents WHERE folder_id = ?').all(folderId);
+    }
+
+    getChildFolders(parentId) {
+        return this.db.prepare('SELECT id, node_id, relative_path, absolute_path FROM Folders WHERE parent_id = ?').all(parentId);
     }
 
     updateFolderMetadata(id, data) {
@@ -126,12 +145,12 @@ class DocumentQuery {
 
         // 3. Main Entry
         const stmt = this.db.prepare(`
-            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, fileIndex, presence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, name, fileIndex, presence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
         `);
         return stmt.run(
-            data.globalHash, data.nodeId, data.documentId, categoryId, 
-            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.fileIndex || 0
+            data.globalHash, data.nodeId, data.documentId, categoryId,
+            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.name || null, data.fileIndex || 0
         );
     }
 
@@ -143,10 +162,10 @@ class DocumentQuery {
         }
 
         this.db.prepare(`
-            UPDATE Flashcards 
-            SET last_recall = ?, level = ?, category_id = ?, fileIndex = ?
+            UPDATE Flashcards
+            SET last_recall = ?, level = ?, category_id = ?, name = ?, fileIndex = ?
             WHERE id = ?
-        `).run(data.lastRecall, data.level, categoryId, data.fileIndex, id);
+        `).run(data.lastRecall, data.level, categoryId, data.name || null, data.fileIndex, id);
 
         // Content
         const contentUpdates = [];
@@ -257,6 +276,51 @@ class DocumentQuery {
         return stmt.run(data.magazineId, data.issueId, data.version, data.targetPath);
     }
 
+    // --- Path Mutations ---
+
+    renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
+        this.db.prepare('UPDATE Folders SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
+            .run(newName, newRelPath, newAbsPath, oldAbsPath);
+    }
+
+    renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
+        this.db.prepare('UPDATE Documents SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
+            .run(newName, newRelPath, newAbsPath, oldAbsPath);
+    }
+
+    _escapeLike(str) {
+        return str.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+    }
+
+    cascadeRenameDocumentPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+        this.db.prepare(`UPDATE Documents SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .run(oldRelPath, newRelPath, oldAbsPath, newAbsPath, this._escapeLike(oldAbsPath));
+    }
+
+    cascadeRenameFolderPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+        this.db.prepare(`UPDATE Folders SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .run(oldRelPath, newRelPath, oldAbsPath, newAbsPath, this._escapeLike(oldAbsPath));
+    }
+
+    moveDocumentRecord(newFolderId, newRelPath, newAbsPath, oldAbsPath) {
+        this.db.prepare('UPDATE Documents SET folder_id = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
+            .run(newFolderId, newRelPath, newAbsPath, oldAbsPath);
+    }
+
+    moveFolderRecord(newRelPath, newAbsPath, oldAbsPath, newParentId) {
+        this.db.prepare('UPDATE Folders SET relative_path = ?, absolute_path = ?, parent_id = ? WHERE absolute_path = ?')
+            .run(newRelPath, newAbsPath, newParentId ?? null, oldAbsPath);
+    }
+
+    deleteFolderTree(absPath, sep) {
+        this.db.prepare(`DELETE FROM Folders WHERE absolute_path = ? OR absolute_path LIKE ? ESCAPE '\\'`)
+            .run(absPath, this._escapeLike(absPath) + sep + '%');
+    }
+
+    deleteDocumentByAbsPath(absPath) {
+        this.db.prepare('DELETE FROM Documents WHERE absolute_path = ?').run(absPath);
+    }
+
     // --- Search & Graph ---
 
     search(query) {
@@ -269,6 +333,72 @@ class DocumentQuery {
         `).all(term, term, term, term);
         const tags = this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText FROM Tags t WHERE t.name LIKE ?`).all(term);
         return [...docs, ...cards, ...tags];
+    }
+
+    // --- Presence ---
+
+    getFlashcardAvgLevel(documentId) {
+        return this.db.prepare('SELECT AVG(level) as score FROM Flashcards WHERE document_id = ?').get(documentId);
+    }
+
+    getDocumentFolderIdById(documentId) {
+        return this.db.prepare('SELECT folder_id FROM Documents WHERE id = ?').get(documentId);
+    }
+
+    getFolderById(folderId) {
+        return this.db.prepare('SELECT * FROM Folders WHERE id = ?').get(folderId);
+    }
+
+    getDocumentPresenceStats(folderId) {
+        return this.db.prepare('SELECT count(*) as cnt, sum(presence) as total FROM Documents WHERE folder_id = ?').get(folderId);
+    }
+
+    getChildFolderPresences(parentId) {
+        return this.db.prepare('SELECT presence FROM Folders WHERE parent_id = ?').all(parentId);
+    }
+
+    updateDocumentPresence(documentId, score) {
+        return this.db.prepare('UPDATE Documents SET presence = ? WHERE id = ?').run(score, documentId);
+    }
+
+    updateFolderPresence(folderId, presence) {
+        return this.db.prepare('UPDATE Folders SET presence = ? WHERE id = ?').run(presence, folderId);
+    }
+
+    // --- Inheritance ---
+
+    getHierarchyTypeId() {
+        return this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+    }
+
+    getInheritedTagNames(nodeId) {
+        return this.db.prepare(`
+            SELECT t.name FROM InheritedTags it
+            JOIN Connections c ON it.connection_id = c.id
+            JOIN Tags t ON t.id = it.tag_id
+            WHERE c.destiny_id = ? AND c.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
+        `).all(nodeId).map(t => t.name);
+    }
+
+    getOrCreateConnection(originId, destId, typeId) {
+        let conn = this.db.prepare('SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?').get(originId, destId, typeId);
+        if (!conn) {
+            const info = this.db.prepare('INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)').run(originId, destId, typeId);
+            conn = { id: info.lastInsertRowid };
+        }
+        return conn;
+    }
+
+    clearInheritedTags(connectionId) {
+        return this.db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(connectionId);
+    }
+
+    insertInheritedTag(connectionId, tagId) {
+        return this.db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)').run(connectionId, tagId);
+    }
+
+    getFlashcardNodeIds(documentId) {
+        return this.db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(documentId);
     }
 
     getGraphData() {

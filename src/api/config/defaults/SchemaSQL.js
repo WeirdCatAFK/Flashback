@@ -27,6 +27,7 @@ addTable('Folders', (table) => {
     table.increments('id').primary();
     table.string('global_hash', 500);
     table.integer('node_id').references('id').inTable('Nodes');
+    table.integer('parent_id').references('id').inTable('Folders').onDelete('CASCADE');
     table.string('relative_path', 500);
     table.string('absolute_path', 500);
     table.string('name', 255).index();

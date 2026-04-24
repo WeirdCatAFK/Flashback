@@ -38,6 +38,7 @@ class api {
  that is asynchronous and runs along the constructor*/
   async build() {
     // Middleware mounting
+    // @ts-ignore — cors is a valid RequestHandler, TypeScript infers it too broadly
     this.app.use(cors);
     this.app.use(morgan(this.logFormat));
     this.app.use(express.json());
@@ -54,7 +55,6 @@ class api {
   }
   /*Starts the api after being built*/
   async start() {
-    await this.build();
     return new Promise((resolve, reject) => {
       this.server = this.app
         .listen(this.port, () => {
@@ -77,11 +77,11 @@ class api {
             reject(err);
           } else {
             console.log("Server stopped");
-            resolve();
+            resolve(undefined);
           }
         });
       } else {
-        resolve();
+        resolve(undefined);
       }
     });
   }

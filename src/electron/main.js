@@ -70,7 +70,6 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
-      enableRemoteModule: true,
     },
     // Set the window icon as well
     icon: getIconPath()

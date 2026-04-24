@@ -106,4 +106,73 @@ describe('Media & Binary Operations', () => {
         const failPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'fail.png');
         assert.equal(fs.existsSync(failPath), false, "File should not be written on logic error");
     });
+
+    it('should attach vanilla audio to the front of a flashcard', async () => {
+        const docName = "VanillaAudio.md";
+        const fcHash = "vanilla-audio-hash";
+        const relPath = path.join(TEST_ROOT, docName);
+
+        await docs.createFile(docName, TEST_ROOT);
+        await docs.updateFile(relPath, '# Audio test', {
+            flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
+        });
+
+        const audioBuffer = Buffer.from("fake-audio-data");
+        docs.files.addVanillaData(relPath, audioBuffer, "narration.mp3", "sound", "front", 0);
+
+        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'narration.mp3');
+        assert.ok(fs.existsSync(audioPath), "Audio file should be written to the media folder");
+
+        const meta = docs.files.getMetadata(relPath);
+        assert.equal(
+            meta.flashcards[0].vanillaData.media.frontSound,
+            './media/narration.mp3',
+            "Sidecar should reference the audio file under frontSound"
+        );
+    });
+
+    it('should attach a vanilla image to the back of a flashcard', async () => {
+        const docName = "VanillaImage.md";
+        const fcHash = "vanilla-image-hash";
+        const relPath = path.join(TEST_ROOT, docName);
+
+        await docs.createFile(docName, TEST_ROOT);
+        await docs.updateFile(relPath, '# Image test', {
+            flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
+        });
+
+        const imgBuffer = Buffer.from("fake-image-data");
+        docs.files.addVanillaData(relPath, imgBuffer, "back-figure.png", "image", "back", 0);
+
+        const imgPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'back-figure.png');
+        assert.ok(fs.existsSync(imgPath), "Image file should be written to the media folder");
+
+        const meta = docs.files.getMetadata(relPath);
+        assert.equal(
+            meta.flashcards[0].vanillaData.media.backImg,
+            './media/back-figure.png',
+            "Sidecar should reference the image under backImg"
+        );
+    });
+
+    it('should remove a custom media file and clean up all sidecar references', async () => {
+        // Reuse the orchestrated doc from test 2; diagram.png was added as customData there
+        const relPath = path.join(TEST_ROOT, "OrchestratedMedia.md");
+        const mediaName = "diagram.png";
+
+        // Verify precondition: file and sidecar reference both exist
+        const metaBefore = docs.files.getMetadata(relPath);
+        const cardBefore = metaBefore.flashcards[0];
+        assert.ok(cardBefore.customData?.media?.diagram, "Precondition: sidecar should reference diagram before removal");
+
+        docs.files.removeCustomMedia(relPath, mediaName);
+
+        const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
+        assert.equal(fs.existsSync(fullPath), false, "Media file should be deleted from disk");
+
+        const metaAfter = docs.files.getMetadata(relPath);
+        const cardAfter = metaAfter.flashcards[0];
+        const stillReferenced = cardAfter.customData?.media?.diagram;
+        assert.ok(!stillReferenced, "Sidecar should no longer reference the removed media file");
+    });
 });

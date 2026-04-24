@@ -546,13 +546,13 @@ _regenerateIdentities(absPath) {
  * @throws {Error} If the file does not exist at the given relative path.
  * @throws {Error} If there is an error while updating the file or its metadata.
  */
-    updateFile(relPath, content, metadata = null, encoding = "utf-8") {
+    updateFile(relPath, content, metadata, encoding = "utf-8") {
         const filePath = this.safePath(relPath);
 
         if (!this.exists(relPath)) throw new Error("File does not exist");
 
         try {
-            fs.writeFileSync(filePath, content, { encoding });
+            fs.writeFileSync(filePath, content, { encoding: /** @type {BufferEncoding} */ (encoding) });
 
             if (metadata) {
                 // Ensure globalHash persists
@@ -633,7 +633,7 @@ _regenerateIdentities(absPath) {
      * @returns {object} An object containing the mediaPath and mediaId.
      * @throws {Error} If the file does not exist, the media file already exists, or the flashcard at the given index does not exist.
      */
-    addCustomMedia(anyPath, data, name, cardIndex = null, encoding = "binary") {
+    addCustomMedia(anyPath, data, name, cardIndex = undefined, encoding = "binary") {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
 
@@ -644,12 +644,12 @@ _regenerateIdentities(absPath) {
         if (fs.existsSync(mediaPath)) throw new Error("Media file already exists.");
 
         try {
-            fs.writeFileSync(mediaPath, data, { encoding });
+            fs.writeFileSync(mediaPath, data, { encoding: /** @type {BufferEncoding} */ (encoding) });
 
             const trimmedName = name.split(".")[0];
 
             const metadata = this.getMetadata(anyPath);
-            if (!metadata || !Array.isArray(metadata.flashcards) || cardIndex === null || !metadata.flashcards[cardIndex]) {
+            if (!metadata || !Array.isArray(metadata.flashcards) || cardIndex == null || !metadata.flashcards[cardIndex]) {
                 // cleanup written media if invalid
                 fs.unlinkSync(mediaPath);
                 throw new Error(`Flashcard at index ${cardIndex} does not exist.`);

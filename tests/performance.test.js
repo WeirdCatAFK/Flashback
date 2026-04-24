@@ -42,64 +42,60 @@ describe('Performance: Large File Operations', () => {
         cleanup();
     });
 
-    it('should import a 500MB file with 100 flashcards within reasonable time', () => {
+    it('should import a 500MB file with 100 flashcards within reasonable time', async () => {
         const fileName = "HugeDummyFile.bin";
         const fileSizeMB = 500;
         const byteSize = fileSizeMB * 1024 * 1024;
+        const TIME_LIMIT_MS = 5000;
 
         console.log(`\n    ℹ️  Generating ${fileSizeMB}MB dummy buffer...`);
-        
-        // 1. Generate 500MB of dummy data
-        // allocUnsafe is faster than alloc (doesn't zero-fill), ideal for dummy data
-        const content = Buffer.allocUnsafe(byteSize); 
-        // Fill start/end to ensure integrity checks if we ever added them
-        content.fill('S', 0, 100); 
+
+        const content = Buffer.allocUnsafe(byteSize);
+        content.fill('S', 0, 100);
         content.fill('E', byteSize - 100, byteSize);
 
-        // 2. Generate 100 Flashcards
-        const flashcards = Array.from({ length: 100 }, (_, i) => ({
+        const CARD_COUNT = 100;
+        const flashcards = Array.from({ length: CARD_COUNT }, (_, i) => ({
             globalHash: crypto.randomUUID(),
+            name: `Card ${i}`,
             level: 0,
             lastRecall: new Date().toISOString(),
-            vanillaData: { 
-                frontText: `Question ${i} for big file`, 
-                backText: `Answer ${i} hidden in 500MB of data` 
+            vanillaData: {
+                frontText: `Question ${i} for big file`,
+                backText: `Answer ${i} hidden in 500MB of data`
             }
         }));
 
         const metadata = {
             globalHash: crypto.randomUUID(),
             tags: ["Performance", "HugeFile"],
-            flashcards: flashcards
+            flashcards
         };
 
         console.log(`    ℹ️  Starting Import...`);
         const start = performance.now();
 
-        // Use importFile since we are creating a NEW heavy file
-        docs.importFile(fileName, TEST_ROOT, content, metadata);
+        await docs.importFile(fileName, TEST_ROOT, content, metadata);
 
-        const end = performance.now();
-        const duration = end - start;
+        const duration = performance.now() - start;
         const seconds = (duration / 1000).toFixed(2);
+        console.log(`    ⚡ IMPORT COMPLETE: ${fileSizeMB}MB + ${CARD_COUNT} Cards in ${seconds}s`);
 
-        console.log(`    ⚡ IMPORT COMPLETE: ${fileSizeMB}MB + 100 Cards in ${seconds}s`);
+        assert.ok(duration < TIME_LIMIT_MS, `Import took ${seconds}s — must complete in under ${TIME_LIMIT_MS / 1000}s`);
 
-        // --- VERIFICATION ---
-        
-        // 1. Check DB entry
+        // 1. Document exists in DB
         const fileRelPath = path.join(TEST_ROOT, fileName);
         const docEntry = docs.exists(fileRelPath, true, false);
         assert.ok(docEntry, "Document should exist in DB");
 
-        // 2. Check File Size on Disk
+        // 2. File size on disk is correct
         const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', fileRelPath);
         const stats = fs.statSync(fullPath);
-        assert.equal(stats.size, byteSize, "File on disk should match generated size");
+        assert.equal(stats.size, byteSize, "File on disk should match the generated size exactly");
 
-        // 3. Check Flashcards in DB
-        // We need to access the DB object directly to count rows, 
-        // but we can trust docs.exists() implies success for now or add a specific DB query if imported.
-        // Assuming your 'importFile' throws if the DB transaction failed, this passing is good.
+        // 3. All flashcards were persisted
+        const { default: db } = await import('../src/api/access/database.js');
+        const fcCount = db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(docEntry.id).c;
+        assert.equal(fcCount, CARD_COUNT, `All ${CARD_COUNT} flashcards should be stored in the DB`);
     });
 });

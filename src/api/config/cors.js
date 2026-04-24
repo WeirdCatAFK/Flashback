@@ -1,4 +1,3 @@
-import  { get as config } from './../access/config.js';
 // Modify this before deploying
 export default (req, res, next) => {
   res.header("Access-Control-Allow-Origin", "*");

@@ -18,6 +18,7 @@ let configPath = "";
  */
 function validateConfig() {
   if (process.versions.electron) {
+    if (!process.env.USER_DATA_PATH) throw new Error("USER_DATA_PATH env var is not set");
     dataPath = process.env.USER_DATA_PATH;
     configPath = path.join(dataPath, "config.json");
     console.log("running in electron environment");

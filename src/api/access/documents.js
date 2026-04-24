@@ -7,7 +7,6 @@ import path from 'path';
 import fs from 'fs';
 import Files from './files.js';
 import query from './query.js';
-import metadataService from './metadata.js';
 import srsService from './srs.js';
 import db from './database.js';
 import crypto from 'crypto';
@@ -18,7 +17,6 @@ export default class Documents {
     constructor() {
         this.files = new Files();
         this.query = query;
-        this.metadata = metadataService;
         this.srs = srsService;
     }
 
@@ -52,8 +50,9 @@ export default class Documents {
             const absPath = this.files.safePath(folderRelPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Folder');
+                const parentId = this._getParentFolderId(absPath);
                 this.query.insertFolder({
-                    nodeId, globalHash, relativePath: folderRelPath, absolutePath: absPath, name
+                    nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
             })();
         } catch (err) {
@@ -72,15 +71,12 @@ export default class Documents {
 
         try {
             db.transaction(() => {
-                const table = isFolder ? 'Folders' : 'Documents';
-                db.prepare(`UPDATE ${table} SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?`)
-                  .run(newName, newRelPath, newAbsPath, oldAbsPath);
-
                 if (isFolder) {
-                    db.prepare(`UPDATE Documents SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%'`)
-                      .run(relativePath, newRelPath, oldAbsPath, newAbsPath, oldAbsPath);
-                    db.prepare(`UPDATE Folders SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%'`)
-                      .run(relativePath, newRelPath, oldAbsPath, newAbsPath, oldAbsPath);
+                    this.query.renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath);
+                    this.query.cascadeRenameDocumentPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                    this.query.cascadeRenameFolderPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                } else {
+                    this.query.renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath);
                 }
             })();
         } catch (err) {
@@ -99,16 +95,12 @@ export default class Documents {
             db.transaction(() => {
                 if (!isFolder) {
                     const newFolderId = this._getParentFolderId(newAbsPath);
-                    db.prepare(`UPDATE Documents SET folder_id = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?`)
-                      .run(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
+                    this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
                 } else {
-                    db.prepare(`UPDATE Folders SET relative_path = ?, absolute_path = ? WHERE absolute_path = ?`)
-                      .run(newRelativePath, newAbsPath, oldAbsPath);
-                    
-                    db.prepare(`UPDATE Documents SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%'`)
-                      .run(relativePath, newRelativePath, oldAbsPath, newAbsPath, oldAbsPath);
-                    db.prepare(`UPDATE Folders SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%'`)
-                      .run(relativePath, newRelativePath, oldAbsPath, newAbsPath, oldAbsPath);
+                    const newParentId = this._getParentFolderId(newAbsPath);
+                    this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
+                    this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                 }
             })();
         } catch (err) {
@@ -117,7 +109,7 @@ export default class Documents {
         }
     }
 
-    async updateFile(relativePath, content, metadata = null) {
+    async updateFile(relativePath, content, metadata) {
         this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
@@ -130,10 +122,11 @@ export default class Documents {
                 
                 const folderId = doc.folder_id;
                 if (folderId) {
-                    const folder = db.prepare('SELECT node_id, absolute_path FROM Folders WHERE id = ?').get(folderId);
+                    const folder = this.query.getFolderById(folderId);
                     if (folder) {
-                        const folderMeta = this.metadata.getMetadata(folder.absolute_path, true) || {};
-                        this._propagateFolderTags(folder.node_id, folder.absolute_path, folderMeta);
+                        const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
+                        const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
+                        this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
                     }
                 }
             })();
@@ -142,11 +135,14 @@ export default class Documents {
 
     async delete(relativePath, isFolder = false) {
         this.files.delete(relativePath, isFolder);
-        const table = isFolder ? 'Folders' : 'Documents';
         const absPath = this.files.safePath(relativePath);
-        
+
         db.transaction(() => {
-            db.prepare(`DELETE FROM ${table} WHERE absolute_path = ? OR absolute_path LIKE ? || '%'`).run(absPath, absPath + path.sep);
+            if (isFolder) {
+                this.query.deleteFolderTree(absPath, path.sep);
+            } else {
+                this.query.deleteDocumentByAbsPath(absPath);
+            }
         })();
     }
 
@@ -154,7 +150,6 @@ export default class Documents {
 
     async updateMetadata(relativePath, metadata, isFolder = false) {
         this.files.writeMetadata(relativePath, metadata, isFolder);
-        const absPath = this.files.safePath(relativePath);
 
         db.transaction(() => {
             const entity = isFolder ? this.query.getFolderByPath(relativePath) : this.query.getDocumentByPath(relativePath);
@@ -166,7 +161,7 @@ export default class Documents {
             if (metadata.tags) this._syncTags(entity.node_id, metadata.tags);
             if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards);
 
-            if (isFolder) this._propagateFolderTags(entity.node_id, absPath, metadata);
+            if (isFolder) this._propagateFolderTags(entity.id, entity.node_id, metadata);
         })();
     }
 
@@ -204,11 +199,12 @@ export default class Documents {
         const nodeId = this.query.createNode('Folder');
         const absPath = this.files.safePath(folderRelPath);
         const globalHash = crypto.randomUUID();
-        
+        const parentId = this._getParentFolderId(absPath);
+
         if (!fs.existsSync(absPath)) fs.mkdirSync(absPath, { recursive: true });
-        
+
         this.query.insertFolder({
-            nodeId, globalHash, relativePath: folderRelPath, absolutePath: absPath, name: folderName
+            nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name: folderName
         });
 
         // Apply Metadata for Root if exists
@@ -221,7 +217,7 @@ export default class Documents {
                 delete meta.level;
                 delete meta.easeFactor;
                 meta.presence = 0;
-                meta.globalHash = globalHash; // Keep the newly generated hash
+                meta.globalHash = globalHash;
                 await this.updateMetadata(folderRelPath, meta, true);
             } catch (err) {
                 console.warn("Failed to import root metadata:", err);
@@ -257,8 +253,9 @@ export default class Documents {
                         const subNodeId = this.query.createNode('Folder');
                         const subAbs = this.files.safePath(entryRel);
                         if (!fs.existsSync(subAbs)) fs.mkdirSync(subAbs, { recursive: true });
+                        const subParentId = this._getParentFolderId(subAbs);
                         this.query.insertFolder({
-                            nodeId: subNodeId, globalHash: crypto.randomUUID(), relativePath: entryRel, absolutePath: subAbs, name: entry.name
+                            nodeId: subNodeId, globalHash: crypto.randomUUID(), parentId: subParentId, relativePath: entryRel, absolutePath: subAbs, name: entry.name
                         });
 
                         const metaFile = path.join(srcPath, ".flashback");
@@ -326,7 +323,7 @@ export default class Documents {
     // --- Media ---
 
     async addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {
-        const meta = this.metadata.getMetadata(relativePath);
+        const meta = this.files.getMetadata(relativePath);
         const cardIdx = meta.flashcards.findIndex(f => f.globalHash === flashcardHash);
         if (cardIdx === -1) throw new Error(`Flashcard ${flashcardHash} not found`);
 
@@ -344,14 +341,14 @@ export default class Documents {
     // --- SRS Support ---
 
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel) {
-        const metadata = this.metadata.getMetadata(relativePath);
-        const card = metadata.flashcards.find(f => f.globalHash === flashcardHash);
-        if (card) {
-            card.level = newLevel;
-            card.easeFactor = easeFactor;
-            card.lastRecall = new Date().toISOString();
-            this.metadata.writeMetadata(relativePath, metadata);
-        }
+        const metadata = this.files.getMetadata(relativePath);
+        const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+        if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+
+        card.level = newLevel;
+        card.easeFactor = easeFactor;
+        card.lastRecall = new Date().toISOString();
+        this.files.writeMetadata(relativePath, metadata);
 
         const docId = this.srs.submitReview(flashcardHash, outcome, easeFactor, newLevel);
         this.propagatePresence(docId);
@@ -364,14 +361,15 @@ export default class Documents {
         if (parentDir === this.files.workspaceRoot) {
             const root = this.query.getFolderByPath("");
             if (root) return root.id;
-            
+
             const nodeId = this.query.createNode('Folder');
             const info = this.query.insertFolder({
-                nodeId, globalHash: crypto.randomUUID(), relativePath: "", absolutePath: parentDir, name: path.basename(parentDir)
+                nodeId, globalHash: crypto.randomUUID(), parentId: null,
+                relativePath: "", absolutePath: parentDir, name: path.basename(parentDir)
             });
             return info.lastInsertRowid;
         }
-        const folder = db.prepare('SELECT id FROM Folders WHERE absolute_path = ?').get(parentDir);
+        const folder = this.query.getFolderByAbsolutePath(parentDir);
         return folder ? folder.id : null;
     }
 
@@ -400,8 +398,10 @@ export default class Documents {
             const match = existingMap.get(fcData.globalHash);
 
             if (match) {
-                const mergedLevel = (fcData.level > 0) ? fcData.level : (match.level ?? 0);
-                const mergedRecall = (fcData.level > 0) ? fcData.lastRecall : (match.last_recall ?? fcData.lastRecall);
+                const mergedLevel = Math.max(fcData.level ?? 0, match.level ?? 0);
+                const mergedRecall = (mergedLevel === (fcData.level ?? 0) && fcData.lastRecall)
+                    ? fcData.lastRecall
+                    : (match.last_recall ?? fcData.lastRecall);
 
                 this.query.updateFlashcard(match.id, {
                     ...fcData,
@@ -423,91 +423,68 @@ export default class Documents {
         }
     }
 
-    _propagateFolderTags(parentNodeId, parentAbsPath, metadata) {
-        const childDocs = db.prepare(`SELECT id, node_id, relative_path FROM Documents WHERE folder_id = (SELECT id FROM Folders WHERE node_id = ?)`).all(parentNodeId);
-        const childFolders = db.prepare(`SELECT id, node_id, relative_path, absolute_path FROM Folders WHERE absolute_path LIKE ? || ? || '%' AND absolute_path NOT LIKE ? || ? || '%' || ?`).all(parentAbsPath, path.sep, parentAbsPath, path.sep, path.sep);
+    _propagateFolderTags(folderId, parentNodeId, metadata) {
+        const childDocs = this.query.getChildDocuments(folderId);
+        const childFolders = this.query.getChildFolders(folderId);
 
-        const inheritedFromAbove = db.prepare(`
-            SELECT t.name FROM InheritedTags it
-            JOIN Connections c ON it.connection_id = c.id
-            JOIN Tags t ON t.id = it.tag_id
-            WHERE c.destiny_id = ? AND c.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
-        `).all(parentNodeId).map(t => t.name);
-
+        const inheritedFromAbove = this.query.getInheritedTagNames(parentNodeId);
         const myDirectTags = new Set(metadata.tags || []);
         const myExclusions = new Set(metadata.excludedTags || []);
         const effectiveInherited = inheritedFromAbove.filter(t => !myExclusions.has(t));
         const effectiveToChildren = [...new Set([...effectiveInherited, ...myDirectTags])];
 
-        const hierarchyType = db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+        const hierarchyType = this.query.getHierarchyTypeId();
 
-        const syncInheritance = (targetNodeId, tagsToInherit) => {
-            let conn = db.prepare(`SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?`).get(parentNodeId, targetNodeId, hierarchyType.id);
-            if (!conn) {
-                const info = db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)`).run(parentNodeId, targetNodeId, hierarchyType.id);
-                conn = { id: info.lastInsertRowid };
-            }
-            db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(conn.id);
-            const insertInherited = db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)');
-            for (const tagName of tagsToInherit) {
+        const syncInheritance = (targetNodeId) => {
+            const conn = this.query.getOrCreateConnection(parentNodeId, targetNodeId, hierarchyType.id);
+            this.query.clearInheritedTags(conn.id);
+            for (const tagName of effectiveToChildren) {
                 const tag = this.query.getTagByName(tagName);
-                if (tag) insertInherited.run(conn.id, tag.id);
+                if (tag) this.query.insertInheritedTag(conn.id, tag.id);
             }
         };
 
         for (const doc of childDocs) {
-            syncInheritance(doc.node_id, effectiveToChildren);
+            syncInheritance(doc.node_id);
             this._propagateTagsToFlashcards(doc.id, doc.node_id, effectiveToChildren);
         }
 
         for (const folder of childFolders) {
-            syncInheritance(folder.node_id, effectiveToChildren);
-            const subMeta = this.metadata.getMetadata(folder.relative_path, true) || {};
-            this._propagateFolderTags(folder.node_id, folder.absolute_path, subMeta);
+            syncInheritance(folder.node_id);
+            const subMeta = this.files.getMetadata(folder.relative_path, true) || {};
+            this._propagateFolderTags(folder.id, folder.node_id, subMeta);
         }
     }
 
     _propagateTagsToFlashcards(docId, docNodeId, tags) {
-        const fcs = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docId);
-        const hierarchyType = db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
-        for (const fc of fcs) {
-            let conn = db.prepare(`SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?`).get(docNodeId, fc.node_id, hierarchyType.id);
-            if (!conn) {
-                const info = db.prepare(`INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)`).run(docNodeId, fc.node_id, hierarchyType.id);
-                conn = { id: info.lastInsertRowid };
-            }
-            db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(conn.id);
-            const insertInherited = db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)');
+        const hierarchyType = this.query.getHierarchyTypeId();
+        for (const fc of this.query.getFlashcardNodeIds(docId)) {
+            const conn = this.query.getOrCreateConnection(docNodeId, fc.node_id, hierarchyType.id);
+            this.query.clearInheritedTags(conn.id);
             for (const tagName of tags) {
                 const tag = this.query.getTagByName(tagName);
-                if (tag) insertInherited.run(conn.id, tag.id);
+                if (tag) this.query.insertInheritedTag(conn.id, tag.id);
             }
         }
     }
 
     propagatePresence(documentId) {
         db.transaction(() => {
-            const stats = db.prepare('SELECT AVG(level) as score FROM Flashcards WHERE document_id = ?').get(documentId);
-            const score = stats.score || 0;
-            db.prepare('UPDATE Documents SET presence = ? WHERE id = ?').run(score, documentId);
+            const stats = this.query.getFlashcardAvgLevel(documentId);
+            this.query.updateDocumentPresence(documentId, stats.score || 0);
 
-            let currentFolderId = db.prepare('SELECT folder_id FROM Documents WHERE id = ?').get(documentId)?.folder_id;
+            let currentFolderId = this.query.getDocumentFolderIdById(documentId)?.folder_id;
             while (currentFolderId) {
-                const folder = db.prepare('SELECT absolute_path FROM Folders WHERE id = ?').get(currentFolderId);
-                if (!folder) break;
+                const docStats = this.query.getDocumentPresenceStats(currentFolderId);
+                const childFolders = this.query.getChildFolderPresences(currentFolderId);
 
-                const docStats = db.prepare('SELECT count(*) as cnt, sum(presence) as total FROM Documents WHERE folder_id = ?').get(currentFolderId);
-                const subFolders = db.prepare('SELECT presence FROM Folders WHERE absolute_path LIKE ? || ? || \'%\' AND absolute_path NOT LIKE ? || ? || \'%\' || ?').all(folder.absolute_path, path.sep, folder.absolute_path, path.sep, path.sep);
-                
-                const totalCount = (docStats.cnt || 0) + subFolders.length;
-                const totalPresence = (docStats.total || 0) + subFolders.reduce((acc, f) => acc + f.presence, 0);
+                const totalCount = (docStats.cnt || 0) + childFolders.length;
+                const totalPresence = (docStats.total || 0) + childFolders.reduce((acc, f) => acc + (f.presence || 0), 0);
                 const avg = totalCount > 0 ? (totalPresence / totalCount) : 0;
 
-                db.prepare('UPDATE Folders SET presence = ? WHERE id = ?').run(avg, currentFolderId);
-                
-                const parentPath = path.dirname(folder.absolute_path);
-                if (parentPath === this.files.workspaceRoot) break;
-                currentFolderId = db.prepare('SELECT id FROM Folders WHERE absolute_path = ?').get(parentPath)?.id;
+                this.query.updateFolderPresence(currentFolderId, avg);
+
+                currentFolderId = this.query.getFolderParentId(currentFolderId)?.parent_id ?? null;
             }
         })();
     }

@@ -3,8 +3,9 @@ import path from "path";
 import fs from 'fs'
 let configPath = "";
 let dataPath = "";
-export async function get() {
+export function get() {
     if (process.versions.electron) {
+        if (!process.env.USER_DATA_PATH) throw new Error("USER_DATA_PATH env var is not set");
         dataPath = process.env.USER_DATA_PATH;
         configPath = path.join(dataPath, "config.json");
     }
@@ -26,17 +27,15 @@ export async function get() {
         return false;
     }
 }
-export async function set(config) {
-    if (env === "electron") {
+export function set(config) {
+    if (process.versions.electron) {
+        if (!process.env.USER_DATA_PATH) throw new Error("USER_DATA_PATH env var is not set");
         dataPath = process.env.USER_DATA_PATH;
         configPath = path.join(dataPath, "config.json");
-
-    }
-    if (env === "node") {
+    } else if (process.versions.node) {
         dataPath = process.cwd();
         configPath = path.join(dataPath, "data", "config.json");
-    }
-    if (!env) {
+    } else {
         console.log("Couldn't identify the environment");
         return false;
     }

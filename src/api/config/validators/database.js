@@ -83,6 +83,7 @@ const rebuildDatabase = db.transaction(() => {
  */
 function validateDatabase() {
   const handleRebuild = () => {
+    // @ts-ignore — inTransaction is a valid better-sqlite3 property, missing from bundled types
     if (db.inTransaction) {
       return performRebuild();
     }

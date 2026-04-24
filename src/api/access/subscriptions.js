@@ -65,7 +65,13 @@ export default class Subscriptions {
 
                     if (entry.isDirectory()) {
                         const metaPath = path.join(srcPath, '.flashback');
-                        const metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+                        let metadata;
+                        try {
+                            metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+                        } catch (e) {
+                            console.warn(`Missing or invalid .flashback for directory ${srcPath}, skipping metadata.`);
+                            metadata = {};
+                        }
 
                         const existingFolder = this.documents.query.getFolderByHash(metadata.globalHash) 
                                             || this.documents.query.getFolderByPath(entryRelPath);
@@ -82,7 +88,13 @@ export default class Subscriptions {
                         await crawl(srcPath, entryRelPath);
                     } else {
                         const metaPath = srcPath + '.flashback';
-                        const metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+                        let metadata;
+                        try {
+                            metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
+                        } catch (e) {
+                            console.warn(`Missing or invalid .flashback for file ${srcPath}, skipping metadata.`);
+                            metadata = {};
+                        }
                         const content = await fs.readFile(srcPath, 'utf-8');
 
                         const existingDoc = this.documents.query.getDocumentByHash(metadata.globalHash)
@@ -115,17 +127,18 @@ export default class Subscriptions {
                     });
                 })();
 
-                const targetMeta = this.documents.metadata.getMetadata(targetRelPath, true) || {};
+                const targetMeta = this.documents.files.getMetadata(targetRelPath, true) || {};
                 targetMeta.subscription = sub;
-                this.documents.metadata.writeMetadata(targetRelPath, targetMeta, true);
+                this.documents.files.writeMetadata(targetRelPath, targetMeta, true);
             }
 
             // 5. 2Deletion of removed content
             const targetFolder = this.documents.query.getFolderByPath(targetRelPath);
             if (targetFolder) {
                 const prefix = targetFolder.absolute_path + path.sep;
-                const existingDocs = this.db.prepare('SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || \'%\'').all(prefix);
-                const existingFolders = this.db.prepare('SELECT absolute_path, relative_path FROM Folders WHERE absolute_path LIKE ? || \'%\' AND absolute_path != ?').all(prefix, targetFolder.absolute_path);
+                const escapedPrefix = prefix.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
+                const existingDocs = this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`).all(escapedPrefix);
+                const existingFolders = this.db.prepare(`SELECT absolute_path, relative_path FROM Folders WHERE absolute_path LIKE ? || '%' ESCAPE '\\' AND absolute_path != ?`).all(escapedPrefix, targetFolder.absolute_path);
 
                 for (const doc of existingDocs) {
                     if (!processedPaths.has(doc.absolute_path)) {

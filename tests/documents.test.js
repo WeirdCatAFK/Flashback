@@ -31,18 +31,20 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     // --- CLEANUP BEFORE & AFTER ---
     const cleanup = () => {
+        // First try the proper orchestrated delete (handles both DB and FS)
         try {
-            if (docs.exists(TEST_ROOT, true, true)) {
-                docs.delete(TEST_ROOT, true);
-            }
-        } catch (e) {
-            // Ignore if doesn't exist 
-        }
+            if (docs.exists(TEST_ROOT, true, true)) docs.delete(TEST_ROOT, true);
+        } catch (e) {}
+        // Fallback: nuke the filesystem directly in case the DB was reset but FS still has data
+        try {
+            const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
+        } catch (e) {}
     };
 
-    before(() => {
+    before(async () => {
         cleanup();
-        docs.createFolder(TEST_ROOT);
+        await docs.createFolder(TEST_ROOT);
     });
 
     after(() => {
@@ -221,20 +223,30 @@ describe('Documents Orchestrator Integration Tests', () => {
         let fcHash;
 
         before(() => {
-            const rows = db.prepare(`
-                SELECT f.global_hash FROM Flashcards f 
-                JOIN Documents d ON f.document_id = d.id 
+            const row = db.prepare(`
+                SELECT f.global_hash FROM Flashcards f
+                JOIN Documents d ON f.document_id = d.id
                 WHERE d.relative_path = ? LIMIT 1
             `).get(docPath);
-            fcHash = rows.global_hash;
+            assert.ok(row, 'A flashcard must exist for SRS tests (check Flashcard Synchronization group)');
+            fcHash = row.global_hash;
         });
 
-        it('should submit a review and update levels', async () => {
-            const newLevel = 5;
-            await docs.submitReview(docPath, fcHash, 5, 2.5, newLevel);
+        it('should submit a review and update the flashcard level', async () => {
+            await docs.submitReview(docPath, fcHash, 5, 2.5, 5);
 
             const fc = db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash);
-            assert.equal(fc.level, 5, 'Flashcard level should be 5');
+            assert.equal(fc.level, 5, 'Flashcard level should be updated to 5');
+        });
+
+        it('should write a ReviewLog entry on each review', async () => {
+            const fc = db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash);
+            const before = db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id).c;
+
+            await docs.submitReview(docPath, fcHash, 3, 2.0, 4);
+
+            const after = db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id).c;
+            assert.equal(after, before + 1, 'A new ReviewLog entry should be created for each review');
         });
 
         it('should propagate presence (mastery) up to the folder', () => {
@@ -242,7 +254,18 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(doc.presence > 0, 'Document presence should be positive');
 
             const folder = db.prepare('SELECT presence FROM Folders WHERE relative_path = ?').get(path.join(TEST_ROOT, 'Algebra'));
-            assert.ok(folder.presence > 0, 'Folder presence should be positive (propagated)');
+            assert.ok(folder.presence > 0, 'Folder presence should be positive (propagated from document)');
+        });
+
+        it('should return valid Leitner box statistics', () => {
+            const stats = docs.srs.getLeitnerStats();
+
+            assert.ok(typeof stats.totalCards === 'number', 'totalCards should be a number');
+            assert.ok(stats.totalCards > 0, 'Should have at least one card from prior tests');
+            assert.ok(typeof stats.masteryPercentage === 'number', 'masteryPercentage should be a number');
+            assert.ok(stats.masteryPercentage >= 0 && stats.masteryPercentage <= 100, 'masteryPercentage must be between 0 and 100');
+            assert.ok(Array.isArray(stats.boxes), 'boxes should be an array');
+            assert.ok(stats.boxes.every(b => typeof b.level === 'number' && typeof b.count === 'number'), 'Each box entry must have level and count');
         });
     });
 
@@ -425,6 +448,30 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
+    // --- 7b. SEARCH (EXTENDED) ---
+    describe('Search — extended', () => {
+        it('should find a document by name', () => {
+            const results = docs.search('LinEq');
+            const docResult = results.find(r => r.type === 'document');
+            assert.ok(docResult, 'Should return at least one document result');
+        });
+
+        it('should find a tag by name', () => {
+            const results = docs.search('Equations');
+            const tagResult = results.find(r => r.type === 'tag');
+            assert.ok(tagResult, 'Should return at least one tag result');
+        });
+
+        it('should return graph nodes with recognised type labels', () => {
+            const { nodes } = docs.getGraphData();
+            const types = new Set(nodes.map(n => n.type));
+            const expected = ['Document', 'Folder', 'Flashcard', 'Tag'];
+            for (const t of expected) {
+                assert.ok(types.has(t), `Graph should contain at least one node of type "${t}"`);
+            }
+        });
+    });
+
     // --- 8. PACKAGE EXPORT ---
     describe('Package Export', () => {
         const exportFolder = "ExportTest";
@@ -470,6 +517,97 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(hasMeta, "Zip should include hidden .flashback metadata files");
 
             fs.unlinkSync(zipPath);
+        });
+    });
+
+    // --- 9. DELETION & CASCADE ---
+    describe('Deletion & Cascade', () => {
+        const subFolder = 'DeletionTests';
+        const subFolderPath = path.join(TEST_ROOT, subFolder);
+        const fileName = 'ToDelete.md';
+        const filePath = path.join(subFolderPath, fileName);
+        const fcHash = crypto.randomUUID();
+
+        before(async () => {
+            await docs.createFolder(subFolder, TEST_ROOT);
+            await docs.createFile(fileName, subFolderPath);
+            await docs.updateFile(filePath, '# Delete me', {
+                globalHash: crypto.randomUUID(),
+                flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'Q', backText: 'A' } }]
+            });
+        });
+
+        it('should delete a file from both filesystem and DB', async () => {
+            await docs.delete(filePath, false);
+            assert.ok(!docs.files.exists(filePath), 'File should not exist on filesystem');
+            assert.ok(!docs.exists(filePath, true, false), 'File should not exist in DB');
+        });
+
+        it('should cascade-delete documents and flashcards when a folder is deleted', async () => {
+            // Re-create the file so we have something to cascade-delete
+            await docs.createFile(fileName, subFolderPath);
+            await docs.updateFile(filePath, '# Delete me', {
+                globalHash: crypto.randomUUID(),
+                flashcards: [{ globalHash: crypto.randomUUID(), vanillaData: { frontText: 'Q', backText: 'A' } }]
+            });
+
+            const docEntry = docs.exists(filePath, true, false);
+            assert.ok(docEntry, 'Document should exist before folder deletion');
+
+            await docs.delete(subFolderPath, true);
+
+            assert.ok(!docs.files.exists(subFolderPath), 'Folder should not exist on filesystem');
+            assert.ok(!docs.exists(subFolderPath, true, true), 'Folder should not exist in DB');
+
+            const orphanedDoc = db.prepare('SELECT id FROM Documents WHERE id = ?').get(docEntry.id);
+            assert.strictEqual(orphanedDoc, undefined, 'Document should be cascade-deleted with its folder');
+
+            const orphanedFc = db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(docEntry.id);
+            assert.strictEqual(orphanedFc, undefined, 'Flashcards should be cascade-deleted with their document');
+        });
+
+        it('should not delete a non-existent file without throwing silently', async () => {
+            await assert.rejects(
+                () => docs.delete('nonexistent/path/file.md', false),
+                'Deleting a non-existent path should throw'
+            );
+        });
+    });
+
+    // --- 10. FILE UTILITIES ---
+    describe('File Utilities', () => {
+        const existingDoc = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
+
+        it('should read a file and return content with detected encoding', () => {
+            const result = docs.files.readFile(existingDoc);
+            assert.ok(typeof result.content === 'string', 'content should be a string');
+            assert.ok(typeof result.encoding === 'string', 'encoding should be detected and returned');
+        });
+
+        it('should list folder contents including type and metadata', () => {
+            const items = docs.files.listFolder(TEST_ROOT);
+            assert.ok(Array.isArray(items), 'listFolder should return an array');
+            assert.ok(items.length > 0, 'TestWorkspace should have items after all prior tests');
+            assert.ok(items.every(i => i.type === 'file' || i.type === 'folder'), 'Every item should have a recognised type');
+        });
+
+        it('should copy a file and assign a new globalHash to the copy', () => {
+            const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy.md');
+            const srcMeta = docs.files.getMetadata(existingDoc);
+
+            const result = docs.files.copy(existingDoc, destPath, false);
+
+            assert.ok(docs.files.exists(existingDoc), 'Original should still exist after copy');
+            assert.ok(docs.files.exists(destPath), 'Copy should exist on filesystem');
+
+            const destMeta = docs.files.getMetadata(destPath);
+            assert.notEqual(destMeta.globalHash, srcMeta.globalHash, 'Copy must have a different globalHash');
+            assert.equal(destMeta.copiedFrom, srcMeta.globalHash, 'Copy should record the source globalHash');
+            assert.ok(Array.isArray(result), 'copy() should return an array of created items');
+            assert.equal(result[0].globalHash, destMeta.globalHash, 'Returned item globalHash should match the new sidecar');
+
+            // Cleanup — filesystem only; the copy is not in the DB
+            docs.files.delete(destPath, false);
         });
     });
 });

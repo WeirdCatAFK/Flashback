@@ -289,15 +289,16 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Folders
 
-| Column        | Type         | Description               |
-| ------------- | ------------ | ------------------------- |
-| id            | integer (PK) | Unique folder identifier. |
-| global_hash   | varchar(500) | Hash for deduplication.   |
-| node_id       | integer (FK) | Integration into graph.   |
-| relative_path | varchar(500) | Relative path to folder.  |
-| absolute_path | varchar(500) | Absolute path to folder.  |
-| name          | varchar(500) | Folder name.              |
-| presence      | float        | Familiarity/usage score.  |
+| Column        | Type         | Description                                              |
+| ------------- | ------------ | -------------------------------------------------------- |
+| id            | integer (PK) | Unique folder identifier.                                |
+| global_hash   | varchar(500) | Hash for deduplication.                                  |
+| node_id       | integer (FK) | Integration into graph.                                  |
+| parent_id     | integer (FK) | Parent folder. **(ON DELETE CASCADE, nullable = root)**  |
+| relative_path | varchar(500) | Relative path to folder.                                 |
+| absolute_path | varchar(500) | Absolute path to folder.                                 |
+| name          | varchar(500) | Folder name.                                             |
+| presence      | float        | Familiarity/usage score.                                 |
 
 ---
 
@@ -393,3 +394,98 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | outcome      | integer      | Result of recall (e.g., success, failure).  |
 | ease_factor  | float        | Spaced repetition ease factor.              |
 | level        | integer      | Current level/stage in SRS algorithm.       |
+
+---
+
+## Migration Protocol
+
+SQLite does not apply `CREATE TABLE IF NOT EXISTS` to columns added to existing tables. Any schema change beyond creating a new table requires an explicit migration. Flashback uses SQLite's built-in `PRAGMA user_version` as the schema version counter.
+
+### How it works
+
+1. `SchemaSQL.js` exports a `SCHEMA_VERSION` integer alongside `schemaSQL`.
+2. On startup, `validateDatabase()` reads `PRAGMA user_version` from the open connection.
+3. If `user_version < SCHEMA_VERSION`, the validator runs all pending migrations in order, then sets `PRAGMA user_version = SCHEMA_VERSION`.
+4. Migrations are defined in `src/api/config/defaults/Migrations.js` as an ordered array — one entry per version bump.
+
+### When to add a migration
+
+A new migration is required whenever `SchemaSQL.js` changes in a way that does not self-apply to existing databases:
+
+- Adding a column to an existing table (`ALTER TABLE … ADD COLUMN`)
+- Adding an index to an existing table (`CREATE INDEX IF NOT EXISTS` is safe; include anyway for clarity)
+- Dropping or renaming a column (use a table rebuild: rename → create new → copy → drop old)
+- Changing a column's type or constraint
+- Adding a new table that has FK references to existing tables where insert order matters
+
+A migration is **not** required when:
+
+- Adding a brand-new table with no FK dependencies (the `IF NOT EXISTS` guard handles it)
+- Changing default seed data in `DefaultData.js` (handled by `INSERT OR IGNORE`)
+
+### Migration file structure
+
+`src/api/config/defaults/Migrations.js`:
+
+```js
+// Each entry corresponds to one version increment.
+// version: the user_version value AFTER this migration runs.
+// up: function that receives the db connection and executes the change.
+
+const migrations = [
+  {
+    version: 1,
+    description: "Add parent_id to Folders for hierarchy traversal",
+    up(db) {
+      db.prepare("ALTER TABLE Folders ADD COLUMN parent_id INTEGER REFERENCES Folders(id) ON DELETE CASCADE").run();
+    }
+  },
+  // Next migration goes here:
+  // {
+  //   version: 2,
+  //   description: "...",
+  //   up(db) { ... }
+  // }
+];
+
+export default migrations;
+```
+
+### Validator integration
+
+`validateDatabase()` in `src/api/config/validators/database.js` should run migrations before the table-existence check:
+
+```js
+import migrations from '../defaults/Migrations.js';
+import { SCHEMA_VERSION } from '../defaults/SchemaSQL.js';
+
+function applyMigrations(db) {
+  const current = db.pragma("user_version", { simple: true });
+  const pending = migrations.filter(m => m.version > current);
+  if (pending.length === 0) return;
+
+  db.transaction(() => {
+    for (const migration of pending) {
+      console.log(`Applying migration v${migration.version}: ${migration.description}`);
+      migration.up(db);
+    }
+    db.pragma(`user_version = ${SCHEMA_VERSION}`);
+  })();
+}
+```
+
+Call `applyMigrations(db)` at the start of `validateDatabase()`, before the integrity check and table verification.
+
+### Rules
+
+- **Never edit a past migration.** If a migration shipped to users, it is immutable. Add a new version instead.
+- **Migrations run inside a transaction.** If any step fails the whole migration rolls back and the app refuses to start rather than leaving the schema half-applied.
+- **`SCHEMA_VERSION` in `SchemaSQL.js` must match the highest `version` in `Migrations.js`.** A mismatch at startup is a programmer error and should throw, not silently continue.
+- **Test every migration against a database at the previous version**, not just a fresh one. The test suite deletes and recreates `dreams.db`, so it only covers fresh installs. Migration correctness must be verified separately.
+
+### Version history
+
+| Version | Description                                          |
+| ------- | ---------------------------------------------------- |
+| 0       | Initial schema (all tables, triggers, default data)  |
+| 1       | Added `parent_id` to `Folders`                       |
