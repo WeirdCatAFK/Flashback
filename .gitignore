@@ -134,3 +134,6 @@ dist-react
 
 #Standalone api data
 /data/
+
+#Vibecoding
+CLAUDE.md
