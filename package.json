@@ -34,6 +34,7 @@
     "chardet": "^2.1.1",
     "electron": "^38.1.2",
     "express": "^5.1.0",
+    "git-client": "^1.11.1",
     "iconv-lite": "^0.7.0",
     "knex": "^3.1.0",
     "lodash": "^4.17.21",
