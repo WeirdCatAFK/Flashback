@@ -9,14 +9,11 @@ import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
-console.log('Using USER_DATA_PATH:', process.env.USER_DATA_PATH);
+console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 if (!validate()) {
-    console.error("Validation failed. May be an initialization issue.");
-    if (!validate()) {
-        process.exit(1);
-    }
-    console.log("Validation passed.");
+    console.error('Validation failed.');
+    process.exit(1);
 }
 // Initialize the Orchestrator
 const docs = new Documents();
@@ -49,6 +46,8 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     after(() => {
         cleanup();
+        db.close();
+        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
 
     // --- 1. FILE SYSTEM STRUCTURE ---

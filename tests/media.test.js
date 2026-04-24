@@ -7,8 +7,10 @@ import validate from '../src/api/config/validate.js';
 import process from 'process';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
+console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 if (!validate()) {
+    console.error('Validation failed.');
     process.exit(1);
 }
 
@@ -33,6 +35,8 @@ describe('Media & Binary Operations', () => {
 
     after(() => {
         cleanup();
+        db.close();
+        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
 
     it('should attach an image file to a flashcard (Manual/Low-level)', () => {

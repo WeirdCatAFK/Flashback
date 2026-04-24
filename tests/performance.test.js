@@ -5,17 +5,15 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/documents.js'; 
+import Documents from '../src/api/access/documents.js';
+import db from '../src/api/access/database.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
-console.log('Using USER_DATA_PATH:', process.env.USER_DATA_PATH);
+console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 if (!validate()) {
-    console.error("Validation failed. May be an initialization issue.");
-    if (!validate()) {
-        process.exit(1);
-    }
-    console.log("Validation passed.");
+    console.error('Validation failed.');
+    process.exit(1);
 }
 
 
@@ -40,6 +38,8 @@ describe('Performance: Large File Operations', () => {
 
     after(() => {
         cleanup();
+        db.close();
+        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
 
     it('should import a 500MB file with 100 flashcards within reasonable time', async () => {
@@ -48,7 +48,7 @@ describe('Performance: Large File Operations', () => {
         const byteSize = fileSizeMB * 1024 * 1024;
         const TIME_LIMIT_MS = 5000;
 
-        console.log(`\n    ℹ️  Generating ${fileSizeMB}MB dummy buffer...`);
+        console.log(`\n Generating ${fileSizeMB}MB dummy buffer...`);
 
         const content = Buffer.allocUnsafe(byteSize);
         content.fill('S', 0, 100);
@@ -72,14 +72,14 @@ describe('Performance: Large File Operations', () => {
             flashcards
         };
 
-        console.log(`    ℹ️  Starting Import...`);
+        console.log(`Starting Import...`);
         const start = performance.now();
 
         await docs.importFile(fileName, TEST_ROOT, content, metadata);
 
         const duration = performance.now() - start;
         const seconds = (duration / 1000).toFixed(2);
-        console.log(`    ⚡ IMPORT COMPLETE: ${fileSizeMB}MB + ${CARD_COUNT} Cards in ${seconds}s`);
+        console.log(`IMPORT COMPLETE: ${fileSizeMB}MB + ${CARD_COUNT} Cards in ${seconds}s`);
 
         assert.ok(duration < TIME_LIMIT_MS, `Import took ${seconds}s — must complete in under ${TIME_LIMIT_MS / 1000}s`);
 

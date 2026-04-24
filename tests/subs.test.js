@@ -9,13 +9,7 @@ import Subscriptions from '../src/api/access/subscriptions.js';
 import validate from '../src/api/config/validate.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
-
-console.log(`
---------------------------------------------------
-  Running Subscriptions Integration Tests
-  USER_DATA_PATH: ${process.env.USER_DATA_PATH}
---------------------------------------------------
-`);
+console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 const subscriptions = new Subscriptions();
 const TEST_ROOT = "SubscriptionTest";
@@ -61,10 +55,18 @@ describe('Subscriptions Integration Tests', () => {
 
     before(async () => {
         if (!validate()) {
-            console.error("Validation failed. May be an initialization issue.");
+            console.error('Validation failed.');
             process.exit(1);
         }
         await cleanup();
+    });
+
+    after(async () => {
+        db.close();
+        const dataPath = path.join(process.cwd(), 'data');
+        if (fsSync.existsSync(dataPath)) {
+            await fs.rm(dataPath, { recursive: true, force: true });
+        }
     });
 
     const createIssueZip = (issueId, version, content) => {
