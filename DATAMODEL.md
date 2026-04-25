@@ -133,8 +133,7 @@ Flashback supports two complementary metadata systems:
 2. **Categories**
 
    - Define the pedagogical role of a flashcard.
-   - Default categories, grouped by priority:
-     | Priority | Category        | Description                                    |
+   - Default categories, grouped by priority:| Priority | Category        | Description                                    |
      | -------- | --------------- | ---------------------------------------------- |
      | 0        | `Definition`  | The definition of a word or concept            |
      | 0        | `Terminology` | The usage of a word                            |
@@ -182,6 +181,7 @@ Tier 3 — Orchestration
   srs.js          Coordinates review submissions: updates Flashcards and inserts ReviewLogs in one transaction.
   documents.js    Main orchestrator. Coordinates files + query + srs to keep both layers in sync.
   subscriptions.js Coordinates issue import/merge on top of documents.
+  media.js Coordinates media management for the flashcards
 ```
 
 **Rules that keep this stable long-term:**
