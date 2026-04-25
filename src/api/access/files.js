@@ -165,8 +165,15 @@ _regenerateIdentities(absPath) {
                 fileMeta.globalHash = crypto.randomUUID();
                 fileMeta.copiedFrom = oldFileHash;
                 fileMeta.createdAt = new Date().toISOString();
-                // Ensure name matches new filename (if renamed during copy)
-                fileMeta.name = entry.name; 
+                fileMeta.name = entry.name;
+                if (Array.isArray(fileMeta.flashcards)) {
+                    for (const fc of fileMeta.flashcards) {
+                        fc.copiedFrom = fc.globalHash;
+                        fc.globalHash = crypto.randomUUID();
+                        fc.level = 0;
+                        delete fc.lastRecall;
+                    }
+                }
 
                 this.writeMetadata(entryRel, fileMeta, false);
 
@@ -503,7 +510,15 @@ _regenerateIdentities(absPath) {
                 newMeta.copiedFrom = srcMeta?.globalHash;
                 newMeta.name = path.basename(finalDest);
                 newMeta.createdAt = new Date().toISOString();
-                
+                if (Array.isArray(newMeta.flashcards)) {
+                    for (const fc of newMeta.flashcards) {
+                        fc.copiedFrom = fc.globalHash;
+                        fc.globalHash = crypto.randomUUID();
+                        fc.level = 0;
+                        delete fc.lastRecall;
+                    }
+                }
+
                 const destRel = path.relative(this.workspaceRoot, finalDest);
                 this.writeMetadata(destRel, newMeta, false);
 
@@ -765,7 +780,7 @@ _regenerateIdentities(absPath) {
 
         return fs
             .readdirSync(folderPath)
-            .filter((item) => item !== ".flashback")
+            .filter((item) => item !== ".flashback" && !item.endsWith(".flashback"))
             .map((item) => {
                 const itemPath = path.join(folderPath, item);
                 const isDir = fs.lstatSync(itemPath).isDirectory();

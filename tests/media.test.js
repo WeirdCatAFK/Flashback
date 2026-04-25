@@ -5,6 +5,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import validate from '../src/api/config/validate.js';
 import process from 'process';
+import { sealTools } from '../src/api/seal/seal.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -24,27 +25,28 @@ describe('Media & Binary Operations', () => {
 
     const cleanup = () => {
         try {
-            if (docs.exists(TEST_ROOT, true, true)) docs.delete(TEST_ROOT, true);
+            const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
         } catch (e) { }
     };
 
-    before(() => {
+    before(async () => {
         cleanup();
-        docs.createFolder(TEST_ROOT);
+        await sealTools.init();
+        await docs.createFolder(TEST_ROOT);
     });
 
     after(() => {
-        cleanup();
         db.close();
         fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
 
-    it('should attach an image file to a flashcard (Manual/Low-level)', () => {
+    it('should attach an image file to a flashcard (Manual/Low-level)', async () => {
         const docName = "VisualNotes_LowLevel.md";
         const imgName = "blue_pixel_ll.png";
 
-        docs.createFile(docName, TEST_ROOT);
-        docs.updateFile(path.join(TEST_ROOT, docName), "# Art", {
+        await docs.createFile(docName, TEST_ROOT);
+        await docs.updateFile(path.join(TEST_ROOT, docName), "# Art", {
             tags: ["Art"],
             flashcards: [{ globalHash: "card-1", level: 0, vanillaData: {} }]
         });
@@ -77,6 +79,7 @@ describe('Media & Binary Operations', () => {
 
         const mediaBuffer = Buffer.from("fake-image-data-integrity-check");
         const expectedHash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
+        const beforeCommits = (await sealTools.log()).length;
 
         await docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
 
@@ -94,9 +97,13 @@ describe('Media & Binary Operations', () => {
         const card = updatedMeta.flashcards.find(f => f.globalHash === fcHash);
         const trimmedName = mediaName.split('.')[0];
         assert.ok(card.customData.media[trimmedName], "Metadata should reference the new media");
+
+        const afterCommits = (await sealTools.log()).length;
+        assert.equal(afterCommits, beforeCommits + 1, "addMediaToFlashcard should produce one Seal commit");
+        assert.ok((await sealTools.log())[0].commit.message.startsWith('edit:'), "Seal commit for media addition should be an edit");
     });
 
-    it('should rollback file creation if database fails', async () => {
+    it('should not write file when flashcard hash is not found in sidecar', async () => {
         const docName = "FailTest.md";
         await docs.createFile(docName, TEST_ROOT);
 

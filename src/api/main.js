@@ -2,6 +2,7 @@
 import Api from './api.js';
 import validate from './../api/config/validate.js';
 import { get as getConfig } from './access/config.js';
+import { sealTools } from './seal/seal.js';
 
 /**
  * Main entry point for the API. Will validate the configuration, create
@@ -17,6 +18,9 @@ export default async function main() {
     console.error("Validation failed, shutting down.");
     process.exit(1);
   }
+
+  await sealTools.init();
+  console.log("Seal initialized.");
 
   const api = new Api(await getConfig());
 

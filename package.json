@@ -16,12 +16,13 @@
     "electron:rebuild": "electron-rebuild -f --debug",
     "electron:start": "electron .",
     "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
-    "tests": "npm run test:docs && npm run test:performance && npm run test:media && npm run test:subscriptions",
+    "tests": "npm run test:docs && npm run test:performance && npm run test:media && npm run test:subscriptions && npm run test:seal",
     "test:docs": "node --test tests/docs.test.js",
     "test:performance": "node --test tests/performance.test.js",
     "test:media": "node --test tests/media.test.js",
     "test:subscriptions": "node --test tests/subs.test.js",
-    "genCDB": "node scripts/genCDB.js"
+    "genCDB": "node scripts/genCDB.js",
+    "test:seal": "node --test tests/seal.test.js"
   },
   "repository": {
     "type": "git",
@@ -34,17 +35,15 @@
     "chardet": "^2.1.1",
     "electron": "^38.1.2",
     "express": "^5.1.0",
-    "git-client": "^1.11.1",
     "iconv-lite": "^0.7.0",
+    "isomorphic-git": "^1.37.5",
     "knex": "^3.1.0",
-    "lodash": "^4.17.21",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemon": "^3.1.10",
     "npm": "^11.7.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "zod": "^4.3.6"
+    "react-dom": "^18.3.1"
   },
   "author": "Daniel Pineda Torres",
   "bugs": {

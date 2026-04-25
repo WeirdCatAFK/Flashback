@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip';
 import db from '../src/api/access/database.js';
 import Subscriptions from '../src/api/access/subscriptions.js';
 import validate from '../src/api/config/validate.js';
+import { sealTools } from '../src/api/seal/seal.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -58,6 +59,7 @@ describe('Subscriptions Integration Tests', () => {
             console.error('Validation failed.');
             process.exit(1);
         }
+        await sealTools.init();
         await cleanup();
     });
 
@@ -126,6 +128,12 @@ describe('Subscriptions Integration Tests', () => {
         const folderMeta = subscriptions.documents.files.getMetadata(TEST_ROOT, true);
         assert.equal(folderMeta.subscription.issueId, issueId);
         assert.equal(folderMeta.subscription.version, version);
+
+        const sub = db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(MAGAZINE_ID);
+        assert.ok(sub, "Subscriptions table should have a record for this magazine");
+        assert.equal(sub.issue_id, issueId, "Subscriptions table should record the imported issueId");
+        assert.equal(sub.version, version, "Subscriptions table should record the version");
+        assert.equal(sub.target_path, TEST_ROOT, "Subscriptions table should record the target path");
     });
 
     it('should merge an updated issue and preserve user progress', async () => {

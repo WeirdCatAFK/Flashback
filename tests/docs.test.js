@@ -7,6 +7,7 @@ import db from '../src/api/access/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
+import { sealTools } from '../src/api/seal/seal.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -28,11 +29,6 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     // --- CLEANUP BEFORE & AFTER ---
     const cleanup = () => {
-        // First try the proper orchestrated delete (handles both DB and FS)
-        try {
-            if (docs.exists(TEST_ROOT, true, true)) docs.delete(TEST_ROOT, true);
-        } catch (e) {}
-        // Fallback: nuke the filesystem directly in case the DB was reset but FS still has data
         try {
             const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
             if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
@@ -41,11 +37,11 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     before(async () => {
         cleanup();
+        await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });
 
     after(() => {
-        cleanup();
         db.close();
         fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
@@ -53,10 +49,10 @@ describe('Documents Orchestrator Integration Tests', () => {
     // --- 1. FILE SYSTEM STRUCTURE ---
     describe('File System & Hierarchy', () => {
 
-        it('should create nested folders correctly', () => {
+        it('should create nested folders correctly', async () => {
             const folderPath = path.join(TEST_ROOT, 'Math', 'Algebra');
-            docs.createFolder('Math', TEST_ROOT);
-            docs.createFolder('Algebra', path.join(TEST_ROOT, 'Math'));
+            await docs.createFolder('Math', TEST_ROOT);
+            await docs.createFolder('Algebra', path.join(TEST_ROOT, 'Math'));
 
             // Verify in DB
             const existsDB = docs.exists(folderPath, true, true);
@@ -67,11 +63,11 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(existsFS, 'Folder should exist in FileSystem');
         });
 
-        it('should create a file and register it in the DB', () => {
+        it('should create a file and register it in the DB', async () => {
             const fileName = 'LinearEquations.md';
             const relPath = path.join(TEST_ROOT, 'Math', 'Algebra');
 
-            docs.createFile(fileName, relPath);
+            await docs.createFile(fileName, relPath);
 
             const fullPath = path.join(relPath, fileName);
             const doc = docs.exists(fullPath, true, false);
@@ -80,23 +76,23 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.equal(doc.name, fileName);
         });
 
-        it('should rename a file and update the DB path', () => {
+        it('should rename a file and update the DB path', async () => {
             const oldPath = path.join(TEST_ROOT, 'Math', 'Algebra', 'LinearEquations.md');
             const newName = 'LinEq.md';
 
-            docs.rename(oldPath, newName, false);
+            await docs.rename(oldPath, newName, false);
 
             const newPath = path.join(TEST_ROOT, 'Math', 'Algebra', newName);
             assert.ok(docs.exists(newPath, true, false), 'New path should exist in DB');
             assert.ok(!docs.exists(oldPath, true, false), 'Old path should NOT exist in DB');
         });
 
-        it('should move a folder and cascade path updates to children', () => {
+        it('should move a folder and cascade path updates to children', async () => {
             // Setup: Move 'Algebra' to 'TestWorkspace' root
             const oldPath = path.join(TEST_ROOT, 'Math', 'Algebra');
             const newPath = path.join(TEST_ROOT, 'Algebra');
 
-            docs.move(oldPath, newPath, true);
+            await docs.move(oldPath, newPath, true);
 
             // Verify Folder Move
             assert.ok(docs.exists(newPath, true, true), 'Folder should exist at new location');
@@ -112,14 +108,14 @@ describe('Documents Orchestrator Integration Tests', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         const folderPath = path.join(TEST_ROOT, 'Algebra');
 
-        it('should sync tags and propagate from folder to document', () => {
+        it('should sync tags and propagate from folder to document', async () => {
             // 1. Add tag to Folder
             const folderMeta = { tags: ['Math', 'Hard'] };
-            docs.updateMetadata(folderPath, folderMeta, true);
+            await docs.updateMetadata(folderPath, folderMeta, true);
 
             // 2. Add tag to Document
             const docMeta = { tags: ['Equations'], globalHash: genHash() };
-            docs.updateMetadata(docPath, docMeta, false);
+            await docs.updateMetadata(docPath, docMeta, false);
 
             const docNode = db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(docPath);
 
@@ -147,7 +143,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         const fcHash1 = genHash();
         const fcHash2 = genHash();
 
-        it('should insert new flashcards from metadata', () => {
+        it('should insert new flashcards from metadata', async () => {
             const content = "# Test Content";
             const metadata = {
                 globalHash: genHash(),
@@ -168,7 +164,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 ]
             };
 
-            docs.updateFile(docPath, content, metadata);
+            await docs.updateFile(docPath, content, metadata);
 
             // Verify in DB
             const count = db.prepare('SELECT COUNT(*) as c FROM Flashcards').get().c;
@@ -178,7 +174,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(fc1, 'Flashcard 1 should exist');
         });
 
-        it('should update existing flashcards and delete removed ones', () => {
+        it('should update existing flashcards and delete removed ones', async () => {
             // Update: Keep fcHash1 (modify it), Remove fcHash2, Add fcHash3
             const fcHash3 = genHash();
             const metadata = {
@@ -200,7 +196,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 ]
             };
 
-            docs.updateFile(docPath, "# Test Content", metadata);
+            await docs.updateFile(docPath, "# Test Content", metadata);
 
             // Verify fcHash1 updated
             const fc1 = db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash1);
@@ -477,12 +473,9 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         const cleanupExport = () => {
             try {
-                if (docs.exists(exportFolder, true, true)) {
-                    docs.delete(exportFolder, true);
-                }
-            } catch (e) {
-                // Ignore if doesn't exist
-            }
+                const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', exportFolder);
+                if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
+            } catch (e) {}
         };
 
         before(async () => {
@@ -588,9 +581,10 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(Array.isArray(items), 'listFolder should return an array');
             assert.ok(items.length > 0, 'TestWorkspace should have items after all prior tests');
             assert.ok(items.every(i => i.type === 'file' || i.type === 'folder'), 'Every item should have a recognised type');
+            assert.ok(items.every(i => !i.name.endsWith('.flashback')), 'Sidecar files must not appear in listings');
         });
 
-        it('should copy a file and assign a new globalHash to the copy', () => {
+        it('should copy a file and assign a new globalHash to the copy (Files layer)', () => {
             const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy.md');
             const srcMeta = docs.files.getMetadata(existingDoc);
 
@@ -605,8 +599,48 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(Array.isArray(result), 'copy() should return an array of created items');
             assert.equal(result[0].globalHash, destMeta.globalHash, 'Returned item globalHash should match the new sidecar');
 
-            // Cleanup — filesystem only; the copy is not in the DB
+            // Cleanup — filesystem only; Files.copy() is a primitive, DB is not involved
             docs.files.delete(destPath, false);
+        });
+    });
+
+    // --- 11. DOCUMENTS.COPY() ---
+    describe('Copy Operations', () => {
+        const srcPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
+        const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy_Orchestrated.md');
+
+        before(async () => {
+            // Defensive cleanup in case a previous interrupted run left the file
+            try { if (docs.files.exists(destPath)) docs.files.delete(destPath, false); } catch (e) {}
+        });
+
+        after(() => {
+            try { if (docs.files.exists(destPath)) docs.files.delete(destPath, false); } catch (e) {}
+        });
+
+        it('should register the copy in DB with a new globalHash and fire a Seal commit', async () => {
+            const srcMeta = docs.files.getMetadata(srcPath);
+            const beforeHead = (await sealTools.log(1))[0]?.oid;
+
+            await docs.copy(srcPath, destPath, false);
+
+            // Filesystem
+            assert.ok(docs.files.exists(destPath), 'Copy should exist on filesystem');
+            assert.ok(docs.files.exists(srcPath), 'Original should still exist');
+
+            // DB record
+            const destDoc = docs.exists(destPath, true, false);
+            assert.ok(destDoc, 'Copy should be registered in the DB');
+            assert.notEqual(destDoc.global_hash, srcMeta.globalHash, 'Copy must have a distinct globalHash in DB');
+
+            // Flashcards carried over
+            const fcCount = db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(destDoc.id).c;
+            assert.ok(fcCount > 0, 'Copied flashcards should be inserted into the DB');
+
+            // Seal commit — compare HEAD OID so depth limit doesn't affect the check
+            const afterLog = await sealTools.log(1);
+            assert.notEqual(afterLog[0]?.oid, beforeHead, 'Documents.copy() should produce a new Seal commit');
+            assert.ok(afterLog[0].commit.message.startsWith('create:'), 'Seal commit for a copy should be a create');
         });
     });
 });

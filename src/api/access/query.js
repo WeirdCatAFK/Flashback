@@ -201,13 +201,8 @@ class DocumentQuery {
     }
 
     deleteFlashcard(id) {
-        const fc = this.db.prepare('SELECT content_id, reference_id, node_id FROM Flashcards WHERE id = ?').get(id);
-        if (fc) {
-            this.db.prepare('DELETE FROM Flashcards WHERE id = ?').run(id);
-            this.db.prepare('DELETE FROM Nodes WHERE id = ?').run(fc.node_id);
-            if (fc.content_id) this.db.prepare('DELETE FROM FlashcardContent WHERE id = ?').run(fc.content_id);
-            if (fc.reference_id) this.db.prepare('DELETE FROM FlashcardReference WHERE id = ?').run(fc.reference_id);
-        }
+        this.db.prepare('DELETE FROM Flashcards WHERE id = ?').run(id);
+        // Triggers handle: Nodes, FlashcardContent, FlashcardReference
     }
 
     getFlashcardByHash(hash) {
@@ -215,13 +210,14 @@ class DocumentQuery {
     }
 
     getAllFlashcardSrsState() {
-        return this.db.prepare('SELECT global_hash, level, ease_factor, last_recall FROM Flashcards').all();
+        return this.db.prepare('SELECT global_hash, level, last_recall FROM Flashcards').all();
     }
 
-    restoreFlashcardSrsState(globalHash, level, easeFactor, lastRecall) {
-        this.db.prepare(`
-            UPDATE Flashcards SET level = ?, ease_factor = ?, last_recall = ? WHERE global_hash = ?
-        `).run(level, easeFactor, lastRecall, globalHash);
+    batchRestoreFlashcardSrsState(states) {
+        const stmt = this.db.prepare('UPDATE Flashcards SET level = ?, last_recall = ? WHERE global_hash = ?');
+        this.db.transaction((rows) => {
+            for (const s of rows) stmt.run(s.level, s.last_recall, s.global_hash);
+        })(states);
     }
 
     updateFlashcardReview(id, timestamp, level) {

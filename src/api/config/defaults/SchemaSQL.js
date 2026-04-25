@@ -187,6 +187,10 @@ BEGIN
     -- Fix: guard against NULL reference_id before deleting
     DELETE FROM FlashcardReference WHERE OLD.reference_id IS NOT NULL AND id = OLD.reference_id;
 END;
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_global_hash ON Documents(global_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_global_hash ON Folders(global_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_global_hash ON Flashcards(global_hash);
 `;
 
 const schemaSQL = tables.join(';\n').replace(/CREATE INDEX/gi, 'CREATE INDEX IF NOT EXISTS') + ';\n' + extraSQL;

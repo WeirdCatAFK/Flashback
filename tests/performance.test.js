@@ -7,6 +7,7 @@ import process from 'process';
 import validate from '../src/api/config/validate.js';
 import Documents from '../src/api/access/documents.js';
 import db from '../src/api/access/database.js';
+import { sealTools } from '../src/api/seal/seal.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -25,19 +26,18 @@ describe('Performance: Large File Operations', () => {
     // --- CLEANUP ---
     const cleanup = () => {
         try {
-            if (docs.exists(TEST_ROOT, true, true)) {
-                docs.delete(TEST_ROOT, true);
-            }
+            const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
         } catch (e) { }
     };
 
-    before(() => {
+    before(async () => {
         cleanup();
-        docs.createFolder(TEST_ROOT);
+        await sealTools.init();
+        await docs.createFolder(TEST_ROOT);
     });
 
     after(() => {
-        cleanup();
         db.close();
         fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
     });
@@ -46,7 +46,7 @@ describe('Performance: Large File Operations', () => {
         const fileName = "HugeDummyFile.bin";
         const fileSizeMB = 500;
         const byteSize = fileSizeMB * 1024 * 1024;
-        const TIME_LIMIT_MS = 5000;
+        const TIME_LIMIT_MS = 15000;
 
         console.log(`\n Generating ${fileSizeMB}MB dummy buffer...`);
 

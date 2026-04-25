@@ -12,6 +12,11 @@ import fs from "fs";
 import { getWorkspacePath, get as getConfig } from "../access/config.js";
 import query from "../access/query.js";
 
+// git.statusMatrix column values for [HEAD, workdir]
+const ABSENT = 0;
+const UNCHANGED = 1;
+const MODIFIED = 2;
+
 function dir() {
     return getWorkspacePath();
 }
@@ -19,6 +24,20 @@ function dir() {
 function author() {
     const config = getConfig();
     return { name: config?.username || "flashback", email: "seal@flashback.local" };
+}
+
+async function stageAll(workspace, paths) {
+    for (const p of paths) await git.add({ fs, dir: workspace, filepath: p });
+}
+
+async function removeAll(workspace, paths) {
+    for (const p of paths) await git.remove({ fs, dir: workspace, filepath: p });
+}
+
+async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
+    const workspace = dir();
+    await stageAll(workspace, [...extraRelPaths, sidecarRelPath]);
+    await git.commit({ fs, dir: workspace, message: `${action}: ${sidecarRelPath}`, author: author() });
 }
 
 /**
@@ -36,9 +55,7 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async create(sidecarRelPath, extraRelPaths = []) {
-        for (const p of extraRelPaths) await git.add({ fs, dir: dir(), filepath: p });
-        await git.add({ fs, dir: dir(), filepath: sidecarRelPath });
-        await git.commit({ fs, dir: dir(), message: `create: ${sidecarRelPath}`, author: author() });
+        await stageAndCommit("create", sidecarRelPath, extraRelPaths);
     }
 
     /**
@@ -48,9 +65,7 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async edit(sidecarRelPath, extraRelPaths = []) {
-        for (const p of extraRelPaths) await git.add({ fs, dir: dir(), filepath: p });
-        await git.add({ fs, dir: dir(), filepath: sidecarRelPath });
-        await git.commit({ fs, dir: dir(), message: `edit: ${sidecarRelPath}`, author: author() });
+        await stageAndCommit("edit", sidecarRelPath, extraRelPaths);
     }
 
     /**
@@ -64,9 +79,10 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async move(oldDocRelPath, newDocRelPath, removedRelPaths, addedRelPaths) {
-        for (const p of removedRelPaths) await git.remove({ fs, dir: dir(), filepath: p });
-        for (const p of addedRelPaths) await git.add({ fs, dir: dir(), filepath: p });
-        await git.commit({ fs, dir: dir(), message: `move: ${oldDocRelPath} -> ${newDocRelPath}`, author: author() });
+        const workspace = dir();
+        await removeAll(workspace, removedRelPaths);
+        await stageAll(workspace, addedRelPaths);
+        await git.commit({ fs, dir: workspace, message: `move: ${oldDocRelPath} -> ${newDocRelPath}`, author: author() });
     }
 
     /**
@@ -77,9 +93,9 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async delete(sidecarRelPath, extraRelPaths = []) {
-        for (const p of extraRelPaths) await git.remove({ fs, dir: dir(), filepath: p });
-        await git.remove({ fs, dir: dir(), filepath: sidecarRelPath });
-        await git.commit({ fs, dir: dir(), message: `delete: ${sidecarRelPath}`, author: author() });
+        const workspace = dir();
+        await removeAll(workspace, [...extraRelPaths, sidecarRelPath]);
+        await git.commit({ fs, dir: workspace, message: `delete: ${sidecarRelPath}`, author: author() });
     }
 }
 
@@ -130,19 +146,12 @@ export class SealTools {
      * @returns {Promise<void>}
      */
     async rollback(ref, keepSrsProgress = true) {
-        let srsSnapshot = null;
+        const srsSnapshot = keepSrsProgress ? query.getAllFlashcardSrsState() : null;
 
-        if (keepSrsProgress) {
-            const rows = query.getAllFlashcardSrsState();
-            srsSnapshot = new Map(rows.map(r => [r.global_hash, r]));
-        }
-
-        await git.checkout({ fs, dir: dir(), ref });
+        await git.checkout({ fs, dir: dir(), ref, force: true });
 
         if (srsSnapshot) {
-            for (const [globalHash, state] of srsSnapshot) {
-                query.restoreFlashcardSrsState(globalHash, state.level, state.ease_factor, state.last_recall);
-            }
+            query.batchRestoreFlashcardSrsState(srsSnapshot);
         }
     }
 
@@ -164,9 +173,9 @@ export class SealTools {
 
         for (const [filepath, head, workdir] of matrix) {
             if (!filepath.endsWith(".flashback")) continue;
-            if (head === 0 && workdir === 2) added.push(filepath);
-            else if (head === 1 && workdir === 2) modified.push(filepath);
-            else if (head === 1 && workdir === 0) deleted.push(filepath);
+            if (head === ABSENT    && workdir === MODIFIED)   added.push(filepath);
+            else if (head === UNCHANGED && workdir === MODIFIED)   modified.push(filepath);
+            else if (head === UNCHANGED && workdir === ABSENT)     deleted.push(filepath);
         }
 
         return { added, modified, deleted };

@@ -117,7 +117,7 @@ export default class Subscriptions {
 
                 const targetMeta = this.documents.files.getMetadata(targetRelPath, true) || {};
                 targetMeta.subscription = sub;
-                this.documents.files.writeMetadata(targetRelPath, targetMeta, true);
+                await this.documents.updateMetadata(targetRelPath, targetMeta, true);
             }
 
             // 5. Deletion of removed content

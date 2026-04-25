@@ -12,6 +12,7 @@ import db from './database.js';
 import crypto from 'crypto';
 import os from 'os';
 import AdmZip from 'adm-zip';
+import { sealEmitter } from '../seal/seal.js';
 
 export default class Documents {
     constructor() {
@@ -40,6 +41,7 @@ export default class Documents {
             this.files.delete(fileRelPath, false);
             throw err;
         }
+        await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
     }
 
     async createFolder(name, relativePath = "") {
@@ -59,6 +61,7 @@ export default class Documents {
             this.files.delete(folderRelPath, true);
             throw err;
         }
+        await sealEmitter.create(path.join(folderRelPath, '.flashback'));
     }
 
     async rename(relativePath, newName, isFolder = false) {
@@ -82,6 +85,15 @@ export default class Documents {
         } catch (err) {
             this.files.rename(newRelPath, path.basename(relativePath), isFolder);
             throw err;
+        }
+        if (isFolder) {
+            const { removed, added } = this._buildMovePaths(relativePath, newRelPath, newAbsPath);
+            await sealEmitter.move(relativePath, newRelPath, removed, added);
+        } else {
+            await sealEmitter.move(relativePath, newRelPath,
+                [relativePath, relativePath + '.flashback'],
+                [newRelPath, newRelPath + '.flashback']
+            );
         }
     }
 
@@ -107,6 +119,15 @@ export default class Documents {
             this.files.move(newRelativePath, relativePath, isFolder);
             throw err;
         }
+        if (isFolder) {
+            const { removed, added } = this._buildMovePaths(relativePath, newRelativePath, newAbsPath);
+            await sealEmitter.move(relativePath, newRelativePath, removed, added);
+        } else {
+            await sealEmitter.move(relativePath, newRelativePath,
+                [relativePath, relativePath + '.flashback'],
+                [newRelativePath, newRelativePath + '.flashback']
+            );
+        }
     }
 
     async updateFile(relativePath, content, metadata) {
@@ -119,7 +140,7 @@ export default class Documents {
             db.transaction(() => {
                 if (metadata.tags) this._syncTags(doc.node_id, metadata.tags);
                 if (metadata.flashcards) this._syncDocumentFlashcards(doc.id, metadata.flashcards);
-                
+
                 const folderId = doc.folder_id;
                 if (folderId) {
                     const folder = this.query.getFolderById(folderId);
@@ -131,12 +152,18 @@ export default class Documents {
                 }
             })();
         }
+        await sealEmitter.edit(relativePath + '.flashback', [relativePath]);
     }
 
     async delete(relativePath, isFolder = false) {
-        this.files.delete(relativePath, isFolder);
         const absPath = this.files.safePath(relativePath);
 
+        // 1. Gather seal paths from DB before deleting anything
+        const sealExtra = isFolder
+            ? this._gatherFolderContents(relativePath, absPath)
+            : [relativePath];
+
+        // 2. Delete from DB first — if this fails, FS is still intact
         db.transaction(() => {
             if (isFolder) {
                 this.query.deleteFolderTree(absPath, path.sep);
@@ -144,6 +171,59 @@ export default class Documents {
                 this.query.deleteDocumentByAbsPath(absPath);
             }
         })();
+
+        // 3. Delete from FS — DB is already clean; any FS orphan is recoverable via inspect()
+        this.files.delete(relativePath, isFolder);
+
+        // 4. Commit to Seal
+        const sealSidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
+        await sealEmitter.delete(sealSidecar, sealExtra);
+    }
+
+    async copy(relPath, newRelPath, isFolder = false) {
+        const items = this.files.copy(relPath, newRelPath, isFolder);
+
+        db.transaction(() => {
+            for (const item of items) {
+                const sidecar = this.files.getMetadata(item.relativePath, item.type === 'folder');
+
+                if (item.type === 'folder') {
+                    const nodeId = this.query.createNode('Folder');
+                    const parentId = this._getParentFolderId(item.absolutePath);
+                    this.query.insertFolder({
+                        nodeId,
+                        globalHash: item.globalHash,
+                        parentId,
+                        relativePath: item.relativePath,
+                        absolutePath: item.absolutePath,
+                        name: item.name,
+                    });
+                    if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
+                } else {
+                    const nodeId = this.query.createNode('Document');
+                    const folderId = this._getParentFolderId(item.absolutePath);
+                    const info = this.query.insertDocument({
+                        folderId,
+                        nodeId,
+                        globalHash: item.globalHash,
+                        relativePath: item.relativePath,
+                        absolutePath: item.absolutePath,
+                        name: item.name,
+                    });
+                    if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
+                    if (sidecar?.flashcards) this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards);
+                }
+            }
+        })();
+
+        const sidecarPaths = items.map(i =>
+            i.type === 'folder'
+                ? path.join(i.relativePath, '.flashback')
+                : i.relativePath + '.flashback'
+        );
+        const docPaths = items.filter(i => i.type === 'file').map(i => i.relativePath);
+        const rootSidecar = sidecarPaths[0];
+        await sealEmitter.create(rootSidecar, [...sidecarPaths.slice(1), ...docPaths]);
     }
 
     // --- Metadata Helpers ---
@@ -163,6 +243,9 @@ export default class Documents {
 
             if (isFolder) this._propagateFolderTags(entity.id, entity.node_id, metadata);
         })();
+
+        const sidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
+        await sealEmitter.edit(sidecar);
     }
 
     // --- Import / Export ---
@@ -190,6 +273,7 @@ export default class Documents {
             this.files.delete(fileRelPath, false);
             throw err;
         }
+        await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
     }
 
     async importPackage(externalPath, targetRelPath = "") {
@@ -336,6 +420,7 @@ export default class Documents {
         db.transaction(() => {
             this.query.insertMedia({ hash, name: mediaName, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
+        await sealEmitter.edit(relativePath + '.flashback', [mediaRel]);
     }
 
     // --- SRS Support ---
@@ -352,6 +437,7 @@ export default class Documents {
 
         const docId = this.srs.submitReview(flashcardHash, outcome, easeFactor, newLevel);
         this.propagatePresence(docId);
+        await sealEmitter.edit(relativePath + '.flashback');
     }
 
     // --- Private / Internal ---
@@ -466,6 +552,47 @@ export default class Documents {
                 if (tag) this.query.insertInheritedTag(conn.id, tag.id);
             }
         }
+    }
+
+    // Returns { removed, added } path arrays for a folder rename/move.
+    // Queries the DB after the rename so new paths are already stored; derives old paths by replacing the prefix.
+    _buildMovePaths(oldRelPath, newRelPath, newAbsPath) {
+        const prefix = newAbsPath + path.sep;
+        const docs = this.query.getDocumentsByAbsPathPrefix(prefix);
+        const folders = this.query.getFoldersByAbsPathPrefix(prefix, newAbsPath);
+
+        const removed = [path.join(oldRelPath, '.flashback')];
+        const added = [path.join(newRelPath, '.flashback')];
+
+        for (const doc of docs) {
+            const suffix = path.relative(newRelPath, doc.relative_path);
+            const oldDocRel = path.join(oldRelPath, suffix);
+            removed.push(oldDocRel, oldDocRel + '.flashback');
+            added.push(doc.relative_path, doc.relative_path + '.flashback');
+        }
+        for (const folder of folders) {
+            const suffix = path.relative(newRelPath, folder.relative_path);
+            const oldFolderRel = path.join(oldRelPath, suffix);
+            removed.push(path.join(oldFolderRel, '.flashback'));
+            added.push(path.join(folder.relative_path, '.flashback'));
+        }
+        return { removed, added };
+    }
+
+    // Returns all file + sidecar paths inside a folder, queried before deletion.
+    _gatherFolderContents(folderRelPath, folderAbsPath) {
+        const prefix = folderAbsPath + path.sep;
+        const docs = this.query.getDocumentsByAbsPathPrefix(prefix);
+        const folders = this.query.getFoldersByAbsPathPrefix(prefix, folderAbsPath);
+
+        const paths = [];
+        for (const doc of docs) {
+            paths.push(doc.relative_path, doc.relative_path + '.flashback');
+        }
+        for (const folder of folders) {
+            paths.push(path.join(folder.relative_path, '.flashback'));
+        }
+        return paths;
     }
 
     propagatePresence(documentId) {
