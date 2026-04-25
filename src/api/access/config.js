@@ -1,55 +1,59 @@
-//This module should read the config.jhson file and return all the data\
 import path from "path";
-import fs from 'fs'
-let configPath = "";
-let dataPath = "";
-export async function get() {
-    if (process.versions.electron) {
-        dataPath = process.env.USER_DATA_PATH;
-        configPath = path.join(dataPath, "config.json");
-    }
-    if (process.versions.node) {
-        // Since not in electron we don't have direct access to the appData folder
-        dataPath = process.cwd();
-        configPath = path.join(dataPath, "data", "config.json");
-    }
-    if (!(process.versions.electron || process.versions.node)) {
-        console.log("Not running in electron or node environment");
-        return false;
-    }
+import fs from "fs";
+import defaultConfig from "../config/defaults/ConfigJSON.js";
 
+let cache = null;
+
+function getConfigPath() {
+    if (process.versions.electron) {
+        if (!process.env.USER_DATA_PATH) throw new Error("USER_DATA_PATH env var is not set");
+        return path.join(process.env.USER_DATA_PATH, "config.json");
+    }
+    return path.join(process.cwd(), "data", "config.json");
+}
+
+export function get() {
+    if (cache) return cache;
+
+    const configPath = getConfigPath();
     try {
-        const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
-        return config;
+        cache = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+        return cache;
     } catch (error) {
-        console.error("Error reading config file:", error);
+        if (error.code === "ENOENT") {
+            try {
+                fs.mkdirSync(path.dirname(configPath), { recursive: true });
+                fs.writeFileSync(configPath, JSON.stringify(defaultConfig, null, 2));
+                cache = { ...defaultConfig };
+                return cache;
+            } catch (writeErr) {
+                console.error("Failed to create config file:", writeErr);
+                return false;
+            }
+        }
+        console.error("Unexpected error reading config:", error);
         return false;
     }
 }
-export async function set(config) {
-    if (env === "electron") {
-        dataPath = process.env.USER_DATA_PATH;
-        configPath = path.join(dataPath, "config.json");
 
+export function getWorkspacePath() {
+    const config = get();
+    if (config.isCustomPath) {
+        if (!path.isAbsolute(config.customPath)) throw new Error("Custom path provided is not absolute");
+        return config.customPath;
     }
-    if (env === "node") {
-        dataPath = process.cwd();
-        configPath = path.join(dataPath, "data", "config.json");
-    }
-    if (!env) {
-        console.log("Couldn't identify the environment");
-        return false;
-    }
+    const baseDir = process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
+    return path.join(baseDir, "workspace");
+}
 
+export function set(config) {
+    const configPath = getConfigPath();
     try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
-        console.log('Config file updated successfully');
+        cache = config;
         return true;
     } catch (error) {
-        console.error("Error reading config file:", error);
+        console.error("Error writing config file:", error);
         return false;
     }
 }
-
-
-

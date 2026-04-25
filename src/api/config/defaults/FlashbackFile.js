@@ -1,6 +1,8 @@
-export default {
-    "globalHash": "",
-    "tags": [],
-    "excludedTags": [],
-    "flashcards": []
+export default function newMetadata() {
+    return {
+        "globalHash": "",
+        "tags": [],
+        "excludedTags": [],
+        "flashcards": []
+    };
 }

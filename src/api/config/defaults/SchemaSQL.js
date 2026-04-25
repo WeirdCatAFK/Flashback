@@ -1,208 +1,198 @@
-export default
-    `
--- SQLite database export
+import knex from 'knex';
+
+const k = knex({ client: 'sqlite3', useNullAsDefault: true });
+
+const tables = [];
+
+// Helper to add table to the list
+const addTable = (name, builder) => {
+    const sql = k.schema.createTable(name, builder).toString();
+    tables.push(sql.replace(/^create table /i, 'create table if not exists '));
+};
+
+// 1. Nodes & Types
+addTable('NodeTypes', (table) => {
+    table.increments('id').primary();
+    table.string('name', 500).index();
+});
+
+addTable('Nodes', (table) => {
+    table.increments('id').primary();
+    table.integer('type_id').references('id').inTable('NodeTypes');
+});
+
+// 2. Folders
+addTable('Folders', (table) => {
+    table.increments('id').primary();
+    table.string('global_hash', 500);
+    table.integer('node_id').references('id').inTable('Nodes');
+    table.integer('parent_id').references('id').inTable('Folders').onDelete('CASCADE');
+    table.string('relative_path', 500);
+    table.string('absolute_path', 500);
+    table.string('name', 255).index();
+    table.string('origin', 500);
+    table.float('presence').index();
+});
+
+// 3. Documents
+addTable('Documents', (table) => {
+    table.increments('id').primary();
+    table.integer('folder_id').references('id').inTable('Folders').onDelete('CASCADE');
+    table.integer('node_id').references('id').inTable('Nodes');
+    table.string('global_hash', 500);
+    table.string('relative_path', 500);
+    table.string('absolute_path', 500);
+    table.string('name', 255).index();
+    table.string('origin', 500);
+    table.string('encoding', 20);
+    table.float('presence').index();
+});
+
+// 4. Flashcard Components
+addTable('FlashcardContent', (table) => {
+    table.increments('id').primary();
+    table.text('custom_html');
+    table.text('render_html');
+    table.string('frontText', 500);
+    table.string('backText', 500);
+    table.string('front_img', 500);
+    table.string('back_img', 500);
+    table.string('front_sound', 500);
+    table.string('back_sound', 500);
+});
+
+addTable('FlashcardReference', (table) => {
+    table.increments('id').primary();
+    table.string('type', 500).index();
+    table.float('start');
+    table.float('end');
+    table.integer('page');
+    // Fix: use .text() for JSON storage in SQLite (no native json affinity)
+    table.text('bbox');
+});
+
+addTable('PedagogicalCategories', (table) => {
+    table.increments('id').primary();
+    table.string('name', 500).index();
+    table.integer('priority');
+    table.text('description');
+});
+
+// 5. Flashcards
+addTable('Flashcards', (table) => {
+    table.increments('id').primary();
+    table.string('global_hash', 500).notNullable();
+    table.integer('node_id').notNullable().references('id').inTable('Nodes');
+    table.integer('document_id').references('id').inTable('Documents').onDelete('CASCADE');
+    table.integer('category_id').references('id').inTable('PedagogicalCategories');
+    table.integer('content_id').notNullable().references('id').inTable('FlashcardContent');
+    table.integer('reference_id').references('id').inTable('FlashcardReference');
+    table.integer('level');
+    table.timestamp('last_recall').index();
+    table.string('name', 255).index();
+    table.string('origin', 500);
+    table.float('presence').index();
+    table.integer('fileIndex');
+});
+
+// 6. Logs & Tags
+addTable('ReviewLogs', (table) => {
+    table.increments('id').primary();
+    table.integer('flashcard_id').notNullable().references('id').inTable('Flashcards').onDelete('CASCADE');
+    table.timestamp('timestamp').index();
+    table.integer('outcome').index();
+    table.float('ease_factor').index();
+    table.integer('level').index();
+});
+
+addTable('Tags', (table) => {
+    table.increments('id').primary();
+    table.string('name', 500).index();
+    table.integer('node_id').references('id').inTable('Nodes').onDelete('CASCADE');
+    table.string('origin', 500);
+    table.float('presence');
+});
+
+// 7. Connections
+addTable('ConnectionTypes', (table) => {
+    table.increments('id').primary();
+    table.string('name', 255).index();
+    // Fix: use integer instead of boolean for SQLite compatibility (0/1)
+    table.integer('is_directed');
+});
+
+addTable('Connections', (table) => {
+    table.increments('id').primary();
+    table.integer('origin_id').notNullable().references('id').inTable('Nodes').onDelete('CASCADE').index();
+    table.integer('destiny_id').notNullable().references('id').inTable('Nodes').onDelete('CASCADE').index();
+    table.integer('type_id').references('id').inTable('ConnectionTypes').index();
+});
+
+addTable('InheritedTags', (table) => {
+    table.increments('id').primary();
+    table.integer('connection_id').references('id').inTable('Connections').onDelete('CASCADE').index();
+    table.integer('tag_id').references('id').inTable('Tags').onDelete('CASCADE');
+});
+
+// 8. Media & Subscriptions
+addTable('Media', (table) => {
+    table.increments('id').primary();
+    table.string('hash', 500).unique().index();
+    table.string('name', 500).index();
+    table.string('relative_path', 500);
+    table.string('absolute_path', 255);
+});
+
+addTable('Subscriptions', (table) => {
+    table.increments('id').primary();
+    table.string('magazine_id', 500).unique().index();
+    table.string('issue_id', 500);
+    table.string('version', 100);
+    table.string('target_path', 500);
+    table.timestamp('last_sync').defaultTo(k.fn.now());
+});
+
+// Trigger and additional setup SQL
+const extraSQL = `
 PRAGMA foreign_keys = ON;
 
-BEGIN TRANSACTION;
-CREATE TABLE IF NOT EXISTS "Folders" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "global_hash" VARCHAR(500),
-    "node_id" INTEGER,
-    "relative_path" VARCHAR(500),
-    "absolute_path" VARCHAR(500),
-    "name" VARCHAR,
-    "presence" FLOAT,
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
-);
+CREATE TRIGGER IF NOT EXISTS delete_document_node
+AFTER DELETE ON Documents
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
 
--- Indexes
-CREATE INDEX IF NOT EXISTS "Folders_name_index"
-ON "Folders" ("name");
-CREATE INDEX IF NOT EXISTS "Folders_presence_index"
-ON "Folders" ("presence");
+CREATE TRIGGER IF NOT EXISTS delete_folder_node
+AFTER DELETE ON Folders
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
 
-CREATE TABLE IF NOT EXISTS "Flashcards" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "global_hash" VARCHAR(500) NOT NULL,
-    "node_id" INTEGER NOT NULL,
-    "document_id" INTEGER,
-    "category_id" INTEGER,
-    "content_id" INTEGER NOT NULL,
-    "reference_id" INTEGER,
-    "last_recall" TIMESTAMP,
-    "name" VARCHAR NOT NULL,
-    "presence" FLOAT,
-    FOREIGN KEY("category_id") REFERENCES "PedagogicalCategories"("id"),
-    FOREIGN KEY("content_id") REFERENCES "FlashcardContent"("id"),
-    FOREIGN KEY("document_id") REFERENCES "Documents"("id"),
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id"),
-    FOREIGN KEY("reference_id") REFERENCES "FlashcardReference"("id")
-);
+CREATE TRIGGER IF NOT EXISTS delete_flashcard_node
+AFTER DELETE ON Flashcards
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
 
--- Indexes
-CREATE INDEX IF NOT EXISTS "Flashcards_last_recall_index"
-ON "Flashcards" ("last_recall");
-CREATE INDEX IF NOT EXISTS "Flashcards_presence_index"
-ON "Flashcards" ("presence");
-CREATE INDEX IF NOT EXISTS "Flashcards_name_index"
-ON "Flashcards" ("name");
+CREATE TRIGGER IF NOT EXISTS delete_tag_node
+AFTER DELETE ON Tags
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
 
-CREATE TABLE IF NOT EXISTS "FlashcardContent" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "custom_html" TEXT,
-    "render_html" TEXT,
-    "frontText" VARCHAR(500),
-    "backText" VARCHAR(500),
-    "front_img" VARCHAR(500),
-    "back_img" VARCHAR(500),
-    "front_sound" VARCHAR(500),
-    "back_sound" VARCHAR(500)
-);
+CREATE TRIGGER IF NOT EXISTS delete_flashcard_content
+AFTER DELETE ON Flashcards
+BEGIN
+    DELETE FROM FlashcardContent WHERE id = OLD.content_id;
+    -- Fix: guard against NULL reference_id before deleting
+    DELETE FROM FlashcardReference WHERE OLD.reference_id IS NOT NULL AND id = OLD.reference_id;
+END;
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_global_hash ON Documents(global_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_global_hash ON Folders(global_hash);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_global_hash ON Flashcards(global_hash);
+`;
 
-CREATE TABLE IF NOT EXISTS "Nodes" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "type_id" INTEGER,
-    FOREIGN KEY("type_id") REFERENCES "NodeTypes"("id")
-);
+const schemaSQL = tables.join(';\n').replace(/CREATE INDEX/gi, 'CREATE INDEX IF NOT EXISTS') + ';\n' + extraSQL;
 
-
-CREATE TABLE IF NOT EXISTS "FlashcardReference" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "type" VARCHAR(500),
-    "start" FLOAT,
-    "end" FLOAT,
-    "page" INTEGER,
-    "bbox" JSON
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "FlashcardReference_type_index"
-ON "FlashcardReference" ("type");
-
-CREATE TABLE IF NOT EXISTS "ReviewLogs" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "flashcard_id" INTEGER NOT NULL,
-    "timestamp" TIMESTAMP,
-    "outcome" INTEGER,
-    "ease_factor" FLOAT,
-    "level" INTEGER,
-    FOREIGN KEY("flashcard_id") REFERENCES "Flashcards"("id")
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "ReviewLogs_timestamp_index"
-ON "ReviewLogs" ("timestamp");
-CREATE INDEX IF NOT EXISTS "ReviewLogs_outcome_index"
-ON "ReviewLogs" ("outcome");
-CREATE INDEX IF NOT EXISTS "ReviewLogs_ease_factor_index"
-ON "ReviewLogs" ("ease_factor");
-CREATE INDEX IF NOT EXISTS "ReviewLogs_level_index"
-ON "ReviewLogs" ("level");
-
-CREATE TABLE IF NOT EXISTS "NodeTypes" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "name" VARCHAR(500)
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "NodeTypes_name_index"
-ON "NodeTypes" ("name");
-
-CREATE TABLE IF NOT EXISTS "InheritedTags" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "connection_id" INTEGER,
-    "tag_id" INTEGER,
-    FOREIGN KEY("connection_id") REFERENCES "Connections"("id"),
-    FOREIGN KEY("tag_id") REFERENCES "Tags"("id")
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "InheritedTags_connection_index"
-ON "InheritedTags" ("connection_id");
-
--- "Default values are ["disconection", "inherited"]
-CREATE TABLE IF NOT EXISTS "ConnectionTypes" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "name" VARCHAR,
-    "is_directed" BOOLEAN
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "ConnectionTypes_name_index"
-ON "ConnectionTypes" ("name");
-
--- Pedagogical categories are to determine priority when reviewing flashcards, let's say category 0 is relation, 1 is definition, 2 concept, and so on, if you need to know definitions to understand a concept you'll like to review them first
-CREATE TABLE IF NOT EXISTS "PedagogicalCategories" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "name" VARCHAR(500),
-    "priority" INTEGER,
-    "description" TEXT
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "PedagogicalCategories_name_index"
-ON "PedagogicalCategories" ("name");
-
-CREATE TABLE IF NOT EXISTS "Tags" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "name" VARCHAR(500),
-    "node_id" INTEGER,
-    "presence" FLOAT,
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "Tags_name_index"
-ON "Tags" ("name");
-
-CREATE TABLE IF NOT EXISTS "Documents" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "folder_id" INTEGER,
-    "node_id" INTEGER,
-    "global_hash" VARCHAR(500),
-    "relative_path" VARCHAR(500),
-    "absolute_path" VARCHAR(500),
-    "name" VARCHAR,
-    "presence" FLOAT,
-    FOREIGN KEY("folder_id") REFERENCES "Folders"("id"),
-    FOREIGN KEY("node_id") REFERENCES "Nodes"("id")
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "Documents_name_index"
-ON "Documents" ("name");
-CREATE INDEX IF NOT EXISTS "Documents_presence_index"
-ON "Documents" ("presence");
-
--- Actually desembodied from the rest of tables because it stores all media wich will be requested by the frontend with the route/media/hash so to speak
-CREATE TABLE IF NOT EXISTS "Media" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "hash" VARCHAR(500),
-    "name" VARCHAR(500),
-    "relative_path" VARCHAR(500),
-    "absolute_path" VARCHAR
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "Media_index_2"
-ON "Media" ("hash");
-CREATE INDEX IF NOT EXISTS "Media_index_3"
-ON "Media" ("name");
-
-CREATE TABLE IF NOT EXISTS "Connections" (
-    "id" INTEGER PRIMARY KEY NOT NULL,
-    "origin_id" INTEGER NOT NULL,
-    "destiny_id" INTEGER NOT NULL,
-    "type_id" INTEGER,
-    FOREIGN KEY("destiny_id") REFERENCES "Nodes"("id"),
-    FOREIGN KEY("origin_id") REFERENCES "Nodes"("id"),
-    FOREIGN KEY("type_id") REFERENCES "ConnectionTypes"("id")
-);
-
--- Indexes
-CREATE INDEX IF NOT EXISTS "Connections_type_index"
-ON "Connections" ("type_id");
-COMMIT;
-`
-
+export default schemaSQL;

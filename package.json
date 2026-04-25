@@ -11,27 +11,37 @@
     "dev:electron": "cross-env NODE_ENV=development electron .",
     "dev:api": "nodemon src/api/main.js",
     "dev:web": "npm-run-all --parallel dev:react dev:api",
-    "react:build": "vite build",
-    "dist:mac": "npm run electron:rebuild && npm run build && electron-builder --mac --arm64",
-    "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
-    "dist:linux": "npm run electron:rebuild && npm run build && electron-builder --linux --x64",
     "build": "vite build",
-    "lint": "eslint .",
-    "electron": "electron .",
-    "electron:rebuild": "electron-rebuild"
+    "react:build": "vite build",
+    "electron:rebuild": "electron-rebuild -f --debug",
+    "electron:start": "electron .",
+    "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
+    "tests": "npm run test:docs && npm run test:performance && npm run test:media && npm run test:subscriptions && npm run test:seal",
+    "test:docs": "node --test tests/docs.test.js",
+    "test:performance": "node --test tests/performance.test.js",
+    "test:media": "node --test tests/media.test.js",
+    "test:subscriptions": "node --test tests/subs.test.js",
+    "genCDB": "node scripts/genCDB.js",
+    "test:seal": "node --test tests/seal.test.js"
   },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/WeirdCatAFK/Flashback.git"
   },
   "dependencies": {
-    "better-sqlite3": "^12.2.0",
+    "@modelcontextprotocol/sdk": "^1.27.1",
+    "adm-zip": "^0.5.16",
+    "better-sqlite3": "^12.8.0",
+    "chardet": "^2.1.1",
     "electron": "^38.1.2",
     "express": "^5.1.0",
-    "lodash": "^4.17.21",
+    "iconv-lite": "^0.7.0",
+    "isomorphic-git": "^1.37.5",
+    "knex": "^3.1.0",
     "morgan": "^1.10.1",
+    "multer": "^2.0.2",
     "nodemon": "^3.1.10",
-    "npm": "^10.9.0",
+    "npm": "^11.7.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
@@ -42,6 +52,9 @@
   "homepage": "https://github.com/WeirdCatAFK/Flashback#readme",
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@types/adm-zip": "^0.5.8",
+    "@types/express": "^5.0.6",
+    "@types/morgan": "^1.9.10",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.3",
@@ -53,6 +66,6 @@
     "eslint-plugin-react-hooks": "^5.0.0",
     "eslint-plugin-react-refresh": "^0.4.13",
     "npm-run-all": "^4.1.5",
-    "vite": "^5.4.9"
+    "vite": "^7.3.1"
   }
 }

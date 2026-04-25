@@ -2,12 +2,25 @@
 import Api from './api.js';
 import validate from './../api/config/validate.js';
 import { get as getConfig } from './access/config.js';
+import { sealTools } from './seal/seal.js';
 
+/**
+ * Main entry point for the API. Will validate the configuration, create
+ * an instance of the Api class and start it. Also sets up a SIGINT
+ * event listener to gracefully shut down the API when the process is
+ * interrupted.
+ *
+ * @returns {Promise<void>} A promise that is resolved when the API is
+ * started or shut down.
+ */
 export default async function main() {
   if (!validate()) {
     console.error("Validation failed, shutting down.");
     process.exit(1);
   }
+
+  await sealTools.init();
+  console.log("Seal initialized.");
 
   const api = new Api(await getConfig());
 
