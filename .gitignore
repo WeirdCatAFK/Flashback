@@ -137,3 +137,5 @@ dist-react
 
 #Vibecoding
 CLAUDE.md
+.claudeignore
+.claude/
