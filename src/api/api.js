@@ -4,6 +4,12 @@
 import express from "express";
 import cors from './config/cors.js';
 import morgan from "morgan";
+import documentsRouter from './routes/documents.js';
+import mediaRouter from './routes/media.js';
+import srsRouter from './routes/srs.js';
+import subscriptionsRouter from './routes/subscriptions.js';
+import sealRouter from './routes/seal.js';
+
 class api {
 /**
  * Constructor for the api class.
@@ -49,8 +55,22 @@ class api {
       res.status(200).send("Welcome to flashback");
     });
 
+    this.app.use('/api/documents', documentsRouter);
+    this.app.use('/api/media', mediaRouter);
+    this.app.use('/api/srs', srsRouter);
+    this.app.use('/api/subscriptions', subscriptionsRouter);
+    this.app.use('/api/seal', sealRouter);
+
+    // 404
     this.app.use((req, res) => {
       res.status(404).json({ code: 404, message: "Url no encontrada" });
+    });
+
+    // Global error handler — catches thrown errors and async rejections from all routes
+    // eslint-disable-next-line no-unused-vars
+    this.app.use((err, req, res, next) => {
+      console.error(err);
+      res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }
   /*Starts the api after being built*/

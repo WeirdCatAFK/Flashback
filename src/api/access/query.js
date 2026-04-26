@@ -284,11 +284,23 @@ class DocumentQuery {
         const stmt = this.db.prepare(`
             INSERT INTO Media (hash, name, relative_path, absolute_path)
             VALUES (?, ?, ?, ?)
-            ON CONFLICT(hash) DO UPDATE SET 
+            ON CONFLICT(hash) DO UPDATE SET
                 relative_path=excluded.relative_path,
                 absolute_path=excluded.absolute_path
         `);
         return stmt.run(data.hash, data.name, data.relativePath, data.absolutePath);
+    }
+
+    getMediaByHash(hash) {
+        return this.db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+    }
+
+    deleteMediaByAbsPath(absolutePath) {
+        return this.db.prepare('DELETE FROM Media WHERE absolute_path = ?').run(absolutePath);
+    }
+
+    getMediaByAbsPathPrefix(prefix) {
+        return this.db.prepare('SELECT * FROM Media WHERE absolute_path LIKE ?').all(prefix + '%');
     }
 
     // --- Subscriptions ---

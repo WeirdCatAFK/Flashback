@@ -16,9 +16,11 @@ if (!validate()) {
 }
 
 import Documents from '../src/api/access/documents.js';
+import Media from '../src/api/access/media.js';
 import db from '../src/api/access/database.js';
 
 const docs = new Documents();
+const media = new Media();
 const TEST_ROOT = "MediaTestWorkspace";
 
 describe('Media & Binary Operations', () => {
@@ -37,8 +39,7 @@ describe('Media & Binary Operations', () => {
     });
 
     after(() => {
-        db.close();
-        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        // DB and data teardown deferred to the Media Orchestrator suite's after()
     });
 
     it('should attach an image file to a flashcard (Manual/Low-level)', async () => {
@@ -185,5 +186,139 @@ describe('Media & Binary Operations', () => {
         const cardAfter = metaAfter.flashcards[0];
         const stillReferenced = cardAfter.customData?.media?.diagram;
         assert.ok(!stillReferenced, "Sidecar should no longer reference the removed media file");
+    });
+});
+
+describe('Media Orchestrator', () => {
+    const ORCH_ROOT = path.join(TEST_ROOT, "OrchestratorSuite");
+
+    before(async () => {
+        await docs.createFolder("OrchestratorSuite", TEST_ROOT);
+    });
+
+    after(() => {
+        db.close();
+        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+    });
+
+    it('should add vanilla media: write file, update sidecar, register in DB, and fire a Seal commit', async () => {
+        const docName = "VanillaOrchestrated.md";
+        const fcHash = "vo-hash-001";
+        const relPath = path.join(ORCH_ROOT, docName);
+
+        await docs.createFile(docName, ORCH_ROOT);
+        await docs.updateFile(relPath, '# Vanilla Orch', {
+            flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
+        });
+
+        const audioBuffer = Buffer.from("orchestrated-audio-data");
+        const audioName = "orch-narration.mp3";
+        const expectedHash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
+        const beforeHead = (await sealTools.log(1))[0]?.oid;
+
+        await media.addVanillaMedia(relPath, fcHash, audioBuffer, audioName, "sound", "front");
+
+        // File on disk
+        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', audioName);
+        assert.ok(fs.existsSync(audioPath), "Audio file should be written to disk");
+
+        // Sidecar updated
+        const meta = docs.files.getMetadata(relPath);
+        assert.equal(meta.flashcards[0].vanillaData.media.frontSound, `./media/${audioName}`, "Sidecar frontSound should be set");
+
+        // DB entry
+        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
+        assert.ok(entry, "Media table should have an entry");
+        assert.equal(entry.hash, expectedHash, "DB hash should match SHA256 of the buffer");
+        assert.ok(entry.absolute_path.endsWith(audioName), "DB absolute_path should reference the file");
+
+        // Seal commit
+        const afterLog = await sealTools.log(1);
+        assert.notEqual(afterLog[0]?.oid, beforeHead, "addVanillaMedia should produce a new Seal commit");
+        assert.ok(afterLog[0].commit.message.startsWith('edit:'), "Seal commit for vanilla media should be an edit");
+    });
+
+    it('should serve a registered media file by hash', async () => {
+        // Use the audio file registered in the previous test
+        const audioBuffer = Buffer.from("orchestrated-audio-data");
+        const hash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
+
+        const entry = media.serve(hash);
+        assert.ok(entry, "serve() should return a DB entry");
+        assert.equal(entry.hash, hash, "Returned entry hash must match");
+        assert.ok(fs.existsSync(entry.absolute_path), "serve() should only return entries whose file exists on disk");
+    });
+
+    it('should throw from serve() when the hash is unknown', () => {
+        assert.throws(
+            () => media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
+            /Media not found/
+        );
+    });
+
+    it('should list media files in a folder, including hash for DB-registered files', async () => {
+        const items = media.list(ORCH_ROOT);
+        assert.ok(Array.isArray(items), "list() should return an array");
+        assert.ok(items.length > 0, "list() should find the audio file added earlier");
+
+        const audio = items.find(i => i.name === "orch-narration.mp3");
+        assert.ok(audio, "list() should include orch-narration.mp3");
+        assert.ok(audio.hash !== null, "DB-registered file should have a non-null hash");
+        assert.ok(fs.existsSync(audio.absolutePath), "Reported absolutePath should exist on disk");
+    });
+
+    it('should remove media: delete file, clean sidecar, remove DB entry, and fire a Seal commit', async () => {
+        const docName = "VanillaOrchestrated.md";
+        const audioName = "orch-narration.mp3";
+        const relPath = path.join(ORCH_ROOT, docName);
+
+        const audioBuffer = Buffer.from("orchestrated-audio-data");
+        const hash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
+
+        const beforeHead = (await sealTools.log(1))[0]?.oid;
+
+        await media.removeMedia(relPath, audioName);
+
+        // File gone
+        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', audioName);
+        assert.equal(fs.existsSync(audioPath), false, "Media file should be deleted from disk");
+
+        // Sidecar cleaned
+        const meta = docs.files.getMetadata(relPath);
+        assert.ok(!meta.flashcards[0].vanillaData?.media?.frontSound, "Sidecar frontSound reference should be removed");
+
+        // DB entry gone
+        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        assert.equal(entry, undefined, "DB entry should be deleted");
+
+        // Seal commit
+        const afterLog = await sealTools.log(1);
+        assert.notEqual(afterLog[0]?.oid, beforeHead, "removeMedia should produce a new Seal commit");
+        assert.ok(afterLog[0].commit.message.startsWith('edit:'), "Seal commit for removal should be an edit");
+    });
+
+    it('should reconcile: remove DB entries for missing files, leave existing ones intact', async () => {
+        // Register a phantom entry directly in the DB (file never written to disk)
+        const phantomHash = "deadbeef".repeat(8);
+        const phantomAbs = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', 'ghost.png');
+        db.prepare('INSERT INTO Media (hash, name, relative_path, absolute_path) VALUES (?, ?, ?, ?)')
+            .run(phantomHash, 'ghost.png', path.join(ORCH_ROOT, 'media', 'ghost.png'), phantomAbs);
+
+        // Add a real file to the DB so we can confirm it survives reconciliation
+        const realBuffer = Buffer.from("real-media-data");
+        const realName = "real-for-reconcile.png";
+        const realRelPath = path.join(ORCH_ROOT, "VanillaOrchestrated.md");
+        await media.addVanillaMedia(realRelPath, "vo-hash-001", realBuffer, realName, "image", "back");
+
+        const orphans = media.reconcile(ORCH_ROOT);
+
+        assert.ok(orphans.some(o => o.name === 'ghost.png'), "reconcile() should report the phantom file as an orphan");
+
+        const phantom = db.prepare('SELECT * FROM Media WHERE hash = ?').get(phantomHash);
+        assert.equal(phantom, undefined, "Phantom DB entry should be deleted");
+
+        const realHash = crypto.createHash('sha256').update(realBuffer).digest('hex');
+        const real = db.prepare('SELECT * FROM Media WHERE hash = ?').get(realHash);
+        assert.ok(real, "Real media DB entry should survive reconciliation");
     });
 });
