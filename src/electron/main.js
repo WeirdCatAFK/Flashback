@@ -1,6 +1,7 @@
 // src/electron/main.js
-import { app, BrowserWindow, Tray, Menu, nativeImage } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
 import path from "path";
+import fs from "fs";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
 import spawn from './api_process.js';
@@ -68,8 +69,9 @@ function createWindow() {
       height: 30,
     },
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
     },
     // Set the window icon as well
     icon: getIconPath()
@@ -94,6 +96,17 @@ function createWindow() {
     // If isQuitting is true, let the event propagate and close the window/app
   });
 }
+
+// IPC: renderer asks for the API base URL once on startup
+ipcMain.handle('get-api-url', () => {
+  try {
+    const configPath = path.join(app.getPath('userData'), 'config.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+    return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
+  } catch {
+    return 'http://localhost:50500';
+  }
+});
 
 // Single Instance Lock (Recommended)
 const gotTheLock = app.requestSingleInstanceLock();
