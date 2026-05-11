@@ -11,8 +11,18 @@ const docs = new Documents();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => (p ? path.normalize(p) : p);
+
+const CONFLICT_PHRASES = ['already exists', 'already in use'];
+const CLIENT_ERROR_PHRASES = ['Cannot create .flashback'];
+const isConflict = (err) => CONFLICT_PHRASES.some(p => err.message?.includes(p));
+const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.includes(p));
+
 const catchError = (fn) => (req, res, next) =>
-  Promise.resolve(fn(req, res, next)).catch(next);
+  Promise.resolve(fn(req, res, next)).catch((err) => {
+    if (isConflict(err)) return res.status(409).json({ error: err.message });
+    if (isClientError(err)) return res.status(400).json({ error: err.message });
+    next(err);
+  });
 
 // GET /api/documents/list?path=
 router.get(

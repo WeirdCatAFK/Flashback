@@ -24,18 +24,21 @@ export default class Documents {
     // --- Core Operations ---
 
     async createFile(name, relativePath = "") {
-        const fileRelPath = path.join(relativePath, name);
-        const globalHash = this.files.createFile(relativePath, name);
+        const { globalHash, name: resolvedName } = this.files.createFile(relativePath, name);
+        const fileRelPath = path.join(relativePath, resolvedName);
 
         try {
             const absPath = this.files.safePath(fileRelPath);
+            const parentAbsPath = path.dirname(absPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Document');
                 const folderId = this._getParentFolderId(absPath);
                 this.query.insertDocument({
-                    folderId, nodeId, globalHash, 
-                    relativePath: fileRelPath, absolutePath: absPath, name
+                    folderId, nodeId, globalHash,
+                    relativePath: fileRelPath, absolutePath: absPath, name: resolvedName
                 });
+                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
+                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
             })();
         } catch (err) {
             this.files.delete(fileRelPath, false);
@@ -50,12 +53,15 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(folderRelPath);
+            const parentAbsPath = path.dirname(absPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Folder');
                 const parentId = this._getParentFolderId(absPath);
                 this.query.insertFolder({
                     nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
+                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
+                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
             })();
         } catch (err) {
             this.files.delete(folderRelPath, true);
@@ -100,6 +106,8 @@ export default class Documents {
     async move(relativePath, newRelativePath, isFolder = false) {
         const oldAbsPath = this.files.safePath(relativePath);
         const newAbsPath = this.files.safePath(newRelativePath);
+        const oldParentAbsPath = path.dirname(oldAbsPath);
+        const newParentAbsPath = path.dirname(newAbsPath);
 
         this.files.move(relativePath, newRelativePath, isFolder);
 
@@ -108,11 +116,25 @@ export default class Documents {
                 if (!isFolder) {
                     const newFolderId = this._getParentFolderId(newAbsPath);
                     this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
+                    const childNodeId = this.query.getNodeIdByDocumentAbsPath(newAbsPath);
+                    if (childNodeId) {
+                        const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
+                        const newParentNodeId = this.query.getNodeIdByFolderAbsPath(newParentAbsPath);
+                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, childNodeId);
+                        if (newParentNodeId) this.query.insertInheritance(newParentNodeId, childNodeId);
+                    }
                 } else {
                     const newParentId = this._getParentFolderId(newAbsPath);
                     this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
                     this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                     this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    const childNodeId = this.query.getNodeIdByFolderAbsPath(newAbsPath);
+                    if (childNodeId) {
+                        const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
+                        const newParentNodeId = this.query.getNodeIdByFolderAbsPath(newParentAbsPath);
+                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, childNodeId);
+                        if (newParentNodeId) this.query.insertInheritance(newParentNodeId, childNodeId);
+                    }
                 }
             })();
         } catch (err) {
@@ -251,8 +273,8 @@ export default class Documents {
     // --- Import / Export ---
 
     async importFile(name, relativePath, content, metadata) {
-        const fileRelPath = path.join(relativePath, name);
-        this.files.createFile(relativePath, name);
+        const { name: resolvedName } = this.files.createFile(relativePath, name);
+        const fileRelPath = path.join(relativePath, resolvedName);
         this.files.updateFile(fileRelPath, content, metadata);
 
         try {

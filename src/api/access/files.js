@@ -265,6 +265,8 @@ _regenerateIdentities(absPath) {
      * @throws {Error} If the file already exists at the given relative path.
      */
     createFile(relPath, name) {
+        if (name.endsWith('.flashback')) throw new Error('Cannot create .flashback files directly');
+        if (!path.extname(name)) name = name + '.md';
         const dirResolved = this.safePath(relPath);
         const fileRel = path.join(relPath, name);
         const filePath = this.safePath(fileRel);
@@ -287,7 +289,7 @@ _regenerateIdentities(absPath) {
 
             this.writeMetadata(fileRel, metadata, false);
 
-            return metadata.globalHash;
+            return { globalHash: metadata.globalHash, name };
         } catch (err) {
             console.error("Error creating file:", err);
             throw err;
@@ -310,7 +312,8 @@ _regenerateIdentities(absPath) {
         const folderPath = this.safePath(folderRel);
 
         if (this.exists(folderRel)) {
-            throw new Error(`Folder ${name} already exists at ${relPath}`);
+            const kind = fs.lstatSync(folderPath).isDirectory() ? 'Folder' : 'File';
+            throw new Error(`${kind} ${name} already exists at ${relPath}`);
         }
 
         try {

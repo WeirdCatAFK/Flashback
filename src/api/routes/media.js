@@ -10,7 +10,12 @@ const docs = new Documents();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => p ? path.normalize(p) : p;
-const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+const isNotFound = (err) => err.message?.toLowerCase().includes('not found');
+const catchError = fn => (req, res, next) =>
+    Promise.resolve().then(() => fn(req, res, next)).catch(err => {
+        if (isNotFound(err)) return res.status(404).json({ error: err.message });
+        next(err);
+    });
 
 // GET /api/media?hash=
 router.get('/', catchError((req, res) => {

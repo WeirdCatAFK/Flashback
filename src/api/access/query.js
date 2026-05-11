@@ -377,6 +377,34 @@ class DocumentQuery {
             .all(this._escapeLike(absPrefix), excludeAbsPath);
     }
 
+    // --- Connections ---
+
+    insertInheritance(parentNodeId, childNodeId) {
+        const type = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+        if (!type) throw new Error('inheritance connection type missing');
+        return this.db.prepare(
+            'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
+        ).run(parentNodeId, childNodeId, type.id);
+    }
+
+    deleteInheritance(parentNodeId, childNodeId) {
+        const type = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+        if (!type) return;
+        this.db.prepare(
+            'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
+        ).run(parentNodeId, childNodeId, type.id);
+    }
+
+    getNodeIdByFolderAbsPath(absPath) {
+        const row = this.db.prepare('SELECT node_id FROM Folders WHERE absolute_path = ?').get(absPath);
+        return row ? row.node_id : null;
+    }
+
+    getNodeIdByDocumentAbsPath(absPath) {
+        const row = this.db.prepare('SELECT node_id FROM Documents WHERE absolute_path = ?').get(absPath);
+        return row ? row.node_id : null;
+    }
+
     // --- Search & Graph ---
 
     search(query) {
