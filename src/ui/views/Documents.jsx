@@ -55,7 +55,7 @@ function useCreateItem(onSuccess) {
       setName('');
       onSuccess();
     } catch (err) {
-      setError(err.message);
+      setError(err.status === 409 ? `"${name.trim()}" already exists` : err.status === 400 ? err.message : 'Server error');
     } finally {
       setBusy(false);
     }

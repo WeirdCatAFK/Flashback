@@ -24,6 +24,7 @@ export default function GraphView() {
   if (!graph) return null;
 
   const { nodes = [], edges = [] } = graph;
+  const labelById = Object.fromEntries(nodes.map(n => [n.id, n.label ?? String(n.id)]));
 
   return (
     <div>
@@ -35,8 +36,7 @@ export default function GraphView() {
         <ul>
           {nodes.map(node => (
             <li key={node.id}>
-              [{node.type}] {node.name ?? node.id}
-              {node.tags?.length ? ` — tags: ${node.tags.join(', ')}` : ''}
+              [{node.type}] {node.label ?? node.id}
             </li>
           ))}
         </ul>
@@ -47,7 +47,7 @@ export default function GraphView() {
         <ul>
           {edges.map((edge, i) => (
             <li key={i}>
-              {edge.origin} →{edge.type ? ` (${edge.type})` : ''} {edge.destiny}
+              {labelById[edge.fromId]} →{edge.relation ? ` (${edge.relation})` : ''} {labelById[edge.toId]}
             </li>
           ))}
         </ul>
