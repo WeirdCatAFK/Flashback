@@ -4,6 +4,10 @@ export function initClient(url) {
   baseUrl = url;
 }
 
+export function getBaseUrl() {
+  return baseUrl;
+}
+
 export async function request(method, path, body = null) {
   const options = {
     method,
