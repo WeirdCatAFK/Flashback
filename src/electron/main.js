@@ -69,7 +69,7 @@ function createWindow() {
       height: 30,
     },
     webPreferences: {
-      preload: path.join(__dirname, 'preload.js'),
+      preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
@@ -80,6 +80,7 @@ function createWindow() {
   // Load content
   if (isDev()) {
     mainWindow.loadURL("http://localhost:51234");
+    mainWindow.webContents.openDevTools();
   } else {
     mainWindow.loadFile("dist-react/index.html");
   }
@@ -97,14 +98,34 @@ function createWindow() {
   });
 }
 
+function getConfigPath() {
+  return path.join(app.getPath('userData'), 'config.json');
+}
+
+function readConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
+  } catch {
+    return { port: 50500, host: 'localhost', isLocalhost: true, isCustomPath: false, customPath: '', username: 'dreamer', logFormat: 'dev' };
+  }
+}
+
 // IPC: renderer asks for the API base URL once on startup
 ipcMain.handle('get-api-url', () => {
+  const config = readConfig();
+  return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
+});
+
+// IPC: renderer reads the full config object
+ipcMain.handle('get-config', () => readConfig());
+
+// IPC: renderer writes a new config object
+ipcMain.handle('set-config', (_event, config) => {
   try {
-    const configPath = path.join(app.getPath('userData'), 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
-  } catch {
-    return 'http://localhost:50500';
+    fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: err.message };
   }
 });
 

@@ -780,7 +780,7 @@ _regenerateIdentities(absPath) {
 
         return fs
             .readdirSync(folderPath)
-            .filter((item) => item !== ".flashback" && !item.endsWith(".flashback"))
+            .filter((item) => item !== ".flashback" && !item.endsWith(".flashback") && item !== ".git")
             .map((item) => {
                 const itemPath = path.join(folderPath, item);
                 const isDir = fs.lstatSync(itemPath).isDirectory();
