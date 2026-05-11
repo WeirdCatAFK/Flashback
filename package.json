@@ -17,11 +17,12 @@
     "electron:rebuild": "electron-rebuild -f --debug",
     "electron:start": "electron .",
     "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
-    "tests": "npm run test:docs && npm run test:performance && npm run test:media && npm run test:subscriptions && npm run test:seal && npm run test:api",
+    "tests": "node scripts/run-tests.js",
     "test:docs": "node --test tests/docs.test.js",
     "test:performance": "node --test tests/performance.test.js",
     "test:media": "node --test tests/media.test.js",
     "test:subscriptions": "node --test tests/subs.test.js",
+    "test:graph": "node --test tests/graph.test.js",
     "genCDB": "node scripts/genCDB.js",
     "test:seal": "node --test tests/seal.test.js",
     "test:api": "node --test tests/api/api.test.js"
