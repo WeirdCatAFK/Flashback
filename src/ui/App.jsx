@@ -1,51 +1,146 @@
-import { lazy, Suspense, useState } from "react";
+import { lazy, Suspense, useState, useEffect } from "react";
+import "./App.css";
 
-const DocumentsView = lazy(() => import("./views/Documents"));
+import IconDocuments from "./components/icons/IconDocuments";
+import IconFlashcards from "./components/icons/IconFlashcards";
+import IconGraph from "./components/icons/IconGraph";
+import IconTrainer from "./components/icons/IconTrainer";
+import IconConfig from "./components/icons/IconConfig";
+import { THEMES } from "./themes";
+import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
+
+const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
-const FlashcardTrainer = lazy(() => import("./views/Trainer"));
-const GraphView = lazy(() => import("./views/GraphView"));
-const ConfigView = lazy(() => import("./views/Config"));
+const GraphView      = lazy(() => import("./views/GraphView"));
+const TrainerView    = lazy(() => import("./views/Trainer"));
+const ConfigView     = lazy(() => import("./views/Config"));
 
-const VIEWS = ["documents", "flashcards", "graph", "trainer", "config"];
+const NAV_ITEMS = [
+  { id: "documents",  Icon: IconDocuments,  label: "Documents" },
+  { id: "flashcards", Icon: IconFlashcards, label: "Flashcards" },
+  { id: "graph",      Icon: IconGraph,      label: "Graph" },
+  { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
+];
 
 export default function App() {
   const [activeView, setActiveView] = useState("documents");
 
-  const renderView = () => {
-    switch (activeView) {
-      case "documents":
-        return <DocumentsView />;
-      case "flashcards":
-        return <FlashcardsView />;
-      case "graph":
-        return <GraphView />;
-      case "trainer":
-        return <FlashcardTrainer />;
-      case "config":
-        return <ConfigView/>;
-      default:
-        return null;
+  const [theme, setTheme] = useState(
+    () => localStorage.getItem("fb-theme") ?? "light"
+  );
+  const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
+  const allThemes = [...THEMES, ...customThemes.map(t => t.name)];
+
+  // Inject custom theme CSS on startup and whenever custom themes change
+  useEffect(() => { injectCustomThemeCSS(customThemes); }, [customThemes]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute("data-theme", theme);
+    localStorage.setItem("fb-theme", theme);
+  }, [theme]);
+
+  const [zoom, setZoom] = useState(
+    () => parseFloat(localStorage.getItem("fb-zoom") ?? "1")
+  );
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--ui-zoom", zoom);
+    localStorage.setItem("fb-zoom", zoom);
+  }, [zoom]);
+
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (!e.ctrlKey) return;
+      if (e.key === "=" || e.key === "+") {
+        e.preventDefault();
+        setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(1))));
+      } else if (e.key === "-") {
+        e.preventDefault();
+        setZoom(z => Math.max(0.5, parseFloat((z - 0.1).toFixed(1))));
+      } else if (e.key === "0") {
+        e.preventDefault();
+        setZoom(1);
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  function renderView(view) {
+    switch (view) {
+      case "documents":  return <DocumentsView />;
+      case "flashcards": return <FlashcardsView />;
+      case "graph":      return <GraphView />;
+      case "trainer":    return <TrainerView />;
+      case "config":     return (
+        <ConfigView
+          theme={theme}
+          onThemeChange={setTheme}
+          allThemes={allThemes}
+          customThemes={customThemes}
+          onCustomThemesChange={setCustomThemes}
+        />
+      );
+      default: return null;
     }
-  };
+  }
 
   return (
-    <div id="app">
-      <nav id="sidebar">
-        {VIEWS.map((view) => (
-          <button
-            key={view}
-            className={activeView === view ? "active" : ""}
-            onClick={() => setActiveView(view)}
-          >
-            {view}
+    <div id="app-shell">
+      <div id="title-bar">
+        <span id="app-title">Flashback</span>
+        <div id="window-controls">
+          <button className="wc-btn wc-minimize" title="Minimize"
+            onClick={() => window.flashback?.windowMinimize()}>
+            <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
           </button>
-        ))}
-      </nav>
-      <main id="content">
-        <Suspense fallback={<div className="loading">Loading...</div>}>
-          {renderView()}
-        </Suspense>
-      </main>
+          <button className="wc-btn wc-maximize" title="Maximize"
+            onClick={() => window.flashback?.windowMaximize()}>
+            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><rect x=".5" y=".5" width="8" height="8" stroke="currentColor"/></svg>
+          </button>
+          <button className="wc-btn wc-close" title="Close"
+            onClick={() => window.flashback?.windowClose()}>
+            <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="app-body">
+        <nav id="activity-bar" aria-label="Main navigation">
+          <div id="activity-top">
+            {NAV_ITEMS.map(({ id, Icon, label }) => (
+              <button
+                key={id}
+                className={`activity-btn${activeView === id ? " active" : ""}`}
+                onClick={() => setActiveView(id)}
+                title={label}
+                aria-label={label}
+                aria-current={activeView === id ? "page" : undefined}
+              >
+                <Icon size={22} />
+              </button>
+            ))}
+          </div>
+
+          <div id="activity-bottom">
+            <button
+              className={`activity-btn${activeView === "config" ? " active" : ""}`}
+              onClick={() => setActiveView("config")}
+              title="Config"
+              aria-label="Config"
+              aria-current={activeView === "config" ? "page" : undefined}
+            >
+              <IconConfig size={22} />
+            </button>
+          </div>
+        </nav>
+
+        <main id="content-area">
+          <Suspense fallback={<div className="loading">Loading…</div>}>
+            {renderView(activeView)}
+          </Suspense>
+        </main>
+      </div>
     </div>
   );
 }

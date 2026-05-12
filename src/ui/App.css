@@ -1,0 +1,142 @@
+/* ── App shell ───────────────────────────────────────────────────────────── */
+
+#app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background: var(--color-bg-base);
+  overflow: hidden;
+  zoom: var(--ui-zoom, 1);
+}
+
+/* ── Title bar (drag region) ─────────────────────────────────────────────── */
+
+#title-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 8px 0 12px;
+  background: var(--color-title-bar);
+  border-bottom: 1px solid var(--color-border);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+#app-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+#window-controls {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+}
+
+.wc-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 30px;
+  color: var(--color-fg-secondary);
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.wc-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.wc-close:hover {
+  background: #C42B1C;
+  color: #fff;
+}
+
+/* ── App body (sidebar + content) ────────────────────────────────────────── */
+
+#app-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Activity bar ────────────────────────────────────────────────────────── */
+
+#activity-bar {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  width: 48px;
+  min-width: 48px;
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+#activity-top,
+#activity-bottom {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-btn {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  color: var(--color-fg-icon);
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.activity-btn::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  background: transparent;
+  border-radius: 0 2px 2px 0;
+  transition: background 120ms ease;
+}
+
+.activity-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.activity-btn.active {
+  color: var(--color-accent);
+}
+
+.activity-btn.active::before {
+  background: var(--color-accent);
+}
+
+/* ── Content area ────────────────────────────────────────────────────────── */
+
+#content-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+}
+
+.loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+}

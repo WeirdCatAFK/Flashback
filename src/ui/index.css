@@ -1,0 +1,163 @@
+@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap');
+
+/* ── Theme variables ─────────────────────────────────────────────────────── */
+
+:root,
+[data-theme="light"] {
+  --color-bg-base:      #F5F5F4;
+  --color-bg-sidebar:   #EEECEA;
+  --color-bg-surface:   #FFFFFF;
+  --color-bg-hover:     #E2DFDC;
+  --color-fg-primary:   #1C1917;
+  --color-fg-secondary: #78716C;
+  --color-fg-icon:      #57534E;
+  --color-accent:       #D97706;
+  --color-border:       #D6D3D1;
+  --color-title-bar:    #E8E4E0;
+}
+
+[data-theme="dark"] {
+  --color-bg-base:      #1C1917;
+  --color-bg-sidebar:   #171412;
+  --color-bg-surface:   #292524;
+  --color-bg-hover:     #3C3530;
+  --color-fg-primary:   #F5F5F4;
+  --color-fg-secondary: #A8A29E;
+  --color-fg-icon:      #A8A29E;
+  --color-accent:       #F59E0B;
+  --color-border:       #3C3530;
+  --color-title-bar:    #0C0A09;
+}
+
+[data-theme="dark-cherry"] {
+  --color-bg-base:      #0F0F10;
+  --color-bg-sidebar:   #151516;
+  --color-bg-surface:   #1C1C1E;
+  --color-bg-hover:     #262629;
+  --color-fg-primary:   #F2F2F3;
+  --color-fg-secondary: #A8A8AD;
+  --color-fg-icon:      #D0D0D4;
+  --color-accent:       #FF1744;
+  --color-border:       #303034;
+  --color-title-bar:    #121214;
+}
+
+[data-theme="raven-indigo"] {
+  --color-bg-base:      #17151F;
+  --color-bg-sidebar:   #211C3A;
+  --color-bg-surface:   #4A4293;
+  --color-bg-hover:     #5A52A8;
+  --color-fg-primary:   #F5F2FF;
+  --color-fg-secondary: #C3B8E6;
+  --color-fg-icon:      #E2D9FF;
+  --color-accent:       #B77AD9;
+  --color-border:       #6D63B8;
+  --color-title-bar:    #2B2450;
+}
+
+[data-theme="focus"] {
+  --color-bg-base:      #18181B;
+  --color-bg-sidebar:   #09090B;
+  --color-bg-surface:   #27272A;
+  --color-bg-hover:     #3F3F46;
+  --color-fg-primary:   #F4F4F5;
+  --color-fg-secondary: #A1A1AA;
+  --color-fg-icon:      #D4D4D8;
+  --color-accent:       #818CF8;
+  --color-border:       #3F3F46;
+  --color-title-bar:    #121214;
+}
+
+/* ── Global reset ────────────────────────────────────────────────────────── */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: 'Geist', system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-base);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Base elements ───────────────────────────────────────────────────────── */
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+a {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+p {
+  color: var(--color-fg-primary);
+}
+
+h1, h2, h3, h4, h5, h6 {
+  color: var(--color-fg-primary);
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+/* ── Scrollbars ──────────────────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-secondary);
+}

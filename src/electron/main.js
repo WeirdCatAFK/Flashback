@@ -61,19 +61,12 @@ function createWindow() {
     width: 1200,
     height: 800,
     frame: false,
-    titleBarStyle: "hidden",
     autoHideMenuBar: true,
-    titleBarOverlay: {
-      color: "#000000",
-      symbolColor: "#FFFFFF",
-      height: 30,
-    },
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
     },
-    // Set the window icon as well
     icon: getIconPath()
   });
 
@@ -109,6 +102,11 @@ function readConfig() {
     return { port: 50500, host: 'localhost', isLocalhost: true, isCustomPath: false, customPath: '', username: 'dreamer', logFormat: 'dev' };
   }
 }
+
+// IPC: window controls (custom title bar)
+ipcMain.on('window-minimize', () => mainWindow?.minimize());
+ipcMain.on('window-maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
+ipcMain.on('window-close',    () => mainWindow?.close());
 
 // IPC: renderer asks for the API base URL once on startup
 ipcMain.handle('get-api-url', () => {

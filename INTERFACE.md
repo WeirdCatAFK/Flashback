@@ -201,9 +201,12 @@ Current channels:
 
 | Channel         | Direction        | Purpose                                                    |
 | --------------- | ---------------- | ---------------------------------------------------------- |
-| `get-api-url` | renderer → main | Get the API base URL derived from config.json              |
-| `get-config`  | renderer → main | Read the full config.json object                           |
-| `set-config`  | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
+| `get-api-url`      | renderer → main | Get the API base URL derived from config.json              |
+| `get-config`       | renderer → main | Read the full config.json object                           |
+| `set-config`       | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
+| `window-minimize`  | renderer → main | Minimize the window                                        |
+| `window-maximize`  | renderer → main | Maximize or unmaximize the window                          |
+| `window-close`     | renderer → main | Close the window (hides to tray unless quitting)           |
 
 ---
 
@@ -213,3 +216,66 @@ Current channels:
 - SQLite queries or direct database references.
 - Business logic (SRS scheduling, sidecar merging, tag propagation). The API owns all of this.
 - Hardcoded port numbers or API paths outside of `api/client.js` and `api/*.js`.
+
+---
+
+## Theme System
+
+### How it works
+
+Themes are driven by a `data-theme` attribute on `<html>`. All colors in the application are
+CSS custom properties — no component stylesheet may use a hardcoded color value. Setting
+`document.documentElement.setAttribute('data-theme', name)` is the only action needed to
+switch themes; every component inherits the new palette automatically via CSS cascade.
+
+### CSS variables
+
+All variables are declared in `src/ui/index.css`. Every theme must define all of them.
+
+| Variable | Semantic meaning |
+|---|---|
+| `--color-bg-base` | Window / outermost background |
+| `--color-bg-sidebar` | Activity bar background |
+| `--color-bg-surface` | Panels, cards, content areas |
+| `--color-bg-hover` | Hover state on interactive elements |
+| `--color-fg-primary` | Primary text |
+| `--color-fg-secondary` | Muted / secondary text |
+| `--color-fg-icon` | Inactive icon tint |
+| `--color-accent` | Active indicator, links, focus rings |
+| `--color-border` | Dividers and outlines |
+| `--color-title-bar` | Drag region background |
+
+### Built-in themes
+
+`"light"` and `"dark"` are declared in `src/ui/index.css` as `[data-theme="light"]` and
+`[data-theme="dark"]` blocks.
+
+### Adding a theme
+
+1. Add a `[data-theme="my-theme"]` block to `src/ui/index.css` that defines all ten variables
+   listed above.
+2. Append `"my-theme"` to the `THEMES` array in `src/ui/App.jsx`. The cycle toggle will
+   include it automatically.
+
+### User-defined themes
+
+A user can define a custom theme without modifying the source. The Config view can accept a
+theme name string from `config.json` and inject it into `THEMES` at startup, alongside loading
+a user-provided CSS snippet that defines the `[data-theme]` block. The theme attribute
+mechanism requires no changes — only the `THEMES` array and the CSS declaration need to exist.
+
+### Theme state
+
+- Active theme is persisted in `localStorage` under key `fb-theme`.
+- On startup, `App.jsx` reads `localStorage.getItem('fb-theme') ?? 'light'` and applies it
+  before first render.
+- Theme state lives exclusively in `App.jsx`. No Context is needed because all styling is CSS.
+
+### Rules
+
+- **Never hardcode colors.** Every color value in every component stylesheet must reference a
+  CSS variable from the list above.
+- **Never read the theme in JavaScript.** Components must not branch on the theme name; use
+  CSS variables and let the cascade do the work.
+- **All new variables must be added to every theme.** If a new semantic slot is needed, add it
+  to all `[data-theme]` blocks at the same time.
