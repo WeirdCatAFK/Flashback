@@ -1,0 +1,220 @@
+/* ── Root container ──────────────────────────────────────────────────────── */
+
+.fe-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-sidebar);
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.fe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 4px 0 12px;
+  height: 35px;
+  min-height: 35px;
+  background: var(--color-sidebar-header);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fe-workspace-name {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.fe-header-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+.fe-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  color: var(--color-fg-secondary);
+  transition: background 100ms ease, color 100ms ease;
+}
+
+.fe-action-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+}
+
+/* ── Tree scroll area ────────────────────────────────────────────────────── */
+
+.fe-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 4px 0;
+}
+
+.fe-tree::-webkit-scrollbar {
+  width: 6px;
+}
+
+.fe-tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fe-tree::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: 3px;
+}
+
+.fe-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-secondary);
+  opacity: 0.5;
+}
+
+/* ── Shared row styles ───────────────────────────────────────────────────── */
+
+.fe-file,
+.fe-folder {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding-right: 4px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  position: relative;
+}
+
+.fe-file:hover,
+.fe-folder:hover {
+  background: var(--color-bg-hover);
+}
+
+
+/* Selected file or folder */
+.fe-file.fe-selected,
+.fe-folder.fe-selected {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────────── */
+
+.fe-chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 22px;
+  color: var(--color-fg-secondary);
+}
+
+.fe-chevron::before {
+  content: '▸';
+  font-size: 10px;
+  display: inline-block;
+  transition: transform 150ms ease;
+}
+
+.fe-folder.open > .fe-chevron::before {
+  transform: rotate(90deg);
+  color: var(--color-accent);
+}
+
+/* ── Folder icon ─────────────────────────────────────────────────────────── */
+
+.fe-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 5px;
+  color: var(--color-accent);
+  opacity: 0.85;
+}
+
+/* ── File icon ───────────────────────────────────────────────────────────── */
+
+.fe-file {
+  gap: 5px;
+}
+
+/* ── Item label ──────────────────────────────────────────────────────────── */
+
+.fe-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Rename input ────────────────────────────────────────────────────────── */
+
+.fe-rename-input {
+  width: 100%;
+  background: var(--color-accent-subtle);
+  color: var(--color-fg-primary);
+  border: 1px solid var(--color-accent);
+  border-radius: 2px;
+  padding: 1px 4px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+
+/* ── Children (tree line) ────────────────────────────────────────────────── */
+
+.fe-folder-wrap {
+  width: 100%;
+}
+
+.fe-children {
+  margin-left: 16px;
+  border-left: 1px solid var(--color-tree-indent);
+}
+
+/* ── Drag-over state ─────────────────────────────────────────────────────── */
+
+.fe-drag-over {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+  border-radius: 2px;
+  background: var(--color-accent-subtle) !important;
+}
+
+/* ── Item indentation ────────────────────────────────────────────────────── */
+
+.fe-file {
+  padding-left: 8px;
+}
+
+.fe-folder {
+  padding-left: 4px;
+}
+
+/* ── Loading / empty ─────────────────────────────────────────────────────── */
+
+.fe-loading,
+.fe-empty {
+  display: block;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.fe-empty {
+  padding: 20px 12px;
+  text-align: center;
+  line-height: 1.5;
+}

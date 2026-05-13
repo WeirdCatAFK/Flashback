@@ -115,10 +115,9 @@
 /* ── Variable grid ───────────────────────────────────────────────────────── */
 
 .theme-vars-grid {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  max-width: 520px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 32px;
 }
 
 .theme-var-row {

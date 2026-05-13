@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback } from "react";
 import "./App.css";
 
 import IconDocuments from "./components/icons/IconDocuments";
@@ -39,6 +39,31 @@ export default function App() {
     localStorage.setItem("fb-theme", theme);
   }, [theme]);
 
+  const [selectedPath, setSelectedPath] = useState(null);
+  const [openPaths, setOpenPaths] = useState(() => new Set());
+
+  const toggleOpen = useCallback((folderPath) => {
+    setOpenPaths(prev => {
+      const next = new Set(prev);
+      if (next.has(folderPath)) next.delete(folderPath);
+      else next.add(folderPath);
+      return next;
+    });
+  }, []);
+
+  const relocatePaths = useCallback((oldPrefix, newPrefix) => {
+    setOpenPaths(prev => {
+      const affected = [...prev].filter(p => p === oldPrefix || p.startsWith(oldPrefix + '/'));
+      if (affected.length === 0) return prev;
+      const next = new Set(prev);
+      for (const p of affected) {
+        next.delete(p);
+        next.add(newPrefix + p.slice(oldPrefix.length));
+      }
+      return next;
+    });
+  }, []);
+
   const [zoom, setZoom] = useState(
     () => parseFloat(localStorage.getItem("fb-zoom") ?? "1")
   );
@@ -68,7 +93,7 @@ export default function App() {
 
   function renderView(view) {
     switch (view) {
-      case "documents":  return <DocumentsView />;
+      case "documents":  return <DocumentsView openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
       case "flashcards": return <FlashcardsView />;
       case "graph":      return <GraphView />;
       case "trainer":    return <TrainerView />;

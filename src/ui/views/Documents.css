@@ -1,0 +1,40 @@
+.documents-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.documents-sidebar {
+  /* width set via inline style */
+  min-width: 150px;
+  max-width: 500px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.documents-resize-handle {
+  width: 4px;
+  flex-shrink: 0;
+  background: var(--color-border);
+  cursor: col-resize;
+  transition: background 100ms ease;
+}
+
+.documents-resize-handle:hover,
+.documents-resize-handle:active {
+  background: var(--color-accent);
+}
+
+.documents-main {
+  flex: 1;
+  overflow: auto;
+  background: var(--color-bg-surface);
+}
+
+.documents-placeholder {
+  padding: 24px;
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+}

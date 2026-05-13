@@ -244,6 +244,9 @@ All variables are declared in `src/ui/index.css`. Every theme must define all of
 | `--color-accent` | Active indicator, links, focus rings |
 | `--color-border` | Dividers and outlines |
 | `--color-title-bar` | Drag region background |
+| `--color-accent-subtle` | Very low-opacity accent tint — selected item backgrounds, drag targets |
+| `--color-tree-indent` | File tree indentation line — can be accent-tinted per theme |
+| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body) |
 
 ### Built-in themes
 

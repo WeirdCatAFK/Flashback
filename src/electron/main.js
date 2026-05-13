@@ -73,7 +73,7 @@ function createWindow() {
   // Load content
   if (isDev()) {
     mainWindow.loadURL("http://localhost:51234");
-    mainWindow.webContents.openDevTools();
+    mainWindow.webContents.openDevTools({ mode: 'detach' });
   } else {
     mainWindow.loadFile("dist-react/index.html");
   }

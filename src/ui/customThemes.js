@@ -2,16 +2,19 @@ const STORAGE_KEY = 'fb-custom-themes';
 const STYLE_ID    = 'fb-custom-theme-styles';
 
 export const THEME_VARS = [
-  { key: '--color-bg-base',      label: 'Window background' },
-  { key: '--color-bg-sidebar',   label: 'Activity bar background' },
-  { key: '--color-bg-surface',   label: 'Panels & cards' },
-  { key: '--color-bg-hover',     label: 'Hover state' },
-  { key: '--color-fg-primary',   label: 'Primary text' },
-  { key: '--color-fg-secondary', label: 'Secondary text' },
-  { key: '--color-fg-icon',      label: 'Inactive icons' },
-  { key: '--color-accent',       label: 'Accent / active' },
-  { key: '--color-border',       label: 'Borders & dividers' },
-  { key: '--color-title-bar',    label: 'Title bar' },
+  { key: '--color-bg-base',        label: 'Window background' },
+  { key: '--color-bg-sidebar',     label: 'Activity bar background' },
+  { key: '--color-bg-surface',     label: 'Panels & cards' },
+  { key: '--color-bg-hover',       label: 'Hover state' },
+  { key: '--color-fg-primary',     label: 'Primary text' },
+  { key: '--color-fg-secondary',   label: 'Secondary text' },
+  { key: '--color-fg-icon',        label: 'Inactive icons' },
+  { key: '--color-accent',         label: 'Accent / active' },
+  { key: '--color-border',         label: 'Borders & dividers' },
+  { key: '--color-title-bar',      label: 'Title bar' },
+  { key: '--color-accent-subtle',  label: 'Accent tint (selected bg)' },
+  { key: '--color-tree-indent',    label: 'Tree indent line' },
+  { key: '--color-sidebar-header', label: 'Sidebar header bar' },
 ];
 
 export function loadCustomThemes() {
