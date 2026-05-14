@@ -3,7 +3,7 @@
 /* ── Theme variables ─────────────────────────────────────────────────────── */
 
 :root,
-[data-theme="light"] {
+[data-theme="light-workbench"] {
   --color-bg-base:        #F5F5F4;
   --color-bg-sidebar:     #EEECEA;
   --color-bg-surface:     #FFFFFF;
@@ -20,7 +20,7 @@
   --color-sidebar-header: #E2DFDC;
 }
 
-[data-theme="dark"] {
+[data-theme="dark-workbench"] {
   --color-bg-base:        #1C1917;
   --color-bg-sidebar:     #171412;
   --color-bg-surface:     #292524;
@@ -50,7 +50,7 @@
   --color-title-bar:      #0A0A0B;
   /* extended */
   --color-accent-subtle:  #2D0811;
-  --color-tree-indent:    #FF174430;
+  --color-tree-indent:    rgba(255, 23, 68, 0.19);
   --color-sidebar-header: #0A0A0B;
 }
 
@@ -67,11 +67,11 @@
   --color-title-bar:      #2B2450;
   /* extended */
   --color-accent-subtle:  #2A1F4A;
-  --color-tree-indent:    #B77AD950;
+  --color-tree-indent:    rgba(183, 122, 217, 0.31);
   --color-sidebar-header: #17132E;
 }
 
-[data-theme="focus"] {
+[data-theme="focus-blue"] {
   --color-bg-base:        #18181B;
   --color-bg-sidebar:     #09090B;
   --color-bg-surface:     #27272A;
@@ -84,7 +84,7 @@
   --color-title-bar:      #07070A;
   /* extended */
   --color-accent-subtle:  #1E1B4B;
-  --color-tree-indent:    #818CF840;
+  --color-tree-indent:    rgba(129, 140, 248, 0.25);
   --color-sidebar-header: #050507;
 }
 

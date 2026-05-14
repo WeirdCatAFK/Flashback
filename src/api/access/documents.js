@@ -35,7 +35,8 @@ export default class Documents {
                 const folderId = this._getParentFolderId(absPath);
                 this.query.insertDocument({
                     folderId, nodeId, globalHash,
-                    relativePath: fileRelPath, absolutePath: absPath, name: resolvedName
+                    relativePath: fileRelPath, absolutePath: absPath, name: resolvedName,
+                    encoding: 'UTF-8'
                 });
                 const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
                 if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
@@ -275,7 +276,7 @@ export default class Documents {
     async importFile(name, relativePath, content, metadata) {
         const { name: resolvedName } = this.files.createFile(relativePath, name);
         const fileRelPath = path.join(relativePath, resolvedName);
-        this.files.updateFile(fileRelPath, content, metadata);
+        const encoding = this.files.updateFile(fileRelPath, content, metadata);
 
         try {
             const absPath = this.files.safePath(fileRelPath);
@@ -284,7 +285,8 @@ export default class Documents {
                 const folderId = this._getParentFolderId(absPath);
                 const info = this.query.insertDocument({
                     folderId, nodeId, globalHash: metadata.globalHash,
-                    relativePath: fileRelPath, absolutePath: absPath, name
+                    relativePath: fileRelPath, absolutePath: absPath, name,
+                    encoding
                 });
                 const docId = info.lastInsertRowid;
 

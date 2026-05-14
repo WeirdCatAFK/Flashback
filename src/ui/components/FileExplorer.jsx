@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem } from '../api/documents';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress } from '../api/documents';
 import IconFolder from './icons/IconFolder';
 import IconFolderOpen from './icons/IconFolderOpen';
 import IconFile from './icons/IconFile';
 import getFileIcon from './icons/fileIconMap';
 import ContextMenu from './ContextMenu';
+import ProgressDialog from './ProgressDialog';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -133,7 +134,7 @@ function FileNode({ name, path, onRefresh, onSelect, selectedPath, onCtxMenu }) 
 
 // ── Folder ────────────────────────────────────────────────────────────────────
 
-function FolderNode({ name, path, onRefresh, onSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu }) {
+function FolderNode({ name, path, onRefresh, onSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
@@ -181,7 +182,29 @@ function FolderNode({ name, path, onRefresh, onSelect, selectedPath, openPaths, 
     setDragOver(false);
     const srcPath  = e.dataTransfer.getData('fb-path');
     const isFolder = e.dataTransfer.getData('fb-is-folder') === 'true';
-    if (!srcPath || srcPath === path || path.startsWith(srcPath + '/')) return;
+
+    if (!srcPath) {
+      const files = Array.from(e.dataTransfer.files);
+      if (!files.length) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('name', file.name);
+          fd.append('parentPath', path);
+          await importFileWithProgress(fd, (pct) =>
+            onImportProgress({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+          );
+          onImportProgress({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
+        }
+        refresh();
+      } catch (err) { console.error('Import failed', err); }
+      finally { onImportProgress(null); }
+      return;
+    }
+
+    if (srcPath === path || path.startsWith(srcPath + '/')) return;
     const srcName = srcPath.replace(/\\/g, '/').split('/').pop();
     const destPath = `${path}/${srcName}`;
     if (srcPath.replace(/\\/g, '/') === destPath.replace(/\\/g, '/')) return;
@@ -285,7 +308,7 @@ function FolderNode({ name, path, onRefresh, onSelect, selectedPath, openPaths, 
               ? <FolderNode key={item.name} name={item.name} path={childPath(item.name)}
                   onRefresh={refresh} onSelect={onSelect} selectedPath={selectedPath}
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
-                  onCtxMenu={onCtxMenu} />
+                  onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
               : <FileNode   key={item.name} name={item.name} path={childPath(item.name)}
                   onRefresh={refresh} onSelect={onSelect} selectedPath={selectedPath}
                   onCtxMenu={onCtxMenu} />
@@ -304,6 +327,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, se
   const [dragOver, setDragOver] = useState(false);
   const [ctxMenu, setCtxMenu]   = useState(null);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
+  const [importing, setImporting]   = useState(null); // null | { done, total, pct }
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const openCtxMenu  = useCallback((e, config) => {
@@ -338,7 +362,28 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, se
     setDragOver(false);
     const srcPath  = e.dataTransfer.getData('fb-path');
     const isFolder = e.dataTransfer.getData('fb-is-folder') === 'true';
-    if (!srcPath) return;
+
+    if (!srcPath) {
+      const files = Array.from(e.dataTransfer.files);
+      if (!files.length) return;
+      try {
+        for (let i = 0; i < files.length; i++) {
+          const file = files[i];
+          const fd = new FormData();
+          fd.append('file', file);
+          fd.append('name', file.name);
+          fd.append('parentPath', '');
+          await importFileWithProgress(fd, (pct) =>
+            setImporting({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+          );
+          setImporting({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
+        }
+        loadRoot();
+      } catch (err) { console.error('Import failed', err); }
+      finally { setImporting(null); }
+      return;
+    }
+
     const srcName = srcPath.replace(/\\/g, '/').split('/').pop();
     if (srcPath.replace(/\\/g, '/') === srcName) return;
     try {
@@ -412,7 +457,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, se
             ? <FolderNode key={item.name} name={item.name} path={item.name}
                 onRefresh={loadRoot} onSelect={onSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
-                onCtxMenu={openCtxMenu} />
+                onCtxMenu={openCtxMenu} onImportProgress={setImporting} />
             : <FileNode   key={item.name} name={item.name} path={item.name}
                 onRefresh={loadRoot} onSelect={onSelect} selectedPath={selectedPath}
                 onCtxMenu={openCtxMenu} />
@@ -421,6 +466,16 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, se
 
       {ctxMenu && (
         <ContextMenu x={ctxMenu.x} y={ctxMenu.y} items={ctxItems} onClose={closeCtxMenu} />
+      )}
+
+      {importing && (
+        <ProgressDialog
+          title={importing.total === 1 ? 'Importing file' : `Importing file ${importing.done + 1} of ${importing.total}`}
+          filename={importing.filename}
+          progress={((importing.done + importing.pct / 100) / importing.total) * 100}
+          processing={importing.processing}
+          statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
+        />
       )}
     </div>
   );

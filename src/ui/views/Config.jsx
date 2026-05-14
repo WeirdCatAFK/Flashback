@@ -116,7 +116,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
 
   const stopPreview = () => {
     document.getElementById("fb-preview-style")?.remove();
-    onThemeChange(currentTheme === PREVIEW_THEME ? "light" : currentTheme);
+    onThemeChange(currentTheme === PREVIEW_THEME ? "light-workbench" : currentTheme);
     setPreviewing(false);
   };
 
@@ -403,7 +403,7 @@ export default function ConfigView({
               <td>
                 <select
                   id="theme-select"
-                  value={theme ?? "light"}
+                  value={theme ?? "light-workbench"}
                   onChange={(e) => onThemeChange(e.target.value)}
                 >
                   {allThemes.map((t) => (

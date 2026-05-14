@@ -3,6 +3,7 @@ export default function newMetadata() {
         "globalHash": "",
         "tags": [],
         "excludedTags": [],
-        "flashcards": []
+        "flashcards": [],
+        "encoding": "UTF-8"
     };
 }

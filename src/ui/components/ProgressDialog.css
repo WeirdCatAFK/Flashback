@@ -1,0 +1,73 @@
+.pd-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+.pd-dialog {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 20px 24px;
+  min-width: 300px;
+  max-width: 400px;
+  width: 100%;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+}
+
+.pd-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  margin-bottom: 6px;
+}
+
+.pd-filename {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  margin-bottom: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pd-track {
+  height: 4px;
+  background: var(--color-bg-hover);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.pd-bar {
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+  transition: width 120ms ease;
+}
+
+.pd-bar.processing {
+  background: linear-gradient(
+    90deg,
+    var(--color-accent) 25%,
+    color-mix(in srgb, var(--color-accent) 40%, transparent) 50%,
+    var(--color-accent) 75%
+  );
+  background-size: 200% 100%;
+  animation: pd-shimmer 1.2s ease infinite;
+  transition: none;
+}
+
+@keyframes pd-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.pd-status {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+}

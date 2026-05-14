@@ -1,1 +1,1 @@
-export const THEMES = ['light', 'dark', 'dark-cherry', 'raven-indigo', 'focus'];
+export const THEMES = ['light-workbench', 'dark-workbench', 'dark-cherry', 'raven-indigo', 'focus-blue'];

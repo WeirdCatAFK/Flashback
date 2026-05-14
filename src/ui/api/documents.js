@@ -1,4 +1,4 @@
-import { request, upload } from './client.js';
+import { request, upload, uploadWithProgress } from './client.js';
 
 export const listFolder    = (path = '')          => request('GET', `/api/documents/list?path=${encodeURIComponent(path)}`);
 export const readFile      = (path)               => request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
@@ -12,5 +12,6 @@ export const deleteItem    = (path, isFolder)     => request('DELETE', '/api/doc
 export const moveItem      = (srcPath, destPath, isFolder) => request('POST', '/api/documents/move', { srcPath, destPath, isFolder });
 export const renameItem    = (path, newName, isFolder)     => request('POST', '/api/documents/rename', { path, newName, isFolder });
 
-export const importFile    = (formData)           => upload('/api/documents/import', formData);
+export const importFile             = (formData)             => upload('/api/documents/import', formData);
+export const importFileWithProgress = (formData, onProgress) => uploadWithProgress('/api/documents/import', formData, onProgress);
 export const importZip     = (formData)           => upload('/api/documents/import/zip', formData);

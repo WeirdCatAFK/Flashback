@@ -6,6 +6,7 @@ import IconFlashcards from "./components/icons/IconFlashcards";
 import IconGraph from "./components/icons/IconGraph";
 import IconTrainer from "./components/icons/IconTrainer";
 import IconConfig from "./components/icons/IconConfig";
+import IconSeal from "./components/icons/IconSeal";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 
@@ -14,19 +15,21 @@ const FlashcardsView = lazy(() => import("./views/Flashcards"));
 const GraphView      = lazy(() => import("./views/GraphView"));
 const TrainerView    = lazy(() => import("./views/Trainer"));
 const ConfigView     = lazy(() => import("./views/Config"));
+const SealView       = lazy(() => import("./views/Seal"));
 
 const NAV_ITEMS = [
   { id: "documents",  Icon: IconDocuments,  label: "Documents" },
   { id: "flashcards", Icon: IconFlashcards, label: "Flashcards" },
   { id: "graph",      Icon: IconGraph,      label: "Graph" },
   { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
+  { id: "seal",       Icon: IconSeal,       label: "Seal" },
 ];
 
 export default function App() {
   const [activeView, setActiveView] = useState("documents");
 
   const [theme, setTheme] = useState(
-    () => localStorage.getItem("fb-theme") ?? "light"
+    () => localStorage.getItem("fb-theme") ?? "light-workbench"
   );
   const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
   const allThemes = [...THEMES, ...customThemes.map(t => t.name)];
@@ -97,6 +100,7 @@ export default function App() {
       case "flashcards": return <FlashcardsView />;
       case "graph":      return <GraphView />;
       case "trainer":    return <TrainerView />;
+      case "seal":       return <SealView />;
       case "config":     return (
         <ConfigView
           theme={theme}

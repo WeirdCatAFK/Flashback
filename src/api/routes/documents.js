@@ -189,8 +189,7 @@ router.post(
     const { name, parentPath = "" } = req.body;
     if (!req.file || !name)
       return res.status(400).json({ error: "file and name required" });
-    const content = req.file.buffer.toString("utf-8");
-    await docs.importFile(name, norm(parentPath), content, {});
+    await docs.importFile(name, norm(parentPath), req.file.buffer, {});
     res.status(201).json({ ok: true });
   }),
 );

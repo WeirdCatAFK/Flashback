@@ -559,14 +559,24 @@ _regenerateIdentities(absPath) {
         if (!this.exists(relPath)) throw new Error("File does not exist");
 
         try {
-            fs.writeFileSync(filePath, content, { encoding: /** @type {BufferEncoding} */ (encoding) });
+            const isBuffer = Buffer.isBuffer(content);
 
-            if (metadata) {
-                // Ensure globalHash persists
-                const existing = this.getMetadata(relPath, false);
-                if (existing && existing.globalHash) metadata.globalHash = existing.globalHash;
-                this.writeMetadata(relPath, metadata, false);
+            if (isBuffer) {
+                // Auto-detect encoding; fall back to 'binary' for unrecognised formats
+                const detected = chardet.detect(content);
+                encoding = (detected && iconv.encodingExists(detected)) ? detected : 'binary';
+                fs.writeFileSync(filePath, content);
+            } else {
+                fs.writeFileSync(filePath, content, { encoding: /** @type {BufferEncoding} */ (encoding) });
             }
+
+            const existing = this.getMetadata(relPath, false) || {};
+            const toWrite = metadata ? { ...metadata } : { ...existing };
+            if (existing.globalHash) toWrite.globalHash = existing.globalHash;
+            toWrite.encoding = encoding;
+            this.writeMetadata(relPath, toWrite, false);
+
+            return encoding;
         } catch (err) {
             console.error("Error updating file:", err);
             throw err;

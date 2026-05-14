@@ -79,10 +79,10 @@ class DocumentQuery {
 
     insertDocument(data) {
         const stmt = this.db.prepare(`
-            INSERT INTO Documents (folder_id, node_id, global_hash, relative_path, absolute_path, name, presence)
-            VALUES (?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO Documents (folder_id, node_id, global_hash, relative_path, absolute_path, name, encoding, presence)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         `);
-        const info = stmt.run(data.folderId, data.nodeId, data.globalHash, data.relativePath, data.absolutePath, data.name);
+        const info = stmt.run(data.folderId, data.nodeId, data.globalHash, data.relativePath, data.absolutePath, data.name, data.encoding ?? null);
         return info;
     }
 
