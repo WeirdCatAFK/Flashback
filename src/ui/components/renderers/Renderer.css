@@ -1,0 +1,28 @@
+.renderer-loading,
+.renderer-error {
+  padding: 24px;
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+}
+
+.renderer-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+}
+
+.text-renderer {
+  margin: 0;
+  padding: 32px 48px;
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-reader);
+  white-space: pre-wrap;
+  word-break: break-word;
+  min-height: 100%;
+}

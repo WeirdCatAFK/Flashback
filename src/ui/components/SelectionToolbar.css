@@ -1,0 +1,62 @@
+.selection-toolbar {
+  position: fixed;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  z-index: 200;
+  user-select: none;
+  pointer-events: all;
+}
+
+.sel-color-dot {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform 100ms;
+}
+
+.sel-color-dot:hover {
+  transform: scale(1.25);
+}
+
+.sel-divider {
+  width: 1px;
+  height: 14px;
+  background: var(--color-border);
+  margin: 0 2px;
+  flex-shrink: 0;
+}
+
+.sel-btn {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  padding: 2px 6px;
+  border-radius: 2px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+
+.sel-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.sel-btn--card {
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.sel-btn--card:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}

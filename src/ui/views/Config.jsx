@@ -39,19 +39,25 @@ function useConfig() {
 // ── Theme editor ──────────────────────────────────────────────────────────────
 
 const DARK_DEFAULTS = {
-  "--color-bg-base": "#1C1917",
-  "--color-bg-sidebar": "#171412",
-  "--color-bg-surface": "#292524",
-  "--color-bg-hover": "#3C3530",
-  "--color-fg-primary": "#F5F5F4",
-  "--color-fg-secondary": "#A8A29E",
-  "--color-fg-icon": "#A8A29E",
-  "--color-accent": "#F59E0B",
-  "--color-border": "#3C3530",
-  "--color-title-bar": "#0C0A09",
-  "--color-accent-subtle": "#292012",
-  "--color-tree-indent": "#2C2420",
+  "--color-bg-base":        "#1C1917",
+  "--color-bg-sidebar":     "#171412",
+  "--color-bg-surface":     "#292524",
+  "--color-bg-hover":       "#3C3530",
+  "--color-title-bar":      "#0C0A09",
   "--color-sidebar-header": "#0F0D0B",
+  "--color-bg-reader":      "#201D1A",
+  "--color-bg-editor":      "dark",
+  "--color-fg-primary":     "#F5F5F4",
+  "--color-fg-secondary":   "#A8A29E",
+  "--color-fg-icon":        "#A8A29E",
+  "--color-accent":         "#F59E0B",
+  "--color-accent-subtle":  "#292012",
+  "--color-border":         "#3C3530",
+  "--color-tree-indent":    "#2C2420",
+  "--color-hl-amber":       "#F59E0B",
+  "--color-hl-green":       "#10B981",
+  "--color-hl-blue":        "#3B82F6",
+  "--color-hl-pink":        "#EC4899",
 };
 
 const PREVIEW_THEME = "__fb_preview__";
@@ -275,28 +281,41 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
             </p>
           )}
 
-          <div className="theme-vars-grid">
+           <div className="theme-vars-grid">
             {THEME_VARS.map(({ key, label }) => (
               <div key={key} className="theme-var-row">
                 <label className="theme-var-label" title={key}>
                   {label}
                 </label>
-                <div className="theme-var-inputs">
-                  <input
-                    type="color"
-                    className="theme-color-swatch"
-                    value={colors[key] || "#000000"}
-                    onChange={(e) => handleColorChange(key, e.target.value)}
-                  />
-                  <input
-                    type="text"
-                    className="theme-color-text"
-                    value={colors[key] || ""}
-                    onChange={(e) => handleColorChange(key, e.target.value)}
-                    spellCheck={false}
-                    maxLength={25}
-                  />
-                </div>
+                {key === '--color-bg-editor' ? (
+                  <div className="theme-var-inputs">
+                    <button
+                      className={`te-btn te-btn-tag${colors[key] === 'dark' ? ' te-btn-active' : ''}`}
+                      onClick={() => handleColorChange(key, 'dark')}
+                    >Dark</button>
+                    <button
+                      className={`te-btn te-btn-tag${colors[key] === 'light' ? ' te-btn-active' : ''}`}
+                      onClick={() => handleColorChange(key, 'light')}
+                    >Light</button>
+                  </div>
+                ) : (
+                  <div className="theme-var-inputs">
+                    <input
+                      type="color"
+                      className="theme-color-swatch"
+                      value={colors[key] || "#000000"}
+                      onChange={(e) => handleColorChange(key, e.target.value)}
+                    />
+                    <input
+                      type="text"
+                      className="theme-color-text"
+                      value={colors[key] || ""}
+                      onChange={(e) => handleColorChange(key, e.target.value)}
+                      spellCheck={false}
+                      maxLength={25}
+                    />
+                  </div>
+                )}
               </div>
             ))}
           </div>

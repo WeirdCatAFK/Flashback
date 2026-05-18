@@ -41,12 +41,14 @@
     "iconv-lite": "^0.7.0",
     "isomorphic-git": "^1.37.5",
     "knex": "^3.1.0",
+    "marked": "^18.0.3",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
     "nodemon": "^3.1.10",
     "npm": "^11.7.0",
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "vditor": "^3.11.2"
   },
   "author": "Daniel Pineda Torres",
   "bugs": {

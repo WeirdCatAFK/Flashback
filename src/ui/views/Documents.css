@@ -29,12 +29,7 @@
 
 .documents-main {
   flex: 1;
-  overflow: auto;
-  background: var(--color-bg-surface);
-}
-
-.documents-placeholder {
-  padding: 24px;
-  font-size: 13px;
-  color: var(--color-fg-secondary);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
