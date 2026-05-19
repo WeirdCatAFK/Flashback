@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
-import EditorTabBar      from './EditorTabBar';
-import EditorTitleBar    from './EditorTitleBar';
-import SelectionToolbar  from './SelectionToolbar';
+import EditorTabBar    from './EditorTabBar';
+import SelectionToolbar from './SelectionToolbar';
 import Inspector         from './Inspector';
 import MarkdownRenderer  from './renderers/MarkdownRenderer';
 import TextRenderer      from './renderers/TextRenderer';
@@ -20,7 +19,11 @@ export default function DocumentEditor({ openTabs, activeTab, previewTab, onTabC
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
+  const [dirtyPaths, setDirtyPaths]       = useState(() => new Set());
+  const [drafts, setDrafts]               = useState(() => new Map());
+  const [inspectorOpen, setInspectorOpen] = useState(true);
   const rendererRef = useRef(null);
+  const saveRef     = useRef(null);
 
   // Reset selection and inspector panel when the active file changes
   useEffect(() => {
@@ -28,6 +31,39 @@ export default function DocumentEditor({ openTabs, activeTab, previewTab, onTabC
     setSelectionRect(null);
     setInspectorTab('cards');
   }, [activeTab]);
+
+  // Drop dirty state and drafts for tabs that have been closed
+  useEffect(() => {
+    const openSet = new Set(openTabs.map(t => t.path));
+    setDirtyPaths(prev => {
+      const next = new Set([...prev].filter(p => openSet.has(p)));
+      return next.size !== prev.size ? next : prev;
+    });
+    setDrafts(prev => {
+      let changed = false;
+      const next = new Map(prev);
+      for (const key of next.keys()) {
+        if (!openSet.has(key)) { next.delete(key); changed = true; }
+      }
+      return changed ? next : prev;
+    });
+  }, [openTabs]);
+
+  const handleDirtyChange = useCallback((path, isDirty) => {
+    setDirtyPaths(prev => {
+      const next = new Set(prev);
+      if (isDirty) next.add(path); else next.delete(path);
+      return next;
+    });
+  }, []);
+
+  const handleDraftChange = useCallback((path, content) => {
+    setDrafts(prev => {
+      const next = new Map(prev);
+      if (content === undefined) next.delete(path); else next.set(path, content);
+      return next;
+    });
+  }, []);
 
   const clearSelection = useCallback(() => {
     setSelection(null);
@@ -68,6 +104,7 @@ export default function DocumentEditor({ openTabs, activeTab, previewTab, onTabC
         tabs={openTabs}
         activeTab={activeTab}
         previewTab={previewTab}
+        dirtyPaths={dirtyPaths}
         onTabChange={onTabChange}
         onTabClose={onTabClose}
         onTabDoubleClick={onTabDoubleClick}
@@ -75,14 +112,20 @@ export default function DocumentEditor({ openTabs, activeTab, previewTab, onTabC
 
       <div className="doc-editor-body">
         <div className="doc-editor-content">
-          <EditorTitleBar path={activeTab} />
-
           <div
             className="doc-editor-renderer"
             ref={rendererRef}
             onMouseUp={handleMouseUp}
           >
-            {Renderer && <Renderer path={activeTab} />}
+            {Renderer && (
+              <Renderer
+                path={activeTab}
+                onDirtyChange={handleDirtyChange}
+                saveRef={saveRef}
+                draftContent={drafts.get(activeTab)}
+                onDraftChange={handleDraftChange}
+              />
+            )}
           </div>
 
           {selection && selectionRect && (
@@ -100,6 +143,8 @@ export default function DocumentEditor({ openTabs, activeTab, previewTab, onTabC
           onTabChange={handleInspectorTabChange}
           selection={selection}
           onSelectionClear={clearSelection}
+          open={inspectorOpen}
+          onToggle={() => setInspectorOpen(o => !o)}
         />
       </div>
     </div>

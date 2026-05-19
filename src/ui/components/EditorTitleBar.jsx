@@ -1,6 +1,6 @@
 import './EditorTitleBar.css';
 
-export default function EditorTitleBar({ path }) {
+export default function EditorTitleBar({ path, isDirty, onSave }) {
   if (!path) return <div className="editor-title-bar" />;
 
   const parts = path.replace(/\\/g, '/').split('/');
@@ -16,6 +16,16 @@ export default function EditorTitleBar({ path }) {
         </span>
       ))}
       <span className="title-bar-filename">{filename}</span>
+
+      {onSave && isDirty && (
+        <button
+          className="title-bar-save"
+          onClick={onSave}
+          title="Save (Ctrl+S)"
+        >
+          Save
+        </button>
+      )}
     </div>
   );
 }

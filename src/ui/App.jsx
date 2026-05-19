@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef } from "react";
 import "./App.css";
 
 import IconDocuments from "./components/icons/IconDocuments";
@@ -94,6 +94,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // Track which views have been visited so we only mount them on first visit
+  const visitedRef = useRef(new Set([activeView]));
+  visitedRef.current.add(activeView);
+
+  const ALL_VIEW_IDS = ['documents', 'flashcards', 'graph', 'trainer', 'seal', 'config'];
+
   function renderView(view) {
     switch (view) {
       case "documents":  return <DocumentsView openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
@@ -165,9 +171,13 @@ export default function App() {
         </nav>
 
         <main id="content-area">
-          <Suspense fallback={<div className="loading">Loading…</div>}>
-            {renderView(activeView)}
-          </Suspense>
+          {ALL_VIEW_IDS.map(id => visitedRef.current.has(id) && (
+            <div key={id} className={`view-slot${activeView === id ? ' view-slot--active' : ''}`}>
+              <Suspense fallback={<div className="loading">Loading…</div>}>
+                {renderView(id)}
+              </Suspense>
+            </div>
+          ))}
         </main>
       </div>
     </div>

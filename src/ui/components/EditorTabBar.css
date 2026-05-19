@@ -74,3 +74,24 @@
   background: var(--color-bg-hover);
   color: var(--color-fg-primary);
 }
+
+/* Dirty indicator: dot replaces ×, reverts to × on hover */
+.tab--dirty .tab-close {
+  font-size: 0;
+  opacity: 1;
+}
+
+.tab--dirty .tab-close::after {
+  content: '●';
+  font-size: 8px;
+  color: var(--color-accent);
+  display: inline-block;
+  line-height: 1;
+}
+
+.tab--dirty:hover .tab-close::after,
+.tab--dirty .tab-close:hover::after {
+  content: '×';
+  font-size: 15px;
+  color: var(--color-fg-secondary);
+}

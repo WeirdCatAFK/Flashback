@@ -4,34 +4,52 @@ import "vditor/dist/index.css";
 import { readFile, updateFile } from "../../api/documents";
 import "./MarkdownRenderer.css";
 
-export default function MarkdownRenderer({ path }) {
+export default function MarkdownRenderer({ path, onDirtyChange, saveRef, draftContent, onDraftChange }) {
   const [loading, setLoading] = useState(true);
-  const [isSaving, setIsSaving] = useState(false);
-  const [error, setError] = useState(null);
 
   const editorContainerRef = useRef(null);
-  const vditorInstanceRef = useRef(null);
+  const vditorInstanceRef  = useRef(null);
+  const isDirtyRef         = useRef(false);
+  // Snapshot of draftContent read once per path change — never drives re-runs
+  const draftRef = useRef(draftContent);
+  draftRef.current = draftContent;
 
-  const handleSave = async () => {
+  const handleSaveRef = useRef(null);
+  handleSaveRef.current = async () => {
     if (!vditorInstanceRef.current) return;
-    setIsSaving(true);
-    setError(null);
     try {
       const currentContent = vditorInstanceRef.current.getValue();
       await updateFile(path, currentContent);
-    } catch (err) {
-      setError(err.message || "Failed to save file.");
-    } finally {
-      setIsSaving(false);
+      isDirtyRef.current = false;
+      onDirtyChange?.(path, false);
+      onDraftChange?.(path, undefined); // clear draft — file matches disk
+    } catch {
+      // dirty dot stays; user can retry with Ctrl+S
     }
   };
+
+  const handleSave = () => handleSaveRef.current?.();
+
+  // Let DocumentEditor trigger save via saveRef
+  useEffect(() => {
+    if (saveRef) saveRef.current = handleSave;
+    return () => { if (saveRef) saveRef.current = null; };
+  });
 
   useEffect(() => {
     if (!path) return;
 
     let isMounted = true;
-    setLoading(true);
-    setError(null);
+    const draft = draftRef.current; // snapshot — stable for this path
+
+    if (draft === undefined) {
+      // Fresh load: show overlay and reset dirty
+      setLoading(true);
+      isDirtyRef.current = false;
+      onDirtyChange?.(path, false);
+    }
+    // If restoring a draft, loading stays false (no overlay flash) and dirty
+    // state is already preserved in DocumentEditor's dirtyPaths Set.
 
     if (vditorInstanceRef.current) {
       vditorInstanceRef.current.destroy();
@@ -46,48 +64,42 @@ export default function MarkdownRenderer({ path }) {
     };
     editorContainerRef.current.addEventListener("keydown", handleKeyDown);
 
-    readFile(path)
-      .then((data) => {
-        if (!isMounted) return;
+    const initVditor = (seedContent) => {
+      if (!isMounted) return;
+      const editorTheme = getComputedStyle(document.documentElement)
+        .getPropertyValue("--color-bg-editor").trim() || "dark";
 
-        const initialContent = data.content ?? "";
-        const editorTheme = getComputedStyle(document.documentElement)
-          .getPropertyValue("--color-bg-editor").trim() || "dark";
-
-        const vditor = new Vditor(editorContainerRef.current, {
-          value: initialContent,
-          mode: "ir",
-          theme: editorTheme,
-          cache: { enable: false },
-          toolbarConfig: { pin: true },
-          toolbar: [
-            "headings", "bold", "italic", "strike", "link", "|",
-            "list", "ordered-list", "check", "outdent", "indent", "|",
-            "quote", "line", "code", "inline-code", "insert-before", "insert-after", "|",
-            "table", "undo", "redo", "|",
-            "fullscreen", "edit-mode",
-            {
-              name: "save",
-              tip: "Save (Ctrl+S)",
-              icon: `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`,
-              click: () => handleSave(),
-            },
-          ],
-          height: "100%",
-          after: () => {
-            if (isMounted) {
-              vditorInstanceRef.current = vditor;
-              setLoading(false);
-            }
-          },
-        });
-      })
-      .catch((err) => {
-        if (isMounted) {
-          setError(err.message || "Could not load file.");
-          setLoading(false);
-        }
+      const vditor = new Vditor(editorContainerRef.current, {
+        value: seedContent,
+        mode: "ir",
+        theme: editorTheme,
+        cache: { enable: false },
+        input: (value) => {
+          if (!isDirtyRef.current) {
+            isDirtyRef.current = true;
+            onDirtyChange?.(path, true);
+          }
+          onDraftChange?.(path, value);
+        },
+        toolbar: [],
+        height: "100%",
+        after: () => {
+          if (isMounted) {
+            vditorInstanceRef.current = vditor;
+            setLoading(false);
+          }
+        },
       });
+    };
+
+    if (draft !== undefined) {
+      isDirtyRef.current = true; // draft implies unsaved changes
+      initVditor(draft);
+    } else {
+      readFile(path)
+        .then((data) => initVditor(data.content ?? ""))
+        .catch(() => { if (isMounted) setLoading(false); });
+    }
 
     return () => {
       isMounted = false;
@@ -101,7 +113,6 @@ export default function MarkdownRenderer({ path }) {
 
   return (
     <div className="markdown-editor-container">
-      {error && <div className="editor-error-banner">{error}</div>}
       <div className="editor-content-wrapper">
         {loading && (
           <div className="editor-loading-overlay">Loading Editor…</div>
