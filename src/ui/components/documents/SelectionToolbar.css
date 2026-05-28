@@ -29,6 +29,24 @@
   transform: scale(1.25);
 }
 
+.sel-color-dot--clear {
+  background: transparent !important;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  line-height: 9px;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sel-color-dot--clear:hover {
+  border-color: var(--color-fg-primary);
+  color: var(--color-fg-primary);
+}
+
 .sel-divider {
   width: 1px;
   height: 14px;

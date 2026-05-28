@@ -1,11 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress } from '../api/documents';
-import IconFolder from './icons/IconFolder';
-import IconFolderOpen from './icons/IconFolderOpen';
-import IconFile from './icons/IconFile';
-import getFileIcon from './icons/fileIconMap';
-import ContextMenu from './ContextMenu';
-import ProgressDialog from './ProgressDialog';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress } from '../../api/documents';
+import IconFolder from '../icons/IconFolder';
+import IconFolderOpen from '../icons/IconFolderOpen';
+import IconFile from '../icons/IconFile';
+import getFileIcon from '../icons/fileIconMap';
+import ContextMenu from '../shared/ContextMenu';
+import ProgressDialog from '../shared/ProgressDialog';
 import './FileExplorer.css';
 
 const sortItems = (items) =>

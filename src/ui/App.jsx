@@ -9,6 +9,7 @@ import IconConfig from "./components/icons/IconConfig";
 import IconSeal from "./components/icons/IconSeal";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
+import AppGate from "./components/AppGate";
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
@@ -102,7 +103,7 @@ export default function App() {
 
   function renderView(view) {
     switch (view) {
-      case "documents":  return <DocumentsView openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
+      case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
       case "flashcards": return <FlashcardsView />;
       case "graph":      return <GraphView />;
       case "trainer":    return <TrainerView />;
@@ -140,46 +141,48 @@ export default function App() {
         </div>
       </div>
 
-      <div id="app-body">
-        <nav id="activity-bar" aria-label="Main navigation">
-          <div id="activity-top">
-            {NAV_ITEMS.map(({ id, Icon, label }) => (
-              <button
-                key={id}
-                className={`activity-btn${activeView === id ? " active" : ""}`}
-                onClick={() => setActiveView(id)}
-                title={label}
-                aria-label={label}
-                aria-current={activeView === id ? "page" : undefined}
-              >
-                <Icon size={22} />
-              </button>
-            ))}
-          </div>
-
-          <div id="activity-bottom">
-            <button
-              className={`activity-btn${activeView === "config" ? " active" : ""}`}
-              onClick={() => setActiveView("config")}
-              title="Config"
-              aria-label="Config"
-              aria-current={activeView === "config" ? "page" : undefined}
-            >
-              <IconConfig size={22} />
-            </button>
-          </div>
-        </nav>
-
-        <main id="content-area">
-          {ALL_VIEW_IDS.map(id => visitedRef.current.has(id) && (
-            <div key={id} className={`view-slot${activeView === id ? ' view-slot--active' : ''}`}>
-              <Suspense fallback={<div className="loading">Loading…</div>}>
-                {renderView(id)}
-              </Suspense>
+      <AppGate>
+        <div id="app-body">
+          <nav id="activity-bar" aria-label="Main navigation">
+            <div id="activity-top">
+              {NAV_ITEMS.map(({ id, Icon, label }) => (
+                <button
+                  key={id}
+                  className={`activity-btn${activeView === id ? " active" : ""}`}
+                  onClick={() => setActiveView(id)}
+                  title={label}
+                  aria-label={label}
+                  aria-current={activeView === id ? "page" : undefined}
+                >
+                  <Icon size={22} />
+                </button>
+              ))}
             </div>
-          ))}
-        </main>
-      </div>
+
+            <div id="activity-bottom">
+              <button
+                className={`activity-btn${activeView === "config" ? " active" : ""}`}
+                onClick={() => setActiveView("config")}
+                title="Config"
+                aria-label="Config"
+                aria-current={activeView === "config" ? "page" : undefined}
+              >
+                <IconConfig size={22} />
+              </button>
+            </div>
+          </nav>
+
+          <main id="content-area">
+            {ALL_VIEW_IDS.map(id => visitedRef.current.has(id) && (
+              <div key={id} className={`view-slot${activeView === id ? ' view-slot--active' : ''}`}>
+                <Suspense fallback={<div className="loading">Loading…</div>}>
+                  {renderView(id)}
+                </Suspense>
+              </div>
+            ))}
+          </main>
+        </div>
+      </AppGate>
     </div>
   );
 }

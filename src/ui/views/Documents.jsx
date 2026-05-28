@@ -1,13 +1,13 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import FileExplorer  from '../components/FileExplorer';
-import DocumentEditor from '../components/DocumentEditor';
+import FileExplorer  from '../components/documents/FileExplorer';
+import DocumentEditor from '../components/documents/DocumentEditor';
 import './Documents.css';
 
 const MIN_WIDTH     = 150;
 const MAX_WIDTH     = 500;
 const DEFAULT_WIDTH = 240;
 
-export default function DocumentsView({ openPaths, toggleOpen, relocatePaths, selectedPath, onSelect }) {
+export default function DocumentsView({ isActive, openPaths, toggleOpen, relocatePaths, selectedPath, onSelect }) {
   const [sidebarWidth, setSidebarWidth] = useState(
     () => parseInt(localStorage.getItem('fb-sidebar-width') ?? DEFAULT_WIDTH, 10)
   );
@@ -121,6 +121,7 @@ export default function DocumentsView({ openPaths, toggleOpen, relocatePaths, se
 
       <main className="documents-main">
         <DocumentEditor
+          isActive={isActive}
           openTabs={openTabs}
           activeTab={selectedPath}
           previewTab={previewTab}

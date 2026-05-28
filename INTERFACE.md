@@ -178,9 +178,36 @@ If a value can be computed from existing state or query data, compute it during 
 
 ### `src/ui/components/`
 
-Shared, presentational components with no server state and no API imports. They receive data as props and call callbacks to report events upward.
+Components are grouped by the view they belong to. A component used by only one
+view lives in that view's feature folder; a component reused across views lives
+in `shared/`.
 
-A component in `components/` must be usable from any view without modification.
+```
+components/
+  AppGate.jsx            App-shell gate — blocks rendering until the API answers
+  shared/                Generic, reusable across any view (ContextMenu, ProgressDialog)
+  icons/                 SVG icon components + fileIconMap
+  documents/             Everything for the Documents view
+    DocumentEditor.jsx     Editor shell (tabs, selection toolbar, dirty/draft state)
+    FileExplorer.jsx       Workspace file tree
+    EditorTabBar.jsx
+    SelectionToolbar.jsx
+    HighlightRemoveDialog.jsx
+    inspector/             Inspector panel and its tabs (Cards, Highlights, …)
+    renderers/             Per-filetype editors (Markdown, Text, …) + helpers
+```
+
+**Rules:**
+
+- A component used by exactly one view belongs in that view's folder, next to
+  the component that owns it — not in a flat shared pool.
+- A component used by two or more views belongs in `shared/` and must be usable
+  from any view without modification.
+- `shared/` and `icons/` components are presentational: no server state. (View
+  feature components may import from `api/` — e.g. `FileExplorer`, the Inspector
+  tabs, and the renderers do.)
+- Import depth from a feature folder: `../../api/...` from `documents/`,
+  `../../../api/...` from `documents/inspector/` and `documents/renderers/`.
 
 ### File naming
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { readFile } from '../api/documents';
+import { readFile } from '../../../api/documents';
 
 function CardItem({ card, index }) {
   const front = card.vanillaData?.frontText ?? card.name ?? '—';

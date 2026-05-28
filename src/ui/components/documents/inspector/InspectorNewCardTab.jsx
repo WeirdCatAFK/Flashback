@@ -1,9 +1,9 @@
 import { useState } from 'react';
-import { readFile, updateFile } from '../api/documents';
+import { readFile, updateMetadata } from '../../../api/documents';
 
 const CATEGORIES = ['Definition', 'Concept', 'Exercise', 'Formula', 'Fact', 'Pitfall'];
 
-export default function InspectorNewCardTab({ path, selection, onCancel, onSaved }) {
+export default function InspectorNewCardTab({ path, selection, highlightId, onCancel, onSaved }) {
   const [front, setFront]       = useState('');
   const [back, setBack]         = useState('');
   const [tags, setTags]         = useState([]);
@@ -32,7 +32,9 @@ export default function InspectorNewCardTab({ path, selection, onCancel, onSaved
     setSaving(true);
     setError(null);
     try {
-      const { content, metadata } = await readFile(path);
+      // Metadata-only write — never rewrites the document body, so unsaved
+      // editor edits and the inline <mark> anchors are left untouched.
+      const { metadata } = await readFile(path);
       const newCard = {
         name: front.trim(),
         globalHash: null,
@@ -47,14 +49,14 @@ export default function InspectorNewCardTab({ path, selection, onCancel, onSaved
           frontText: front.trim(),
           backText: back.trim(),
           media: { front_img: null, back_img: null, front_sound: null, back_sound: null },
-          location: selection ? { type: 'text_offset', value: selection.startOffset ?? null } : null,
+          location: highlightId ? { type: 'highlight', id: highlightId } : null,
         },
       };
       const updatedMeta = {
         ...metadata,
         flashcards: [...(metadata?.flashcards ?? []), newCard],
       };
-      await updateFile(path, content, updatedMeta);
+      await updateMetadata(path, updatedMeta);
       onSaved();
     } catch (err) {
       setError(err.message ?? 'Failed to save card');
@@ -70,7 +72,7 @@ export default function InspectorNewCardTab({ path, selection, onCancel, onSaved
       {selection?.text && (
         <div className="new-card-selection">
           <p className="new-card-selected-text">"{selection.text}"</p>
-          <span className="new-card-source">text_offset · {filename}</span>
+          <span className="new-card-source">{highlightId ? 'highlight' : 'unanchored'} · {filename}</span>
         </div>
       )}
 

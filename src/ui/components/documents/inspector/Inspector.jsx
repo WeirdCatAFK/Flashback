@@ -1,20 +1,22 @@
 import { useState } from 'react';
 import './Inspector.css';
-import InspectorCardsTab  from './InspectorCardsTab';
-import InspectorNewCardTab from './InspectorNewCardTab';
-import InspectorTagsTab   from './InspectorTagsTab';
+import InspectorCardsTab      from './InspectorCardsTab';
+import InspectorNewCardTab    from './InspectorNewCardTab';
+import InspectorTagsTab       from './InspectorTagsTab';
+import InspectorHighlightsTab from './InspectorHighlightsTab';
 
 const TABS = [
-  { id: 'cards',    label: 'Cards' },
-  { id: 'new-card', label: 'New Card' },
-  { id: 'tags',     label: 'Tags' },
+  { id: 'cards',      label: 'Cards' },
+  { id: 'highlights', label: 'Highlights' },
+  { id: 'new-card',   label: 'New Card' },
+  { id: 'tags',       label: 'Tags' },
 ];
 
 const MIN_WIDTH = 160;
 const MAX_WIDTH = 520;
 
-export default function Inspector({ path, activeTab, onTabChange, selection, onSelectionClear, open, onToggle }) {
-  const handleSaved  = () => { onSelectionClear(); onTabChange('cards'); };
+export default function Inspector({ path, activeTab, onTabChange, selection, onSelectionClear, open, onToggle, highlights, flashcards, onJumpToHighlight, onCardSaved, selectedHighlightId }) {
+  const handleSaved  = () => { onCardSaved ? onCardSaved() : (onSelectionClear(), onTabChange('cards')); };
   const handleCancel = () => { onSelectionClear(); onTabChange('cards'); };
 
   const [width, setWidth]       = useState(240);
@@ -66,9 +68,10 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
 
       {open && (
         <div className="inspector-content">
-          {activeTab === 'cards'    && <InspectorCardsTab path={path} onNewCard={() => onTabChange('new-card')} />}
-          {activeTab === 'new-card' && <InspectorNewCardTab path={path} selection={selection} onSaved={handleSaved} onCancel={handleCancel} />}
-          {activeTab === 'tags'     && <InspectorTagsTab path={path} />}
+          {activeTab === 'cards'      && <InspectorCardsTab path={path} onNewCard={() => onTabChange('new-card')} />}
+          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} />}
+          {activeTab === 'new-card'   && <InspectorNewCardTab path={path} selection={selection} highlightId={selectedHighlightId} onSaved={handleSaved} onCancel={handleCancel} />}
+          {activeTab === 'tags'       && <InspectorTagsTab path={path} />}
         </div>
       )}
     </aside>

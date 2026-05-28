@@ -8,9 +8,14 @@ const HIGHLIGHT_COLORS = [
   { key: 'pink',  cssVar: '--color-hl-pink',  label: 'Highlight 4' },
 ];
 
-export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onClear }) {
+export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighlight, onUnhighlight, onClear }) {
   const top = rect.top - 42;
   const left = rect.left + rect.width / 2;
+
+  const handleColor = (key) => {
+    if (onHighlight) onHighlight(key);
+    else onClear?.();
+  };
 
   return createPortal(
     <div
@@ -24,9 +29,19 @@ export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onClear 
           className="sel-color-dot"
           style={{ background: `var(${cssVar})` }}
           title={`Highlight — ${label}`}
-          onClick={onClear}
+          onClick={() => handleColor(key)}
         />
       ))}
+      {onUnhighlight && (
+        <button
+          className="sel-color-dot sel-color-dot--clear"
+          title="Remove highlight"
+          onClick={onUnhighlight}
+          aria-label="Remove highlight"
+        >
+          ×
+        </button>
+      )}
       <div className="sel-divider" />
       <button className="sel-btn sel-btn--card" onClick={onMakeCard}>Card</button>
       <button className="sel-btn" onClick={onMakeRef ?? onClear}>Ref</button>

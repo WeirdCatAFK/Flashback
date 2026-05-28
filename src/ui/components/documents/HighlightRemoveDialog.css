@@ -1,0 +1,76 @@
+.hl-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 500;
+}
+
+.hl-dialog {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  padding: 20px 22px;
+  max-width: 420px;
+  width: 90%;
+  color: var(--color-fg-primary);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+}
+
+.hl-dialog-title {
+  margin: 0 0 10px;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.hl-dialog-body {
+  margin: 0 0 18px;
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+  line-height: 1.5;
+}
+
+.hl-dialog-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.hl-btn {
+  font-size: 13px;
+  padding: 8px 12px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  text-align: center;
+  transition: background 80ms, color 80ms, border-color 80ms;
+}
+
+.hl-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.hl-btn--primary {
+  background: var(--color-accent-subtle);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.hl-btn--primary:hover {
+  background: var(--color-accent);
+  color: var(--color-bg-surface);
+}
+
+.hl-btn--danger {
+  color: var(--color-accent);
+}
+
+.hl-btn--danger:hover {
+  background: var(--color-accent);
+  color: var(--color-bg-surface);
+  border-color: var(--color-accent);
+}

@@ -70,6 +70,25 @@ Inteligencia_Artificial
   "globalHash": "unique-file-hash",# A hash that is defined by the creator and the timestamp of when it was created
   "tags": ["Lecture", "KNN"],
   "excludedTags": ["AI"],
+  "highlights": [
+    {
+      "id": "h_3f9a1c0b2",            # stable per-document id
+      "color": "amber",              # amber | green | blue | pink — maps to --color-hl-* theme vars
+      "text": "K-Nearest Neighbors", # snapshot of the highlighted text (list views + re-anchoring)
+      "start": 412,                  # plain text (.txt) only: character offsets into the body
+      "end": 433,                    # (absent for markdown, which anchors inline instead)
+      "createdAt": "2025-09-14T15:30:00Z",
+      "updatedAt": "2025-09-14T15:30:00Z",
+      "cardHashes": [],              # flashcards anchored to this highlight (optional)
+      "refIds": []                   # reserved for future reference links
+    }
+  ],
+  # Highlight anchoring differs by document type:
+  #   • Markdown — stored inline in the body as <mark data-color data-hl>; the
+  #     entry above mirrors it (no start/end). Survives edits to surrounding text.
+  #   • Plain text (.txt) — the body stays pure text, so the entry carries
+  #     start/end character offsets. Offsets are tracked live while editing and
+  #     re-anchored against `text` on load if the file changed out of band.
   "flashcards": [
     {
     "name": "optional descriptive name",
@@ -112,9 +131,13 @@ Inteligencia_Artificial
 
 Reference data varies from the types of documents, so the data might change according to the document. Reference values indicate on which part of the document references the flashcard
 
-- **Text Documents:**
+- **Markdown / Text Documents (preferred):**
+  - `{"type": "highlight", "id": "h_3f9a1c0b2"}`
+    (anchors to a highlight in the document's `highlights[]`; the highlight is stored
+    inline as a `<mark data-hl="...">` so it survives edits to surrounding text)
+- **Text Documents (legacy):**
   - `{"type": "text_offset", "data": {"start": 123, "end": 150}}`
-    (character offsets; resilient if document is not heavily edited)
+    (character offsets; fragile — shifts when the document is edited. Superseded by `highlight`.)
 - **PDFs:**
   - `{"type": "pdf_location", "data": {"page": 12, "bbox": [100, 200, 400, 250]}}`
     (page number + bounding box of referenced text/area)

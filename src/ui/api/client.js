@@ -8,6 +8,19 @@ export function getBaseUrl() {
   return baseUrl;
 }
 
+// Lightweight readiness probe. Hits the API root (`GET /` → 200) so the app can
+// gate rendering until the server process is actually listening. Resolves true
+// on any 2xx, false on a network error or non-2xx — never throws.
+export async function pingApi() {
+  if (!baseUrl) return false;
+  try {
+    const res = await fetch(`${baseUrl}/`, { method: 'GET' });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function request(method, path, body = null) {
   const options = {
     method,
