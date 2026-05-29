@@ -37,7 +37,7 @@ export default function InspectorNewCardTab({ path, selection, highlightId, onCa
       const { metadata } = await readFile(path);
       const newCard = {
         name: front.trim(),
-        globalHash: null,
+        // globalHash is assigned by the API (immutable once set) — never by the UI.
         lastRecall: null,
         level: 0,
         presence: 0,

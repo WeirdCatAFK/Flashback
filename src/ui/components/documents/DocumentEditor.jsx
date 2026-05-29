@@ -37,9 +37,11 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const saveRef      = useRef(null);
   const highlightRef = useRef(null);
 
-  // Renderers backed by a real editor support highlights (markdown + plain text).
+  // A renderer opts into the highlight system by exposing a static
+  // `supportsHighlight` flag (see useHighlightableRenderer). DocumentEditor
+  // stays agnostic about which renderers those are.
   const activeRenderer = pickRenderer(activeTab);
-  const supportsHighlight = activeRenderer === MarkdownRenderer || activeRenderer === TextRenderer;
+  const supportsHighlight = !!activeRenderer?.supportsHighlight;
 
   // Reset selection and inspector panel when the active file changes
   useEffect(() => {

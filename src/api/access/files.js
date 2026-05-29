@@ -221,6 +221,9 @@ _regenerateIdentities(absPath) {
      */
     writeMetadata(relPath, metadata, isFolder = false) {
         try {
+            // Auto-assign any missing flashcard hash before it reaches disk or
+            // the DB sync — global_hash is NOT NULL and API-owned.
+            this._ensureFlashcardHashes(metadata);
             const metadataPath = this._metadataPathFor(relPath, isFolder);
             // Ensure parent folder exists
             const parent = path.dirname(metadataPath);
@@ -247,6 +250,23 @@ _regenerateIdentities(absPath) {
         if (!metadata.globalHash) {
             // generate a stable unique id once
             metadata.globalHash = crypto.randomUUID();
+        }
+        return metadata;
+    }
+
+    /**
+     * Ensures every flashcard in the metadata has a globalHash. Like the
+     * document/folder hash, a flashcard's hash is API-owned and immutable: it is
+     * generated once (when missing) and never overwritten. Mutates in place so
+     * the same objects later handed to the DB sync carry the assigned hash, and
+     * persists it to the sidecar so it stays stable across saves.
+     * @param {object} [metadata] - The metadata object whose flashcards to ensure.
+     * @returns {object} The same metadata object.
+     */
+    _ensureFlashcardHashes(metadata) {
+        if (!metadata || !Array.isArray(metadata.flashcards)) return metadata;
+        for (const fc of metadata.flashcards) {
+            if (fc && !fc.globalHash) fc.globalHash = crypto.randomUUID();
         }
         return metadata;
     }

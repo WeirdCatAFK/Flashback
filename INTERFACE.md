@@ -220,6 +220,80 @@ components/
 
 ---
 
+## Renderers & the Highlight Contract
+
+`components/documents/renderers/` holds one editor per file type plus the shared
+highlight machinery. `DocumentEditor` chooses a renderer by extension
+(`pickRenderer`) and talks to it through a fixed prop contract — it never imports
+TipTap or touches an editor instance directly.
+
+### The renderer prop contract
+
+Every renderer receives the same props from `DocumentEditor`:
+
+| Prop                 | Direction        | Purpose                                                                 |
+| -------------------- | ---------------- | ----------------------------------------------------------------------- |
+| `path`               | in               | Active file path; changing it loads a new document.                     |
+| `draftContent`       | in               | Unsaved body to restore, or `undefined` to load from disk.              |
+| `saveRef`            | out (ref)        | Set to `(metaTransform?) => Promise` so the parent can trigger a save.  |
+| `highlightRef`       | out (ref)        | Set to the highlight command object (see below), or `null` if unsupported. |
+| `onDirtyChange`      | callback         | `(path, isDirty)` — drives the tab's dirty dot.                         |
+| `onDraftChange`      | callback         | `(path, body \| undefined)` — body on edit, `undefined` once saved.     |
+| `onHighlightsChange` | callback         | `(path, highlights[])` — registry after load and after each save.       |
+| `onSidecarRefresh`   | callback         | `(path, metadata)` — full sidecar after load/save (cards, tags, …).     |
+
+A renderer that supports highlighting also exposes a **static** flag so the
+parent can enable the highlight toolbar without knowing the renderer's identity:
+
+```js
+MyRenderer.supportsHighlight = true;
+```
+
+### Building a highlightable renderer
+
+Editor-backed renderers do **not** re-implement the load/save/dirty/draft
+lifecycle. They call `useHighlightableRenderer`, which owns all of it (including
+the empty-state save guard and Ctrl+S) and delegates only what differs:
+
+```js
+const { editor, loading } = useHighlightableRenderer({
+  ...props,
+  extensions,                 // the editor's extension list
+  editorClass,                // class on the ProseMirror node
+  serialize:   (editor) => …,        // editor → body string written to disk
+  loadContent: (editor, body, meta) => …, // body (+ anchored highlights) → editor
+  reconcile:   (editor, existing) => ({ highlights }), // live editor → registry
+});
+```
+
+The caller renders its own `<EditorContent>` wrapper, so markup and CSS stay
+per-renderer. `MarkdownRenderer` and `TextRenderer` are the reference
+implementations: markdown anchors highlights **inline** (`<mark data-hl>`, no
+load-time apply step); plain text anchors them by **character offset** in the
+sidecar and re-applies on load.
+
+### The highlight command contract
+
+`highlightRef` is the only highlight surface `DocumentEditor` depends on — a
+plain object, not a TipTap reference. `createHighlightCommands(editor)` in
+`highlights.js` is the TipTap implementation; a non-TipTap renderer (PDF,
+CodeMirror, …) can supply its own object of the same shape:
+
+| Method               | Returns                                              | Used by                  |
+| -------------------- | --------------------------------------------------- | ------------------------ |
+| `toggle(color)`      | `{ kind: 'created'\|'recolored'\|'removed', id }`   | color dots               |
+| `unset()`            | `{ kind: 'removed', id }` \| `null`                 | the ✕ button             |
+| `ensure(color?)`     | `{ kind: 'existing'\|'created', id }` \| `null`     | Card / Ref buttons       |
+| `currentId()`        | the highlight id under the selection, or `null`     | orphan-removal check     |
+| `scrollTo(id)`       | scrolls the view to that highlight                  | Highlights tab jump      |
+
+The sidecar `highlights[]` registry shape is documented in `DATAMODEL.md`; it is
+uniform across anchoring strategies (offset fields are simply absent for inline
+anchoring), so the Inspector, cards (`location: { type: 'highlight', id }`), and
+Highlights tab work with any renderer unchanged.
+
+---
+
 ## IPC Surface
 
 The preload script exposes exactly one namespace: `window.flashback`. New IPC channels must be added to both `preload.js` (as a `contextBridge` method) and `main.js` (as an `ipcMain.handle` handler). The renderer never imports from `electron` directly.
@@ -274,6 +348,10 @@ All variables are declared in `src/ui/index.css`. Every theme must define all of
 | `--color-accent-subtle` | Very low-opacity accent tint — selected item backgrounds, drag targets |
 | `--color-tree-indent` | File tree indentation line — can be accent-tinted per theme |
 | `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body) |
+| `--color-hl-amber` | Document highlight — amber swatch |
+| `--color-hl-green` | Document highlight — green swatch |
+| `--color-hl-blue` | Document highlight — blue swatch |
+| `--color-hl-pink` | Document highlight — pink swatch |
 
 ### Built-in themes
 
