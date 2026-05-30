@@ -428,6 +428,68 @@ export default class Documents {
         return zipPath;
     }
 
+    // --- Flashcards ---
+
+    /**
+     * Creates a single vanilla flashcard in a document's sidecar and attaches any
+     * provided media in one atomic operation, so the UI never has to sequence
+     * "create card → read back hash → upload media". The card's globalHash is
+     * API-assigned at write time and returned to the caller.
+     *
+     * @param {string} relativePath - relative path to the target document.
+     * @param {object} cardData - the card object (front/back text, tags, category,
+     *   location, …). Any client-supplied globalHash is ignored — the API owns it.
+     * @param {Array<{ buffer: Buffer, originalName: string, type: "image"|"sound", position: "front"|"back" }>} [mediaItems=[]]
+     * @returns {object} The persisted card, including its assigned globalHash and media refs.
+     */
+    async createFlashcard(relativePath, cardData, mediaItems = []) {
+        const doc = this.query.getDocumentByPath(relativePath);
+        if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
+
+        // 1. Append the card; writeMetadata assigns its immutable globalHash.
+        const meta = this.files.getMetadata(relativePath) || {};
+        if (!Array.isArray(meta.flashcards)) meta.flashcards = [];
+        const card = { ...cardData };
+        delete card.globalHash; // API-owned
+        meta.flashcards.push(card);
+        const cardIndex = meta.flashcards.length - 1;
+        this.files.writeMetadata(relativePath, meta, false);
+
+        // 2. Write each media file + patch the card's vanillaData.media (Files layer).
+        //    Names are generated server-side to stay collision-free in the shared media/ dir.
+        const mediaRels = [];
+        const registered = [];
+        for (const m of mediaItems) {
+            const ext = path.extname(m.originalName || '');
+            const base = path.basename(m.originalName || 'media', ext).replace(/[^\w.-]+/g, '_') || 'media';
+            const name = `${base}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+
+            this.files.addVanillaData(relativePath, m.buffer, name, m.type, m.position, cardIndex);
+
+            const mediaRel = path.join(path.dirname(relativePath), 'media', name);
+            mediaRels.push(mediaRel);
+            registered.push({ name, mediaRel, hash: crypto.createHash('sha256').update(m.buffer).digest('hex') });
+        }
+
+        // 3. Sync the derived layer (tags + flashcards + media) in one transaction.
+        const finalMeta = this.files.getMetadata(relativePath);
+        const savedCard = finalMeta.flashcards[cardIndex];
+        db.transaction(() => {
+            if (finalMeta.tags) this._syncTags(doc.node_id, finalMeta.tags);
+            this._syncDocumentFlashcards(doc.id, finalMeta.flashcards);
+            for (const r of registered) {
+                this.query.insertMedia({
+                    hash: r.hash, name: r.name,
+                    relativePath: r.mediaRel, absolutePath: this.files.safePath(r.mediaRel),
+                });
+            }
+        })();
+
+        // 4. One Seal commit covering the sidecar and every new media file.
+        await sealEmitter.edit(relativePath + '.flashback', mediaRels);
+        return savedCard;
+    }
+
     // --- Media ---
 
     async addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {

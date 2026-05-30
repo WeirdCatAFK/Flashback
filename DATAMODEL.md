@@ -111,10 +111,10 @@ Inteligencia_Artificial
         "frontText": "What is KNN?",
         "backText": "K-Nearest Neighbors algorithm",
         "media": {
-          "frontImg": "./media/front.png",
-          "backImg": "./media/back.png",
-          "frontSound": "./media/front.mp3",
-          "backSound": "./media/back.mp3"
+          "front_img": "./media/front.png",
+          "back_img": "./media/back.png",
+          "front_sound": "./media/front.mp3",
+          "back_sound": "./media/back.mp3"
         }
         "location" :
 	        {"type": "pdf_location", "data": {"page": 12, "bbox": [100, 200, 400, 250]}}

@@ -1,0 +1,42 @@
+.trainer-reviewer {
+  max-width: 460px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.trainer-card-meta,
+.trainer-hint {
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+}
+
+.trainer-grades {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+  justify-content: center;
+}
+
+.trainer-grade {
+  flex: 1;
+  max-width: 120px;
+  padding: 8px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  transition: transform 80ms, filter 100ms;
+}
+
+.trainer-grade:hover { filter: brightness(1.06); }
+.trainer-grade:active { transform: scale(0.96); }
+.trainer-grade:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.trainer-grade--again { background: var(--color-review-again, var(--color-hl-pink)); }
+.trainer-grade--good  { background: var(--color-review-good, var(--color-hl-green)); }
+.trainer-grade--easy  { background: var(--color-review-easy, var(--color-hl-blue)); }

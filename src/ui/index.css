@@ -25,6 +25,10 @@
   --color-hl-green:       #86EFAC;
   --color-hl-blue:        #93C5FD;
   --color-hl-pink:        #FCA5A5;
+  /* review grade swatches */
+  --color-review-again:   #FCA5A5;
+  --color-review-good:    #86EFAC;
+  --color-review-easy:    #93C5FD;
 }
 
 [data-theme="dark-workbench"] {
@@ -49,6 +53,10 @@
   --color-hl-green:       #10B981;
   --color-hl-blue:        #3B82F6;
   --color-hl-pink:        #EC4899;
+  /* review grade swatches */
+  --color-review-again:   #EC4899;
+  --color-review-good:    #10B981;
+  --color-review-easy:    #3B82F6;
 }
 
 [data-theme="dark-cherry"] {
@@ -73,6 +81,10 @@
   --color-hl-green:       #FF6D00;
   --color-hl-blue:        #00B0FF;
   --color-hl-pink:        #D500F9;
+  /* review grade swatches */
+  --color-review-again:   #FF1744;
+  --color-review-good:    #00C853;
+  --color-review-easy:    #00B0FF;
 }
 
 [data-theme="raven-indigo"] {
@@ -97,6 +109,10 @@
   --color-hl-green:       #06B6D4;
   --color-hl-blue:        #818CF8;
   --color-hl-pink:        #F472B6;
+  /* review grade swatches */
+  --color-review-again:   #F472B6;
+  --color-review-good:    #34D399;
+  --color-review-easy:    #818CF8;
 }
 
 [data-theme="focus-blue"] {
@@ -121,6 +137,10 @@
   --color-hl-green:       #34D399;
   --color-hl-blue:        #22D3EE;
   --color-hl-pink:        #FB7185;
+  /* review grade swatches */
+  --color-review-again:   #FB7185;
+  --color-review-good:    #34D399;
+  --color-review-easy:    #22D3EE;
 }
 
 /* ── Global reset ────────────────────────────────────────────────────────── */

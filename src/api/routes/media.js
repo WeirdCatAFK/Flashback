@@ -31,14 +31,65 @@ router.get('/list', catchError((req, res) => {
     res.json(media.list(folderPath));
 }));
 
+// GET /api/media/file?docPath=&name=
+// Serves a flashcard media asset by its location relative to the owning
+// document — vanilla cards store media as `./media/<name>` paths (not hashes),
+// so this is how the renderer resolves them to a streamable URL.
+router.get('/file', catchError((req, res) => {
+    const docPath = norm(req.query.docPath);
+    const { name } = req.query;
+    if (!docPath || !name) return res.status(400).json({ error: 'docPath and name required' });
+    res.sendFile(media.serveByPath(docPath, name));
+}));
+
+// Field → { type, position } mapping for the four vanilla media slots.
+const VANILLA_MEDIA_FIELDS = {
+    front_img:   { type: 'image', position: 'front' },
+    back_img:    { type: 'image', position: 'back'  },
+    front_sound: { type: 'sound', position: 'front' },
+    back_sound:  { type: 'sound', position: 'back'  },
+};
+
+const vanillaUpload = upload.fields([
+    { name: 'file',       maxCount: 1 }, // legacy attach-to-existing-card slot
+    ...Object.keys(VANILLA_MEDIA_FIELDS).map((name) => ({ name, maxCount: 1 })),
+]);
+
 // POST /api/media/vanilla
-// Multipart: file field + body { docPath, flashcardHash, name, type, position }
-router.post('/vanilla', upload.single('file'), catchError(async (req, res) => {
-    const { docPath, flashcardHash, name, type, position } = req.body;
-    if (!req.file || !docPath || !flashcardHash || !name || !type || !position) {
+// Two modes on one endpoint:
+//   • Create:  body { docPath, card: <JSON> } + optional file fields
+//              front_img | back_img | front_sound | back_sound.
+//              Creates the card and attaches media in one call → { ok, card }.
+//   • Attach:  multipart `file` + body { docPath, flashcardHash, name, type, position }
+//              attaches one media file to an already-existing card (legacy).
+router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
+    const files = req.files || {};
+    const { docPath } = req.body;
+    if (!docPath) return res.status(400).json({ error: 'docPath required' });
+
+    // --- Create mode ---
+    if (req.body.card != null) {
+        let cardData;
+        try { cardData = JSON.parse(req.body.card); }
+        catch { return res.status(400).json({ error: 'card must be valid JSON' }); }
+
+        const mediaItems = [];
+        for (const [field, meta] of Object.entries(VANILLA_MEDIA_FIELDS)) {
+            const f = files[field]?.[0];
+            if (f) mediaItems.push({ buffer: f.buffer, originalName: f.originalname, ...meta });
+        }
+
+        const card = await docs.createFlashcard(norm(docPath), cardData, mediaItems);
+        return res.status(201).json({ ok: true, card });
+    }
+
+    // --- Attach mode (existing card) ---
+    const { flashcardHash, name, type, position } = req.body;
+    const file = files.file?.[0];
+    if (!file || !flashcardHash || !name || !type || !position) {
         return res.status(400).json({ error: 'file, docPath, flashcardHash, name, type, and position required' });
     }
-    await media.addVanillaMedia(norm(docPath), flashcardHash, req.file.buffer, name, type, position);
+    await media.addVanillaMedia(norm(docPath), flashcardHash, file.buffer, name, type, position);
     res.status(201).json({ ok: true });
 }));
 

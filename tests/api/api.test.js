@@ -253,7 +253,7 @@ describe('Flashback API', () => {
 
             const readRes = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(DOC_PATH)}`);
             const { metadata } = await readRes.json();
-            assert.equal(metadata.flashcards[0].vanillaData.media.frontSound, './media/narration.mp3');
+            assert.equal(metadata.flashcards[0].vanillaData.media.front_sound, './media/narration.mp3');
         });
 
         it('POST /api/media/custom → 201, customData reference set', async () => {

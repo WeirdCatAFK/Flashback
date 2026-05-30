@@ -271,9 +271,45 @@ Lists all media files inside a folder's `media/` subdirectory, cross-referenced 
 
 ---
 
+### `GET /api/media/file`
+
+Streams a flashcard media asset by its location relative to the owning document. Vanilla cards store media as `./media/<name>` paths (not hashes), so this is how the renderer resolves them.
+
+| Param | In | Type | Required | Description |
+|---|---|---|---|---|
+| `docPath` | query | string | Yes | Relative path to the document that owns the media. |
+| `name` | query | string | Yes | Media file name (basename only). |
+
+**Response** `200` — streams the file.
+
+**Errors** `400` when `docPath`/`name` missing; `404` when the file is not found on disk.
+
+---
+
 ### `POST /api/media/vanilla`
 
-Attaches an image or audio file to the front or back of a flashcard (vanilla flashcard format). **Multipart form data.**
+Two modes on one endpoint. **Multipart form data** in both cases.
+
+**Create mode** — creates a vanilla flashcard and attaches its media in a single
+call (no client-side "create card → read back hash → upload media" sequencing).
+Triggered when a `card` field is present.
+
+| Field | Type | Required | Description |
+|---|---|---|---|
+| `docPath` | string | Yes | Relative path to the parent document. |
+| `card` | string (JSON) | Yes | The card object (front/back text, tags, category, location, …). Any `globalHash` is ignored — the API assigns it. |
+| `front_img` | file | No | Image for the front. |
+| `back_img` | file | No | Image for the back. |
+| `front_sound` | file | No | Audio for the front. |
+| `back_sound` | file | No | Audio for the back. |
+
+Stored media file names are generated server-side (collision-free in the shared
+`media/` dir); the card's `vanillaData.media` is patched to reference them.
+
+**Response** `201` — `{ ok: true, card }` where `card` is the persisted card including its assigned `globalHash` and media refs.
+
+**Attach mode** — attaches one media file to an already-existing card. Triggered
+when `card` is absent.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
@@ -281,12 +317,12 @@ Attaches an image or audio file to the front or back of a flashcard (vanilla fla
 | `docPath` | string | Yes | Relative path to the parent document. |
 | `flashcardHash` | string | Yes | `globalHash` of the target flashcard. |
 | `name` | string | Yes | File name to store, including extension. |
-| `type` | string | Yes | Slot to attach to: `frontImg`, `backImg`, `frontSound`, or `backSound`. |
-| `position` | string | Yes | Index of the flashcard within the document (as a string). |
+| `type` | string | Yes | `image` or `sound`. |
+| `position` | string | Yes | `front` or `back`. |
 
 **Response** `201` — `{ ok: true }`.
 
-**Errors** `400` all fields required.
+**Errors** `400` — `docPath` missing, `card` is not valid JSON, or (attach mode) a required field is missing.
 
 ---
 

@@ -47,6 +47,25 @@ export default class Media {
     }
 
     /**
+     * Resolves a media asset by its location relative to the owning document.
+     * Vanilla flashcards reference media as `./media/<name>` paths rather than
+     * hashes, so this serves them without a DB lookup. The name is basename-only
+     * to keep the lookup inside the document's own media/ dir.
+     * @param {string} relDocPath - relative path to the document that owns the media
+     * @param {string} name - media file name (e.g. "front-1a2b3c4d.png")
+     * @returns {string} absolute path to the file on disk
+     * @throws if the file is missing
+     */
+    serveByPath(relDocPath, name) {
+        const mediaRel = path.join(path.dirname(relDocPath), 'media', path.basename(name));
+        const absolutePath = this.files.safePath(mediaRel);
+        if (!fs.existsSync(absolutePath)) {
+            throw new Error(`Media file not found: ${mediaRel}`);
+        }
+        return absolutePath;
+    }
+
+    /**
      * Lists all files inside a folder's media/ subdirectory.
      * Cross-references DB entries to include hash info where available.
      * @param {string} folderRelPath - relative path to the parent folder

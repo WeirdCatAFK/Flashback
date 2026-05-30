@@ -645,10 +645,10 @@ _regenerateIdentities(absPath) {
             if (!targetCard.vanillaData) targetCard.vanillaData = {};
             if (!targetCard.vanillaData.media) targetCard.vanillaData.media = {};
 
-            if (type === "sound" && position === "front") targetCard.vanillaData.media.frontSound = `./media/${name}`;
-            if (type === "sound" && position === "back") targetCard.vanillaData.media.backSound = `./media/${name}`;
-            if (type === "image" && position === "front") targetCard.vanillaData.media.frontImg = `./media/${name}`;
-            if (type === "image" && position === "back") targetCard.vanillaData.media.backImg = `./media/${name}`;
+            if (type === "sound" && position === "front") targetCard.vanillaData.media.front_sound = `./media/${name}`;
+            if (type === "sound" && position === "back") targetCard.vanillaData.media.back_sound = `./media/${name}`;
+            if (type === "image" && position === "front") targetCard.vanillaData.media.front_img = `./media/${name}`;
+            if (type === "image" && position === "back") targetCard.vanillaData.media.back_img = `./media/${name}`;
 
             this.writeMetadata(anyPath, metadata, false);
 
@@ -739,7 +739,7 @@ _regenerateIdentities(absPath) {
                         if (Object.keys(card.customData.media).length === 0) delete card.customData.media;
                     }
                     if (card.vanillaData && card.vanillaData.media) {
-                        for (const k of ["frontSound", "backSound", "frontImg", "backImg"]) {
+                        for (const k of ["front_sound", "back_sound", "front_img", "back_img"]) {
                             if (card.vanillaData.media[k] === `./media/${name}`) {
                                 delete card.vanillaData.media[k];
                                 changed = true;

@@ -27,6 +27,10 @@ export const THEME_VARS = [
   { key: '--color-hl-green',       label: 'Highlight 2' },
   { key: '--color-hl-blue',        label: 'Highlight 3' },
   { key: '--color-hl-pink',        label: 'Highlight 4' },
+  // Review grade swatches
+  { key: '--color-review-again',   label: 'Review · Again' },
+  { key: '--color-review-good',    label: 'Review · Good' },
+  { key: '--color-review-easy',    label: 'Review · Easy' },
 ];
 
 export function loadCustomThemes() {

@@ -4,9 +4,21 @@
 //
 // NOTE: A GET /api/srs/due endpoint is needed to fetch cards ready for review.
 // For now this view loads cards from a user-selected document as a stand-in.
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { listFolder, readFile } from '../api/documents';
 import { submitReview } from '../api/srs';
+import { mediaFileSrc } from '../api/media';
+import Flashcard from '../components/shared/Flashcard';
+import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
+import './Trainer.css';
+
+// Anki-style grades. `outcome` is the binary success flag the backend logs; the
+// nuance is encoded in the ease delta and the next Leitner level.
+const GRADES = {
+  again: { label: 'Again', outcome: 0, ease: -0.20, level: () => 0 },
+  good:  { label: 'Good',  outcome: 1, ease:  0.00, level: (l) => l + 1 },
+  easy:  { label: 'Easy',  outcome: 1, ease:  0.15, level: (l) => l + 2 },
+};
 
 function useDocumentFlashcards(filePath) {
   const [cards, setCards] = useState([]);
@@ -26,39 +38,80 @@ function useDocumentFlashcards(filePath) {
   return { cards, loading, error };
 }
 
-function FlashcardReviewer({ card, filePath, onDone }) {
+function FlashcardReviewer({ card, filePath, orientation, onDone }) {
   const [flipped, setFlipped] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const front = card.vanillaData?.frontText ?? card.name ?? card.globalHash;
-  const back = card.vanillaData?.backText ?? '(no back text)';
+  // Presentation is delegated to the shared <Flashcard>; the Trainer keeps only
+  // the evaluation logic. Fall back to name/hash so older cards without
+  // vanillaData text still show something.
+  const displayCard = {
+    ...card,
+    vanillaData: {
+      ...card.vanillaData,
+      frontText: card.vanillaData?.frontText ?? card.name ?? card.globalHash,
+      backText: card.vanillaData?.backText ?? '(no back text)',
+    },
+  };
 
-  const handleOutcome = async (outcome) => {
-    const easeFactor = outcome === 1
-      ? Math.min((card.easeFactor ?? 0.5) + 0.1, 1)
-      : Math.max((card.easeFactor ?? 0.5) - 0.2, 0);
-    const newLevel = outcome === 1 ? (card.level ?? 0) + 1 : 0;
+  const busyRef = useRef(false);
+  const cardRef = useRef(null);
+
+  const handleGrade = async (key) => {
+    if (busyRef.current) return; // guard double swipe / click
+    busyRef.current = true;
+    const g = GRADES[key];
+    const easeFactor = Math.min(1, Math.max(0, (card.easeFactor ?? 0.5) + g.ease));
+    const newLevel = g.level(card.level ?? 0);
 
     setSubmitting(true);
-    await submitReview(filePath, card.globalHash, outcome, easeFactor, newLevel)
+    await submitReview(filePath, card.globalHash, g.outcome, easeFactor, newLevel)
       .catch(console.error);
     setSubmitting(false);
     setFlipped(false);
     onDone();
   };
 
+  // Swipe right → remembered (Good), swipe left → forgot (Again).
+  const handleSwipe = (dir) => handleGrade(dir === 'right' ? 'good' : 'again');
+
+  // Buttons run the same fly-out as a swipe, then grade. Again exits left;
+  // Good/Easy (both positive) exit right.
+  const gradeWithAnimation = (key) => {
+    const dir = key === 'again' ? 'left' : 'right';
+    Promise.resolve(cardRef.current?.flyOut(dir)).then((ok) => {
+      if (ok !== false) handleGrade(key);
+    });
+  };
+
   return (
-    <div>
-      <p><strong>Level {card.level ?? 0}</strong> · {card.category ?? 'uncategorized'}</p>
-      <p>{front}</p>
+    <div className="trainer-reviewer">
+      <p className="trainer-card-meta">
+        <strong>Level {card.level ?? 0}</strong> · {card.category ?? 'uncategorized'}
+      </p>
+      <Flashcard
+        ref={cardRef}
+        card={displayCard}
+        face={flipped ? 'back' : 'front'}
+        onFlip={(next) => setFlipped(next === 'back')}
+        onSwipe={handleSwipe}
+        orientation={orientation}
+        resolveMedia={(ref) => mediaFileSrc(filePath, ref)}
+      />
       {!flipped
-        ? <button onClick={() => setFlipped(true)}>Flip</button>
+        ? <p className="trainer-hint">Click the card to reveal the answer</p>
         : (
-          <div>
-            <p>{back}</p>
-            <button disabled={submitting} onClick={() => handleOutcome(1)}>Got it</button>
-            {' '}
-            <button disabled={submitting} onClick={() => handleOutcome(0)}>Missed it</button>
+          <div className="trainer-grades">
+            {Object.entries(GRADES).map(([key, g]) => (
+              <button
+                key={key}
+                className={`trainer-grade trainer-grade--${key}`}
+                disabled={submitting}
+                onClick={() => gradeWithAnimation(key)}
+              >
+                {g.label}
+              </button>
+            ))}
           </div>
         )
       }
@@ -72,6 +125,7 @@ export default function FlashcardsTrainer() {
   const [cardIndex, setCardIndex] = useState(0);
 
   const { cards, loading, error } = useDocumentFlashcards(selectedFile);
+  const [orientation] = useFlashcardOrientation();
 
   useEffect(() => {
     listFolder('').then(setFolderItems).catch(console.error);
@@ -109,6 +163,7 @@ export default function FlashcardsTrainer() {
           key={currentCard.globalHash}
           card={currentCard}
           filePath={selectedFile}
+          orientation={orientation}
           onDone={handleDone}
         />
       )}

@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import "./Config.css";
+import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
 import { THEMES } from "../themes";
 import {
   THEME_VARS,
@@ -58,6 +59,9 @@ const DARK_DEFAULTS = {
   "--color-hl-green":       "#10B981",
   "--color-hl-blue":        "#3B82F6",
   "--color-hl-pink":        "#EC4899",
+  "--color-review-again":   "#EC4899",
+  "--color-review-good":    "#10B981",
+  "--color-review-easy":    "#3B82F6",
 };
 
 const PREVIEW_THEME = "__fb_preview__";
@@ -387,6 +391,7 @@ export default function ConfigView({
   const { config, setConfig, loading, error } = useConfig();
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
+  const [orientation, setOrientation] = useFlashcardOrientation();
 
   useEffect(() => {
     if (config) setForm({ ...config });
@@ -440,6 +445,29 @@ export default function ConfigView({
           onThemeChange={onThemeChange}
           currentTheme={theme}
         />
+      </section>
+
+      <section className="config-section">
+        <h2 className="config-heading">Flashcards</h2>
+        <table className="config-table">
+          <tbody>
+            <tr>
+              <td>
+                <label htmlFor="flashcard-orientation">Card orientation</label>
+              </td>
+              <td>
+                <select
+                  id="flashcard-orientation"
+                  value={orientation}
+                  onChange={(e) => setOrientation(e.target.value)}
+                >
+                  <option value="landscape">Landscape (4:3)</option>
+                  <option value="portrait">Portrait (3:4)</option>
+                </select>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </section>
 
       <section className="config-section">

@@ -110,10 +110,10 @@ class DocumentQuery {
             frontText = data.vanillaData.frontText || null;
             backText = data.vanillaData.backText || null;
             if (data.vanillaData.media) {
-                fImg = data.vanillaData.media.frontImg || null; 
-                bImg = data.vanillaData.media.backImg || null;
-                fSnd = data.vanillaData.media.frontSound || null; 
-                bSnd = data.vanillaData.media.backSound || null;
+                fImg = data.vanillaData.media.front_img || null;
+                bImg = data.vanillaData.media.back_img || null;
+                fSnd = data.vanillaData.media.front_sound || null;
+                bSnd = data.vanillaData.media.back_sound || null;
             }
         }
 
@@ -188,8 +188,8 @@ class DocumentQuery {
             if (data.vanillaData.media) {
                 contentUpdates.push("front_img = ?", "back_img = ?", "front_sound = ?", "back_sound = ?");
                 params.push(
-                    data.vanillaData.media.frontImg || null, data.vanillaData.media.backImg || null,
-                    data.vanillaData.media.frontSound || null, data.vanillaData.media.backSound || null
+                    data.vanillaData.media.front_img || null, data.vanillaData.media.back_img || null,
+                    data.vanillaData.media.front_sound || null, data.vanillaData.media.back_sound || null
                 );
             }
         }

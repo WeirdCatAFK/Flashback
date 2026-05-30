@@ -1,0 +1,194 @@
+/* Reusable flashcard canvas. All colors reference theme CSS variables. */
+
+.flashcard {
+  --fc-radius: 12px;
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+  perspective: 1400px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+/* Swipe direction badges — fade in as the card is dragged. */
+.flashcard-swipe-hint {
+  position: absolute;
+  top: 14px;
+  z-index: 3;
+  padding: 4px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border: 2px solid;
+  border-radius: 6px;
+  background: var(--color-accent-subtle);
+  color: var(--color-fg-primary);
+  pointer-events: none;
+}
+
+.flashcard-swipe-hint--good {
+  right: 14px;
+  border-color: var(--color-review-good, var(--color-hl-green));
+  transform: rotate(7deg);
+}
+
+.flashcard-swipe-hint--again {
+  left: 14px;
+  border-color: var(--color-review-again, var(--color-hl-pink));
+  transform: rotate(-7deg);
+}
+
+/* Strict aspect ratios keep cards consistent across devices. */
+.flashcard--landscape { aspect-ratio: 4 / 3; }
+.flashcard--portrait  { aspect-ratio: 3 / 4; max-width: 320px; }
+
+.flashcard:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--fc-radius);
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform 480ms cubic-bezier(0.2, 0.7, 0.2, 1);
+  transform-style: preserve-3d;
+}
+
+.flashcard[data-face='back'] .flashcard-inner {
+  transform: rotateY(180deg);
+}
+
+.flashcard-face {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 20px;
+  overflow: hidden;
+  border-radius: var(--fc-radius);
+  background: var(--color-bg-reader);
+  color: var(--color-fg-primary);
+  border: 1px solid var(--color-border);
+  /* Skeuomorphic lift, tinted from the theme border so no color is hardcoded. */
+  box-shadow: 0 10px 26px -14px var(--color-border);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  /* Make the face a size container so text scales to the card, not the viewport. */
+  container-type: size;
+}
+
+.flashcard-face--back {
+  transform: rotateY(180deg);
+}
+
+/* Static variant: single face, no 3D, no flip. */
+.flashcard--static { cursor: default; perspective: none; }
+.flashcard--static .flashcard-inner { transition: none; transform: none; }
+.flashcard--static .flashcard-face {
+  position: relative;
+  transform: none;
+  -webkit-backface-visibility: visible;
+  backface-visibility: visible;
+}
+
+/* Image takes only the space left over by text + button (flex-basis 0), then
+   scales to fit it — so a large image never pushes the text off the card. */
+.flashcard-media {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashcard-media img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+}
+
+.flashcard-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  text-align: center;
+  line-height: 1.4;
+  font-size: clamp(13px, 5cqw, 22px);
+  word-break: break-word;
+}
+
+/* Floats in the bottom-right corner, out of the content flow, so it stays clear
+   of the main flashcard text/image. */
+.flashcard-audio-btn {
+  position: absolute;
+  bottom: 10px;
+  right: 10px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: background 100ms, transform 80ms, opacity 100ms;
+}
+
+.flashcard-audio-btn:hover {
+  background: var(--color-bg-hover);
+  opacity: 1;
+}
+
+.flashcard-audio-btn:active {
+  transform: scale(0.92);
+}
+
+.flashcard-audio-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.flashcard-audio-btn svg {
+  display: block;
+}
+
+/* Custom-card seam (not yet implemented). */
+.flashcard--custom .flashcard-custom-slot {
+  gap: 8px;
+  border-style: dashed;
+  color: var(--color-fg-secondary);
+}
+
+.flashcard-custom-badge {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 3px;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.flashcard-custom-note {
+  font-size: 12px;
+  text-align: center;
+  max-width: 80%;
+}

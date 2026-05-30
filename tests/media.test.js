@@ -137,9 +137,9 @@ describe('Media & Binary Operations', () => {
 
         const meta = docs.files.getMetadata(relPath);
         assert.equal(
-            meta.flashcards[0].vanillaData.media.frontSound,
+            meta.flashcards[0].vanillaData.media.front_sound,
             './media/narration.mp3',
-            "Sidecar should reference the audio file under frontSound"
+            "Sidecar should reference the audio file under front_sound"
         );
     });
 
@@ -161,10 +161,40 @@ describe('Media & Binary Operations', () => {
 
         const meta = docs.files.getMetadata(relPath);
         assert.equal(
-            meta.flashcards[0].vanillaData.media.backImg,
+            meta.flashcards[0].vanillaData.media.back_img,
             './media/back-figure.png',
-            "Sidecar should reference the image under backImg"
+            "Sidecar should reference the image under back_img"
         );
+    });
+
+    it('should create a flashcard with attached media in one call (no client sequencing)', async () => {
+        const docName = "CreateWithMedia.md";
+        const relPath = path.join(TEST_ROOT, docName);
+        await docs.createFile(docName, TEST_ROOT);
+
+        const imgBuffer = Buffer.from("inline-front-image");
+        const expectedHash = crypto.createHash('sha256').update(imgBuffer).digest('hex');
+
+        const card = await docs.createFlashcard(
+            relPath,
+            { vanillaData: { frontText: "Q?", backText: "A." }, tags: ["Inline"], category: "Concept" },
+            [{ buffer: imgBuffer, originalName: "front.png", type: "image", position: "front" }]
+        );
+
+        // Returned card carries an API-assigned hash and the media reference.
+        assert.ok(card.globalHash, "Created card should have an API-assigned globalHash");
+        assert.match(card.vanillaData.media.front_img, /^\.\/media\/front-[0-9a-f]{8}\.png$/, "front_img should reference the generated media name");
+
+        // Media file is on disk under the generated name.
+        const mediaName = card.vanillaData.media.front_img.replace('./media/', '');
+        const mediaPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
+        assert.ok(fs.existsSync(mediaPath), "Generated media file should exist on disk");
+
+        // Derived layer: media + flashcard rows registered.
+        const mediaEntry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
+        assert.ok(mediaEntry, "Media table should have an entry for the attached file");
+        const fcRow = db.prepare('SELECT * FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
+        assert.ok(fcRow, "Flashcard should be synced into the derived layer");
     });
 
     it('should remove a custom media file and clean up all sidecar references', async () => {
@@ -224,7 +254,7 @@ describe('Media Orchestrator', () => {
 
         // Sidecar updated
         const meta = docs.files.getMetadata(relPath);
-        assert.equal(meta.flashcards[0].vanillaData.media.frontSound, `./media/${audioName}`, "Sidecar frontSound should be set");
+        assert.equal(meta.flashcards[0].vanillaData.media.front_sound, `./media/${audioName}`, "Sidecar front_sound should be set");
 
         // DB entry
         const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
@@ -285,7 +315,7 @@ describe('Media Orchestrator', () => {
 
         // Sidecar cleaned
         const meta = docs.files.getMetadata(relPath);
-        assert.ok(!meta.flashcards[0].vanillaData?.media?.frontSound, "Sidecar frontSound reference should be removed");
+        assert.ok(!meta.flashcards[0].vanillaData?.media?.front_sound, "Sidecar front_sound reference should be removed");
 
         // DB entry gone
         const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
