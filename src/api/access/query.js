@@ -102,6 +102,16 @@ class DocumentQuery {
         return this.db.prepare('SELECT id, node_id, global_hash, level, last_recall, content_id FROM Flashcards WHERE document_id = ?').all(documentId);
     }
 
+    getFlashcardCountsByFolder(folderId) {
+        return this.db.prepare(`
+            SELECT d.name, COUNT(fc.id) AS count
+            FROM Documents d
+            LEFT JOIN Flashcards fc ON fc.document_id = d.id
+            WHERE d.folder_id = ?
+            GROUP BY d.id
+        `).all(folderId);
+    }
+
     insertFlashcard(data) {
         let customHtml = data.customData?.html || null;
         let frontText = null, backText = null, fImg = null, bImg = null, fSnd = null, bSnd = null;

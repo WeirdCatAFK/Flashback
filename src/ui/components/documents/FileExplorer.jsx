@@ -78,7 +78,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 // ── File ──────────────────────────────────────────────────────────────────────
 
-function FileNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
+function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState(name);
   const FileIcon = getFileIcon(name);
@@ -149,6 +149,9 @@ function FileNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedPat
           : name
         }
       </span>
+      {flashcardCount > 0 && (
+        <span className="fe-fc-badge">{flashcardCount}</span>
+      )}
     </div>
   );
 }
@@ -332,6 +335,7 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
               : <FileNode   key={item.name} name={item.name} path={childPath(item.name)}
+                  flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   onCtxMenu={onCtxMenu} />
           )}
@@ -481,6 +485,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} onImportProgress={setImporting} />
             : <FileNode   key={item.name} name={item.name} path={item.name}
+                flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 onCtxMenu={openCtxMenu} />
         )}

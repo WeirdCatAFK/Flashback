@@ -29,7 +29,7 @@ router.get(
   "/list",
   catchError((req, res) => {
     const folderPath = norm(req.query.path ?? "");
-    res.json(docs.files.listFolder(folderPath));
+    res.json(docs.listFolder(folderPath));
   }),
 );
 

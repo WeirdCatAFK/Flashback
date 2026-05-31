@@ -159,6 +159,23 @@
   text-overflow: ellipsis;
 }
 
+/* ── Flashcard count badge ───────────────────────────────────────────────── */
+
+.fe-fc-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  padding: 2px 5px;
+  border-radius: 8px;
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+}
+
+.fe-file.fe-selected .fe-fc-badge {
+  background: var(--color-accent);
+  color: var(--color-bg-base);
+}
+
 /* ── Rename input ────────────────────────────────────────────────────────── */
 
 .fe-rename-input {

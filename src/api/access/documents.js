@@ -21,6 +21,23 @@ export default class Documents {
         this.srs = srsService;
     }
 
+    // --- Listing ---
+
+    listFolder(relPath) {
+        const items = this.files.listFolder(relPath);
+        const folder = this.query.getFolderByPath(relPath);
+        if (folder) {
+            const counts = this.query.getFlashcardCountsByFolder(folder.id);
+            const countMap = new Map(counts.map(r => [r.name, r.count]));
+            return items.map(item =>
+                item.type === 'file'
+                    ? { ...item, flashcardCount: countMap.get(item.name) ?? 0 }
+                    : item
+            );
+        }
+        return items;
+    }
+
     // --- Core Operations ---
 
     async createFile(name, relativePath = "") {
