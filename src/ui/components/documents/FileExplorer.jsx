@@ -17,16 +17,34 @@ const sortItems = (items) =>
 // Strip characters Windows forbids in filenames: \ / : * ? " < > |
 const sanitizeName = (s) => s.replace(/[\\/:*?"<>|]/g, '');
 
+// Names reserved by the data model (see DATAMODEL.md): the per-folder `media`
+// asset directory and `.flashback` metadata sidecars are managed automatically
+// and can't be created by hand. Returns an error message, or null if allowed.
+const reservedNameError = (name, type) => {
+  const lower = name.trim().toLowerCase();
+  if (lower === '.flashback' || lower.endsWith('.flashback'))
+    return 'The ".flashback" name is reserved for Flashback metadata and can\'t be created directly.';
+  if (type === 'folder' && lower === 'media')
+    return 'The "media" folder name is reserved for flashcard assets and is managed automatically.';
+  return null;
+};
+
 // ── Inline create input ───────────────────────────────────────────────────────
 
 function InlineCreate({ type, onConfirm, onCancel }) {
   const defaultName = type === 'folder' ? 'New Folder' : 'new_file';
   const [name, setName] = useState(defaultName);
+  const committed = useRef(false); // guard against Enter + onBlur both firing commit
 
   const commit = () => {
+    if (committed.current) return;
     const trimmed = name.trim();
-    if (!trimmed) { onCancel(); return; }
-    onConfirm(type === 'file' ? trimmed.includes('.') ? trimmed : `${trimmed}.md` : trimmed);
+    if (!trimmed) { committed.current = true; onCancel(); return; }
+    const finalName = type === 'file' ? (trimmed.includes('.') ? trimmed : `${trimmed}.md`) : trimmed;
+    const err = reservedNameError(finalName, type);
+    if (err) { committed.current = true; window.alert(err); onCancel(); return; }
+    committed.current = true;
+    onConfirm(finalName);
   };
 
   const handleKey = (e) => {
@@ -83,6 +101,8 @@ function FileNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedPat
     const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
     const base = trimmed.replace(/\.+$/, '');
     const newName = ext && (!trimmed.includes('.') || trimmed.endsWith('.')) ? base + ext : trimmed;
+    const err = reservedNameError(newName, 'file');
+    if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, newName, false);
       onRefresh();
@@ -219,6 +239,8 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
   const commitRename = async () => {
     const trimmed = draft.trim();
     if (!trimmed || trimmed === name) { setDraft(name); setRenaming(false); return; }
+    const err = reservedNameError(trimmed, 'folder');
+    if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, trimmed, true);
       onRefresh();

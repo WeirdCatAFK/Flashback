@@ -328,6 +328,9 @@ _regenerateIdentities(absPath) {
      * @throws {Error} If the folder already exists at the given relative path.
      */
     createFolder(relPath, name) {
+        const lower = name.trim().toLowerCase();
+        if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot create .flashback folders directly');
+        if (lower === 'media') throw new Error('Cannot create a folder named "media"; it is reserved for flashcard assets');
         const folderRel = path.join(relPath, name);
         const folderPath = this.safePath(folderRel);
 
@@ -367,6 +370,9 @@ _regenerateIdentities(absPath) {
      */
     rename(relPath, newName, isFolder = false) {
         // relPath is a path to the item (e.g. "notes/foo.md" or "notes/sub")
+        const lower = newName.trim().toLowerCase();
+        if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot rename to a .flashback name; it is reserved for Flashback metadata');
+        if (isFolder && lower === 'media') throw new Error('Cannot rename a folder to "media"; it is reserved for flashcard assets');
         const oldPath = this.safePath(relPath);
         const dirname = path.dirname(relPath);
         const newRel = path.join(dirname, newName);
@@ -813,7 +819,13 @@ _regenerateIdentities(absPath) {
 
         return fs
             .readdirSync(folderPath)
-            .filter((item) => item !== ".flashback" && !item.endsWith(".flashback") && item !== ".git")
+            .filter((item) => {
+                if (item === ".flashback" || item.endsWith(".flashback") || item === ".git") return false;
+                // The per-folder `media` asset directory is managed automatically and
+                // hidden from the explorer (see DATAMODEL.md → Media Organization).
+                if (item === "media" && fs.lstatSync(path.join(folderPath, item)).isDirectory()) return false;
+                return true;
+            })
             .map((item) => {
                 const itemPath = path.join(folderPath, item);
                 const isDir = fs.lstatSync(itemPath).isDirectory();
