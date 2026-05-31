@@ -63,6 +63,12 @@ const DARK_DEFAULTS = {
   "--color-review-again":   "#EC4899",
   "--color-review-good":    "#10B981",
   "--color-review-easy":    "#3B82F6",
+  "--color-graph-document":  "#F59E0B",
+  "--color-graph-folder":    "#A8A29E",
+  "--color-graph-flashcard": "#F59E0B",
+  "--color-graph-tag":       "#10B981",
+  "--color-graph-disconnect":"#EC4899",
+  "--color-graph-inherit":   "#3B82F6",
 };
 
 const PREVIEW_THEME = "__fb_preview__";

@@ -121,17 +121,17 @@ export default function GraphView({ isActive = false }) {
 
   const colors = useMemo(() => ({
     nodes: {
-      Document:  getCSSVar('--color-accent'),
-      Folder:    getCSSVar('--color-fg-secondary'),
-      Flashcard: getCSSVar('--color-hl-amber'),
-      Tag:       getCSSVar('--color-hl-green'),
+      Document:  getCSSVar('--color-graph-document'),
+      Folder:    getCSSVar('--color-graph-folder'),
+      Flashcard: getCSSVar('--color-graph-flashcard'),
+      Tag:       getCSSVar('--color-graph-tag'),
     },
     links: {
-      connection:    getCSSVar('--color-fg-secondary'),
-      disconnection: getCSSVar('--color-review-again'),
-      inheritance:   getCSSVar('--color-review-easy'),
-      tag:           getCSSVar('--color-hl-green'),
-      reference:     getCSSVar('--color-hl-amber'),
+      connection:    getCSSVar('--color-graph-folder'),
+      disconnection: getCSSVar('--color-graph-disconnect'),
+      inheritance:   getCSSVar('--color-graph-inherit'),
+      tag:           getCSSVar('--color-graph-tag'),
+      reference:     getCSSVar('--color-graph-flashcard'),
     },
     bg:    getCSSVar('--color-bg-base'),
     label: getCSSVar('--color-fg-secondary'),

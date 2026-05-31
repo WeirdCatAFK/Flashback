@@ -31,6 +31,13 @@ export const THEME_VARS = [
   { key: '--color-review-again',   label: 'Review · Again' },
   { key: '--color-review-good',    label: 'Review · Good' },
   { key: '--color-review-easy',    label: 'Review · Easy' },
+  // Graph node & link colors
+  { key: '--color-graph-document',  label: 'Graph · Document' },
+  { key: '--color-graph-folder',    label: 'Graph · Folder' },
+  { key: '--color-graph-flashcard', label: 'Graph · Flashcard' },
+  { key: '--color-graph-tag',       label: 'Graph · Tag' },
+  { key: '--color-graph-disconnect',label: 'Graph · Disconnect' },
+  { key: '--color-graph-inherit',   label: 'Graph · Inherit' },
 ];
 
 export function loadCustomThemes() {

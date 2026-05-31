@@ -29,6 +29,13 @@
   --color-review-again:   #FCA5A5;
   --color-review-good:    #86EFAC;
   --color-review-easy:    #93C5FD;
+  /* graph node & link colors (override individually per theme if desired) */
+  --color-graph-document:   var(--color-accent);
+  --color-graph-folder:     var(--color-fg-secondary);
+  --color-graph-flashcard:  var(--color-hl-amber);
+  --color-graph-tag:        var(--color-hl-green);
+  --color-graph-disconnect: var(--color-review-again);
+  --color-graph-inherit:    var(--color-review-easy);
 }
 
 [data-theme="dark-workbench"] {
