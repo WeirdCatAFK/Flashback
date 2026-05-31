@@ -487,8 +487,9 @@ class DocumentQuery {
 
     getGraphData() {
         const nodes = this.db.prepare(`
-            SELECT n.id, nt.name as type, 
-                   COALESCE(d.name, f.name, t.name, fc.name) as label
+            SELECT n.id, nt.name as type,
+                   COALESCE(d.name, f.name, t.name, fc.name) as label,
+                   COALESCE(d.presence, f.presence, fc.presence, 0) as presence
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
             LEFT JOIN Documents d ON d.node_id = n.id
@@ -503,6 +504,12 @@ class DocumentQuery {
             JOIN Nodes source ON c.origin_id = source.id
             JOIN Nodes target ON c.destiny_id = target.id
             JOIN ConnectionTypes ct ON c.type_id = ct.id
+
+            UNION ALL
+
+            SELECT fc.node_id as fromId, d.node_id as toId, 'reference' as relation
+            FROM Flashcards fc
+            JOIN Documents d ON fc.document_id = d.id
         `).all();
 
         return { nodes, edges };

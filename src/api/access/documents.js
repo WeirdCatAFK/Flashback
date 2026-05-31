@@ -582,11 +582,13 @@ export default class Documents {
                     fileIndex: index,
                     contentId: match.content_id
                 });
+                if (Array.isArray(fcData.tags)) this._syncTags(match.node_id, fcData.tags);
             } else {
                 const nodeId = this.query.createNode('Flashcard');
                 this.query.insertFlashcard({
                     ...fcData, nodeId, documentId, fileIndex: index
                 });
+                if (Array.isArray(fcData.tags)) this._syncTags(nodeId, fcData.tags);
             }
         });
 

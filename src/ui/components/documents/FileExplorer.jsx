@@ -186,7 +186,6 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
   const toggle = () => {
     if (!open) loadChildren();
     toggleOpen(path);
-    onSelect?.(path);
   };
 
   const refresh = () => { if (open) loadChildren(); onRefresh(); };

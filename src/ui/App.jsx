@@ -105,7 +105,7 @@ export default function App() {
     switch (view) {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
       case "flashcards": return <FlashcardsView />;
-      case "graph":      return <GraphView />;
+      case "graph":      return <GraphView isActive={activeView === 'graph'} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} />;
       case "seal":       return <SealView />;
       case "config":     return (

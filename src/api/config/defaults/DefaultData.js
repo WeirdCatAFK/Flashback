@@ -20,5 +20,4 @@ export const pedagogicalCategories = [
   { name: "Concept", priority: 1, description: "An abstract idea" },
   { name: "Example", priority: 1, description: "Examples of usage" },
   { name: "Exercise", priority: 2, description: "Apply knowledge in a practical task or problem" },
-  { name: "Procedure", priority: 2, description: "Execute a method or algorithm step by step" },
 ];
