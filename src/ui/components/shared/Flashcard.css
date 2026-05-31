@@ -12,35 +12,6 @@
   touch-action: pan-y;
 }
 
-/* Swipe direction badges — fade in as the card is dragged. */
-.flashcard-swipe-hint {
-  position: absolute;
-  top: 14px;
-  z-index: 3;
-  padding: 4px 12px;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
-  border: 2px solid;
-  border-radius: 6px;
-  background: var(--color-accent-subtle);
-  color: var(--color-fg-primary);
-  pointer-events: none;
-}
-
-.flashcard-swipe-hint--good {
-  right: 14px;
-  border-color: var(--color-review-good, var(--color-hl-green));
-  transform: rotate(7deg);
-}
-
-.flashcard-swipe-hint--again {
-  left: 14px;
-  border-color: var(--color-review-again, var(--color-hl-pink));
-  transform: rotate(-7deg);
-}
-
 /* Strict aspect ratios keep cards consistent across devices. */
 .flashcard--landscape { aspect-ratio: 4 / 3; }
 .flashcard--portrait  { aspect-ratio: 3 / 4; max-width: 320px; }

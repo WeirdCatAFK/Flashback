@@ -1,0 +1,137 @@
+/* Skeuomorphic open box, built entirely from theme variables so it fits every
+   theme. Depth comes from layered panels, inset shading and drop shadow; the
+   "cardboard" reading comes from the open flaps and trapezoid front. */
+
+.leitner-box {
+  --lb-w: 104px;
+  --tone: var(--color-review-good, var(--color-hl-green));
+  position: relative;
+  width: var(--lb-w);
+  height: 96px;
+  flex-shrink: 0;
+  filter: drop-shadow(0 10px 10px var(--color-border));
+}
+
+.leitner-box--again { --tone: var(--color-review-again, var(--color-hl-pink)); }
+.leitner-box--good  { --tone: var(--color-review-good,  var(--color-hl-green)); }
+
+/* Inner back wall (the opening). */
+.leitner-box-back {
+  position: absolute;
+  left: 14%;
+  right: 14%;
+  top: 14px;
+  height: 34px;
+  border: 1px solid var(--color-border);
+  border-bottom: none;
+  border-radius: 3px 3px 0 0;
+  background: linear-gradient(var(--color-bg-base), var(--color-bg-hover));
+}
+
+/* Front panel — slightly trapezoid for perspective. */
+.leitner-box-body {
+  position: absolute;
+  left: 4%;
+  right: 4%;
+  bottom: 0;
+  top: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  background: linear-gradient(var(--color-bg-surface), var(--color-bg-hover));
+  clip-path: polygon(7% 0, 93% 0, 100% 100%, 0 100%);
+  box-shadow: inset 0 -8px 12px -8px var(--color-border);
+}
+
+.leitner-box-label {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--color-fg-secondary);
+}
+
+/* Open lid flaps. */
+.leitner-box-flap {
+  position: absolute;
+  top: 2px;
+  width: 42%;
+  height: 30px;
+  border: 1px solid var(--color-border);
+  background: linear-gradient(var(--color-bg-hover), var(--color-bg-surface));
+  transform-origin: bottom center;
+  will-change: transform;
+}
+
+.leitner-box-flap--l {
+  left: 6%;
+  border-radius: 4px 0 0 0;
+  transform: perspective(140px) rotateX(46deg) skewX(10deg);
+}
+
+.leitner-box-flap--r {
+  right: 6%;
+  border-radius: 0 4px 0 0;
+  transform: perspective(140px) rotateX(46deg) skewX(-10deg);
+}
+
+/* Tone-colored glow that flashes on receive. */
+.leitner-box-glow {
+  position: absolute;
+  inset: -8px -8px -4px;
+  border-radius: 10px;
+  background: radial-gradient(circle at 50% 65%, var(--tone), transparent 68%);
+  opacity: 0;
+  pointer-events: none;
+}
+
+.leitner-box-caption {
+  position: absolute;
+  bottom: -18px;
+  left: 0;
+  right: 0;
+  text-align: center;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+/* ── Receive reaction ─────────────────────────────────────────────────────── */
+
+.leitner-box--receiving .leitner-box-body  { animation: lb-bounce 620ms cubic-bezier(.3, 1.4, .5, 1); }
+.leitner-box--receiving .leitner-box-glow  { animation: lb-glow 620ms ease-out; }
+.leitner-box--receiving .leitner-box-flap--l { animation: lb-flap-l 620ms ease; }
+.leitner-box--receiving .leitner-box-flap--r { animation: lb-flap-r 620ms ease; }
+
+@keyframes lb-bounce {
+  0%, 100% { transform: scale(1); }
+  35%      { transform: scale(1.08, 0.92); }
+  60%      { transform: scale(0.97, 1.03); }
+}
+
+@keyframes lb-glow {
+  0%   { opacity: 0; }
+  35%  { opacity: 0.75; }
+  100% { opacity: 0; }
+}
+
+@keyframes lb-flap-l {
+  0%, 100% { transform: perspective(140px) rotateX(46deg) skewX(10deg); }
+  40%      { transform: perspective(140px) rotateX(68deg) skewX(10deg); }
+}
+
+@keyframes lb-flap-r {
+  0%, 100% { transform: perspective(140px) rotateX(46deg) skewX(-10deg); }
+  40%      { transform: perspective(140px) rotateX(68deg) skewX(-10deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .leitner-box--receiving .leitner-box-body,
+  .leitner-box--receiving .leitner-box-glow,
+  .leitner-box--receiving .leitner-box-flap--l,
+  .leitner-box--receiving .leitner-box-flap--r {
+    animation: none;
+  }
+}

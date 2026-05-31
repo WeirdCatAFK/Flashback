@@ -11,13 +11,13 @@ import './Flashcard.css';
 // slot — the seam for a future renderer, not in scope yet.
 //
 // Audio behaviour (full variant): the active face's sound plays automatically
-// whenever that face is presented — on first show and on every flip — and a
-// styled replay button stays available. The hidden-away face is paused/reset so
-// the two sides never overlap.
+// whenever that face is presented and a styled replay button stays available.
 //
 // Swipe (opt-in via `onSwipe`, only once the answer is revealed — face 'back'):
-// drag the card horizontally; past a threshold it flies off and fires
-// onSwipe('right' | 'left'). The parent maps that to a grade.
+// drag the card horizontally; past a threshold it flies and fires
+// onSwipe('right' | 'left'). The exit is outcome-driven — right/'accept' ascends
+// off the top, left/'reject' shakes and drops back into the deck. `flyOut(kind)`
+// exposes the same flight imperatively for the grade buttons.
 
 const SWIPE_THRESHOLD = 90;
 
@@ -95,6 +95,7 @@ const Flashcard = forwardRef(function Flashcard({
   resolveMedia,              // (ref) => url; defaults to identity (e.g. object URLs)
   className = '',
 }, ref) {
+  const rootRef = useRef(null);
   const frontAudioRef = useRef(null);
   const backAudioRef = useRef(null);
   const isStatic = variant === 'static';
@@ -108,17 +109,48 @@ const Flashcard = forwardRef(function Flashcard({
   const suppressClickRef = useRef(false);
   const startXRef = useRef(0);
 
-  // The shared fly-out: drives the card off-screen in `dir` and resolves once
-  // (true) when committed, or false if a fly-out is already in flight. Both a
-  // pointer swipe and a programmatic button press (via the imperative handle)
-  // funnel through here so the animation is identical.
-  const flyOut = useCallback((dir) => new Promise((resolve) => {
+  // The shared flight, driven by the outcome:
+  //   'accept' → the card lifts, swells, then ascends off the top and fades.
+  //   'reject' → a quick shake, then it drops back down into the deck (stack).
+  // Resolves once (true) when committed, or false if already in flight.
+  const runFlyOut = useCallback((kind) => new Promise((resolve) => {
     if (committedRef.current) { resolve(false); return; }
     committedRef.current = true;
-    setDrag(dir === 'right' ? 700 : -700);
-    window.setTimeout(() => resolve(true), 200);
-  }), []);
+    const el = rootRef.current;
+    if (!el) { resolve(true); return; }
 
+    const start = drag; // where the drag left the card
+    let frames;
+    let duration;
+    if (kind === 'accept') {
+      const tilt = start >= 0 ? 8 : -8;
+      frames = [
+        { transform: `translate(${start}px, 0) scale(1) rotate(${start * 0.04}deg)`, opacity: 1 },
+        { transform: `translate(${start * 0.6}px, -44px) scale(1.06) rotate(${start * 0.02}deg)`, opacity: 1, offset: 0.32 },
+        { transform: `translate(${start * 0.4}px, -480px) scale(0.7) rotate(${tilt}deg)`, opacity: 0 },
+      ];
+      duration = 460;
+    } else {
+      frames = [
+        { transform: `translate(${start}px, 0) rotate(${start * 0.05}deg)`, opacity: 1 },
+        { transform: `translate(${start * 0.4 - 16}px, 2px) rotate(-4deg)`, opacity: 1, offset: 0.18 },
+        { transform: 'translate(16px, 4px) rotate(4deg)', opacity: 1, offset: 0.40 },
+        { transform: 'translate(-8px, 6px) rotate(-2deg)', opacity: 1, offset: 0.60 },
+        { transform: 'translate(0px, 26px) scale(0.9) rotate(0deg)', opacity: 0.12 },
+      ];
+      duration = 520;
+    }
+
+    const anim = el.animate(frames, { duration, easing: 'cubic-bezier(.45, 0, .55, 1)', fill: 'forwards' });
+    const done = () => resolve(true);
+    anim.onfinish = done;
+    anim.oncancel = done;
+  }), [drag]);
+
+  // Stable imperative handle that always calls the latest runFlyOut.
+  const runFlyOutRef = useRef(runFlyOut);
+  runFlyOutRef.current = runFlyOut;
+  const flyOut = useCallback((kind) => runFlyOutRef.current(kind), []);
   useImperativeHandle(ref, () => ({ flyOut }), [flyOut]);
 
   // Auto-play the audio of whichever face is now showing; pause/reset the other.
@@ -135,7 +167,7 @@ const Flashcard = forwardRef(function Flashcard({
     return <CustomCardSlot orientation={orientation} className={className} />;
   }
 
-  const resolve = resolveMedia ?? ((ref) => ref);
+  const resolve = resolveMedia ?? ((ref2) => ref2);
   const v = card?.vanillaData ?? {};
   const media = v.media ?? {};
 
@@ -154,7 +186,6 @@ const Flashcard = forwardRef(function Flashcard({
     );
   }
 
-  // Swipe-to-grade is only live once the answer is revealed.
   const swipeEnabled = !!onSwipe && face === 'back';
 
   const flip = () => onFlip?.(face === 'front' ? 'back' : 'front');
@@ -196,9 +227,9 @@ const Flashcard = forwardRef(function Flashcard({
     const dx = e.clientX - startXRef.current;
     if (Math.abs(dx) >= SWIPE_THRESHOLD) {
       const dir = dx > 0 ? 'right' : 'left';
-      flyOut(dir).then((ok) => { if (ok) onSwipe(dir); });
+      runFlyOut(dir === 'right' ? 'accept' : 'reject').then((ok) => { if (ok) onSwipe(dir); });
     } else {
-      setDrag(0);                              // snap back
+      setDrag(0); // snap back
     }
   };
 
@@ -212,6 +243,7 @@ const Flashcard = forwardRef(function Flashcard({
 
   return (
     <div
+      ref={rootRef}
       className={`flashcard flashcard--${orientation} ${className}`}
       data-face={face}
       role="button"
@@ -225,14 +257,6 @@ const Flashcard = forwardRef(function Flashcard({
       onPointerUp={onPointerEnd}
       onPointerCancel={onPointerEnd}
     >
-      {swipeEnabled && dragging && (
-        <>
-          <span className="flashcard-swipe-hint flashcard-swipe-hint--good"
-            style={{ opacity: Math.max(0, Math.min(drag / SWIPE_THRESHOLD, 1)) }}>Good</span>
-          <span className="flashcard-swipe-hint flashcard-swipe-hint--again"
-            style={{ opacity: Math.max(0, Math.min(-drag / SWIPE_THRESHOLD, 1)) }}>Again</span>
-        </>
-      )}
       <div className="flashcard-inner">
         {front}
         {back}

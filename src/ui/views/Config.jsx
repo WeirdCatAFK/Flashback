@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import "./Config.css";
 import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
+import KeybindingsEditor from "../components/KeybindingsEditor";
 import { THEMES } from "../themes";
 import {
   THEME_VARS,
@@ -468,6 +469,10 @@ export default function ConfigView({
             </tr>
           </tbody>
         </table>
+      </section>
+
+      <section className="config-section">
+        <KeybindingsEditor />
       </section>
 
       <section className="config-section">
