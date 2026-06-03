@@ -26,16 +26,22 @@ export default class Documents {
     listFolder(relPath) {
         const items = this.files.listFolder(relPath);
         const folder = this.query.getFolderByPath(relPath);
+
+        let fileCountMap = new Map();
         if (folder) {
             const counts = this.query.getFlashcardCountsByFolder(folder.id);
-            const countMap = new Map(counts.map(r => [r.name, r.count]));
-            return items.map(item =>
-                item.type === 'file'
-                    ? { ...item, flashcardCount: countMap.get(item.name) ?? 0 }
-                    : item
-            );
+            fileCountMap = new Map(counts.map(r => [r.name, r.count]));
         }
-        return items;
+
+        return items.map(item => {
+            if (item.type === 'file') {
+                return { ...item, flashcardCount: fileCountMap.get(item.name) ?? 0 };
+            }
+            const childRelPath = path.join(relPath, item.name);
+            const childFolder = this.query.getFolderByPath(childRelPath);
+            const count = childFolder ? this.query.getFlashcardCountInFolderTree(childFolder.id) : 0;
+            return { ...item, flashcardCount: count };
+        });
     }
 
     // --- Core Operations ---

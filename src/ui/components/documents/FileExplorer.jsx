@@ -158,7 +158,7 @@ function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubl
 
 // ── Folder ────────────────────────────────────────────────────────────────────
 
-function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
+function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
@@ -317,6 +317,9 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
             : name
           }
         </span>
+        {flashcardCount > 0 && (
+          <span className="fe-fc-badge">{flashcardCount}</span>
+        )}
       </div>
 
       {open && (
@@ -332,6 +335,7 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
           {!loading && children.map(item =>
             item.type === 'folder'
               ? <FolderNode key={item.name} name={item.name} path={childPath(item.name)}
+                  flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
@@ -486,6 +490,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         {!loading && items.map(item =>
           item.type === 'folder'
             ? <FolderNode key={item.name} name={item.name} path={item.name}
+                flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} onImportProgress={setImporting} />

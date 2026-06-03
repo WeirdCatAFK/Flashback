@@ -112,6 +112,21 @@ class DocumentQuery {
         `).all(folderId);
     }
 
+    getFlashcardCountInFolderTree(folderId) {
+        return this.db.prepare(`
+            WITH RECURSIVE folder_tree AS (
+                SELECT id FROM Folders WHERE id = ?
+                UNION ALL
+                SELECT fo.id FROM Folders fo
+                JOIN folder_tree ft ON fo.parent_id = ft.id
+            )
+            SELECT COUNT(fc.id) AS count
+            FROM Documents d
+            JOIN folder_tree ft ON d.folder_id = ft.id
+            LEFT JOIN Flashcards fc ON fc.document_id = d.id
+        `).get(folderId).count;
+    }
+
     insertFlashcard(data) {
         let customHtml = data.customData?.html || null;
         let frontText = null, backText = null, fImg = null, bImg = null, fSnd = null, bSnd = null;
