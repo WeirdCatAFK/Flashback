@@ -262,6 +262,7 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
     e.stopPropagation();
     onCtxMenu(e, {
       isFolder: true,
+      folderPath: path,
       triggerRename: () => setRenaming(true),
       doDelete: async () => { await deleteItem(path, true); onRefresh(); },
       doNewFile: async () => {
@@ -347,7 +348,7 @@ function FolderNode({ name, path, onRefresh, onSelect, onDoubleSelect, selectedP
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
-export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths }) {
+export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
   const [items, setItems]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [dragOver, setDragOver] = useState(false);
@@ -429,6 +430,10 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   };
 
   const ctxItems = ctxMenu ? [
+    ...(ctxMenu.isFolder ? [
+      { label: 'Study folder', action: () => onStudyFolder?.(ctxMenu.folderPath) },
+      { separator: true },
+    ] : []),
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
       { label: 'New File',   action: ctxMenu.doNewFile   },
       { label: 'New Folder', action: ctxMenu.doNewFolder },

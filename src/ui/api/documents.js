@@ -1,6 +1,7 @@
 import { request, upload, uploadWithProgress } from './client.js';
 
 export const listFolder    = (path = '')          => request('GET', `/api/documents/list?path=${encodeURIComponent(path)}`);
+export const getTags       = ()                   => request('GET', '/api/documents/tags');
 export const searchDocs    = (q)                  => request('GET', `/api/documents/search?q=${encodeURIComponent(q)}`);
 export const getGraph      = ()                   => request('GET', '/api/documents/graph');
 

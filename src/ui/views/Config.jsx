@@ -387,6 +387,29 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
   );
 }
 
+// ── SRS study preferences (stored in localStorage) ───────────────────────────
+
+function useSrsPrefs() {
+  const [algorithm, setAlgorithmState] = useState(
+    () => localStorage.getItem('fb-srs-algorithm') ?? 'leitner',
+  );
+  const [maxNew, setMaxNewState] = useState(
+    () => parseInt(localStorage.getItem('fb-srs-max-new') ?? '20', 10),
+  );
+
+  const setAlgorithm = (v) => {
+    localStorage.setItem('fb-srs-algorithm', v);
+    setAlgorithmState(v);
+  };
+  const setMaxNew = (v) => {
+    const n = Math.max(0, Math.min(200, Number(v) || 0));
+    localStorage.setItem('fb-srs-max-new', String(n));
+    setMaxNewState(n);
+  };
+
+  return { algorithm, setAlgorithm, maxNew, setMaxNew };
+}
+
 // ── Main Config view ──────────────────────────────────────────────────────────
 
 export default function ConfigView({
@@ -399,6 +422,7 @@ export default function ConfigView({
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
   const [orientation, setOrientation] = useFlashcardOrientation();
+  const { algorithm, setAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
 
   useEffect(() => {
     if (config) setForm({ ...config });
@@ -471,6 +495,36 @@ export default function ConfigView({
                   <option value="landscape">Landscape (4:3)</option>
                   <option value="portrait">Portrait (3:4)</option>
                 </select>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <label htmlFor="srs-algorithm">SRS algorithm</label>
+              </td>
+              <td>
+                <select
+                  id="srs-algorithm"
+                  value={algorithm}
+                  onChange={(e) => setAlgorithm(e.target.value)}
+                >
+                  <option value="leitner">Leitner (doubles each level)</option>
+                  <option value="sm2">SM-2 (ease factor)</option>
+                </select>
+              </td>
+            </tr>
+            <tr>
+              <td>
+                <label htmlFor="srs-max-new">New cards per day</label>
+              </td>
+              <td>
+                <input
+                  id="srs-max-new"
+                  type="number"
+                  min={0}
+                  max={200}
+                  value={maxNew}
+                  onChange={(e) => setMaxNew(e.target.value)}
+                />
               </td>
             </tr>
           </tbody>

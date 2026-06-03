@@ -1,12 +1,7 @@
-// The flashcard trainer is the core gameplay mechanic of flashback. It is where the user will spend its time daily.
-// Most of the focus on the design would be focused on rendering default flashcards on a way that is satisfying to the user
-// Not sure on the implementation but there needs to be a pre-rendering phase to fetch all flashcards
-//
-// NOTE: A GET /api/srs/due endpoint is needed to fetch cards ready for review.
-// For now this view loads cards from a user-selected document as a stand-in.
-import { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { listFolder, readFile } from '../api/documents';
-import { submitReview } from '../api/srs';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
+import { submitReview, getDue } from '../api/srs';
+import { getTags } from '../api/documents';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
 import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
@@ -27,22 +22,59 @@ const GRADES = {
 
 const MAX_DECK = 5; // how many cards we draw behind the live one
 
-function useDocumentFlashcards(filePath) {
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(false);
+function mapApiCard(raw, isNew = false) {
+  return {
+    globalHash: raw.global_hash,
+    name: raw.name,
+    level: raw.level ?? 0,
+    easeFactor: 0.5,
+    lastRecall: raw.last_recall,
+    category: raw.category,
+    documentPath: raw.document_path,
+    isNew,
+    vanillaData: {
+      frontText: raw.frontText,
+      backText: raw.backText,
+      media: {
+        front_img: raw.front_img,
+        back_img: raw.back_img,
+        front_sound: raw.front_sound,
+        back_sound: raw.back_sound,
+      },
+    },
+    ...(raw.custom_html ? { customData: { html: raw.custom_html } } : {}),
+  };
+}
+
+function useDueCards({ folder, tags }) {
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Stringify tags so the effect only re-runs when the set of tags actually changes.
+  const tagsKey = tags ? tags.slice().sort().join(',') : '';
+
   useEffect(() => {
-    if (!filePath) { setCards([]); return; }
     setLoading(true);
+    setResult(null);
     setError(null);
-    readFile(filePath)
-      .then(data => setCards(data.metadata?.flashcards ?? []))
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+    const stored = localStorage.getItem('fb-srs-max-new');
+    const maxNew = stored != null ? parseInt(stored, 10) : undefined;
+    getDue({ algorithm, maxNew, folder, tags: tags?.length ? tags : undefined })
+      .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [filePath]);
+  }, [folder, tagsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { cards, loading, error };
+  const cards = useMemo(() =>
+    result
+      ? [...result.due.map(c => mapApiCard(c, false)), ...result.new.map(c => mapApiCard(c, true))]
+      : [],
+    [result]
+  );
+
+  return { cards, result, loading, error };
 }
 
 // The reducing stack behind the live card: one faint card-back per remaining
@@ -74,7 +106,131 @@ function GradePop({ pop, top }) {
   );
 }
 
-function FlashcardReviewer({ card, filePath, orientation, remaining, isActive, stageRef, onResult }) {
+function TagInput({ selected = [], onApply }) {
+  const [value, setValue] = useState('');
+  const [allTags, setAllTags] = useState([]);
+  const [focused, setFocused] = useState(false);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0, width: 0 });
+  const containerRef = useRef(null);
+  const inputRef = useRef(null);
+  const dropRef = useRef(null);
+
+  useEffect(() => {
+    getTags().then(d => setAllTags(d.tags ?? [])).catch(console.error);
+  }, []);
+
+  const suggestions = value.trim()
+    ? allTags.filter(t =>
+        t.toLowerCase().includes(value.toLowerCase()) && !selected.includes(t)
+      ).slice(0, 8)
+    : [];
+
+  const updateDropPos = () => {
+    if (containerRef.current) {
+      const r = containerRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left, width: r.width });
+    }
+  };
+
+  const add = (tag) => {
+    const t = tag.trim();
+    if (!t || selected.includes(t) || !allTags.includes(t)) return;
+    setValue('');
+    onApply([...selected, t]);
+    inputRef.current?.focus();
+  };
+
+  const remove = (tag) => {
+    const next = selected.filter(t => t !== tag);
+    onApply(next.length > 0 ? next : null);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter' && suggestions[0]) {
+      e.preventDefault();
+      add(suggestions[0]);
+    }
+    if (e.key === 'Backspace' && !value && selected.length > 0) {
+      remove(selected[selected.length - 1]);
+    }
+    if (e.key === 'Escape') {
+      setValue('');
+      inputRef.current?.blur();
+    }
+  };
+
+  useEffect(() => {
+    if (!focused) return;
+    const onDown = (e) => {
+      if (!containerRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setFocused(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [focused]);
+
+  const showDrop = focused && suggestions.length > 0;
+
+  return (
+    <div
+      ref={containerRef}
+      className={`tag-input${focused ? ' tag-input--focused' : ''}`}
+      onClick={() => inputRef.current?.focus()}
+    >
+      {selected.map(t => (
+        <span key={t} className="tag-input-chip">
+          {t}
+          <button
+            className="tag-input-chip-remove"
+            onMouseDown={e => { e.preventDefault(); remove(t); }}
+          >×</button>
+        </span>
+      ))}
+      <input
+        ref={inputRef}
+        className="tag-input-field"
+        value={value}
+        placeholder={selected.length === 0 ? 'Filter by tag…' : ''}
+        onChange={e => { setValue(e.target.value); updateDropPos(); }}
+        onFocus={() => { updateDropPos(); setFocused(true); }}
+        onKeyDown={handleKeyDown}
+      />
+      {showDrop && createPortal(
+        <div
+          ref={dropRef}
+          className="tag-input-dropdown"
+          style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
+        >
+          {suggestions.map(t => (
+            <button
+              key={t}
+              className="tag-input-suggestion"
+              onMouseDown={e => { e.preventDefault(); add(t); }}
+            >
+              {highlightMatch(t, value)}
+            </button>
+          ))}
+        </div>,
+        document.body
+      )}
+    </div>
+  );
+}
+
+function highlightMatch(tag, query) {
+  if (!query.trim()) return tag;
+  const idx = tag.toLowerCase().indexOf(query.toLowerCase());
+  if (idx === -1) return tag;
+  return (
+    <>
+      {tag.slice(0, idx)}
+      <mark className="tag-match">{tag.slice(idx, idx + query.length)}</mark>
+      {tag.slice(idx + query.length)}
+    </>
+  );
+}
+
+function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult }) {
   const [flipped, setFlipped] = useState(false);
   const keymap = useKeybindings();
 
@@ -103,7 +259,7 @@ function FlashcardReviewer({ card, filePath, orientation, remaining, isActive, s
     const fromLevel = card.level ?? 0;
     const toLevel = g.level(fromLevel);
 
-    submitReview(filePath, card.globalHash, g.outcome, easeFactor, toLevel).catch(console.error);
+    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel).catch(console.error);
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
@@ -144,7 +300,7 @@ function FlashcardReviewer({ card, filePath, orientation, remaining, isActive, s
   return (
     <div className="trainer-reviewer">
       <p className="trainer-card-meta">
-        <strong>Level {card.level ?? 0}</strong> · {card.category ?? 'uncategorized'}
+        <strong>Level {card.level ?? 0}</strong> · {card.category ?? 'uncategorized'}{card.isNew ? ' · New' : ''}
       </p>
       <div className="card-stage" ref={stageRef}>
         <CardDeck remaining={remaining} />
@@ -155,7 +311,7 @@ function FlashcardReviewer({ card, filePath, orientation, remaining, isActive, s
           onFlip={(next) => setFlipped(next === 'back')}
           onSwipe={handleSwipe}
           orientation={orientation}
-          resolveMedia={(ref) => mediaFileSrc(filePath, ref)}
+          resolveMedia={(ref) => mediaFileSrc(card.documentPath, ref)}
         />
       </div>
       {!flipped
@@ -180,11 +336,22 @@ function FlashcardReviewer({ card, filePath, orientation, remaining, isActive, s
   );
 }
 
-export default function FlashcardsTrainer({ isActive }) {
-  const [folderItems, setFolderItems] = useState([]);
-  const [selectedFile, setSelectedFile] = useState(null);
+export default function FlashcardsTrainer({ isActive, studySession }) {
+  const [appliedScope, setAppliedScope] = useState({
+    folder: studySession?.folder ?? null,
+    tags: null,
+  });
 
-  const { cards, loading, error } = useDocumentFlashcards(selectedFile);
+  // When a study session is launched from the file explorer, reset scope.
+  useEffect(() => {
+    setAppliedScope({ folder: studySession?.folder ?? null, tags: null });
+  }, [studySession]);
+
+  const clearFolder = () => setAppliedScope(s => ({ ...s, folder: null }));
+  const clearTags   = () => setAppliedScope(s => ({ ...s, tags: null }));
+  const applyTags   = (tags) => setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null }));
+
+  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, tags: appliedScope.tags });
   const [orientation] = useFlashcardOrientation();
 
   // Session queue: the front card is live, fails go to the back, passes leave.
@@ -207,10 +374,6 @@ export default function FlashcardsTrainer({ isActive }) {
     setPopTop(s.top - a.top + 16);
   }, [pop]);
 
-  useEffect(() => {
-    listFolder('').then(setFolderItems).catch(console.error);
-  }, []);
-
   // (Re)start the session whenever a new set of cards loads. Clearing `pop` here
   // is what stops a stale grade pop from replaying on the first card.
   useEffect(() => {
@@ -230,7 +393,8 @@ export default function FlashcardsTrainer({ isActive }) {
 
   const currentCard = queue[0];
   const remaining = Math.max(0, queue.length - 1);
-  const started = cards.length > 0;
+  const started = !loading && cards.length > 0;
+  const empty = !loading && !error && cards.length === 0;
   const done = started && queue.length === 0;
 
   const total = cards.length;
@@ -259,21 +423,30 @@ export default function FlashcardsTrainer({ isActive }) {
     <div className="trainer-view">
       <h2>Trainer</h2>
 
-      <div className="trainer-picker">
-        <label>Load cards from file: </label>
-        <select onChange={e => setSelectedFile(e.target.value)} value={selectedFile ?? ''}>
-          <option value=''>— pick a file —</option>
-          {folderItems.filter(i => i.type === 'file').map(i => (
-            <option key={i.name} value={i.name}>{i.name}</option>
-          ))}
-        </select>
-      </div>
-
       {loading && <p>Loading cards...</p>}
       {error && <p>Error: {error.message}</p>}
 
-      {!loading && selectedFile && cards.length === 0 && (
-        <p>No flashcards in this file.</p>
+      {result && (
+        <p className="trainer-session-info">
+          {result.counts.due} due · {result.counts.new} new · {result.algorithm}
+        </p>
+      )}
+
+      <div className="trainer-scope-bar">
+        {appliedScope.folder && (
+          <span className="scope-chip">
+            Folder: {appliedScope.folder}
+            <button onClick={clearFolder} title="Clear">×</button>
+          </span>
+        )}
+        <TagInput selected={appliedScope.tags ?? []} onApply={applyTags} />
+      </div>
+
+      {empty && (
+        <div className="trainer-summary">
+          <h3 className="trainer-summary-title">All caught up</h3>
+          <p className="trainer-summary-line">No cards due for review. Come back later.</p>
+        </div>
       )}
 
       {started && !done && (
@@ -304,7 +477,6 @@ export default function FlashcardsTrainer({ isActive }) {
           <FlashcardReviewer
             key={turn}
             card={currentCard}
-            filePath={selectedFile}
             orientation={orientation}
             remaining={remaining}
             isActive={isActive}

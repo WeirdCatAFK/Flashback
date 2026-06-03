@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import Documents from '../access/documents.js';
+import SRS from '../access/srs.js';
 
 const router = Router();
 const docs = new Documents();
@@ -24,6 +25,25 @@ router.get('/stats', catchError((req, res) => {
     const boxes = docs.query.getLeitnerBoxes();
     const total = docs.query.getFlashcardCount();
     res.json({ boxes, total });
+}));
+
+// GET /api/srs/due
+// Query params (all optional, user preferences come from browser storage):
+//   algorithm=leitner|sm2  — SRS scheduling algorithm (stored in localStorage by the frontend)
+//   maxNew=<n>             — new cards to introduce per session (stored in localStorage)
+//   folder=<relPath>       — restrict to a folder subtree
+//   tag=<name>             — restrict to cards tagged with this name
+//   minPriority=<n>        — restrict to categories with priority >= n
+router.get('/due', catchError((req, res) => {
+    const algorithm = req.query.algorithm || undefined;
+    const folder = req.query.folder ? norm(req.query.folder) : null;
+    const rawTags = req.query.tag;
+    const tags = rawTags ? [].concat(rawTags).filter(Boolean) : null;
+    const minPriority = req.query.minPriority != null ? parseInt(req.query.minPriority, 10) : null;
+    const maxNew = req.query.maxNew != null ? parseInt(req.query.maxNew, 10) : undefined;
+
+    const result = SRS.getDue({ algorithm, folder, tags: tags?.length ? tags : null, minPriority, maxNew });
+    res.json(result);
 }));
 
 export default router;

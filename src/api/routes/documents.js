@@ -63,6 +63,14 @@ router.get(
   }),
 );
 
+// GET /api/documents/tags
+router.get(
+  "/tags",
+  catchError((req, res) => {
+    res.json({ tags: docs.query.getAllTags() });
+  }),
+);
+
 // GET /api/documents/export?path=
 router.get(
   "/export",

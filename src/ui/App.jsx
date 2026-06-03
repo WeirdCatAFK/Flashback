@@ -46,6 +46,12 @@ export default function App() {
   const [selectedPath, setSelectedPath] = useState(null);
   const [openPaths, setOpenPaths] = useState(() => new Set());
 
+  const [studySession, setStudySession] = useState(null);
+  const handleStartStudy = useCallback((session) => {
+    setStudySession(session);
+    setActiveView('trainer');
+  }, []);
+
   const toggleOpen = useCallback((folderPath) => {
     setOpenPaths(prev => {
       const next = new Set(prev);
@@ -103,10 +109,10 @@ export default function App() {
 
   function renderView(view) {
     switch (view) {
-      case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} />;
+      case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudyFolder={(folder) => handleStartStudy({ folder })} />;
       case "flashcards": return <FlashcardsView />;
       case "graph":      return <GraphView isActive={activeView === 'graph'} />;
-      case "trainer":    return <TrainerView isActive={activeView === 'trainer'} />;
+      case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} />;
       case "seal":       return <SealView />;
       case "config":     return (
         <ConfigView

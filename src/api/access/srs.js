@@ -38,6 +38,16 @@ class SRSService {
             masteryPercentage: total > 0 ? (mastered / total) * 100 : 0
         };
     }
+
+    getDue({ algorithm = 'leitner', folder = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
+        const result = query.getDueFlashcards({ algorithm, folder, tags, minPriority, maxNew });
+        return {
+            algorithm,
+            due: result.due,
+            new: result.newCards,
+            counts: { due: result.due.length, new: result.newCards.length }
+        };
+    }
 }
 
 export default new SRSService();

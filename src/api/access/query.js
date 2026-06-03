@@ -254,7 +254,126 @@ class DocumentQuery {
         return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
     }
 
+    getDueFlashcards({ algorithm = 'leitner', folder = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
+        const params = [];
+        const cteParts = [];
+        const whereConditions = [];
+
+        if (folder !== null) {
+            cteParts.push(`folder_tree AS (
+                SELECT id FROM Folders WHERE relative_path = ?
+                UNION ALL
+                SELECT fo.id FROM Folders fo
+                JOIN folder_tree ft ON fo.parent_id = ft.id
+            )`);
+            params.push(folder);
+            whereConditions.push('d.folder_id IN (SELECT id FROM folder_tree)');
+        }
+
+        if (algorithm === 'sm2') {
+            cteParts.push(`latest_ef AS (
+                SELECT flashcard_id, ease_factor FROM ReviewLogs
+                WHERE id IN (SELECT MAX(id) FROM ReviewLogs GROUP BY flashcard_id)
+            )`);
+        }
+
+        if (tags && tags.length > 0) {
+            const placeholders = tags.map(() => '?').join(', ');
+            whereConditions.push(`EXISTS (
+                SELECT 1 FROM Connections ctag
+                JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                WHERE ctag.origin_id = f.node_id
+                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                  AND tg.name IN (${placeholders})
+            )`);
+            params.push(...tags);
+        }
+
+        if (minPriority !== null) {
+            whereConditions.push('COALESCE(pc.priority, 0) >= ?');
+            params.push(minPriority);
+        }
+
+        const extraWhere = whereConditions.length > 0
+            ? 'AND ' + whereConditions.join('\n          AND ')
+            : '';
+
+        const sm2Join = algorithm === 'sm2'
+            ? 'LEFT JOIN latest_ef lr ON lr.flashcard_id = f.id'
+            : '';
+
+        // Leitner: interval doubles each level (level 1 → 1d, 2 → 2d, 3 → 4d, ...)
+        // SM-2: I1=1d, I2=6d, In=round(6 * ef^(n-2)) for n>2
+        const intervalExpr = algorithm === 'sm2'
+            ? `CASE
+                WHEN COALESCE(f.level, 0) <= 1 THEN 1
+                WHEN f.level = 2 THEN 6
+                ELSE CAST(ROUND(6.0 * pow(COALESCE(lr.ease_factor, 2.5), CAST(f.level - 2 AS REAL))) AS INTEGER)
+               END`
+            : `CASE
+                WHEN COALESCE(f.level, 0) <= 0 THEN 0
+                ELSE CAST(pow(2.0, CAST(COALESCE(f.level, 0) - 1 AS REAL)) AS INTEGER)
+               END`;
+
+        cteParts.push(`cards AS (
+            SELECT
+                f.global_hash,
+                COALESCE(f.level, 0) AS level,
+                f.last_recall,
+                f.name,
+                d.relative_path AS document_path,
+                pc.name AS category,
+                COALESCE(pc.priority, 0) AS category_priority,
+                fc.custom_html,
+                fc.render_html,
+                fc.frontText,
+                fc.backText,
+                fc.front_img,
+                fc.back_img,
+                fc.front_sound,
+                fc.back_sound,
+                ${intervalExpr} AS interval_days
+            FROM Flashcards f
+            JOIN Documents d ON d.id = f.document_id
+            JOIN FlashcardContent fc ON fc.id = f.content_id
+            LEFT JOIN PedagogicalCategories pc ON pc.id = f.category_id
+            ${sm2Join}
+            WHERE 1=1
+            ${extraWhere}
+        )`);
+
+        const ctePrefix = `WITH RECURSIVE ${cteParts.join(',\n')}`;
+
+        const dueSQL = `
+            ${ctePrefix}
+            SELECT *,
+                   datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') AS due_date
+            FROM cards
+            WHERE last_recall IS NOT NULL
+              AND datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') <= datetime('now')
+            ORDER BY due_date ASC, category_priority DESC
+        `;
+
+        const newSQL = `
+            ${ctePrefix}
+            SELECT *, NULL AS due_date
+            FROM cards
+            WHERE last_recall IS NULL
+            ORDER BY category_priority DESC
+            LIMIT ?
+        `;
+
+        const due = this.db.prepare(dueSQL).all(...params);
+        const newCards = this.db.prepare(newSQL).all(...params, maxNew);
+
+        return { due, newCards };
+    }
+
     // --- Tags ---
+
+    getAllTags() {
+        return this.db.prepare('SELECT DISTINCT name FROM Tags ORDER BY name ASC').all().map(r => r.name);
+    }
 
     getTagByName(name) {
         return this.db.prepare('SELECT * FROM Tags WHERE name = ?').get(name);

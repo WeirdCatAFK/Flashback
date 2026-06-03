@@ -7,7 +7,7 @@ const MIN_WIDTH     = 150;
 const MAX_WIDTH     = 500;
 const DEFAULT_WIDTH = 240;
 
-export default function DocumentsView({ isActive, openPaths, toggleOpen, relocatePaths, selectedPath, onSelect }) {
+export default function DocumentsView({ isActive, openPaths, toggleOpen, relocatePaths, selectedPath, onSelect, onStudyFolder }) {
   const [sidebarWidth, setSidebarWidth] = useState(
     () => parseInt(localStorage.getItem('fb-sidebar-width') ?? DEFAULT_WIDTH, 10)
   );
@@ -114,6 +114,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
           openPaths={openPaths}
           toggleOpen={toggleOpen}
           relocatePaths={relocatePaths}
+          onStudyFolder={onStudyFolder}
         />
       </aside>
 
