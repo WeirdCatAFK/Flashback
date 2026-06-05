@@ -16,7 +16,7 @@
   max-width: 420px;
   width: 90%;
   color: var(--color-fg-primary);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-float);
 }
 
 .hl-dialog-title {

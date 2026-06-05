@@ -38,6 +38,11 @@ export const THEME_VARS = [
   { key: '--color-graph-tag',       label: 'Graph · Tag' },
   { key: '--color-graph-disconnect',label: 'Graph · Disconnect' },
   { key: '--color-graph-inherit',   label: 'Graph · Inherit' },
+  // Semantic UI colors
+  { key: '--color-danger',          label: 'Danger / error' },
+  { key: '--color-danger-bg',       label: 'Danger background', type: 'text' },
+  // Elevation
+  { key: '--shadow-float',          label: 'Float shadow',      type: 'text' },
 ];
 
 export function loadCustomThemes() {
@@ -96,9 +101,10 @@ function toHex(color) {
 export function resolvedThemeColors() {
   const style = getComputedStyle(document.documentElement);
   return Object.fromEntries(
-    THEME_VARS.map(({ key }) => {
+    THEME_VARS.map(({ key, type }) => {
       const raw = style.getPropertyValue(key).trim();
       if (key === '--color-bg-editor') return [key, raw || 'dark'];
+      if (type === 'text') return [key, raw || ''];
       return [key, toHex(raw)];
     })
   );

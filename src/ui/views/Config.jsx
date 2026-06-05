@@ -69,6 +69,9 @@ const DARK_DEFAULTS = {
   "--color-graph-tag":       "#10B981",
   "--color-graph-disconnect":"#EC4899",
   "--color-graph-inherit":   "#3B82F6",
+  "--color-danger":          "#F87171",
+  "--color-danger-bg":       "rgba(248, 113, 113, 0.12)",
+  "--shadow-float":          "0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22)",
 };
 
 const PREVIEW_THEME = "__fb_preview__";
@@ -189,7 +192,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
       if (typeof parsed.colors !== "object" || parsed.colors === null)
         throw new Error('Missing or invalid "colors" field.');
       const missing = THEME_VARS.filter(({ key }) => !(key in parsed.colors));
-      if (missing.length)
+      if (missing.length > THEME_VARS.length / 2)
         throw new Error(
           `Missing variables: ${missing.map((v) => v.key).join(", ")}`,
         );
@@ -293,8 +296,8 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
           )}
 
            <div className="theme-vars-grid">
-            {THEME_VARS.map(({ key, label }) => (
-              <div key={key} className="theme-var-row">
+            {THEME_VARS.map(({ key, label, type }) => (
+              <div key={key} className={`theme-var-row${type === 'text' ? ' theme-var-row--text' : ''}`}>
                 <label className="theme-var-label" title={key}>
                   {label}
                 </label>
@@ -308,6 +311,17 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                       className={`te-btn te-btn-tag${colors[key] === 'light' ? ' te-btn-active' : ''}`}
                       onClick={() => handleColorChange(key, 'light')}
                     >Light</button>
+                  </div>
+                ) : type === 'text' ? (
+                  <div className="theme-var-inputs">
+                    <input
+                      type="text"
+                      className="theme-color-text theme-color-text--wide"
+                      value={colors[key] || ""}
+                      onChange={(e) => handleColorChange(key, e.target.value)}
+                      spellCheck={false}
+                      maxLength={180}
+                    />
                   </div>
                 ) : (
                   <div className="theme-var-inputs">

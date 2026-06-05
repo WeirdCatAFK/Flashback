@@ -20,12 +20,13 @@
 }
 
 .config-heading {
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.08em;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.10em;
   text-transform: uppercase;
   color: var(--color-fg-secondary);
-  margin-bottom: 12px;
+  margin-bottom: 14px;
+  opacity: 0.75;
 }
 
 .config-table {
@@ -109,7 +110,7 @@
 
 .theme-editor-error {
   font-size: 12px;
-  color: #C42B1C;
+  color: var(--color-danger);
 }
 
 /* ── Variable grid ───────────────────────────────────────────────────────── */
@@ -160,6 +161,15 @@
   padding: 4px 8px;
 }
 
+.theme-color-text--wide {
+  width: 280px;
+}
+
+/* Text-type rows span the full grid width so the long input has room */
+.theme-var-row--text {
+  grid-column: 1 / -1;
+}
+
 /* ── JSON text panel ─────────────────────────────────────────────────────── */
 
 .theme-text-panel {
@@ -198,8 +208,9 @@
 }
 
 .theme-textarea:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
 }
 
 .theme-import-row {
@@ -256,8 +267,8 @@
 }
 
 .te-btn-danger:hover {
-  background: #C42B1C;
-  border-color: #C42B1C;
+  background: var(--color-danger);
+  border-color: var(--color-danger);
   color: #fff;
 }
 

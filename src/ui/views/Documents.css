@@ -17,7 +17,7 @@
 .documents-resize-handle {
   width: 4px;
   flex-shrink: 0;
-  background: var(--color-border);
+  background: transparent;
   cursor: col-resize;
   transition: background 100ms ease;
 }

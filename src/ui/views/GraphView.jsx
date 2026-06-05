@@ -239,6 +239,13 @@ export default function GraphView({ isActive = false }) {
     ctx.globalAlpha = 1;
   }, [colors, focusedIds, selected]);
 
+  const getLinkColor = useCallback(link => {
+    const base = colors.links[link.relation] ?? colors.links.connection;
+    if (!focusedIds) return base;
+    const focused = focusedIds.has(nodeId(link.source)) || focusedIds.has(nodeId(link.target));
+    return focused ? base : withAlpha(base, 0.15);
+  }, [colors, focusedIds]);
+
   return (
     <div ref={containerRef} className="graph-root">
       {loading && <div className="graph-status">Loading graph…</div>}
@@ -256,12 +263,8 @@ export default function GraphView({ isActive = false }) {
             nodeRelSize={5}
             nodeCanvasObjectMode={() => 'replace'}
             nodeCanvasObject={paintNode}
-            linkColor={link => {
-              const base = colors.links[link.relation] ?? colors.links.connection;
-              if (!focusedIds) return base;
-              const focused = focusedIds.has(nodeId(link.source)) || focusedIds.has(nodeId(link.target));
-              return focused ? base : withAlpha(base, 0.15);
-            }}
+            linkColor={getLinkColor}
+            linkDirectionalArrowColor={getLinkColor}
             linkWidth={1.5}
             linkHoverPrecision={8}
             linkDirectionalArrowLength={link => DIRECTED.has(link.relation) ? 5 : 0}

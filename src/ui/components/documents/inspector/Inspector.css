@@ -86,10 +86,11 @@
 
 .inspector-tab {
   flex: 1;
-  padding: 7px 4px;
+  padding: 8px 4px;
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
   color: var(--color-fg-secondary);
   border-bottom: 2px solid transparent;
   cursor: pointer;
@@ -128,8 +129,12 @@
 }
 
 .cards-tab-count {
-  font-size: 11px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--color-fg-secondary);
+  opacity: 0.75;
 }
 
 .cards-new-btn {
@@ -146,12 +151,18 @@
 }
 
 .card-item {
-  padding: 8px 10px;
+  padding: 10px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 3px;
+  border-radius: 6px;
   margin-bottom: 6px;
   background: var(--color-bg-surface);
   cursor: default;
+  transition: border-color 100ms, background 100ms;
+}
+
+.card-item:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent-subtle) 50%, var(--color-bg-surface));
 }
 
 .hl-item {
@@ -269,162 +280,3 @@
   font-weight: 500;
 }
 
-/* ── New card tab ────────────────────────────────────────────────────────── */
-
-.new-card-tab {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.new-card-selection {
-  background: var(--color-accent-subtle);
-  border-left: 3px solid var(--color-accent);
-  border-radius: 0 3px 3px 0;
-  padding: 8px 10px;
-  margin-bottom: 4px;
-}
-
-.new-card-selected-text {
-  font-size: 12px;
-  color: var(--color-fg-primary);
-  font-style: italic;
-  line-height: 1.4;
-  margin-bottom: 4px;
-}
-
-.new-card-source {
-  font-size: 10px;
-  color: var(--color-fg-secondary);
-  font-family: 'Cascadia Code', 'Fira Mono', monospace;
-}
-
-.new-card-label {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--color-fg-secondary);
-  margin-top: 4px;
-}
-
-.new-card-field {
-  width: 100%;
-  resize: vertical;
-  font-size: 12px;
-  line-height: 1.5;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  min-height: 60px;
-}
-
-.new-card-field:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
-}
-
-.new-card-tags {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px;
-  padding: 5px 6px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: var(--color-bg-surface);
-  min-height: 32px;
-}
-
-.card-tag--removable {
-  display: flex;
-  align-items: center;
-  gap: 3px;
-}
-
-.card-tag-remove {
-  font-size: 12px;
-  line-height: 1;
-  color: var(--color-fg-secondary);
-  cursor: pointer;
-  padding: 0 1px;
-  border-radius: 1px;
-}
-
-.card-tag-remove:hover {
-  color: var(--color-fg-primary);
-}
-
-.new-card-tag-input {
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 11px;
-  color: var(--color-fg-secondary);
-  padding: 0;
-  min-width: 40px;
-  flex: 1;
-}
-
-.new-card-select {
-  width: 100%;
-  font-size: 12px;
-  padding: 5px 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 3px;
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  cursor: pointer;
-}
-
-.new-card-select:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
-}
-
-.new-card-error {
-  font-size: 11px;
-  color: #EF4444;
-}
-
-.new-card-actions {
-  display: flex;
-  gap: 6px;
-  margin-top: 8px;
-  justify-content: flex-end;
-}
-
-.new-card-save {
-  font-size: 12px;
-  padding: 5px 12px;
-  background: var(--color-accent);
-  color: #fff;
-  border-radius: 3px;
-  cursor: pointer;
-  transition: opacity 80ms;
-  font-weight: 500;
-}
-
-.new-card-save:disabled {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-
-.new-card-save:not(:disabled):hover {
-  opacity: 0.85;
-}
-
-.new-card-cancel {
-  font-size: 12px;
-  padding: 5px 10px;
-  border-radius: 3px;
-  color: var(--color-fg-secondary);
-  cursor: pointer;
-  transition: background 80ms, color 80ms;
-}
-
-.new-card-cancel:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-fg-primary);
-}

@@ -36,6 +36,10 @@
   --color-graph-tag:        var(--color-hl-green);
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
+  /* semantic + elevation */
+  --shadow-float:       0 4px 16px -2px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
+  --color-danger:       #DC2626;
+  --color-danger-bg:    rgba(220, 38, 38, 0.08);
 }
 
 [data-theme="dark-workbench"] {
@@ -64,6 +68,10 @@
   --color-review-again:   #EC4899;
   --color-review-good:    #10B981;
   --color-review-easy:    #3B82F6;
+  /* semantic + elevation */
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22);
+  --color-danger:       #F87171;
+  --color-danger-bg:    rgba(248, 113, 113, 0.12);
 }
 
 [data-theme="dark-cherry"] {
@@ -92,6 +100,10 @@
   --color-review-again:   #FF1744;
   --color-review-good:    #00C853;
   --color-review-easy:    #00B0FF;
+  /* semantic + elevation */
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.60), 0 2px 8px rgba(0,0,0,.28);
+  --color-danger:       #FF5252;
+  --color-danger-bg:    rgba(255, 82, 82, 0.12);
 }
 
 [data-theme="raven-indigo"] {
@@ -120,6 +132,10 @@
   --color-review-again:   #F472B6;
   --color-review-good:    #34D399;
   --color-review-easy:    #818CF8;
+  /* semantic + elevation */
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
+  --color-danger:       #F472B6;
+  --color-danger-bg:    rgba(244, 114, 182, 0.12);
 }
 
 [data-theme="focus-blue"] {
@@ -148,6 +164,10 @@
   --color-review-again:   #FB7185;
   --color-review-good:    #34D399;
   --color-review-easy:    #22D3EE;
+  /* semantic + elevation */
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
+  --color-danger:       #FB7185;
+  --color-danger-bg:    rgba(251, 113, 133, 0.12);
 }
 
 /* ── Global reset ────────────────────────────────────────────────────────── */
@@ -205,8 +225,9 @@ select {
 input:focus,
 textarea:focus,
 select:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
 }
 
 a {

@@ -43,17 +43,24 @@
   align-items: center;
   justify-content: center;
   gap: 10px;
-  padding: 20px;
+  padding: 24px;
   overflow: hidden;
   border-radius: var(--fc-radius);
-  background: var(--color-bg-reader);
+  /* Warm paper gradient: front is slightly lighter at the top */
+  background: linear-gradient(
+    158deg,
+    var(--color-bg-reader) 0%,
+    color-mix(in srgb, var(--color-bg-reader) 88%, var(--color-bg-hover)) 100%
+  );
   color: var(--color-fg-primary);
   border: 1px solid var(--color-border);
-  /* Skeuomorphic lift, tinted from the theme border so no color is hardcoded. */
-  box-shadow: 0 10px 26px -14px var(--color-border);
+  /* Three-layer shadow: ambient + mid + crisp edge for physical depth */
+  box-shadow:
+    0 1px 3px rgba(0,0,0,.04),
+    0 4px 10px -2px rgba(0,0,0,.08),
+    0 18px 42px -8px rgba(0,0,0,.10);
   -webkit-backface-visibility: hidden;
   backface-visibility: hidden;
-  /* Make the face a size container so text scales to the card, not the viewport. */
   container-type: size;
 }
 

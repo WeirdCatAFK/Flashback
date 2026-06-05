@@ -9,8 +9,8 @@
 .fc-form-selection {
   background: var(--color-accent-subtle);
   border-left: 3px solid var(--color-accent);
-  border-radius: 0 3px 3px 0;
-  padding: 8px 10px;
+  border-radius: 0 4px 4px 0;
+  padding: 8px 12px;
   margin-bottom: 4px;
 }
 
@@ -43,10 +43,11 @@
 
 .fc-form-label {
   font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
   color: var(--color-fg-secondary);
-  margin-top: 4px;
+  margin-top: 6px;
 }
 
 .fc-form-field {
@@ -56,7 +57,7 @@
   line-height: 1.5;
   padding: 6px 8px;
   border: 1px solid var(--color-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--color-bg-surface);
   color: var(--color-fg-primary);
   min-height: 48px;
@@ -65,8 +66,9 @@
 
 .fc-form-field:focus,
 .fc-form-select:focus {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-subtle);
 }
 
 /* Media slots */
@@ -83,7 +85,7 @@
   gap: 8px;
   padding: 4px 8px;
   border: 1px solid var(--color-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--color-bg-surface);
   min-height: 30px;
 }
@@ -99,7 +101,7 @@
   color: var(--color-accent);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 3px;
+  border-radius: 4px;
 }
 
 .fc-form-media-add:hover {
@@ -142,7 +144,7 @@
   gap: 4px;
   padding: 5px 6px;
   border: 1px solid var(--color-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--color-bg-surface);
   min-height: 32px;
 }
@@ -191,7 +193,7 @@
   font-size: 12px;
   padding: 5px 8px;
   border: 1px solid var(--color-border);
-  border-radius: 3px;
+  border-radius: 4px;
   background: var(--color-bg-surface);
   color: var(--color-fg-primary);
   cursor: pointer;
@@ -211,13 +213,19 @@
 
 .fc-form-save {
   font-size: 12px;
-  padding: 5px 12px;
+  font-weight: 600;
+  padding: 5px 14px;
   background: var(--color-accent);
   color: var(--color-bg-surface);
-  border-radius: 3px;
+  border-radius: 4px;
   cursor: pointer;
-  transition: opacity 80ms;
-  font-weight: 600;
+  box-shadow: 0 1px 0 rgba(0,0,0,.12);
+  transition: opacity 80ms, box-shadow 80ms, transform 80ms;
+}
+
+.fc-form-save:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: none;
 }
 
 .fc-form-save:disabled {
@@ -232,7 +240,7 @@
 .fc-form-cancel {
   font-size: 12px;
   padding: 5px 10px;
-  border-radius: 3px;
+  border-radius: 4px;
   color: var(--color-fg-secondary);
   cursor: pointer;
   transition: background 80ms, color 80ms;

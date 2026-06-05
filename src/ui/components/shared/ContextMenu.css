@@ -3,10 +3,10 @@
   z-index: 9999;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 4px;
   min-width: 168px;
-  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.18);
+  box-shadow: var(--shadow-float);
   font-size: 13px;
   user-select: none;
 }
@@ -27,11 +27,11 @@
 }
 
 .ctx-item.ctx-danger {
-  color: #F87171;
+  color: var(--color-danger);
 }
 
 .ctx-item.ctx-danger:hover {
-  background: rgba(248, 113, 113, 0.12);
+  background: var(--color-danger-bg);
 }
 
 .ctx-item.ctx-muted {
@@ -51,7 +51,7 @@
   gap: 6px;
   padding: 4px 10px;
   font-size: 12px;
-  color: #F87171;
+  color: var(--color-danger);
 }
 
 .ctx-confirm span {
@@ -67,7 +67,7 @@
 }
 
 .ctx-confirm-yes {
-  background: #F87171;
+  background: var(--color-danger);
   color: #fff;
 }
 
