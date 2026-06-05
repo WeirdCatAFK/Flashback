@@ -22,6 +22,21 @@ const GRADES = {
 
 const MAX_DECK = 5; // how many cards we draw behind the live one
 
+function formatNextDue(sqliteStr) {
+  if (!sqliteStr) return null;
+  // SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" (UTC, no tz suffix)
+  const next = new Date(sqliteStr.replace(' ', 'T') + 'Z');
+  const diffMs = next - Date.now();
+  if (diffMs <= 0) return 'now';
+  const mins  = Math.round(diffMs / 60_000);
+  const hours = Math.round(diffMs / 3_600_000);
+  const days  = Math.round(diffMs / 86_400_000);
+  if (mins  < 60)  return `in ${mins} minute${mins  !== 1 ? 's' : ''}`;
+  if (hours < 24)  return `in ${hours} hour${hours  !== 1 ? 's' : ''}`;
+  if (days  === 1) return 'tomorrow';
+  return `in ${days} days`;
+}
+
 function mapApiCard(raw, isNew = false) {
   return {
     globalHash: raw.global_hash,
@@ -445,7 +460,10 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
       {empty && (
         <div className="trainer-summary">
           <h3 className="trainer-summary-title">All caught up</h3>
-          <p className="trainer-summary-line">No cards due for review. Come back later.</p>
+          {result?.nextDue
+            ? <p className="trainer-summary-line">Next review {formatNextDue(result.nextDue)}</p>
+            : <p className="trainer-summary-line">No cards scheduled yet — start reviewing to build your schedule.</p>
+          }
         </div>
       )}
 

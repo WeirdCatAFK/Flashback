@@ -378,10 +378,19 @@ class DocumentQuery {
             LIMIT ?
         `;
 
+        const nextDueSQL = `
+            ${ctePrefix}
+            SELECT MIN(datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days')) AS next_due
+            FROM cards
+            WHERE last_recall IS NOT NULL
+              AND datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') > datetime('now')
+        `;
+
         const due = this.db.prepare(dueSQL).all(...params);
         const newCards = this.db.prepare(newSQL).all(...params, maxNew);
+        const nextDueRow = this.db.prepare(nextDueSQL).get(...params);
 
-        return { due, newCards };
+        return { due, newCards, nextDue: nextDueRow?.next_due ?? null };
     }
 
     // --- Tags ---

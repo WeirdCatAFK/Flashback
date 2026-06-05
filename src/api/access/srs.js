@@ -45,7 +45,8 @@ class SRSService {
             algorithm,
             due: result.due,
             new: result.newCards,
-            counts: { due: result.due.length, new: result.newCards.length }
+            counts: { due: result.due.length, new: result.newCards.length },
+            nextDue: result.nextDue
         };
     }
 }
