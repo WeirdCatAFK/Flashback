@@ -1,25 +1,32 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import './Flashcard.css';
 
-// Presentation-only flashcard renderer. No evaluation/SRS/persistence logic —
-// that lives in whatever consumes it (Trainer, the creator preview, …).
-//
+// Presentation-only flashcard renderer. No evaluation/SRS/persistence logic.
 // Fully controlled: the parent owns `face` and is notified via `onFlip`.
-// Vanilla cards render on a strict 4:3 (landscape) / 3:4 (portrait) canvas for
-// cross-device consistency; the orientation is a renderer decision passed in
-// from the frontend config. Custom (HTML-engine) cards are routed to a stub
-// slot — the seam for a future renderer, not in scope yet.
 //
-// Audio behaviour (full variant): the active face's sound plays automatically
-// whenever that face is presented and a styled replay button stays available.
+// Card types (card.cardType):
+//   basic       — standard front/back flip
+//   reversible  — same data, direction chosen by parent (card.direction)
+//   cloze       — {{blank}} syntax; front shows blanks, back reveals them
+//   type_answer — front shows question + inline input; parent hears onTypeCheck(answer)
+//   custom      — card.customData.html rendered in a sandboxed iframe
 //
-// Swipe (opt-in via `onSwipe`, only once the answer is revealed — face 'back'):
-// drag the card horizontally; past a threshold it flies and fires
-// onSwipe('right' | 'left'). The exit is outcome-driven — right/'accept' ascends
-// off the top, left/'reject' shakes and drops back into the deck. `flyOut(kind)`
-// exposes the same flight imperatively for the grade buttons.
+// flyOut(kind) and check() are exposed via ref for parent-driven animation / answer submit.
 
 const SWIPE_THRESHOLD = 90;
+
+function parseCloze(text = '') {
+  const parts = [];
+  const regex = /\{\{([^}]+)\}\}/g;
+  let last = 0, m;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) parts.push({ type: 'text', content: text.slice(last, m.index) });
+    parts.push({ type: 'blank', content: m[1] });
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push({ type: 'text', content: text.slice(last) });
+  return parts;
+}
 
 function AudioIcon() {
   return (
@@ -32,18 +39,19 @@ function AudioIcon() {
   );
 }
 
-function CardFace({ side, text, img, sound, resolve, audioRef }) {
+function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
   const imgSrc = img ? resolve(img) : null;
   const soundSrc = sound ? resolve(sound) : null;
 
   const replay = (e) => {
-    e.stopPropagation(); // don't flip the card
+    e.stopPropagation();
     const a = audioRef?.current;
-    if (a) { try { a.currentTime = 0; } catch { /* not seekable yet */ } a.play().catch(() => {}); }
+    if (a) { try { a.currentTime = 0; } catch { } a.play().catch(() => {}); }
   };
 
   return (
     <div className={`flashcard-face flashcard-face--${side}`}>
+      {badge}
       {imgSrc && (
         <div className="flashcard-media">
           <img src={imgSrc} alt="" draggable={false} />
@@ -57,7 +65,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef }) {
             type="button"
             className="flashcard-audio-btn"
             onClick={replay}
-            onPointerDown={(e) => e.stopPropagation()} // don't start a swipe
+            onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
             aria-label="Replay audio"
             title="Replay audio"
@@ -70,16 +78,17 @@ function CardFace({ side, text, img, sound, resolve, audioRef }) {
   );
 }
 
-function CustomCardSlot({ orientation, className }) {
+function ClozeFace({ side, parts }) {
   return (
-    <div className={`flashcard flashcard--${orientation} flashcard--static flashcard--custom ${className}`}>
-      <div className="flashcard-inner">
-        <div className="flashcard-face flashcard-custom-slot">
-          <span className="flashcard-custom-badge">Custom</span>
-          <p className="flashcard-custom-note">
-            Custom card rendering is not yet implemented.
-          </p>
-        </div>
+    <div className={`flashcard-face flashcard-face--${side}`}>
+      <div className="flashcard-text flashcard-cloze">
+        {parts.map((p, i) =>
+          p.type === 'blank'
+            ? <span key={i} className={side === 'front' ? 'cloze-blank' : 'cloze-answer'}>
+                {side === 'front' ? '      ' : p.content}
+              </span>
+            : <span key={i}>{p.content}</span>
+        )}
       </div>
     </div>
   );
@@ -89,18 +98,25 @@ const Flashcard = forwardRef(function Flashcard({
   card,
   face = 'front',
   onFlip,
-  onSwipe,                   // (dir: 'right' | 'left') => void — enables swipe-to-grade
+  onSwipe,
+  onTypeCheck,           // (typedAnswer: string) => void — type_answer only
   orientation = 'landscape',
-  variant = 'full',          // 'full' (flip canvas) | 'static' (no flip)
-  resolveMedia,              // (ref) => url; defaults to identity (e.g. object URLs)
+  variant = 'full',      // 'full' (flip canvas) | 'static' (no flip, single face)
+  resolveMedia,
   className = '',
 }, ref) {
   const rootRef = useRef(null);
   const frontAudioRef = useRef(null);
   const backAudioRef = useRef(null);
   const isStatic = variant === 'static';
-  const isCustom = !!card?.isCustom;
 
+  // Backward compat: isCustom flag from old sidecar format
+  const cardType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
+
+  // Typed answer state for type_answer cards; exposed via check() on the ref.
+  const [typed, setTyped] = useState('');
+
+  // Swipe / drag state
   const [drag, setDrag] = useState(0);
   const [dragging, setDragging] = useState(false);
   const draggingRef = useRef(false);
@@ -109,19 +125,13 @@ const Flashcard = forwardRef(function Flashcard({
   const suppressClickRef = useRef(false);
   const startXRef = useRef(0);
 
-  // The shared flight, driven by the outcome:
-  //   'accept' → the card lifts, swells, then ascends off the top and fades.
-  //   'reject' → a quick shake, then it drops back down into the deck (stack).
-  // Resolves once (true) when committed, or false if already in flight.
   const runFlyOut = useCallback((kind) => new Promise((resolve) => {
     if (committedRef.current) { resolve(false); return; }
     committedRef.current = true;
     const el = rootRef.current;
     if (!el) { resolve(true); return; }
-
-    const start = drag; // where the drag left the card
-    let frames;
-    let duration;
+    const start = drag;
+    let frames, duration;
     if (kind === 'accept') {
       const tilt = start >= 0 ? 8 : -8;
       frames = [
@@ -140,55 +150,146 @@ const Flashcard = forwardRef(function Flashcard({
       ];
       duration = 520;
     }
-
     const anim = el.animate(frames, { duration, easing: 'cubic-bezier(.45, 0, .55, 1)', fill: 'forwards' });
     const done = () => resolve(true);
     anim.onfinish = done;
     anim.oncancel = done;
   }), [drag]);
 
-  // Stable imperative handle that always calls the latest runFlyOut.
   const runFlyOutRef = useRef(runFlyOut);
   runFlyOutRef.current = runFlyOut;
   const flyOut = useCallback((kind) => runFlyOutRef.current(kind), []);
-  useImperativeHandle(ref, () => ({ flyOut }), [flyOut]);
 
-  // Auto-play the audio of whichever face is now showing; pause/reset the other.
-  // No autoplay for static previews. Hooks must run before any early return.
+  // check() lets the Trainer submit the typed answer via the reveal keybinding.
+  const doCheck = useCallback(() => {
+    if (typed.trim()) onTypeCheck?.(typed);
+  }, [typed, onTypeCheck]);
+
+  useImperativeHandle(ref, () => ({ flyOut, check: doCheck }), [flyOut, doCheck]);
+
+  // Auto-play the audio of the active face; pause/reset the other.
   useEffect(() => {
-    if (isStatic || isCustom) return;
+    if (isStatic || cardType === 'custom') return;
     const active = face === 'back' ? backAudioRef.current : frontAudioRef.current;
-    const other = face === 'back' ? frontAudioRef.current : backAudioRef.current;
-    if (other) { other.pause(); try { other.currentTime = 0; } catch { /* ignore */ } }
-    if (active) { try { active.currentTime = 0; } catch { /* ignore */ } active.play().catch(() => {}); }
-  }, [face, isStatic, isCustom]);
+    const other  = face === 'back' ? frontAudioRef.current : backAudioRef.current;
+    if (other)  { other.pause(); try { other.currentTime = 0; } catch { } }
+    if (active) { try { active.currentTime = 0; } catch { } active.play().catch(() => {}); }
+  }, [face, isStatic, cardType]);
 
-  if (isCustom) {
-    return <CustomCardSlot orientation={orientation} className={className} />;
-  }
-
-  const resolve = resolveMedia ?? ((ref2) => ref2);
-  const v = card?.vanillaData ?? {};
-  const media = v.media ?? {};
-
-  const front = (
-    <CardFace side="front" text={v.frontText} img={media.front_img} sound={media.front_sound} resolve={resolve} audioRef={frontAudioRef} />
-  );
-  const back = (
-    <CardFace side="back" text={v.backText} img={media.back_img} sound={media.back_sound} resolve={resolve} audioRef={backAudioRef} />
-  );
-
-  if (isStatic) {
+  // Custom card: sandboxed iframe renderer.
+  if (cardType === 'custom') {
+    const html = card?.customData?.html ?? '';
     return (
-      <div className={`flashcard flashcard--${orientation} flashcard--static ${className}`}>
-        <div className="flashcard-inner">{face === 'back' ? back : front}</div>
+      <div className={`flashcard flashcard--${orientation} flashcard--static flashcard--custom ${className}`}>
+        <div className="flashcard-inner">
+          {html
+            ? <div className="flashcard-face flashcard-custom-live">
+                <iframe
+                  className="flashcard-custom-iframe"
+                  srcDoc={html}
+                  sandbox="allow-scripts"
+                  title="Custom flashcard"
+                />
+              </div>
+            : <div className="flashcard-face flashcard-custom-slot">
+                <span className="flashcard-custom-badge">Custom</span>
+                <p className="flashcard-custom-note">No HTML content yet. Edit this card to add it.</p>
+              </div>
+          }
+        </div>
       </div>
     );
   }
 
-  const swipeEnabled = !!onSwipe && face === 'back';
+  const resolve = resolveMedia ?? ((r) => r);
+  const v = card?.vanillaData ?? {};
+  const media = v.media ?? {};
 
-  const flip = () => onFlip?.(face === 'front' ? 'back' : 'front');
+  // Reversible: swap front/back content based on card.direction.
+  const direction = card?.direction ?? 'forward';
+  const isReversed = cardType === 'reversible' && direction === 'reverse';
+
+  const frontText  = isReversed ? v.backText  : v.frontText;
+  const backText   = isReversed ? v.frontText : v.backText;
+  const frontImg   = isReversed ? media.back_img    : media.front_img;
+  const backImg    = isReversed ? media.front_img   : media.back_img;
+  const frontSound = isReversed ? media.back_sound  : media.front_sound;
+  const backSound  = isReversed ? media.front_sound : media.back_sound;
+
+  const dirBadge = cardType === 'reversible'
+    ? <span className="flashcard-direction-badge">{direction === 'reverse' ? '← Reverse' : 'Forward →'}</span>
+    : null;
+
+  // Build type-specific face elements.
+  let frontFace, backFace;
+
+  if (cardType === 'cloze') {
+    const clozeParts = parseCloze(frontText ?? '');
+    frontFace = <ClozeFace side="front" parts={clozeParts} />;
+    backFace  = <ClozeFace side="back"  parts={clozeParts} />;
+  } else if (cardType === 'type_answer') {
+    frontFace = (
+      <div className="flashcard-face flashcard-face--front">
+        {frontText && <div className="flashcard-text">{frontText}</div>}
+        {!isStatic && (
+          <div className="type-answer-wrap" onPointerDown={(e) => e.stopPropagation()}>
+            <input
+              className="type-answer-input"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              onKeyDown={(e) => {
+                e.stopPropagation();
+                if (e.key === 'Enter') { e.preventDefault(); doCheck(); }
+              }}
+              placeholder="Type your answer…"
+              autoComplete="off"
+              spellCheck={false}
+              aria-label="Answer input"
+            />
+            <button
+              type="button"
+              className="type-answer-check"
+              onClick={(e) => { e.stopPropagation(); doCheck(); }}
+              onPointerDown={(e) => e.stopPropagation()}
+              disabled={!typed.trim()}
+            >
+              Check
+            </button>
+          </div>
+        )}
+      </div>
+    );
+    backFace = (
+      <div className="flashcard-face flashcard-face--back">
+        {backText && <div className="flashcard-text">{backText}</div>}
+      </div>
+    );
+  } else {
+    // basic or reversible
+    frontFace = (
+      <CardFace side="front" text={frontText} img={frontImg} sound={frontSound}
+        resolve={resolve} audioRef={frontAudioRef} badge={dirBadge} />
+    );
+    backFace = (
+      <CardFace side="back" text={backText} img={backImg} sound={backSound}
+        resolve={resolve} audioRef={backAudioRef} />
+    );
+  }
+
+  if (isStatic) {
+    return (
+      <div className={`flashcard flashcard--${orientation} flashcard--static ${className}`}>
+        <div className="flashcard-inner">{face === 'back' ? backFace : frontFace}</div>
+      </div>
+    );
+  }
+
+  // For type_answer front: clicking the card body should not flip — the Check
+  // button is the only reveal mechanism.
+  const noFlipOnClick = cardType === 'type_answer' && face === 'front';
+  const swipeEnabled  = !!onSwipe && face === 'back';
+
+  const flip = () => { if (!noFlipOnClick) onFlip?.(face === 'front' ? 'back' : 'front'); };
 
   const onClick = () => {
     if (suppressClickRef.current) { suppressClickRef.current = false; return; }
@@ -196,8 +297,8 @@ const Flashcard = forwardRef(function Flashcard({
   };
 
   const onKeyDown = (e) => {
-    if (e.target !== e.currentTarget) return; // not from the focused replay button
-    if (e.key === 'Enter' || e.key === ' ') {
+    if (e.target !== e.currentTarget) return;
+    if ((e.key === 'Enter' || e.key === ' ') && !noFlipOnClick) {
       e.preventDefault();
       flip();
     }
@@ -223,13 +324,13 @@ const Flashcard = forwardRef(function Flashcard({
     if (!draggingRef.current) return;
     draggingRef.current = false;
     setDragging(false);
-    if (movedRef.current) suppressClickRef.current = true; // a drag is not a tap
+    if (movedRef.current) suppressClickRef.current = true;
     const dx = e.clientX - startXRef.current;
     if (Math.abs(dx) >= SWIPE_THRESHOLD) {
       const dir = dx > 0 ? 'right' : 'left';
       runFlyOut(dir === 'right' ? 'accept' : 'reject').then((ok) => { if (ok) onSwipe(dir); });
     } else {
-      setDrag(0); // snap back
+      setDrag(0);
     }
   };
 
@@ -248,7 +349,7 @@ const Flashcard = forwardRef(function Flashcard({
       data-face={face}
       role="button"
       tabIndex={0}
-      aria-label={`Flashcard showing ${face} side. Activate to flip.`}
+      aria-label={`Flashcard showing ${face} side.${!noFlipOnClick ? ' Activate to flip.' : ''}`}
       style={dragStyle}
       onClick={onClick}
       onKeyDown={onKeyDown}
@@ -258,8 +359,8 @@ const Flashcard = forwardRef(function Flashcard({
       onPointerCancel={onPointerEnd}
     >
       <div className="flashcard-inner">
-        {front}
-        {back}
+        {frontFace}
+        {backFace}
       </div>
     </div>
   );

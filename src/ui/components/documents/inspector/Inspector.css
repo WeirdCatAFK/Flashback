@@ -205,6 +205,39 @@
   border-radius: 2px;
 }
 
+.card-item-type {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  background: var(--color-bg-hover);
+  padding: 1px 5px;
+  border-radius: 2px;
+  border: 1px solid var(--color-border);
+}
+
+.card-item-edit {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+
+.card-item-edit:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+}
+
+.card-item-custom-label {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  font-style: italic;
+}
+
 .card-item-front {
   font-size: 12px;
   font-weight: 600;

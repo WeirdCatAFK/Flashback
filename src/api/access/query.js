@@ -99,7 +99,7 @@ class DocumentQuery {
     // --- Flashcards ---
 
     getFlashcardsByDocument(documentId) {
-        return this.db.prepare('SELECT id, node_id, global_hash, level, last_recall, content_id FROM Flashcards WHERE document_id = ?').all(documentId);
+        return this.db.prepare('SELECT id, node_id, global_hash, level, last_recall, content_id, card_type FROM Flashcards WHERE document_id = ?').all(documentId);
     }
 
     getFlashcardCountsByFolder(folderId) {
@@ -170,12 +170,13 @@ class DocumentQuery {
 
         // 3. Main Entry
         const stmt = this.db.prepare(`
-            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, name, fileIndex, presence)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, name, fileIndex, presence, card_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
         `);
         return stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
-            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.name || null, data.fileIndex || 0
+            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.name || null, data.fileIndex || 0,
+            data.cardType || 'basic'
         );
     }
 
@@ -188,9 +189,9 @@ class DocumentQuery {
 
         this.db.prepare(`
             UPDATE Flashcards
-            SET last_recall = ?, level = ?, category_id = ?, name = ?, fileIndex = ?
+            SET last_recall = ?, level = ?, category_id = ?, name = ?, fileIndex = ?, card_type = ?
             WHERE id = ?
-        `).run(data.lastRecall, data.level, categoryId, data.name || null, data.fileIndex, id);
+        `).run(data.lastRecall, data.level, categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id);
 
         // Content
         const contentUpdates = [];
@@ -336,6 +337,7 @@ class DocumentQuery {
                 COALESCE(f.level, 0) AS level,
                 f.last_recall,
                 f.name,
+                f.card_type,
                 d.relative_path AS document_path,
                 pc.name AS category,
                 COALESCE(pc.priority, 0) AS category_priority,

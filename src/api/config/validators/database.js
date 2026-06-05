@@ -126,4 +126,24 @@ function validateDatabase() {
   }
 }
 
-export default validateDatabase;
+function migrateColumns() {
+  try {
+    const cols = db.prepare("PRAGMA table_info('Flashcards')").all();
+    if (!cols.find((c) => c.name === "card_type")) {
+      db.prepare(
+        "ALTER TABLE Flashcards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'basic'",
+      ).run();
+      console.log("Migration: added Flashcards.card_type column");
+    }
+  } catch (err) {
+    console.warn("Column migration failed (non-fatal):", err.message);
+  }
+}
+
+function validateDatabaseWithMigrations() {
+  const ok = validateDatabase();
+  if (ok) migrateColumns();
+  return ok;
+}
+
+export default validateDatabaseWithMigrations;

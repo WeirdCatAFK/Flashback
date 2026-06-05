@@ -140,7 +140,7 @@
   display: block;
 }
 
-/* Custom-card seam (not yet implemented). */
+/* Custom card */
 .flashcard--custom .flashcard-custom-slot {
   gap: 8px;
   border-style: dashed;
@@ -162,4 +162,106 @@
   font-size: 12px;
   text-align: center;
   max-width: 80%;
+}
+
+.flashcard-custom-live {
+  padding: 0;
+  overflow: hidden;
+}
+
+.flashcard-custom-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  border-radius: var(--fc-radius);
+}
+
+/* Reversible: direction badge */
+.flashcard-direction-badge {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-border);
+  padding: 2px 6px;
+  border-radius: 3px;
+  opacity: 0.85;
+}
+
+/* Cloze: inline text with blanks */
+.flashcard-cloze {
+  text-align: left;
+  line-height: 1.8;
+}
+
+.cloze-blank {
+  display: inline-block;
+  min-width: 48px;
+  border-bottom: 2px solid var(--color-fg-secondary);
+  margin: 0 2px;
+  vertical-align: bottom;
+  opacity: 0.6;
+}
+
+.cloze-answer {
+  display: inline;
+  color: var(--color-accent);
+  font-weight: 600;
+  background: var(--color-accent-subtle);
+  border-radius: 3px;
+  padding: 0 4px;
+  margin: 0 1px;
+}
+
+/* Type Answer: input + check button inside the card face */
+.flashcard-face--front .type-answer-wrap {
+  display: flex;
+  gap: 6px;
+  width: 100%;
+  max-width: 280px;
+  margin-top: 10px;
+}
+
+.type-answer-input {
+  flex: 1;
+  font-size: clamp(11px, 3cqw, 15px);
+  padding: 6px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  outline: none;
+  transition: border-color 120ms;
+}
+
+.type-answer-input:focus {
+  border-color: var(--color-accent);
+}
+
+.type-answer-check {
+  font-size: clamp(10px, 2.5cqw, 13px);
+  font-weight: 600;
+  padding: 6px 10px;
+  background: var(--color-accent);
+  color: var(--color-bg-surface);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: opacity 80ms;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.type-answer-check:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.type-answer-check:not(:disabled):hover {
+  opacity: 0.85;
 }

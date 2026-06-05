@@ -6,7 +6,7 @@ export default {
     "presence": 0,
     "tags": [],
     "category": null,
-    "isCustom": false,
+    "cardType": "basic",
     "customData": {
         "html": ""
     },

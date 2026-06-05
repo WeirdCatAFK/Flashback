@@ -91,33 +91,26 @@ Inteligencia_Artificial
   #     re-anchored against `text` on load if the file changed out of band.
   "flashcards": [
     {
-    "name": "optional descriptive name",
-    "globalHash": "identifier",
-    "lastRecall": "2025-09-14T15:30:00Z", # ISO 8601 Format,
-    "level" : 6, # Number of consecutive positive recalls,
-    "easeFactor": 0.45,
-    "presence": 0.57,
+      "name": "optional descriptive name",
+      "globalHash": "identifier",
+      "lastRecall": "2025-09-14T15:30:00Z",
+      "level": 6,
+      "easeFactor": 0.45,
+      "presence": 0.57,
       "tags": ["Definition", "Supervised Learning"],
       "category": "Concept",
-      "customData": {
-        // where editor is a custom object that is interpreted by the frontend to make calls to the api
-        // If your flashcard contains any customData it will be interpreted as custom by the api
-        "html": "<Front>What is KNN?</img src = editor.media.visualization></Front><Back>K-Nearest Neighbors algorithm</imgsrc = editor.media.neighbor></Back>",
-        "media": {"visualization": "./media/visualization.png",
-          "neighbor": "./media/neighbor.png"
-         }
-      },
+      "cardType": "basic",
+      "customData": { "html": "" },
       "vanillaData": {
         "frontText": "What is KNN?",
         "backText": "K-Nearest Neighbors algorithm",
         "media": {
-          "front_img": "./media/front.png",
-          "back_img": "./media/back.png",
-          "front_sound": "./media/front.mp3",
-          "back_sound": "./media/back.mp3"
-        }
-        "location" :
-	        {"type": "pdf_location", "data": {"page": 12, "bbox": [100, 200, 400, 250]}}
+          "front_img": "sha256hash",
+          "back_img": "sha256hash",
+          "front_sound": "sha256hash",
+          "back_sound": "sha256hash"
+        },
+        "location": {"type": "pdf_location", "data": {"page": 12, "bbox": [100, 200, 400, 250]}}
       }
     }
   ]
@@ -143,6 +136,68 @@ Reference data varies from the types of documents, so the data might change acco
     (page number + bounding box of referenced text/area)
 - **Videos/Audio:**
   - `{"type": "video_timestamp", "data": {"start": 45.2, "end": 50.8}}`
+
+## Flashcard Types
+
+Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAULT 'basic'` in the DB). The type drives both the renderer and the form fields used to create or edit the card.
+
+| `cardType`    | Description                                                                  |
+| ------------- | ---------------------------------------------------------------------------- |
+| `basic`       | Standard two-sided flip. Front and back are independent text + media blocks. |
+| `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions. |
+| `cloze`       | Text with `{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`). |
+| `type_answer` | Question in `frontText`; expected answer in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to `backText` (case-insensitive trim) and shows a correct/wrong verdict before grading. |
+| `custom`      | Full HTML stored in `customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty. |
+
+### Sidecar representation per type
+
+```json
+// basic / reversible
+{
+  "cardType": "basic",
+  "vanillaData": { "frontText": "Question", "backText": "Answer",
+                   "media": { "front_img": "hash", "back_img": "hash",
+                              "front_sound": "hash", "back_sound": "hash" } },
+  "customData": { "html": "" }
+}
+
+// cloze
+{
+  "cardType": "cloze",
+  "vanillaData": { "frontText": "The {{mitochondria}} is the {{powerhouse}}.",
+                   "backText":  "The {{mitochondria}} is the {{powerhouse}}.",
+                   "media": { "front_img": null, "back_img": null,
+                              "front_sound": null, "back_sound": null } },
+  "customData": { "html": "" }
+}
+
+// type_answer
+{
+  "cardType": "type_answer",
+  "vanillaData": { "frontText": "What is the capital of France?",
+                   "backText":  "Paris",
+                   "media": { "front_img": null, "back_img": null,
+                              "front_sound": null, "back_sound": null } },
+  "customData": { "html": "" }
+}
+
+// custom
+{
+  "cardType": "custom",
+  "vanillaData": { "frontText": "", "backText": "", "media": {} },
+  "customData": { "html": "<div style='font-size:24px'>Custom content</div>" }
+}
+```
+
+### Media references
+
+All media slots (`front_img`, `back_img`, `front_sound`, `back_sound`) store a **SHA-256 hash string**, not a file path. The hash is resolved at runtime via `GET /api/media?hash=<hash>`. The `Media` table maps hashes to absolute paths on disk. All non-custom card types support the four media slots.
+
+### Backward compatibility
+
+Sidecars written before `cardType` was introduced may carry `"isCustom": true` instead of `"cardType"`. The renderer resolves this with: `card.cardType ?? (card.isCustom ? 'custom' : 'basic')`.
+
+---
 
 ## Tagging and Categorization
 
@@ -366,6 +421,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | presence     | float        | Familiarity/strength metric (derived from reviews).                  |
 | level        | integer      | Number of consecutive positive recalls.                              |
 | fileIndex    | integer      | Position of the flashcard within its source file.                    |
+| card_type    | text         | Card variant: `basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent. |
 
 ---
 

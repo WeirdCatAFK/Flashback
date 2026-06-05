@@ -38,6 +38,7 @@ function formatNextDue(sqliteStr) {
 }
 
 function mapApiCard(raw, isNew = false) {
+  const cardType = raw.card_type ?? 'basic';
   return {
     globalHash: raw.global_hash,
     name: raw.name,
@@ -47,6 +48,9 @@ function mapApiCard(raw, isNew = false) {
     category: raw.category,
     documentPath: raw.document_path,
     isNew,
+    cardType,
+    // Reversible cards get a random direction assigned at session-build time.
+    direction: cardType === 'reversible' ? (Math.random() < 0.5 ? 'forward' : 'reverse') : 'forward',
     vanillaData: {
       frontText: raw.frontText,
       backText: raw.backText,
@@ -247,7 +251,14 @@ function highlightMatch(tag, query) {
 
 function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult }) {
   const [flipped, setFlipped] = useState(false);
+  const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
+
+  const cardType = card.cardType ?? 'basic';
+  const isTypeAnswer = cardType === 'type_answer';
+  const correctAnswer = card.vanillaData?.backText ?? '';
+  const isCorrect = typedAnswer != null &&
+    typedAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
 
   // Presentation is delegated to the shared <Flashcard>; the Trainer keeps only
   // the evaluation logic. Fall back to name/hash so older cards without
@@ -264,43 +275,49 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
   const busyRef = useRef(false);
   const cardRef = useRef(null);
 
-  // Runs once the card has finished its flight: persist the review, then report
-  // the result so the parent shows the pop and advances the queue.
   const handleGrade = (key) => {
-    if (busyRef.current) return; // guard double swipe / click / key
+    if (busyRef.current) return;
     busyRef.current = true;
     const g = GRADES[key];
     const easeFactor = Math.min(1, Math.max(0, (card.easeFactor ?? 0.5) + g.ease));
     const fromLevel = card.level ?? 0;
     const toLevel = g.level(fromLevel);
-
     submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel).catch(console.error);
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
-  // Swipe right → remembered (Good), swipe left → forgot (Again). The card has
-  // already flown by the time onSwipe fires.
   const handleSwipe = (dir) => handleGrade(dir === 'right' ? 'good' : 'again');
 
-  // Buttons / keys run the same flight as a swipe, then grade.
   const gradeWithAnimation = (key) => {
     Promise.resolve(cardRef.current?.flyOut(GRADES[key].kind)).then((ok) => {
       if (ok !== false) handleGrade(key);
     });
   };
 
-  // Keyboard: the configured "reveal" key flips; the grade keys grade once
-  // revealed. Only while the Trainer is the active view and the user isn't
-  // typing in a field. Bindings come from the global keymap.
+  // For type_answer: called when the Check button inside Flashcard fires.
+  const handleTypeCheck = (typed) => {
+    setTypedAnswer(typed);
+    setFlipped(true);
+  };
+
   useEffect(() => {
     const onKey = (e) => {
       if (!isActive) return;
       const t = e.target;
+      // For type_answer, let key events pass through to the input inside Flashcard.
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const name = eventKeyName(e);
       const hits = (id) => (keymap[id] ?? []).includes(name);
       if (!flipped) {
-        if (hits('trainer.reveal')) { e.preventDefault(); setFlipped(true); }
+        if (hits('trainer.reveal')) {
+          e.preventDefault();
+          if (isTypeAnswer) {
+            // Forward to Flashcard's check() — submits whatever is typed.
+            cardRef.current?.check();
+          } else {
+            setFlipped(true);
+          }
+        }
         return;
       }
       for (const [gkey, g] of Object.entries(GRADES)) {
@@ -309,13 +326,19 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // gradeWithAnimation/setFlipped are stable within a turn; re-bind on change.
-  }, [isActive, flipped, keymap]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive, flipped, keymap, isTypeAnswer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const revealHint = isTypeAnswer
+    ? 'Type your answer and press Enter or Check'
+    : `Press  `;  // placeholder; rendered with the keycap below
 
   return (
     <div className="trainer-reviewer">
       <p className="trainer-card-meta">
-        <strong>Level {card.level ?? 0}</strong> · {card.category ?? 'uncategorized'}{card.isNew ? ' · New' : ''}
+        <strong>Level {card.level ?? 0}</strong>
+        {' · '}{card.category ?? 'uncategorized'}
+        {card.isNew ? ' · New' : ''}
+        {cardType !== 'basic' && <span className="trainer-card-type-badge">{cardType.replace('_', ' ')}</span>}
       </p>
       <div className="card-stage" ref={stageRef}>
         <CardDeck remaining={remaining} />
@@ -325,28 +348,46 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
           face={flipped ? 'back' : 'front'}
           onFlip={(next) => setFlipped(next === 'back')}
           onSwipe={handleSwipe}
+          onTypeCheck={handleTypeCheck}
           orientation={orientation}
           resolveMedia={(ref) => mediaFileSrc(card.documentPath, ref)}
         />
       </div>
-      {!flipped
-        ? <p className="trainer-hint">Press <kbd>{formatKeyLabel(keymap['trainer.reveal']?.[0] ?? 'Space')}</kbd> or click to reveal</p>
-        : (
-          <div className="trainer-grades">
-            {Object.entries(GRADES).map(([key, g]) => (
-              <button
-                key={key}
-                className={`trainer-grade trainer-grade--${key}`}
-                onClick={() => gradeWithAnimation(key)}
-              >
-                {keymap[g.action]?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap[g.action][0])}</kbd>}
-                <span className="grade-label">{g.label}</span>
-                <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>
-              </button>
-            ))}
-          </div>
-        )
-      }
+
+      {!flipped && !isTypeAnswer && (
+        <p className="trainer-hint">
+          Press <kbd>{formatKeyLabel(keymap['trainer.reveal']?.[0] ?? 'Space')}</kbd> or click to reveal
+        </p>
+      )}
+
+      {!flipped && isTypeAnswer && (
+        <p className="trainer-hint">Type your answer above and press Enter or Check</p>
+      )}
+
+      {flipped && isTypeAnswer && (
+        <div className={`type-answer-verdict type-answer-verdict--${isCorrect ? 'correct' : 'wrong'}`}>
+          {isCorrect
+            ? '✓ Correct!'
+            : <span>✗ You typed: <em>"{typedAnswer}"</em></span>
+          }
+        </div>
+      )}
+
+      {flipped && (
+        <div className="trainer-grades">
+          {Object.entries(GRADES).map(([key, g]) => (
+            <button
+              key={key}
+              className={`trainer-grade trainer-grade--${key}`}
+              onClick={() => gradeWithAnimation(key)}
+            >
+              {keymap[g.action]?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap[g.action][0])}</kbd>}
+              <span className="grade-label">{g.label}</span>
+              <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

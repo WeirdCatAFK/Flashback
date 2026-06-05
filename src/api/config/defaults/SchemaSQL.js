@@ -93,6 +93,7 @@ addTable('Flashcards', (table) => {
     table.string('origin', 500);
     table.float('presence').index();
     table.integer('fileIndex');
+    table.string('card_type', 50).notNullable().defaultTo('basic');
 });
 
 // 6. Logs & Tags

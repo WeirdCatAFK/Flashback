@@ -242,3 +242,91 @@
   background: var(--color-bg-hover);
   color: var(--color-fg-primary);
 }
+
+/* Card type dropdown */
+.fc-type-select {
+  margin-bottom: 2px;
+}
+
+/* Hint / warning lines below fields */
+.fc-form-hint {
+  font-size: 10px;
+  color: var(--color-fg-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.fc-form-warn {
+  font-size: 10px;
+  color: var(--color-hl-pink, #e06c75);
+  margin: 0;
+}
+
+/* Monospace textarea for HTML / code */
+.fc-form-field--code {
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: 11px;
+  line-height: 1.6;
+  resize: vertical;
+  min-height: 80px;
+}
+
+/* FlashcardEditor */
+.fc-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.fc-editor-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 4px;
+  transition: color 80ms;
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.fc-editor-back:hover {
+  color: var(--color-fg-primary);
+}
+
+.fc-editor-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding-bottom: 4px;
+}
+
+/* Block-layout stage so aspect-ratio establishes a definite height.
+   Flex-column parents can't reliably do this for height:100% children. */
+.fc-card-stage {
+  width: 100%;
+  position: relative;
+}
+
+.fc-card-stage--landscape { aspect-ratio: 4 / 3; }
+.fc-card-stage--portrait  { aspect-ratio: 3 / 4; }
+
+/* Flashcard fills the stage; its own aspect-ratio + margin are overridden. */
+.fc-card-stage .flashcard {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.fc-editor-flip-hint {
+  font-size: 10px;
+  color: var(--color-fg-secondary);
+}
+
