@@ -65,7 +65,7 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, tags }) {
+function useDueCards({ folder, tags, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -84,7 +84,7 @@ function useDueCards({ folder, tags }) {
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, tagsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [folder, tagsKey, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cards = useMemo(() =>
     result
@@ -398,16 +398,30 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
     tags: null,
   });
 
+  // Tracks whether the last session has been completed (queue emptied by the user).
+  // When true, new cards from a re-fetch are held back until the user clicks "start".
+  const [sessionDone, setSessionDone] = useState(false);
+  // Snapshot of stats at session end so the summary persists through re-fetches.
+  const [lastSession, setLastSession] = useState(null);
+
   // When a study session is launched from the file explorer, reset scope.
   useEffect(() => {
     setAppliedScope({ folder: studySession?.folder ?? null, tags: null });
-  }, [studySession]);
+    setSessionDone(false);
+    setLastSession(null);
+  }, [studySession]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clearFolder = () => setAppliedScope(s => ({ ...s, folder: null }));
-  const clearTags   = () => setAppliedScope(s => ({ ...s, tags: null }));
-  const applyTags   = (tags) => setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null }));
+  const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setSessionDone(false); };
+  const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setSessionDone(false); };
+  const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setSessionDone(false); };
 
-  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, tags: appliedScope.tags });
+  // Re-check for due cards every time the view becomes active.
+  const [refreshToken, setRefreshToken] = useState(0);
+  useEffect(() => {
+    if (isActive) setRefreshToken(t => t + 1);
+  }, [isActive]);
+
+  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, tags: appliedScope.tags, refreshToken });
   const [orientation] = useFlashcardOrientation();
 
   // Session queue: the front card is live, fails go to the back, passes leave.
@@ -430,14 +444,25 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
     setPopTop(s.top - a.top + 16);
   }, [pop]);
 
-  // (Re)start the session whenever a new set of cards loads. Clearing `pop` here
-  // is what stops a stale grade pop from replaying on the first card.
+  // Auto-start the session when cards load — but only if not mid-session and not
+  // waiting for the user to confirm a new session after completion.
   useEffect(() => {
+    if (queue.length > 0) return; // mid-session, don't interrupt
+    if (sessionDone) return;      // completed, user must click to start again
     setQueue(cards);
     setTurn(0);
     setStats({ again: 0, good: 0, easy: 0 });
     setPop(null);
-  }, [cards]);
+  }, [cards]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const startNewSession = () => {
+    setQueue(cards);
+    setTurn(0);
+    setStats({ again: 0, good: 0, easy: 0 });
+    setPop(null);
+    setSessionDone(false);
+    setLastSession(null);
+  };
 
   // The pop is transient — clear it after it plays so it never lingers to fire
   // again when the arena remounts.
@@ -449,28 +474,37 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
 
   const currentCard = queue[0];
   const remaining = Math.max(0, queue.length - 1);
-  const started = !loading && cards.length > 0;
-  const empty = !loading && !error && cards.length === 0;
-  const done = started && queue.length === 0;
+  const empty = !loading && !error && cards.length === 0 && !sessionDone;
 
-  const total = cards.length;
-  const passed = Math.max(0, total - queue.length);
-  const reviews = stats.again + stats.good + stats.easy;
-  const correct = stats.good + stats.easy;
+  // During an active session use live values; after completion use the snapshot.
+  const displayStats = sessionDone && lastSession ? lastSession.stats : stats;
+  const displayTotal = sessionDone && lastSession ? lastSession.total : cards.length;
+  const reviews  = displayStats.again + displayStats.good + displayStats.easy;
+  const correct  = displayStats.good  + displayStats.easy;
   const accuracy = reviews ? Math.round((correct / reviews) * 100) : 0;
+
+  // Progress bar values (only used during active session).
+  const total    = cards.length;
+  const passed   = Math.max(0, total - queue.length);
   const progress = total ? passed / total : 0;
 
   const handleResult = ({ key, success, toLevel, easeFactor }) => {
-    setStats((s) => ({ ...s, [key]: s[key] + 1 }));
+    const newStats = { ...stats, [key]: stats[key] + 1 };
+    setStats(newStats);
     setPop({ id: Date.now(), kind: success ? 'up' : 'down', toLevel });
     if (success) {
-      setQueue((q) => q.slice(1));                          // consumed
+      const nextQueue = queue.slice(1);
+      setQueue(nextQueue);
+      if (nextQueue.length === 0) {
+        setSessionDone(true);
+        setLastSession({ total: cards.length, stats: newStats });
+      }
     } else {
       // Re-queue with the persisted SRS state applied, so the card comes back
       // showing its new (reset) level rather than the stale in-memory one.
-      setQueue((q) => (q.length > 1
-        ? [...q.slice(1), { ...q[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]
-        : [{ ...q[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]));
+      setQueue(queue.length > 1
+        ? [...queue.slice(1), { ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]
+        : [{ ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]);
     }
     setTurn((t) => t + 1);
   };
@@ -479,10 +513,10 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
     <div className="trainer-view">
       <h2>Trainer</h2>
 
-      {loading && <p>Loading cards...</p>}
+      {loading && !sessionDone && <p>Loading cards...</p>}
       {error && <p>Error: {error.message}</p>}
 
-      {result && (
+      {result && !sessionDone && (
         <p className="trainer-session-info">
           {result.counts.due} due · {result.counts.new} new · {result.algorithm}
         </p>
@@ -508,7 +542,7 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
         </div>
       )}
 
-      {started && !done && (
+      {!sessionDone && queue.length > 0 && (
         <div className="trainer-progress">
           <div className="trainer-progress-track">
             <div className="trainer-progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
@@ -519,19 +553,32 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
         </div>
       )}
 
-      {done && (
+      {sessionDone && lastSession && (
         <div className="trainer-summary">
           <h3 className="trainer-summary-title">Session complete</h3>
-          <p className="trainer-summary-line">{total} cards · {reviews} reviews · {accuracy}% correct</p>
+          <p className="trainer-summary-line">{displayTotal} cards · {reviews} reviews · {accuracy}% correct</p>
           <div className="trainer-summary-breakdown">
-            <span className="sum sum--again">Again <b>{stats.again}</b></span>
-            <span className="sum sum--good">Good <b>{stats.good}</b></span>
-            <span className="sum sum--easy">Easy <b>{stats.easy}</b></span>
+            <span className="sum sum--again">Again <b>{displayStats.again}</b></span>
+            <span className="sum sum--good">Good <b>{displayStats.good}</b></span>
+            <span className="sum sum--easy">Easy <b>{displayStats.easy}</b></span>
           </div>
+          {loading && <p className="trainer-summary-line">Checking for new cards…</p>}
+          {!loading && cards.length > 0 && (
+            <button className="trainer-new-session-btn" onClick={startNewSession}>
+              Start new session ({cards.length} card{cards.length !== 1 ? 's' : ''})
+            </button>
+          )}
+          {!loading && cards.length === 0 && (
+            <p className="trainer-summary-line">
+              {result?.nextDue
+                ? `Next review ${formatNextDue(result.nextDue)}`
+                : 'All caught up!'}
+            </p>
+          )}
         </div>
       )}
 
-      {currentCard && !done && (
+      {!sessionDone && currentCard && (
         <div className="leitner-arena" ref={arenaRef}>
           <FlashcardReviewer
             key={turn}
