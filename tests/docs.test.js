@@ -212,6 +212,61 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
+    // --- 3b. FLASHCARD TYPE PERSISTENCE ---
+    describe('Flashcard Type Persistence', () => {
+        const docPath = path.join(TEST_ROOT, 'Algebra', 'TypedCards.md');
+
+        before(async () => {
+            await docs.createFile('TypedCards.md', path.join(TEST_ROOT, 'Algebra'));
+        });
+
+        const makeCard = (cardType, overrides = {}) => ({
+            globalHash: genHash(),
+            level: 0,
+            cardType,
+            vanillaData: { frontText: 'Q', backText: 'A', media: {} },
+            customData: { html: '' },
+            ...overrides,
+        });
+
+        it('should persist card_type for all five card types', async () => {
+            const cards = [
+                makeCard('basic'),
+                makeCard('reversible'),
+                makeCard('cloze', { vanillaData: { frontText: 'The {{sun}} is a {{star}}.', backText: 'The {{sun}} is a {{star}}.', media: {} } }),
+                makeCard('type_answer', { vanillaData: { frontText: 'Capital of France?', backText: 'Paris', media: {} } }),
+                makeCard('custom', { vanillaData: { frontText: '', backText: '', media: {} }, customData: { html: '<b>Hi</b>' } }),
+            ];
+
+            await docs.updateFile(docPath, '# Typed Cards', { globalHash: genHash(), flashcards: cards });
+
+            for (const card of cards) {
+                const row = db.prepare('SELECT card_type FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
+                assert.ok(row, `Card with type "${card.cardType}" should exist in DB`);
+                assert.equal(row.card_type, card.cardType, `card_type should be stored as "${card.cardType}"`);
+            }
+        });
+
+        it('should preserve card_type on flashcard update', async () => {
+            const hash = genHash();
+            await docs.updateFile(docPath, '# Typed Cards', {
+                globalHash: genHash(),
+                flashcards: [makeCard('cloze', { globalHash: hash, vanillaData: { frontText: 'The {{sun}} is a star.', backText: 'The {{sun}} is a star.', media: {} } })],
+            });
+
+            await docs.updateFile(docPath, '# Typed Cards updated', {
+                globalHash: genHash(),
+                flashcards: [makeCard('cloze', { globalHash: hash, vanillaData: { frontText: 'The {{moon}} orbits Earth.', backText: 'The {{moon}} orbits Earth.', media: {} } })],
+            });
+
+            const row = db.prepare('SELECT card_type, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+            assert.equal(row.card_type, 'cloze', 'card_type should survive an update');
+
+            const content = db.prepare('SELECT frontText FROM FlashcardContent WHERE id = ?').get(row.content_id);
+            assert.ok(content.frontText.includes('moon'), 'Content frontText should be updated');
+        });
+    });
+
     // --- 4. SRS & PRESENCE ---
     describe('SRS & Presence', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');

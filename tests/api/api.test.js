@@ -364,6 +364,40 @@ describe('Flashback API', () => {
             const res = await post(`${baseUrl}/api/srs/review`, { path: `${ROOT}/${DOC}` });
             assert.equal(res.status, 400);
         });
+
+        it('GET /api/srs/due → returns due and new card lists with card_type', async () => {
+            const DUE_DOC = 'due-test.md';
+            const DUE_HASH = 'srs-due-cloze-001';
+            const NEW_HASH = 'srs-new-type-answer-001';
+            // 10 days ago — well past level-1 Leitner interval (1 day)
+            const pastRecall = new Date(Date.now() - 10 * 24 * 60 * 60 * 1000).toISOString();
+
+            await createFile(DUE_DOC, ROOT);
+            await updateFile(`${ROOT}/${DUE_DOC}`, '# Due Test', {
+                flashcards: [
+                    { globalHash: DUE_HASH, cardType: 'cloze', level: 1, lastRecall: pastRecall,
+                      vanillaData: { frontText: 'The {{sun}} is a star.', backText: 'The {{sun}} is a star.' } },
+                    { globalHash: NEW_HASH, cardType: 'type_answer',
+                      vanillaData: { frontText: 'Capital of France?', backText: 'Paris' } },
+                ]
+            });
+
+            const res = await fetch(`${baseUrl}/api/srs/due`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+
+            assert.ok(Array.isArray(body.due), 'due should be an array');
+            assert.ok(Array.isArray(body.new), 'new should be an array');
+
+            const dueCard = body.due.find(c => c.global_hash === DUE_HASH);
+            assert.ok(dueCard, 'cloze card with recall 10 days ago at level 1 should appear in due');
+            assert.equal(dueCard.card_type, 'cloze', 'due card should carry card_type');
+            assert.ok(dueCard.frontText, 'due card should include frontText');
+
+            const newCard = body.new.find(c => c.global_hash === NEW_HASH);
+            assert.ok(newCard, 'card without lastRecall should appear in newCards');
+            assert.equal(newCard.card_type, 'type_answer', 'new card should carry card_type');
+        });
     });
 
     // ── Subscriptions ─────────────────────────────────────────────────────
