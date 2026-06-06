@@ -5,6 +5,7 @@ import { getGraph } from '../api/documents';
 import './GraphView.css';
 
 const DIRECTED = new Set(['inheritance', 'reference']);
+const HOVER_SELECT_DELAY = 700; // ms before hover auto-selects a node
 
 function getCSSVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -21,7 +22,6 @@ function useThemeVersion() {
 }
 
 function buildGraphData({ nodes = [], edges = [] }) {
-  // Disconnection overrides
   const disconnected = new Set();
   for (const e of edges) {
     if (e.relation === 'disconnection') {
@@ -29,8 +29,6 @@ function buildGraphData({ nodes = [], edges = [] }) {
     }
   }
 
-  // Origin nodes: Folder nodes that are never the *target* of an inheritance edge
-  // (i.e. they have no parent in the hierarchy — they are workspace roots)
   const inheritanceTargets = new Set(
     edges.filter(e => e.relation === 'inheritance').map(e => e.toId)
   );
@@ -87,7 +85,6 @@ function useContainerSize(ref) {
   return size;
 }
 
-// force-graph mutates link.source/target from IDs → node objects after first render
 function nodeId(val) {
   return typeof val === 'object' && val !== null ? val.id : val;
 }
@@ -108,16 +105,35 @@ function withAlpha(color, alpha) {
   return c;
 }
 
+function lerp(a, b, t) {
+  return a + (b - a) * t;
+}
+
 export default function GraphView({ isActive = false }) {
   const { graphData, loading, error } = useGraph(isActive);
   const [showTags, setShowTags] = useState(true);
   const [showOrigin, setShowOrigin] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [hovered, setHovered] = useState(null);
   const containerRef = useRef(null);
   const fgRef = useRef(null);
-  const alphaRef = useRef({});
+
+  // Per-node animation state (mutated in paint loop, never triggers re-renders)
+  const alphaRef = useRef({});   // focus-dim lerp
+  const scaleRef = useRef({});   // hover-scale lerp
+  const enterRef = useRef({});   // entrance timestamp per node id
+
+  // Hover-to-select machinery
+  const hoverTimerRef = useRef(null);
+  const selectedByHoverRef = useRef(false);
+
   const { width, height } = useContainerSize(containerRef);
   const themeVer = useThemeVersion();
+
+  // Clean up hover timer on unmount
+  useEffect(() => () => {
+    if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+  }, []);
 
   const colors = useMemo(() => ({
     nodes: {
@@ -166,7 +182,6 @@ export default function GraphView({ isActive = false }) {
     return ids;
   }, [selected, visibleData]);
 
-  // Tune forces whenever visible data changes (initial load + toggle events)
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg || !visibleData) return;
@@ -175,30 +190,49 @@ export default function GraphView({ isActive = false }) {
     fg.d3Force('link').distance(60);
     fg.d3Force('collide', forceCollide(node => {
       const presenceNorm = Math.min(1, (node.presence || 0) / 10);
-      // collision radius = node circle + full aureola + label clearance below
       return NODE_R + presenceNorm * 12;
     }));
   }, [visibleData]);
 
-  const NODE_R = 5; // must match nodeRelSize for correct hit detection
+  const NODE_R = 7;
 
   const paintNode = useCallback((node, ctx, globalScale) => {
     const isSelected = selected?.id === node.id;
+    const isHovered  = hovered?.id  === node.id;
+
+    // --- Focus-dim lerp ---
     const targetAlpha = !focusedIds || focusedIds.has(node.id) ? 1 : 0.18;
-    const prev = alphaRef.current[node.id] ?? 1;
-    const alpha = Math.abs(targetAlpha - prev) < 0.005
+    const prevAlpha = alphaRef.current[node.id] ?? 1;
+    const alpha = Math.abs(targetAlpha - prevAlpha) < 0.005
       ? targetAlpha
-      : prev + (targetAlpha - prev) * 0.1;
+      : lerp(prevAlpha, targetAlpha, 0.1);
     alphaRef.current[node.id] = alpha;
 
+    // --- Hover scale lerp (suppressed when node is already selected) ---
+    const targetScale = isHovered && !isSelected ? 1.35 : 1.0;
+    const prevScale = scaleRef.current[node.id] ?? 1.0;
+    const scale = Math.abs(targetScale - prevScale) < 0.003
+      ? targetScale
+      : lerp(prevScale, targetScale, 0.12);
+    scaleRef.current[node.id] = scale;
+
+    // --- Entrance fade ---
+    const now = Date.now();
+    if (!enterRef.current[node.id]) enterRef.current[node.id] = now;
+    const entrance = Math.min(1, (now - enterRef.current[node.id]) / 700);
+
+    const effectiveAlpha = alpha * entrance;
     const color = colors.nodes[node.type] ?? colors.nodes.Document;
     const presenceNorm = Math.min(1, (node.presence || 0) / 10);
 
-    // Soft radial glow on selected node
+    // Soft radial glow on selected node (scale-aware)
     if (isSelected) {
-      const glowR = NODE_R + 18;
-      const grad = ctx.createRadialGradient(node.x, node.y, NODE_R * 0.4, node.x, node.y, glowR);
-      grad.addColorStop(0, withAlpha(color, 0.5));
+      const glowR = (NODE_R + 20) * scale;
+      const grad = ctx.createRadialGradient(
+        node.x, node.y, NODE_R * 0.4 * scale,
+        node.x, node.y, glowR,
+      );
+      grad.addColorStop(0, withAlpha(color, 0.5 * entrance));
       grad.addColorStop(1, withAlpha(color, 0));
       ctx.beginPath();
       ctx.arc(node.x, node.y, glowR, 0, 2 * Math.PI);
@@ -207,27 +241,44 @@ export default function GraphView({ isActive = false }) {
       ctx.fill();
     }
 
-    // Aureola — translucent halo that grows with presence
-    if (presenceNorm > 0.02) {
-      const aureolaR = NODE_R + presenceNorm * 12;
+    // Halo glow on hovered node
+    if (isHovered && !isSelected) {
+      const haloR = (NODE_R + 12) * scale;
+      const grad = ctx.createRadialGradient(
+        node.x, node.y, NODE_R * scale,
+        node.x, node.y, haloR,
+      );
+      grad.addColorStop(0, withAlpha(color, 0.3));
+      grad.addColorStop(1, withAlpha(color, 0));
       ctx.beginPath();
-      ctx.arc(node.x, node.y, aureolaR, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = alpha * 0.3 * presenceNorm;
+      ctx.arc(node.x, node.y, haloR, 0, 2 * Math.PI);
+      ctx.fillStyle = grad;
+      ctx.globalAlpha = entrance;
       ctx.fill();
     }
 
-    // Node circle (selected node drawn slightly larger)
-    const r = isSelected ? NODE_R + 1.5 : NODE_R;
-    ctx.globalAlpha = alpha;
+    // Aureola — translucent halo that grows with presence
+    if (presenceNorm > 0.02) {
+      const aureolaR = (NODE_R + presenceNorm * 12) * scale;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, aureolaR, 0, 2 * Math.PI);
+      ctx.fillStyle = color;
+      ctx.globalAlpha = effectiveAlpha * 0.3 * presenceNorm;
+      ctx.fill();
+    }
+
+    // Node circle
+    const r = (isSelected ? NODE_R + 1.5 : NODE_R) * scale;
+    ctx.globalAlpha = effectiveAlpha;
     ctx.beginPath();
     ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
     ctx.fillStyle = color;
     ctx.fill();
 
-    // Label (only when zoomed in enough)
-    if (globalScale >= 0.8) {
-      ctx.globalAlpha = alpha;
+    // Label (flashcard labels hidden unless hovered/selected)
+    const showLabel = node.type !== 'Flashcard' || isSelected || isHovered;
+    if (globalScale >= 0.8 && showLabel) {
+      ctx.globalAlpha = effectiveAlpha;
       const fontSize = Math.min(14, Math.max(10, 12 / globalScale));
       ctx.font = `${fontSize}px Geist, system-ui, sans-serif`;
       ctx.textAlign = 'center';
@@ -237,14 +288,45 @@ export default function GraphView({ isActive = false }) {
     }
 
     ctx.globalAlpha = 1;
-  }, [colors, focusedIds, selected]);
+  }, [colors, focusedIds, selected, hovered]);
 
   const getLinkColor = useCallback(link => {
     const base = colors.links[link.relation] ?? colors.links.connection;
-    if (!focusedIds) return base;
+    if (!focusedIds) return withAlpha(base, 0.45);
     const focused = focusedIds.has(nodeId(link.source)) || focusedIds.has(nodeId(link.target));
-    return focused ? base : withAlpha(base, 0.15);
+    return focused ? withAlpha(base, 0.7) : withAlpha(base, 0.1);
   }, [colors, focusedIds]);
+
+  const handleNodeHover = useCallback(node => {
+    setHovered(node ?? null);
+
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+
+    if (node) {
+      hoverTimerRef.current = setTimeout(() => {
+        setSelected(node);
+        selectedByHoverRef.current = true;
+        hoverTimerRef.current = null;
+      }, HOVER_SELECT_DELAY);
+    } else if (selectedByHoverRef.current) {
+      // Release the auto-selection when the cursor leaves
+      setSelected(null);
+      selectedByHoverRef.current = false;
+    }
+  }, []);
+
+  const handleNodeClick = useCallback(node => {
+    // Manual click overrides hover-select: cancel the timer and own the selection
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+    selectedByHoverRef.current = false;
+    setSelected(prev => prev?.id === node.id ? null : node);
+  }, []);
 
   return (
     <div ref={containerRef} className="graph-root">
@@ -258,11 +340,12 @@ export default function GraphView({ isActive = false }) {
             width={width}
             height={height}
             backgroundColor={colors.bg}
-            nodeLabel="name"
+            nodeLabel=""
             nodeColor={node => colors.nodes[node.type] ?? colors.nodes.Document}
-            nodeRelSize={5}
+            nodeRelSize={7}
             nodeCanvasObjectMode={() => 'replace'}
             nodeCanvasObject={paintNode}
+            autoPauseRedraw={false}
             linkColor={getLinkColor}
             linkDirectionalArrowColor={getLinkColor}
             linkWidth={1.5}
@@ -270,8 +353,13 @@ export default function GraphView({ isActive = false }) {
             linkDirectionalArrowLength={link => DIRECTED.has(link.relation) ? 5 : 0}
             linkDirectionalArrowRelPos={1}
             linkLabel={link => link.relation}
-            onNodeClick={node => setSelected(prev => prev?.id === node.id ? null : node)}
-            onBackgroundClick={() => setSelected(null)}
+
+            onNodeClick={handleNodeClick}
+            onNodeHover={handleNodeHover}
+            onBackgroundClick={() => {
+              selectedByHoverRef.current = false;
+              setSelected(null);
+            }}
           />
 
           <div className="graph-controls">
@@ -315,7 +403,10 @@ export default function GraphView({ isActive = false }) {
                 {selected.type}
               </div>
               <div className="graph-info-name">{selected.name}</div>
-              <button className="graph-info-close" onClick={() => setSelected(null)}>×</button>
+              <button className="graph-info-close" onClick={() => {
+                selectedByHoverRef.current = false;
+                setSelected(null);
+              }}>×</button>
             </div>
           )}
         </>
