@@ -24,6 +24,7 @@
     "test:subscriptions": "node --test tests/subs.test.js",
     "test:graph": "node --test tests/graph.test.js",
     "genCDB": "node scripts/genCDB.js",
+    "seed": "node scripts/seed.js",
     "test:seal": "node --test tests/seal.test.js",
     "test:api": "node --test tests/api/api.test.js"
   },
