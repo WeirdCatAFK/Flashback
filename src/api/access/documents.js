@@ -303,6 +303,7 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(fileRelPath);
+            const parentAbsPath = path.dirname(absPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Document');
                 const folderId = this._getParentFolderId(absPath);
@@ -312,6 +313,9 @@ export default class Documents {
                     encoding
                 });
                 const docId = info.lastInsertRowid;
+
+                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
+                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
 
                 if (metadata.tags) this._syncTags(nodeId, metadata.tags);
                 if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards);
