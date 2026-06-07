@@ -7,7 +7,7 @@ const MIN_WIDTH     = 150;
 const MAX_WIDTH     = 500;
 const DEFAULT_WIDTH = 240;
 
-export default function DocumentsView({ isActive, openPaths, toggleOpen, relocatePaths, selectedPath, onSelect, onStudyFolder }) {
+export default function DocumentsView({ isActive, openPaths, toggleOpen, relocatePaths, selectedPath, onSelect, onStudyFolder, openSource, onOpenSourceConsumed }) {
   const [sidebarWidth, setSidebarWidth] = useState(
     () => parseInt(localStorage.getItem('fb-sidebar-width') ?? DEFAULT_WIDTH, 10)
   );
@@ -52,6 +52,18 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
   // Keep a ref so callbacks can read current openTabs without stale closures
   const openTabsRef = useRef([]);
   useEffect(() => { openTabsRef.current = openTabs; }, [openTabs]);
+
+  const [pendingHighlight, setPendingHighlight] = useState(null); // { path, id }
+
+  // Open a document from an external source (e.g. trainer "view source")
+  useEffect(() => {
+    if (!openSource) return;
+    const { path, highlightId } = openSource;
+    setOpenTabs(prev => prev.some(t => t.path === path) ? prev : [...prev, { path }]);
+    onSelect(path);
+    onOpenSourceConsumed?.();
+    if (highlightId) setPendingHighlight({ path, id: highlightId });
+  }, [openSource]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Single click: open as preview tab (replaces existing preview)
   const handleFileSelect = useCallback((path) => {
@@ -129,6 +141,8 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
           onTabChange={handleTabChange}
           onTabClose={handleTabClose}
           onTabDoubleClick={handleTabDoubleClick}
+          pendingHighlight={pendingHighlight}
+          onHighlightConsumed={() => setPendingHighlight(null)}
         />
       </main>
     </div>

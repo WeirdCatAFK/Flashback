@@ -3,25 +3,41 @@ import { readFile } from '../../../api/documents';
 import FlashcardEditor from '../../FlashcardEditor';
 
 const TYPE_LABELS = {
-  basic: 'Basic',
-  reversible: 'Reversible',
-  cloze: 'Cloze',
+  basic:       'Basic',
+  reversible:  'Reversible',
+  cloze:       'Cloze',
   type_answer: 'Type',
-  custom: 'Custom',
+  custom:      'Custom',
 };
 
-function CardItem({ card, index, onEdit }) {
-  const cardType = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
-  const front = card.vanillaData?.frontText ?? card.name ?? '—';
-  const back  = card.vanillaData?.backText ?? '';
+function CardItem({ card, index, onEdit, onJumpToHighlight }) {
+  const cardType     = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
+  const front        = card.vanillaData?.frontText ?? card.name ?? '—';
+  const back         = card.vanillaData?.backText ?? '';
+  const highlightLoc = card.vanillaData?.location?.type === 'highlight'
+    ? card.vanillaData.location
+    : null;
+
   return (
     <div className="card-item">
       <div className="card-item-header">
         <span className="card-item-num">#{index + 1}</span>
         <span className="card-item-type">{TYPE_LABELS[cardType] ?? cardType}</span>
         {card.level > 0 && <span className="card-item-level">L{card.level}</span>}
-        <button className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
+        <div className="card-item-actions">
+          {highlightLoc && (
+            <button
+              className="card-item-source"
+              title="Jump to source highlight"
+              onClick={() => onJumpToHighlight?.(highlightLoc.id)}
+            >
+              ↗ source
+            </button>
+          )}
+          <button className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
+        </div>
       </div>
+
       {cardType === 'custom'
         ? <p className="card-item-front card-item-custom-label">Custom HTML card</p>
         : <>
@@ -29,6 +45,7 @@ function CardItem({ card, index, onEdit }) {
             {back && <p className="card-item-back">{back}</p>}
           </>
       }
+
       {card.tags?.length > 0 && (
         <div className="card-item-tags">
           {card.tags.map((t) => <span key={t} className="card-tag">{t}</span>)}
@@ -38,9 +55,9 @@ function CardItem({ card, index, onEdit }) {
   );
 }
 
-export default function InspectorCardsTab({ path, onNewCard }) {
-  const [cards, setCards] = useState([]);
-  const [loading, setLoading] = useState(false);
+export default function InspectorCardsTab({ path, onNewCard, onJumpToHighlight }) {
+  const [cards, setCards]       = useState([]);
+  const [loading, setLoading]   = useState(false);
   const [editingCard, setEditingCard] = useState(null);
 
   const loadCards = useCallback(() => {
@@ -79,7 +96,13 @@ export default function InspectorCardsTab({ path, onNewCard }) {
       )}
 
       {cards.map((card, i) => (
-        <CardItem key={card.globalHash ?? i} card={card} index={i} onEdit={setEditingCard} />
+        <CardItem
+          key={card.globalHash ?? i}
+          card={card}
+          index={i}
+          onEdit={setEditingCard}
+          onJumpToHighlight={onJumpToHighlight}
+        />
       ))}
     </div>
   );

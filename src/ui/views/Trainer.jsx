@@ -1,7 +1,7 @@
-import { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { submitReview, getDue } from '../api/srs';
-import { getTags } from '../api/documents';
+import { getTags, readFile } from '../api/documents';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
 import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
@@ -249,7 +249,7 @@ function highlightMatch(tag, query) {
   );
 }
 
-function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult }) {
+function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult, onViewSource }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -308,6 +308,7 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const name = eventKeyName(e);
       const hits = (id) => (keymap[id] ?? []).includes(name);
+      if (hits('trainer.viewSource')) { e.preventDefault(); onViewSource?.(); return; }
       if (!flipped) {
         if (hits('trainer.reveal')) {
           e.preventDefault();
@@ -388,11 +389,22 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
           ))}
         </div>
       )}
+
+      {card.documentPath && (
+        <div className="trainer-source-row">
+          <button className="trainer-source-btn" onClick={onViewSource}>
+            {keymap['trainer.viewSource']?.[0] && (
+              <kbd className="trainer-source-key">{formatKeyLabel(keymap['trainer.viewSource'][0])}</kbd>
+            )}
+            View source ↗
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-export default function FlashcardsTrainer({ isActive, studySession }) {
+export default function FlashcardsTrainer({ isActive, studySession, onOpenSource }) {
   const [appliedScope, setAppliedScope] = useState({
     folder: studySession?.folder ?? null,
     tags: null,
@@ -407,13 +419,14 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
   // When a study session is launched from the file explorer, reset scope.
   useEffect(() => {
     setAppliedScope({ folder: studySession?.folder ?? null, tags: null });
+    setQueue([]);
     setSessionDone(false);
     setLastSession(null);
   }, [studySession]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setSessionDone(false); };
-  const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setSessionDone(false); };
-  const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setSessionDone(false); };
+  const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
+  const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setQueue([]); setSessionDone(false); };
+  const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
   // Re-check for due cards every time the view becomes active.
   const [refreshToken, setRefreshToken] = useState(0);
@@ -487,6 +500,18 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
   const total    = cards.length;
   const passed   = Math.max(0, total - queue.length);
   const progress = total ? passed / total : 0;
+
+  const handleViewSource = useCallback(async () => {
+    if (!currentCard?.documentPath) return;
+    let highlightId = null;
+    try {
+      const data = await readFile(currentCard.documentPath);
+      const match = data.metadata?.flashcards?.find(c => c.globalHash === currentCard.globalHash);
+      const loc = match?.vanillaData?.location;
+      if (loc?.type === 'highlight') highlightId = loc.id;
+    } catch { /* navigate without highlight scroll */ }
+    onOpenSource?.(currentCard.documentPath, highlightId);
+  }, [currentCard, onOpenSource]);
 
   const handleResult = ({ key, success, toLevel, easeFactor }) => {
     const newStats = { ...stats, [key]: stats[key] + 1 };
@@ -588,6 +613,7 @@ export default function FlashcardsTrainer({ isActive, studySession }) {
             isActive={isActive}
             stageRef={stageRef}
             onResult={handleResult}
+            onViewSource={handleViewSource}
           />
           <GradePop pop={pop} top={popTop} />
         </div>

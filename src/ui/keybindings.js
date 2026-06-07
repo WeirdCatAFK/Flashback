@@ -17,6 +17,7 @@ export const KEYBINDING_ACTIONS = [
       { id: 'trainer.gradeAgain', label: 'Grade · Again', default: ['1'] },
       { id: 'trainer.gradeGood',  label: 'Grade · Good',  default: ['2'] },
       { id: 'trainer.gradeEasy',  label: 'Grade · Easy',  default: ['3'] },
+      { id: 'trainer.viewSource', label: 'View source',   default: ['S'] },
     ],
   },
 ];

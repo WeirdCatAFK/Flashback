@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 const COLOR_VAR = {
   amber: '--color-hl-amber',
   green: '--color-hl-green',
@@ -5,14 +7,23 @@ const COLOR_VAR = {
   pink:  '--color-hl-pink',
 };
 
-export default function InspectorHighlightsTab({ highlights = [], flashcards = [], onJump }) {
-  // Count cards anchored to each highlight, so we can show the link count
-  // without re-scanning per item.
-  const cardCounts = new Map();
+const TYPE_LABELS = {
+  basic:       'Basic',
+  reversible:  'Reversible',
+  cloze:       'Cloze',
+  type_answer: 'Type',
+  custom:      'Custom',
+};
+
+export default function InspectorHighlightsTab({ highlights = [], flashcards = [], onJump, onAddCard }) {
+  const [expandedId, setExpandedId] = useState(null);
+
+  const cardsByHighlight = new Map();
   for (const card of flashcards) {
     const loc = card?.vanillaData?.location;
     if (loc?.type === 'highlight' && loc?.id) {
-      cardCounts.set(loc.id, (cardCounts.get(loc.id) ?? 0) + 1);
+      if (!cardsByHighlight.has(loc.id)) cardsByHighlight.set(loc.id, []);
+      cardsByHighlight.get(loc.id).push(card);
     }
   }
 
@@ -36,28 +47,64 @@ export default function InspectorHighlightsTab({ highlights = [], flashcards = [
       </div>
 
       {highlights.map((h) => {
-        const cardCount = cardCounts.get(h.id) ?? 0;
-        const cssVar = COLOR_VAR[h.color] ?? COLOR_VAR.amber;
+        const cards   = cardsByHighlight.get(h.id) ?? [];
+        const cssVar  = COLOR_VAR[h.color] ?? COLOR_VAR.amber;
+        const isOpen  = expandedId === h.id;
+
         return (
-          <button
-            key={h.id}
-            className="card-item hl-item"
-            onClick={() => onJump?.(h.id)}
-            title="Jump to highlight"
-          >
-            <div className="card-item-header">
+          <div key={h.id} className={`hl-item${isOpen ? ' hl-item--expanded' : ''}`}>
+            <div
+              className="hl-item-row"
+              role="button"
+              tabIndex={0}
+              onClick={() => { onJump?.(h.id); setExpandedId(isOpen ? null : h.id); }}
+              onKeyDown={(e) => e.key === 'Enter' && (onJump?.(h.id), setExpandedId(isOpen ? null : h.id))}
+            >
               <span
                 className="hl-item-dot"
                 style={{ background: `var(${cssVar})` }}
               />
-              {cardCount > 0 && (
-                <span className="card-item-level">
-                  {cardCount} card{cardCount === 1 ? '' : 's'}
-                </span>
-              )}
+              <p className="hl-item-text">{h.text || '(empty)'}</p>
+              <div className="hl-item-meta">
+                {cards.length > 0 && (
+                  <span className="card-item-level">{cards.length}</span>
+                )}
+                <button
+                  className="hl-jump-btn"
+                  title="Scroll to highlight in document"
+                  onClick={(e) => { e.stopPropagation(); onJump?.(h.id); }}
+                >
+                  ↗
+                </button>
+              </div>
             </div>
-            <p className="card-item-front hl-item-text">{h.text || '(empty)'}</p>
-          </button>
+
+            {isOpen && (
+              <div className="hl-cards-list">
+                {cards.length === 0 && (
+                  <p className="hl-cards-empty">No cards linked to this highlight.</p>
+                )}
+                {cards.map((card) => {
+                  const ct    = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
+                  const front = card.vanillaData?.frontText ?? card.name ?? '—';
+                  return (
+                    <div key={card.globalHash} className="hl-card-item">
+                      <span className="card-item-type">{TYPE_LABELS[ct] ?? ct}</span>
+                      <span className="hl-card-front">
+                        {ct === 'custom' ? 'Custom HTML card' : front}
+                      </span>
+                    </div>
+                  );
+                })}
+                <button
+                  className="hl-add-card-btn"
+                  onClick={() => onAddCard?.(h.id)}
+                >
+                  + Add card
+                </button>
+              </div>
+            )}
+          </div>
         );
       })}
     </div>

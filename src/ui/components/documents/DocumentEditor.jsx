@@ -19,7 +19,7 @@ function pickRenderer(path) {
 
 const DEFAULT_HL_COLOR = 'amber';
 
-export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick }) {
+export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed }) {
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -238,6 +238,25 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     highlightRef.current?.scrollTo?.(id);
   }, []);
 
+  // Scroll to a highlight requested from an external navigation (e.g. trainer
+  // "view source"). Waits until the target highlight appears in the loaded
+  // highlights array — meaning the document's content and marks are in the DOM.
+  useEffect(() => {
+    if (!pendingHighlight || pendingHighlight.path !== activeTab) return;
+    const targetId = pendingHighlight.id;
+    if (!highlights.some(h => h.id === targetId)) return;
+    const t = setTimeout(() => {
+      highlightRef.current?.scrollTo?.(targetId);
+      onHighlightConsumed?.();
+    }, 80);
+    return () => clearTimeout(t);
+  }, [highlights, pendingHighlight, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const handleHighlightCardRequest = useCallback((highlightId) => {
+    setSelectedHighlightId(highlightId);
+    setInspectorTab('new-card');
+  }, []);
+
   const handleInspectorTabChange = useCallback((tab) => {
     setInspectorTab(tab);
     if (tab !== 'new-card') {
@@ -310,6 +329,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
           highlights={highlights}
           flashcards={flashcards}
           onJumpToHighlight={handleJumpToHighlight}
+          onHighlightCardRequest={handleHighlightCardRequest}
           onCardSaved={handleCardSaved}
           onSelectionClear={clearSelection}
           open={inspectorOpen}

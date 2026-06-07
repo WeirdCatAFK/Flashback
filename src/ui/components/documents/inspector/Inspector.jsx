@@ -12,14 +12,14 @@ const TABS = [
   { id: 'tags',       label: 'Tags' },
 ];
 
-const MIN_WIDTH = 160;
+const MIN_WIDTH = 20;
 const MAX_WIDTH = 520;
 
-export default function Inspector({ path, activeTab, onTabChange, selection, onSelectionClear, open, onToggle, highlights, flashcards, onJumpToHighlight, onCardSaved, selectedHighlightId }) {
+export default function Inspector({ path, activeTab, onTabChange, selection, onSelectionClear, open, onToggle, highlights, flashcards, onJumpToHighlight, onHighlightCardRequest, onCardSaved, selectedHighlightId }) {
   const handleSaved  = () => { onCardSaved ? onCardSaved() : (onSelectionClear(), onTabChange('cards')); };
   const handleCancel = () => { onSelectionClear(); onTabChange('cards'); };
 
-  const [width, setWidth]       = useState(240);
+  const [width, setWidth]       = useState(300);
   const [resizing, setResizing] = useState(false);
 
   const startResize = (e) => {
@@ -68,8 +68,8 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
 
       {open && (
         <div className="inspector-content">
-          {activeTab === 'cards'      && <InspectorCardsTab path={path} onNewCard={() => onTabChange('new-card')} />}
-          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} />}
+          {activeTab === 'cards'      && <InspectorCardsTab path={path} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
+          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} />}
           {activeTab === 'new-card'   && <InspectorNewCardTab path={path} selection={selection} highlightId={selectedHighlightId} onSaved={handleSaved} onCancel={handleCancel} />}
           {activeTab === 'tags'       && <InspectorTagsTab path={path} />}
         </div>

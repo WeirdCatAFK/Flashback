@@ -463,6 +463,44 @@
   .grade-pop { animation: none; opacity: 0; }
 }
 
+/* ── View source ──────────────────────────────────────────────────────────── */
+
+.trainer-source-row {
+  display: flex;
+  justify-content: center;
+}
+
+.trainer-source-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  cursor: pointer;
+  transition: color 80ms, border-color 80ms, background 80ms;
+}
+
+.trainer-source-btn:hover {
+  color: var(--color-fg-primary);
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.trainer-source-key {
+  font-family: inherit;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 0 3px;
+  line-height: 1.5;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  opacity: 0.6;
+}
+
 /* Card type badge in meta line */
 .trainer-card-type-badge {
   display: inline-block;
