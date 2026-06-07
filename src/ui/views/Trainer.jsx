@@ -436,11 +436,14 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setQueue([]); setSessionDone(false); };
   const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
-  // Re-check for due cards every time the view becomes active.
+  // Re-check for due cards every time the view becomes active, or when a session ends.
   const [refreshToken, setRefreshToken] = useState(0);
   useEffect(() => {
     if (isActive) setRefreshToken(t => t + 1);
   }, [isActive]);
+  useEffect(() => {
+    if (sessionDone) setRefreshToken(t => t + 1);
+  }, [sessionDone]);
 
   const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, deck: appliedScope.deck, tags: appliedScope.tags, refreshToken });
   const [orientation] = useFlashcardOrientation();
