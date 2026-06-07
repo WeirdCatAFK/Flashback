@@ -270,10 +270,19 @@ class DocumentQuery {
         return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
     }
 
-    getDueFlashcards({ algorithm = 'leitner', folder = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
+    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
         const params = [];
         const cteParts = [];
         const whereConditions = [];
+
+        if (deck !== null) {
+            whereConditions.push(`f.global_hash IN (
+                SELECT de.card_hash FROM DeckEntries de
+                JOIN Decks dk ON dk.id = de.deck_id
+                WHERE dk.global_hash = ?
+            )`);
+            params.push(deck);
+        }
 
         if (folder !== null) {
             cteParts.push(`folder_tree AS (
@@ -668,6 +677,111 @@ class DocumentQuery {
         `).all();
 
         return { nodes, edges };
+    }
+
+    // --- Decks ---
+
+    insertDeck(data) {
+        const info = this.db.prepare(`
+            INSERT INTO Decks (global_hash, name, description)
+            VALUES (?, ?, ?)
+        `).run(data.globalHash, data.name, data.description ?? null);
+        return info.lastInsertRowid;
+    }
+
+    getDeckByHash(hash) {
+        return this.db.prepare('SELECT * FROM Decks WHERE global_hash = ?').get(hash);
+    }
+
+    getAllDecks() {
+        return this.db.prepare(`
+            SELECT d.*, COUNT(e.id) as entry_count
+            FROM Decks d
+            LEFT JOIN DeckEntries e ON e.deck_id = d.id
+            GROUP BY d.id
+            ORDER BY d.updated_at DESC
+        `).all();
+    }
+
+    updateDeck(id, data) {
+        this.db.prepare(`
+            UPDATE Decks SET name = ?, description = ?, updated_at = datetime('now')
+            WHERE id = ?
+        `).run(data.name, data.description ?? null, id);
+    }
+
+    deleteDeck(id) {
+        this.db.prepare('DELETE FROM Decks WHERE id = ?').run(id);
+    }
+
+    insertDeckEntry(data) {
+        return this.db.prepare(`
+            INSERT INTO DeckEntries (deck_id, card_hash, document_path, position, inline_card)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(data.deckId, data.cardHash, data.documentPath ?? null, data.position ?? 0, data.inlineCard ?? null);
+    }
+
+    getDeckEntries(deckId) {
+        return this.db.prepare(`
+            SELECT e.*, f.level, f.last_recall, f.card_type, f.name as card_name,
+                   c.frontText, c.backText, c.custom_html
+            FROM DeckEntries e
+            LEFT JOIN Flashcards f ON f.global_hash = e.card_hash
+            LEFT JOIN FlashcardContent c ON c.id = f.content_id
+            WHERE e.deck_id = ?
+            ORDER BY e.position ASC, e.id ASC
+        `).all(deckId);
+    }
+
+    getDeckEntryByCardHash(deckId, cardHash) {
+        return this.db.prepare('SELECT id FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').get(deckId, cardHash);
+    }
+
+    deleteDeckEntry(deckId, cardHash) {
+        this.db.prepare('DELETE FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').run(deckId, cardHash);
+    }
+
+    getDeckEntryCount(deckId) {
+        return this.db.prepare('SELECT COUNT(*) as c FROM DeckEntries WHERE deck_id = ?').get(deckId).c;
+    }
+
+    // --- Card Browser ---
+
+    getAllFlashcards({ search = null, limit = 50, offset = 0 } = {}) {
+        const term = search ? `%${search}%` : null;
+        const params = [];
+        let where = '';
+
+        if (term) {
+            where = `WHERE (c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)`;
+            params.push(term, term, term);
+        }
+
+        params.push(limit, offset);
+
+        return this.db.prepare(`
+            SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
+                   c.frontText, c.backText, c.custom_html,
+                   d.relative_path as document_path, d.name as document_name,
+                   pc.name as category
+            FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON f.document_id = d.id
+            LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
+            ${where}
+            ORDER BY f.level DESC, f.name ASC
+            LIMIT ? OFFSET ?
+        `).all(...params);
+    }
+
+    getFlashcardCountFiltered({ search = null } = {}) {
+        if (!search) return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get().c;
+        const term = `%${search}%`;
+        return this.db.prepare(`
+            SELECT COUNT(*) as c FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?
+        `).get(term, term, term).c;
     }
 }
 

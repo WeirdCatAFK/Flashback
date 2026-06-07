@@ -39,8 +39,8 @@ class SRSService {
         };
     }
 
-    getDue({ algorithm = 'leitner', folder = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
-        const result = query.getDueFlashcards({ algorithm, folder, tags, minPriority, maxNew });
+    getDue({ algorithm = 'leitner', folder = null, deck = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
+        const result = query.getDueFlashcards({ algorithm, folder, deck, tags, minPriority, maxNew });
         return {
             algorithm,
             due: result.due,

@@ -6,10 +6,11 @@ export const getStats = () =>
 export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel) =>
   request('POST', '/api/srs/review', { path, flashcardHash, outcome, easeFactor, newLevel });
 
-export const getDue = ({ algorithm, folder, tags, minPriority, maxNew } = {}) => {
+export const getDue = ({ algorithm, folder, deck, tags, minPriority, maxNew } = {}) => {
   const qs = new URLSearchParams();
   if (algorithm)           qs.set('algorithm',   algorithm);
   if (folder)              qs.set('folder',       folder);
+  if (deck)                qs.set('deck',         deck);
   if (tags?.length)        tags.forEach(t => qs.append('tag', t));
   if (minPriority != null) qs.set('minPriority', String(minPriority));
   if (maxNew      != null) qs.set('maxNew',       String(maxNew));

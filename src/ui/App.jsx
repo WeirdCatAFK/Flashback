@@ -3,6 +3,7 @@ import "./App.css";
 
 import IconDocuments from "./components/icons/IconDocuments";
 import IconFlashcards from "./components/icons/IconFlashcards";
+import IconDecks from "./components/icons/IconDecks";
 import IconGraph from "./components/icons/IconGraph";
 import IconTrainer from "./components/icons/IconTrainer";
 import IconConfig from "./components/icons/IconConfig";
@@ -13,6 +14,7 @@ import AppGate from "./components/AppGate";
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
+const DecksView      = lazy(() => import("./views/Decks"));
 const GraphView      = lazy(() => import("./views/GraphView"));
 const TrainerView    = lazy(() => import("./views/Trainer"));
 const ConfigView     = lazy(() => import("./views/Config"));
@@ -21,6 +23,7 @@ const SealView       = lazy(() => import("./views/Seal"));
 const NAV_ITEMS = [
   { id: "documents",  Icon: IconDocuments,  label: "Documents" },
   { id: "flashcards", Icon: IconFlashcards, label: "Flashcards" },
+  { id: "decks",      Icon: IconDecks,      label: "Decks" },
   { id: "graph",      Icon: IconGraph,      label: "Graph" },
   { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
   { id: "seal",       Icon: IconSeal,       label: "Seal" },
@@ -48,6 +51,11 @@ export default function App() {
 
   const [studySession, setStudySession] = useState(null);
   const handleStartStudy = useCallback((session) => {
+    setStudySession(session);
+    setActiveView('trainer');
+  }, []);
+
+  const handleStudyDeck = useCallback((session) => {
     setStudySession(session);
     setActiveView('trainer');
   }, []);
@@ -111,12 +119,13 @@ export default function App() {
   const visitedRef = useRef(new Set([activeView]));
   visitedRef.current.add(activeView);
 
-  const ALL_VIEW_IDS = ['documents', 'flashcards', 'graph', 'trainer', 'seal', 'config'];
+  const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
   function renderView(view) {
     switch (view) {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudyFolder={(folder) => handleStartStudy({ folder })} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
       case "flashcards": return <FlashcardsView />;
+      case "decks":      return <DecksView onStudyDeck={handleStudyDeck} />;
       case "graph":      return <GraphView isActive={activeView === 'graph'} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView />;

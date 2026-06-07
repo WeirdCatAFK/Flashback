@@ -108,6 +108,7 @@ const Flashcard = forwardRef(function Flashcard({
   const rootRef = useRef(null);
   const frontAudioRef = useRef(null);
   const backAudioRef = useRef(null);
+  const inputRef = useRef(null);
   const isStatic = variant === 'static';
 
   // Backward compat: isCustom flag from old sidecar format
@@ -176,6 +177,13 @@ const Flashcard = forwardRef(function Flashcard({
     if (active) { try { active.currentTime = 0; } catch { } active.play().catch(() => {}); }
   }, [face, isStatic, cardType]);
 
+  // Auto-focus the answer input when a type_answer card appears on the front face.
+  useEffect(() => {
+    if (cardType === 'type_answer' && face === 'front' && !isStatic) {
+      inputRef.current?.focus();
+    }
+  }, [cardType, face, isStatic]);
+
   // Custom card: sandboxed iframe renderer.
   if (cardType === 'custom') {
     const html = card?.customData?.html ?? '';
@@ -234,6 +242,7 @@ const Flashcard = forwardRef(function Flashcard({
         {!isStatic && (
           <div className="type-answer-wrap" onPointerDown={(e) => e.stopPropagation()}>
             <input
+              ref={inputRef}
               className="type-answer-input"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}

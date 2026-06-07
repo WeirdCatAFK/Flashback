@@ -22,6 +22,8 @@ const requiredTables = [
   "ConnectionTypes",
   "InheritedTags",
   "ReviewLogs",
+  "Decks",
+  "DeckEntries",
 ];
 
 /**

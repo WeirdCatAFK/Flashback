@@ -824,6 +824,8 @@ _regenerateIdentities(absPath) {
                 // The per-folder `media` asset directory is managed automatically and
                 // hidden from the explorer (see DATAMODEL.md → Media Organization).
                 if (item === "media" && fs.lstatSync(path.join(folderPath, item)).isDirectory()) return false;
+                // Reserved system directories at workspace root are hidden from the explorer.
+                if (item === "_decks" && fs.lstatSync(path.join(folderPath, item)).isDirectory()) return false;
                 return true;
             })
             .map((item) => {

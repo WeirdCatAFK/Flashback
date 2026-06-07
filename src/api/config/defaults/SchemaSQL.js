@@ -135,7 +135,26 @@ addTable('InheritedTags', (table) => {
     table.integer('tag_id').references('id').inTable('Tags').onDelete('CASCADE');
 });
 
-// 8. Media & Subscriptions
+// 8. Decks
+addTable('Decks', (table) => {
+    table.increments('id').primary();
+    table.string('global_hash', 500).notNullable().unique().index();
+    table.string('name', 500).notNullable();
+    table.text('description');
+    table.timestamp('created_at').defaultTo(k.fn.now());
+    table.timestamp('updated_at').defaultTo(k.fn.now());
+});
+
+addTable('DeckEntries', (table) => {
+    table.increments('id').primary();
+    table.integer('deck_id').notNullable().references('id').inTable('Decks').onDelete('CASCADE');
+    table.string('card_hash', 500).notNullable();
+    table.string('document_path', 500);
+    table.integer('position').defaultTo(0);
+    table.text('inline_card');
+});
+
+// 9. Media & Subscriptions
 addTable('Media', (table) => {
     table.increments('id').primary();
     table.string('hash', 500).unique().index();
@@ -194,6 +213,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_global_hash ON Folders(global_hash
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_global_hash ON Flashcards(global_hash);
 `;
 
-const schemaSQL = tables.join(';\n').replace(/CREATE INDEX/gi, 'CREATE INDEX IF NOT EXISTS') + ';\n' + extraSQL;
+const schemaSQL = tables.join(';\n')
+    .replace(/CREATE UNIQUE INDEX\b/gi, 'CREATE UNIQUE INDEX IF NOT EXISTS')
+    .replace(/CREATE INDEX\b/gi, 'CREATE INDEX IF NOT EXISTS')
+    + ';\n' + extraSQL;
 
 export default schemaSQL;

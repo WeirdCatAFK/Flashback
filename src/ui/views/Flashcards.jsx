@@ -1,52 +1,115 @@
-// Memo: consider to present the flashcard viewer as a "shoebox" or "leitner box" to strengthen the symbology of the app
-// Will take skeumorphisms of a box, a literal cardboard box. And will show cards grouped by level, and a searchbar for flashcards.
-// Subcomponent for this, a flashcard editor. But that is for later
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStats } from '../api/srs';
+import { searchCards } from '../api/decks';
+import './Flashcards.css';
 
-function useLeitnerStats() {
-  const [stats, setStats] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    getStats()
-      .then(setStats)
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, []);
-
-  return { stats, loading, error };
+function useStats() {
+    const [stats, setStats] = useState(null);
+    useEffect(() => { getStats().then(setStats).catch(() => {}); }, []);
+    return stats;
 }
 
-function LeitnerBox({ level, count, total }) {
-  const pct = total > 0 ? ((count / total) * 100).toFixed(1) : 0;
-  return (
-    <li>
-      Box {level}: {count} cards ({pct}%)
-    </li>
-  );
+function LevelDot({ level }) {
+    const hue = Math.min(level * 20, 120);
+    return (
+        <span className="fc-level-dot" style={{ background: `hsl(${hue},60%,45%)` }} title={`Level ${level}`}>
+            {level}
+        </span>
+    );
 }
 
 export default function FlashcardsView() {
-  const { stats, loading, error } = useLeitnerStats();
+    const stats = useStats();
+    const [query, setQuery] = useState('');
+    const [cards, setCards] = useState([]);
+    const [total, setTotal] = useState(0);
+    const [loading, setLoading] = useState(false);
+    const debounceRef = useRef(null);
 
-  if (loading) return <p>Loading stats...</p>;
-  if (error) return <p>Error: {error.message}</p>;
-  if (!stats) return null;
+    const fetch = useCallback((q) => {
+        setLoading(true);
+        searchCards({ search: q || null, limit: 100 })
+            .then(res => { setCards(res.cards); setTotal(res.total); })
+            .catch(console.error)
+            .finally(() => setLoading(false));
+    }, []);
 
-  const { boxes, totalCards, masteryPercentage } = stats;
+    useEffect(() => { fetch(''); }, [fetch]);
 
-  return (
-    <div>
-      <h2>Flashcards — Leitner Box</h2>
-      <p>Total cards: {totalCards}</p>
-      <p>Mastery: {masteryPercentage?.toFixed(1) ?? 0}%</p>
-      <ul>
-        {boxes.map(box => (
-          <LeitnerBox key={box.level} level={box.level} count={box.count} total={totalCards} />
-        ))}
-      </ul>
-    </div>
-  );
+    const onQueryChange = (e) => {
+        const val = e.target.value;
+        setQuery(val);
+        clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(() => fetch(val), 250);
+    };
+
+    const totalCards = stats?.total ?? 0;
+    const boxes = stats?.boxes ?? [];
+
+    return (
+        <div className="flashcards-view">
+            <div className="fc-sidebar">
+                <div className="fc-sidebar-header">
+                    <span className="fc-sidebar-title">Leitner boxes</span>
+                </div>
+                <div className="fc-stats">
+                    <div className="fc-stats-total">{totalCards} cards total</div>
+                    {boxes.map(b => {
+                        const pct = totalCards > 0 ? (b.count / totalCards) * 100 : 0;
+                        return (
+                            <div key={b.level} className="fc-box-row">
+                                <span className="fc-box-label">L{b.level}</span>
+                                <div className="fc-box-track">
+                                    <div className="fc-box-fill" style={{ width: `${pct}%` }} />
+                                </div>
+                                <span className="fc-box-count">{b.count}</span>
+                            </div>
+                        );
+                    })}
+                    {stats && (
+                        <div className="fc-mastery">
+                            Mastery {stats.masteryPercentage?.toFixed(0) ?? 0}%
+                        </div>
+                    )}
+                </div>
+            </div>
+
+            <div className="fc-main">
+                <div className="fc-search-bar">
+                    <input
+                        className="fc-search-input"
+                        placeholder="Search cards…"
+                        value={query}
+                        onChange={onQueryChange}
+                    />
+                    <span className="fc-search-count">
+                        {loading ? '…' : `${total} card${total !== 1 ? 's' : ''}`}
+                    </span>
+                </div>
+
+                <div className="fc-card-list">
+                    {cards.map(card => (
+                        <div key={card.global_hash} className="fc-card-row">
+                            <LevelDot level={card.level ?? 0} />
+                            <div className="fc-card-body">
+                                <div className="fc-card-front">{card.frontText || card.name || '(untitled)'}</div>
+                                {card.backText && <div className="fc-card-back">{card.backText}</div>}
+                            </div>
+                            <div className="fc-card-meta">
+                                {card.card_type && card.card_type !== 'basic' && (
+                                    <span className="fc-card-type">{card.card_type.replace('_', ' ')}</span>
+                                )}
+                                {card.document_name && (
+                                    <span className="fc-card-doc" title={card.document_path}>{card.document_name}</span>
+                                )}
+                            </div>
+                        </div>
+                    ))}
+                    {!loading && cards.length === 0 && (
+                        <div className="fc-empty">No cards found.</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
 }

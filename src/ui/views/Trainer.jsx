@@ -65,7 +65,7 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, tags, refreshToken }) {
+function useDueCards({ folder, deck, tags, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -80,11 +80,11 @@ function useDueCards({ folder, tags, refreshToken }) {
     const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
     const stored = localStorage.getItem('fb-srs-max-new');
     const maxNew = stored != null ? parseInt(stored, 10) : undefined;
-    getDue({ algorithm, maxNew, folder, tags: tags?.length ? tags : undefined })
+    getDue({ algorithm, maxNew, folder, deck, tags: tags?.length ? tags : undefined })
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, tagsKey, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [folder, deck, tagsKey, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cards = useMemo(() =>
     result
@@ -407,6 +407,8 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
 export default function FlashcardsTrainer({ isActive, studySession, onOpenSource }) {
   const [appliedScope, setAppliedScope] = useState({
     folder: studySession?.folder ?? null,
+    deck: studySession?.deck ?? null,
+    deckName: studySession?.deckName ?? null,
     tags: null,
   });
 
@@ -416,15 +418,21 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // Snapshot of stats at session end so the summary persists through re-fetches.
   const [lastSession, setLastSession] = useState(null);
 
-  // When a study session is launched from the file explorer, reset scope.
+  // When a study session is launched from the file explorer or decks view, reset scope.
   useEffect(() => {
-    setAppliedScope({ folder: studySession?.folder ?? null, tags: null });
+    setAppliedScope({
+      folder: studySession?.folder ?? null,
+      deck: studySession?.deck ?? null,
+      deckName: studySession?.deckName ?? null,
+      tags: null,
+    });
     setQueue([]);
     setSessionDone(false);
     setLastSession(null);
   }, [studySession]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
+  const clearDeck   = () => { setAppliedScope(s => ({ ...s, deck: null, deckName: null })); setQueue([]); setSessionDone(false); };
   const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setQueue([]); setSessionDone(false); };
   const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
@@ -434,7 +442,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     if (isActive) setRefreshToken(t => t + 1);
   }, [isActive]);
 
-  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, tags: appliedScope.tags, refreshToken });
+  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, deck: appliedScope.deck, tags: appliedScope.tags, refreshToken });
   const [orientation] = useFlashcardOrientation();
 
   // Session queue: the front card is live, fails go to the back, passes leave.
@@ -548,6 +556,12 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
       )}
 
       <div className="trainer-scope-bar">
+        {appliedScope.deck && (
+          <span className="scope-chip">
+            Deck: {appliedScope.deckName ?? appliedScope.deck}
+            <button onClick={clearDeck} title="Clear">×</button>
+          </span>
+        )}
         {appliedScope.folder && (
           <span className="scope-chip">
             Folder: {appliedScope.folder}

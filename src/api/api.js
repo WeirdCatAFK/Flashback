@@ -9,6 +9,7 @@ import mediaRouter from './routes/media.js';
 import srsRouter from './routes/srs.js';
 import subscriptionsRouter from './routes/subscriptions.js';
 import sealRouter from './routes/seal.js';
+import decksRouter from './routes/decks.js';
 
 class api {
 /**
@@ -60,6 +61,7 @@ class api {
     this.app.use('/api/srs', srsRouter);
     this.app.use('/api/subscriptions', subscriptionsRouter);
     this.app.use('/api/seal', sealRouter);
+    this.app.use('/api/decks', decksRouter);
 
     // 404
     this.app.use((req, res) => {
