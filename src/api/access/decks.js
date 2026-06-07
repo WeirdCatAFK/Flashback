@@ -58,7 +58,7 @@ export default class Decks {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         const entries = this.query.getDeckEntries(deck.id);
-        return { ...deck, entries };
+        return { ...deck, entries, entry_count: entries.length };
     }
 
     updateDeck(globalHash, { name, description }) {

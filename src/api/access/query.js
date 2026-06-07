@@ -9,6 +9,23 @@ import db from './database.js';
 class DocumentQuery {
     constructor() {
         this.db = db;
+        this._typeCache = null;
+    }
+
+    // Lazily resolves stable lookup IDs for NodeTypes/ConnectionTypes that never
+    // change at runtime, so callers in hot paths avoid repeated SELECT lookups.
+    _typeIds() {
+        if (!this._typeCache) {
+            const tagNodeType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
+            const inheritType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+            const tagConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
+            this._typeCache = {
+                tagNodeTypeId: tagNodeType?.id,
+                inheritanceTypeId: inheritType?.id,
+                tagConnTypeId: tagConnType?.id,
+            };
+        }
+        return this._typeCache;
     }
 
     /**
@@ -125,6 +142,32 @@ class DocumentQuery {
             JOIN folder_tree ft ON d.folder_id = ft.id
             LEFT JOIN Flashcards fc ON fc.document_id = d.id
         `).get(folderId).count;
+    }
+
+    getFoldersByPaths(relPaths) {
+        if (relPaths.length === 0) return [];
+        const placeholders = relPaths.map(() => '?').join(', ');
+        return this.db.prepare(`SELECT * FROM Folders WHERE relative_path IN (${placeholders})`).all(...relPaths);
+    }
+
+    // Returns a Map<folderId, count> covering each root and its entire subtree.
+    getFlashcardCountsInFolderTrees(folderIds) {
+        if (folderIds.length === 0) return new Map();
+        const placeholders = folderIds.map(() => '?').join(', ');
+        const rows = this.db.prepare(`
+            WITH RECURSIVE folder_tree AS (
+                SELECT id, id AS root_id FROM Folders WHERE id IN (${placeholders})
+                UNION ALL
+                SELECT fo.id, ft.root_id FROM Folders fo
+                JOIN folder_tree ft ON fo.parent_id = ft.id
+            )
+            SELECT ft.root_id, COUNT(fc.id) AS count
+            FROM folder_tree ft
+            JOIN Documents d ON d.folder_id = ft.id
+            LEFT JOIN Flashcards fc ON fc.document_id = d.id
+            GROUP BY ft.root_id
+        `).all(...folderIds);
+        return new Map(rows.map(r => [r.root_id, r.count]));
     }
 
     insertFlashcard(data) {
@@ -368,40 +411,35 @@ class DocumentQuery {
             ${extraWhere}
         )`);
 
-        const ctePrefix = `WITH RECURSIVE ${cteParts.join(',\n')}`;
-
-        const dueSQL = `
-            ${ctePrefix}
+        const allRows = this.db.prepare(`
+            WITH RECURSIVE ${cteParts.join(',\n')}
             SELECT *,
-                   datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') AS due_date
+              CASE
+                WHEN last_recall IS NULL THEN NULL
+                ELSE datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days')
+              END AS due_date,
+              CASE
+                WHEN last_recall IS NULL THEN 'new'
+                WHEN datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') <= datetime('now') THEN 'due'
+                ELSE 'future'
+              END AS _status
             FROM cards
-            WHERE last_recall IS NOT NULL
-              AND datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') <= datetime('now')
-            ORDER BY due_date ASC, category_priority DESC
-        `;
+        `).all(...params);
 
-        const newSQL = `
-            ${ctePrefix}
-            SELECT *, NULL AS due_date
-            FROM cards
-            WHERE last_recall IS NULL
-            ORDER BY category_priority DESC
-            LIMIT ?
-        `;
+        const due = allRows
+            .filter(r => r._status === 'due')
+            .sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0)
+                || b.category_priority - a.category_priority);
+        const newCards = allRows
+            .filter(r => r._status === 'new')
+            .sort((a, b) => b.category_priority - a.category_priority)
+            .slice(0, maxNew);
+        let nextDue = null;
+        for (const r of allRows) {
+            if (r._status === 'future' && (nextDue === null || r.due_date < nextDue)) nextDue = r.due_date;
+        }
 
-        const nextDueSQL = `
-            ${ctePrefix}
-            SELECT MIN(datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days')) AS next_due
-            FROM cards
-            WHERE last_recall IS NOT NULL
-              AND datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') > datetime('now')
-        `;
-
-        const due = this.db.prepare(dueSQL).all(...params);
-        const newCards = this.db.prepare(newSQL).all(...params, maxNew);
-        const nextDueRow = this.db.prepare(nextDueSQL).get(...params);
-
-        return { due, newCards, nextDue: nextDueRow?.next_due ?? null };
+        return { due, newCards, nextDue };
     }
 
     // --- Tags ---
@@ -419,24 +457,24 @@ class DocumentQuery {
     }
 
     syncNodeTags(nodeId, tagNodeIds) {
-        const tagType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
-        const connType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
+        const { tagNodeTypeId, tagConnTypeId } = this._typeIds();
 
         const currentConns = this.db.prepare(`
-            SELECT c.id, c.destiny_id FROM Connections c 
-            JOIN Nodes n ON c.destiny_id = n.id 
+            SELECT c.id, c.destiny_id FROM Connections c
+            JOIN Nodes n ON c.destiny_id = n.id
             WHERE c.origin_id = ? AND n.type_id = ? AND c.type_id = ?
-        `).all(nodeId, tagType.id, connType.id);
+        `).all(nodeId, tagNodeTypeId, tagConnTypeId);
 
-        const currentTagIds = currentConns.map(c => c.destiny_id);
+        const currentTagIdSet = new Set(currentConns.map(c => c.destiny_id));
+        const tagNodeIdSet = new Set(tagNodeIds);
 
         for (const tid of tagNodeIds) {
-            if (!currentTagIds.includes(tid)) {
-                this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)").run(nodeId, tid, connType.id);
+            if (!currentTagIdSet.has(tid)) {
+                this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)").run(nodeId, tid, tagConnTypeId);
             }
         }
         for (const conn of currentConns) {
-            if (!tagNodeIds.includes(conn.destiny_id)) {
+            if (!tagNodeIdSet.has(conn.destiny_id)) {
                 this.db.prepare("DELETE FROM Connections WHERE id = ?").run(conn.id);
             }
         }
@@ -544,19 +582,19 @@ class DocumentQuery {
     // --- Connections ---
 
     insertInheritance(parentNodeId, childNodeId) {
-        const type = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
-        if (!type) throw new Error('inheritance connection type missing');
+        const typeId = this._typeIds().inheritanceTypeId;
+        if (!typeId) throw new Error('inheritance connection type missing');
         return this.db.prepare(
             'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
-        ).run(parentNodeId, childNodeId, type.id);
+        ).run(parentNodeId, childNodeId, typeId);
     }
 
     deleteInheritance(parentNodeId, childNodeId) {
-        const type = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
-        if (!type) return;
+        const typeId = this._typeIds().inheritanceTypeId;
+        if (!typeId) return;
         this.db.prepare(
             'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
-        ).run(parentNodeId, childNodeId, type.id);
+        ).run(parentNodeId, childNodeId, typeId);
     }
 
     getNodeIdByFolderAbsPath(absPath) {
@@ -577,8 +615,8 @@ class DocumentQuery {
         const cards = this.db.prepare(`
             SELECT 'flashcard' as type, f.global_hash, c.frontText, c.backText
             FROM Flashcards f JOIN FlashcardContent c ON f.content_id = c.id
-            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.global_hash LIKE ? OR f.name LIKE ?
-        `).all(term, term, term, term);
+            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.global_hash = ? OR f.name LIKE ?
+        `).all(term, term, query, term);
         const tags = this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText FROM Tags t WHERE t.name LIKE ?`).all(term);
         return [...docs, ...cards, ...tags];
     }
@@ -616,7 +654,7 @@ class DocumentQuery {
     // --- Inheritance ---
 
     getHierarchyTypeId() {
-        return this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+        return { id: this._typeIds().inheritanceTypeId };
     }
 
     getInheritedTagNames(nodeId) {

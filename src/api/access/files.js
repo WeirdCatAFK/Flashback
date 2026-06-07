@@ -734,24 +734,25 @@ _regenerateIdentities(absPath) {
             if (metadata && Array.isArray(metadata.flashcards)) {
                 let changed = false;
                 for (const card of metadata.flashcards) {
-                    if (card.customData && card.customData.media) {
-                        for (const key of Object.keys(card.customData.media)) {
-                            if (card.customData.media[key] === `./media/${name}`) {
-                                delete card.customData.media[key];
+                    const cm = card.customData?.media;
+                    if (cm) {
+                        for (const key of Object.keys(cm)) {
+                            if (cm[key] === `./media/${name}`) {
+                                delete cm[key];
                                 changed = true;
                             }
                         }
-                        // If media object empty, delete it
-                        if (Object.keys(card.customData.media).length === 0) delete card.customData.media;
+                        if (Object.keys(cm).length === 0) delete card.customData.media;
                     }
-                    if (card.vanillaData && card.vanillaData.media) {
+                    const vm = card.vanillaData?.media;
+                    if (vm) {
                         for (const k of ["front_sound", "back_sound", "front_img", "back_img"]) {
-                            if (card.vanillaData.media[k] === `./media/${name}`) {
-                                delete card.vanillaData.media[k];
+                            if (vm[k] === `./media/${name}`) {
+                                delete vm[k];
                                 changed = true;
                             }
                         }
-                        if (Object.keys(card.vanillaData.media || {}).length === 0) delete card.vanillaData.media;
+                        if (Object.keys(vm).length === 0) delete card.vanillaData.media;
                     }
                 }
                 if (changed) this.writeMetadata(anyPath, metadata, false);
@@ -817,26 +818,15 @@ _regenerateIdentities(absPath) {
         const folderPath = this.safePath(relPath);
         if (!this.exists(relPath)) throw new Error("Folder does not exist");
 
-        return fs
-            .readdirSync(folderPath)
-            .filter((item) => {
-                if (item === ".flashback" || item.endsWith(".flashback") || item === ".git") return false;
-                // The per-folder `media` asset directory is managed automatically and
-                // hidden from the explorer (see DATAMODEL.md → Media Organization).
-                if (item === "media" && fs.lstatSync(path.join(folderPath, item)).isDirectory()) return false;
-                // Reserved system directories at workspace root are hidden from the explorer.
-                if (item === "_decks" && fs.lstatSync(path.join(folderPath, item)).isDirectory()) return false;
-                return true;
-            })
-            .map((item) => {
-                const itemPath = path.join(folderPath, item);
-                const isDir = fs.lstatSync(itemPath).isDirectory();
-                const meta = this.getMetadata(path.join(relPath, item), isDir);
-                return {
-                    name: item,
-                    type: isDir ? "folder" : "file",
-                    metadata: meta,
-                };
-            });
+        const result = [];
+        for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
+            if (entry.name === ".flashback" || entry.name.endsWith(".flashback") || entry.name === ".git") continue;
+            if (entry.name === "media" && entry.isDirectory()) continue;
+            if (entry.name === "_decks" && entry.isDirectory()) continue;
+            const isDir = entry.isDirectory();
+            const meta = this.getMetadata(path.join(relPath, entry.name), isDir);
+            result.push({ name: entry.name, type: isDir ? "folder" : "file", metadata: meta });
+        }
+        return result;
     }
 }

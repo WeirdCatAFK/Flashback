@@ -220,6 +220,144 @@ describe('Flashback API', () => {
             const res = await fetch(`${baseUrl}/api/documents/search`);
             assert.equal(res.status, 400);
         });
+
+        it('GET /api/documents/read → blocks path traversal attempt', async () => {
+            const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent('../../etc/passwd')}`);
+            assert.notEqual(res.status, 200, 'Path traversal must not return 200');
+        });
+
+        it('GET /api/documents/read → 4xx for non-existent file', async () => {
+            const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/ghost.md`)}`);
+            assert.ok(res.status >= 400 && res.status < 600, 'Reading a missing file should return an error status');
+        });
+
+        it('GET /api/documents/tags → returns array that includes previously applied tags', async () => {
+            const res = await fetch(`${baseUrl}/api/documents/tags`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.ok(Array.isArray(body.tags), 'tags field should be an array');
+            assert.ok(body.tags.includes('api'), 'Tag "api" was applied earlier and must appear');
+        });
+
+        it('GET /api/documents/list → each entry carries a numeric flashcardCount', async () => {
+            const items = await listFolder(ROOT);
+            assert.ok(items.length > 0, 'Folder must not be empty');
+            for (const item of items) {
+                assert.ok(typeof item.flashcardCount === 'number',
+                    `${item.name} (${item.type}) must have a numeric flashcardCount`);
+            }
+            const renamedFile = items.find(i => i.name === 'renamed.md');
+            assert.ok(renamedFile?.flashcardCount >= 1,
+                'renamed.md has one flashcard and must report flashcardCount ≥ 1');
+        });
+
+        it('POST /api/documents/folder → 409 when folder already exists', async () => {
+            // SubA was created in the before() hook
+            const res = await createFolder('SubA', ROOT);
+            assert.equal(res.status, 409);
+        });
+
+        it('POST /api/documents/file → 409 when file already exists', async () => {
+            // renamed.md exists from the rename test
+            const res = await createFile('renamed.md', ROOT);
+            assert.equal(res.status, 409);
+        });
+
+        it('POST /api/documents/rename → renames a folder and cascades inner paths', async () => {
+            await createFolder('ToRename', ROOT);
+            await createFile('inner.md', `${ROOT}/ToRename`);
+
+            const res = await post(`${baseUrl}/api/documents/rename`, {
+                path: `${ROOT}/ToRename`,
+                newName: 'RenamedFolder',
+                isFolder: true
+            });
+            assert.equal(res.status, 200);
+
+            const items = await listFolder(ROOT);
+            assert.ok(items.some(i => i.name === 'RenamedFolder' && i.type === 'folder'),
+                'Renamed folder should appear under the new name');
+            assert.ok(!items.some(i => i.name === 'ToRename'),
+                'Old folder name should be gone');
+
+            const innerItems = await listFolder(`${ROOT}/RenamedFolder`);
+            assert.ok(innerItems.some(i => i.name === 'inner.md'),
+                'Inner file should be accessible at the new path');
+        });
+
+        it('DELETE /api/documents → removes a folder and all its contents', async () => {
+            await createFolder('ToDelete', ROOT);
+            await createFile('child.md', `${ROOT}/ToDelete`);
+
+            const res = await del(`${baseUrl}/api/documents`, { path: `${ROOT}/ToDelete`, isFolder: true });
+            assert.equal(res.status, 200);
+
+            const items = await listFolder(ROOT);
+            assert.ok(!items.some(i => i.name === 'ToDelete'),
+                'Deleted folder must not appear in listing');
+        });
+
+        it('POST /api/documents/copy → copies a folder tree, inner file accessible at destination', async () => {
+            await createFolder('ToCopy', ROOT);
+            await createFile('orig.md', `${ROOT}/ToCopy`);
+
+            const res = await post(`${baseUrl}/api/documents/copy`, {
+                srcPath: `${ROOT}/ToCopy`,
+                destPath: `${ROOT}/CopiedFolder`,
+                isFolder: true
+            });
+            assert.equal(res.status, 200);
+
+            const items = await listFolder(ROOT);
+            assert.ok(items.some(i => i.name === 'CopiedFolder'),
+                'Copied folder should appear at the destination');
+
+            const innerItems = await listFolder(`${ROOT}/CopiedFolder`);
+            assert.ok(innerItems.some(i => i.name === 'orig.md'),
+                'Copied folder should contain the inner file');
+        });
+
+        it('DELETE /api/documents → 400 when path is missing', async () => {
+            const res = await del(`${baseUrl}/api/documents`, {});
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/documents/move → 400 when destPath is missing', async () => {
+            const res = await post(`${baseUrl}/api/documents/move`, { srcPath: `${ROOT}/renamed.md` });
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/documents/rename → 400 when newName is missing', async () => {
+            const res = await post(`${baseUrl}/api/documents/rename`, { path: `${ROOT}/renamed.md` });
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/documents/import/zip → 201, folder tree lands in workspace', async () => {
+            const zip = new AdmZip();
+            const folder = 'ZipImportFolder';
+            zip.addFile(`${folder}/.flashback`, Buffer.from(JSON.stringify({ globalHash: 'zip-root-hash' })));
+            zip.addFile(`${folder}/note.md`, Buffer.from('# Zip note'));
+            zip.addFile(`${folder}/note.md.flashback`, Buffer.from(JSON.stringify({
+                globalHash: 'zip-note-hash',
+                flashcards: [{ globalHash: 'zip-card-001', vanillaData: { frontText: 'Zip Q', backText: 'Zip A' } }]
+            })));
+            const form = new FormData();
+            form.append('file', new Blob([zip.toBuffer()], { type: 'application/zip' }), 'pkg.zip');
+            form.append('targetPath', ROOT);
+
+            const res = await fetch(`${baseUrl}/api/documents/import/zip`, { method: 'POST', body: form });
+            assert.equal(res.status, 201);
+
+            const innerItems = await listFolder(`${ROOT}/${folder}`);
+            assert.ok(innerItems.some(i => i.name === 'note.md'),
+                'Zip-imported note should appear inside the extracted folder');
+        });
+
+        it('POST /api/documents/import/zip → 400 when no file is attached', async () => {
+            const form = new FormData();
+            const res = await fetch(`${baseUrl}/api/documents/import/zip`, { method: 'POST', body: form });
+            assert.equal(res.status, 400);
+        });
     });
 
     // ── Media ──────────────────────────────────────────────────────────────
@@ -398,6 +536,72 @@ describe('Flashback API', () => {
             assert.ok(newCard, 'card without lastRecall should appear in newCards');
             assert.equal(newCard.card_type, 'type_answer', 'new card should carry card_type');
         });
+
+        it('GET /api/srs/due → Leitner boundary: level-1 card 23 h old not due, 25 h old is due', async () => {
+            const CARD_TOO_SOON = 'srs-leitner-boundary-23h';
+            const CARD_OVERDUE  = 'srs-leitner-boundary-25h';
+            // Level-1 Leitner interval = 2^(1-1) = 1 day
+            const twentyThreeHoursAgo = new Date(Date.now() - 23 * 3_600_000).toISOString();
+            const twentyFiveHoursAgo  = new Date(Date.now() - 25 * 3_600_000).toISOString();
+
+            await createFile('leitner-boundary.md', ROOT);
+            await updateFile(`${ROOT}/leitner-boundary.md`, '# Leitner Boundary', {
+                flashcards: [
+                    { globalHash: CARD_TOO_SOON, level: 1, lastRecall: twentyThreeHoursAgo,
+                      vanillaData: { frontText: 'Too soon', backText: 'A' } },
+                    { globalHash: CARD_OVERDUE,  level: 1, lastRecall: twentyFiveHoursAgo,
+                      vanillaData: { frontText: 'Overdue',  backText: 'B' } },
+                ]
+            });
+
+            const res = await fetch(`${baseUrl}/api/srs/due?folder=${encodeURIComponent(ROOT)}`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+
+            const dueHashes = body.due.map(c => c.global_hash);
+            assert.ok(!dueHashes.includes(CARD_TOO_SOON),
+                'Level-1 card recalled 23 h ago must NOT be due (1-day Leitner interval)');
+            assert.ok(dueHashes.includes(CARD_OVERDUE),
+                'Level-1 card recalled 25 h ago must be due (past 1-day Leitner interval)');
+        });
+
+        it('GET /api/srs/due → SM-2 level-2 interval is 6 days, Leitner level-2 is 2 days', async () => {
+            const SM2_HASH = 'srs-sm2-level2-boundary';
+            // 5 days ago: past Leitner interval (2 d) but before SM-2 interval (6 d)
+            const fiveDaysAgo = new Date(Date.now() - 5 * 86_400_000).toISOString();
+
+            await createFile('sm2-level2.md', ROOT);
+            await updateFile(`${ROOT}/sm2-level2.md`, '# SM-2 Level 2', {
+                flashcards: [{
+                    globalHash: SM2_HASH,
+                    level: 2,
+                    lastRecall: fiveDaysAgo,
+                    vanillaData: { frontText: 'SM-2 Q', backText: 'SM-2 A' }
+                }]
+            });
+
+            const leitnerRes = await fetch(`${baseUrl}/api/srs/due?folder=${encodeURIComponent(ROOT)}`);
+            const leitnerBody = await leitnerRes.json();
+            assert.ok(leitnerBody.due.some(c => c.global_hash === SM2_HASH),
+                'Under Leitner, level-2 card recalled 5 days ago (2-day interval) must be due');
+
+            const sm2Res = await fetch(`${baseUrl}/api/srs/due?algorithm=sm2&folder=${encodeURIComponent(ROOT)}`);
+            const sm2Body = await sm2Res.json();
+            assert.ok(!sm2Body.due.some(c => c.global_hash === SM2_HASH),
+                'Under SM-2, level-2 card recalled 5 days ago (6-day interval) must NOT be due');
+        });
+
+        it('GET /api/srs/due → nextDue reflects the nearest future schedule', async () => {
+            // After inserting a card recalled 23 h ago (not yet due), nextDue must be non-null
+            // for the folder-scoped query — the 23-hour card is the next upcoming card.
+            const res = await fetch(`${baseUrl}/api/srs/due?folder=${encodeURIComponent(ROOT)}`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.ok('nextDue' in body, 'Response must include a nextDue field');
+            assert.notEqual(body.nextDue, undefined, 'nextDue must not be undefined');
+            assert.ok(body.nextDue !== null,
+                'nextDue must be non-null when a card has a future due date (23-hour card)');
+        });
     });
 
     // ── Subscriptions ─────────────────────────────────────────────────────
@@ -459,6 +663,180 @@ describe('Flashback API', () => {
 
             const res = await fetch(`${baseUrl}/api/subscriptions/import`, { method: 'POST', body: form });
             assert.equal(res.status, 400);
+        });
+
+        it('POST /api/subscriptions/import → re-import updates record without duplicating content', async () => {
+            const form = new FormData();
+            form.append('file', new Blob([makeIssueZip('issue-2', 'v2.0.0')], { type: 'application/zip' }), 'issue2.zip');
+            form.append('magazineId', MAGAZINE_ID);
+            form.append('targetPath', TARGET);
+
+            const res = await fetch(`${baseUrl}/api/subscriptions/import`, { method: 'POST', body: form });
+            assert.equal(res.status, 201);
+
+            // Subscription record must reflect the new version
+            const subRes = await fetch(`${baseUrl}/api/subscriptions/${MAGAZINE_ID}`);
+            const sub = await subRes.json();
+            assert.equal(sub.issue_id, 'issue-2', 'Subscription record must update to new issue ID');
+            assert.equal(sub.version, 'v2.0.0', 'Subscription record must update to new version');
+
+            // Article must appear exactly once — no duplicates after re-import
+            const items = await listFolder(TARGET);
+            const articleCount = items.filter(i => i.name === 'Article.md').length;
+            assert.equal(articleCount, 1, 'Re-import must not create a duplicate Article.md');
+        });
+    });
+
+    // ── Decks ─────────────────────────────────────────────────────────────
+
+    describe('Decks', () => {
+        const ROOT = 'DecksApiTest';
+        const DOC = 'deck-doc.md';
+        const FC_HASH_1 = 'decks-api-fc-001';
+        const FC_HASH_2 = 'decks-api-fc-002';
+        let deckHash = null;
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFile(DOC, ROOT);
+            await updateFile(`${ROOT}/${DOC}`, '# Deck Doc', {
+                flashcards: [
+                    { globalHash: FC_HASH_1, vanillaData: { frontText: 'Deck Q1', backText: 'A1' } },
+                    { globalHash: FC_HASH_2, vanillaData: { frontText: 'Deck Q2', backText: 'A2' } },
+                ]
+            });
+        });
+
+        it('GET /api/decks → returns an array', async () => {
+            const res = await fetch(`${baseUrl}/api/decks`);
+            assert.equal(res.status, 200);
+            assert.ok(Array.isArray(await res.json()));
+        });
+
+        it('POST /api/decks → 400 when name is missing', async () => {
+            const res = await post(`${baseUrl}/api/decks`, {});
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/decks → 201, returns globalHash', async () => {
+            const res = await post(`${baseUrl}/api/decks`, { name: 'Test Deck', description: 'A test deck' });
+            assert.equal(res.status, 201);
+            const body = await res.json();
+            assert.ok(body.globalHash, 'Response must include a globalHash');
+            deckHash = body.globalHash;
+        });
+
+        it('GET /api/decks/:hash → returns deck with name and description', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await fetch(`${baseUrl}/api/decks/${deckHash}`);
+            assert.equal(res.status, 200);
+            const deck = await res.json();
+            assert.equal(deck.name, 'Test Deck');
+            assert.equal(deck.description, 'A test deck');
+        });
+
+        it('GET /api/decks/:hash → 404 for unknown hash', async () => {
+            const res = await fetch(`${baseUrl}/api/decks/no-such-deck`);
+            assert.equal(res.status, 404);
+        });
+
+        it('PUT /api/decks/:hash → 200, updates name and description', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await put(`${baseUrl}/api/decks/${deckHash}`, { name: 'Renamed Deck', description: 'Updated desc' });
+            assert.equal(res.status, 200);
+
+            const deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.equal(deck.name, 'Renamed Deck', 'Name must be updated');
+            assert.equal(deck.description, 'Updated desc', 'Description must be updated');
+        });
+
+        it('POST /api/decks/:hash/entries → 400 when cardHash is missing', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await post(`${baseUrl}/api/decks/${deckHash}/entries`, {});
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/decks/:hash/entries → 201, adds card to deck', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await post(`${baseUrl}/api/decks/${deckHash}/entries`, {
+                cardHash: FC_HASH_1,
+                documentPath: `${ROOT}/${DOC}`
+            });
+            assert.equal(res.status, 201);
+        });
+
+        it('POST /api/decks/:hash/entries → 409 when same card added twice', async () => {
+            assert.ok(deckHash, 'Precondition: card already added');
+            const res = await post(`${baseUrl}/api/decks/${deckHash}/entries`, {
+                cardHash: FC_HASH_1,
+                documentPath: `${ROOT}/${DOC}`
+            });
+            assert.equal(res.status, 409);
+        });
+
+        it('GET /api/decks/:hash → entry_count reflects added entries', async () => {
+            const deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.ok(deck.entry_count >= 1, 'entry_count must be at least 1 after adding a card');
+        });
+
+        it('GET /api/decks → newly created deck appears in list', async () => {
+            const decks = await (await fetch(`${baseUrl}/api/decks`)).json();
+            assert.ok(decks.some(d => d.global_hash === deckHash),
+                'Created deck must appear in the full list');
+        });
+
+        it('GET /api/decks/cards → returns paginated card browser results', async () => {
+            const res = await fetch(`${baseUrl}/api/decks/cards?search=Deck+Q`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.ok(Array.isArray(body.cards), 'cards field must be an array');
+            assert.ok(typeof body.total === 'number', 'total must be a number');
+            assert.ok(typeof body.limit === 'number', 'limit must be present');
+            assert.ok(typeof body.offset === 'number', 'offset must be present');
+            assert.ok(
+                body.cards.some(c => c.global_hash === FC_HASH_1 || c.global_hash === FC_HASH_2),
+                'Card browser must find cards matching the search term'
+            );
+        });
+
+        it('GET /api/decks/cards → returns all cards when no search term given', async () => {
+            const res = await fetch(`${baseUrl}/api/decks/cards`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.ok(body.total >= 2, 'Should return at least the two cards created in before()');
+        });
+
+        it('GET /api/srs/due?deck= → scopes due queue to deck contents', async () => {
+            assert.ok(deckHash, 'Precondition: deck with one entry (FC_HASH_1)');
+            const res = await fetch(`${baseUrl}/api/srs/due?deck=${encodeURIComponent(deckHash)}`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.ok(Array.isArray(body.new), 'new field must be an array');
+            assert.ok(body.new.some(c => c.global_hash === FC_HASH_1),
+                'FC_HASH_1 is in the deck — must appear in the deck-scoped session');
+            assert.ok(!body.new.some(c => c.global_hash === FC_HASH_2),
+                'FC_HASH_2 is NOT in the deck — must not appear in the deck-scoped session');
+        });
+
+        it('DELETE /api/decks/:hash/entries/:cardHash → 200, card gone from deck-scoped session', async () => {
+            assert.ok(deckHash, 'Precondition: deck with FC_HASH_1 entry');
+            const res = await del(`${baseUrl}/api/decks/${deckHash}/entries/${FC_HASH_1}`);
+            assert.equal(res.status, 200);
+
+            const body = await (await fetch(`${baseUrl}/api/srs/due?deck=${encodeURIComponent(deckHash)}`)).json();
+            const allCards = [...body.due, ...body.new];
+            assert.ok(!allCards.some(c => c.global_hash === FC_HASH_1),
+                'Removed card must not appear in the deck-scoped study session');
+        });
+
+        it('DELETE /api/decks/:hash → 200, deck gone from listing', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await del(`${baseUrl}/api/decks/${deckHash}`);
+            assert.equal(res.status, 200);
+
+            const decks = await (await fetch(`${baseUrl}/api/decks`)).json();
+            assert.ok(!decks.some(d => d.global_hash === deckHash),
+                'Deleted deck must not appear in the listing');
         });
     });
 

@@ -211,6 +211,13 @@ END;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_global_hash ON Documents(global_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_folders_global_hash ON Folders(global_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_global_hash ON Flashcards(global_hash);
+
+CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id);
+CREATE INDEX IF NOT EXISTS idx_folders_absolute_path ON Folders(absolute_path);
+CREATE INDEX IF NOT EXISTS idx_documents_folder_id ON Documents(folder_id);
+CREATE INDEX IF NOT EXISTS idx_documents_absolute_path ON Documents(absolute_path);
+CREATE INDEX IF NOT EXISTS idx_flashcards_document_id ON Flashcards(document_id);
+CREATE INDEX IF NOT EXISTS idx_media_absolute_path ON Media(absolute_path);
 `;
 
 const schemaSQL = tables.join(';\n')

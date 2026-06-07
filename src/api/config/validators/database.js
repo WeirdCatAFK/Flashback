@@ -140,6 +140,18 @@ function migrateColumns() {
   } catch (err) {
     console.warn("Column migration failed (non-fatal):", err.message);
   }
+
+  const indexes = [
+    "CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id)",
+    "CREATE INDEX IF NOT EXISTS idx_folders_absolute_path ON Folders(absolute_path)",
+    "CREATE INDEX IF NOT EXISTS idx_documents_folder_id ON Documents(folder_id)",
+    "CREATE INDEX IF NOT EXISTS idx_documents_absolute_path ON Documents(absolute_path)",
+    "CREATE INDEX IF NOT EXISTS idx_flashcards_document_id ON Flashcards(document_id)",
+    "CREATE INDEX IF NOT EXISTS idx_media_absolute_path ON Media(absolute_path)",
+  ];
+  for (const ddl of indexes) {
+    try { db.exec(ddl); } catch (e) { console.warn("Index migration failed (non-fatal):", e.message); }
+  }
 }
 
 function validateDatabaseWithMigrations() {

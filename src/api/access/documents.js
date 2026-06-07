@@ -28,9 +28,24 @@ export default class Documents {
         const folder = this.query.getFolderByPath(relPath);
 
         let fileCountMap = new Map();
+        let folderCountMap = new Map();
+
         if (folder) {
             const counts = this.query.getFlashcardCountsByFolder(folder.id);
             fileCountMap = new Map(counts.map(r => [r.name, r.count]));
+
+            const subfolderNames = [];
+            for (const i of items) { if (i.type === 'folder') subfolderNames.push(i.name); }
+            if (subfolderNames.length > 0) {
+                const childRelPaths = subfolderNames.map(n => path.join(relPath, n));
+                const childFolders = this.query.getFoldersByPaths(childRelPaths);
+                if (childFolders.length > 0) {
+                    const countsByRootId = this.query.getFlashcardCountsInFolderTrees(childFolders.map(f => f.id));
+                    for (const cf of childFolders) {
+                        folderCountMap.set(cf.relative_path, countsByRootId.get(cf.id) ?? 0);
+                    }
+                }
+            }
         }
 
         return items.map(item => {
@@ -38,9 +53,7 @@ export default class Documents {
                 return { ...item, flashcardCount: fileCountMap.get(item.name) ?? 0 };
             }
             const childRelPath = path.join(relPath, item.name);
-            const childFolder = this.query.getFolderByPath(childRelPath);
-            const count = childFolder ? this.query.getFlashcardCountInFolderTree(childFolder.id) : 0;
-            return { ...item, flashcardCount: count };
+            return { ...item, flashcardCount: folderCountMap.get(childRelPath) ?? 0 };
         });
     }
 
@@ -267,7 +280,8 @@ export default class Documents {
                 ? path.join(i.relativePath, '.flashback')
                 : i.relativePath + '.flashback'
         );
-        const docPaths = items.filter(i => i.type === 'file').map(i => i.relativePath);
+        const docPaths = [];
+        for (const i of items) { if (i.type === 'file') docPaths.push(i.relativePath); }
         const rootSidecar = sidecarPaths[0];
         await sealEmitter.create(rootSidecar, [...sidecarPaths.slice(1), ...docPaths]);
     }

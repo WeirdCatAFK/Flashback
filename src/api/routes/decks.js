@@ -5,7 +5,7 @@ const router = Router();
 const decks = new Decks();
 
 const catchError = (fn) => (req, res, next) =>
-    Promise.resolve(fn(req, res, next)).catch((err) => {
+    Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
         if (err.message?.includes('already in deck')) return res.status(409).json({ error: err.message });
         if (err.message?.includes('not found')) return res.status(404).json({ error: err.message });
         next(err);
