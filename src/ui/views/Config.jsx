@@ -15,19 +15,17 @@ import {
 
 function useConfig() {
   const [config, setConfig] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  // window.flashback is injected by Electron's preload before React renders,
+  // so we can read it synchronously here to set the correct initial state.
+  const [loading, setLoading] = useState(!!window.flashback);
+  const [error, setError] = useState(
+    window.flashback
+      ? null
+      : new Error("window.flashback not available — run via Electron, not dev:web"),
+  );
 
   useEffect(() => {
-    if (!window.flashback) {
-      setError(
-        new Error(
-          "window.flashback not available — run via Electron, not dev:web",
-        ),
-      );
-      setLoading(false);
-      return;
-    }
+    if (!window.flashback) return;
     window.flashback
       .getConfig()
       .then(setConfig)
@@ -86,7 +84,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
   const [colors, setColors] = useState(() => {
     try {
       return (
-        JSON.parse(localStorage.getItem("fb-editor-colors")) ?? DARK_DEFAULTS
+        JSON.parse(localStorage.getItem("fb-editor-colors:v1")) ?? DARK_DEFAULTS
       );
     } catch {
       return DARK_DEFAULTS;
@@ -106,7 +104,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
     setName(v);
   };
   const persistColors = (v) => {
-    localStorage.setItem("fb-editor-colors", JSON.stringify(v));
+    localStorage.setItem("fb-editor-colors:v1", JSON.stringify(v));
     setColors(v);
   };
   const persistEditing = (v) => {
@@ -229,7 +227,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
 
   return (
     <div className="theme-editor">
-      <button className="theme-editor-toggle" onClick={handleToggleOpen}>
+      <button type="button" className="theme-editor-toggle" onClick={handleToggleOpen}>
         <svg
           width="12"
           height="12"
@@ -255,19 +253,20 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
             <input
               className="theme-name-input"
               placeholder="Theme name…"
+              aria-label="Theme name"
               value={name}
               onChange={(e) => persistName(e.target.value)}
               spellCheck={false}
             />
             <div className="theme-editor-actions">
-              <button
+              <button type="button"
                 className="te-btn"
                 onClick={seedFromCurrent}
                 title="Copy colors from the active theme"
               >
                 Seed from current
               </button>
-              <button
+              <button type="button"
                 className={`te-btn${previewing ? " te-btn-active" : ""}`}
                 onClick={togglePreview}
                 title="Apply colors temporarily without saving"
@@ -275,11 +274,11 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                 {previewing ? "Stop preview" : "Preview"}
               </button>
               {editing && (
-                <button className="te-btn te-btn-danger" onClick={handleDelete}>
+                <button type="button" className="te-btn te-btn-danger" onClick={handleDelete}>
                   Delete
                 </button>
               )}
-              <button
+              <button type="button"
                 className="te-btn te-btn-primary"
                 onClick={handleSave}
                 disabled={!canSave}
@@ -303,11 +302,11 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                 </label>
                 {key === '--color-bg-editor' ? (
                   <div className="theme-var-inputs">
-                    <button
+                    <button type="button"
                       className={`te-btn te-btn-tag${colors[key] === 'dark' ? ' te-btn-active' : ''}`}
                       onClick={() => handleColorChange(key, 'dark')}
                     >Dark</button>
-                    <button
+                    <button type="button"
                       className={`te-btn te-btn-tag${colors[key] === 'light' ? ' te-btn-active' : ''}`}
                       onClick={() => handleColorChange(key, 'light')}
                     >Light</button>
@@ -317,6 +316,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                     <input
                       type="text"
                       className="theme-color-text theme-color-text--wide"
+                      aria-label={label}
                       value={colors[key] || ""}
                       onChange={(e) => handleColorChange(key, e.target.value)}
                       spellCheck={false}
@@ -328,12 +328,14 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                     <input
                       type="color"
                       className="theme-color-swatch"
+                      aria-label={`${label} color picker`}
                       value={colors[key] || "#000000"}
                       onChange={(e) => handleColorChange(key, e.target.value)}
                     />
                     <input
                       type="text"
                       className="theme-color-text"
+                      aria-label={`${label} hex code`}
                       value={colors[key] || ""}
                       onChange={(e) => handleColorChange(key, e.target.value)}
                       spellCheck={false}
@@ -348,12 +350,13 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
           <div className="theme-text-panel">
             <div className="theme-text-toolbar">
               <span className="theme-text-label">JSON</span>
-              <button className="te-btn" onClick={handleCopy}>
+              <button type="button" className="te-btn" onClick={handleCopy}>
                 Copy
               </button>
             </div>
             <textarea
               className="theme-textarea"
+              aria-label="Theme JSON"
               value={importText || exportText}
               onChange={(e) => setImportText(e.target.value)}
               spellCheck={false}
@@ -361,13 +364,13 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
             />
             {importText && (
               <div className="theme-import-row">
-                <button
+                <button type="button"
                   className="te-btn te-btn-primary"
                   onClick={handleImport}
                 >
                   Import
                 </button>
-                <button
+                <button type="button"
                   className="te-btn"
                   onClick={() => {
                     setImportText("");
@@ -386,7 +389,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
           <div className="theme-existing">
             <span className="theme-existing-label">Edit existing:</span>
             {loadCustomThemes().map((t) => (
-              <button
+              <button type="button"
                 key={t.name}
                 className="te-btn te-btn-tag"
                 onClick={() => loadExisting(t.name)}
@@ -438,9 +441,12 @@ export default function ConfigView({
   const [orientation, setOrientation] = useFlashcardOrientation();
   const { algorithm, setAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
 
-  useEffect(() => {
+  // Sync form inline when config loads or reloads — avoids a blank-form flash.
+  const [prevConfig, setPrevConfig] = useState(config);
+  if (prevConfig !== config) {
+    setPrevConfig(config);
     if (config) setForm({ ...config });
-  }, [config]);
+  }
 
   const handleChange = (key, value) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -533,6 +539,7 @@ export default function ConfigView({
               <td>
                 <input
                   id="srs-max-new"
+                  aria-label="New cards per day"
                   type="number"
                   min={0}
                   max={200}
@@ -561,10 +568,12 @@ export default function ConfigView({
               <tbody>
                 <tr>
                   <td>
-                    <label>Username</label>
+                    <label htmlFor="cfg-username">Username</label>
                   </td>
                   <td>
                     <input
+                      id="cfg-username"
+                      aria-label="Username"
                       value={form.username ?? ""}
                       onChange={(e) => handleChange("username", e.target.value)}
                     />
@@ -572,10 +581,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label>Port</label>
+                    <label htmlFor="cfg-port">Port</label>
                   </td>
                   <td>
                     <input
+                      id="cfg-port"
+                      aria-label="Port"
                       type="number"
                       value={form.port ?? 50500}
                       onChange={(e) =>
@@ -586,10 +597,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label>Host</label>
+                    <label htmlFor="cfg-host">Host</label>
                   </td>
                   <td>
                     <input
+                      id="cfg-host"
+                      aria-label="Host"
                       value={form.host ?? "localhost"}
                       onChange={(e) => handleChange("host", e.target.value)}
                     />
@@ -597,10 +610,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label>Custom workspace path</label>
+                    <label htmlFor="cfg-custom-path">Custom workspace path</label>
                   </td>
                   <td>
                     <input
+                      id="cfg-custom-path"
+                      aria-label="Custom workspace path"
                       type="checkbox"
                       checked={!!form.isCustomPath}
                       onChange={(e) =>
@@ -612,10 +627,12 @@ export default function ConfigView({
                 {form.isCustomPath && (
                   <tr>
                     <td>
-                      <label>Workspace path</label>
+                      <label htmlFor="cfg-workspace-path">Workspace path</label>
                     </td>
                     <td>
                       <input
+                        id="cfg-workspace-path"
+                        aria-label="Workspace path"
                         value={form.customPath ?? ""}
                         onChange={(e) =>
                           handleChange("customPath", e.target.value)
@@ -628,7 +645,7 @@ export default function ConfigView({
             </table>
 
             <p className="config-save-row">
-              <button
+              <button type="button"
                 onClick={handleSave}
                 disabled={!isDirty || status === "saving"}
               >

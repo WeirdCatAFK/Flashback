@@ -45,6 +45,19 @@ export function useHighlightableRenderer({
   draftRef.current = draftContent;
   const pathRef = useRef(path);
   pathRef.current = path;
+
+  // Stable refs for the function props used inside the load effect.
+  // Adding them directly to the dep array would cause the editor to reload
+  // whenever a parent callback reference changes (e.g. on every render of
+  // DocumentEditor when activeTab is in the useCallback deps).
+  const loadContentRef = useRef(loadContent);
+  loadContentRef.current = loadContent;
+  const onDirtyChangeRef = useRef(onDirtyChange);
+  onDirtyChangeRef.current = onDirtyChange;
+  const onHighlightsChangeRef = useRef(onHighlightsChange);
+  onHighlightsChangeRef.current = onHighlightsChange;
+  const onSidecarRefreshRef = useRef(onSidecarRefresh);
+  onSidecarRefreshRef.current = onSidecarRefresh;
   // True only once this path's content has actually loaded into the editor.
   // Guards against writing the editor's empty initial state back over a real
   // file when the load failed (API not ready / mid-session blip).
@@ -63,6 +76,16 @@ export function useHighlightableRenderer({
       onDraftChange?.(pathRef.current, serialize(editor));
     },
   });
+
+  // Show loading immediately in the same render that path or editor changes —
+  // not one render later when the effect fires — so no flash of stale file content.
+  const [prevPathForLoad, setPrevPathForLoad] = useState(path);
+  const [prevEditorForLoad, setPrevEditorForLoad] = useState(editor);
+  if (prevPathForLoad !== path || prevEditorForLoad !== editor) {
+    setPrevPathForLoad(path);
+    setPrevEditorForLoad(editor);
+    if (path && editor) setLoading(true);
+  }
 
   // Save — re-read the sidecar fresh as the merge base so a concurrent edit
   // (e.g. a card added via the Inspector) is never clobbered, let an optional
@@ -123,13 +146,13 @@ export function useHighlightableRenderer({
       if (!isMounted || pathRef.current !== targetPath) return;
       const meta = metadata ?? {};
       loadingIntoEditorRef.current = true;
-      loadContent(editor, body, meta);
+      loadContentRef.current(editor, body, meta);
       loadingIntoEditorRef.current = false;
       isDirtyRef.current = isDraft;
       loadedPathRef.current = targetPath;
-      if (!isDraft) onDirtyChange?.(targetPath, false);
-      onHighlightsChange?.(targetPath, meta.highlights ?? []);
-      onSidecarRefresh?.(targetPath, meta);
+      if (!isDraft) onDirtyChangeRef.current?.(targetPath, false);
+      onHighlightsChangeRef.current?.(targetPath, meta.highlights ?? []);
+      onSidecarRefreshRef.current?.(targetPath, meta);
       setLoading(false);
     };
 
@@ -142,7 +165,6 @@ export function useHighlightableRenderer({
       return;
     }
 
-    setLoading(true);
     readFile(targetPath)
       .then((data) => apply(data.content ?? '', false, data.metadata))
       .catch(() => { if (isMounted) setLoading(false); });

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef } from "react";
+import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
 import "./App.css";
 
 import IconDocuments from "./components/icons/IconDocuments";
@@ -11,6 +11,8 @@ import IconSeal from "./components/icons/IconSeal";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
+
+const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
@@ -36,7 +38,7 @@ export default function App() {
     () => localStorage.getItem("fb-theme") ?? "light-workbench"
   );
   const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
-  const allThemes = [...THEMES, ...customThemes.map(t => t.name)];
+  const allThemes = useMemo(() => [...THEMES, ...customThemes.map(t => t.name)], [customThemes]);
 
   // Inject custom theme CSS on startup and whenever custom themes change
   useEffect(() => { injectCustomThemeCSS(customThemes); }, [customThemes]);
@@ -51,11 +53,6 @@ export default function App() {
 
   const [studySession, setStudySession] = useState(null);
   const handleStartStudy = useCallback((session) => {
-    setStudySession(session);
-    setActiveView('trainer');
-  }, []);
-
-  const handleStudyDeck = useCallback((session) => {
     setStudySession(session);
     setActiveView('trainer');
   }, []);
@@ -116,16 +113,15 @@ export default function App() {
   }, []);
 
   // Track which views have been visited so we only mount them on first visit
-  const visitedRef = useRef(new Set([activeView]));
+  const visitedRef = useRef(null);
+  if (visitedRef.current === null) visitedRef.current = new Set();
   visitedRef.current.add(activeView);
-
-  const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
   function renderView(view) {
     switch (view) {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudyFolder={(folder) => handleStartStudy({ folder })} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
       case "flashcards": return <FlashcardsView />;
-      case "decks":      return <DecksView onStudyDeck={handleStudyDeck} />;
+      case "decks":      return <DecksView onStudyDeck={handleStartStudy} />;
       case "graph":      return <GraphView isActive={activeView === 'graph'} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView />;
@@ -147,15 +143,15 @@ export default function App() {
       <div id="title-bar">
         <span id="app-title">Flashback</span>
         <div id="window-controls">
-          <button className="wc-btn wc-minimize" title="Minimize"
+          <button type="button" className="wc-btn wc-minimize" title="Minimize" aria-label="Minimize"
             onClick={() => window.flashback?.windowMinimize()}>
             <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
           </button>
-          <button className="wc-btn wc-maximize" title="Maximize"
+          <button type="button" className="wc-btn wc-maximize" title="Maximize" aria-label="Maximize"
             onClick={() => window.flashback?.windowMaximize()}>
             <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><rect x=".5" y=".5" width="8" height="8" stroke="currentColor"/></svg>
           </button>
-          <button className="wc-btn wc-close" title="Close"
+          <button type="button" className="wc-btn wc-close" title="Close" aria-label="Close"
             onClick={() => window.flashback?.windowClose()}>
             <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2"/></svg>
           </button>
@@ -167,7 +163,7 @@ export default function App() {
           <nav id="activity-bar" aria-label="Main navigation">
             <div id="activity-top">
               {NAV_ITEMS.map(({ id, Icon, label }) => (
-                <button
+                <button type="button"
                   key={id}
                   className={`activity-btn${activeView === id ? " active" : ""}`}
                   onClick={() => setActiveView(id)}
@@ -181,7 +177,7 @@ export default function App() {
             </div>
 
             <div id="activity-bottom">
-              <button
+              <button type="button"
                 className={`activity-btn${activeView === "config" ? " active" : ""}`}
                 onClick={() => setActiveView("config")}
                 title="Config"

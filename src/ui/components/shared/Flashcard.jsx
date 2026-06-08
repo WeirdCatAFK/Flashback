@@ -60,7 +60,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
       {text && <div className="flashcard-text">{text}</div>}
       {soundSrc && (
         <>
-          <audio ref={audioRef} src={soundSrc} preload="auto" />
+          <audio ref={audioRef} src={soundSrc} preload="auto" aria-hidden="true" />
           <button
             type="button"
             className="flashcard-audio-btn"
@@ -84,10 +84,10 @@ function ClozeFace({ side, parts }) {
       <div className="flashcard-text flashcard-cloze">
         {parts.map((p, i) =>
           p.type === 'blank'
-            ? <span key={i} className={side === 'front' ? 'cloze-blank' : 'cloze-answer'}>
+            ? <span key={`blank-${i}`} className={side === 'front' ? 'cloze-blank' : 'cloze-answer'}>
                 {side === 'front' ? '      ' : p.content}
               </span>
-            : <span key={i}>{p.content}</span>
+            : <span key={`text-${i}`}>{p.content}</span>
         )}
       </div>
     </div>

@@ -15,7 +15,7 @@ import Highlight from '@tiptap/extension-highlight';
 
 const TEXT_SNAPSHOT_LIMIT = 240;
 
-export function generateHighlightId() {
+function generateHighlightId() {
   // 9 base36 chars ≈ 47 bits — plenty for per-document uniqueness, short
   // enough that the inline HTML doesn't bloat the markdown source.
   const rand = (typeof crypto !== 'undefined' && crypto.getRandomValues)
@@ -265,7 +265,7 @@ export function applyHighlightsToText(editor, highlights = []) {
 }
 
 // Scroll the editor view to the mark with the given ID. Returns true if found.
-export function scrollToHighlight(editor, id) {
+function scrollToHighlight(editor, id) {
   const el = editor?.view?.dom?.querySelector(`mark[data-hl="${id}"]`);
   if (!el) return false;
   el.scrollIntoView({ behavior: 'smooth', block: 'center' });

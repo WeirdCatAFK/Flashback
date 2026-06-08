@@ -26,7 +26,7 @@ function CardItem({ card, index, onEdit, onJumpToHighlight }) {
         {card.level > 0 && <span className="card-item-level">L{card.level}</span>}
         <div className="card-item-actions">
           {highlightLoc && (
-            <button
+            <button type="button"
               className="card-item-source"
               title="Jump to source highlight"
               onClick={() => onJumpToHighlight?.(highlightLoc.id)}
@@ -34,7 +34,7 @@ function CardItem({ card, index, onEdit, onJumpToHighlight }) {
               ↗ source
             </button>
           )}
-          <button className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
+          <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
         </div>
       </div>
 
@@ -55,21 +55,42 @@ function CardItem({ card, index, onEdit, onJumpToHighlight }) {
   );
 }
 
-export default function InspectorCardsTab({ path, onNewCard, onJumpToHighlight }) {
-  const [cards, setCards]       = useState([]);
-  const [loading, setLoading]   = useState(false);
-  const [editingCard, setEditingCard] = useState(null);
+export default function InspectorCardsTab({ path, flashcards: flashcardsProp, onNewCard, onJumpToHighlight }) {
+  // Post-edit snapshot: after the user saves an inline edit we re-fetch fresh
+  // data here. Null means "no local fetch yet — use parent's flashcardsProp."
+  const [postEditCards, setPostEditCards] = useState(null);
+  const [loading, setLoading]             = useState(false);
+  const [editingCard, setEditingCard]     = useState(null);
 
+  // After an inline edit the parent's sidecar state may not have refreshed yet,
+  // so we re-fetch directly. Also used as the initial load when no prop is given.
   const loadCards = useCallback(() => {
-    if (!path) { setCards([]); return; }
+    if (!path) { setPostEditCards(null); return; }
     setLoading(true);
     readFile(path)
-      .then((data) => setCards(data.metadata?.flashcards ?? []))
-      .catch(() => setCards([]))
+      .then((data) => setPostEditCards(data.metadata?.flashcards ?? []))
+      .catch(() => setPostEditCards(null))
       .finally(() => setLoading(false));
   }, [path]);
 
-  useEffect(() => { loadCards(); }, [loadCards]);
+  // Inline snapshot reset — clears stale post-edit data immediately when either
+  // the path or the parent's prop changes, without an intermediate stale render.
+  const [prevLoadCards, setPrevLoadCards]         = useState(() => loadCards);
+  const [prevFlashcardsProp, setPrevFlashcardsProp] = useState(flashcardsProp);
+  if (prevLoadCards !== loadCards || prevFlashcardsProp !== flashcardsProp) {
+    setPrevLoadCards(loadCards);
+    setPrevFlashcardsProp(flashcardsProp);
+    setPostEditCards(null);
+  }
+
+  // Async fetch stays in an effect; only runs when parent has no data to offer.
+  useEffect(() => {
+    if (flashcardsProp == null) loadCards();
+  }, [loadCards, flashcardsProp]);
+
+  // Post-edit data takes priority while fresh; otherwise use what the parent
+  // passed (its already-loaded sidecar state).
+  const cards = postEditCards ?? flashcardsProp ?? [];
 
   if (editingCard) {
     return (
@@ -88,7 +109,7 @@ export default function InspectorCardsTab({ path, onNewCard, onJumpToHighlight }
         <span className="cards-tab-count">
           {loading ? '…' : `${cards.length} card${cards.length !== 1 ? 's' : ''}`}
         </span>
-        <button className="cards-new-btn" onClick={onNewCard}>+ New</button>
+        <button type="button" className="cards-new-btn" onClick={onNewCard}>+ New</button>
       </div>
 
       {!loading && cards.length === 0 && (

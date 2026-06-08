@@ -43,8 +43,11 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const activeRenderer = pickRenderer(activeTab);
   const supportsHighlight = !!activeRenderer?.supportsHighlight;
 
-  // Reset selection and inspector panel when the active file changes
-  useEffect(() => {
+  // Reset selection and inspector panel inline when the active file changes.
+  // Inline (not useEffect) so users never see a stale-state intermediate render.
+  const [prevActiveTab, setPrevActiveTab] = useState(activeTab);
+  if (prevActiveTab !== activeTab) {
+    setPrevActiveTab(activeTab);
     setSelection(null);
     setSelectionRect(null);
     setInspectorTab('cards');
@@ -52,16 +55,18 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setPendingRemoval(null);
     setHighlights([]);
     setFlashcards([]);
-  }, [activeTab]);
+  }
 
   // The toolbar is portalled to document.body and floats above everything.
-  // Views stay mounted when switching (App.jsx), so clear when ours hides.
-  useEffect(() => {
+  // Views stay mounted when switching (App.jsx), so clear inline when ours hides.
+  const [prevIsActive, setPrevIsActive] = useState(isActive);
+  if (prevIsActive !== isActive) {
+    setPrevIsActive(isActive);
     if (!isActive) {
       setSelection(null);
       setSelectionRect(null);
     }
-  }, [isActive]);
+  }
 
   // Drop dirty state and drafts for tabs that have been closed
   useEffect(() => {
@@ -238,6 +243,12 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     highlightRef.current?.scrollTo?.(id);
   }, []);
 
+  // Stable ref: onHighlightConsumed is an inline arrow in DocumentsView so its
+  // reference changes every render; using a ref avoids adding it to the deps
+  // (which would wrongly re-run the timeout on every parent render).
+  const onHighlightConsumedRef = useRef(onHighlightConsumed);
+  onHighlightConsumedRef.current = onHighlightConsumed;
+
   // Scroll to a highlight requested from an external navigation (e.g. trainer
   // "view source"). Waits until the target highlight appears in the loaded
   // highlights array — meaning the document's content and marks are in the DOM.
@@ -247,10 +258,10 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     if (!highlights.some(h => h.id === targetId)) return;
     const t = setTimeout(() => {
       highlightRef.current?.scrollTo?.(targetId);
-      onHighlightConsumed?.();
+      onHighlightConsumedRef.current?.();
     }, 80);
     return () => clearTimeout(t);
-  }, [highlights, pendingHighlight, activeTab]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [highlights, pendingHighlight, activeTab]);
 
   const handleHighlightCardRequest = useCallback((highlightId) => {
     setSelectedHighlightId(highlightId);

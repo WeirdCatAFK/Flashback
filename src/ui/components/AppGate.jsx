@@ -14,7 +14,8 @@ export default function AppGate({ children }) {
   const [ready, setReady] = useState(false);
   const [slow, setSlow] = useState(false);
   const [attempt, setAttempt] = useState(0); // bumping this re-runs the poll
-  const startRef = useRef(Date.now());
+  const startRef = useRef(null);
+  if (startRef.current === null) startRef.current = Date.now();
 
   useEffect(() => {
     let cancelled = false;
@@ -47,7 +48,7 @@ export default function AppGate({ children }) {
         {slow && (
           <div className="app-gate-slow">
             <p className="app-gate-slow-text">The workspace service is taking a while to start.</p>
-            <button className="app-gate-retry" onClick={() => setAttempt(a => a + 1)}>
+            <button type="button" className="app-gate-retry" onClick={() => setAttempt(a => a + 1)}>
               Retry now
             </button>
           </div>

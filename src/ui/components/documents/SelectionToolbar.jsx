@@ -24,16 +24,17 @@ export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighli
       onMouseDown={(e) => e.preventDefault()}
     >
       {HIGHLIGHT_COLORS.map(({ key, cssVar, label }) => (
-        <button
+        <button type="button"
           key={key}
           className="sel-color-dot"
           style={{ background: `var(${cssVar})` }}
           title={`Highlight — ${label}`}
+          aria-label={`Highlight: ${label}`}
           onClick={() => handleColor(key)}
         />
       ))}
       {onUnhighlight && (
-        <button
+        <button type="button"
           className="sel-color-dot sel-color-dot--clear"
           title="Remove highlight"
           onClick={onUnhighlight}
@@ -43,8 +44,8 @@ export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighli
         </button>
       )}
       <div className="sel-divider" />
-      <button className="sel-btn sel-btn--card" onClick={onMakeCard}>Card</button>
-      <button className="sel-btn" onClick={onMakeRef ?? onClear}>Ref</button>
+      <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>Card</button>
+      <button type="button" className="sel-btn" onClick={onMakeRef ?? onClear}>Ref</button>
     </div>,
     document.body
   );

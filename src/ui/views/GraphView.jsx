@@ -29,22 +29,27 @@ function buildGraphData({ nodes = [], edges = [] }) {
     }
   }
 
-  const inheritanceTargets = new Set(
-    edges.filter(e => e.relation === 'inheritance').map(e => e.toId)
-  );
-  const originIds = new Set(
-    nodes.filter(n => n.type === 'Folder' && !inheritanceTargets.has(n.id)).map(n => n.id)
-  );
+  const inheritanceTargets = new Set();
+  for (const e of edges) {
+    if (e.relation === 'inheritance') inheritanceTargets.add(e.toId);
+  }
+  const originIds = new Set();
+  for (const n of nodes) {
+    if (n.type === 'Folder' && !inheritanceTargets.has(n.id)) originIds.add(n.id);
+  }
+
+  const links = [];
+  for (const e of edges) {
+    if (e.relation !== 'disconnection') {
+      const key = `${Math.min(e.fromId, e.toId)}-${Math.max(e.fromId, e.toId)}`;
+      if (disconnected.has(key)) continue;
+    }
+    links.push({ source: e.fromId, target: e.toId, relation: e.relation });
+  }
 
   return {
     nodes: nodes.map(n => ({ ...n, name: n.label ?? String(n.id) })),
-    links: edges
-      .filter(e => {
-        if (e.relation === 'disconnection') return true;
-        const key = `${Math.min(e.fromId, e.toId)}-${Math.max(e.fromId, e.toId)}`;
-        return !disconnected.has(key);
-      })
-      .map(e => ({ source: e.fromId, target: e.toId, relation: e.relation })),
+    links,
     originIds,
   };
 }
@@ -54,10 +59,17 @@ function useGraph(isActive) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  // Show loading spinner immediately in the same render that isActive flips true,
+  // instead of one render later via an effect.
+  const [prevIsActiveForGraph, setPrevIsActiveForGraph] = useState(isActive);
+  if (prevIsActiveForGraph !== isActive) {
+    setPrevIsActiveForGraph(isActive);
+    if (isActive) setLoading(true);
+  }
+
   useEffect(() => {
     if (!isActive) return;
     let cancelled = false;
-    setLoading(true);
     getGraph()
       .then(data => { if (!cancelled) { setGraphData(buildGraphData(data)); setError(null); } })
       .catch(err  => { if (!cancelled) setError(err); })
@@ -372,7 +384,7 @@ export default function GraphView({ isActive = false }) {
 
             <div className="graph-controls-sep" />
 
-            <button
+            <button type="button"
               className={`graph-toggle-btn${showOrigin ? ' graph-toggle-btn--active' : ''}`}
               onClick={() => setShowOrigin(s => !s)}
               title={showOrigin ? 'Hide workspace origin nodes' : 'Show workspace origin nodes'}
@@ -384,7 +396,7 @@ export default function GraphView({ isActive = false }) {
               <span>origin</span>
             </button>
 
-            <button
+            <button type="button"
               className={`graph-toggle-btn${showTags ? ' graph-toggle-btn--active' : ''}`}
               onClick={() => setShowTags(s => !s)}
               title={showTags ? 'Hide tag connections' : 'Show tag connections'}
@@ -403,7 +415,7 @@ export default function GraphView({ isActive = false }) {
                 {selected.type}
               </div>
               <div className="graph-info-name">{selected.name}</div>
-              <button className="graph-info-close" onClick={() => {
+              <button type="button" className="graph-info-close" onClick={() => {
                 selectedByHoverRef.current = false;
                 setSelected(null);
               }}>×</button>

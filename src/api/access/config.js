@@ -46,7 +46,7 @@ export function getWorkspacePath() {
     return path.join(baseDir, "workspace");
 }
 
-export function set(config) {
+function set(config) {
     const configPath = getConfigPath();
     try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));

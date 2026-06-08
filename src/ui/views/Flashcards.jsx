@@ -26,7 +26,7 @@ export default function FlashcardsView() {
     const [loading, setLoading] = useState(false);
     const debounceRef = useRef(null);
 
-    const fetch = useCallback((q) => {
+    const loadCards = useCallback((q) => {
         setLoading(true);
         searchCards({ search: q || null, limit: 100 })
             .then(res => { setCards(res.cards); setTotal(res.total); })
@@ -34,13 +34,13 @@ export default function FlashcardsView() {
             .finally(() => setLoading(false));
     }, []);
 
-    useEffect(() => { fetch(''); }, [fetch]);
+    useEffect(() => { loadCards(''); }, [loadCards]);
 
     const onQueryChange = (e) => {
         const val = e.target.value;
         setQuery(val);
         clearTimeout(debounceRef.current);
-        debounceRef.current = setTimeout(() => fetch(val), 250);
+        debounceRef.current = setTimeout(() => loadCards(val), 250);
     };
 
     const totalCards = stats?.total ?? 0;
@@ -79,6 +79,7 @@ export default function FlashcardsView() {
                     <input
                         className="fc-search-input"
                         placeholder="Search cards…"
+                        aria-label="Search cards"
                         value={query}
                         onChange={onQueryChange}
                     />
