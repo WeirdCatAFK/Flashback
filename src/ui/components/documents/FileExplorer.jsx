@@ -9,7 +9,7 @@ import ProgressDialog from '../shared/ProgressDialog';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
-  [...items].sort((a, b) => {
+  items.toSorted((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' });
   });
@@ -65,6 +65,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
           className="fe-rename-input"
           value={name}
           autoFocus
+          aria-label="New name"
           onChange={e => setName(sanitizeName(e.target.value))}
           onKeyDown={handleKey}
           onBlur={commit}
@@ -80,7 +81,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
   const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft] = useState(name);
+  const [draft, setDraft] = useState('');
   const FileIcon = getFileIcon(name);
   const selected = path === selectedPath;
   const nodeRef = useRef(null);
@@ -122,7 +123,7 @@ function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubl
     e.stopPropagation();
     onCtxMenu(e, {
       isFolder: false,
-      triggerRename: () => setRenaming(true),
+      triggerRename: () => { setDraft(name); setRenaming(true); },
       doDelete: async () => { await deleteItem(path, false); onRefresh(); },
     });
   };
@@ -141,6 +142,7 @@ function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubl
       <span className="fe-item-label">
         {renaming
           ? <input className="fe-rename-input" value={draft} autoFocus
+              aria-label="New name"
               onChange={e => setDraft(sanitizeName(e.target.value))}
               onKeyDown={handleRenameKey}
               onBlur={commitRename}
@@ -164,7 +166,7 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
   const [children, setChildren] = useState([]);
   const [loading, setLoading] = useState(false);
   const [renaming, setRenaming] = useState(false);
-  const [draft, setDraft]       = useState(name);
+  const [draft, setDraft]       = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
   const nodeRef = useRef(null);
@@ -182,9 +184,12 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
 
   // If this node mounts while already marked open (e.g. after a tree refresh),
   // fetch its children immediately so the folder doesn't appear empty.
+  // wasOpenOnMount captures the initial value so later open/close toggles
+  // (handled by the toggle() handler directly) don't re-trigger this.
+  const wasOpenOnMount = useRef(open);
   useEffect(() => {
-    if (open) loadChildren();
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    if (wasOpenOnMount.current) loadChildren();
+  }, [loadChildren]);
 
   const toggle = () => {
     if (!open) loadChildren();
@@ -263,7 +268,7 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
     onCtxMenu(e, {
       isFolder: true,
       folderPath: path,
-      triggerRename: () => setRenaming(true),
+      triggerRename: () => { setDraft(name); setRenaming(true); },
       doDelete: async () => { await deleteItem(path, true); onRefresh(); },
       doNewFile: async () => {
         if (!open) { toggleOpen(path); await loadChildren(); }
@@ -309,6 +314,7 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
         <span className="fe-item-label" onClick={toggle}>
           {renaming
             ? <input className="fe-rename-input" value={draft} autoFocus
+                aria-label="New name"
                 onChange={e => setDraft(sanitizeName(e.target.value))}
                 onKeyDown={handleRenameKey}
                 onBlur={commitRename}
@@ -459,13 +465,13 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       <div className="fe-header">
         <span className="fe-workspace-name">{workspaceName}</span>
         <div className="fe-header-actions">
-          <button className="fe-action-btn" onClick={() => handleCreate(true)} title="New folder">
+          <button type="button" className="fe-action-btn" onClick={() => handleCreate(true)} title="New folder" aria-label="New folder">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.38a1.5 1.5 0 0 1 1.06.44L8 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z"/>
               <line x1="8" y1="7" x2="8" y2="11"/><line x1="6" y1="9" x2="10" y2="9"/>
             </svg>
           </button>
-          <button className="fe-action-btn" onClick={() => handleCreate(false)} title="New file">
+          <button type="button" className="fe-action-btn" onClick={() => handleCreate(false)} title="New file" aria-label="New file">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M9 1H3.5A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9A1.5 1.5 0 0 0 14 13.5V6L9 1z"/>
               <polyline points="9,1 9,6 14,6"/>

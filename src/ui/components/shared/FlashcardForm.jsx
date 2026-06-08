@@ -47,17 +47,28 @@ export default function FlashcardForm({
   const [files, setFiles]               = useState(EMPTY_FILES);
   const [previewFace, setPreviewFace]   = useState('front');
 
-  // Reset preview face when switching types.
-  useEffect(() => { setPreviewFace('front'); }, [cardType]);
+  // Reset preview face inline when card type changes — no stale flash between renders.
+  const [prevCardType, setPrevCardType] = useState(cardType);
+  if (prevCardType !== cardType) {
+    setPrevCardType(cardType);
+    setPreviewFace('front');
+  }
 
   // Object URLs for the live preview; revoked when files change / on unmount.
   const [urls, setUrls] = useState(EMPTY_FILES);
+  // Destructure so the effect body references stable closure variables
+  // instead of the `files` object — keeps the dep array explicit.
+  const { front_img, back_img, front_sound, back_sound } = files;
   useEffect(() => {
-    const next = {};
-    for (const { key } of MEDIA_SLOTS) next[key] = files[key] ? URL.createObjectURL(files[key]) : null;
+    const next = {
+      front_img:   front_img   ? URL.createObjectURL(front_img)   : null,
+      back_img:    back_img    ? URL.createObjectURL(back_img)    : null,
+      front_sound: front_sound ? URL.createObjectURL(front_sound) : null,
+      back_sound:  back_sound  ? URL.createObjectURL(back_sound)  : null,
+    };
     setUrls(next);
     return () => { for (const u of Object.values(next)) if (u) URL.revokeObjectURL(u); };
-  }, [files.front_img, files.back_img, files.front_sound, files.back_sound]);
+  }, [front_img, back_img, front_sound, back_sound]);
 
   const mediaObj = useMemo(() => ({
     front_img: urls.front_img, back_img: urls.back_img,
@@ -147,8 +158,8 @@ export default function FlashcardForm({
         </div>
       )}
 
-      <label className="fc-form-label">CARD TYPE</label>
-      <select className="fc-form-select fc-type-select" value={cardType}
+      <label htmlFor="fc-card-type" className="fc-form-label">CARD TYPE</label>
+      <select id="fc-card-type" className="fc-form-select fc-type-select" value={cardType}
         onChange={(e) => { setCardType(e.target.value); setPreviewFace('front'); }}>
         {CARD_TYPES.map((t) => (
           <option key={t.key} value={t.key}>{t.label}</option>
@@ -172,16 +183,18 @@ export default function FlashcardForm({
 
       {(cardType === 'basic' || cardType === 'reversible') && (
         <>
-          <label className="fc-form-label">{cardType === 'reversible' ? 'TERM' : 'FRONT'}</label>
+          <label htmlFor="fc-front" className="fc-form-label">{cardType === 'reversible' ? 'TERM' : 'FRONT'}</label>
           <textarea
+            id="fc-front"
             className="fc-form-field"
             value={front}
             onChange={(e) => setFront(e.target.value)}
             rows={2}
             placeholder={cardType === 'reversible' ? 'Term or concept…' : 'Question or prompt…'}
           />
-          <label className="fc-form-label">{cardType === 'reversible' ? 'DEFINITION' : 'BACK'}</label>
+          <label htmlFor="fc-back" className="fc-form-label">{cardType === 'reversible' ? 'DEFINITION' : 'BACK'}</label>
           <textarea
+            id="fc-back"
             className="fc-form-field"
             value={back}
             onChange={(e) => setBack(e.target.value)}
@@ -193,9 +206,10 @@ export default function FlashcardForm({
 
       {cardType === 'cloze' && (
         <>
-          <label className="fc-form-label">CLOZE TEXT</label>
+          <label htmlFor="fc-cloze-text" className="fc-form-label">CLOZE TEXT</label>
           <p className="fc-form-hint">Wrap words in {'{{curly braces}}'} to mark them as blanks.</p>
           <textarea
+            id="fc-cloze-text"
             className="fc-form-field"
             value={clozeText}
             onChange={(e) => setClozeText(e.target.value)}
@@ -210,16 +224,18 @@ export default function FlashcardForm({
 
       {cardType === 'type_answer' && (
         <>
-          <label className="fc-form-label">QUESTION</label>
+          <label htmlFor="fc-question" className="fc-form-label">QUESTION</label>
           <textarea
+            id="fc-question"
             className="fc-form-field"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             rows={2}
             placeholder="What is the capital of France?"
           />
-          <label className="fc-form-label">EXPECTED ANSWER</label>
+          <label htmlFor="fc-expected-answer" className="fc-form-label">EXPECTED ANSWER</label>
           <textarea
+            id="fc-expected-answer"
             className="fc-form-field"
             value={expectedAnswer}
             onChange={(e) => setExpectedAnswer(e.target.value)}
@@ -232,9 +248,10 @@ export default function FlashcardForm({
 
       {cardType === 'custom' && (
         <>
-          <label className="fc-form-label">HTML CONTENT</label>
+          <label htmlFor="fc-custom-html" className="fc-form-label">HTML CONTENT</label>
           <p className="fc-form-hint">Full HTML with inline styles. Runs in a sandboxed iframe.</p>
           <textarea
+            id="fc-custom-html"
             className="fc-form-field fc-form-field--code"
             value={customHtml}
             onChange={(e) => setCustomHtml(e.target.value)}
@@ -269,15 +286,16 @@ export default function FlashcardForm({
         </>
       )}
 
-      <label className="fc-form-label">TAGS</label>
+      <label htmlFor="fc-tag-input" className="fc-form-label">TAGS</label>
       <div className="fc-form-tags">
         {tags.map((tag) => (
           <span key={tag} className="fc-tag fc-tag--removable">
             {tag}
-            <button className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
+            <button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
           </span>
         ))}
         <input
+          id="fc-tag-input"
           className="fc-form-tag-input"
           value={tagInput}
           onChange={(e) => setTagInput(e.target.value)}
@@ -287,18 +305,18 @@ export default function FlashcardForm({
         />
       </div>
 
-      <label className="fc-form-label">CATEGORY</label>
-      <select className="fc-form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
+      <label htmlFor="fc-category" className="fc-form-label">CATEGORY</label>
+      <select id="fc-category" className="fc-form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
         {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
       </select>
 
       {error && <p className="fc-form-error">{error}</p>}
 
       <div className="fc-form-actions">
-        <button className="fc-form-save" onClick={handleSave} disabled={!canSave}>
+        <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
           {saving ? 'Saving…' : 'Save card'}
         </button>
-        <button className="fc-form-cancel" onClick={onCancel}>Cancel</button>
+        <button type="button" className="fc-form-cancel" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );

@@ -45,11 +45,11 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
       className={`inspector${open ? '' : ' inspector--collapsed'}${resizing ? ' inspector--resizing' : ''}`}
       style={open ? { width } : undefined}
     >
-      {open && <div className="inspector-resize-handle" onMouseDown={startResize} />}
+      {open && <div className="inspector-resize-handle" onMouseDown={startResize} aria-hidden="true" />}
 
       <div className="inspector-tabs">
         {open && TABS.map(({ id, label }) => (
-          <button
+          <button type="button"
             key={id}
             className={`inspector-tab${activeTab === id ? ' inspector-tab--active' : ''}`}
             onClick={() => onTabChange(id)}
@@ -57,7 +57,7 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
             {label}
           </button>
         ))}
-        <button
+        <button type="button"
           className="inspector-toggle"
           onClick={onToggle}
           title={open ? 'Collapse inspector' : 'Expand inspector'}
@@ -68,7 +68,7 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
 
       {open && (
         <div className="inspector-content">
-          {activeTab === 'cards'      && <InspectorCardsTab path={path} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
+          {activeTab === 'cards'      && <InspectorCardsTab path={path} flashcards={flashcards} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
           {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} />}
           {activeTab === 'new-card'   && <InspectorNewCardTab path={path} selection={selection} highlightId={selectedHighlightId} onSaved={handleSaved} onCancel={handleCancel} />}
           {activeTab === 'tags'       && <InspectorTagsTab path={path} />}

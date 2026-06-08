@@ -3,13 +3,6 @@ import { upload, getBaseUrl } from './client.js';
 const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
 
 /**
- * URL that streams a media file by its content hash (server serves it at
- * GET /api/media?hash=). For callers that already hold a hash.
- */
-export const mediaUrl = (hash) =>
-  `${getBaseUrl()}/api/media?hash=${encodeURIComponent(hash)}`;
-
-/**
  * Resolves a vanilla card media reference (e.g. "./media/front-1a2b.png", as
  * stored in vanillaData.media) to a streamable URL via GET /api/media/file.
  * Pass as <Flashcard resolveMedia> together with the card's document path.
@@ -45,18 +38,3 @@ export const createVanillaCard = (docPath, card, mediaFiles = {}) => {
   return upload('/api/media/vanilla', fd);
 };
 
-/**
- * Attach a single media file to an already-existing card (legacy attach mode).
- * @param {"image"|"sound"} type
- * @param {"front"|"back"} position
- */
-export const attachVanillaMedia = (docPath, flashcardHash, file, name, type, position) => {
-  const fd = new FormData();
-  fd.append('file', file, name);
-  fd.append('docPath', docPath);
-  fd.append('flashcardHash', flashcardHash);
-  fd.append('name', name);
-  fd.append('type', type);
-  fd.append('position', position);
-  return upload('/api/media/vanilla', fd);
-};

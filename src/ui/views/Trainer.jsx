@@ -9,6 +9,8 @@ import useKeybindings from '../hooks/useKeybindings';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
 import './Trainer.css';
 
+const EMPTY_TAGS = [];
+
 // Anki-style grades. `outcome` is the binary success flag the backend logs; the
 // nuance is encoded in the ease delta and the next Leitner level. `kind` is the
 // exit flight: 'accept' = ascend off the top, 'reject' = drop back to the deck.
@@ -73,18 +75,27 @@ function useDueCards({ folder, deck, tags, refreshToken }) {
   // Stringify tags so the effect only re-runs when the set of tags actually changes.
   const tagsKey = tags ? tags.slice().sort().join(',') : '';
 
-  useEffect(() => {
+  // Reset loading/result/error inline when deps change so users don't see a
+  // stale result between when deps change and when the effect fires.
+  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, refreshToken });
+  if (prevDeps.folder !== folder || prevDeps.deck !== deck ||
+      prevDeps.tagsKey !== tagsKey || prevDeps.refreshToken !== refreshToken) {
+    setPrevDeps({ folder, deck, tagsKey, refreshToken });
     setLoading(true);
     setResult(null);
     setError(null);
+  }
+
+  useEffect(() => {
     const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
     const stored = localStorage.getItem('fb-srs-max-new');
     const maxNew = stored != null ? parseInt(stored, 10) : undefined;
-    getDue({ algorithm, maxNew, folder, deck, tags: tags?.length ? tags : undefined })
+    const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
+    getDue({ algorithm, maxNew, folder, deck, tags: tagsArray?.length ? tagsArray : undefined })
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, deck, tagsKey, refreshToken]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [folder, deck, tagsKey, refreshToken]);
 
   const cards = useMemo(() =>
     result
@@ -125,7 +136,7 @@ function GradePop({ pop, top }) {
   );
 }
 
-function TagInput({ selected = [], onApply }) {
+function TagInput({ selected = EMPTY_TAGS, onApply }) {
   const [value, setValue] = useState('');
   const [allTags, setAllTags] = useState([]);
   const [focused, setFocused] = useState(false);
@@ -199,7 +210,7 @@ function TagInput({ selected = [], onApply }) {
       {selected.map(t => (
         <span key={t} className="tag-input-chip">
           {t}
-          <button
+          <button type="button"
             className="tag-input-chip-remove"
             onMouseDown={e => { e.preventDefault(); remove(t); }}
           >×</button>
@@ -210,6 +221,7 @@ function TagInput({ selected = [], onApply }) {
         className="tag-input-field"
         value={value}
         placeholder={selected.length === 0 ? 'Filter by tag…' : ''}
+        aria-label="Filter by tag"
         onChange={e => { setValue(e.target.value); updateDropPos(); }}
         onFocus={() => { updateDropPos(); setFocused(true); }}
         onKeyDown={handleKeyDown}
@@ -221,7 +233,7 @@ function TagInput({ selected = [], onApply }) {
           style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
         >
           {suggestions.map(t => (
-            <button
+            <button type="button"
               key={t}
               className="tag-input-suggestion"
               onMouseDown={e => { e.preventDefault(); add(t); }}
@@ -275,6 +287,12 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
   const busyRef = useRef(false);
   const cardRef = useRef(null);
 
+  // Stable refs so the keydown effect doesn't need these in its dep array
+  // (they close over card/onResult which change per-card, but the component
+  // remounts via key={turn} so staleness is never observable in practice).
+  const onViewSourceRef = useRef(onViewSource);
+  onViewSourceRef.current = onViewSource;
+
   const handleGrade = (key) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -293,6 +311,8 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
       if (ok !== false) handleGrade(key);
     });
   };
+  const gradeWithAnimationRef = useRef(gradeWithAnimation);
+  gradeWithAnimationRef.current = gradeWithAnimation;
 
   // For type_answer: called when the Check button inside Flashcard fires.
   const handleTypeCheck = (typed) => {
@@ -308,7 +328,7 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
       if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
       const name = eventKeyName(e);
       const hits = (id) => (keymap[id] ?? []).includes(name);
-      if (hits('trainer.viewSource')) { e.preventDefault(); onViewSource?.(); return; }
+      if (hits('trainer.viewSource')) { e.preventDefault(); onViewSourceRef.current?.(); return; }
       if (!flipped) {
         if (hits('trainer.reveal')) {
           e.preventDefault();
@@ -322,12 +342,12 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
         return;
       }
       for (const [gkey, g] of Object.entries(GRADES)) {
-        if (hits(g.action)) { e.preventDefault(); gradeWithAnimation(gkey); break; }
+        if (hits(g.action)) { e.preventDefault(); gradeWithAnimationRef.current(gkey); break; }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isActive, flipped, keymap, isTypeAnswer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isActive, flipped, keymap, isTypeAnswer]);
 
   const revealHint = isTypeAnswer
     ? 'Type your answer and press Enter or Check'
@@ -377,7 +397,7 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
       {flipped && (
         <div className="trainer-grades">
           {Object.entries(GRADES).map(([key, g]) => (
-            <button
+            <button type="button"
               key={key}
               className={`trainer-grade trainer-grade--${key}`}
               onClick={() => gradeWithAnimation(key)}
@@ -392,7 +412,7 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
 
       {card.documentPath && (
         <div className="trainer-source-row">
-          <button className="trainer-source-btn" onClick={onViewSource}>
+          <button type="button" className="trainer-source-btn" onClick={onViewSource}>
             {keymap['trainer.viewSource']?.[0] && (
               <kbd className="trainer-source-key">{formatKeyLabel(keymap['trainer.viewSource'][0])}</kbd>
             )}
@@ -418,8 +438,11 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // Snapshot of stats at session end so the summary persists through re-fetches.
   const [lastSession, setLastSession] = useState(null);
 
-  // When a study session is launched from the file explorer or decks view, reset scope.
-  useEffect(() => {
+  // When a study session is launched from the file explorer or decks view, reset scope
+  // inline so all state updates land in the same render (no stale intermediate frame).
+  const [prevStudySession, setPrevStudySession] = useState(studySession);
+  if (prevStudySession !== studySession) {
+    setPrevStudySession(studySession);
     setAppliedScope({
       folder: studySession?.folder ?? null,
       deck: studySession?.deck ?? null,
@@ -429,21 +452,22 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setQueue([]);
     setSessionDone(false);
     setLastSession(null);
-  }, [studySession]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
   const clearDeck   = () => { setAppliedScope(s => ({ ...s, deck: null, deckName: null })); setQueue([]); setSessionDone(false); };
   const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setQueue([]); setSessionDone(false); };
   const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
-  // Re-check for due cards every time the view becomes active, or when a session ends.
+  // Re-check for due cards when the view becomes active.
+  // Inline keeps it in the same render as the isActive change — no extra pass,
+  // and avoids the double-fetch an effect would cause on initial mount.
   const [refreshToken, setRefreshToken] = useState(0);
-  useEffect(() => {
+  const [prevIsActiveForRefresh, setPrevIsActiveForRefresh] = useState(isActive);
+  if (prevIsActiveForRefresh !== isActive) {
+    setPrevIsActiveForRefresh(isActive);
     if (isActive) setRefreshToken(t => t + 1);
-  }, [isActive]);
-  useEffect(() => {
-    if (sessionDone) setRefreshToken(t => t + 1);
-  }, [sessionDone]);
+  }
 
   const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, deck: appliedScope.deck, tags: appliedScope.tags, refreshToken });
   const [orientation] = useFlashcardOrientation();
@@ -470,14 +494,17 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   // Auto-start the session when cards load — but only if not mid-session and not
   // waiting for the user to confirm a new session after completion.
-  useEffect(() => {
-    if (queue.length > 0) return; // mid-session, don't interrupt
-    if (sessionDone) return;      // completed, user must click to start again
-    setQueue(cards);
-    setTurn(0);
-    setStats({ again: 0, good: 0, easy: 0 });
-    setPop(null);
-  }, [cards]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Inline avoids the stale-UI extra render that a useEffect would cause.
+  const [prevCardsForStart, setPrevCardsForStart] = useState(cards);
+  if (prevCardsForStart !== cards) {
+    setPrevCardsForStart(cards);
+    if (queue.length === 0 && !sessionDone) {
+      setQueue(cards);
+      setTurn(0);
+      setStats({ again: 0, good: 0, easy: 0 });
+      setPop(null);
+    }
+  }
 
   const startNewSession = () => {
     setQueue(cards);
@@ -534,6 +561,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
       if (nextQueue.length === 0) {
         setSessionDone(true);
         setLastSession({ total: cards.length, stats: newStats });
+        setRefreshToken(t => t + 1);
       }
     } else {
       // Re-queue with the persisted SRS state applied, so the card comes back
@@ -562,13 +590,13 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
         {appliedScope.deck && (
           <span className="scope-chip">
             Deck: {appliedScope.deckName ?? appliedScope.deck}
-            <button onClick={clearDeck} title="Clear">×</button>
+            <button type="button" onClick={clearDeck} title="Clear">×</button>
           </span>
         )}
         {appliedScope.folder && (
           <span className="scope-chip">
             Folder: {appliedScope.folder}
-            <button onClick={clearFolder} title="Clear">×</button>
+            <button type="button" onClick={clearFolder} title="Clear">×</button>
           </span>
         )}
         <TagInput selected={appliedScope.tags ?? []} onApply={applyTags} />
@@ -606,7 +634,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
           </div>
           {loading && <p className="trainer-summary-line">Checking for new cards…</p>}
           {!loading && cards.length > 0 && (
-            <button className="trainer-new-session-btn" onClick={startNewSession}>
+            <button type="button" className="trainer-new-session-btn" onClick={startNewSession}>
               Start new session ({cards.length} card{cards.length !== 1 ? 's' : ''})
             </button>
           )}

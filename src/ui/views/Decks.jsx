@@ -101,10 +101,10 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
         <div className="add-cards-panel">
             <div className="add-cards-header">
                 <span className="add-cards-title">Add cards to deck</span>
-                <button className="add-cards-close" onClick={onClose} title="Close">×</button>
+                <button type="button" className="add-cards-close" onClick={onClose} title="Close">×</button>
             </div>
             <div className="add-cards-search">
-                <input autoFocus placeholder="Search cards…" value={query} onChange={onQueryChange} />
+                <input autoFocus placeholder="Search cards…" aria-label="Search cards" value={query} onChange={onQueryChange} />
             </div>
             <div className="add-cards-results">
                 {results.length === 0 && (
@@ -121,7 +121,7 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
                                 <div className="add-card-front">{card.frontText || card.name || '(untitled)'}</div>
                                 {card.document_name && <div className="add-card-doc">{card.document_name}</div>}
                             </div>
-                            <button className="add-card-btn" disabled={isAdded || isAdding} onClick={() => handleAdd(card)}>
+                            <button type="button" className="add-card-btn" disabled={isAdded || isAdding} onClick={() => handleAdd(card)}>
                                 {isAdded ? 'Added' : isAdding ? '…' : '+ Add'}
                             </button>
                         </div>
@@ -154,7 +154,7 @@ function CardRow({ entry, onRemove }) {
                 )}
                 {docName && <span className="card-doc-badge" title={entry.document_path}>{docName}</span>}
             </div>
-            <button className="card-row-remove" title="Remove from deck" onClick={onRemove}>×</button>
+            <button type="button" className="card-row-remove" title="Remove from deck" onClick={onRemove}>×</button>
         </div>
     );
 }
@@ -173,7 +173,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
         getDeck(deckHash).then(d => { setDeck(d); setLoading(false); }).catch(console.error);
     }, [deckHash]);
 
-    useEffect(() => { load(); setShowAddPanel(false); }, [load]);
+    // Reset the add panel inline when the deck changes; the async fetch stays in an effect.
+    const [prevLoad, setPrevLoad] = useState(() => load);
+    if (prevLoad !== load) { setPrevLoad(load); setShowAddPanel(false); }
+    useEffect(() => { load(); }, [load]);
 
     const handleRemoveEntry = async (cardHash) => {
         try { await removeEntry(deckHash, cardHash); load(); onRefreshList(); }
@@ -214,7 +217,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                 <div className="deck-detail-title-group">
                     {renaming ? (
                         <form onSubmit={submitRename} style={{ display: 'flex', gap: 6 }}>
-                            <input className="deck-detail-name-input" autoFocus value={renameVal}
+                            <input className="deck-detail-name-input" autoFocus aria-label="Deck name" value={renameVal}
                                 onChange={e => setRenameVal(e.target.value)} onBlur={() => setRenaming(false)} />
                         </form>
                     ) : (
@@ -229,10 +232,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
-                        <button className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
+                        <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
                     )}
-                    <button className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
-                    <button className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                    <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
+                    <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
                 </div>
             </div>
 
@@ -272,7 +275,7 @@ export default function DecksView({ onStudyDeck }) {
             <div className="decks-panel">
                 <div className="decks-panel-header">
                     <span className="decks-panel-title">Decks</span>
-                    <button className="decks-panel-new" title="New deck" onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                    <button type="button" className="decks-panel-new" title="New deck" onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
                 </div>
 
                 <div className="decks-list">

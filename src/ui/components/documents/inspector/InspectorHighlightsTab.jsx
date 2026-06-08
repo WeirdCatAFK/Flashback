@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+const EMPTY = [];
+
 const COLOR_VAR = {
   amber: '--color-hl-amber',
   green: '--color-hl-green',
@@ -15,7 +17,7 @@ const TYPE_LABELS = {
   custom:      'Custom',
 };
 
-export default function InspectorHighlightsTab({ highlights = [], flashcards = [], onJump, onAddCard }) {
+export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard }) {
   const [expandedId, setExpandedId] = useState(null);
 
   const cardsByHighlight = new Map();
@@ -69,7 +71,7 @@ export default function InspectorHighlightsTab({ highlights = [], flashcards = [
                 {cards.length > 0 && (
                   <span className="card-item-level">{cards.length}</span>
                 )}
-                <button
+                <button type="button"
                   className="hl-jump-btn"
                   title="Scroll to highlight in document"
                   onClick={(e) => { e.stopPropagation(); onJump?.(h.id); }}
@@ -96,7 +98,7 @@ export default function InspectorHighlightsTab({ highlights = [], flashcards = [
                     </div>
                   );
                 })}
-                <button
+                <button type="button"
                   className="hl-add-card-btn"
                   onClick={() => onAddCard?.(h.id)}
                 >

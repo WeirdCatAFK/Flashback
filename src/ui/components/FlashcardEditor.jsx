@@ -99,7 +99,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
 
   return (
     <div className="fc-editor">
-      <button className="fc-editor-back" onClick={onCancel}>← Cards</button>
+      <button type="button" className="fc-editor-back" onClick={onCancel}>← Cards</button>
 
       <div className="fc-editor-preview">
         <div className={`fc-card-stage fc-card-stage--${orientation}`}>
@@ -116,7 +116,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
         )}
       </div>
 
-      <select className="fc-form-select fc-type-select" value={cardType}
+      <select className="fc-form-select fc-type-select" aria-label="Card type" value={cardType}
         onChange={(e) => { setCardType(e.target.value); setPreviewFace('front'); }}>
         {CARD_TYPES.map((t) => (
           <option key={t.key} value={t.key}>{t.label}</option>
@@ -126,9 +126,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       {(cardType === 'basic' || cardType === 'reversible') && (
         <>
           <textarea className="fc-form-field" rows={2} value={front}
+            aria-label={cardType === 'reversible' ? 'Term' : 'Front'}
             onChange={(e) => setFront(e.target.value)}
             placeholder={cardType === 'reversible' ? 'Term or concept…' : 'Front / question…'} />
           <textarea className="fc-form-field" rows={2} value={back}
+            aria-label={cardType === 'reversible' ? 'Definition' : 'Back'}
             onChange={(e) => setBack(e.target.value)}
             placeholder={cardType === 'reversible' ? 'Definition…' : 'Back / answer…'} />
         </>
@@ -138,6 +140,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
         <>
           <p className="fc-form-hint">Wrap words in {'{{curly braces}}'} to mark blanks.</p>
           <textarea className="fc-form-field" rows={3} value={clozeText}
+            aria-label="Cloze text"
             onChange={(e) => setClozeText(e.target.value)}
             placeholder="The {{mitochondria}} is the powerhouse of the {{cell}}." />
           {clozeText && !hasClozeBlank && (
@@ -149,9 +152,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       {cardType === 'type_answer' && (
         <>
           <textarea className="fc-form-field" rows={2} value={question}
+            aria-label="Question"
             onChange={(e) => setQuestion(e.target.value)}
             placeholder="Question…" />
           <textarea className="fc-form-field" rows={2} value={expectedAnswer}
+            aria-label="Expected answer"
             onChange={(e) => setExpectedAnswer(e.target.value)}
             placeholder="Expected answer (case-insensitive)…" />
         </>
@@ -159,6 +164,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
 
       {cardType === 'custom' && (
         <textarea className="fc-form-field fc-form-field--code" rows={7} value={customHtml}
+          aria-label="Custom HTML content"
           onChange={(e) => setCustomHtml(e.target.value)}
           placeholder={'<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:24px">\n  Your content\n</div>'}
           spellCheck={false} />
@@ -167,10 +173,10 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       <div className="fc-form-tags">
         {tags.map((tag) => (
           <span key={tag} className="fc-tag fc-tag--removable">
-            {tag}<button className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
+            {tag}<button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
           </span>
         ))}
-        <input className="fc-form-tag-input" value={tagInput} placeholder="+ tag"
+        <input className="fc-form-tag-input" aria-label="Add tag" value={tagInput} placeholder="+ tag"
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={onTagKey} onBlur={addTag} />
       </div>
@@ -178,10 +184,10 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       {error && <p className="fc-form-error">{error}</p>}
 
       <div className="fc-form-actions">
-        <button className="fc-form-save" onClick={handleSave} disabled={!canSave}>
+        <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
           {saving ? 'Saving…' : 'Save'}
         </button>
-        <button className="fc-form-cancel" onClick={onCancel}>Cancel</button>
+        <button type="button" className="fc-form-cancel" onClick={onCancel}>Cancel</button>
       </div>
     </div>
   );

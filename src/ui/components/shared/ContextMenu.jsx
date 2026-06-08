@@ -38,15 +38,15 @@ export default function ContextMenu({ x, y, items, onClose }) {
     <div ref={ref} className="ctx-menu" style={{ top: pos.y, left: pos.x }}>
       {items.map((item, idx) =>
         item.separator
-          ? <div key={idx} className="ctx-sep" />
+          ? <div key={`sep-${idx}`} className="ctx-sep" />
           : confirmIdx === idx
-            ? <div key={idx} className="ctx-confirm">
+            ? <div key={item.label} className="ctx-confirm">
                 <span>Delete?</span>
-                <button className="ctx-confirm-yes" onClick={() => { item.action(); onClose(); }}>Yes</button>
-                <button className="ctx-confirm-no"  onClick={() => setConfirmIdx(null)}>No</button>
+                <button type="button" className="ctx-confirm-yes" onClick={() => { item.action(); onClose(); }}>Yes</button>
+                <button type="button" className="ctx-confirm-no"  onClick={() => setConfirmIdx(null)}>No</button>
               </div>
-            : <button
-                key={idx}
+            : <button type="button"
+                key={item.label}
                 className={`ctx-item${item.danger ? ' ctx-danger' : ''}${item.muted ? ' ctx-muted' : ''}`}
                 onClick={() => handleItem(item, idx)}
               >

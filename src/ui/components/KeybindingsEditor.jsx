@@ -21,8 +21,11 @@ export default function KeybindingsEditor() {
 
   const toggleOpen = () => {
     setOpen((o) => {
-      localStorage.setItem('fb-kb-open', String(!o));
-      return !o;
+      const next = !o;
+      localStorage.setItem('fb-kb-open', String(next));
+      // Cancel any active key-capture when the panel collapses.
+      if (!next) setRecording(null);
+      return next;
     });
   };
 
@@ -40,14 +43,9 @@ export default function KeybindingsEditor() {
     return () => window.removeEventListener('keydown', onKey, true);
   }, [recording]);
 
-  // Stop recording if the panel is collapsed mid-capture.
-  useEffect(() => {
-    if (!open && recording) setRecording(null);
-  }, [open, recording]);
-
   return (
     <div className="kb-editor">
-      <button className="kb-toggle" onClick={toggleOpen} aria-expanded={open}>
+      <button type="button" className="kb-toggle" onClick={toggleOpen} aria-expanded={open}>
         <svg
           width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor"
           strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
@@ -72,13 +70,13 @@ export default function KeybindingsEditor() {
                         ? <span className="kb-recording">Press a key…</span>
                         : (map[a.id] ?? []).map((k) => <kbd key={k} className="kb-cap">{formatKeyLabel(k)}</kbd>)}
                     </span>
-                    <button
+                    <button type="button"
                       className={`kb-btn${recording === a.id ? ' kb-btn--recording' : ''}`}
                       onClick={() => setRecording(recording === a.id ? null : a.id)}
                     >
                       {recording === a.id ? 'Cancel' : 'Rebind'}
                     </button>
-                    <button className="kb-btn kb-btn--icon" title="Reset to default" onClick={() => resetKeybinding(a.id)}>
+                    <button type="button" className="kb-btn kb-btn--icon" title="Reset to default" onClick={() => resetKeybinding(a.id)}>
                       ↺
                     </button>
                   </div>
@@ -86,7 +84,7 @@ export default function KeybindingsEditor() {
               ))}
             </div>
           ))}
-          <button className="kb-btn kb-reset-all" onClick={resetAllKeybindings}>
+          <button type="button" className="kb-btn kb-reset-all" onClick={resetAllKeybindings}>
             Reset all to defaults
           </button>
         </div>

@@ -51,19 +51,26 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
 
   // Keep a ref so callbacks can read current openTabs without stale closures
   const openTabsRef = useRef([]);
-  useEffect(() => { openTabsRef.current = openTabs; }, [openTabs]);
+  openTabsRef.current = openTabs;
 
   const [pendingHighlight, setPendingHighlight] = useState(null); // { path, id }
+
+  // Stable refs so the openSource effect always calls the latest callbacks
+  // without needing them as deps (they're inline arrows in App.jsx).
+  const onSelectRef = useRef(onSelect);
+  onSelectRef.current = onSelect;
+  const onOpenSourceConsumedRef = useRef(onOpenSourceConsumed);
+  onOpenSourceConsumedRef.current = onOpenSourceConsumed;
 
   // Open a document from an external source (e.g. trainer "view source")
   useEffect(() => {
     if (!openSource) return;
     const { path, highlightId } = openSource;
     setOpenTabs(prev => prev.some(t => t.path === path) ? prev : [...prev, { path }]);
-    onSelect(path);
-    onOpenSourceConsumed?.();
+    onSelectRef.current(path);
+    onOpenSourceConsumedRef.current?.();
     if (highlightId) setPendingHighlight({ path, id: highlightId });
-  }, [openSource]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [openSource]);
 
   // Single click: open as preview tab (replaces existing preview)
   const handleFileSelect = useCallback((path) => {

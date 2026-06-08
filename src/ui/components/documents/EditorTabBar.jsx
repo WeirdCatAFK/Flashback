@@ -13,7 +13,7 @@ export default function EditorTabBar({ tabs, activeTab, previewTab, dirtyPaths, 
         const isPreview = path === previewTab;
         const isDirty   = dirtyPaths?.has(path) ?? false;
         return (
-          <button
+          <button type="button"
             key={path}
             role="tab"
             aria-selected={isActive}
@@ -29,6 +29,7 @@ export default function EditorTabBar({ tabs, activeTab, previewTab, dirtyPaths, 
               tabIndex={-1}
               aria-label={`Close ${label}`}
               onClick={(e) => { e.stopPropagation(); onTabClose(path); }}
+              onKeyDown={(e) => e.key === 'Enter' && (e.stopPropagation(), onTabClose(path))}
             >
               ×
             </span>
