@@ -226,25 +226,30 @@
   margin: 0 1px;
 }
 
-/* Type Answer: input + check button inside the card face */
+/* Type Answer: textarea + check button inside the card face */
 .flashcard-face--front .type-answer-wrap {
   display: flex;
+  flex-direction: column;
   gap: 6px;
   width: 100%;
-  max-width: 280px;
+  max-width: 360px;
   margin-top: 10px;
 }
 
 .type-answer-input {
-  flex: 1;
-  font-size: clamp(11px, 3cqw, 15px);
+  width: 100%;
+  font-size: clamp(11px, 3cqw, 14px);
+  font-family: var(--font-mono, monospace);
   padding: 6px 8px;
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg-surface);
   color: var(--color-fg-primary);
   outline: none;
+  resize: vertical;
+  min-height: 72px;
   transition: border-color 120ms;
+  box-sizing: border-box;
 }
 
 .type-answer-input:focus {
@@ -261,7 +266,7 @@
   cursor: pointer;
   transition: opacity 80ms;
   white-space: nowrap;
-  flex-shrink: 0;
+  align-self: flex-end;
 }
 
 .type-answer-check:disabled {

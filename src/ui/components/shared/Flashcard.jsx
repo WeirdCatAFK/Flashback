@@ -163,7 +163,10 @@ const Flashcard = forwardRef(function Flashcard({
 
   // check() lets the Trainer submit the typed answer via the reveal keybinding.
   const doCheck = useCallback(() => {
-    if (typed.trim()) onTypeCheck?.(typed);
+    if (typed.trim()) {
+      onTypeCheck?.(typed);
+      inputRef.current?.blur();
+    }
   }, [typed, onTypeCheck]);
 
   useImperativeHandle(ref, () => ({ flyOut, check: doCheck }), [flyOut, doCheck]);
@@ -241,19 +244,20 @@ const Flashcard = forwardRef(function Flashcard({
         {frontText && <div className="flashcard-text">{frontText}</div>}
         {!isStatic && (
           <div className="type-answer-wrap" onPointerDown={(e) => e.stopPropagation()}>
-            <input
+            <textarea
               ref={inputRef}
               className="type-answer-input"
               value={typed}
               onChange={(e) => setTyped(e.target.value)}
               onKeyDown={(e) => {
                 e.stopPropagation();
-                if (e.key === 'Enter') { e.preventDefault(); doCheck(); }
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doCheck(); }
               }}
               placeholder="Type your answer…"
               autoComplete="off"
               spellCheck={false}
               aria-label="Answer input"
+              rows={4}
             />
             <button
               type="button"

@@ -382,7 +382,7 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
       )}
 
       {!flipped && isTypeAnswer && (
-        <p className="trainer-hint">Type your answer above and press Enter or Check</p>
+        <p className="trainer-hint">Enter to check · Shift+Enter for newline</p>
       )}
 
       {flipped && isTypeAnswer && (
