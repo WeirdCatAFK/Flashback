@@ -10,6 +10,8 @@ import spawn from './api_process.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+let forceOnboarding = process.argv.includes('--onboarding');
+
 let mainWindow;
 let tray;
 let isQuitting = false;
@@ -82,17 +84,25 @@ function createWindow() {
   // Intercept the close event. 
   // If the user clicks 'X', hide the window but keep the app (and API) running.
   mainWindow.on('close', (event) => {
-    if (!isQuitting) {
+    // On first run (no config yet, or --onboarding flag) close normally, don't hide to tray.
+    if (!isQuitting && !isFirstRun()) {
       event.preventDefault();
       mainWindow.hide();
       return false;
     }
-    // If isQuitting is true, let the event propagate and close the window/app
   });
 }
 
 function getConfigPath() {
   return path.join(app.getPath('userData'), 'config.json');
+}
+
+function configExists() {
+  return fs.existsSync(getConfigPath());
+}
+
+function isFirstRun() {
+  return forceOnboarding || !configExists();
 }
 
 function readConfig() {
@@ -112,6 +122,25 @@ ipcMain.on('window-close',    () => mainWindow?.close());
 ipcMain.handle('get-api-url', () => {
   const config = readConfig();
   return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
+});
+
+// IPC: first-run detection — true when config.json does not yet exist or --onboarding passed
+ipcMain.handle('is-first-run', () => isFirstRun());
+
+// IPC: onboarding writes initial config, then starts the API in-process and
+// reloads the renderer. Avoids app.relaunch() which would re-pass --onboarding
+// and break the npm-run-all dev setup by killing the Vite server on exit.
+ipcMain.handle('complete-setup', (_event, config) => {
+  try {
+    fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
+    fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+    forceOnboarding = false;
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+  try { spawn(); }       catch (err) { console.error('API spawn error:', err); }
+  try { createTray(); }  catch (err) { console.error('Tray error:', err); }
+  return { ok: true };
 });
 
 // IPC: renderer reads the full config object
@@ -149,6 +178,9 @@ ipcMain.handle('restart-app', () => {
   app.exit(0);
 });
 
+// IPC: renderer reads the app userData path (used for path preview in onboarding)
+ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
+
 // Single Instance Lock (Recommended)
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -164,9 +196,11 @@ if (!gotTheLock) {
   });
 
   app.on("ready", () => {
-    spawn(); // Starts your API
-    createTray(); // Creates the Tray Icon
-    createWindow(); // Creates the UI
+    if (!isFirstRun()) {
+      spawn();       // API only runs when there's a config to read
+      createTray();
+    }
+    createWindow();
   });
 
   // MacOS Dock click behavior

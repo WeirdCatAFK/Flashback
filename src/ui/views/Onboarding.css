@@ -1,0 +1,395 @@
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+
+.ob-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-family: inherit;
+}
+
+.ob-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 24px 48px;
+}
+
+.ob-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: 440px;
+  gap: 24px;
+}
+
+/* ── Step dots ────────────────────────────────────────────────────────────── */
+
+.ob-stepdots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ob-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--color-border);
+  transition: background 200ms, width 200ms;
+}
+
+.ob-dot--active {
+  width: 20px;
+  background: var(--color-accent);
+}
+
+.ob-dot--done {
+  background: var(--color-fg-secondary);
+  opacity: 0.4;
+}
+
+/* ── Step shared ──────────────────────────────────────────────────────────── */
+
+.ob-step {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.ob-step-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.ob-step-desc {
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Step 0 — Welcome ─────────────────────────────────────────────────────── */
+
+.ob-step--welcome {
+  align-items: center;
+  text-align: center;
+  padding: 12px 0 4px;
+  gap: 20px;
+}
+
+.ob-mark {
+  flex-shrink: 0;
+}
+
+.ob-welcome-title {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.ob-welcome-desc {
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* ── Form elements ────────────────────────────────────────────────────────── */
+
+.ob-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.ob-field--indented {
+  padding-left: 22px;
+}
+
+.ob-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ob-input {
+  height: 30px;
+  padding: 0 10px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 120ms;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.ob-input:focus {
+  border-color: var(--color-accent);
+}
+
+.ob-input--lg {
+  height: 36px;
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.ob-input--err {
+  border-color: var(--color-danger);
+}
+
+.ob-input--short {
+  width: 100px;
+}
+
+.ob-select {
+  height: 30px;
+  padding: 0 8px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 120ms;
+}
+
+.ob-select:focus {
+  border-color: var(--color-accent);
+}
+
+.ob-field-msg {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ob-field-msg--err {
+  color: var(--color-danger);
+}
+
+.ob-path-preview {
+  font-family: monospace;
+  font-size: 11px;
+  opacity: 0.8;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────────── */
+
+.ob-divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+/* ── Checkbox row ─────────────────────────────────────────────────────────── */
+
+.ob-check-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ob-checkbox {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.ob-check-label {
+  font-size: 13px;
+  color: var(--color-fg-primary);
+}
+
+/* ── Advanced ─────────────────────────────────────────────────────────────── */
+
+.ob-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color 120ms;
+  align-self: flex-start;
+}
+
+.ob-advanced-toggle:hover {
+  color: var(--color-fg-primary);
+}
+
+.ob-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+}
+
+.ob-inline-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.ob-inline-row .ob-label {
+  width: 80px;
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* ── Summary card ─────────────────────────────────────────────────────────── */
+
+.ob-summary {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.ob-summary-row {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ob-summary-row:last-child {
+  border-bottom: none;
+}
+
+.ob-summary-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0;
+}
+
+.ob-summary-key {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  width: 86px;
+  flex-shrink: 0;
+}
+
+.ob-summary-val {
+  font-size: 13px;
+  color: var(--color-fg-primary);
+  font-weight: 500;
+}
+
+.ob-summary-val--path {
+  font-family: monospace;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--color-fg-secondary);
+  word-break: break-all;
+}
+
+/* ── Error ────────────────────────────────────────────────────────────────── */
+
+.ob-submit-error {
+  font-size: 12px;
+  color: var(--color-danger);
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+}
+
+/* ── Navigation row ───────────────────────────────────────────────────────── */
+
+.ob-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 4px;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+.ob-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 16px;
+  background: var(--color-accent);
+  color: #1C1917;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  cursor: pointer;
+  transition: opacity 120ms;
+  letter-spacing: 0.01em;
+  flex-shrink: 0;
+}
+
+.ob-btn-lg {
+  height: 38px;
+  padding: 0 24px;
+  font-size: 14px;
+}
+
+.ob-btn-primary:hover:not(:disabled) {
+  opacity: 0.88;
+}
+
+.ob-btn-primary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ob-btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 12px;
+  background: none;
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms;
+}
+
+.ob-btn-ghost:hover:not(:disabled) {
+  color: var(--color-fg-primary);
+  border-color: var(--color-fg-secondary);
+}
+
+.ob-btn-ghost:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}

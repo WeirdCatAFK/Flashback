@@ -2,22 +2,33 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initClient } from './api/client.js';
 import App from './App.jsx';
+import OnboardingView from './views/Onboarding.jsx';
 import './index.css';
 
-async function bootstrap() {
-  // In Electron, ask main for the API URL via IPC.
-  // In dev:web mode (no Electron), fall back to the default port. (maybve in the future I should change this to actually check if its in devmode)
+const root = createRoot(document.getElementById('root'));
+
+async function launchApp() {
   const apiUrl = window.flashback
     ? await window.flashback.getApiUrl()
     : 'http://localhost:50500';
-
   initClient(apiUrl);
-
-  createRoot(document.getElementById('root')).render(
+  root.render(
     <StrictMode>
       <App />
     </StrictMode>
   );
+}
+
+async function bootstrap() {
+  if (window.flashback && await window.flashback.isFirstRun()) {
+    root.render(
+      <StrictMode>
+        <OnboardingView onComplete={launchApp} />
+      </StrictMode>
+    );
+    return;
+  }
+  await launchApp();
 }
 
 bootstrap();

@@ -10,9 +10,25 @@ The Flashback system maintains data in **two synchronized layers**:
    - Designed for portability, packaging, and sharing of study materials.
 2. **Derived Data Layer**
 
-   - Stored in a **SQLite database**.
+   - Stored in a **SQLite database** at `{vaultName}/{vaultName}.db` inside the active vault directory.
    - Optimized for fast querying and consumption by the Flashback API.
    - Contains normalized and indexed representations of canonical data (flashcards, tags, review logs, presence metrics).
+
+---
+
+## Vault Structure
+
+All user data is scoped to a **vault** — a named, self-contained directory identified by the `vaultName` field in `config.json`. Both data layers for a given vault live inside it.
+
+```
+{baseDir}/                        ← app data directory (or customPath if configured)
+  config.json                     ← server configuration; lives outside vaults
+  {vaultName}/                    ← vault root, e.g. dreams/
+    workspace/                    ← canonical layer root (.flashback sidecars and documents)
+    {vaultName}.db                ← derived layer (SQLite), e.g. dreams.db
+```
+
+`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable. Renaming a vault updates `vaultName` in `config.json` and renames the vault directory and database file on disk. The `workspace/` subdirectory is the root of the Seal git repository.
 
 ---
 
@@ -249,7 +265,10 @@ All data operations flow through `src/api/access/`. Modules are organised in thr
 ```
 Tier 1 — Primitives
   config.js     Resolves the config path and owns config.json I/O (cached singleton).
-  database.js   Opens dreams.db and exports the better-sqlite3 connection singleton.
+                Exports getVaultPath(), getWorkspacePath(), and getDatabasePath(),
+                which all derive from vaultName in the active config.
+  database.js   Calls getDatabasePath() at module initialisation, creates the vault
+                directory if absent, and exports the better-sqlite3 connection singleton.
 
 Tier 2 — Single-resource access
   query.js      All parameterised SQL statements. The only layer allowed to call db.prepare().
@@ -282,20 +301,21 @@ Every write operation through `Documents.js` produces an atomic git commit in th
 
 ### Repository Layout
 
-The Seal git repository is initialised at `workspaceRoot` on startup by `sealTools.init()` (called from `main.js` after validation). The database and config files live outside `workspaceRoot` and are never tracked.
+The Seal git repository is initialised at `workspaceRoot` (`{vaultPath}/workspace`) on startup by `sealTools.init()` (called from `main.js` after validation). The vault database and `config.json` live outside `workspaceRoot` and are never tracked.
 
 ```
-data/
-├── dreams.db        ← derived layer, not tracked
-├── config.json      ← not tracked
-└── workspace/       ← git repo root (sealTools.init here)
-    ├── .git/
-    ├── .flashback
-    ├── MyFolder/
-    │   ├── .flashback
-    │   ├── note.md
-    │   └── note.md.flashback
-    └── ...
+{baseDir}/
+├── config.json               ← not tracked
+└── {vaultName}/              ← vault root, e.g. dreams/
+    ├── {vaultName}.db        ← derived layer, not tracked
+    └── workspace/            ← git repo root (sealTools.init here)
+        ├── .git/
+        ├── .flashback
+        ├── MyFolder/
+        │   ├── .flashback
+        │   ├── note.md
+        │   └── note.md.flashback
+        └── ...
 ```
 
 ### Internal Structure

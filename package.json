@@ -7,8 +7,10 @@
   "description": "The memorization workspace",
   "scripts": {
     "dev": "npm run electron:rebuild && npm-run-all --parallel dev:react dev:electron",
+    "dev:onboarding": "npm run electron:rebuild && npm-run-all --parallel dev:react dev:electron:onboarding",
     "dev:react": "vite",
     "dev:electron": "cross-env NODE_ENV=development electron .",
+    "dev:electron:onboarding": "cross-env NODE_ENV=development electron . --onboarding",
     "dev:api": "npm run rebuild && nodemon src/api/main.js",
     "dev:web": "npm run rebuild && npm-run-all --parallel dev:react dev:api",
     "build": "vite build",
