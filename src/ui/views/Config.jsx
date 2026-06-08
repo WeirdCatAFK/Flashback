@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./Config.css";
 import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
 import KeybindingsEditor from "../components/KeybindingsEditor";
@@ -438,8 +438,19 @@ export default function ConfigView({
   const { config, setConfig, loading, error } = useConfig();
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
+  const [restartPending, setRestartPending] = useState(false);
   const [orientation, setOrientation] = useFlashcardOrientation();
   const { algorithm, setAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
+
+  // Flash badge for instantly-applied (localStorage) settings.
+  const [autoSaved, setAutoSaved] = useState(null);
+  const autoTimerRef = useRef(null);
+  const markAutoSaved = (key) => {
+    clearTimeout(autoTimerRef.current);
+    setAutoSaved(key);
+    autoTimerRef.current = setTimeout(() => setAutoSaved(null), 1500);
+  };
+  useEffect(() => () => clearTimeout(autoTimerRef.current), []);
 
   // Sync form inline when config loads or reloads — avoids a blank-form flash.
   const [prevConfig, setPrevConfig] = useState(config);
@@ -448,18 +459,35 @@ export default function ConfigView({
     if (config) setForm({ ...config });
   }
 
-  const handleChange = (key, value) =>
+  const handleChange = (key, value) => {
+    setRestartPending(false);
     setForm((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const RESTART_FIELDS = ['port', 'host', 'logFormat', 'isCustomPath', 'customPath', 'vaultName'];
 
   const handleSave = async () => {
     setStatus("saving");
+    setRestartPending(false);
+    const preSave = config;
     const result = await window.flashback.setConfig(form);
-    setStatus(result.ok ? "saved" : `error: ${result.error}`);
-    if (result.ok) setConfig(form);
+    if (result.ok) {
+      setConfig(form);
+      setStatus("saved");
+      setTimeout(() => setStatus((s) => (s === "saved" ? null : s)), 2000);
+      if (preSave && RESTART_FIELDS.some((k) => form[k] !== preSave[k])) {
+        setRestartPending(true);
+      }
+    } else {
+      setStatus(`error: ${result.error}`);
+    }
   };
 
   const isDirty =
     form && config && JSON.stringify(form) !== JSON.stringify(config);
+
+  const hasRestartDirty =
+    isDirty && config && form && RESTART_FIELDS.some((k) => form[k] !== config[k]);
 
   const handleThemeEditorSaved = () => {
     onCustomThemesChange(loadCustomThemes());
@@ -510,11 +538,12 @@ export default function ConfigView({
                 <select
                   id="flashcard-orientation"
                   value={orientation}
-                  onChange={(e) => setOrientation(e.target.value)}
+                  onChange={(e) => { setOrientation(e.target.value); markAutoSaved('orientation'); }}
                 >
                   <option value="landscape">Landscape (4:3)</option>
                   <option value="portrait">Portrait (3:4)</option>
                 </select>
+                {autoSaved === 'orientation' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
             <tr>
@@ -525,11 +554,12 @@ export default function ConfigView({
                 <select
                   id="srs-algorithm"
                   value={algorithm}
-                  onChange={(e) => setAlgorithm(e.target.value)}
+                  onChange={(e) => { setAlgorithm(e.target.value); markAutoSaved('algorithm'); }}
                 >
                   <option value="leitner">Leitner (doubles each level)</option>
                   <option value="sm2">SM-2 (ease factor)</option>
                 </select>
+                {autoSaved === 'algorithm' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
             <tr>
@@ -544,8 +574,9 @@ export default function ConfigView({
                   min={0}
                   max={200}
                   value={maxNew}
-                  onChange={(e) => setMaxNew(e.target.value)}
+                  onChange={(e) => { setMaxNew(e.target.value); markAutoSaved('maxNew'); }}
                 />
+                {autoSaved === 'maxNew' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
           </tbody>
@@ -556,29 +587,40 @@ export default function ConfigView({
         <KeybindingsEditor />
       </section>
 
-      <section className="config-section">
-        <h2 className="config-heading">Server</h2>
+      {loading && <p>Loading config…</p>}
+      {error && <p>Error: {error.message}</p>}
 
-        {loading && <p>Loading config…</p>}
-        {error && <p>Error: {error.message}</p>}
-
-        {form && (
-          <>
+      {form && (
+        <>
+          <section className="config-section">
+            <h2 className="config-heading">Vault</h2>
             <table className="config-table">
               <tbody>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-username">Username</label>
+                    <label htmlFor="cfg-vault-name">Vault name</label>
                   </td>
                   <td>
                     <input
-                      id="cfg-username"
-                      aria-label="Username"
-                      value={form.username ?? ""}
-                      onChange={(e) => handleChange("username", e.target.value)}
+                      id="cfg-vault-name"
+                      aria-label="Vault name"
+                      placeholder="default"
+                      value={form.vaultName ?? ""}
+                      onChange={(e) => handleChange("vaultName", e.target.value)}
                     />
                   </td>
                 </tr>
+              </tbody>
+            </table>
+            <p className="config-hint">
+              The vault name is used as the folder name on disk and the database name. Changing it renames the folder and requires a restart.
+            </p>
+          </section>
+
+          <section className="config-section">
+            <h2 className="config-heading">Server</h2>
+            <table className="config-table">
+              <tbody>
                 <tr>
                   <td>
                     <label htmlFor="cfg-port">Port</label>
@@ -610,12 +652,29 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-custom-path">Custom workspace path</label>
+                    <label htmlFor="cfg-log-format">Log format</label>
+                  </td>
+                  <td>
+                    <select
+                      id="cfg-log-format"
+                      value={form.logFormat ?? "dev"}
+                      onChange={(e) => handleChange("logFormat", e.target.value)}
+                    >
+                      <option value="dev">dev</option>
+                      <option value="combined">combined</option>
+                      <option value="tiny">tiny</option>
+                      <option value="short">short</option>
+                    </select>
+                  </td>
+                </tr>
+                <tr>
+                  <td>
+                    <label htmlFor="cfg-custom-path">Use custom workspace path</label>
                   </td>
                   <td>
                     <input
                       id="cfg-custom-path"
-                      aria-label="Custom workspace path"
+                      aria-label="Use custom workspace path"
                       type="checkbox"
                       checked={!!form.isCustomPath}
                       onChange={(e) =>
@@ -644,24 +703,64 @@ export default function ConfigView({
               </tbody>
             </table>
 
-            <p className="config-save-row">
-              <button type="button"
+            <div className="config-save-row">
+              <button
+                type="button"
+                className={[
+                  'config-save-btn',
+                  isDirty ? 'config-save-btn--dirty' : '',
+                  status === 'saved' ? 'config-save-btn--saved' : '',
+                ].filter(Boolean).join(' ')}
                 onClick={handleSave}
-                disabled={!isDirty || status === "saving"}
+                disabled={!isDirty || status === 'saving'}
               >
-                Save
+                {status === 'saving' ? 'Saving…' : status === 'saved' ? '✓ Saved' : 'Save changes'}
               </button>
-              {status && <span className="config-status">{status}</span>}
-            </p>
+              {isDirty && (
+                <span className="config-unsaved-indicator">
+                  <span className="config-unsaved-dot" />
+                  Unsaved changes
+                </span>
+              )}
+              {status && status !== 'saved' && status !== 'saving' && (
+                <span className="config-status config-status--error">
+                  {status.replace(/^error: /, '')}
+                </span>
+              )}
+            </div>
 
-            {isDirty && (
+            {hasRestartDirty && (
               <p className="config-hint">
-                ⚠ Restart the app for port / host / path changes to take effect.
+                ⚠ Port, host, log format, or workspace path changes require a restart to take effect.
               </p>
             )}
-          </>
-        )}
-      </section>
+
+            {restartPending && (
+              <div className="config-restart-prompt">
+                <span className="config-restart-message">
+                  Server settings changed — restart to apply.
+                </span>
+                <div className="config-restart-actions">
+                  <button
+                    type="button"
+                    className="config-restart-btn config-restart-btn--primary"
+                    onClick={() => window.flashback?.restartApp()}
+                  >
+                    Restart now
+                  </button>
+                  <button
+                    type="button"
+                    className="config-restart-btn"
+                    onClick={() => setRestartPending(false)}
+                  >
+                    Later
+                  </button>
+                </div>
+              </div>
+            )}
+          </section>
+        </>
+      )}
     </div>
   );
 }

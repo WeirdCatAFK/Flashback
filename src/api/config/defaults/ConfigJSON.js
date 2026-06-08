@@ -5,5 +5,5 @@ export default {
     isLocalhost: true,
     isCustomPath: false,
     customPath: "",
-    username: "dreamer"
+    vaultName: "dreams"
 }

@@ -23,7 +23,7 @@ function dir() {
 
 function author() {
     const config = getConfig();
-    return { name: config?.username || "flashback", email: "seal@flashback.local" };
+    return { name: config?.vaultName || "flashback", email: "seal@flashback.local" };
 }
 
 async function stageAll(workspace, paths) {

@@ -99,7 +99,7 @@ function readConfig() {
   try {
     return JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
   } catch {
-    return { port: 50500, host: 'localhost', isLocalhost: true, isCustomPath: false, customPath: '', username: 'dreamer', logFormat: 'dev' };
+    return { port: 50500, host: 'localhost', isLocalhost: true, isCustomPath: false, customPath: '', logFormat: 'dev', vaultName: 'default' };
   }
 }
 
@@ -118,13 +118,35 @@ ipcMain.handle('get-api-url', () => {
 ipcMain.handle('get-config', () => readConfig());
 
 // IPC: renderer writes a new config object
-ipcMain.handle('set-config', (_event, config) => {
+ipcMain.handle('set-config', (_event, newConfig) => {
   try {
-    fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+    const oldConfig = readConfig();
+    fs.writeFileSync(getConfigPath(), JSON.stringify(newConfig, null, 2));
+
+    // Rename the vault folder on disk when vaultName changes
+    if (!newConfig.isCustomPath && !oldConfig.isCustomPath) {
+      const oldVault = oldConfig.vaultName || 'default';
+      const newVault = newConfig.vaultName || 'default';
+      if (oldVault !== newVault) {
+        const userData = app.getPath('userData');
+        const oldPath = path.join(userData, oldVault);
+        const newPath = path.join(userData, newVault);
+        if (fs.existsSync(oldPath)) {
+          fs.renameSync(oldPath, newPath);
+        }
+      }
+    }
+
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// IPC: renderer requests a full app restart
+ipcMain.handle('restart-app', () => {
+  app.relaunch();
+  app.exit(0);
 });
 
 // Single Instance Lock (Recommended)

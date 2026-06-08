@@ -36,14 +36,28 @@ export function get() {
     }
 }
 
-export function getWorkspacePath() {
+function _baseDir() {
+    return process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
+}
+
+export function getVaultPath() {
     const config = get();
+    const vaultName = config.vaultName || "default";
     if (config.isCustomPath) {
         if (!path.isAbsolute(config.customPath)) throw new Error("Custom path provided is not absolute");
-        return config.customPath;
+        return path.join(config.customPath, vaultName);
     }
-    const baseDir = process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
-    return path.join(baseDir, "workspace");
+    return path.join(_baseDir(), vaultName);
+}
+
+export function getWorkspacePath() {
+    return path.join(getVaultPath(), "workspace");
+}
+
+export function getDatabasePath() {
+    const config = get();
+    const vaultName = config.vaultName || "default";
+    return path.join(getVaultPath(), `${vaultName}.db`);
 }
 
 function set(config) {
