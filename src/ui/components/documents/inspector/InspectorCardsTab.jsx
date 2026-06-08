@@ -62,6 +62,8 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
   const [loading, setLoading]             = useState(false);
   const [editingCard, setEditingCard]     = useState(null);
 
+  // After an inline edit the parent's sidecar state may not have refreshed yet,
+  // so we re-fetch directly. Also used as the initial load when no prop is given.
   const loadCards = useCallback(() => {
     if (!path) { setPostEditCards(null); return; }
     setLoading(true);
@@ -71,12 +73,12 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
       .finally(() => setLoading(false));
   }, [path]);
 
-  // Clear stale post-edit snapshot when path or parent data changes.
+  // Reset local post-edit snapshot when the document changes or parent sends fresh data.
   useEffect(() => {
     setPostEditCards(null);
-  }, [path, flashcardsProp]);
+  }, [path]);
 
-  // Load from disk when the parent has no data to offer.
+  // Async fetch stays in an effect; only runs when parent has no data to offer.
   useEffect(() => {
     if (flashcardsProp == null) loadCards();
   }, [loadCards, flashcardsProp]);
