@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import Documents from '../src/api/access/documents.js';
 import db from '../src/api/access/database.js';
 import validate from '../src/api/config/validate.js';
-import { sealTools } from '../src/api/seal/seal.js';
+import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
@@ -55,6 +55,7 @@ describe('Seal Integration Tests', () => {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'Q', backText: 'A' } }]
             });
+            await sealEmitter.flushEdits();
             const commits = await sealTools.log();
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('edit:'), 'Commit message should start with edit:');
@@ -73,6 +74,7 @@ describe('Seal Integration Tests', () => {
         it('submitReview fires an edit commit with the sidecar path', async () => {
             const before = (await sealTools.log()).length;
             await docs.submitReview(filePath, fcHash, 5, 2.5, 3);
+            await sealEmitter.flushEdits();
             const commits = await sealTools.log();
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('edit:'), 'Commit message should start with edit:');
@@ -129,19 +131,21 @@ describe('Seal Integration Tests', () => {
 
         before(async () => {
             await docs.createFile(rollbackFile, TEST_ROOT);
-            // v1 — this will be the snapshot target
+            // v1 — this will be the snapshot target; flush so the commit lands before we capture the ref
             await docs.updateFile(rollbackPath, '# v1', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v1 question', backText: 'v1 answer' } }]
             });
+            await sealEmitter.flushEdits();
             snapshotRef = (await sealTools.log())[0].oid;
 
-            // v2 + review to advance SRS
+            // v2 + review to advance SRS; flush so all edits are committed before the rollback test runs
             await docs.updateFile(rollbackPath, '# v2', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v2 question', backText: 'v2 answer' } }]
             });
             await docs.submitReview(rollbackPath, fcHash, 5, 2.5, 7);
+            await sealEmitter.flushEdits();
         });
 
         it('restores the canonical layer (sidecar) to the snapshot state', async () => {

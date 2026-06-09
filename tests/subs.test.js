@@ -8,6 +8,7 @@ import db from '../src/api/access/database.js';
 import Subscriptions from '../src/api/access/subscriptions.js';
 import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
+import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -43,7 +44,7 @@ describe('Subscriptions Integration Tests', () => {
             }
 
             // Clear Workspace Folder
-            const absRoot = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            const absRoot = path.join(getWorkspacePath(), TEST_ROOT);
             if (fsSync.existsSync(absRoot)) {
                 await fs.rm(absRoot, { recursive: true, force: true });
             }

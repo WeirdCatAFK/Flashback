@@ -5,7 +5,8 @@ import fs from 'fs';
 import crypto from 'crypto';
 import validate from '../src/api/config/validate.js';
 import process from 'process';
-import { sealTools } from '../src/api/seal/seal.js';
+import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
+import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -27,7 +28,7 @@ describe('Media & Binary Operations', () => {
 
     const cleanup = () => {
         try {
-            const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            const absPath = path.join(getWorkspacePath(),TEST_ROOT);
             if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
         } catch (e) { }
     };
@@ -55,7 +56,7 @@ describe('Media & Binary Operations', () => {
         const imageBuffer = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2d600000000049454e44ae426082', 'hex');
         docs.files.addCustomMedia(path.join(TEST_ROOT, docName), imageBuffer, imgName, 0);
 
-        const mediaPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', imgName);
+        const mediaPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', imgName);
         assert.ok(fs.existsSync(mediaPath), "Media file should exist on disk");
     });
 
@@ -84,7 +85,7 @@ describe('Media & Binary Operations', () => {
 
         await docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
 
-        const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
+        const fullPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.ok(fs.existsSync(fullPath), "File should be created in the media folder");
         assert.equal(fs.readFileSync(fullPath, 'utf-8'), "fake-image-data-integrity-check", "Content on disk must match");
 
@@ -99,6 +100,7 @@ describe('Media & Binary Operations', () => {
         const trimmedName = mediaName.split('.')[0];
         assert.ok(card.customData.media[trimmedName], "Metadata should reference the new media");
 
+        await sealEmitter.flushEdits();
         const afterCommits = (await sealTools.log()).length;
         assert.equal(afterCommits, beforeCommits + 1, "addMediaToFlashcard should produce one Seal commit");
         assert.ok((await sealTools.log())[0].commit.message.startsWith('edit:'), "Seal commit for media addition should be an edit");
@@ -115,7 +117,7 @@ describe('Media & Binary Operations', () => {
             /Flashcard non-existent-hash not found/
         );
 
-        const failPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'fail.png');
+        const failPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', 'fail.png');
         assert.equal(fs.existsSync(failPath), false, "File should not be written on logic error");
     });
 
@@ -132,7 +134,7 @@ describe('Media & Binary Operations', () => {
         const audioBuffer = Buffer.from("fake-audio-data");
         docs.files.addVanillaData(relPath, audioBuffer, "narration.mp3", "sound", "front", 0);
 
-        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'narration.mp3');
+        const audioPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', 'narration.mp3');
         assert.ok(fs.existsSync(audioPath), "Audio file should be written to the media folder");
 
         const meta = docs.files.getMetadata(relPath);
@@ -156,7 +158,7 @@ describe('Media & Binary Operations', () => {
         const imgBuffer = Buffer.from("fake-image-data");
         docs.files.addVanillaData(relPath, imgBuffer, "back-figure.png", "image", "back", 0);
 
-        const imgPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', 'back-figure.png');
+        const imgPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', 'back-figure.png');
         assert.ok(fs.existsSync(imgPath), "Image file should be written to the media folder");
 
         const meta = docs.files.getMetadata(relPath);
@@ -187,7 +189,7 @@ describe('Media & Binary Operations', () => {
 
         // Media file is on disk under the generated name.
         const mediaName = card.vanillaData.media.front_img.replace('./media/', '');
-        const mediaPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
+        const mediaPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.ok(fs.existsSync(mediaPath), "Generated media file should exist on disk");
 
         // Derived layer: media + flashcard rows registered.
@@ -209,7 +211,7 @@ describe('Media & Binary Operations', () => {
 
         docs.files.removeCustomMedia(relPath, mediaName);
 
-        const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT, 'media', mediaName);
+        const fullPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.equal(fs.existsSync(fullPath), false, "Media file should be deleted from disk");
 
         const metaAfter = docs.files.getMetadata(relPath);
@@ -249,7 +251,7 @@ describe('Media Orchestrator', () => {
         await media.addVanillaMedia(relPath, fcHash, audioBuffer, audioName, "sound", "front");
 
         // File on disk
-        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', audioName);
+        const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.ok(fs.existsSync(audioPath), "Audio file should be written to disk");
 
         // Sidecar updated
@@ -263,6 +265,7 @@ describe('Media Orchestrator', () => {
         assert.ok(entry.absolute_path.endsWith(audioName), "DB absolute_path should reference the file");
 
         // Seal commit
+        await sealEmitter.flushEdits();
         const afterLog = await sealTools.log(1);
         assert.notEqual(afterLog[0]?.oid, beforeHead, "addVanillaMedia should produce a new Seal commit");
         assert.ok(afterLog[0].commit.message.startsWith('edit:'), "Seal commit for vanilla media should be an edit");
@@ -310,7 +313,7 @@ describe('Media Orchestrator', () => {
         await media.removeMedia(relPath, audioName);
 
         // File gone
-        const audioPath = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', audioName);
+        const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.equal(fs.existsSync(audioPath), false, "Media file should be deleted from disk");
 
         // Sidecar cleaned
@@ -322,6 +325,7 @@ describe('Media Orchestrator', () => {
         assert.equal(entry, undefined, "DB entry should be deleted");
 
         // Seal commit
+        await sealEmitter.flushEdits();
         const afterLog = await sealTools.log(1);
         assert.notEqual(afterLog[0]?.oid, beforeHead, "removeMedia should produce a new Seal commit");
         assert.ok(afterLog[0].commit.message.startsWith('edit:'), "Seal commit for removal should be an edit");
@@ -330,7 +334,7 @@ describe('Media Orchestrator', () => {
     it('should reconcile: remove DB entries for missing files, leave existing ones intact', async () => {
         // Register a phantom entry directly in the DB (file never written to disk)
         const phantomHash = "deadbeef".repeat(8);
-        const phantomAbs = path.join(process.env.USER_DATA_PATH, 'workspace', ORCH_ROOT, 'media', 'ghost.png');
+        const phantomAbs = path.join(getWorkspacePath(),ORCH_ROOT, 'media', 'ghost.png');
         db.prepare('INSERT INTO Media (hash, name, relative_path, absolute_path) VALUES (?, ?, ?, ?)')
             .run(phantomHash, 'ghost.png', path.join(ORCH_ROOT, 'media', 'ghost.png'), phantomAbs);
 

@@ -9,6 +9,7 @@
  */
 import git from "isomorphic-git";
 import fs from "fs";
+import path from "path";
 import { getWorkspacePath, get as getConfig } from "../access/config.js";
 import query from "../access/query.js";
 
@@ -40,14 +41,56 @@ async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
     await git.commit({ fs, dir: workspace, message: `${action}: ${sidecarRelPath}`, author: author() });
 }
 
+const EDIT_DEBOUNCE_MS = 2000;
+
 /**
  * Fired by Documents.js after each canonical write operation.
- * Each method stages the affected .flashback sidecar(s) and produces one atomic commit.
+ * edit() is debounced: rapid calls accumulate dirty paths and flush in a single commit
+ * after EDIT_DEBOUNCE_MS of inactivity. Structural operations (create/move/delete) flush
+ * any pending edits first so commit ordering stays chronological.
  * All relPath values are relative to workspaceRoot.
  */
 export class SealEventEmitter {
+    constructor() {
+        this._pendingEditPaths = new Set();
+        this._debounceTimer = null;
+    }
+
+    _cancelDebounce() {
+        if (this._debounceTimer) {
+            clearTimeout(this._debounceTimer);
+            this._debounceTimer = null;
+        }
+    }
+
+    /**
+     * Immediately commits all accumulated debounced edits as a single batch commit.
+     * Called automatically by create/move/delete to preserve chronological order.
+     * Can also be called explicitly (e.g. in tests or on graceful shutdown) to force a flush.
+     * @returns {Promise<void>}
+     */
+    async flushEdits() {
+        this._cancelDebounce();
+        if (this._pendingEditPaths.size === 0) return;
+        const workspace = dir();
+        // Skip paths that no longer exist on disk — they may have been moved or deleted
+        // by a structural operation that ran before the debounce could fire.
+        const paths = [...this._pendingEditPaths].filter(p =>
+            fs.existsSync(path.join(workspace, p))
+        );
+        this._pendingEditPaths.clear();
+        if (paths.length === 0) return;
+        await stageAll(workspace, paths);
+        const sidecars = paths.filter(p => p.endsWith(".flashback"));
+        const label = sidecars.length === 1 ? sidecars[0]
+            : sidecars.length > 1       ? `${sidecars.length} sidecars`
+            : paths[0];
+        await git.commit({ fs, dir: workspace, message: `edit: ${label}`, author: author() });
+    }
+
     /**
      * Records the creation of a new document and its sidecar.
+     * Flushes any pending debounced edits before committing so order is preserved.
      * For folder operations, pass all file paths within the folder — isomorphic-git
      * does not support staging directories recursively.
      * @param {string} sidecarRelPath - Relative path to the new .flashback sidecar (used as commit label).
@@ -55,22 +98,31 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async create(sidecarRelPath, extraRelPaths = []) {
+        await this.flushEdits();
         await stageAndCommit("create", sidecarRelPath, extraRelPaths);
     }
 
     /**
      * Records an edit to a document or its sidecar.
+     * Calls are debounced: paths accumulate and are committed in a single batch after
+     * EDIT_DEBOUNCE_MS of inactivity, so a 30-card review session produces one commit.
      * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar (used as commit label).
      * @param {string[]} [extraRelPaths=[]] - Additional paths to stage (e.g. the document file if its content changed).
      * @returns {Promise<void>}
      */
     async edit(sidecarRelPath, extraRelPaths = []) {
-        await stageAndCommit("edit", sidecarRelPath, extraRelPaths);
+        this._pendingEditPaths.add(sidecarRelPath);
+        for (const p of extraRelPaths) this._pendingEditPaths.add(p);
+        this._cancelDebounce();
+        this._debounceTimer = setTimeout(() => {
+            this._debounceTimer = null;
+            this.flushEdits().catch(err => console.error("[seal] flush error:", err));
+        }, EDIT_DEBOUNCE_MS);
     }
 
     /**
-     * Records a file or folder move. Stages removals of all old paths and additions
-     * of all new paths in a single commit so the history is atomic.
+     * Records a file or folder move. Drops any pending edits for the removed paths (the move
+     * commit captures their final state), flushes remaining edits, then commits the move atomically.
      * For folder moves, enumerate every affected file path — git tracks files, not directories.
      * @param {string} oldDocRelPath - Document path before the move (used as commit label).
      * @param {string} newDocRelPath - Document path after the move (used as commit label).
@@ -79,6 +131,8 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async move(oldDocRelPath, newDocRelPath, removedRelPaths, addedRelPaths) {
+        for (const p of removedRelPaths) this._pendingEditPaths.delete(p);
+        await this.flushEdits();
         const workspace = dir();
         await removeAll(workspace, removedRelPaths);
         await stageAll(workspace, addedRelPaths);
@@ -87,14 +141,18 @@ export class SealEventEmitter {
 
     /**
      * Records the deletion of a document and its sidecar.
+     * Drops any pending edits for the deleted paths, flushes remaining edits, then commits the deletion.
      * For folder deletions, enumerate all file paths within the folder.
      * @param {string} sidecarRelPath - Relative path to the removed .flashback sidecar (used as commit label).
      * @param {string[]} [extraRelPaths=[]] - Additional paths to stage for removal (e.g. the document file itself).
      * @returns {Promise<void>}
      */
     async delete(sidecarRelPath, extraRelPaths = []) {
+        const allRemoved = [...extraRelPaths, sidecarRelPath];
+        for (const p of allRemoved) this._pendingEditPaths.delete(p);
+        await this.flushEdits();
         const workspace = dir();
-        await removeAll(workspace, [...extraRelPaths, sidecarRelPath]);
+        await removeAll(workspace, allRemoved);
         await git.commit({ fs, dir: workspace, message: `delete: ${sidecarRelPath}`, author: author() });
     }
 }

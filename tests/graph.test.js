@@ -6,6 +6,7 @@ import db from '../src/api/access/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
+import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
@@ -37,7 +38,7 @@ const docNodeId = (relPath) =>
 describe('Graph hierarchy — inheritance edges', () => {
 
     before(async () => {
-        const absRoot = path.join(process.env.USER_DATA_PATH, 'workspace', ROOT);
+        const absRoot = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absRoot)) fs.rmSync(absRoot, { recursive: true, force: true });
         await sealTools.init();
         await docs.createFolder(ROOT);

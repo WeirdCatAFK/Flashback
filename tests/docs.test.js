@@ -8,6 +8,7 @@ import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
 import { sealTools } from '../src/api/seal/seal.js';
+import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -30,7 +31,7 @@ describe('Documents Orchestrator Integration Tests', () => {
     // --- CLEANUP BEFORE & AFTER ---
     const cleanup = () => {
         try {
-            const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', TEST_ROOT);
+            const absPath = path.join(getWorkspacePath(), TEST_ROOT);
             if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
         } catch (e) {}
     };
@@ -359,7 +360,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(docEntry, "Imported document should exist in DB");
             assert.equal(docEntry.name, importName);
 
-            const fullPath = path.join(process.env.USER_DATA_PATH, 'workspace', docRelPath);
+            const fullPath = path.join(getWorkspacePath(), docRelPath);
             const diskContent = fs.readFileSync(fullPath, 'utf-8');
             assert.equal(diskContent, importContent, "Disk content should match imported content");
 
@@ -528,7 +529,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         const cleanupExport = () => {
             try {
-                const absPath = path.join(process.env.USER_DATA_PATH, 'workspace', exportFolder);
+                const absPath = path.join(getWorkspacePath(), exportFolder);
                 if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
             } catch (e) {}
         };
