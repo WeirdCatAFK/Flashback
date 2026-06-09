@@ -87,7 +87,7 @@ function StepWelcome({ onNext }) {
 // ── Step 1 — Vault setup ──────────────────────────────────────────────────────
 
 function StepVault({ state, onChange, onNext, onBack }) {
-  const { vaultName, isCustomPath, customPath, port, logFormat } = state;
+  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
   const [advanced, setAdvanced] = useState(false);
   const [touched, setTouched]   = useState(false);
   const [dataPath, setDataPath] = useState("");
@@ -140,6 +140,37 @@ function StepVault({ state, onChange, onNext, onBack }) {
             </span>
           )
         }
+      </div>
+
+      <div className="ob-divider" />
+
+      <div className="ob-field">
+        <label className="ob-label">SRS algorithm</label>
+        <div className="ob-algo-group">
+          <label className={`ob-algo-option${algorithm === 'leitner' ? ' ob-algo-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="ob-algorithm"
+              value="leitner"
+              checked={algorithm === 'leitner'}
+              onChange={() => onChange("algorithm", "leitner")}
+            />
+            <span className="ob-algo-name">Leitner</span>
+            <span className="ob-algo-desc">Box system — intervals double each level. Simple and effective.</span>
+          </label>
+          <label className={`ob-algo-option${algorithm === 'sm2' ? ' ob-algo-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="ob-algorithm"
+              value="sm2"
+              checked={algorithm === 'sm2'}
+              onChange={() => onChange("algorithm", "sm2")}
+            />
+            <span className="ob-algo-name">SM-2</span>
+            <span className="ob-algo-desc">Ease factor — adapts to your recall speed. Better for large collections.</span>
+          </label>
+        </div>
+        <span className="ob-field-msg">You can change this later in Settings → Flashcards.</span>
       </div>
 
       <div className="ob-divider" />
@@ -232,7 +263,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
 // ── Step 2 — Review & create ──────────────────────────────────────────────────
 
 function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
-  const { vaultName, isCustomPath, customPath, port, logFormat } = state;
+  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
   const [dataPath, setDataPath] = useState("");
 
   useEffect(() => {
@@ -264,6 +295,10 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
           <span className="ob-summary-val ob-summary-val--path">{dbPath}</span>
         </div>
         <div className="ob-summary-divider" />
+        <div className="ob-summary-row">
+          <span className="ob-summary-key">SRS algorithm</span>
+          <span className="ob-summary-val">{algorithm === 'sm2' ? 'SM-2' : 'Leitner'}</span>
+        </div>
         <div className="ob-summary-row">
           <span className="ob-summary-key">API port</span>
           <span className="ob-summary-val">{port}</span>
@@ -302,6 +337,7 @@ export default function OnboardingView({ onComplete }) {
     customPath:   "",
     port:         50500,
     logFormat:    "dev",
+    algorithm:    "leitner",
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);
@@ -326,6 +362,7 @@ export default function OnboardingView({ onComplete }) {
       vaultName:    form.vaultName.trim(),
     });
     if (result?.ok) {
+      localStorage.setItem("fb-srs-algorithm", form.algorithm);
       await onComplete();
     } else {
       setSubmitError(result?.error ?? "Setup failed. Check the path and try again.");

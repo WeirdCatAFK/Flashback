@@ -88,6 +88,7 @@ addTable('Flashcards', (table) => {
     table.integer('content_id').notNullable().references('id').inTable('FlashcardContent');
     table.integer('reference_id').references('id').inTable('FlashcardReference');
     table.integer('level');
+    table.integer('sm2_reps').notNullable().defaultTo(0);
     table.timestamp('last_recall').index();
     table.string('name', 255).index();
     table.string('origin', 500);

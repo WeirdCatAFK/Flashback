@@ -116,7 +116,7 @@ class DocumentQuery {
     // --- Flashcards ---
 
     getFlashcardsByDocument(documentId) {
-        return this.db.prepare('SELECT id, node_id, global_hash, level, last_recall, content_id, card_type FROM Flashcards WHERE document_id = ?').all(documentId);
+        return this.db.prepare('SELECT id, node_id, global_hash, level, sm2_reps, last_recall, content_id, card_type FROM Flashcards WHERE document_id = ?').all(documentId);
     }
 
     getFlashcardCountsByFolder(folderId) {
@@ -213,13 +213,13 @@ class DocumentQuery {
 
         // 3. Main Entry
         const stmt = this.db.prepare(`
-            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, name, fileIndex, presence, card_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, sm2_reps, name, fileIndex, presence, card_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
         `);
         return stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
-            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.name || null, data.fileIndex || 0,
-            data.cardType || 'basic'
+            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.sm2Reps || 0,
+            data.name || null, data.fileIndex || 0, data.cardType || 'basic'
         );
     }
 
@@ -232,9 +232,9 @@ class DocumentQuery {
 
         this.db.prepare(`
             UPDATE Flashcards
-            SET last_recall = ?, level = ?, category_id = ?, name = ?, fileIndex = ?, card_type = ?
+            SET last_recall = ?, level = ?, sm2_reps = ?, category_id = ?, name = ?, fileIndex = ?, card_type = ?
             WHERE id = ?
-        `).run(data.lastRecall, data.level, categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id);
+        `).run(data.lastRecall, data.level ?? 0, data.sm2Reps ?? 0, categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id);
 
         // Content
         const contentUpdates = [];
@@ -279,19 +279,48 @@ class DocumentQuery {
     }
 
     getAllFlashcardSrsState() {
-        return this.db.prepare('SELECT global_hash, level, last_recall FROM Flashcards').all();
+        return this.db.prepare('SELECT global_hash, level, sm2_reps, last_recall FROM Flashcards').all();
+    }
+
+    getLatestEaseFactors() {
+        const rows = this.db.prepare(`
+            SELECT f.global_hash, lr.ease_factor
+            FROM Flashcards f
+            JOIN ReviewLogs lr ON lr.flashcard_id = f.id
+            WHERE lr.id IN (SELECT MAX(id) FROM ReviewLogs GROUP BY flashcard_id)
+        `).all();
+        return new Map(rows.map(r => [r.global_hash, r.ease_factor]));
+    }
+
+    batchSetSm2Reps(cards) {
+        const stmt = this.db.prepare('UPDATE Flashcards SET sm2_reps = ? WHERE global_hash = ?');
+        this.db.transaction((rows) => {
+            for (const c of rows) stmt.run(c.sm2_reps, c.global_hash);
+        })(cards);
+    }
+
+    batchSetLeitnerLevel(cards) {
+        const stmt = this.db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?');
+        this.db.transaction((rows) => {
+            for (const c of rows) stmt.run(c.level, c.global_hash);
+        })(cards);
     }
 
     batchRestoreFlashcardSrsState(states) {
-        const stmt = this.db.prepare('UPDATE Flashcards SET level = ?, last_recall = ? WHERE global_hash = ?');
+        const stmt = this.db.prepare('UPDATE Flashcards SET level = ?, sm2_reps = ?, last_recall = ? WHERE global_hash = ?');
         this.db.transaction((rows) => {
-            for (const s of rows) stmt.run(s.level, s.last_recall, s.global_hash);
+            for (const s of rows) stmt.run(s.level ?? 0, s.sm2_reps ?? 0, s.last_recall, s.global_hash);
         })(states);
     }
 
-    updateFlashcardReview(id, timestamp, level) {
-        this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
-            .run(timestamp, level, id);
+    updateFlashcardReview(id, timestamp, newValue, algorithm = 'leitner') {
+        if (algorithm === 'sm2') {
+            this.db.prepare('UPDATE Flashcards SET last_recall = ?, sm2_reps = ? WHERE id = ?')
+                .run(timestamp, newValue, id);
+        } else {
+            this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
+                .run(timestamp, newValue, id);
+        }
     }
 
     insertReviewLog(data) {
@@ -313,20 +342,14 @@ class DocumentQuery {
         return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
     }
 
-    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20 } = {}) {
+    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
         const params = [];
         const cteParts = [];
         const whereConditions = [];
 
-        if (deck !== null) {
-            whereConditions.push(`f.global_hash IN (
-                SELECT de.card_hash FROM DeckEntries de
-                JOIN Decks dk ON dk.id = de.deck_id
-                WHERE dk.global_hash = ?
-            )`);
-            params.push(deck);
-        }
-
+        // Folder CTE is pushed first so its ? aligns with params[0].
+        // The folder_tree CTE appears before the cards CTE in the SQL string,
+        // so the bind order must match: folder → deck → tags → minPriority.
         if (folder !== null) {
             cteParts.push(`folder_tree AS (
                 SELECT id FROM Folders WHERE relative_path = ?
@@ -336,6 +359,15 @@ class DocumentQuery {
             )`);
             params.push(folder);
             whereConditions.push('d.folder_id IN (SELECT id FROM folder_tree)');
+        }
+
+        if (deck !== null) {
+            whereConditions.push(`f.global_hash IN (
+                SELECT de.card_hash FROM DeckEntries de
+                JOIN Decks dk ON dk.id = de.deck_id
+                WHERE dk.global_hash = ?
+            )`);
+            params.push(deck);
         }
 
         if (algorithm === 'sm2') {
@@ -357,6 +389,11 @@ class DocumentQuery {
             params.push(...tags);
         }
 
+        if (minPriority > 0) {
+            whereConditions.push('COALESCE(pc.priority, 0) >= ?');
+            params.push(minPriority);
+        }
+
         const extraWhere = whereConditions.length > 0
             ? 'AND ' + whereConditions.join('\n          AND ')
             : '';
@@ -365,23 +402,36 @@ class DocumentQuery {
             ? 'LEFT JOIN latest_ef lr ON lr.flashcard_id = f.id'
             : '';
 
-        // Leitner: interval doubles each level (level 1 → 1d, 2 → 2d, 3 → 4d, ...)
-        // SM-2: I1=1d, I2=6d, In=round(6 * ef^(n-2)) for n>2
+        // SM-2 ease factor: standard range is 1.3–3.0 (default 2.5).
+        // Values < 1.3 are from the old 0–1 scale and are treated as the default.
+        const easeFactorExpr = algorithm === 'sm2'
+            ? `CASE WHEN lr.ease_factor IS NULL OR lr.ease_factor < 1.3 THEN 2.5 ELSE lr.ease_factor END`
+            : `2.5`;
+
+        // Leitner: interval doubles each box (level 1 → 1d, 2 → 2d, 3 → 4d, ...)
+        // SM-2: I1=1d, I2=6d, In=round(6 * ef^(n-2)) for n>2 using sm2_reps
+        // Both capped at 365 days — no card should be hidden for more than a year.
         const intervalExpr = algorithm === 'sm2'
             ? `CASE
-                WHEN COALESCE(f.level, 0) <= 1 THEN 1
-                WHEN f.level = 2 THEN 6
-                ELSE CAST(ROUND(6.0 * pow(COALESCE(lr.ease_factor, 2.5), CAST(f.level - 2 AS REAL))) AS INTEGER)
+                WHEN COALESCE(f.sm2_reps, 0) <= 1 THEN 1
+                WHEN f.sm2_reps = 2 THEN 6
+                ELSE min(365, CAST(ROUND(6.0 * pow(${easeFactorExpr}, CAST(f.sm2_reps - 2 AS REAL))) AS INTEGER))
                END`
             : `CASE
                 WHEN COALESCE(f.level, 0) <= 0 THEN 0
-                ELSE CAST(pow(2.0, CAST(COALESCE(f.level, 0) - 1 AS REAL)) AS INTEGER)
+                ELSE min(365, CAST(pow(2.0, CAST(COALESCE(f.level, 0) - 1 AS REAL)) AS INTEGER))
                END`;
+
+        // Expose the algorithm-relevant count as "level" so the frontend shows a
+        // meaningful number regardless of which algorithm is active.
+        const levelExpr = algorithm === 'sm2'
+            ? 'COALESCE(f.sm2_reps, 0)'
+            : 'COALESCE(f.level, 0)';
 
         cteParts.push(`cards AS (
             SELECT
                 f.global_hash,
-                COALESCE(f.level, 0) AS level,
+                ${levelExpr} AS level,
                 f.last_recall,
                 f.name,
                 f.card_type,
@@ -396,6 +446,7 @@ class DocumentQuery {
                 fc.back_img,
                 fc.front_sound,
                 fc.back_sound,
+                ${easeFactorExpr} AS ease_factor,
                 ${intervalExpr} AS interval_days
             FROM Flashcards f
             JOIN Documents d ON d.id = f.document_id

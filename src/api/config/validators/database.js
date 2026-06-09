@@ -137,6 +137,12 @@ function migrateColumns() {
       ).run();
       console.log("Migration: added Flashcards.card_type column");
     }
+    if (!cols.find((c) => c.name === "sm2_reps")) {
+      db.prepare(
+        "ALTER TABLE Flashcards ADD COLUMN sm2_reps INTEGER NOT NULL DEFAULT 0",
+      ).run();
+      console.log("Migration: added Flashcards.sm2_reps column");
+    }
   } catch (err) {
     console.warn("Column migration failed (non-fatal):", err.message);
   }

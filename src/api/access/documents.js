@@ -552,17 +552,21 @@ export default class Documents {
 
     // --- SRS Support ---
 
-    async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel) {
+    async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner') {
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
         if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
 
-        card.level = newLevel;
+        if (algorithm === 'sm2') {
+            card.sm2Reps = newLevel;
+        } else {
+            card.level = newLevel;
+        }
         card.easeFactor = easeFactor;
         card.lastRecall = new Date().toISOString();
         this.files.writeMetadata(relativePath, metadata);
 
-        const docId = this.srs.submitReview(flashcardHash, outcome, easeFactor, newLevel);
+        const docId = this.srs.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm);
         this.propagatePresence(docId);
         await sealEmitter.edit(relativePath + '.flashback');
     }
@@ -612,6 +616,7 @@ export default class Documents {
 
             if (match) {
                 const mergedLevel = Math.max(fcData.level ?? 0, match.level ?? 0);
+                const mergedSm2Reps = Math.max(fcData.sm2Reps ?? 0, match.sm2_reps ?? 0);
                 const mergedRecall = (mergedLevel === (fcData.level ?? 0) && fcData.lastRecall)
                     ? fcData.lastRecall
                     : (match.last_recall ?? fcData.lastRecall);
@@ -619,6 +624,7 @@ export default class Documents {
                 this.query.updateFlashcard(match.id, {
                     ...fcData,
                     level: mergedLevel,
+                    sm2Reps: mergedSm2Reps,
                     lastRecall: mergedRecall,
                     fileIndex: index,
                     contentId: match.content_id

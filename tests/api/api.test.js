@@ -575,6 +575,7 @@ describe('Flashback API', () => {
                 flashcards: [{
                     globalHash: SM2_HASH,
                     level: 2,
+                    sm2Reps: 2,
                     lastRecall: fiveDaysAgo,
                     vanillaData: { frontText: 'SM-2 Q', backText: 'SM-2 A' }
                 }]
@@ -601,6 +602,95 @@ describe('Flashback API', () => {
             assert.notEqual(body.nextDue, undefined, 'nextDue must not be undefined');
             assert.ok(body.nextDue !== null,
                 'nextDue must be non-null when a card has a future due date (23-hour card)');
+        });
+    });
+
+    // ── SRS Algorithm Migration ───────────────────────────────────────────
+
+    describe('SRS Algorithm Migration', () => {
+        const ROOT = 'MigrateApiTest';
+
+        before(async () => { await createFolder(ROOT); });
+
+        it('POST /api/srs/migrate → 400 when from equals to', async () => {
+            const res = await post(`${baseUrl}/api/srs/migrate`, { from: 'leitner', to: 'leitner' });
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/srs/migrate → 400 when from/to are missing', async () => {
+            const res = await post(`${baseUrl}/api/srs/migrate`, { from: 'leitner' });
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/srs/migrate → Leitner level 5 translates to SM-2 reps 3 (nearest 15-day interval)', async () => {
+            // level 5 = Leitner interval 16 d.  Nearest SM-2 value: reps=3 → 15 d.
+            // Recalled 10 days ago → NOT due under either schedule (10 < 15 and 10 < 16).
+            const HASH = 'migrate-l5-to-sm2';
+            const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+
+            await createFile('l-to-sm2.md', ROOT);
+            await updateFile(`${ROOT}/l-to-sm2.md`, '# L→SM2', {
+                flashcards: [{
+                    globalHash: HASH,
+                    level: 5,
+                    lastRecall: tenDaysAgo,
+                    vanillaData: { frontText: 'Q', backText: 'A' }
+                }]
+            });
+
+            // Sanity-check: NOT due under Leitner before migration (10 d < 16 d interval).
+            const preRes = await fetch(`${baseUrl}/api/srs/due?algorithm=leitner&folder=${encodeURIComponent(ROOT)}`);
+            const preDue = (await preRes.json()).due.map(c => c.global_hash);
+            assert.ok(!preDue.includes(HASH), 'level-5 card recalled 10 d ago must NOT be due under Leitner pre-migration');
+
+            const migrateRes = await post(`${baseUrl}/api/srs/migrate`, { from: 'leitner', to: 'sm2' });
+            assert.equal(migrateRes.status, 200);
+            const { ok, count } = await migrateRes.json();
+            assert.ok(ok);
+            assert.ok(count >= 1, 'at least one card should be migrated');
+
+            // After migration: sm2_reps should be 3 (15-day interval).
+            // Card recalled 10 d ago → NOT due under SM-2 (10 < 15).
+            const postRes = await fetch(`${baseUrl}/api/srs/due?algorithm=sm2&folder=${encodeURIComponent(ROOT)}`);
+            const postDue = (await postRes.json()).due.map(c => c.global_hash);
+            assert.ok(!postDue.includes(HASH),
+                'after Leitner→SM-2 migration, level-5 card recalled 10 d ago should NOT be due (sm2_reps=3, 15-day interval)');
+        });
+
+        it('POST /api/srs/migrate → SM-2 reps 3 translates to Leitner level 5 (nearest 16-day interval)', async () => {
+            // sm2_reps=3 → SM-2 interval 15 d.  Nearest Leitner value: level=5 → 16 d.
+            // Before migration: level defaults to 0 (0-day interval) → always due under Leitner.
+            // After migration: level=5 → 16 d interval, card recalled 10 d ago → NOT due.
+            const HASH = 'migrate-sm2r3-to-l5';
+            const tenDaysAgo = new Date(Date.now() - 10 * 86_400_000).toISOString();
+
+            await createFile('sm2-to-l.md', ROOT);
+            await updateFile(`${ROOT}/sm2-to-l.md`, '# SM2→L', {
+                flashcards: [{
+                    globalHash: HASH,
+                    sm2Reps: 3,
+                    lastRecall: tenDaysAgo,
+                    vanillaData: { frontText: 'Q2', backText: 'A2' }
+                }]
+            });
+
+            // Sanity-check: level defaults to 0 → 0-day interval → due immediately under Leitner.
+            const preRes = await fetch(`${baseUrl}/api/srs/due?algorithm=leitner&folder=${encodeURIComponent(ROOT)}`);
+            const preDue = (await preRes.json()).due.map(c => c.global_hash);
+            assert.ok(preDue.includes(HASH), 'level-0 card with lastRecall must be due under Leitner before migration');
+
+            const migrateRes = await post(`${baseUrl}/api/srs/migrate`, { from: 'sm2', to: 'leitner' });
+            assert.equal(migrateRes.status, 200);
+            const { ok, count } = await migrateRes.json();
+            assert.ok(ok);
+            assert.ok(count >= 1);
+
+            // After migration: level=5 (nearest to 15-day SM-2 interval).
+            // Card recalled 10 d ago → NOT due under Leitner (10 < 16).
+            const postRes = await fetch(`${baseUrl}/api/srs/due?algorithm=leitner&folder=${encodeURIComponent(ROOT)}`);
+            const postDue = (await postRes.json()).due.map(c => c.global_hash);
+            assert.ok(!postDue.includes(HASH),
+                'after SM-2→Leitner migration, sm2_reps-3 card recalled 10 d ago should NOT be due (level=5, 16-day interval)');
         });
     });
 

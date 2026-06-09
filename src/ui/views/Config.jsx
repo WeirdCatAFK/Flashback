@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import "./Config.css";
 import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
 import KeybindingsEditor from "../components/KeybindingsEditor";
+import ProgressDialog from "../components/shared/ProgressDialog";
+import { migrateProgress } from "../api/srs";
 import { THEMES } from "../themes";
 import {
   THEME_VARS,
@@ -414,7 +416,7 @@ function useSrsPrefs() {
     () => parseInt(localStorage.getItem('fb-srs-max-new') ?? '20', 10),
   );
 
-  const setAlgorithm = (v) => {
+  const applyAlgorithm = (v) => {
     localStorage.setItem('fb-srs-algorithm', v);
     setAlgorithmState(v);
   };
@@ -424,7 +426,7 @@ function useSrsPrefs() {
     setMaxNewState(n);
   };
 
-  return { algorithm, setAlgorithm, maxNew, setMaxNew };
+  return { algorithm, applyAlgorithm, maxNew, setMaxNew };
 }
 
 // ── Main Config view ──────────────────────────────────────────────────────────
@@ -440,7 +442,32 @@ export default function ConfigView({
   const [status, setStatus] = useState(null);
   const [restartPending, setRestartPending] = useState(false);
   const [orientation, setOrientation] = useFlashcardOrientation();
-  const { algorithm, setAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
+  const { algorithm, applyAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
+
+  // Algorithm migration confirm state.
+  const [pendingAlgo, setPendingAlgo] = useState(null); // algorithm the user selected but hasn't confirmed
+  const [migrating, setMigrating] = useState(false);
+
+  const handleAlgorithmSelect = (next) => {
+    if (next === algorithm) return;
+    setPendingAlgo(next);
+  };
+
+  const confirmMigrate = async (carryOver) => {
+    const from = algorithm;
+    const to = pendingAlgo;
+    setPendingAlgo(null);
+    if (carryOver) {
+      setMigrating(true);
+      try {
+        await migrateProgress(from, to);
+      } catch { /* non-fatal — still switch */ }
+      setMigrating(false);
+    }
+    applyAlgorithm(to);
+  };
+
+  const cancelAlgorithmChange = () => setPendingAlgo(null);
 
   // Sync form inline when config loads or reloads — avoids a blank-form flash.
   const [prevConfig, setPrevConfig] = useState(config);
@@ -545,14 +572,42 @@ export default function ConfigView({
               <td>
                 <select
                   id="srs-algorithm"
-                  value={algorithm}
-                  onChange={(e) => setAlgorithm(e.target.value)}
+                  value={pendingAlgo ?? algorithm}
+                  onChange={(e) => handleAlgorithmSelect(e.target.value)}
                 >
                   <option value="leitner">Leitner (doubles each level)</option>
                   <option value="sm2">SM-2 (ease factor)</option>
                 </select>
               </td>
             </tr>
+            {pendingAlgo && (
+              <tr>
+                <td colSpan={2}>
+                  <div className="algo-migrate-confirm">
+                    <p className="algo-migrate-msg">
+                      Switch to <strong>{pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}</strong>?
+                    </p>
+                    <div className="algo-migrate-actions">
+                      <button type="button" className="algo-migrate-btn algo-migrate-btn--primary"
+                        onClick={() => confirmMigrate(true)}>
+                        Carry over progress
+                      </button>
+                      <button type="button" className="algo-migrate-btn"
+                        onClick={() => confirmMigrate(false)}>
+                        Start fresh
+                      </button>
+                      <button type="button" className="algo-migrate-btn algo-migrate-btn--cancel"
+                        onClick={cancelAlgorithmChange}>
+                        Cancel
+                      </button>
+                    </div>
+                    <p className="algo-migrate-hint">
+                      Carry over maps each card's current interval to the nearest equivalent in {pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}.
+                    </p>
+                  </div>
+                </td>
+              </tr>
+            )}
             <tr>
               <td>
                 <label htmlFor="srs-max-new">New cards per day</label>
@@ -735,6 +790,15 @@ export default function ConfigView({
             )}
           </section>
         </>
+      )}
+
+      {migrating && (
+        <ProgressDialog
+          title="Translating progress…"
+          statusText="Mapping intervals to the new algorithm"
+          progress={0}
+          processing
+        />
       )}
     </div>
   );

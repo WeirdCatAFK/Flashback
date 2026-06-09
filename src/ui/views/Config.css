@@ -406,3 +406,67 @@
   border-color: var(--color-accent);
   color: var(--color-accent);
 }
+
+/* ── Algorithm migration confirm ─────────────────────────────────────────── */
+
+.algo-migrate-confirm {
+  padding: 10px 0 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.algo-migrate-msg {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-fg-primary);
+}
+
+.algo-migrate-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.algo-migrate-btn {
+  height: 26px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-family: inherit;
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: color 120ms, border-color 120ms, background 120ms;
+}
+
+.algo-migrate-btn:hover {
+  color: var(--color-fg-primary);
+  border-color: var(--color-fg-secondary);
+}
+
+.algo-migrate-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #1C1917;
+  font-weight: 600;
+}
+
+.algo-migrate-btn--primary:hover {
+  filter: brightness(1.1);
+  color: #1C1917;
+  border-color: var(--color-accent);
+}
+
+.algo-migrate-btn--cancel:hover {
+  color: var(--color-danger);
+  border-color: var(--color-danger);
+}
+
+.algo-migrate-hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  line-height: 1.4;
+}
+

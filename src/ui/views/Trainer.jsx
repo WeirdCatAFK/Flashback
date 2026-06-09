@@ -46,7 +46,7 @@ function mapApiCard(raw, isNew = false) {
     globalHash: raw.global_hash,
     name: raw.name,
     level: raw.level ?? 0,
-    easeFactor: 0.5,
+    easeFactor: raw.ease_factor ?? 2.5,
     lastRecall: raw.last_recall,
     category: raw.category,
     categoryPriority: raw.category_priority ?? 0,
@@ -69,7 +69,7 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, deck, tags, algorithm, maxNew, refreshToken }) {
+function useDueCards({ folder, deck, tags, maxNew, minPriority, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -79,21 +79,25 @@ function useDueCards({ folder, deck, tags, algorithm, maxNew, refreshToken }) {
 
   // Reset loading/result/error inline when deps change so users don't see a
   // stale result between when deps change and when the effect fires.
-  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, algorithm, maxNew, refreshToken });
+  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, maxNew, minPriority, refreshToken });
   if (prevDeps.folder !== folder || prevDeps.deck !== deck ||
-      prevDeps.tagsKey !== tagsKey || prevDeps.algorithm !== algorithm ||
-      prevDeps.maxNew !== maxNew || prevDeps.refreshToken !== refreshToken) {
-    setPrevDeps({ folder, deck, tagsKey, algorithm, maxNew, refreshToken });
+      prevDeps.tagsKey !== tagsKey || prevDeps.maxNew !== maxNew ||
+      prevDeps.minPriority !== minPriority || prevDeps.refreshToken !== refreshToken) {
+    setPrevDeps({ folder, deck, tagsKey, maxNew, minPriority, refreshToken });
     setLoading(true);
     setResult(null);
     setError(null);
   }
 
   useEffect(() => {
+    // Read algorithm fresh from localStorage so Config changes are picked up
+    // on the next fetch without needing a separate state channel.
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
     const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
     getDue({
       algorithm,
       maxNew,
+      minPriority,
       folder,
       deck,
       tags: tagsArray?.length ? tagsArray : undefined,
@@ -101,7 +105,7 @@ function useDueCards({ folder, deck, tags, algorithm, maxNew, refreshToken }) {
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, deck, tagsKey, algorithm, maxNew, refreshToken]);
+  }, [folder, deck, tagsKey, maxNew, minPriority, refreshToken]);
 
   const cards = useMemo(() => {
     if (!result) return [];
@@ -472,10 +476,14 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
     if (busyRef.current) return;
     busyRef.current = true;
     const g = GRADES[key];
-    const easeFactor = Math.min(1, Math.max(0, (card.easeFactor ?? 0.5) + g.ease));
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+    const easeFactor = Math.min(3.0, Math.max(1.3, (card.easeFactor ?? 2.5) + g.ease));
     const fromLevel = card.level ?? 0;
-    const toLevel = g.level(fromLevel);
-    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel).catch(console.error);
+    const rawLevel = g.level(fromLevel);
+    // Leitner "Again" floors at level 1 (1-day interval); level 0 = 0-day would
+    // make the card permanently due every session. SM-2 level 0 gives 1 day already.
+    const toLevel = (key === 'again' && algorithm !== 'sm2') ? Math.max(1, rawLevel) : rawLevel;
+    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm).catch(console.error);
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
@@ -613,9 +621,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   });
 
   // Session settings — read from localStorage, changes persist and reset the session.
-  const [algorithm, setAlgorithm] = useState(
-    () => localStorage.getItem('fb-srs-algorithm') ?? 'leitner'
-  );
   const [maxNew, setMaxNew] = useState(() => {
     const v = localStorage.getItem('fb-srs-max-new');
     return v != null ? parseInt(v, 10) : 20;
@@ -624,6 +629,10 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   const [maxNewDisplay, setMaxNewDisplay] = useState(() => {
     const v = localStorage.getItem('fb-srs-max-new');
     return v != null ? v : '20';
+  });
+  const [minPriority, setMinPriority] = useState(() => {
+    const v = localStorage.getItem('fb-srs-min-priority');
+    return v != null ? parseInt(v, 10) : 0;
   });
   // Session queue + status — declared early so all inline guards and handlers can reference setters.
   const [sessionDone, setSessionDone] = useState(false);
@@ -634,18 +643,19 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   const [pop, setPop] = useState(null);
 
   // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
-  const changeAlgorithm = (algo) => {
-    setAlgorithm(algo);
-    localStorage.setItem('fb-srs-algorithm', algo);
-    setQueue([]);
-    setSessionDone(false);
-  };
-
   const applyMaxNew = (display) => {
     const n = Math.max(0, parseInt(display) || 0);
     setMaxNew(n);
     setMaxNewDisplay(String(n));
     localStorage.setItem('fb-srs-max-new', String(n));
+    setQueue([]);
+    setSessionDone(false);
+  };
+
+  const changeMinPriority = (val) => {
+    const n = parseInt(val, 10);
+    setMinPriority(n);
+    localStorage.setItem('fb-srs-min-priority', String(n));
     setQueue([]);
     setSessionDone(false);
   };
@@ -701,8 +711,8 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     folder: appliedScope.folder,
     deck: appliedScope.deck,
     tags: appliedScope.tags,
-    algorithm,
     maxNew,
+    minPriority,
     refreshToken,
   });
   const [orientation] = useFlashcardOrientation();
@@ -834,21 +844,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
       <div className="trainer-settings-row">
         <div className="trainer-setting">
-          <span className="trainer-setting-label">Algorithm</span>
-          <div className="trainer-algo-toggle">
-            <button type="button"
-              className={`trainer-algo-btn${algorithm === 'leitner' ? ' active' : ''}`}
-              onClick={() => changeAlgorithm('leitner')}>
-              Leitner
-            </button>
-            <button type="button"
-              className={`trainer-algo-btn${algorithm === 'sm2' ? ' active' : ''}`}
-              onClick={() => changeAlgorithm('sm2')}>
-              SM-2
-            </button>
-          </div>
-        </div>
-        <div className="trainer-setting">
           <label className="trainer-setting-label" htmlFor="trainer-max-new">Max new</label>
           <input
             id="trainer-max-new"
@@ -861,6 +856,20 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onBlur={() => applyMaxNew(maxNewDisplay)}
             onKeyDown={e => { if (e.key === 'Enter') applyMaxNew(maxNewDisplay); }}
           />
+        </div>
+        <div className="trainer-setting">
+          <label className="trainer-setting-label" htmlFor="trainer-min-priority">Min priority</label>
+          <select
+            id="trainer-min-priority"
+            className="trainer-setting-input"
+            value={minPriority}
+            onChange={e => changeMinPriority(e.target.value)}
+          >
+            <option value="0">Any</option>
+            <option value="1">1+</option>
+            <option value="2">2+</option>
+            <option value="3">3+</option>
+          </select>
         </div>
       </div>
 
