@@ -4,14 +4,30 @@
 // Output: chartdb.json in the project root
 
 import Database from 'better-sqlite3';
-import { writeFileSync } from 'fs';
+import { writeFileSync, readFileSync } from 'fs';
 import { resolve } from 'path';
 
 const args = process.argv.slice(2);
 const dbFlagIndex = args.indexOf('--db');
+
+function resolveDbPath() {
+  const configPath = resolve('data/config.json');
+  let config;
+  try {
+    config = JSON.parse(readFileSync(configPath, 'utf-8'));
+  } catch {
+    throw new Error(`Could not read config at ${configPath}`);
+  }
+  const vaultName = config.vaultName || 'default';
+  const baseDir = config.isCustomPath && config.customPath
+    ? config.customPath
+    : resolve('data');
+  return resolve(baseDir, vaultName, `${vaultName}.db`);
+}
+
 const dbPath = dbFlagIndex !== -1
   ? resolve(args[dbFlagIndex + 1])
-  : resolve('data/dreams.db');
+  : resolveDbPath();
 
 const db = new Database(dbPath, { readonly: true });
 
