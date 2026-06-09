@@ -931,6 +931,41 @@ class DocumentQuery {
             if (!incoming.has(hash)) this.deleteHighlight(hash);
         }
     }
+
+    // --- Pedagogical Categories ---
+
+    getCategories() {
+        return this.db.prepare(
+            'SELECT id, name, priority, description FROM PedagogicalCategories ORDER BY priority ASC, name ASC'
+        ).all();
+    }
+
+    getCategoryUsageCount(id) {
+        return this.db.prepare(
+            'SELECT COUNT(*) as c FROM Flashcards WHERE category_id = ?'
+        ).get(id).c;
+    }
+
+    insertCategory({ name, priority = 0, description = '' }) {
+        return this.db.prepare(
+            'INSERT INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)'
+        ).run(name, priority, description).lastInsertRowid;
+    }
+
+    updateCategory(id, data) {
+        const fields = [];
+        const params = [];
+        if (data.name !== undefined)        { fields.push('name = ?');        params.push(data.name); }
+        if (data.priority !== undefined)    { fields.push('priority = ?');    params.push(data.priority); }
+        if (data.description !== undefined) { fields.push('description = ?'); params.push(data.description); }
+        if (!fields.length) return;
+        params.push(id);
+        this.db.prepare(`UPDATE PedagogicalCategories SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+    }
+
+    deleteCategory(id) {
+        this.db.prepare('DELETE FROM PedagogicalCategories WHERE id = ?').run(id);
+    }
 }
 
 export default new DocumentQuery();

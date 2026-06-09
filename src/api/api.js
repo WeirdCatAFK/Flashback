@@ -11,6 +11,7 @@ import subscriptionsRouter from './routes/subscriptions.js';
 import sealRouter from './routes/seal.js';
 import decksRouter from './routes/decks.js';
 import highlightsRouter from './routes/highlights.js';
+import categoriesRouter from './routes/categories.js';
 
 class api {
 /**
@@ -64,6 +65,7 @@ class api {
     this.app.use('/api/seal', sealRouter);
     this.app.use('/api/decks', decksRouter);
     this.app.use('/api/highlights', highlightsRouter);
+    this.app.use('/api/categories', categoriesRouter);
 
     // 404
     this.app.use((req, res) => {

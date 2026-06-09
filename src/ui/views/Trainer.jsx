@@ -69,7 +69,7 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, deck, tags, maxNew, minPriority, refreshToken }) {
+function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -79,11 +79,11 @@ function useDueCards({ folder, deck, tags, maxNew, minPriority, refreshToken }) 
 
   // Reset loading/result/error inline when deps change so users don't see a
   // stale result between when deps change and when the effect fires.
-  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, maxNew, minPriority, refreshToken });
+  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, maxNew, refreshToken });
   if (prevDeps.folder !== folder || prevDeps.deck !== deck ||
       prevDeps.tagsKey !== tagsKey || prevDeps.maxNew !== maxNew ||
-      prevDeps.minPriority !== minPriority || prevDeps.refreshToken !== refreshToken) {
-    setPrevDeps({ folder, deck, tagsKey, maxNew, minPriority, refreshToken });
+      prevDeps.refreshToken !== refreshToken) {
+    setPrevDeps({ folder, deck, tagsKey, maxNew, refreshToken });
     setLoading(true);
     setResult(null);
     setError(null);
@@ -97,7 +97,6 @@ function useDueCards({ folder, deck, tags, maxNew, minPriority, refreshToken }) 
     getDue({
       algorithm,
       maxNew,
-      minPriority,
       folder,
       deck,
       tags: tagsArray?.length ? tagsArray : undefined,
@@ -105,7 +104,7 @@ function useDueCards({ folder, deck, tags, maxNew, minPriority, refreshToken }) 
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, deck, tagsKey, maxNew, minPriority, refreshToken]);
+  }, [folder, deck, tagsKey, maxNew, refreshToken]);
 
   const cards = useMemo(() => {
     if (!result) return [];
@@ -630,10 +629,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     const v = localStorage.getItem('fb-srs-max-new');
     return v != null ? v : '20';
   });
-  const [minPriority, setMinPriority] = useState(() => {
-    const v = localStorage.getItem('fb-srs-min-priority');
-    return v != null ? parseInt(v, 10) : 0;
-  });
   // Session queue + status — declared early so all inline guards and handlers can reference setters.
   const [sessionDone, setSessionDone] = useState(false);
   const [lastSession, setLastSession] = useState(null);
@@ -648,14 +643,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setMaxNew(n);
     setMaxNewDisplay(String(n));
     localStorage.setItem('fb-srs-max-new', String(n));
-    setQueue([]);
-    setSessionDone(false);
-  };
-
-  const changeMinPriority = (val) => {
-    const n = parseInt(val, 10);
-    setMinPriority(n);
-    localStorage.setItem('fb-srs-min-priority', String(n));
     setQueue([]);
     setSessionDone(false);
   };
@@ -712,7 +699,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     deck: appliedScope.deck,
     tags: appliedScope.tags,
     maxNew,
-    minPriority,
     refreshToken,
   });
   const [orientation] = useFlashcardOrientation();
@@ -802,11 +788,17 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
         setRefreshToken(t => t + 1);
       }
     } else {
-      // Re-queue with the persisted SRS state applied, so the card comes back
-      // showing its new (reset) level rather than the stale in-memory one.
-      setQueue(queue.length > 1
-        ? [...queue.slice(1), { ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]
-        : [{ ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() }]);
+      // Re-queue within the same priority tier: insert the failed card immediately
+      // before the first card whose categoryPriority is higher. This keeps failed
+      // cards looping inside their tier rather than falling behind higher-priority work.
+      const failedCard = { ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() };
+      const rest = queue.slice(1);
+      const failedPriority = failedCard.categoryPriority ?? 0;
+      let insertAt = rest.length; // default: end (all remaining cards share this tier)
+      for (let i = 0; i < rest.length; i++) {
+        if ((rest[i].categoryPriority ?? 0) > failedPriority) { insertAt = i; break; }
+      }
+      setQueue([...rest.slice(0, insertAt), failedCard, ...rest.slice(insertAt)]);
     }
     setTurn((t) => t + 1);
   };
@@ -856,20 +848,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onBlur={() => applyMaxNew(maxNewDisplay)}
             onKeyDown={e => { if (e.key === 'Enter') applyMaxNew(maxNewDisplay); }}
           />
-        </div>
-        <div className="trainer-setting">
-          <label className="trainer-setting-label" htmlFor="trainer-min-priority">Min priority</label>
-          <select
-            id="trainer-min-priority"
-            className="trainer-setting-input"
-            value={minPriority}
-            onChange={e => changeMinPriority(e.target.value)}
-          >
-            <option value="0">Any</option>
-            <option value="1">1+</option>
-            <option value="2">2+</option>
-            <option value="3">3+</option>
-          </select>
         </div>
       </div>
 
