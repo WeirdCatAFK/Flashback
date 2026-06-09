@@ -15,9 +15,6 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.config-section:last-child {
-  border-bottom: none;
-}
 
 .config-heading {
   font-size: 10px;
@@ -120,23 +117,6 @@
   color: var(--color-danger);
 }
 
-/* Instantly-applied setting flash badge */
-.config-auto-badge {
-  display: inline-block;
-  margin-left: 8px;
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--color-review-good, #10B981);
-  animation: config-badge-fade 1.5s ease forwards;
-}
-
-@keyframes config-badge-fade {
-  0%   { opacity: 0; transform: translateX(-6px); }
-  15%  { opacity: 1; transform: translateX(0); }
-  70%  { opacity: 1; }
-  100% { opacity: 0; }
-}
-
 /* ── Restart prompt ──────────────────────────────────────────────────────── */
 
 .config-restart-prompt {
@@ -190,6 +170,21 @@
   filter: brightness(1.1);
 }
 
+/* ── Collapsible editors (theme + keybindings) ───────────────────────────── */
+
+.config-collapsibles {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 14px;
+}
+
+.config-collapsibles > * + * {
+  border-top: 1px solid var(--color-border);
+  padding-top: 12px;
+  margin-top: 12px;
+}
+
 /* ── Theme editor ────────────────────────────────────────────────────────── */
 
 .theme-editor {
@@ -201,15 +196,19 @@
 .theme-editor-toggle {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--color-fg-secondary);
-  padding: 2px 0;
-  transition: color 120ms ease;
+  gap: 7px;
+  padding: 0;
+  font-size: 15px;
+  font-weight: 400;
+  color: var(--color-fg-primary);
+  background: none;
+  border: none;
+  cursor: pointer;
 }
 
 .theme-editor-toggle:hover {
   color: var(--color-fg-primary);
+  opacity: 0.85;
 }
 
 .theme-editor-header {

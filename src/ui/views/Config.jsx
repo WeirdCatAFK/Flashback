@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import "./Config.css";
 import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
 import KeybindingsEditor from "../components/KeybindingsEditor";
@@ -442,16 +442,6 @@ export default function ConfigView({
   const [orientation, setOrientation] = useFlashcardOrientation();
   const { algorithm, setAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
 
-  // Flash badge for instantly-applied (localStorage) settings.
-  const [autoSaved, setAutoSaved] = useState(null);
-  const autoTimerRef = useRef(null);
-  const markAutoSaved = (key) => {
-    clearTimeout(autoTimerRef.current);
-    setAutoSaved(key);
-    autoTimerRef.current = setTimeout(() => setAutoSaved(null), 1500);
-  };
-  useEffect(() => () => clearTimeout(autoTimerRef.current), []);
-
   // Sync form inline when config loads or reloads — avoids a blank-form flash.
   const [prevConfig, setPrevConfig] = useState(config);
   if (prevConfig !== config) {
@@ -519,11 +509,14 @@ export default function ConfigView({
             </tr>
           </tbody>
         </table>
-        <ThemeEditor
-          onSaved={handleThemeEditorSaved}
-          onThemeChange={onThemeChange}
-          currentTheme={theme}
-        />
+        <div className="config-collapsibles">
+          <ThemeEditor
+            onSaved={handleThemeEditorSaved}
+            onThemeChange={onThemeChange}
+            currentTheme={theme}
+          />
+          <KeybindingsEditor />
+        </div>
       </section>
 
       <section className="config-section">
@@ -538,12 +531,11 @@ export default function ConfigView({
                 <select
                   id="flashcard-orientation"
                   value={orientation}
-                  onChange={(e) => { setOrientation(e.target.value); markAutoSaved('orientation'); }}
+                  onChange={(e) => setOrientation(e.target.value)}
                 >
                   <option value="landscape">Landscape (4:3)</option>
                   <option value="portrait">Portrait (3:4)</option>
                 </select>
-                {autoSaved === 'orientation' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
             <tr>
@@ -554,12 +546,11 @@ export default function ConfigView({
                 <select
                   id="srs-algorithm"
                   value={algorithm}
-                  onChange={(e) => { setAlgorithm(e.target.value); markAutoSaved('algorithm'); }}
+                  onChange={(e) => setAlgorithm(e.target.value)}
                 >
                   <option value="leitner">Leitner (doubles each level)</option>
                   <option value="sm2">SM-2 (ease factor)</option>
                 </select>
-                {autoSaved === 'algorithm' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
             <tr>
@@ -574,17 +565,12 @@ export default function ConfigView({
                   min={0}
                   max={200}
                   value={maxNew}
-                  onChange={(e) => { setMaxNew(e.target.value); markAutoSaved('maxNew'); }}
+                  onChange={(e) => setMaxNew(e.target.value)}
                 />
-                {autoSaved === 'maxNew' && <span className="config-auto-badge">✓ Applied</span>}
               </td>
             </tr>
           </tbody>
         </table>
-      </section>
-
-      <section className="config-section">
-        <KeybindingsEditor />
       </section>
 
       {loading && <p>Loading config…</p>}
@@ -593,7 +579,7 @@ export default function ConfigView({
       {form && (
         <>
           <section className="config-section">
-            <h2 className="config-heading">Vault</h2>
+            <h2 className="config-heading">Server</h2>
             <table className="config-table">
               <tbody>
                 <tr>
@@ -610,17 +596,6 @@ export default function ConfigView({
                     />
                   </td>
                 </tr>
-              </tbody>
-            </table>
-            <p className="config-hint">
-              The vault name is used as the folder name on disk and the database name. Changing it renames the folder and requires a restart.
-            </p>
-          </section>
-
-          <section className="config-section">
-            <h2 className="config-heading">Server</h2>
-            <table className="config-table">
-              <tbody>
                 <tr>
                   <td>
                     <label htmlFor="cfg-port">Port</label>
@@ -731,7 +706,7 @@ export default function ConfigView({
 
             {hasRestartDirty && (
               <p className="config-hint">
-                ⚠ Port, host, log format, or workspace path changes require a restart to take effect.
+                ⚠ Changes to vault name, port, host, log format, or workspace path require a restart to take effect.
               </p>
             )}
 
