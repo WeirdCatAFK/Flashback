@@ -596,11 +596,20 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
 }
 
 export default function FlashcardsTrainer({ isActive, studySession, onOpenSource }) {
-  const [appliedScope, setAppliedScope] = useState({
-    folder: studySession?.folder ?? null,
-    deck: studySession?.deck ?? null,
-    deckName: studySession?.deckName ?? null,
-    tags: null,
+  const [appliedScope, setAppliedScope] = useState(() => {
+    if (studySession) {
+      return {
+        folder: studySession.folder ?? null,
+        deck: studySession.deck ?? null,
+        deckName: studySession.deckName ?? null,
+        tags: null,
+      };
+    }
+    try {
+      const saved = localStorage.getItem('fb-trainer-scope');
+      if (saved) return JSON.parse(saved);
+    } catch { /* ignore */ }
+    return { folder: null, deck: null, deckName: null, tags: null };
   });
 
   // Session settings — read from localStorage, changes persist and reset the session.
@@ -641,20 +650,34 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setSessionDone(false);
   };
 
+  // Persist scope to localStorage so it survives app restarts.
+  useEffect(() => {
+    localStorage.setItem('fb-trainer-scope', JSON.stringify(appliedScope));
+  }, [appliedScope]);
+
   // When a study session is launched from the file explorer or decks view, reset scope
   // inline so all state updates land in the same render (no stale intermediate frame).
+  // Guard: if the incoming scope is identical to what's active and a session is running,
+  // don't reset — the user re-clicked Study on the same folder/deck.
   const [prevStudySession, setPrevStudySession] = useState(studySession);
   if (prevStudySession !== studySession) {
     setPrevStudySession(studySession);
-    setAppliedScope({
-      folder: studySession?.folder ?? null,
-      deck: studySession?.deck ?? null,
-      deckName: studySession?.deckName ?? null,
-      tags: null,
-    });
-    setQueue([]);
-    setSessionDone(false);
-    setLastSession(null);
+    if (studySession) {
+      const sameScope =
+        (studySession.folder ?? null) === appliedScope.folder &&
+        (studySession.deck ?? null) === appliedScope.deck;
+      if (!sameScope || sessionDone) {
+        setAppliedScope({
+          folder: studySession.folder ?? null,
+          deck: studySession.deck ?? null,
+          deckName: studySession.deckName ?? null,
+          tags: null,
+        });
+        setQueue([]);
+        setSessionDone(false);
+        setLastSession(null);
+      }
+    }
   }
 
   const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
@@ -663,14 +686,15 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   const applyDeck   = ({ deck, deckName }) => { setAppliedScope(s => ({ ...s, deck, deckName })); setQueue([]); setSessionDone(false); };
   const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
-  // Re-check for due cards when the view becomes active.
-  // Inline keeps it in the same render as the isActive change — no extra pass,
-  // and avoids the double-fetch an effect would cause on initial mount.
+  // Re-check for due cards when the view becomes active — but only when there is
+  // no session running. Mid-session the queue is already in state; a re-fetch would
+  // temporarily clear `cards` to [] (loading), which resets the progress bar and
+  // disrupts the stats display before loading the new values.
   const [refreshToken, setRefreshToken] = useState(0);
   const [prevIsActiveForRefresh, setPrevIsActiveForRefresh] = useState(isActive);
   if (prevIsActiveForRefresh !== isActive) {
     setPrevIsActiveForRefresh(isActive);
-    if (isActive) setRefreshToken(t => t + 1);
+    if (isActive && queue.length === 0 && !sessionDone) setRefreshToken(t => t + 1);
   }
 
   const { cards, result, loading, error } = useDueCards({
