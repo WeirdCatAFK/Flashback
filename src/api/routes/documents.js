@@ -45,6 +45,17 @@ router.get(
   }),
 );
 
+// GET /api/documents/raw?path= — serve the file as binary (PDF, images, etc.)
+router.get(
+  "/raw",
+  catchError((req, res) => {
+    const relPath = norm(req.query.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    const absPath = docs.files.safePath(relPath);
+    res.sendFile(absPath);
+  }),
+);
+
 // GET /api/documents/search?q=
 router.get(
   "/search",

@@ -1,0 +1,154 @@
+/* PDF viewer — outer wrapper (parent .doc-editor-renderer handles scrolling) */
+.pdf-renderer {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+  background: var(--color-bg-reader);
+}
+
+/* Zoom toolbar — sticky at the top */
+.pdf-zoom-bar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 12px;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.pdf-zoom-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 28px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+
+.pdf-zoom-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+}
+
+.pdf-zoom-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.pdf-zoom-btn--fit {
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.pdf-zoom-label {
+  min-width: 44px;
+  text-align: center;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-secondary);
+}
+
+/* Page column */
+.pdf-pages {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px 64px;
+}
+
+/* Individual page */
+.pdf-page {
+  position: relative;
+  flex-shrink: 0;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+}
+
+.pdf-page canvas {
+  display: block;
+}
+
+/* Highlight overlay — behind text layer */
+.pdf-hl-layer {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+
+.pdf-hl {
+  position: absolute;
+  border-radius: 2px;
+  opacity: 0.38;
+}
+
+.pdf-hl--amber { background: var(--color-hl-amber); }
+.pdf-hl--green { background: var(--color-hl-green); }
+.pdf-hl--blue  { background: var(--color-hl-blue);  }
+.pdf-hl--pink  { background: var(--color-hl-pink);  }
+
+/* Text layer — transparent overlay for text selection.
+ *
+ * pdfjs-dist v6 requires specific CSS variables and rules to correctly size the
+ * container and position/scale the text spans. These rules are extracted from
+ * pdfjs-dist/web/pdf_viewer.css and scoped to .pdf-text-layer. The page
+ * container sets --total-scale-factor, --scale-round-x, --scale-round-y as
+ * inline CSS variables which are inherited here.
+ */
+.pdf-text-layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  overflow: hidden;
+  line-height: 1;
+  text-align: initial;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+  forced-color-adjust: none;
+
+  /* Variables consumed by span rules below */
+  --min-font-size: 1;
+  --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size));
+  --min-font-size-inv: calc(1 / var(--min-font-size));
+}
+
+/* Each text span: positioned by % within the container; font-size driven by
+   --font-height (set inline by TextLayer) and --total-scale-factor (from page). */
+.pdf-text-layer > :not(.markedContent),
+.pdf-text-layer .markedContent span:not(.markedContent) {
+  color: transparent;
+  position: absolute;
+  white-space: pre;
+  cursor: text;
+  transform-origin: 0% 0%;
+  -webkit-user-select: text;
+  user-select: text;
+  z-index: 1;
+
+  --font-height: 0;
+  font-size: calc(var(--text-scale-factor) * var(--font-height));
+  --scale-x: 1;
+  --rotate: 0deg;
+  transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv));
+}
+
+.pdf-text-layer .markedContent {
+  display: contents;
+}
+
+.pdf-text-layer ::selection {
+  background: rgba(0, 100, 255, 0.22);
+}

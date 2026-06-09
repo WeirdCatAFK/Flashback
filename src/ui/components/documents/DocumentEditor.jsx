@@ -5,6 +5,7 @@ import Inspector         from './inspector/Inspector';
 import HighlightRemoveDialog from './HighlightRemoveDialog';
 import MarkdownRenderer  from './renderers/MarkdownRenderer';
 import TextRenderer      from './renderers/TextRenderer';
+import PdfRenderer       from './renderers/PdfRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile } from '../../api/documents';
 import './DocumentEditor.css';
@@ -14,6 +15,7 @@ function pickRenderer(path) {
   const ext = path.replace(/\\/g, '/').split('/').pop().split('.').pop().toLowerCase();
   if (['md', 'markdown'].includes(ext)) return MarkdownRenderer;
   if (['txt', 'text'].includes(ext))    return TextRenderer;
+  if (ext === 'pdf')                    return PdfRenderer;
   return PlaceholderRenderer;
 }
 

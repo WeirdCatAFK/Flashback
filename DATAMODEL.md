@@ -36,30 +36,26 @@ All user data is scoped to a **vault** — a named, self-contained directory ide
 
 Every project (e.g., a course) is organized in a regular directory tree. Each folder and file may have an associated `.flashback` file storing metadata and flashcard data.
 
-**Example: raw file tree**
+**Example: raw file tree**Inteligencia_Artificial
 
-```
-Inteligencia_Artificial
 ├── Clase060824.ipynb
 ├── clase070824.ipynb
 ├── datasets
-│   └── breast_cancer_data.csv
-
-```
+│   └── breast_cancer_data.pdf
 
 **Example: file tree with `.flashback` data**
 
 ```
-Inteligencia_Artificial
+wwwInteligencia_Artificial
 ├── .flashback                        # folder-level metadata
 ├── Clase060824.ipynb
 ├── Clase060824.ipynb.flashback       # flashcards + metadata for this file
 ├── clase070824.ipynb
 ├── clase070824.ipynb.flashback
-├── datasets
+├── notes
 │   ├── .flashback
-│   ├── breast_cancer_data.csv
-│   └── breast_cancer_data.csv.flashback
+│   ├── breast_cancer_data.pdf
+│   └── breast_cancer_data.pdf.flashback
 
 ```
 
@@ -157,13 +153,13 @@ Reference data varies from the types of documents, so the data might change acco
 
 Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAULT 'basic'` in the DB). The type drives both the renderer and the form fields used to create or edit the card.
 
-| `cardType`    | Description                                                                  |
-| ------------- | ---------------------------------------------------------------------------- |
-| `basic`       | Standard two-sided flip. Front and back are independent text + media blocks. |
-| `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions. |
-| `cloze`       | Text with `{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`). |
+| `cardType`    | Description                                                                                                                                                                                                                                          |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `basic`       | Standard two-sided flip. Front and back are independent text + media blocks.                                                                                                                                                                         |
+| `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions.                                                                                                                        |
+| `cloze`       | Text with `{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`).                        |
 | `type_answer` | Question in `frontText`; expected answer in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to `backText` (case-insensitive trim) and shows a correct/wrong verdict before grading. |
-| `custom`      | Full HTML stored in `customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty. |
+| `custom`      | Full HTML stored in `customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty.                                                                                          |
 
 ### Sidecar representation per type
 
@@ -426,22 +422,22 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ### Table: Flashcards
 
-| Column       | Type         | Description                                                          |
-| ------------ | ------------ | -------------------------------------------------------------------- |
-| id           | integer (PK) | Unique identifier for each flashcard.                                |
-| global_hash  | varchar(500) | Global hash for deduplication and synchronization.                   |
-| node_id      | integer (FK) | Links flashcard into the knowledge graph.                            |
-| document_id  | integer (FK) | References the source document, if any.**(ON DELETE CASCADE)** |
-| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                    |
-| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                     |
-| reference_id | integer (FK) | Anchors flashcard to a document position.                            |
-| last_recall  | timestamp    | Last time the flashcard was recalled.                                |
-| name         | varchar(500) | Optional descriptive name of the flashcard.                          |
-| origin       | varchar(500) | Source identifier (e.g., subscription magazine_id).                  |
-| presence     | float        | Familiarity/strength metric (derived from reviews).                  |
-| level        | integer      | Number of consecutive positive recalls.                              |
-| fileIndex    | integer      | Position of the flashcard within its source file.                    |
-| card_type    | text         | Card variant: `basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent. |
+| Column       | Type         | Description                                                                                                                                                                      |
+| ------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id           | integer (PK) | Unique identifier for each flashcard.                                                                                                                                            |
+| global_hash  | varchar(500) | Global hash for deduplication and synchronization.                                                                                                                               |
+| node_id      | integer (FK) | Links flashcard into the knowledge graph.                                                                                                                                        |
+| document_id  | integer (FK) | References the source document, if any.**(ON DELETE CASCADE)**                                                                                                             |
+| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                                                                                                                                |
+| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                                                                                                                                 |
+| reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                        |
+| last_recall  | timestamp    | Last time the flashcard was recalled.                                                                                                                                            |
+| name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                      |
+| origin       | varchar(500) | Source identifier (e.g., subscription magazine_id).                                                                                                                              |
+| presence     | float        | Familiarity/strength metric (derived from reviews).                                                                                                                              |
+| level        | integer      | Number of consecutive positive recalls.                                                                                                                                          |
+| fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                |
+| card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent. |
 
 ---
 
