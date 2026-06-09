@@ -544,3 +544,221 @@
   font-weight: 400;
   opacity: 0.8;
 }
+
+
+/* ── Scope pickers (Folder + Deck) ────────────────────────────────────────── */
+
+.scope-picker-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 9px;
+  border-radius: 99px;
+  border: 1px dashed var(--color-border);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 80ms, color 80ms, background 80ms;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.scope-picker-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.scope-picker-dropdown {
+  position: fixed;
+  z-index: 1200;
+  width: 230px;
+  max-height: 300px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  border-radius: 9px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+  padding: 4px 0;
+}
+
+.scope-picker-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0;
+  padding: 5px 10px 7px;
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: 4px;
+}
+
+.scope-picker-crumb {
+  background: none;
+  border: none;
+  color: var(--color-fg-secondary);
+  font-size: 11px;
+  padding: 1px 3px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.scope-picker-crumb:hover {
+  color: var(--color-fg-primary);
+  background: var(--color-bg-hover);
+}
+
+.scope-picker-sep {
+  color: var(--color-fg-secondary);
+  font-size: 11px;
+  opacity: 0.45;
+}
+
+.scope-picker-apply {
+  margin: 2px 8px 6px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-bg-surface));
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 80ms;
+}
+
+.scope-picker-apply:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, var(--color-bg-surface));
+}
+
+.scope-picker-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0 4px;
+}
+
+.scope-picker-item {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+}
+
+.scope-picker-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.scope-picker-item-label {
+  flex: 1;
+  padding: 6px 8px;
+  background: none;
+  border: none;
+  color: var(--color-fg-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.scope-picker-item-drill {
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  color: var(--color-fg-secondary);
+  font-size: 16px;
+  cursor: pointer;
+  line-height: 1;
+  opacity: 0.5;
+  transition: opacity 80ms;
+}
+
+.scope-picker-item-drill:hover { opacity: 1; }
+
+.scope-picker-empty {
+  display: block;
+  padding: 10px 12px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  text-align: center;
+}
+
+
+/* ── Session settings row ─────────────────────────────────────────────────── */
+
+.trainer-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.trainer-setting {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.trainer-setting-label {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+
+.trainer-algo-toggle {
+  display: flex;
+  border-radius: 6px;
+  border: 1px solid var(--color-border);
+  overflow: hidden;
+}
+
+.trainer-algo-btn {
+  padding: 3px 10px;
+  border: none;
+  background: none;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+
+.trainer-algo-btn + .trainer-algo-btn {
+  border-left: 1px solid var(--color-border);
+}
+
+.trainer-algo-btn.active {
+  background: var(--color-accent);
+  color: var(--color-bg-base, #fff);
+}
+
+.trainer-setting-input {
+  width: 52px;
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-size: 11px;
+  text-align: center;
+}
+
+.trainer-setting-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.trainer-setting-select {
+  padding: 3px 6px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-size: 11px;
+}
+
+.trainer-setting-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}

@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { submitReview, getDue } from '../api/srs';
-import { getTags, readFile } from '../api/documents';
+import { getTags, readFile, listFolder } from '../api/documents';
+import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
 import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
@@ -48,6 +49,7 @@ function mapApiCard(raw, isNew = false) {
     easeFactor: 0.5,
     lastRecall: raw.last_recall,
     category: raw.category,
+    categoryPriority: raw.category_priority ?? 0,
     documentPath: raw.document_path,
     isNew,
     cardType,
@@ -67,7 +69,7 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, deck, tags, refreshToken }) {
+function useDueCards({ folder, deck, tags, algorithm, maxNew, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -77,32 +79,47 @@ function useDueCards({ folder, deck, tags, refreshToken }) {
 
   // Reset loading/result/error inline when deps change so users don't see a
   // stale result between when deps change and when the effect fires.
-  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, refreshToken });
+  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, algorithm, maxNew, refreshToken });
   if (prevDeps.folder !== folder || prevDeps.deck !== deck ||
-      prevDeps.tagsKey !== tagsKey || prevDeps.refreshToken !== refreshToken) {
-    setPrevDeps({ folder, deck, tagsKey, refreshToken });
+      prevDeps.tagsKey !== tagsKey || prevDeps.algorithm !== algorithm ||
+      prevDeps.maxNew !== maxNew || prevDeps.refreshToken !== refreshToken) {
+    setPrevDeps({ folder, deck, tagsKey, algorithm, maxNew, refreshToken });
     setLoading(true);
     setResult(null);
     setError(null);
   }
 
   useEffect(() => {
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
-    const stored = localStorage.getItem('fb-srs-max-new');
-    const maxNew = stored != null ? parseInt(stored, 10) : undefined;
     const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
-    getDue({ algorithm, maxNew, folder, deck, tags: tagsArray?.length ? tagsArray : undefined })
+    getDue({
+      algorithm,
+      maxNew,
+      folder,
+      deck,
+      tags: tagsArray?.length ? tagsArray : undefined,
+    })
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, deck, tagsKey, refreshToken]);
+  }, [folder, deck, tagsKey, algorithm, maxNew, refreshToken]);
 
-  const cards = useMemo(() =>
-    result
-      ? [...result.due.map(c => mapApiCard(c, false)), ...result.new.map(c => mapApiCard(c, true))]
-      : [],
-    [result]
-  );
+  const cards = useMemo(() => {
+    if (!result) return [];
+    const all = [
+      ...result.due.map(c => mapApiCard(c, false)),
+      ...result.new.map(c => mapApiCard(c, true)),
+    ];
+    // Sort by pedagogical category priority ascending: lower = more foundational = first.
+    // Within the same priority, due cards precede new cards.
+    all.sort((a, b) => {
+      const pDiff = (a.categoryPriority ?? 0) - (b.categoryPriority ?? 0);
+      if (pDiff !== 0) return pDiff;
+      if (!a.isNew && b.isNew) return -1;
+      if (a.isNew && !b.isNew) return 1;
+      return 0;
+    });
+    return all;
+  }, [result]);
 
   return { cards, result, loading, error };
 }
@@ -261,6 +278,164 @@ function highlightMatch(tag, query) {
   );
 }
 
+// Browsable folder picker. Clicking a folder label applies it as scope;
+// clicking › navigates into that folder to see its subfolders.
+function FolderPicker({ onPick }) {
+  const [open, setOpen] = useState(false);
+  const [browsePath, setBrowsePath] = useState('');
+  const [subfolders, setSubfolders] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const btnRef = useRef(null);
+  const dropRef = useRef(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+
+  const loadLevel = (folderPath) => {
+    setLoading(true);
+    setBrowsePath(folderPath);
+    listFolder(folderPath)
+      .then(items => setSubfolders(items.filter(i => i.type === 'folder')))
+      .catch(() => setSubfolders([]))
+      .finally(() => setLoading(false));
+  };
+
+  const openPicker = () => {
+    if (!open) {
+      const r = btnRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left });
+      loadLevel('');
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (!btnRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const crumbs = browsePath ? browsePath.split('/') : [];
+
+  return (
+    <>
+      <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
+        + Folder
+      </button>
+      {open && createPortal(
+        <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
+          <div className="scope-picker-breadcrumb">
+            <button type="button" className="scope-picker-crumb" onClick={() => loadLevel('')}>root</button>
+            {crumbs.map((seg, i) => {
+              const segPath = crumbs.slice(0, i + 1).join('/');
+              return (
+                <span key={segPath}>
+                  <span className="scope-picker-sep"> / </span>
+                  <button type="button" className="scope-picker-crumb" onClick={() => loadLevel(segPath)}>{seg}</button>
+                </span>
+              );
+            })}
+          </div>
+          {browsePath && (
+            <button type="button" className="scope-picker-apply"
+              onClick={() => { onPick(browsePath); setOpen(false); }}>
+              Study "{crumbs.at(-1)}"
+            </button>
+          )}
+          <div className="scope-picker-list">
+            {loading && <span className="scope-picker-empty">Loading…</span>}
+            {!loading && subfolders.length === 0 && (
+              <span className="scope-picker-empty">No subfolders</span>
+            )}
+            {!loading && subfolders.map(item => {
+              const itemPath = browsePath ? `${browsePath}/${item.name}` : item.name;
+              return (
+                <div key={itemPath} className="scope-picker-item">
+                  <button type="button" className="scope-picker-item-label"
+                    onClick={() => { onPick(itemPath); setOpen(false); }}>
+                    {item.name}
+                  </button>
+                  <button type="button" className="scope-picker-item-drill"
+                    onClick={() => loadLevel(itemPath)} title="Show subfolders">
+                    ›
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// Flat deck list picker.
+function DeckPicker({ onPick }) {
+  const [open, setOpen] = useState(false);
+  const [decks, setDecks] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const btnRef = useRef(null);
+  const dropRef = useRef(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+
+  const openPicker = () => {
+    if (!open) {
+      const r = btnRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left });
+      setLoading(true);
+      listDecks()
+        .then(data => setDecks(Array.isArray(data) ? data : []))
+        .catch(() => setDecks([]))
+        .finally(() => setLoading(false));
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (!btnRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  return (
+    <>
+      <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
+        + Deck
+      </button>
+      {open && createPortal(
+        <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
+          <div className="scope-picker-list">
+            {loading && <span className="scope-picker-empty">Loading…</span>}
+            {!loading && decks.length === 0 && (
+              <span className="scope-picker-empty">No decks yet</span>
+            )}
+            {!loading && decks.map(deck => (
+              <div key={deck.globalHash} className="scope-picker-item">
+                <button type="button" className="scope-picker-item-label"
+                  onClick={() => { onPick({ deck: deck.globalHash, deckName: deck.name }); setOpen(false); }}>
+                  {deck.name}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
 function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult, onViewSource }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
@@ -349,10 +524,6 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
     return () => window.removeEventListener('keydown', onKey);
   }, [isActive, flipped, keymap, isTypeAnswer]);
 
-  const revealHint = isTypeAnswer
-    ? 'Type your answer and press Enter or Check'
-    : `Press  `;  // placeholder; rendered with the keycap below
-
   return (
     <div className="trainer-reviewer">
       <p className="trainer-card-meta">
@@ -432,11 +603,43 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     tags: null,
   });
 
-  // Tracks whether the last session has been completed (queue emptied by the user).
-  // When true, new cards from a re-fetch are held back until the user clicks "start".
+  // Session settings — read from localStorage, changes persist and reset the session.
+  const [algorithm, setAlgorithm] = useState(
+    () => localStorage.getItem('fb-srs-algorithm') ?? 'leitner'
+  );
+  const [maxNew, setMaxNew] = useState(() => {
+    const v = localStorage.getItem('fb-srs-max-new');
+    return v != null ? parseInt(v, 10) : 20;
+  });
+  // Separate display value so the input doesn't reset on every keystroke.
+  const [maxNewDisplay, setMaxNewDisplay] = useState(() => {
+    const v = localStorage.getItem('fb-srs-max-new');
+    return v != null ? v : '20';
+  });
+  // Session queue + status — declared early so all inline guards and handlers can reference setters.
   const [sessionDone, setSessionDone] = useState(false);
-  // Snapshot of stats at session end so the summary persists through re-fetches.
   const [lastSession, setLastSession] = useState(null);
+  const [queue, setQueue] = useState([]);
+  const [turn, setTurn] = useState(0);
+  const [stats, setStats] = useState({ again: 0, good: 0, easy: 0 });
+  const [pop, setPop] = useState(null);
+
+  // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
+  const changeAlgorithm = (algo) => {
+    setAlgorithm(algo);
+    localStorage.setItem('fb-srs-algorithm', algo);
+    setQueue([]);
+    setSessionDone(false);
+  };
+
+  const applyMaxNew = (display) => {
+    const n = Math.max(0, parseInt(display) || 0);
+    setMaxNew(n);
+    setMaxNewDisplay(String(n));
+    localStorage.setItem('fb-srs-max-new', String(n));
+    setQueue([]);
+    setSessionDone(false);
+  };
 
   // When a study session is launched from the file explorer or decks view, reset scope
   // inline so all state updates land in the same render (no stale intermediate frame).
@@ -456,7 +659,8 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
   const clearDeck   = () => { setAppliedScope(s => ({ ...s, deck: null, deckName: null })); setQueue([]); setSessionDone(false); };
-  const clearTags   = () => { setAppliedScope(s => ({ ...s, tags: null })); setQueue([]); setSessionDone(false); };
+  const applyFolder = (folder) => { setAppliedScope(s => ({ ...s, folder })); setQueue([]); setSessionDone(false); };
+  const applyDeck   = ({ deck, deckName }) => { setAppliedScope(s => ({ ...s, deck, deckName })); setQueue([]); setSessionDone(false); };
   const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
 
   // Re-check for due cards when the view becomes active.
@@ -469,15 +673,15 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     if (isActive) setRefreshToken(t => t + 1);
   }
 
-  const { cards, result, loading, error } = useDueCards({ folder: appliedScope.folder, deck: appliedScope.deck, tags: appliedScope.tags, refreshToken });
+  const { cards, result, loading, error } = useDueCards({
+    folder: appliedScope.folder,
+    deck: appliedScope.deck,
+    tags: appliedScope.tags,
+    algorithm,
+    maxNew,
+    refreshToken,
+  });
   const [orientation] = useFlashcardOrientation();
-
-  // Session queue: the front card is live, fails go to the back, passes leave.
-  // `turn` keys the reviewer so each presentation is a fresh mount.
-  const [queue, setQueue] = useState([]);
-  const [turn, setTurn] = useState(0);
-  const [stats, setStats] = useState({ again: 0, good: 0, easy: 0 });
-  const [pop, setPop] = useState(null);
 
   // The card is horizontally centered, so the pop only needs the card's top
   // measured (relative to the arena) to sit at the top of the card.
@@ -599,7 +803,41 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             <button type="button" onClick={clearFolder} title="Clear">×</button>
           </span>
         )}
+        {!appliedScope.folder && <FolderPicker onPick={applyFolder} />}
+        {!appliedScope.deck   && <DeckPicker   onPick={applyDeck} />}
         <TagInput selected={appliedScope.tags ?? []} onApply={applyTags} />
+      </div>
+
+      <div className="trainer-settings-row">
+        <div className="trainer-setting">
+          <span className="trainer-setting-label">Algorithm</span>
+          <div className="trainer-algo-toggle">
+            <button type="button"
+              className={`trainer-algo-btn${algorithm === 'leitner' ? ' active' : ''}`}
+              onClick={() => changeAlgorithm('leitner')}>
+              Leitner
+            </button>
+            <button type="button"
+              className={`trainer-algo-btn${algorithm === 'sm2' ? ' active' : ''}`}
+              onClick={() => changeAlgorithm('sm2')}>
+              SM-2
+            </button>
+          </div>
+        </div>
+        <div className="trainer-setting">
+          <label className="trainer-setting-label" htmlFor="trainer-max-new">Max new</label>
+          <input
+            id="trainer-max-new"
+            type="number"
+            className="trainer-setting-input"
+            min="0"
+            max="500"
+            value={maxNewDisplay}
+            onChange={e => setMaxNewDisplay(e.target.value)}
+            onBlur={() => applyMaxNew(maxNewDisplay)}
+            onKeyDown={e => { if (e.key === 'Enter') applyMaxNew(maxNewDisplay); }}
+          />
+        </div>
       </div>
 
       {empty && (

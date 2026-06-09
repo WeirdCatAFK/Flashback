@@ -313,7 +313,7 @@ class DocumentQuery {
         return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
     }
 
-    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, minPriority = null, maxNew = 20 } = {}) {
+    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20 } = {}) {
         const params = [];
         const cteParts = [];
         const whereConditions = [];
@@ -355,11 +355,6 @@ class DocumentQuery {
                   AND tg.name IN (${placeholders})
             )`);
             params.push(...tags);
-        }
-
-        if (minPriority !== null) {
-            whereConditions.push('COALESCE(pc.priority, 0) >= ?');
-            params.push(minPriority);
         }
 
         const extraWhere = whereConditions.length > 0
@@ -426,13 +421,15 @@ class DocumentQuery {
             FROM cards
         `).all(...params);
 
+        // Sort by category_priority ASC (lower = more foundational = study first),
+        // then by due_date for due cards to surface the most overdue within each priority.
         const due = allRows
             .filter(r => r._status === 'due')
-            .sort((a, b) => (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0)
-                || b.category_priority - a.category_priority);
+            .sort((a, b) => (a.category_priority - b.category_priority)
+                || (a.due_date < b.due_date ? -1 : a.due_date > b.due_date ? 1 : 0));
         const newCards = allRows
             .filter(r => r._status === 'new')
-            .sort((a, b) => b.category_priority - a.category_priority)
+            .sort((a, b) => a.category_priority - b.category_priority)
             .slice(0, maxNew);
         let nextDue = null;
         for (const r of allRows) {

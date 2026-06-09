@@ -33,17 +33,15 @@ router.get('/stats', catchError((req, res) => {
 //   maxNew=<n>             — new cards to introduce per session (stored in localStorage)
 //   folder=<relPath>       — restrict to a folder subtree
 //   tag=<name>             — restrict to cards tagged with this name
-//   minPriority=<n>        — restrict to categories with priority >= n
 router.get('/due', catchError((req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const folder = req.query.folder ? norm(req.query.folder) : null;
     const deck = req.query.deck || null;
     const rawTags = req.query.tag;
     const tags = rawTags ? [].concat(rawTags).filter(Boolean) : null;
-    const minPriority = req.query.minPriority != null ? parseInt(req.query.minPriority, 10) : null;
     const maxNew = req.query.maxNew != null ? parseInt(req.query.maxNew, 10) : undefined;
 
-    const result = SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, minPriority, maxNew });
+    const result = SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, maxNew });
     res.json(result);
 }));
 
