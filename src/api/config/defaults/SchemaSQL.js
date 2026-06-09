@@ -97,7 +97,22 @@ addTable('Flashcards', (table) => {
     table.string('card_type', 50).notNullable().defaultTo('basic');
 });
 
-// 6. Logs & Tags
+// 6. Highlights
+addTable('Highlights', (table) => {
+    table.increments('id').primary();
+    table.integer('document_id').references('id').inTable('Documents').onDelete('CASCADE');
+    table.string('global_hash', 500).notNullable().unique();
+    table.string('type', 50).notNullable().defaultTo('text_offset');
+    table.float('start');
+    table.float('end');
+    table.integer('page');
+    table.text('bbox');
+    table.string('color', 20).notNullable().defaultTo('amber');
+    table.text('note');
+    table.timestamp('created_at').defaultTo(k.fn.now());
+});
+
+// 7. Logs & Tags
 addTable('ReviewLogs', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable().references('id').inTable('Flashcards').onDelete('CASCADE');
@@ -115,7 +130,7 @@ addTable('Tags', (table) => {
     table.float('presence');
 });
 
-// 7. Connections
+// 8. Connections
 addTable('ConnectionTypes', (table) => {
     table.increments('id').primary();
     table.string('name', 255).index();
@@ -136,7 +151,7 @@ addTable('InheritedTags', (table) => {
     table.integer('tag_id').references('id').inTable('Tags').onDelete('CASCADE');
 });
 
-// 8. Decks
+// 9. Decks
 addTable('Decks', (table) => {
     table.increments('id').primary();
     table.string('global_hash', 500).notNullable().unique().index();
@@ -155,7 +170,7 @@ addTable('DeckEntries', (table) => {
     table.text('inline_card');
 });
 
-// 9. Media & Subscriptions
+// 10. Media & Subscriptions
 addTable('Media', (table) => {
     table.increments('id').primary();
     table.string('hash', 500).unique().index();
@@ -219,6 +234,8 @@ CREATE INDEX IF NOT EXISTS idx_documents_folder_id ON Documents(folder_id);
 CREATE INDEX IF NOT EXISTS idx_documents_absolute_path ON Documents(absolute_path);
 CREATE INDEX IF NOT EXISTS idx_flashcards_document_id ON Flashcards(document_id);
 CREATE INDEX IF NOT EXISTS idx_media_absolute_path ON Media(absolute_path);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(global_hash);
+CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id);
 `;
 
 const schemaSQL = tables.join(';\n')

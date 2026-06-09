@@ -694,6 +694,95 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Highlights ────────────────────────────────────────────────────────
+
+    describe('Highlights', () => {
+        const ROOT = 'HighlightApiTest';
+        const FILE = `${ROOT}/hl-doc.md`;
+        let hlHash;
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFile('hl-doc.md', ROOT);
+        });
+
+        it('GET /api/highlights → empty array before any highlights', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights?path=${encodeURIComponent(FILE)}`);
+            assert.equal(res.status, 200);
+            const { highlights } = await res.json();
+            assert.ok(Array.isArray(highlights));
+            assert.equal(highlights.length, 0);
+        });
+
+        it('POST /api/highlights → 400 when path missing', async () => {
+            const res = await post(`${baseUrl}/api/highlights`, { type: 'text_offset', start: 0, end: 10, color: 'amber' });
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/highlights → 201 with created highlight', async () => {
+            const res = await post(`${baseUrl}/api/highlights`, {
+                path: FILE,
+                type: 'text_offset',
+                start: 5,
+                end: 20,
+                color: 'amber',
+                note: 'important',
+            });
+            assert.equal(res.status, 201);
+            const { ok, highlight } = await res.json();
+            assert.ok(ok);
+            assert.ok(highlight.id, 'highlight must have an id');
+            assert.equal(highlight.type, 'text_offset');
+            assert.equal(highlight.start, 5);
+            assert.equal(highlight.end, 20);
+            assert.equal(highlight.color, 'amber');
+            assert.equal(highlight.note, 'important');
+            hlHash = highlight.id;
+        });
+
+        it('GET /api/highlights → returns the created highlight', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights?path=${encodeURIComponent(FILE)}`);
+            const { highlights } = await res.json();
+            assert.equal(highlights.length, 1);
+            assert.equal(highlights[0].id, hlHash);
+        });
+
+        it('PUT /api/highlights/:hash → updates color and note', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights/${hlHash}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ path: FILE, color: 'blue', note: 'revised' }),
+            });
+            assert.equal(res.status, 200);
+            const { ok, highlight } = await res.json();
+            assert.ok(ok);
+            assert.equal(highlight.color, 'blue');
+            assert.equal(highlight.note, 'revised');
+        });
+
+        it('GET /api/highlights → reflects updated fields', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights?path=${encodeURIComponent(FILE)}`);
+            const { highlights } = await res.json();
+            assert.equal(highlights[0].color, 'blue');
+            assert.equal(highlights[0].note, 'revised');
+        });
+
+        it('DELETE /api/highlights/:hash → removes the highlight', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights/${hlHash}?path=${encodeURIComponent(FILE)}`, {
+                method: 'DELETE',
+            });
+            assert.equal(res.status, 200);
+            const { ok } = await res.json();
+            assert.ok(ok);
+        });
+
+        it('GET /api/highlights → empty after deletion', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights?path=${encodeURIComponent(FILE)}`);
+            const { highlights } = await res.json();
+            assert.equal(highlights.length, 0);
+        });
+    });
+
     // ── Subscriptions ─────────────────────────────────────────────────────
 
     describe('Subscriptions', () => {

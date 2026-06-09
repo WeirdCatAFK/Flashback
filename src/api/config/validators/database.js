@@ -24,6 +24,7 @@ const requiredTables = [
   "ReviewLogs",
   "Decks",
   "DeckEntries",
+  "Highlights",
 ];
 
 /**
@@ -145,6 +146,29 @@ function migrateColumns() {
     }
   } catch (err) {
     console.warn("Column migration failed (non-fatal):", err.message);
+  }
+
+  if (!tableExists('Highlights')) {
+    try {
+      db.exec(`CREATE TABLE IF NOT EXISTS Highlights (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        document_id INTEGER REFERENCES Documents(id) ON DELETE CASCADE,
+        global_hash TEXT NOT NULL UNIQUE,
+        type TEXT NOT NULL DEFAULT 'text_offset',
+        start REAL,
+        end REAL,
+        page INTEGER,
+        bbox TEXT,
+        color TEXT NOT NULL DEFAULT 'amber',
+        note TEXT,
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+      )`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(global_hash)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id)');
+      console.log('Migration: created Highlights table');
+    } catch (err) {
+      console.warn('Highlights table migration failed (non-fatal):', err.message);
+    }
   }
 
   const indexes = [

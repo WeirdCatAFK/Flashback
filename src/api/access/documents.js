@@ -13,6 +13,7 @@ import crypto from 'crypto';
 import os from 'os';
 import AdmZip from 'adm-zip';
 import { sealEmitter } from '../seal/seal.js';
+import highlightsService from './highlights.js';
 
 export default class Documents {
     constructor() {
@@ -199,6 +200,7 @@ export default class Documents {
             db.transaction(() => {
                 if (metadata.tags) this._syncTags(doc.node_id, metadata.tags);
                 if (metadata.flashcards) this._syncDocumentFlashcards(doc.id, metadata.flashcards);
+                if (metadata.highlights) highlightsService.syncFromSidecar(doc.id, metadata.highlights);
 
                 const folderId = doc.folder_id;
                 if (folderId) {
@@ -271,6 +273,7 @@ export default class Documents {
                     });
                     if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
                     if (sidecar?.flashcards) this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards);
+                    if (sidecar?.highlights) highlightsService.syncFromSidecar(info.lastInsertRowid, sidecar.highlights);
                 }
             }
         })();
@@ -300,6 +303,7 @@ export default class Documents {
 
             if (metadata.tags) this._syncTags(entity.node_id, metadata.tags);
             if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards);
+            if (!isFolder && metadata.highlights) highlightsService.syncFromSidecar(entity.id, metadata.highlights);
 
             if (isFolder) this._propagateFolderTags(entity.id, entity.node_id, metadata);
         })();
@@ -333,6 +337,7 @@ export default class Documents {
 
                 if (metadata.tags) this._syncTags(nodeId, metadata.tags);
                 if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards);
+                if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
             })();
         } catch (err) {
             this.files.delete(fileRelPath, false);
