@@ -154,6 +154,7 @@ addTable('InheritedTags', (table) => {
 // 9. Decks
 addTable('Decks', (table) => {
     table.increments('id').primary();
+    table.integer('node_id').references('id').inTable('Nodes');
     table.string('global_hash', 500).notNullable().unique().index();
     table.string('name', 500).notNullable();
     table.text('description');
@@ -212,6 +213,12 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS delete_tag_node
 AFTER DELETE ON Tags
+BEGIN
+    DELETE FROM Nodes WHERE id = OLD.node_id;
+END;
+
+CREATE TRIGGER IF NOT EXISTS delete_deck_node
+AFTER DELETE ON Decks
 BEGIN
     DELETE FROM Nodes WHERE id = OLD.node_id;
 END;

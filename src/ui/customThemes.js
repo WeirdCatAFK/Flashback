@@ -36,6 +36,7 @@ export const THEME_VARS = [
   { key: '--color-graph-folder',    label: 'Graph · Folder' },
   { key: '--color-graph-flashcard', label: 'Graph · Flashcard' },
   { key: '--color-graph-tag',       label: 'Graph · Tag' },
+  { key: '--color-graph-deck',      label: 'Graph · Deck' },
   { key: '--color-graph-disconnect',label: 'Graph · Disconnect' },
   { key: '--color-graph-inherit',   label: 'Graph · Inherit' },
   // Semantic UI colors

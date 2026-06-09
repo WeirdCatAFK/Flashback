@@ -6,7 +6,11 @@ import {
   nodeTypes,
   pedagogicalCategories,
 } from "../defaults/DefaultData.js";
+import runMigrations from "../MigrationRunner.js";
 
+// Only tables that exist in SchemaSQL.js belong here.
+// Migration-managed tables (Highlights, SchemaVersion) are NOT listed —
+// they're guaranteed by runMigrations(), not the schema validator.
 const requiredTables = [
   "Flashcards",
   "FlashcardContent",
@@ -24,7 +28,6 @@ const requiredTables = [
   "ReviewLogs",
   "Decks",
   "DeckEntries",
-  "Highlights",
 ];
 
 /**
@@ -129,64 +132,16 @@ function validateDatabase() {
   }
 }
 
-function migrateColumns() {
-  try {
-    const cols = db.prepare("PRAGMA table_info('Flashcards')").all();
-    if (!cols.find((c) => c.name === "card_type")) {
-      db.prepare(
-        "ALTER TABLE Flashcards ADD COLUMN card_type TEXT NOT NULL DEFAULT 'basic'",
-      ).run();
-      console.log("Migration: added Flashcards.card_type column");
-    }
-    if (!cols.find((c) => c.name === "sm2_reps")) {
-      db.prepare(
-        "ALTER TABLE Flashcards ADD COLUMN sm2_reps INTEGER NOT NULL DEFAULT 0",
-      ).run();
-      console.log("Migration: added Flashcards.sm2_reps column");
-    }
-  } catch (err) {
-    console.warn("Column migration failed (non-fatal):", err.message);
-  }
-
-  if (!tableExists('Highlights')) {
-    try {
-      db.exec(`CREATE TABLE IF NOT EXISTS Highlights (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        document_id INTEGER REFERENCES Documents(id) ON DELETE CASCADE,
-        global_hash TEXT NOT NULL UNIQUE,
-        type TEXT NOT NULL DEFAULT 'text_offset',
-        start REAL,
-        end REAL,
-        page INTEGER,
-        bbox TEXT,
-        color TEXT NOT NULL DEFAULT 'amber',
-        note TEXT,
-        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      )`);
-      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(global_hash)');
-      db.exec('CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id)');
-      console.log('Migration: created Highlights table');
-    } catch (err) {
-      console.warn('Highlights table migration failed (non-fatal):', err.message);
-    }
-  }
-
-  const indexes = [
-    "CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id)",
-    "CREATE INDEX IF NOT EXISTS idx_folders_absolute_path ON Folders(absolute_path)",
-    "CREATE INDEX IF NOT EXISTS idx_documents_folder_id ON Documents(folder_id)",
-    "CREATE INDEX IF NOT EXISTS idx_documents_absolute_path ON Documents(absolute_path)",
-    "CREATE INDEX IF NOT EXISTS idx_flashcards_document_id ON Flashcards(document_id)",
-    "CREATE INDEX IF NOT EXISTS idx_media_absolute_path ON Media(absolute_path)",
-  ];
-  for (const ddl of indexes) {
-    try { db.exec(ddl); } catch (e) { console.warn("Index migration failed (non-fatal):", e.message); }
-  }
-}
-
 function validateDatabaseWithMigrations() {
   const ok = validateDatabase();
-  if (ok) migrateColumns();
+  if (ok) {
+    try {
+      runMigrations(db);
+    } catch (err) {
+      console.error('Migration runner failed:', err.message);
+      throw err;
+    }
+  }
   return ok;
 }
 

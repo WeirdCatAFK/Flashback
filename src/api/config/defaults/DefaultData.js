@@ -4,6 +4,7 @@ export const connectionTypes = [
   { name: "inheritance", is_directed: "true" },
   { name: "tag", is_directed: "false" },
   { name: "reference", is_directed: "true" },
+  { name: "deck", is_directed: "false" },
 ];
 
 export const nodeTypes = [
@@ -11,6 +12,7 @@ export const nodeTypes = [
   "Folder",
   "Document",
   "Tag",
+  "Deck",
 ];
 
 export const pedagogicalCategories = [

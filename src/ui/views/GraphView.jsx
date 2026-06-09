@@ -123,7 +123,8 @@ function lerp(a, b, t) {
 
 export default function GraphView({ isActive = false }) {
   const { graphData, loading, error } = useGraph(isActive);
-  const [showTags, setShowTags] = useState(true);
+  const [showTags, setShowTags]   = useState(true);
+  const [showDecks, setShowDecks] = useState(true);
   const [showOrigin, setShowOrigin] = useState(true);
   const [selected, setSelected] = useState(null);
   const [hovered, setHovered] = useState(null);
@@ -153,6 +154,7 @@ export default function GraphView({ isActive = false }) {
       Folder:    getCSSVar('--color-graph-folder'),
       Flashcard: getCSSVar('--color-graph-flashcard'),
       Tag:       getCSSVar('--color-graph-tag'),
+      Deck:      getCSSVar('--color-graph-deck'),
     },
     links: {
       connection:    getCSSVar('--color-graph-folder'),
@@ -160,6 +162,7 @@ export default function GraphView({ isActive = false }) {
       inheritance:   getCSSVar('--color-graph-inherit'),
       tag:           getCSSVar('--color-graph-tag'),
       reference:     getCSSVar('--color-graph-flashcard'),
+      deck:          getCSSVar('--color-graph-deck'),
     },
     bg:    getCSSVar('--color-bg-base'),
     label: getCSSVar('--color-fg-secondary'),
@@ -174,13 +177,18 @@ export default function GraphView({ isActive = false }) {
       links = links.filter(l => l.relation !== 'tag');
     }
 
+    if (!showDecks) {
+      nodes = nodes.filter(n => n.type !== 'Deck');
+      links = links.filter(l => l.relation !== 'deck');
+    }
+
     if (!showOrigin) {
       nodes = nodes.filter(n => !originIds.has(n.id));
       links = links.filter(l => !originIds.has(nodeId(l.source)) && !originIds.has(nodeId(l.target)));
     }
 
     return { nodes, links };
-  }, [graphData, showTags, showOrigin]);
+  }, [graphData, showTags, showDecks, showOrigin]);
 
   const focusedIds = useMemo(() => {
     if (!selected || !visibleData) return null;
@@ -406,6 +414,18 @@ export default function GraphView({ isActive = false }) {
                 opacity: showTags ? 1 : 0.25,
               }} />
               <span>tags</span>
+            </button>
+
+            <button type="button"
+              className={`graph-toggle-btn${showDecks ? ' graph-toggle-btn--active' : ''}`}
+              onClick={() => setShowDecks(s => !s)}
+              title={showDecks ? 'Hide deck connections' : 'Show deck connections'}
+            >
+              <span className="graph-controls-dot" style={{
+                background: colors.nodes.Deck,
+                opacity: showDecks ? 1 : 0.25,
+              }} />
+              <span>decks</span>
             </button>
           </div>
 

@@ -16,13 +16,17 @@ class DocumentQuery {
     // change at runtime, so callers in hot paths avoid repeated SELECT lookups.
     _typeIds() {
         if (!this._typeCache) {
-            const tagNodeType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
-            const inheritType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
-            const tagConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
+            const tagNodeType  = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
+            const deckNodeType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Deck'").get();
+            const inheritType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+            const tagConnType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
+            const deckConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'deck'").get();
             this._typeCache = {
-                tagNodeTypeId: tagNodeType?.id,
+                tagNodeTypeId:  tagNodeType?.id,
+                deckNodeTypeId: deckNodeType?.id,
                 inheritanceTypeId: inheritType?.id,
-                tagConnTypeId: tagConnType?.id,
+                tagConnTypeId:  tagConnType?.id,
+                deckConnTypeId: deckConnType?.id,
             };
         }
         return this._typeCache;
@@ -738,7 +742,7 @@ class DocumentQuery {
     getGraphData() {
         const nodes = this.db.prepare(`
             SELECT n.id, nt.name as type,
-                   COALESCE(d.name, f.name, t.name, fc.name) as label,
+                   COALESCE(d.name, f.name, t.name, fc.name, dk.name) as label,
                    COALESCE(d.presence, f.presence, fc.presence, 0) as presence
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
@@ -746,6 +750,7 @@ class DocumentQuery {
             LEFT JOIN Folders f ON f.node_id = n.id
             LEFT JOIN Tags t ON t.node_id = n.id
             LEFT JOIN Flashcards fc ON fc.node_id = n.id
+            LEFT JOIN Decks dk ON dk.node_id = n.id
         `).all();
 
         const edges = this.db.prepare(`
@@ -768,15 +773,40 @@ class DocumentQuery {
     // --- Decks ---
 
     insertDeck(data) {
+        const { deckNodeTypeId } = this._typeIds();
+        if (!deckNodeTypeId) throw new Error('Deck node type missing — run migrations');
+        const nodeInfo = this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(deckNodeTypeId);
+        const nodeId = nodeInfo.lastInsertRowid;
         const info = this.db.prepare(`
-            INSERT INTO Decks (global_hash, name, description)
-            VALUES (?, ?, ?)
-        `).run(data.globalHash, data.name, data.description ?? null);
+            INSERT INTO Decks (node_id, global_hash, name, description)
+            VALUES (?, ?, ?, ?)
+        `).run(nodeId, data.globalHash, data.name, data.description ?? null);
         return info.lastInsertRowid;
     }
 
     getDeckByHash(hash) {
-        return this.db.prepare('SELECT * FROM Decks WHERE global_hash = ?').get(hash);
+        return this.db.prepare('SELECT id, node_id, global_hash, name, description, created_at, updated_at FROM Decks WHERE global_hash = ?').get(hash);
+    }
+
+    getFlashcardNodeIdByHash(cardHash) {
+        const row = this.db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
+        return row?.node_id ?? null;
+    }
+
+    insertDeckConnection(deckNodeId, cardNodeId) {
+        const { deckConnTypeId } = this._typeIds();
+        if (!deckConnTypeId) return;
+        this.db.prepare(
+            'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
+        ).run(deckNodeId, cardNodeId, deckConnTypeId);
+    }
+
+    deleteDeckConnection(deckNodeId, cardNodeId) {
+        const { deckConnTypeId } = this._typeIds();
+        if (!deckConnTypeId) return;
+        this.db.prepare(
+            'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
+        ).run(deckNodeId, cardNodeId, deckConnTypeId);
     }
 
     getAllDecks() {
@@ -833,15 +863,28 @@ class DocumentQuery {
 
     // --- Card Browser ---
 
-    getAllFlashcards({ search = null, limit = 50, offset = 0 } = {}) {
-        const term = search ? `%${search}%` : null;
+    getAllFlashcards({ search = null, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         const params = [];
-        let where = '';
+        const conditions = [];
 
-        if (term) {
-            where = `WHERE (c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)`;
+        if (search) {
+            const term = `%${search}%`;
+            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
             params.push(term, term, term);
         }
+        if (level !== null) {
+            conditions.push('f.level = ?');
+            params.push(level);
+        }
+        if (cardType) {
+            conditions.push('f.card_type = ?');
+            params.push(cardType);
+        }
+
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const sortCols = { level: 'f.level', name: 'f.name', last_recall: 'f.last_recall' };
+        const sortCol = sortCols[sortBy] ?? 'f.level';
+        const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
 
         params.push(limit, offset);
 
@@ -855,19 +898,35 @@ class DocumentQuery {
             LEFT JOIN Documents d ON f.document_id = d.id
             LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
             ${where}
-            ORDER BY f.level DESC, f.name ASC
+            ORDER BY ${sortCol} ${dir}, f.name ASC
             LIMIT ? OFFSET ?
         `).all(...params);
     }
 
-    getFlashcardCountFiltered({ search = null } = {}) {
-        if (!search) return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get().c;
-        const term = `%${search}%`;
+    getFlashcardCountFiltered({ search = null, level = null, cardType = null } = {}) {
+        const params = [];
+        const conditions = [];
+
+        if (search) {
+            const term = `%${search}%`;
+            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
+            params.push(term, term, term);
+        }
+        if (level !== null) {
+            conditions.push('f.level = ?');
+            params.push(level);
+        }
+        if (cardType) {
+            conditions.push('f.card_type = ?');
+            params.push(cardType);
+        }
+
+        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
+
         return this.db.prepare(`
-            SELECT COUNT(*) as c FROM Flashcards f
-            JOIN FlashcardContent c ON f.content_id = c.id
-            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?
-        `).get(term, term, term).c;
+            SELECT COUNT(*) as c FROM Flashcards f ${contentJoin} ${where}
+        `).get(...params).c;
     }
 
     // --- Highlights ---

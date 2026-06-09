@@ -116,9 +116,12 @@ export default class Decks {
                     deckId: deck.id, cardHash, documentPath, position,
                     inlineCard: inlineCard ? JSON.stringify(inlineCard) : null,
                 });
+                if (deck.node_id) {
+                    const cardNodeId = this.query.getFlashcardNodeIdByHash(cardHash);
+                    if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                }
             })();
         } catch (err) {
-            // rollback file
             file.entries.pop();
             this._write(deckHash, file);
             throw err;
@@ -137,6 +140,10 @@ export default class Decks {
         this._write(deckHash, file);
         try {
             db.transaction(() => {
+                if (deck.node_id) {
+                    const cardNodeId = this.query.getFlashcardNodeIdByHash(cardHash);
+                    if (cardNodeId) this.query.deleteDeckConnection(deck.node_id, cardNodeId);
+                }
                 this.query.deleteDeckEntry(deck.id, cardHash);
             })();
         } catch (err) {
@@ -146,11 +153,11 @@ export default class Decks {
         }
     }
 
-    searchCards({ search, limit = 50, offset = 0 } = {}) {
-        return this.query.getAllFlashcards({ search, limit, offset });
+    searchCards({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+        return this.query.getAllFlashcards({ search, level, cardType, sortBy, sortDir, limit, offset });
     }
 
-    getCardCount({ search } = {}) {
-        return this.query.getFlashcardCountFiltered({ search });
+    getCardCount({ search, level = null, cardType = null } = {}) {
+        return this.query.getFlashcardCountFiltered({ search, level, cardType });
     }
 }

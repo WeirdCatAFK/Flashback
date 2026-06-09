@@ -21,9 +21,13 @@ export const addEntry = (deckHash, cardHash, documentPath = null) =>
 export const removeEntry = (deckHash, cardHash) =>
     request('DELETE', `/api/decks/${deckHash}/entries/${encodeURIComponent(cardHash)}`);
 
-export const searchCards = ({ search, limit = 50, offset = 0 } = {}) => {
+export const searchCards = ({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) => {
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
+    if (level !== null) qs.set('level', String(level));
+    if (cardType) qs.set('cardType', cardType);
+    if (sortBy !== 'level') qs.set('sortBy', sortBy);
+    if (sortDir !== 'desc') qs.set('sortDir', sortDir);
     qs.set('limit', String(limit));
     qs.set('offset', String(offset));
     return request('GET', `/api/decks/cards?${qs}`);

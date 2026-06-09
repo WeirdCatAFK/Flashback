@@ -34,6 +34,7 @@
   --color-graph-folder:     var(--color-fg-secondary);
   --color-graph-flashcard:  var(--color-hl-amber);
   --color-graph-tag:        var(--color-hl-green);
+  --color-graph-deck:       #8B5CF6;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */

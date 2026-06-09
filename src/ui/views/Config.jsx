@@ -73,6 +73,7 @@ const DARK_DEFAULTS = {
   "--color-graph-folder":    "#A8A29E",
   "--color-graph-flashcard": "#F59E0B",
   "--color-graph-tag":       "#10B981",
+  "--color-graph-deck":      "#8B5CF6",
   "--color-graph-disconnect":"#EC4899",
   "--color-graph-inherit":   "#3B82F6",
   "--color-danger":          "#F87171",

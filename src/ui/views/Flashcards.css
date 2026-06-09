@@ -21,6 +21,9 @@
   background: var(--color-sidebar-header);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .fc-sidebar-title {
@@ -31,23 +34,57 @@
   color: var(--color-fg-secondary);
 }
 
+.fc-clear-level {
+  font-size: 10px;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  opacity: 0.8;
+}
+
+.fc-clear-level:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
 .fc-stats {
-  padding: 12px;
+  padding: 10px 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
+  overflow-y: auto;
 }
 
 .fc-stats-total {
   font-size: 12px;
   color: var(--color-fg-secondary);
   margin-bottom: 8px;
+  padding: 0 2px;
 }
 
-.fc-box-row {
+.fc-box-btn {
   display: flex;
   align-items: center;
   gap: 6px;
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 4px;
+  cursor: pointer;
+  text-align: left;
+}
+
+.fc-box-btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.fc-box-btn--active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-color: var(--color-accent);
 }
 
 .fc-box-label {
@@ -82,12 +119,13 @@
 
 .fc-mastery {
   margin-top: 10px;
+  padding: 0 4px;
   font-size: 11px;
   color: var(--color-accent);
   font-weight: 500;
 }
 
-/* ── Main content: card browser ─────────────────────────────────────────── */
+/* ── Main content ───────────────────────────────────────────────────────── */
 
 .fc-main {
   flex: 1;
@@ -97,11 +135,12 @@
   background: var(--color-bg-base);
 }
 
-.fc-search-bar {
+/* Search + sort row */
+.fc-toolbar {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px 16px;
+  gap: 8px;
+  padding: 10px 14px;
   border-bottom: 1px solid var(--color-border);
   background: var(--color-bg-surface);
   flex-shrink: 0;
@@ -122,16 +161,86 @@
   border-color: var(--color-accent);
 }
 
-.fc-search-count {
-  font-size: 11px;
-  color: var(--color-fg-secondary);
+.fc-sort-select {
+  padding: 5px 8px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
   flex-shrink: 0;
 }
 
+.fc-sort-select:focus {
+  border-color: var(--color-accent);
+}
+
+/* Filter pills row */
+.fc-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+.fc-type-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: all 120ms ease;
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+
+.fc-type-pill:hover {
+  border-color: var(--color-accent);
+  color: var(--color-fg-primary);
+}
+
+.fc-type-pill--active {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #fff;
+}
+
+.fc-filter-count {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.fc-clear-all {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--color-border);
+  background: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.fc-clear-all:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+/* Card list */
 .fc-card-list {
   flex: 1;
   overflow-y: auto;
-  padding: 10px 16px;
+  padding: 10px 14px;
 }
 
 .fc-card-row {
@@ -183,8 +292,21 @@
 .fc-card-meta {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   flex-shrink: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 260px;
+}
+
+.fc-card-category {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 15%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  white-space: nowrap;
 }
 
 .fc-card-type {
@@ -195,6 +317,7 @@
   color: var(--color-fg-secondary);
   border: 1px solid var(--color-border);
   text-transform: capitalize;
+  white-space: nowrap;
 }
 
 .fc-card-doc {
@@ -206,9 +329,55 @@
   white-space: nowrap;
 }
 
+.fc-time {
+  font-size: 10px;
+  color: var(--color-fg-disabled, var(--color-fg-secondary));
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
 .fc-empty {
   padding: 40px 0;
   text-align: center;
   color: var(--color-fg-secondary);
   font-size: 13px;
+}
+
+/* Pagination */
+.fc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+}
+
+.fc-page-btn {
+  padding: 4px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.fc-page-btn:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.fc-page-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.fc-page-info {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  min-width: 60px;
+  text-align: center;
 }
