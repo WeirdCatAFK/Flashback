@@ -52,6 +52,19 @@
   margin-left: 4px;
 }
 
+.pdf-zoom-btn--draw {
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.pdf-zoom-btn--active {
+  background: var(--color-accent) !important;
+  border-color: var(--color-accent) !important;
+  color: #000 !important;
+  opacity: 1 !important;
+}
+
 .pdf-zoom-label {
   min-width: 44px;
   text-align: center;
@@ -98,6 +111,26 @@
 .pdf-hl--green { background: var(--color-hl-green); }
 .pdf-hl--blue  { background: var(--color-hl-blue);  }
 .pdf-hl--pink  { background: var(--color-hl-pink);  }
+
+/* Draw mode: crosshair cursor + suppress text selection */
+.pdf-renderer--draw .pdf-page {
+  cursor: crosshair;
+}
+
+.pdf-renderer--draw .pdf-text-layer {
+  pointer-events: none;
+  user-select: none;
+}
+
+/* Rubber-band rectangle drawn during box-highlight drag */
+.pdf-draw-rect {
+  position: fixed;
+  z-index: 9999;
+  pointer-events: none;
+  border: 2px dashed var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-radius: 2px;
+}
 
 /* Text layer — transparent overlay for text selection.
  *

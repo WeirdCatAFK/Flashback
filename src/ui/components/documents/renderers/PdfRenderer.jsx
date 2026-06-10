@@ -21,7 +21,6 @@ function generateId() {
 // --- PdfPage ---
 
 function PdfPage({ page, scale, highlights }) {
-  // Viewport recomputed whenever scale changes
   const viewport = useMemo(() => page.getViewport({ scale }), [page, scale]);
 
   const containerRef = useRef(null);
@@ -125,6 +124,7 @@ export default function PdfRenderer({
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
   const [scale,      setScale]      = useState(SCALE_DEFAULT);
+  const [drawMode,   setDrawMode]   = useState(false);
 
   const pathRef       = useRef(path);
   pathRef.current     = path;
@@ -135,6 +135,9 @@ export default function PdfRenderer({
   const scaleRef      = useRef(scale);
   scaleRef.current    = scale;
   const rendererRef   = useRef(null);
+  const pagesRef      = useRef(null);
+  const drawOverlayRef = useRef(null);
+  const drawDragRef    = useRef(null);
 
   // Load PDF + sidecar
   useEffect(() => {
@@ -204,6 +207,103 @@ export default function PdfRenderer({
     if (saveRef) saveRef.current = (meta) => handleSaveRef.current?.(meta);
     return () => { if (saveRef) saveRef.current = null; };
   });
+
+  // Box-draw mode: one set of event listeners via delegation on the pages container
+  useEffect(() => {
+    if (!drawMode) {
+      drawDragRef.current = null;
+      if (drawOverlayRef.current) drawOverlayRef.current.style.display = 'none';
+      return;
+    }
+
+    const pagesEl = pagesRef.current;
+    if (!pagesEl) return;
+
+    const onMouseDown = (e) => {
+      if (e.button !== 0) return;
+      const pageEl = e.target.closest('.pdf-page');
+      if (!pageEl) return;
+      e.preventDefault();
+      const pageNum = parseInt(pageEl.dataset.page, 10);
+      drawDragRef.current = {
+        pageNum,
+        pageEl,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
+      };
+      if (drawOverlayRef.current) {
+        drawOverlayRef.current.style.display = 'block';
+        drawOverlayRef.current.style.left   = e.clientX + 'px';
+        drawOverlayRef.current.style.top    = e.clientY + 'px';
+        drawOverlayRef.current.style.width  = '0';
+        drawOverlayRef.current.style.height = '0';
+      }
+    };
+
+    const onMouseMove = (e) => {
+      if (!drawDragRef.current || !drawOverlayRef.current) return;
+      const { startClientX, startClientY } = drawDragRef.current;
+      drawOverlayRef.current.style.left   = Math.min(e.clientX, startClientX) + 'px';
+      drawOverlayRef.current.style.top    = Math.min(e.clientY, startClientY) + 'px';
+      drawOverlayRef.current.style.width  = Math.abs(e.clientX - startClientX) + 'px';
+      drawOverlayRef.current.style.height = Math.abs(e.clientY - startClientY) + 'px';
+    };
+
+    const onMouseUp = (e) => {
+      if (!drawDragRef.current) return;
+      const { pageNum, pageEl, startClientX, startClientY } = drawDragRef.current;
+      drawDragRef.current = null;
+      if (drawOverlayRef.current) drawOverlayRef.current.style.display = 'none';
+
+      const w = Math.abs(e.clientX - startClientX);
+      const h = Math.abs(e.clientY - startClientY);
+      if (w < 5 || h < 5) return;
+
+      // Re-read page rect at mouseup time to handle scroll-during-drag
+      const pr = pageEl.getBoundingClientRect();
+      const sc = scaleRef.current;
+      const bbox = {
+        x:      Math.min(e.clientX, startClientX) - pr.left,
+        y:      Math.min(e.clientY, startClientY) - pr.top,
+        width:  w,
+        height: h,
+      };
+      // Convert to PDF units (scale=1)
+      bbox.x      /= sc;
+      bbox.y      /= sc;
+      bbox.width  /= sc;
+      bbox.height /= sc;
+
+      const id  = generateId();
+      const now = new Date().toISOString();
+      const hl  = {
+        id, color: 'amber', page: pageNum, bbox, type: 'pdf_bbox',
+        text: '', createdAt: now, updatedAt: now, cardHashes: [], refIds: [],
+      };
+      const next = [...highlightsRef.current, hl];
+      highlightsRef.current = next;
+      setHighlights(next);
+      handleSaveRef.current?.();
+    };
+
+    const onKeyDown = (e) => {
+      if (e.key === 'Escape' && drawDragRef.current) {
+        drawDragRef.current = null;
+        if (drawOverlayRef.current) drawOverlayRef.current.style.display = 'none';
+      }
+    };
+
+    pagesEl.addEventListener('mousedown', onMouseDown);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      pagesEl.removeEventListener('mousedown', onMouseDown);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [drawMode]);
 
   // Find the highlight (if any) whose bbox contains the centre of the current selection
   const findOverlappingHighlight = useCallback(() => {
@@ -317,7 +417,7 @@ export default function PdfRenderer({
   if (error)   return <div className="renderer-error">Could not load PDF: {error}</div>;
 
   return (
-    <div className="pdf-renderer" ref={rendererRef}>
+    <div className={`pdf-renderer${drawMode ? ' pdf-renderer--draw' : ''}`} ref={rendererRef}>
       <div className="pdf-zoom-bar">
         <button
           className="pdf-zoom-btn"
@@ -335,9 +435,16 @@ export default function PdfRenderer({
         <button className="pdf-zoom-btn pdf-zoom-btn--fit" onClick={fitWidth} title="Fit width">
           Fit
         </button>
+        <button
+          className={`pdf-zoom-btn pdf-zoom-btn--draw${drawMode ? ' pdf-zoom-btn--active' : ''}`}
+          onClick={() => setDrawMode(m => !m)}
+          title={drawMode ? 'Exit box-draw mode (Esc cancels current drag)' : 'Draw highlight box — drag to mark a region on scanned PDFs'}
+        >
+          Box
+        </button>
       </div>
 
-      <div className="pdf-pages">
+      <div className="pdf-pages" ref={pagesRef}>
         {pages.map(page => (
           <PdfPage
             key={page.pageNumber}
@@ -347,6 +454,9 @@ export default function PdfRenderer({
           />
         ))}
       </div>
+
+      {/* Fixed-position rubber-band rect, positioned in viewport coords during drag */}
+      <div ref={drawOverlayRef} className="pdf-draw-rect" style={{ display: 'none' }} />
     </div>
   );
 }
