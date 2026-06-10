@@ -235,8 +235,8 @@
   animation: grade-pop 1000ms cubic-bezier(.2, .8, .3, 1) forwards;
 }
 
-.grade-pop--up   { --tone: var(--color-review-good, var(--color-hl-green)); }
-.grade-pop--down { --tone: var(--color-review-again, var(--color-hl-pink)); }
+.grade-pop--up   { --tone: var(--color-review-good, var(--color-hl-2)); }
+.grade-pop--down { --tone: var(--color-review-again, var(--color-hl-4)); }
 
 .grade-pop-arrow {
   font-size: 18px;
@@ -425,22 +425,22 @@
 }
 
 .sum--again {
-  border-color: var(--color-review-again, var(--color-hl-pink));
+  border-color: var(--color-review-again, var(--color-hl-4));
   background: color-mix(in srgb, var(--color-review-again) 8%, var(--color-bg-surface));
 }
-.sum--again b { color: var(--color-review-again, var(--color-hl-pink)); }
+.sum--again b { color: var(--color-review-again, var(--color-hl-4)); }
 
 .sum--good {
-  border-color: var(--color-review-good, var(--color-hl-green));
+  border-color: var(--color-review-good, var(--color-hl-2));
   background: color-mix(in srgb, var(--color-review-good) 8%, var(--color-bg-surface));
 }
-.sum--good b { color: var(--color-review-good, var(--color-hl-green)); }
+.sum--good b { color: var(--color-review-good, var(--color-hl-2)); }
 
 .sum--easy {
-  border-color: var(--color-review-easy, var(--color-hl-blue));
+  border-color: var(--color-review-easy, var(--color-hl-3));
   background: color-mix(in srgb, var(--color-review-easy) 8%, var(--color-bg-surface));
 }
-.sum--easy b { color: var(--color-review-easy, var(--color-hl-blue)); }
+.sum--easy b { color: var(--color-review-easy, var(--color-hl-3)); }
 
 .trainer-new-session-btn {
   margin-top: 8px;

@@ -136,6 +136,16 @@
   color: var(--color-accent);
 }
 
+/* ── Folder swatch dot ───────────────────────────────────────────────────── */
+
+.fe-folder-swatch {
+  flex-shrink: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  margin-right: 4px;
+}
+
 /* ── Folder icon ─────────────────────────────────────────────────────────── */
 
 .fe-folder-icon {
@@ -339,3 +349,97 @@
 }
 
 /* tag chips and tci-* styles are global (Inspector.css), reused here */
+
+/* ── Folder color picker modal ───────────────────────────────────────────── */
+
+.fsm-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.fsm-modal {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  padding: 20px;
+  width: 272px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: var(--shadow-float);
+}
+
+.fsm-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fsm-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-fg-primary);
+}
+
+.fsm-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.fsm-swatch {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 80ms ease, border-color 80ms ease;
+  outline: none;
+}
+
+.fsm-swatch:hover {
+  transform: scale(1.18);
+}
+
+.fsm-swatch--active {
+  border-color: var(--color-fg-primary) !important;
+}
+
+.fsm-swatch--none {
+  background: none;
+  border: 2px dashed var(--color-border);
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.fsm-custom-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fsm-custom-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  flex-shrink: 0;
+}
+
+.fsm-custom-input {
+  width: 34px;
+  height: 26px;
+  padding: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}

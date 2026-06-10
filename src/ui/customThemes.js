@@ -23,10 +23,10 @@ export const THEME_VARS = [
   { key: '--color-border',         label: 'Borders' },
   { key: '--color-tree-indent',    label: 'Tree indent line' },
   // Highlight swatches
-  { key: '--color-hl-amber',       label: 'Highlight 1' },
-  { key: '--color-hl-green',       label: 'Highlight 2' },
-  { key: '--color-hl-blue',        label: 'Highlight 3' },
-  { key: '--color-hl-pink',        label: 'Highlight 4' },
+  { key: '--color-hl-1',       label: 'Highlight 1' },
+  { key: '--color-hl-2',       label: 'Highlight 2' },
+  { key: '--color-hl-3',        label: 'Highlight 3' },
+  { key: '--color-hl-4',        label: 'Highlight 4' },
   // Review grade swatches
   { key: '--color-review-again',   label: 'Review · Again' },
   { key: '--color-review-good',    label: 'Review · Good' },

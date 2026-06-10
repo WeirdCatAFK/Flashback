@@ -107,10 +107,10 @@
   opacity: 0.38;
 }
 
-.pdf-hl--amber { background: var(--color-hl-amber); }
-.pdf-hl--green { background: var(--color-hl-green); }
-.pdf-hl--blue  { background: var(--color-hl-blue);  }
-.pdf-hl--pink  { background: var(--color-hl-pink);  }
+.pdf-hl--amber { background: var(--color-hl-1); }
+.pdf-hl--green { background: var(--color-hl-2); }
+.pdf-hl--blue  { background: var(--color-hl-3); }
+.pdf-hl--pink  { background: var(--color-hl-4); }
 
 /* Draw mode: crosshair cursor + suppress text selection */
 .pdf-renderer--draw .pdf-page {

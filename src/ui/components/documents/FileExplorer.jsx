@@ -85,6 +85,75 @@ function TagChipInput({ tags, onAdd, onRemove, allKnownTags = [], placeholder = 
   );
 }
 
+// ── Folder swatch modal ───────────────────────────────────────────────────────
+
+const SWATCH_PRESETS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899'];
+
+function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
+  const [custom, setCustom]   = useState(currentColor || '#3b82f6');
+  const [saving, setSaving]   = useState(false);
+
+  const apply = async (color) => {
+    setSaving(true);
+    try {
+      const sidecar = await getSidecar(path, true);
+      await updateMetadata(path, { ...(sidecar || {}), swatchColor: color }, true);
+      onSaved(); // parent closes the modal and triggers refresh
+    } catch {
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fsm-backdrop" onClick={onClose}>
+      <div className="fsm-modal" onClick={e => e.stopPropagation()}>
+        <div className="fsm-header">
+          <span className="fsm-title">Folder color</span>
+          <button type="button" className="ftm-close" onClick={onClose}>×</button>
+        </div>
+        <div className="fsm-swatches">
+          <button
+            type="button"
+            className={`fsm-swatch fsm-swatch--none${!currentColor ? ' fsm-swatch--active' : ''}`}
+            title="No color"
+            disabled={saving}
+            onClick={() => apply('')}
+          />
+          {SWATCH_PRESETS.map(c => (
+            <button
+              key={c}
+              type="button"
+              className={`fsm-swatch${currentColor === c ? ' fsm-swatch--active' : ''}`}
+              style={{ background: c }}
+              title={c}
+              disabled={saving}
+              onClick={() => apply(c)}
+            />
+          ))}
+        </div>
+        <div className="fsm-custom-row">
+          <span className="fsm-custom-label">Custom</span>
+          <input
+            type="color"
+            className="fsm-custom-input"
+            value={custom}
+            onChange={e => setCustom(e.target.value)}
+          />
+          <button
+            type="button"
+            className="tags-btn tags-btn--save"
+            disabled={saving}
+            onClick={() => apply(custom)}
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
 // ── Folder tags modal ─────────────────────────────────────────────────────────
 
 function FolderTagsModal({ path, onClose }) {
@@ -318,7 +387,7 @@ function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubl
 
 // ── Folder ────────────────────────────────────────────────────────────────────
 
-function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
+function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
@@ -426,6 +495,8 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
     onCtxMenu(e, {
       isFolder: true,
       folderPath: path,
+      folderColor: swatchColor,
+      doRefreshOnColorSave: refresh,
       triggerRename: () => { setDraft(name); setRenaming(true); },
       doDelete: async () => { await deleteItem(path, true); onRefresh(); },
       doNewFile: async () => {
@@ -467,6 +538,9 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
         onContextMenu={handleContextMenu}
       >
         <span className="fe-chevron" onClick={toggle} />
+        {swatchColor && (
+          <span className="fe-folder-swatch" style={{ background: swatchColor }} />
+        )}
         <span className="fe-folder-icon" onClick={toggle}>
           {open ? <IconFolderOpen size={14} /> : <IconFolder size={14} />}
         </span>
@@ -500,7 +574,7 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
           {!loading && children.map(item =>
             item.type === 'folder'
               ? <FolderNode key={item.name} name={item.name} path={childPath(item.name)}
-                  flashcardCount={item.flashcardCount ?? 0}
+                  flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
@@ -524,7 +598,9 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const [ctxMenu, setCtxMenu]   = useState(null);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
   const [importing, setImporting]   = useState(null); // null | { done, total, pct }
-  const [tagsTarget, setTagsTarget] = useState(null); // folder path being edited
+  const [tagsTarget, setTagsTarget]   = useState(null); // folder path being edited
+  const [swatchTarget, setSwatchTarget] = useState(null); // { path, color } for color picker
+  const swatchRefreshRef = useRef(null);
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const openCtxMenu  = useCallback((e, config) => {
@@ -603,6 +679,11 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     ...(ctxMenu.isFolder ? [
       { label: 'Study folder', action: () => onStudyFolder?.(ctxMenu.folderPath) },
       { label: 'Edit tags',    action: () => setTagsTarget(ctxMenu.folderPath) },
+      { label: 'Set color',    action: () => {
+          swatchRefreshRef.current = ctxMenu.doRefreshOnColorSave;
+          setSwatchTarget({ path: ctxMenu.folderPath, color: ctxMenu.folderColor ?? '' });
+        }
+      },
       { separator: true },
     ] : []),
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
@@ -657,7 +738,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         {!loading && items.map(item =>
           item.type === 'folder'
             ? <FolderNode key={item.name} name={item.name} path={item.name}
-                flashcardCount={item.flashcardCount ?? 0}
+                flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} onImportProgress={setImporting} />
@@ -684,6 +765,15 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
       {tagsTarget && (
         <FolderTagsModal path={tagsTarget} onClose={() => setTagsTarget(null)} />
+      )}
+
+      {swatchTarget && (
+        <FolderSwatchModal
+          path={swatchTarget.path}
+          currentColor={swatchTarget.color}
+          onClose={() => setSwatchTarget(null)}
+          onSaved={() => { swatchRefreshRef.current?.(); setSwatchTarget(null); }}
+        />
       )}
     </div>
   );

@@ -123,16 +123,16 @@
 /* Highlights — colored marks driven by data-color, no inline style */
 
 .tiptap-editor mark {
-  background: var(--color-hl-amber); /* fallback for marks without data-color */
+  background: var(--color-hl-1); /* fallback for marks without data-color */
   color: inherit;
   padding: 0 2px;
   border-radius: 2px;
 }
 
-.tiptap-editor mark[data-color="amber"] { background: var(--color-hl-amber); }
-.tiptap-editor mark[data-color="green"] { background: var(--color-hl-green); }
-.tiptap-editor mark[data-color="blue"]  { background: var(--color-hl-blue);  }
-.tiptap-editor mark[data-color="pink"]  { background: var(--color-hl-pink);  }
+.tiptap-editor mark[data-color="amber"] { background: var(--color-hl-1); }
+.tiptap-editor mark[data-color="green"] { background: var(--color-hl-2); }
+.tiptap-editor mark[data-color="blue"]  { background: var(--color-hl-3); }
+.tiptap-editor mark[data-color="pink"]  { background: var(--color-hl-4); }
 
 /* Scrollbar */
 

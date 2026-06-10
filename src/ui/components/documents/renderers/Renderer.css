@@ -74,13 +74,13 @@
   color: inherit;
   padding: 0 2px;
   border-radius: 2px;
-  background: var(--color-hl-amber);
+  background: var(--color-hl-1);
 }
 
-.text-tiptap mark[data-color="amber"] { background: var(--color-hl-amber); }
-.text-tiptap mark[data-color="green"] { background: var(--color-hl-green); }
-.text-tiptap mark[data-color="blue"]  { background: var(--color-hl-blue);  }
-.text-tiptap mark[data-color="pink"]  { background: var(--color-hl-pink);  }
+.text-tiptap mark[data-color="amber"] { background: var(--color-hl-1); }
+.text-tiptap mark[data-color="green"] { background: var(--color-hl-2); }
+.text-tiptap mark[data-color="blue"]  { background: var(--color-hl-3); }
+.text-tiptap mark[data-color="pink"]  { background: var(--color-hl-4); }
 
 .text-tiptap-wrapper::-webkit-scrollbar {
   width: 12px;

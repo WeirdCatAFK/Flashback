@@ -21,10 +21,10 @@
   --color-tree-indent:    #D6D3D1;
   --color-sidebar-header: #E2DFDC;
   /* highlight swatches */
-  --color-hl-amber:       #FCD34D;
-  --color-hl-green:       #86EFAC;
-  --color-hl-blue:        #93C5FD;
-  --color-hl-pink:        #FCA5A5;
+  --color-hl-1:       #FCD34D;
+  --color-hl-2:       #86EFAC;
+  --color-hl-3:        #93C5FD;
+  --color-hl-4:        #FCA5A5;
   /* review grade swatches */
   --color-review-again:   #FCA5A5;
   --color-review-good:    #86EFAC;
@@ -32,8 +32,8 @@
   /* graph node & link colors (override individually per theme if desired) */
   --color-graph-document:   var(--color-accent);
   --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-amber);
-  --color-graph-tag:        var(--color-hl-green);
+  --color-graph-flashcard:  var(--color-hl-1);
+  --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
@@ -61,14 +61,22 @@
   --color-tree-indent:    #2C2420;
   --color-sidebar-header: #0F0D0B;
   /* highlight swatches */
-  --color-hl-amber:       #F59E0B;
-  --color-hl-green:       #10B981;
-  --color-hl-blue:        #3B82F6;
-  --color-hl-pink:        #EC4899;
+  --color-hl-1:       #F59E0B;
+  --color-hl-2:       #10B981;
+  --color-hl-3:        #3B82F6;
+  --color-hl-4:        #EC4899;
   /* review grade swatches */
   --color-review-again:   #EC4899;
   --color-review-good:    #10B981;
   --color-review-easy:    #3B82F6;
+  /* graph node & link colors */
+  --color-graph-document:   var(--color-accent);
+  --color-graph-folder:     var(--color-fg-secondary);
+  --color-graph-flashcard:  var(--color-hl-1);
+  --color-graph-tag:        var(--color-hl-2);
+  --color-graph-deck:       #8B5CF6;
+  --color-graph-disconnect: var(--color-review-again);
+  --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22);
   --color-danger:       #F87171;
@@ -93,14 +101,22 @@
   --color-tree-indent:    rgba(255, 23, 68, 0.19);
   --color-sidebar-header: #0A0A0B;
   /* highlight swatches */
-  --color-hl-amber:       #FF1744;
-  --color-hl-green:       #FF6D00;
-  --color-hl-blue:        #00B0FF;
-  --color-hl-pink:        #D500F9;
+  --color-hl-1:       #FF1744;
+  --color-hl-2:       #FF6D00;
+  --color-hl-3:        #00B0FF;
+  --color-hl-4:        #D500F9;
   /* review grade swatches */
   --color-review-again:   #FF1744;
   --color-review-good:    #00C853;
   --color-review-easy:    #00B0FF;
+  /* graph node & link colors */
+  --color-graph-document:   var(--color-accent);
+  --color-graph-folder:     var(--color-fg-secondary);
+  --color-graph-flashcard:  var(--color-hl-1);
+  --color-graph-tag:        var(--color-hl-2);
+  --color-graph-deck:       #8B5CF6;
+  --color-graph-disconnect: var(--color-review-again);
+  --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.60), 0 2px 8px rgba(0,0,0,.28);
   --color-danger:       #FF5252;
@@ -125,14 +141,22 @@
   --color-tree-indent:    rgba(183, 122, 217, 0.31);
   --color-sidebar-header: #17132E;
   /* highlight swatches */
-  --color-hl-amber:       #B77AD9;
-  --color-hl-green:       #06B6D4;
-  --color-hl-blue:        #818CF8;
-  --color-hl-pink:        #F472B6;
+  --color-hl-1:       #B77AD9;
+  --color-hl-2:       #06B6D4;
+  --color-hl-3:        #818CF8;
+  --color-hl-4:        #F472B6;
   /* review grade swatches */
   --color-review-again:   #F472B6;
   --color-review-good:    #34D399;
   --color-review-easy:    #818CF8;
+  /* graph node & link colors */
+  --color-graph-document:   var(--color-accent);
+  --color-graph-folder:     var(--color-fg-secondary);
+  --color-graph-flashcard:  var(--color-hl-1);
+  --color-graph-tag:        var(--color-hl-2);
+  --color-graph-deck:       #8B5CF6;
+  --color-graph-disconnect: var(--color-review-again);
+  --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
   --color-danger:       #F472B6;
@@ -157,14 +181,22 @@
   --color-tree-indent:    rgba(129, 140, 248, 0.25);
   --color-sidebar-header: #050507;
   /* highlight swatches */
-  --color-hl-amber:       #818CF8;
-  --color-hl-green:       #34D399;
-  --color-hl-blue:        #22D3EE;
-  --color-hl-pink:        #FB7185;
+  --color-hl-1:       #818CF8;
+  --color-hl-2:       #34D399;
+  --color-hl-3:        #22D3EE;
+  --color-hl-4:        #FB7185;
   /* review grade swatches */
   --color-review-again:   #FB7185;
   --color-review-good:    #34D399;
   --color-review-easy:    #22D3EE;
+  /* graph node & link colors */
+  --color-graph-document:   var(--color-accent);
+  --color-graph-folder:     var(--color-fg-secondary);
+  --color-graph-flashcard:  var(--color-hl-1);
+  --color-graph-tag:        var(--color-hl-2);
+  --color-graph-deck:       #8B5CF6;
+  --color-graph-disconnect: var(--color-review-again);
+  --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
   --color-danger:       #FB7185;

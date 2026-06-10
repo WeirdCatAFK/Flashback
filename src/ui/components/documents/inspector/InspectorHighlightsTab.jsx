@@ -3,10 +3,10 @@ import { useState } from 'react';
 const EMPTY = [];
 
 const COLOR_VAR = {
-  amber: '--color-hl-amber',
-  green: '--color-hl-green',
-  blue:  '--color-hl-blue',
-  pink:  '--color-hl-pink',
+  amber: '--color-hl-1',
+  green: '--color-hl-2',
+  blue:  '--color-hl-3',
+  pink:  '--color-hl-4',
 };
 
 const TYPE_LABELS = {

@@ -2,10 +2,10 @@ import { createPortal } from 'react-dom';
 import './SelectionToolbar.css';
 
 const HIGHLIGHT_COLORS = [
-  { key: 'amber', cssVar: '--color-hl-amber', label: 'Highlight 1' },
-  { key: 'green', cssVar: '--color-hl-green', label: 'Highlight 2' },
-  { key: 'blue',  cssVar: '--color-hl-blue',  label: 'Highlight 3' },
-  { key: 'pink',  cssVar: '--color-hl-pink',  label: 'Highlight 4' },
+  { key: 'amber', cssVar: '--color-hl-1', label: 'Highlight 1' },
+  { key: 'green', cssVar: '--color-hl-2', label: 'Highlight 2' },
+  { key: 'blue',  cssVar: '--color-hl-3', label: 'Highlight 3' },
+  { key: 'pink',  cssVar: '--color-hl-4', label: 'Highlight 4' },
 ];
 
 export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighlight, onUnhighlight, onClear }) {
