@@ -126,6 +126,170 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+function datestamp() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function generateGraphHtml(nodes, links, colorMap, exportedAt) {
+  const data = JSON.stringify({ nodes, links }).replace(/<\/script>/gi, '<\\/script>');
+  const cols = JSON.stringify(colorMap);
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Flashback Knowledge Graph</title>
+<script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #1c1917; color: #d6d3d1; font-family: system-ui, sans-serif; overflow: hidden; }
+#root { display: block; width: 100vw; height: 100vh; }
+#panel {
+  position: fixed; top: 14px; right: 14px;
+  background: #292524; border: 1px solid #44403c; border-radius: 8px;
+  padding: 10px 12px; font-size: 12px; color: #a8a29e;
+  display: flex; flex-direction: column; gap: 5px; min-width: 130px; user-select: none;
+}
+.leg { display: flex; align-items: center; gap: 7px; }
+.dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.sep { height: 1px; background: #44403c; margin: 2px 0; }
+.tbtn {
+  display: flex; align-items: center; gap: 7px;
+  background: none; border: none; color: #a8a29e;
+  cursor: pointer; padding: 2px; font-size: 12px; font-family: inherit;
+}
+.tbtn:hover { color: #e7e5e4; }
+.tbtn.on { color: #e7e5e4; }
+.tbtn.off span:last-child { text-decoration: line-through; opacity: 0.4; }
+#meta { position: fixed; bottom: 12px; left: 14px; font-size: 11px; color: #57534e; }
+#tooltip {
+  position: fixed; background: #1c1917; border: 1px solid #44403c;
+  border-radius: 6px; padding: 8px 10px; font-size: 12px;
+  pointer-events: none; display: none; max-width: 200px; z-index: 10;
+}
+.tt-type { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 2px; }
+.tt-name { color: #e7e5e4; word-break: break-word; }
+</style>
+</head>
+<body>
+<svg id="root"></svg>
+<div id="panel">
+  <div id="legend"></div>
+  <div class="sep"></div>
+  <div id="toggles"></div>
+</div>
+<div id="meta">Exported ${exportedAt} &middot; ${nodes.length} nodes &middot; ${links.length} edges</div>
+<div id="tooltip">
+  <div class="tt-type" id="tt-type"></div>
+  <div class="tt-name" id="tt-name"></div>
+</div>
+<script>
+var GRAPH = ${data};
+var COLORS = ${cols};
+var hiddenTypes = {};
+
+var svg = d3.select('#root');
+var W = window.innerWidth, H = window.innerHeight;
+svg.attr('width', W).attr('height', H);
+var g = svg.append('g');
+svg.call(d3.zoom().scaleExtent([0.05, 12]).on('zoom', function(e) { g.attr('transform', e.transform); }));
+
+function redraw() {
+  g.selectAll('*').remove();
+  var nodes = GRAPH.nodes.filter(function(n) { return !hiddenTypes[n.type]; }).map(function(n) { return Object.assign({}, n); });
+  var nodeIds = {};
+  nodes.forEach(function(n) { nodeIds[n.id] = true; });
+  var links = GRAPH.links
+    .filter(function(l) { return nodeIds[l.source] && nodeIds[l.target]; })
+    .map(function(l) { return Object.assign({}, l); });
+
+  var sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(60))
+    .force('charge', d3.forceManyBody().strength(-90))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collide', d3.forceCollide(10));
+
+  var linkSel = g.append('g').selectAll('line').data(links).join('line')
+    .attr('stroke', function(d) { return COLORS.links[d.relation] || '#777'; })
+    .attr('stroke-opacity', 0.45).attr('stroke-width', 1.5);
+
+  var nodeSel = g.append('g').selectAll('g').data(nodes).join('g').attr('cursor', 'pointer')
+    .call(d3.drag()
+      .on('start', function(e, d) { if (!e.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y; })
+      .on('drag',  function(e, d) { d.fx = e.x; d.fy = e.y; })
+      .on('end',   function(e, d) { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }))
+    .on('mouseenter', function(e, d) {
+      var tip = document.getElementById('tooltip');
+      document.getElementById('tt-type').textContent = d.type;
+      document.getElementById('tt-type').style.color = COLORS.nodes[d.type] || '#ccc';
+      document.getElementById('tt-name').textContent = d.name;
+      tip.style.display = 'block';
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY - 8)  + 'px';
+    })
+    .on('mousemove', function(e) {
+      var tip = document.getElementById('tooltip');
+      tip.style.left = (e.clientX + 14) + 'px';
+      tip.style.top  = (e.clientY - 8)  + 'px';
+    })
+    .on('mouseleave', function() { document.getElementById('tooltip').style.display = 'none'; });
+
+  nodeSel.append('circle').attr('r', 7)
+    .attr('fill', function(d) { return COLORS.nodes[d.type] || '#888'; });
+  nodeSel.append('text')
+    .text(function(d) { return d.type === 'Flashcard' ? '' : d.name; })
+    .attr('y', 18).attr('text-anchor', 'middle')
+    .attr('fill', '#a8a29e').attr('font-size', 11).attr('font-family', 'system-ui, sans-serif')
+    .style('pointer-events', 'none');
+
+  sim.on('tick', function() {
+    linkSel
+      .attr('x1', function(d) { return d.source.x; }).attr('y1', function(d) { return d.source.y; })
+      .attr('x2', function(d) { return d.target.x; }).attr('y2', function(d) { return d.target.y; });
+    nodeSel.attr('transform', function(d) { return 'translate(' + d.x + ',' + d.y + ')'; });
+  });
+}
+
+var legendEl = document.getElementById('legend');
+Object.keys(COLORS.nodes).forEach(function(type) {
+  var div = document.createElement('div');
+  div.className = 'leg';
+  div.innerHTML = '<span class="dot" style="background:' + COLORS.nodes[type] + '"></span><span>' + type + '</span>';
+  legendEl.appendChild(div);
+});
+
+var togglesEl = document.getElementById('toggles');
+['Tag', 'Deck'].forEach(function(type) {
+  var btn = document.createElement('button');
+  btn.className = 'tbtn on';
+  btn.innerHTML = '<span class="dot" style="background:' + COLORS.nodes[type] + '"></span><span>' + type.toLowerCase() + 's</span>';
+  btn.onclick = function() {
+    if (hiddenTypes[type]) { delete hiddenTypes[type]; btn.className = 'tbtn on'; }
+    else { hiddenTypes[type] = true; btn.className = 'tbtn off'; }
+    redraw();
+  };
+  togglesEl.appendChild(btn);
+});
+
+window.addEventListener('resize', function() {
+  W = window.innerWidth; H = window.innerHeight;
+  svg.attr('width', W).attr('height', H);
+});
+
+redraw();
+</script>
+</body>
+</html>`;
+}
+
 export default function GraphView({ isActive = false, onNavigate }) {
   const { graphData, loading, error } = useGraph(isActive);
   const [showTags, setShowTags]   = useState(true);
@@ -144,6 +308,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
   // Hover-to-select machinery
   const hoverTimerRef = useRef(null);
   const selectedByHoverRef = useRef(false);
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
 
   const { width, height } = useContainerSize(containerRef);
   const themeVer = useThemeVersion();
@@ -416,6 +582,38 @@ export default function GraphView({ isActive = false, onNavigate }) {
     setSelected(prev => prev?.id === node.id ? null : node);
   }, []);
 
+  function handleExportPng() {
+    const canvas = containerRef.current?.querySelector('canvas');
+    if (!canvas) return;
+    canvas.toBlob(blob => { if (blob) downloadBlob(blob, `flashback-graph-${datestamp()}.png`); }, 'image/png');
+    setShowExportMenu(false);
+  }
+
+  function handleExportJson() {
+    if (!visibleData) return;
+    const out = {
+      exportedAt: new Date().toISOString(),
+      nodes: visibleData.nodes.map(({ id, type, name, label, presence, documentPath, flashcardHash }) =>
+        ({ id, type, name, label, presence, documentPath, flashcardHash })),
+      links: visibleData.links.map(l => ({ source: nodeId(l.source), target: nodeId(l.target), relation: l.relation })),
+    };
+    downloadBlob(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `flashback-graph-${datestamp()}.json`);
+    setShowExportMenu(false);
+  }
+
+  function handleExportHtml() {
+    if (!visibleData) return;
+    const exportNodes = visibleData.nodes.map(n => ({
+      id: n.id, type: n.type, name: n.name, presence: n.presence || 0,
+    }));
+    const exportLinks = visibleData.links.map(l => ({
+      source: nodeId(l.source), target: nodeId(l.target), relation: l.relation,
+    }));
+    const html = generateGraphHtml(exportNodes, exportLinks, colors, new Date().toLocaleString());
+    downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `flashback-graph-${datestamp()}.html`);
+    setShowExportMenu(false);
+  }
+
   return (
     <div ref={containerRef} className="graph-root">
       {loading && <div className="graph-status">Loading graph…</div>}
@@ -495,6 +693,24 @@ export default function GraphView({ isActive = false, onNavigate }) {
               }} />
               <span>decks</span>
             </button>
+
+            <div className="graph-controls-sep" />
+
+            <button type="button"
+              className={`graph-toggle-btn${showExportMenu ? ' graph-toggle-btn--active' : ''}`}
+              onClick={() => setShowExportMenu(s => !s)}
+              title="Export graph"
+            >
+              export
+            </button>
+
+            {showExportMenu && (
+              <>
+                <button type="button" className="graph-export-item" onClick={handleExportPng}>PNG image</button>
+                <button type="button" className="graph-export-item" onClick={handleExportJson}>JSON data</button>
+                <button type="button" className="graph-export-item" onClick={handleExportHtml}>Interactive HTML</button>
+              </>
+            )}
           </div>
 
           {selected && (
