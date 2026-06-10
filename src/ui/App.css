@@ -59,6 +59,35 @@
   color: #fff;
 }
 
+/* ── Search button (title bar) ───────────────────────────────────────────── */
+
+#search-btn {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-bg-base);
+  color: var(--color-fg-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color 0.1s, color 0.1s;
+}
+
+#search-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-fg-secondary);
+}
+
+#search-btn kbd {
+  font-family: inherit;
+  font-size: 10px;
+  opacity: 0.65;
+}
+
 /* ── App body (sidebar + content) ────────────────────────────────────────── */
 
 #app-body {

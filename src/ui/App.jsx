@@ -11,6 +11,7 @@ import IconSeal from "./components/icons/IconSeal";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
+import SearchModal from "./components/search/SearchModal";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
@@ -57,6 +58,8 @@ export default function App() {
     setActiveView('trainer');
   }, []);
 
+  const [searchOpen, setSearchOpen] = useState(false);
+
   const [pendingSource, setPendingSource] = useState(null); // { path, highlightId }
   const handleOpenDocumentSource = useCallback((documentPath, highlightId) => {
     setActiveView('documents');
@@ -97,7 +100,10 @@ export default function App() {
   useEffect(() => {
     const onKeyDown = (e) => {
       if (!e.ctrlKey) return;
-      if (e.key === "=" || e.key === "+") {
+      if (e.key === "k" || e.key === "K") {
+        e.preventDefault();
+        setSearchOpen(o => !o);
+      } else if (e.key === "=" || e.key === "+") {
         e.preventDefault();
         setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(1))));
       } else if (e.key === "-") {
@@ -111,6 +117,35 @@ export default function App() {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
+
+  const handleSearchNavigate = useCallback(({ type, payload }) => {
+    switch (type) {
+      case 'document':
+        setActiveView('documents');
+        setPendingSource({ path: payload.path, highlightId: null });
+        break;
+      case 'folder':
+        setActiveView('documents');
+        setOpenPaths(prev => { const n = new Set(prev); n.add(payload.path); return n; });
+        setSelectedPath(payload.path);
+        break;
+      case 'flashcard':
+        if (payload.documentPath) {
+          setActiveView('documents');
+          setPendingSource({ path: payload.documentPath, highlightId: null });
+        } else {
+          setActiveView('flashcards');
+        }
+        break;
+      case 'tag':
+        handleStartStudy({ tags: [payload.name] });
+        break;
+      case 'deck':
+        setActiveView('decks');
+        break;
+      default: break;
+    }
+  }, [handleStartStudy]);
 
   // Track which views have been visited so we only mount them on first visit
   const visitedRef = useRef(null);
@@ -142,6 +177,21 @@ export default function App() {
     <div id="app-shell">
       <div id="title-bar">
         <span id="app-title">Flashback</span>
+        <button
+          type="button"
+          id="search-btn"
+          title="Search (Ctrl+K)"
+          aria-label="Search"
+          onClick={() => setSearchOpen(true)}
+        >
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
+            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+            aria-hidden="true">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <span>Search</span>
+          <kbd>Ctrl+K</kbd>
+        </button>
         <div id="window-controls">
           <button type="button" className="wc-btn wc-minimize" title="Minimize" aria-label="Minimize"
             onClick={() => window.flashback?.windowMinimize()}>
@@ -178,6 +228,18 @@ export default function App() {
 
             <div id="activity-bottom">
               <button type="button"
+                className="activity-btn"
+                onClick={() => setSearchOpen(true)}
+                title="Search (Ctrl+K)"
+                aria-label="Search"
+              >
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
+                  aria-hidden="true">
+                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+                </svg>
+              </button>
+              <button type="button"
                 className={`activity-btn${activeView === "config" ? " active" : ""}`}
                 onClick={() => setActiveView("config")}
                 title="Config"
@@ -200,6 +262,13 @@ export default function App() {
           </main>
         </div>
       </AppGate>
+
+      {searchOpen && (
+        <SearchModal
+          onClose={() => setSearchOpen(false)}
+          onNavigate={handleSearchNavigate}
+        />
+      )}
     </div>
   );
 }

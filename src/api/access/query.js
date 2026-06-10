@@ -673,6 +673,112 @@ class DocumentQuery {
         return [...docs, ...cards, ...tags];
     }
 
+    // Unified search across all entity types.
+    // - Global mode (only q): returns { folders, documents, flashcards, tags, decks }
+    // - Filter mode (tag/deck/document/folder): returns { flashcards } matching all supplied filters
+    superSearch({ q = null, tag = null, deck = null, document: docQ = null, folder = null, limit = 20 } = {}) {
+        const hasFilter = tag || deck || docQ || folder;
+        if (hasFilter) {
+            return { flashcards: this._searchFlashcards({ q, tag, deck, docQ, folder, limit }) };
+        }
+
+        if (!q || !q.trim()) return { folders: [], documents: [], flashcards: [], tags: [], decks: [] };
+        const term = `%${q.trim()}%`;
+
+        const folders = this.db.prepare(
+            `SELECT name, relative_path as path, global_hash FROM Folders WHERE name LIKE ? LIMIT ?`
+        ).all(term, limit);
+
+        const documents = this.db.prepare(
+            `SELECT name, relative_path as path, global_hash FROM Documents WHERE name LIKE ? LIMIT ?`
+        ).all(term, limit);
+
+        const flashcards = this.db.prepare(`
+            SELECT f.global_hash, f.name, f.card_type, f.level,
+                   c.frontText, c.backText,
+                   d.relative_path as document_path, d.name as document_name
+            FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON d.id = f.document_id
+            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?
+            LIMIT ?
+        `).all(term, term, term, limit);
+
+        const tags = this.db.prepare(
+            `SELECT name FROM Tags WHERE name LIKE ? LIMIT ?`
+        ).all(term, limit);
+
+        const decks = this.db.prepare(
+            `SELECT name, global_hash FROM Decks WHERE name LIKE ? LIMIT ?`
+        ).all(term, limit);
+
+        return { folders, documents, flashcards, tags, decks };
+    }
+
+    _searchFlashcards({ q = null, tag = null, deck = null, docQ = null, folder = null, limit = 50 } = {}) {
+        const conditions = [];
+        const cteParams = [];
+        const condParams = [];
+        let cteSQL = '';
+
+        if (folder) {
+            const fTerm = `%${folder}%`;
+            cteSQL = `WITH RECURSIVE folder_tree AS (
+                SELECT id FROM Folders WHERE name LIKE ? OR relative_path LIKE ?
+                UNION ALL
+                SELECT fo.id FROM Folders fo
+                JOIN folder_tree ft ON fo.parent_id = ft.id
+            )`;
+            cteParams.push(fTerm, fTerm);
+            conditions.push('d.folder_id IN (SELECT id FROM folder_tree)');
+        }
+
+        if (tag) {
+            conditions.push(`EXISTS (
+                SELECT 1 FROM Connections ctag
+                JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                WHERE ctag.origin_id = f.node_id
+                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                  AND tg.name LIKE ?
+            )`);
+            condParams.push(`%${tag}%`);
+        }
+
+        if (deck) {
+            conditions.push(`f.global_hash IN (
+                SELECT de.card_hash FROM DeckEntries de
+                JOIN Decks dk ON dk.id = de.deck_id
+                WHERE dk.name LIKE ?
+            )`);
+            condParams.push(`%${deck}%`);
+        }
+
+        if (docQ) {
+            conditions.push('(d.name LIKE ? OR d.relative_path LIKE ?)');
+            condParams.push(`%${docQ}%`, `%${docQ}%`);
+        }
+
+        if (q) {
+            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
+            condParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+        }
+
+        const whereSQL = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        const allParams = [...cteParams, ...condParams, limit];
+
+        return this.db.prepare(`
+            ${cteSQL}
+            SELECT f.global_hash, f.name, f.card_type, f.level,
+                   c.frontText, c.backText,
+                   d.relative_path as document_path, d.name as document_name
+            FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON d.id = f.document_id
+            ${whereSQL}
+            LIMIT ?
+        `).all(...allParams);
+    }
+
     // --- Presence ---
 
     getFlashcardAvgLevel(documentId) {
