@@ -157,7 +157,7 @@ export default function App() {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudyFolder={(folder) => handleStartStudy({ folder })} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
       case "flashcards": return <FlashcardsView />;
       case "decks":      return <DecksView onStudyDeck={handleStartStudy} />;
-      case "graph":      return <GraphView isActive={activeView === 'graph'} />;
+      case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView />;
       case "config":     return (
@@ -189,7 +189,6 @@ export default function App() {
             aria-hidden="true">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
-          <span>Search</span>
           <kbd>Ctrl+K</kbd>
         </button>
         <div id="window-controls">
@@ -227,18 +226,6 @@ export default function App() {
             </div>
 
             <div id="activity-bottom">
-              <button type="button"
-                className="activity-btn"
-                onClick={() => setSearchOpen(true)}
-                title="Search (Ctrl+K)"
-                aria-label="Search"
-              >
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
-                  stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-                  aria-hidden="true">
-                  <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-                </svg>
-              </button>
               <button type="button"
                 className={`activity-btn${activeView === "config" ? " active" : ""}`}
                 onClick={() => setActiveView("config")}

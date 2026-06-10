@@ -388,3 +388,207 @@
 .hl-add-card-btn:hover {
   background: var(--color-accent-subtle);
 }
+
+/* ── Tags tab ────────────────────────────────────────────────────────────── */
+
+.tags-tab {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.tags-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tags-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.tags-section-hint {
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+  text-transform: none;
+}
+
+.tags-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+/* Base chip */
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tag-chip--inherited {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.tag-chip--direct {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.tag-chip--excluded {
+  background: color-mix(in srgb, #ef4444 12%, transparent);
+  color: #ef4444;
+  border: 1px solid color-mix(in srgb, #ef4444 30%, transparent);
+  text-decoration: line-through;
+}
+
+.tag-chip-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 13px;
+  line-height: 1;
+  transition: opacity 80ms;
+  display: flex;
+  align-items: center;
+}
+
+.tag-chip-remove:hover { opacity: 1; }
+
+/* Tag chip input */
+.tci-wrap {
+  position: relative;
+}
+
+.tci-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 4px 8px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  cursor: text;
+  transition: border-color 100ms;
+}
+
+.tci-row:focus-within,
+.tci-row--open {
+  border-color: var(--color-accent);
+}
+
+.tci-input {
+  flex: 1;
+  min-width: 80px;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--color-fg-primary);
+  padding: 0;
+  caret-color: var(--color-accent);
+}
+
+.tci-input::placeholder { color: var(--color-fg-secondary); opacity: 0.6; }
+
+.tci-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.tci-suggestion {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  transition: background 60ms;
+}
+
+.tci-suggestion:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+}
+
+/* Actions row */
+.tags-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.tags-btn {
+  padding: 5px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+
+.tags-btn--ghost {
+  background: none;
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+}
+
+.tags-btn--ghost:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.tags-btn--save {
+  background: var(--color-accent);
+  border: 1px solid transparent;
+  color: #0d0d0d;
+}
+
+.tags-btn--save:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-accent) 85%, white);
+}
+
+.tags-btn--save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.tags-error {
+  font-size: 11px;
+  color: #ef4444;
+  margin: 0;
+}

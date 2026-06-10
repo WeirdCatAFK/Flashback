@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress } from '../../api/documents';
+import { createPortal } from 'react-dom';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, getEntityTags, getTags, getSidecar, updateMetadata } from '../../api/documents';
 import IconFolder from '../icons/IconFolder';
 import IconFolderOpen from '../icons/IconFolderOpen';
 import IconFile from '../icons/IconFile';
@@ -28,6 +29,163 @@ const reservedNameError = (name, type) => {
     return 'The "media" folder name is reserved for flashcard assets and is managed automatically.';
   return null;
 };
+
+// ── Tag chip input (shared with FolderTagsModal) ──────────────────────────────
+
+function TagChipInput({ tags, onAdd, onRemove, allKnownTags = [], placeholder = 'Add tag…', chipClass = '' }) {
+  const [input, setInput] = useState('');
+  const [open, setOpen]   = useState(false);
+
+  const suggestions = input.trim()
+    ? allKnownTags.filter(t => t.toLowerCase().includes(input.toLowerCase()) && !tags.includes(t)).slice(0, 8)
+    : allKnownTags.filter(t => !tags.includes(t)).slice(0, 8);
+
+  const addTag = (name) => {
+    const t = name.trim();
+    if (t && !tags.includes(t)) onAdd(t);
+    setInput('');
+    setOpen(false);
+  };
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter')     { e.preventDefault(); if (input.trim()) addTag(input); }
+    if (e.key === 'Escape')    { setOpen(false); setInput(''); }
+    if (e.key === 'Backspace' && !input && tags.length > 0) onRemove(tags[tags.length - 1]);
+  };
+
+  return (
+    <div className="tci-wrap">
+      <div className={`tci-row${open && suggestions.length > 0 ? ' tci-row--open' : ''}`}>
+        {tags.map(t => (
+          <span key={t} className={`tag-chip ${chipClass}`}>
+            {t}
+            <button type="button" className="tag-chip-remove" onClick={() => onRemove(t)}>×</button>
+          </span>
+        ))}
+        <input
+          className="tci-input"
+          value={input}
+          placeholder={tags.length === 0 ? placeholder : ''}
+          onChange={e => { setInput(e.target.value); setOpen(true); }}
+          onKeyDown={handleKeyDown}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          spellCheck={false}
+          autoComplete="off"
+        />
+      </div>
+      {open && suggestions.length > 0 && (
+        <ul className="tci-dropdown">
+          {suggestions.map(s => (
+            <li key={s} className="tci-suggestion" onMouseDown={() => addTag(s)}>{s}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+// ── Folder tags modal ─────────────────────────────────────────────────────────
+
+function FolderTagsModal({ path, onClose }) {
+  const [inherited, setInherited]       = useState([]);
+  const [directTags, setDirectTags]     = useState([]);
+  const [excludedTags, setExcludedTags] = useState([]);
+  const [allKnownTags, setAllKnownTags] = useState([]);
+  const [dirty, setDirty]   = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
+
+  useEffect(() => {
+    if (!path) return;
+    let cancelled = false;
+    Promise.all([getEntityTags(path, true), getTags()])
+      .then(([entity, { tags: all }]) => {
+        if (cancelled) return;
+        setInherited(entity.inherited ?? []);
+        setDirectTags(entity.direct ?? []);
+        setExcludedTags(entity.excluded ?? []);
+        setAllKnownTags(all ?? []);
+      })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, [path]);
+
+  const addDirect   = (t) => { setDirectTags(p => p.includes(t) ? p : [...p, t]);   setDirty(true); };
+  const removeDirect = (t) => { setDirectTags(p => p.filter(x => x !== t));          setDirty(true); };
+  const addExcluded  = (t) => { setExcludedTags(p => p.includes(t) ? p : [...p, t]); setDirty(true); };
+  const removeExcluded = (t) => { setExcludedTags(p => p.filter(x => x !== t));      setDirty(true); };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      const sidecar = await getSidecar(path, true);
+      await updateMetadata(path, { ...sidecar, tags: directTags, excludedTags }, true);
+      onClose();
+    } catch {
+      setError('Save failed.');
+      setSaving(false);
+    }
+  };
+
+  return createPortal(
+    <div className="ftm-backdrop" onClick={onClose}>
+      <div className="ftm-modal" onClick={e => e.stopPropagation()}>
+        <div className="ftm-header">
+          <span className="ftm-title">Folder tags</span>
+          <span className="ftm-path">{path}</span>
+          <button type="button" className="ftm-close" onClick={onClose} aria-label="Close">×</button>
+        </div>
+
+        {inherited.length > 0 && (
+          <div className="ftm-section">
+            <div className="ftm-label">Inherited <span className="ftm-hint">from parent folders, read-only</span></div>
+            <div className="tags-chip-row">
+              {inherited.map(t => <span key={t} className="tag-chip tag-chip--inherited">{t}</span>)}
+            </div>
+          </div>
+        )}
+
+        <div className="ftm-section">
+          <div className="ftm-label">Direct tags</div>
+          <TagChipInput
+            tags={directTags}
+            onAdd={addDirect}
+            onRemove={removeDirect}
+            allKnownTags={allKnownTags}
+            chipClass="tag-chip--direct"
+          />
+        </div>
+
+        <div className="ftm-section">
+          <div className="ftm-label">
+            Excluded tags
+            <span className="ftm-hint">block these inherited tags from propagating to children</span>
+          </div>
+          <TagChipInput
+            tags={excludedTags}
+            onAdd={addExcluded}
+            onRemove={removeExcluded}
+            allKnownTags={[...inherited, ...directTags]}
+            placeholder="Add exclusion…"
+            chipClass="tag-chip--excluded"
+          />
+        </div>
+
+        {error && <p className="ftm-error">{error}</p>}
+
+        <div className="ftm-footer">
+          <button type="button" className="tags-btn tags-btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="tags-btn tags-btn--save" onClick={handleSave} disabled={!dirty || saving}>
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body,
+  );
+}
 
 // ── Inline create input ───────────────────────────────────────────────────────
 
@@ -278,6 +436,7 @@ function FolderNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDou
         if (!open) { toggleOpen(path); await loadChildren(); }
         setPendingNew('folder');
       },
+      doEditTags: () => {},
     });
   };
 
@@ -365,6 +524,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const [ctxMenu, setCtxMenu]   = useState(null);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
   const [importing, setImporting]   = useState(null); // null | { done, total, pct }
+  const [tagsTarget, setTagsTarget] = useState(null); // folder path being edited
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const openCtxMenu  = useCallback((e, config) => {
@@ -442,6 +602,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const ctxItems = ctxMenu ? [
     ...(ctxMenu.isFolder ? [
       { label: 'Study folder', action: () => onStudyFolder?.(ctxMenu.folderPath) },
+      { label: 'Edit tags',    action: () => setTagsTarget(ctxMenu.folderPath) },
       { separator: true },
     ] : []),
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
@@ -519,6 +680,10 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           processing={importing.processing}
           statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
         />
+      )}
+
+      {tagsTarget && (
+        <FolderTagsModal path={tagsTarget} onClose={() => setTagsTarget(null)} />
       )}
     </div>
   );

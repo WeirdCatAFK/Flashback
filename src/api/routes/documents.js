@@ -82,6 +82,43 @@ router.get(
   }),
 );
 
+// GET /api/documents/tags/entity?path=&isFolder=
+// Returns { direct, inherited, excluded } for a specific file or folder.
+router.get(
+  "/tags/entity",
+  catchError((req, res) => {
+    const relPath = norm(req.query.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    const isFolder = req.query.isFolder === "true";
+
+    const entity = isFolder
+      ? docs.query.getFolderByPath(relPath)
+      : docs.query.getDocumentByPath(relPath);
+    if (!entity) return res.status(404).json({ error: "entity not found" });
+
+    const inherited = docs.query.getInheritedTagNames(entity.node_id);
+    const direct    = docs.query.getDirectTagNames(entity.node_id);
+    const sidecar   = docs.files.getMetadata(relPath, isFolder) || {};
+    const excluded  = sidecar.excludedTags || [];
+
+    res.json({ direct, inherited, excluded });
+  }),
+);
+
+// GET /api/documents/sidecar?path=&isFolder=
+// Returns the raw sidecar JSON for a file or folder.
+router.get(
+  "/sidecar",
+  catchError((req, res) => {
+    const relPath = norm(req.query.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    const isFolder = req.query.isFolder === "true";
+    const sidecar = docs.files.getMetadata(relPath, isFolder);
+    if (!sidecar) return res.status(404).json({ error: "sidecar not found" });
+    res.json(sidecar);
+  }),
+);
+
 // GET /api/documents/export?path=
 router.get(
   "/export",

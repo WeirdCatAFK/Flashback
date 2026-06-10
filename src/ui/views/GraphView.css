@@ -137,3 +137,80 @@
 .graph-info-close:hover {
   color: var(--color-fg-primary);
 }
+
+.graph-info-neighbors {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--color-border);
+  padding-top: 10px;
+}
+
+.graph-info-group-header {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+}
+
+.graph-info-group-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-info-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-fg-secondary);
+  flex: 1;
+}
+
+.graph-info-group-count {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+  opacity: 0.6;
+}
+
+.graph-info-group-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.graph-info-neighbor {
+  font-size: 11px;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 3px;
+  padding: 1px 6px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-info-neighbor--link {
+  cursor: pointer;
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+}
+
+.graph-info-neighbor--link:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+
+.graph-info-overflow {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  opacity: 0.7;
+  padding: 1px 4px;
+  font-style: italic;
+}

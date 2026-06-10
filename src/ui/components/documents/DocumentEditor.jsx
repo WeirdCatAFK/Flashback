@@ -7,7 +7,7 @@ import MarkdownRenderer  from './renderers/MarkdownRenderer';
 import TextRenderer      from './renderers/TextRenderer';
 import PdfRenderer       from './renderers/PdfRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
-import { readFile } from '../../api/documents';
+import { readFile, updateMetadata } from '../../api/documents';
 import './DocumentEditor.css';
 
 function pickRenderer(path) {
@@ -31,6 +31,8 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   // Sidecar-derived state for the active file
   const [highlights, setHighlights]       = useState([]);
   const [flashcards, setFlashcards]       = useState([]);
+  const [tags, setTags]                   = useState([]);
+  const [excludedTags, setExcludedTags]   = useState([]);
   const [selectedHighlightId, setSelectedHighlightId] = useState(null);
   // Orphan-removal confirmation: { id, cardCount } | null
   const [pendingRemoval, setPendingRemoval] = useState(null);
@@ -57,6 +59,8 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setPendingRemoval(null);
     setHighlights([]);
     setFlashcards([]);
+    setTags([]);
+    setExcludedTags([]);
   }
 
   // The toolbar is portalled to document.body and floats above everything.
@@ -110,7 +114,11 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   }, [activeTab]);
 
   const handleSidecarRefresh = useCallback((path, meta) => {
-    if (path === activeTab) setFlashcards(meta?.flashcards ?? []);
+    if (path === activeTab) {
+      setFlashcards(meta?.flashcards ?? []);
+      setTags(meta?.tags ?? []);
+      setExcludedTags(meta?.excludedTags ?? []);
+    }
   }, [activeTab]);
 
   // Re-read the sidecar from disk — used after the Inspector writes a card,
@@ -122,8 +130,19 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
       if (path === activeTab) {
         setHighlights(meta.highlights ?? []);
         setFlashcards(meta.flashcards ?? []);
+        setTags(meta.tags ?? []);
+        setExcludedTags(meta.excludedTags ?? []);
       }
     } catch { /* ignore */ }
+  }, [activeTab]);
+
+  const handleTagsChange = useCallback(async (newTags, newExcludedTags) => {
+    if (!activeTab) return;
+    const data = await readFile(activeTab);
+    const meta = data.metadata ?? {};
+    await updateMetadata(activeTab, { ...meta, tags: newTags, excludedTags: newExcludedTags }, false);
+    setTags(newTags);
+    setExcludedTags(newExcludedTags);
   }, [activeTab]);
 
   const clearSelection = useCallback(() => {
@@ -341,6 +360,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
           selectedHighlightId={selectedHighlightId}
           highlights={highlights}
           flashcards={flashcards}
+          tags={tags}
+          excludedTags={excludedTags}
+          onTagsChange={handleTagsChange}
           onJumpToHighlight={handleJumpToHighlight}
           onHighlightCardRequest={handleHighlightCardRequest}
           onCardSaved={handleCardSaved}

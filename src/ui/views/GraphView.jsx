@@ -48,7 +48,12 @@ function buildGraphData({ nodes = [], edges = [] }) {
   }
 
   return {
-    nodes: nodes.map(n => ({ ...n, name: n.label ?? String(n.id) })),
+    nodes: nodes.map(n => ({
+      ...n,
+      name: (n.type === 'Flashcard' && n.flashcardFront)
+        ? n.flashcardFront.slice(0, 52) + (n.flashcardFront.length > 52 ? '…' : '')
+        : (n.label ?? String(n.id)),
+    })),
     links,
     originIds,
   };
@@ -121,7 +126,7 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
-export default function GraphView({ isActive = false }) {
+export default function GraphView({ isActive = false, onNavigate }) {
   const { graphData, loading, error } = useGraph(isActive);
   const [showTags, setShowTags]   = useState(true);
   const [showDecks, setShowDecks] = useState(true);
@@ -202,6 +207,68 @@ export default function GraphView({ isActive = false }) {
     return ids;
   }, [selected, visibleData]);
 
+  // Neighbors grouped by type for the info panel.
+  // Relation-aware: for each link touching the selected node we record the
+  // relation so we can pick a human label ("in deck", "tagged", etc.).
+  const neighborGroups = useMemo(() => {
+    if (!selected || !visibleData || !focusedIds) return [];
+
+    // Collect neighbor ids with the most informative relation seen
+    const RELATION_PRIORITY = { deck: 5, tag: 4, reference: 3, inheritance: 2, connection: 1 };
+    const best = new Map(); // id → { relation, direction }
+
+    for (const l of visibleData.links) {
+      const src = nodeId(l.source);
+      const tgt = nodeId(l.target);
+      const isFrom = src === selected.id;
+      const isTo   = tgt === selected.id;
+      if (!isFrom && !isTo) continue;
+      const neighborId = isFrom ? tgt : src;
+      if (neighborId === selected.id) continue;
+      const prio = RELATION_PRIORITY[l.relation] ?? 0;
+      if (!best.has(neighborId) || prio > best.get(neighborId).prio) {
+        best.set(neighborId, { relation: l.relation, direction: isFrom ? 'out' : 'in', prio });
+      }
+    }
+
+    // Look up node objects
+    const nodeMap = new Map(visibleData.nodes.map(n => [n.id, n]));
+    const byType  = new Map();
+    for (const [id, { relation, direction }] of best) {
+      const n = nodeMap.get(id);
+      if (!n) continue;
+      const key = n.type;
+      if (!byType.has(key)) byType.set(key, []);
+      byType.get(key).push({ ...n, relation, direction });
+    }
+
+    // Order: Folder → Document → Flashcard → Tag → Deck → rest
+    const TYPE_ORDER = ['Folder', 'Document', 'Flashcard', 'Tag', 'Deck'];
+    const sorted = [...byType.entries()].sort(([a], [b]) => {
+      const ai = TYPE_ORDER.indexOf(a);
+      const bi = TYPE_ORDER.indexOf(b);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+
+    return sorted.map(([type, nodes]) => ({ type, nodes }));
+  }, [selected, visibleData, focusedIds]);
+
+  // Human-readable relation label between the selected node and a neighbor group.
+  function relationLabel(selectedType, neighborType, relation, direction) {
+    if (relation === 'deck')      return direction === 'out' ? 'in deck' : 'deck';
+    if (relation === 'tag')       return direction === 'out' ? 'tagged'  : 'tag for';
+    if (relation === 'reference') return direction === 'in'  ? 'flashcards' : 'source';
+    if (relation === 'inheritance') {
+      if (selectedType === 'Folder' && neighborType === 'Folder')    return 'subfolders';
+      if (selectedType === 'Folder' && neighborType === 'Document')  return 'documents';
+      if (neighborType === 'Folder')   return 'parent';
+      if (neighborType === 'Document') return 'source doc';
+      return direction === 'out' ? 'children' : 'parent';
+    }
+    if (relation === 'connection') return 'connected';
+    return neighborType.toLowerCase();
+  }
+
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg || !visibleData) return;
@@ -217,6 +284,7 @@ export default function GraphView({ isActive = false }) {
   const NODE_R = 7;
 
   const paintNode = useCallback((node, ctx, globalScale) => {
+    if (!isFinite(node.x) || !isFinite(node.y)) return;
     const isSelected = selected?.id === node.id;
     const isHovered  = hovered?.id  === node.id;
 
@@ -439,6 +507,61 @@ export default function GraphView({ isActive = false }) {
                 selectedByHoverRef.current = false;
                 setSelected(null);
               }}>×</button>
+
+              {neighborGroups.length > 0 && (
+                <div className="graph-info-neighbors">
+                  {neighborGroups.map(({ type, nodes }) => {
+                    const LIMIT = 5;
+                    const shown   = nodes.slice(0, LIMIT);
+                    const overflow = nodes.length - LIMIT;
+                    const label = relationLabel(
+                      selected.type, type,
+                      nodes[0].relation, nodes[0].direction,
+                    );
+                    return (
+                      <div key={type} className="graph-info-group">
+                        <div className="graph-info-group-header">
+                          <span className="graph-info-group-dot"
+                            style={{ background: colors.nodes[type] }} />
+                          <span className="graph-info-group-label">{label}</span>
+                          <span className="graph-info-group-count">{nodes.length}</span>
+                        </div>
+                        <div className="graph-info-group-items">
+                          {shown.map(n => {
+                            const displayName = n.type === 'Flashcard' && n.flashcardFront
+                              ? n.flashcardFront.slice(0, 52) + (n.flashcardFront.length > 52 ? '…' : '')
+                              : n.name;
+                            const canNavigate = onNavigate && (
+                              (n.type === 'Flashcard' && !!n.flashcardDocPath) ||
+                              (n.type === 'Document'  && !!n.documentPath)
+                            );
+                            const handleChipClick = canNavigate ? () => {
+                              if (n.type === 'Flashcard') {
+                                onNavigate({ type: 'flashcard', payload: { documentPath: n.flashcardDocPath } });
+                              } else if (n.type === 'Document') {
+                                onNavigate({ type: 'document', payload: { path: n.documentPath } });
+                              }
+                            } : undefined;
+                            return (
+                              <span
+                                key={n.id}
+                                className={`graph-info-neighbor${canNavigate ? ' graph-info-neighbor--link' : ''}`}
+                                title={n.type === 'Flashcard' && n.flashcardFront ? n.flashcardFront : n.name}
+                                onClick={handleChipClick}
+                              >
+                                {displayName}
+                              </span>
+                            );
+                          })}
+                          {overflow > 0 && (
+                            <span className="graph-info-overflow">+{overflow} more</span>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           )}
         </>

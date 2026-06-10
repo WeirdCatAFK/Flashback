@@ -1,7 +1,9 @@
 import { request, upload, uploadWithProgress } from './client.js';
 
 export const listFolder    = (path = '')          => request('GET', `/api/documents/list?path=${encodeURIComponent(path)}`);
-export const getTags       = ()                   => request('GET', '/api/documents/tags');
+export const getTags          = ()                      => request('GET', '/api/documents/tags');
+export const getEntityTags    = (path, isFolder = false) => request('GET', `/api/documents/tags/entity?path=${encodeURIComponent(path)}&isFolder=${isFolder}`);
+export const getSidecar       = (path, isFolder = false) => request('GET', `/api/documents/sidecar?path=${encodeURIComponent(path)}&isFolder=${isFolder}`);
 export const getGraph      = ()                   => request('GET', '/api/documents/graph');
 
 export const createFolder  = (name, parentPath)   => request('POST', '/api/documents/folder',  { name, parentPath });

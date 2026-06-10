@@ -734,14 +734,24 @@ class DocumentQuery {
         }
 
         if (tag) {
-            conditions.push(`EXISTS (
-                SELECT 1 FROM Connections ctag
-                JOIN Tags tg ON tg.node_id = ctag.destiny_id
-                WHERE ctag.origin_id = f.node_id
-                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
-                  AND tg.name LIKE ?
+            conditions.push(`(
+                EXISTS (
+                    SELECT 1 FROM Connections ctag
+                    JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                    WHERE ctag.origin_id = f.node_id
+                      AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                      AND tg.name LIKE ?
+                )
+                OR EXISTS (
+                    SELECT 1 FROM InheritedTags it
+                    JOIN Connections c ON it.connection_id = c.id
+                    JOIN Tags tg ON tg.id = it.tag_id
+                    WHERE c.destiny_id = f.node_id
+                      AND c.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
+                      AND tg.name LIKE ?
+                )
             )`);
-            condParams.push(`%${tag}%`);
+            condParams.push(`%${tag}%`, `%${tag}%`);
         }
 
         if (deck) {
@@ -824,6 +834,15 @@ class DocumentQuery {
         `).all(nodeId).map(t => t.name);
     }
 
+    getDirectTagNames(nodeId) {
+        const { tagConnTypeId } = this._typeIds();
+        return this.db.prepare(`
+            SELECT t.name FROM Connections c
+            JOIN Tags t ON t.node_id = c.destiny_id
+            WHERE c.origin_id = ? AND c.type_id = ?
+        `).all(nodeId, tagConnTypeId).map(r => r.name);
+    }
+
     getOrCreateConnection(originId, destId, typeId) {
         let conn = this.db.prepare('SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?').get(originId, destId, typeId);
         if (!conn) {
@@ -849,13 +868,19 @@ class DocumentQuery {
         const nodes = this.db.prepare(`
             SELECT n.id, nt.name as type,
                    COALESCE(d.name, f.name, t.name, fc.name, dk.name) as label,
-                   COALESCE(d.presence, f.presence, fc.presence, 0) as presence
+                   COALESCE(d.presence, f.presence, fc.presence, 0) as presence,
+                   d.relative_path  as documentPath,
+                   fc.global_hash   as flashcardHash,
+                   fcc.frontText    as flashcardFront,
+                   fcd.relative_path as flashcardDocPath
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
-            LEFT JOIN Documents d ON d.node_id = n.id
-            LEFT JOIN Folders f ON f.node_id = n.id
-            LEFT JOIN Tags t ON t.node_id = n.id
-            LEFT JOIN Flashcards fc ON fc.node_id = n.id
+            LEFT JOIN Documents d   ON d.node_id   = n.id
+            LEFT JOIN Folders f     ON f.node_id   = n.id
+            LEFT JOIN Tags t        ON t.node_id   = n.id
+            LEFT JOIN Flashcards fc ON fc.node_id  = n.id
+            LEFT JOIN FlashcardContent fcc ON fcc.id = fc.content_id
+            LEFT JOIN Documents fcd        ON fcd.id = fc.document_id
             LEFT JOIN Decks dk ON dk.node_id = n.id
         `).all();
 
@@ -871,6 +896,13 @@ class DocumentQuery {
             SELECT fc.node_id as fromId, d.node_id as toId, 'reference' as relation
             FROM Flashcards fc
             JOIN Documents d ON fc.document_id = d.id
+
+            UNION ALL
+
+            SELECT c.destiny_id as fromId, tg.node_id as toId, 'tag' as relation
+            FROM InheritedTags it
+            JOIN Connections c ON it.connection_id = c.id
+            JOIN Tags tg ON tg.id = it.tag_id
         `).all();
 
         return { nodes, edges };

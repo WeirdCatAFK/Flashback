@@ -305,6 +305,13 @@ export default class Documents {
             if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards);
             if (!isFolder && metadata.highlights) highlightsService.syncFromSidecar(entity.id, metadata.highlights);
 
+            if (!isFolder && metadata.tags !== undefined) {
+                // Propagate to flashcards: document's own tags + any inherited from parent folders.
+                const inherited = this.query.getInheritedTagNames(entity.node_id);
+                const effective = [...new Set([...inherited, ...(metadata.tags || [])])];
+                this._propagateTagsToFlashcards(entity.id, entity.node_id, effective);
+            }
+
             if (isFolder) this._propagateFolderTags(entity.id, entity.node_id, metadata);
         })();
 
