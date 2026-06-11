@@ -7,6 +7,28 @@
 const STORAGE_KEY = 'fb-keybindings';
 export const KB_EVENT = 'fb-keybindings-change';
 
+// Fixed (non-rebindable) shortcuts. Informational only — used by ShortcutsOverlay
+// to build the cheatsheet. Each `keys` entry is an array of key-part strings
+// rendered as [Ctrl]+[K] etc.
+export const FIXED_SHORTCUT_GROUPS = [
+  {
+    group: 'General',
+    shortcuts: [
+      { label: 'Open search',        keys: [['Ctrl', 'K']] },
+      { label: 'Keyboard shortcuts', keys: [['?']] },
+      { label: 'Zoom in',            keys: [['Ctrl', '+']] },
+      { label: 'Zoom out',           keys: [['Ctrl', '−']] },
+      { label: 'Reset zoom',         keys: [['Ctrl', '0']] },
+    ],
+  },
+  {
+    group: 'Editor',
+    shortcuts: [
+      { label: 'Save document',      keys: [['Ctrl', 'S']] },
+    ],
+  },
+];
+
 // The registry. Add a group here and any feature can bind against it; the Config
 // editor renders straight from this list.
 export const KEYBINDING_ACTIONS = [

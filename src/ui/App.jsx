@@ -12,6 +12,7 @@ import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
 import SearchModal from "./components/search/SearchModal";
+import ShortcutsOverlay from "./components/ShortcutsOverlay";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
@@ -59,6 +60,7 @@ export default function App() {
   }, []);
 
   const [searchOpen, setSearchOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const [pendingSource, setPendingSource] = useState(null); // { path, highlightId }
   const handleOpenDocumentSource = useCallback((documentPath, highlightId) => {
@@ -99,6 +101,14 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e) => {
+      if (e.key === '?') {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (!['input', 'textarea', 'select'].includes(tag) && !document.activeElement?.isContentEditable) {
+          e.preventDefault();
+          setShortcutsOpen(o => !o);
+          return;
+        }
+      }
       if (!e.ctrlKey) return;
       if (e.key === "k" || e.key === "K") {
         e.preventDefault();
@@ -255,6 +265,10 @@ export default function App() {
           onClose={() => setSearchOpen(false)}
           onNavigate={handleSearchNavigate}
         />
+      )}
+
+      {shortcutsOpen && (
+        <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
       )}
     </div>
   );
