@@ -1,6 +1,7 @@
 // Import migration modules here in order — never reorder or remove entries.
+import * as m001 from './migrations/001_pre_beta.js';
 import * as m002 from './migrations/002_document_links.js';
-const MIGRATIONS = [m002];
+const MIGRATIONS = [m001, m002];
 
 function ensureVersionTable(db) {
     db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (
