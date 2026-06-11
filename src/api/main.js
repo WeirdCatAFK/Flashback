@@ -1,7 +1,7 @@
 // Entry point for the api, can be called on it's own or using spawn.js to create a child process
 import Api from './api.js';
 import validate from './../api/config/validate.js';
-import { get as getConfig } from './access/config.js';
+import { get as getConfig } from './access/Config.js';
 import { sealTools } from './seal/seal.js';
 
 /**

@@ -1,5 +1,5 @@
 // validators/database.js
-import db from "./../../access/database.js";
+import db from "./../../access/Database.js";
 import SchemaSQL from "../defaults/SchemaSQL.js";
 import {
   connectionTypes,

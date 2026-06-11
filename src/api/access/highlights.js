@@ -1,7 +1,7 @@
 import crypto from 'crypto';
 import Files from './files.js';
 import query from './query.js';
-import db from './database.js';
+import db from './Database.js';
 
 class Highlights {
     constructor() {
