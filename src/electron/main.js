@@ -80,6 +80,16 @@ function createWindow() {
     mainWindow.loadFile("dist-react/index.html");
   }
 
+  // Block any Electron-level navigation to flashback:// — these are internal
+  // document links that React handles via onClickCapture + IPC; the OS must
+  // never see them as protocol URLs.
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('flashback://')) {
+      event.preventDefault();
+      mainWindow.webContents.send('flashback-navigate', url.slice('flashback://'.length));
+    }
+  });
+
   // --- TRAY MODE LOGIC ---
   // Intercept the close event. 
   // If the user clicks 'X', hide the window but keep the app (and API) running.

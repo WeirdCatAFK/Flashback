@@ -63,6 +63,7 @@ function useGraph(isActive) {
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [refreshToken, setRefreshToken] = useState(0);
 
   // Show loading spinner immediately in the same render that isActive flips true,
   // instead of one render later via an effect.
@@ -75,14 +76,16 @@ function useGraph(isActive) {
   useEffect(() => {
     if (!isActive) return;
     let cancelled = false;
+    setLoading(true);
     getGraph()
       .then(data => { if (!cancelled) { setGraphData(buildGraphData(data)); setError(null); } })
       .catch(err  => { if (!cancelled) setError(err); })
       .finally(()  => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [isActive]);
+  }, [isActive, refreshToken]);
 
-  return { graphData, loading, error };
+  const refresh = useCallback(() => setRefreshToken(t => t + 1), []);
+  return { graphData, loading, error, refresh };
 }
 
 function useContainerSize(ref) {
@@ -291,9 +294,10 @@ redraw();
 }
 
 export default function GraphView({ isActive = false, onNavigate }) {
-  const { graphData, loading, error } = useGraph(isActive);
+  const { graphData, loading, error, refresh } = useGraph(isActive);
   const [showTags, setShowTags]   = useState(true);
   const [showDecks, setShowDecks] = useState(true);
+  const [showLinks, setShowLinks] = useState(true);
   const [showOrigin, setShowOrigin] = useState(true);
   const [selected, setSelected] = useState(null);
   const [hovered, setHovered] = useState(null);
@@ -334,6 +338,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
       tag:           getCSSVar('--color-graph-tag'),
       reference:     getCSSVar('--color-graph-flashcard'),
       deck:          getCSSVar('--color-graph-deck'),
+      link:          getCSSVar('--color-graph-link'),
     },
     bg:    getCSSVar('--color-bg-base'),
     label: getCSSVar('--color-fg-secondary'),
@@ -353,13 +358,17 @@ export default function GraphView({ isActive = false, onNavigate }) {
       links = links.filter(l => l.relation !== 'deck');
     }
 
+    if (!showLinks) {
+      links = links.filter(l => l.relation !== 'link');
+    }
+
     if (!showOrigin) {
       nodes = nodes.filter(n => !originIds.has(n.id));
       links = links.filter(l => !originIds.has(nodeId(l.source)) && !originIds.has(nodeId(l.target)));
     }
 
     return { nodes, links };
-  }, [graphData, showTags, showDecks, showOrigin]);
+  }, [graphData, showTags, showDecks, showLinks, showOrigin]);
 
   const focusedIds = useMemo(() => {
     if (!selected || !visibleData) return null;
@@ -694,7 +703,28 @@ export default function GraphView({ isActive = false, onNavigate }) {
               <span>decks</span>
             </button>
 
+            <button type="button"
+              className={`graph-toggle-btn${showLinks ? ' graph-toggle-btn--active' : ''}`}
+              onClick={() => setShowLinks(s => !s)}
+              title={showLinks ? 'Hide document links' : 'Show document links'}
+            >
+              <span className="graph-controls-line" style={{
+                background: colors.links.link,
+                opacity: showLinks ? 1 : 0.25,
+              }} />
+              <span>links</span>
+            </button>
+
             <div className="graph-controls-sep" />
+
+            <button type="button"
+              className="graph-toggle-btn"
+              onClick={refresh}
+              title="Refresh graph data"
+              disabled={loading}
+            >
+              refresh
+            </button>
 
             <button type="button"
               className={`graph-toggle-btn${showExportMenu ? ' graph-toggle-btn--active' : ''}`}

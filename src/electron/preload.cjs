@@ -11,4 +11,11 @@ contextBridge.exposeInMainWorld('flashback', {
   windowMinimize:  ()       => ipcRenderer.send('window-minimize'),
   windowMaximize:  ()       => ipcRenderer.send('window-maximize'),
   windowClose:     ()       => ipcRenderer.send('window-close'),
+  // Fallback for flashback:// links that reach Electron's will-navigate handler
+  // (shouldn't happen with onClickCapture, but kept as safety net).
+  onFlashbackNavigate: (cb) => {
+    const listener = (_event, hash) => cb(hash);
+    ipcRenderer.on('flashback-navigate', listener);
+    return () => ipcRenderer.removeListener('flashback-navigate', listener);
+  },
 })

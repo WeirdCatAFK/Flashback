@@ -16,3 +16,5 @@ export const moveItem      = (srcPath, destPath, isFolder)  => request('POST', '
 export const renameItem    = (path, newName, isFolder)      => request('POST', '/api/documents/rename', { path, newName, isFolder });
 
 export const importFileWithProgress = (formData, onProgress)    => uploadWithProgress('/api/documents/import', formData, onProgress);
+
+export const getDocumentByHash = (hash) => request('GET', `/api/documents/by-hash/${encodeURIComponent(hash)}`);

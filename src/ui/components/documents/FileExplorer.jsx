@@ -306,7 +306,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 // ── File ──────────────────────────────────────────────────────────────────────
 
-function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
+function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
   const FileIcon = getFileIcon(name);
@@ -320,6 +320,8 @@ function FileNode({ name, path, flashcardCount = 0, onRefresh, onSelect, onDoubl
   const handleDragStart = (e) => {
     e.dataTransfer.setData('fb-path', path);
     e.dataTransfer.setData('fb-is-folder', 'false');
+    if (globalHash) e.dataTransfer.setData('fb-global-hash', globalHash);
+    if (globalHash) e.dataTransfer.setData('fb-file-name', name);
     e.stopPropagation();
   };
 
@@ -579,6 +581,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
               : <FileNode   key={item.name} name={item.name} path={childPath(item.name)}
+                  globalHash={item.metadata?.globalHash}
                   flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   onCtxMenu={onCtxMenu} />
@@ -743,6 +746,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} onImportProgress={setImporting} />
             : <FileNode   key={item.name} name={item.name} path={item.name}
+                globalHash={item.metadata?.globalHash}
                 flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 onCtxMenu={openCtxMenu} />

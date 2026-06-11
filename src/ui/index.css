@@ -35,6 +35,7 @@
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
+  --color-graph-link:       #2dd4bf;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
@@ -75,6 +76,7 @@
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
+  --color-graph-link:       #2dd4bf;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
@@ -115,6 +117,7 @@
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
+  --color-graph-link:       #2dd4bf;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
@@ -155,6 +158,7 @@
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
+  --color-graph-link:       #2dd4bf;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
@@ -195,6 +199,7 @@
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
+  --color-graph-link:       #2dd4bf;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */

@@ -21,7 +21,7 @@ function pickRenderer(path) {
 
 const DEFAULT_HL_COLOR = 'amber';
 
-export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed }) {
+export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate }) {
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -336,6 +336,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 onSidecarRefresh={handleSidecarRefresh}
                 draftContent={drafts.get(activeTab)}
                 onDraftChange={handleDraftChange}
+                onNavigate={onNavigate}
               />
             )}
           </div>

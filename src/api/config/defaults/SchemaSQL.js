@@ -151,7 +151,16 @@ addTable('InheritedTags', (table) => {
     table.integer('tag_id').references('id').inTable('Tags').onDelete('CASCADE');
 });
 
-// 9. Decks
+// 9. Document Links (hash-based queue; no FK constraints — resolves lazily on import)
+addTable('DocumentLinks', (table) => {
+    table.increments('id').primary();
+    table.string('source_hash', 500).notNullable();
+    table.string('target_hash', 500).notNullable();
+    table.string('anchor_text', 500);
+    table.unique(['source_hash', 'target_hash']);
+});
+
+// 10. Decks
 addTable('Decks', (table) => {
     table.increments('id').primary();
     table.integer('node_id').references('id').inTable('Nodes');
@@ -243,6 +252,8 @@ CREATE INDEX IF NOT EXISTS idx_flashcards_document_id ON Flashcards(document_id)
 CREATE INDEX IF NOT EXISTS idx_media_absolute_path ON Media(absolute_path);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(global_hash);
 CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id);
+CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash);
+CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash);
 `;
 
 const schemaSQL = tables.join(';\n')

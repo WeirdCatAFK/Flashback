@@ -150,6 +150,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
           onTabDoubleClick={handleTabDoubleClick}
           pendingHighlight={pendingHighlight}
           onHighlightConsumed={() => setPendingHighlight(null)}
+          onNavigate={handleFileSelect}
         />
       </main>
     </div>

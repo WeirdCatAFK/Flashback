@@ -21,12 +21,14 @@ class DocumentQuery {
             const inheritType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
             const tagConnType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
             const deckConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'deck'").get();
+            const linkConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'link'").get();
             this._typeCache = {
                 tagNodeTypeId:  tagNodeType?.id,
                 deckNodeTypeId: deckNodeType?.id,
                 inheritanceTypeId: inheritType?.id,
                 tagConnTypeId:  tagConnType?.id,
                 deckConnTypeId: deckConnType?.id,
+                linkConnTypeId: linkConnType?.id,
             };
         }
         return this._typeCache;
@@ -89,10 +91,6 @@ class DocumentQuery {
     }
 
     // --- Documents ---
-
-    getDocumentByHash(hash) {
-        return this.db.prepare('SELECT * FROM Documents WHERE global_hash = ?').get(hash);
-    }
 
     getDocumentByPath(relPath) {
         return this.db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(relPath);
@@ -906,6 +904,46 @@ class DocumentQuery {
         `).all();
 
         return { nodes, edges };
+    }
+
+    // --- Document Links ---
+
+    getDocumentByHash(hash) {
+        return this.db.prepare('SELECT id, node_id, relative_path, name FROM Documents WHERE global_hash = ?').get(hash);
+    }
+
+    upsertDocumentLinkQueue(sourceHash, targetHash, anchorText) {
+        return this.db.prepare(
+            'INSERT OR IGNORE INTO DocumentLinks (source_hash, target_hash, anchor_text) VALUES (?, ?, ?)'
+        ).run(sourceHash, targetHash, anchorText ?? '');
+    }
+
+    getPendingLinksForTarget(targetHash) {
+        return this.db.prepare('SELECT * FROM DocumentLinks WHERE target_hash = ?').all(targetHash);
+    }
+
+    getPendingLinksFromSource(sourceHash) {
+        return this.db.prepare('SELECT * FROM DocumentLinks WHERE source_hash = ?').all(sourceHash);
+    }
+
+    deleteDocumentLinkQueueBySource(sourceHash) {
+        return this.db.prepare('DELETE FROM DocumentLinks WHERE source_hash = ?').run(sourceHash);
+    }
+
+    deleteDocumentLinkConnections(nodeId) {
+        const { linkConnTypeId } = this._typeIds();
+        if (!linkConnTypeId) return;
+        return this.db.prepare(
+            'DELETE FROM Connections WHERE origin_id = ? AND type_id = ?'
+        ).run(nodeId, linkConnTypeId);
+    }
+
+    insertDocumentLinkConnection(sourceNodeId, targetNodeId) {
+        const { linkConnTypeId } = this._typeIds();
+        if (!linkConnTypeId) throw new Error('link ConnectionType missing — run migrations');
+        return this.db.prepare(
+            'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
+        ).run(sourceNodeId, targetNodeId, linkConnTypeId);
     }
 
     // --- Decks ---

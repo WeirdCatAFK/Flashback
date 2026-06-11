@@ -272,4 +272,28 @@ router.post(
   }),
 );
 
+// GET /api/documents/by-hash/:hash
+// Resolves a globalHash to { relativePath, name } — used by the renderer to
+// navigate flashback:// links on click.
+router.get(
+  '/by-hash/:hash',
+  catchError(async (req, res) => {
+    const doc = docs.query.getDocumentByHash(req.params.hash);
+    if (!doc) return res.status(404).json({ error: 'Document not found' });
+    res.json({ relativePath: doc.relative_path, name: doc.name });
+  }),
+);
+
+// POST /api/documents/links/sync
+// Manually re-syncs flashback:// link connections for a document.
+router.post(
+  '/links/sync',
+  catchError(async (req, res) => {
+    const relPath = norm(req.body.path);
+    if (!relPath) return res.status(400).json({ error: 'path required' });
+    await docs.syncDocumentLinks(relPath);
+    res.json({ ok: true });
+  }),
+);
+
 export default router;

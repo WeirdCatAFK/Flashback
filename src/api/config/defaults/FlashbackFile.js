@@ -5,6 +5,7 @@ export default function newMetadata() {
         "excludedTags": [],
         "flashcards": [],
         "highlights": [],
+        "links": [],
         "encoding": "UTF-8"
     };
 }

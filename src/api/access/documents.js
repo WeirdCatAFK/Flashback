@@ -214,6 +214,82 @@ export default class Documents {
             })();
         }
         await sealEmitter.edit(relativePath + '.flashback', [relativePath]);
+        // Sync link connections whenever content changes (not metadata-only saves)
+        if (content !== undefined && content !== null) {
+            await this.syncDocumentLinks(relativePath);
+        }
+    }
+
+    // --- Document Links ---
+
+    // Regex that matches [anchor text](flashback://hash) in Markdown content.
+    static _LINK_RE = /\[([^\]]*)\]\(flashback:\/\/([a-f0-9-]+)\)/g;
+
+    // Scans a document's content for flashback:// links, updates the sidecar
+    // links array, then materializes Connections for resolved targets and queues
+    // the rest in DocumentLinks for lazy resolution on future imports.
+    async syncDocumentLinks(relPath) {
+        const ext = path.extname(relPath).toLowerCase();
+        const textTypes = ['.md', '.txt', '.markdown'];
+        if (!textTypes.includes(ext)) return;
+
+        const doc = this.query.getDocumentByPath(relPath);
+        if (!doc) return;
+
+        let content;
+        try {
+            ({ content } = this.files.readFile(relPath));
+        } catch {
+            return;
+        }
+
+        const found = [];
+        for (const m of (content ?? '').matchAll(Documents._LINK_RE)) {
+            found.push({ anchorText: m[1], targetHash: m[2] });
+        }
+
+        // Update sidecar links array
+        const sidecar = this.files.getMetadata(relPath, false) ?? {};
+        sidecar.links = found;
+        this.files.writeMetadata(relPath, sidecar, false);
+
+        db.transaction(() => {
+            this.query.deleteDocumentLinkConnections(doc.node_id);
+            this.query.deleteDocumentLinkQueueBySource(doc.global_hash);
+
+            for (const { anchorText, targetHash } of found) {
+                const target = this.query.getDocumentByHash(targetHash);
+                if (target) {
+                    this.query.insertDocumentLinkConnection(doc.node_id, target.node_id);
+                } else {
+                    this.query.upsertDocumentLinkQueue(doc.global_hash, targetHash, anchorText);
+                }
+            }
+        })();
+    }
+
+    // When a document is imported, resolve any pending DocumentLinks that were
+    // waiting for it, and sync its own outbound links.
+    async _resolvePendingLinks(globalHash, nodeId, relPath) {
+        const pending = this.query.getPendingLinksForTarget(globalHash);
+        if (pending.length > 0) {
+            db.transaction(() => {
+                for (const row of pending) {
+                    const sourceDoc = this.query.getDocumentByHash(row.source_hash);
+                    if (sourceDoc) {
+                        this.query.insertDocumentLinkConnection(sourceDoc.node_id, nodeId);
+                        this.query.deleteDocumentLinkQueueBySource(row.source_hash);
+                        // Re-queue remaining entries from this source that are still unresolved
+                        const remaining = this.query.getPendingLinksFromSource(row.source_hash);
+                        for (const r of remaining) {
+                            this.query.upsertDocumentLinkQueue(r.source_hash, r.target_hash, r.anchor_text);
+                        }
+                    }
+                }
+            })();
+        }
+        // Sync outbound links for the newly imported file
+        await this.syncDocumentLinks(relPath);
     }
 
     async delete(relativePath, isFolder = false) {
@@ -351,6 +427,12 @@ export default class Documents {
             throw err;
         }
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
+
+        // Resolve any pending DocumentLinks targeting this doc, and sync its own outbound links
+        const imported = this.query.getDocumentByPath(fileRelPath);
+        if (imported) {
+            await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
+        }
     }
 
     async importPackage(externalPath, targetRelPath = "") {

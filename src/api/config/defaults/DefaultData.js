@@ -5,6 +5,7 @@ export const connectionTypes = [
   { name: "tag", is_directed: "false" },
   { name: "reference", is_directed: "true" },
   { name: "deck", is_directed: "false" },
+  { name: "link", is_directed: "true" },
 ];
 
 export const nodeTypes = [

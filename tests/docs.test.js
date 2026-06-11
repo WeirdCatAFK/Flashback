@@ -699,4 +699,82 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(afterLog[0].commit.message.startsWith('create:'), 'Seal commit for a copy should be a create');
         });
     });
+
+    // --- 12. DOCUMENT LINKS ---
+    describe('Document Links', () => {
+        const linksRoot = path.join(TEST_ROOT, 'LinksTest');
+        let sourceHash, targetHash, sourceRelPath, targetRelPath;
+
+        before(async () => {
+            await docs.createFolder('LinksTest', TEST_ROOT);
+            await docs.createFile('source.md', linksRoot);
+            await docs.createFile('target.md', linksRoot);
+
+            sourceRelPath = path.join(linksRoot, 'source.md');
+            targetRelPath = path.join(linksRoot, 'target.md');
+
+            sourceHash = docs.files.getMetadata(sourceRelPath).globalHash;
+            targetHash = docs.files.getMetadata(targetRelPath).globalHash;
+        });
+
+        it('creates a link Connection when source references a known target hash', async () => {
+            const content = `# Source\n\nSee also [target](flashback://${targetHash}).`;
+            await docs.updateFile(sourceRelPath, content, null);
+
+            const sourceDoc = docs.query.getDocumentByPath(sourceRelPath);
+            const targetDoc = docs.query.getDocumentByHash(targetHash);
+            const linkTypeId = docs.query._typeIds().linkConnTypeId;
+
+            const conn = db.prepare(
+                'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
+            ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
+
+            assert.ok(conn, 'A link Connection should be created between source and target nodes');
+        });
+
+        it('updates the sidecar links array after sync', () => {
+            const sidecar = docs.files.getMetadata(sourceRelPath);
+            assert.ok(Array.isArray(sidecar.links), 'sidecar.links should be an array');
+            assert.equal(sidecar.links.length, 1, 'sidecar should record one outbound link');
+            assert.equal(sidecar.links[0].targetHash, targetHash);
+        });
+
+        it('queues unresolved links for future import', async () => {
+            const unknownHash = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
+            const content = `# Source\n\nSee [unknown](flashback://${unknownHash}).`;
+            await docs.updateFile(sourceRelPath, content, null);
+
+            const pending = docs.query.getPendingLinksForTarget(unknownHash);
+            assert.equal(pending.length, 1, 'Unresolved link should land in DocumentLinks queue');
+            assert.equal(pending[0].source_hash, sourceHash);
+        });
+
+        it('removes a link Connection when the link is removed from the file', async () => {
+            // Re-establish the known link
+            await docs.updateFile(sourceRelPath, `See [target](flashback://${targetHash}).`, null);
+            const sourceDoc = docs.query.getDocumentByPath(sourceRelPath);
+            const targetDoc = docs.query.getDocumentByHash(targetHash);
+            const linkTypeId = docs.query._typeIds().linkConnTypeId;
+            const connBefore = db.prepare(
+                'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
+            ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
+            assert.ok(connBefore, 'Connection should exist before removal');
+
+            // Now save without the link
+            await docs.updateFile(sourceRelPath, '# No links here.', null);
+            const connAfter = db.prepare(
+                'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
+            ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
+            assert.equal(connAfter, undefined, 'Connection should be removed when link is deleted from file');
+        });
+
+        it('link edges appear in getGraphData()', async () => {
+            const content = `# Source\n\nSee [target](flashback://${targetHash}).`;
+            await docs.updateFile(sourceRelPath, content, null);
+
+            const { edges } = docs.getGraphData();
+            const linkEdge = edges.find(e => e.relation === 'link');
+            assert.ok(linkEdge, 'getGraphData() should include at least one link-type edge');
+        });
+    });
 });
