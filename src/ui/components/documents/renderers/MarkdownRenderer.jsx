@@ -2,6 +2,7 @@ import { useCallback, useEffect } from 'react';
 import { EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
+import { mergeAttributes } from '@tiptap/core';
 import Typography from '@tiptap/extension-typography';
 import { Markdown } from 'tiptap-markdown';
 import { ThemedHighlight, reconcileHighlights } from './highlights';
@@ -15,7 +16,30 @@ import './MarkdownRenderer.css';
 // Setting priority 50 ensures our extension sorts last and wins the schema slot,
 // while tiptap-markdown's serializer still finds the markdown spec via its internal
 // name-based lookup (markdownExtensions.find(e => e.name === 'link')).
-const MarkdownLink = Link.extend({ priority: 50 });
+//
+// renderHTML override: flashback:// links MUST NOT appear in href — Chromium
+// passes any unregistered protocol to the OS shell (shell.openExternal) before
+// JavaScript event handlers fire, so preventDefault() is useless. Storing the
+// hash in data-flashback-hash and omitting href entirely prevents this.
+const MarkdownLink = Link.extend({
+  priority: 50,
+  renderHTML({ HTMLAttributes }) {
+    const href = HTMLAttributes.href ?? '';
+    if (href.startsWith('flashback://')) {
+      return ['a', mergeAttributes(this.options.HTMLAttributes, {
+        ...HTMLAttributes,
+        href: undefined,
+        'data-flashback-hash': href.slice('flashback://'.length),
+      }), 0];
+    }
+    // Regular links: delegate to @tiptap/extension-link's standard logic
+    const allowed = !this.options.isAllowedUri || this.options.isAllowedUri(href, {
+      defaultValidate: () => !!href,
+      protocols: this.options.protocols,
+    });
+    return ['a', mergeAttributes(this.options.HTMLAttributes, allowed ? HTMLAttributes : { ...HTMLAttributes, href: '' }), 0];
+  },
+});
 
 // What this renderer customizes; everything else (load/save/dirty/draft/
 // highlight wiring) is the shared hook. Highlights anchor inline in the body as
@@ -27,9 +51,8 @@ const EXTENSIONS = [
   ThemedHighlight.configure({ multicolor: true }),
   Markdown.configure({ html: true, linkify: true, breaks: false }),
   // Must come after Markdown so it overrides Link$1 in the schema (see above).
-  // protocols: adds 'flashback' to isAllowedUri's allowlist (parseHTML rejects
-  // unknown protocols otherwise). HTMLAttributes: strip target/_blank so clicks
-  // don't open a second tab alongside handleClick's navigation.
+  // protocols: adds 'flashback' to isAllowedUri's allowlist so parseHTML accepts
+  // the href during load. HTMLAttributes: strip target/_blank for regular links.
   MarkdownLink.configure({
     openOnClick: false,
     protocols: ['flashback'],
@@ -51,16 +74,13 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
   });
 
   const handleClick = useCallback(async (e) => {
-    const anchor = e.target.closest('a[href]');
-    if (!anchor) return;
-    const href = anchor.getAttribute('href');
-    if (!href?.startsWith('flashback://')) return;
-    // Capture phase: prevent browser/Electron navigation and stop ProseMirror
-    // from seeing this click (we own flashback:// — ProseMirror should not try
-    // to extend the link selection or call window.open).
+    // flashback:// links render with data-flashback-hash (no href) so Chromium
+    // never sees the protocol and can't pass it to shell.openExternal.
+    const el = e.target.closest('[data-flashback-hash]');
+    if (!el) return;
     e.preventDefault();
     e.stopPropagation();
-    const hash = href.slice('flashback://'.length);
+    const hash = el.dataset.flashbackHash;
     try {
       const doc = await getDocumentByHash(hash);
       onNavigate?.(doc.relativePath);

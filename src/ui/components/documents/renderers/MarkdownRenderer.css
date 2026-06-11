@@ -76,6 +76,13 @@
   text-underline-offset: 2px;
 }
 
+/* Internal document links — rendered without href to prevent Chromium from
+   passing flashback:// to the OS shell. Styled distinctly from external links. */
+.tiptap-editor a[data-flashback-hash] {
+  color: var(--color-graph-link);
+  cursor: pointer;
+}
+
 .tiptap-editor ul,
 .tiptap-editor ol {
   padding-left: 1.6em;
