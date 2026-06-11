@@ -591,13 +591,13 @@ class DocumentQuery {
     }
 
     cascadeRenameDocumentPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
-        this.db.prepare(`UPDATE Documents SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
-            .run(oldRelPath, newRelPath, oldAbsPath, newAbsPath, this._escapeLike(oldAbsPath));
+        this.db.prepare(`UPDATE Documents SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
     }
 
     cascadeRenameFolderPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
-        this.db.prepare(`UPDATE Folders SET relative_path = replace(relative_path, ?, ?), absolute_path = replace(absolute_path, ?, ?) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
-            .run(oldRelPath, newRelPath, oldAbsPath, newAbsPath, this._escapeLike(oldAbsPath));
+        this.db.prepare(`UPDATE Folders SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
     }
 
     moveDocumentRecord(newFolderId, newRelPath, newAbsPath, oldAbsPath) {
