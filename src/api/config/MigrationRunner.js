@@ -25,14 +25,17 @@ export default function runMigrations(db) {
     ensureVersionTable(db);
     const applied = appliedVersions(db);
 
+    // A migration runs if it hasn't been recorded yet, OR if its optional
+    // shouldRun() guard says its artifacts are still missing (handles the case
+    // where a migration was recorded but its tables were later dropped).
     const pending = MIGRATIONS
-        .filter(m => !applied.has(m.version))
+        .filter(m => !applied.has(m.version) || m.shouldRun?.(db))
         .sort((a, b) => a.version - b.version);
 
     if (pending.length === 0) return;
 
     const record = db.prepare(
-        'INSERT INTO SchemaVersion (version, description) VALUES (?, ?)'
+        'INSERT OR REPLACE INTO SchemaVersion (version, description) VALUES (?, ?)'
     );
 
     for (const migration of pending) {

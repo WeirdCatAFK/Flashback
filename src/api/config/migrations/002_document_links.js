@@ -6,6 +6,19 @@
 export const version = 2;
 export const description = 'Inter-document links: DocumentLinks queue table + link ConnectionType';
 
+// Re-run this migration even if SchemaVersion shows it as applied, as long as
+// its artifacts are missing (e.g. DocumentLinks was manually dropped, or the
+// migration ran on a process that died before the app was restarted properly).
+export function shouldRun(db) {
+    const hasTable = db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='DocumentLinks'"
+    ).get();
+    const hasLinkType = db.prepare(
+        "SELECT id FROM ConnectionTypes WHERE name='link'"
+    ).get();
+    return !hasTable || !hasLinkType;
+}
+
 export function up(db) {
 
     // ── DocumentLinks queue ───────────────────────────────────────────────────
