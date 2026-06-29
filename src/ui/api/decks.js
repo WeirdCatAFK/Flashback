@@ -21,6 +21,15 @@ export const addEntry = (deckHash, cardHash, documentPath = null) =>
 export const removeEntry = (deckHash, cardHash) =>
     request('DELETE', `/api/decks/${deckHash}/entries/${encodeURIComponent(cardHash)}`);
 
+export const createStandaloneCard = ({ frontText, backText, name, cardType, category, customHtml } = {}) =>
+    request('POST', '/api/flashcards', { frontText, backText, name, cardType, category, customHtml });
+
+export const updateStandaloneCard = (hash, data) =>
+    request('PUT', `/api/flashcards/${hash}`, data);
+
+export const deleteStandaloneCard = (hash) =>
+    request('DELETE', `/api/flashcards/${hash}`);
+
 export const searchCards = ({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) => {
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);

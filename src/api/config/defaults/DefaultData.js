@@ -1,3 +1,5 @@
+export const SYSTEM_DECK_HASH = '00000000-0000-0000-0000-cards00000001';
+
 export const connectionTypes = [
   { name: "connection", is_directed: "false" },
   { name: "disconnection", is_directed: "false" },

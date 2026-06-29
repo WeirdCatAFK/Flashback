@@ -604,3 +604,26 @@
   width: 100%;
   font-family: inherit;
 }
+
+/* ── System deck badge ──────────────────────────────────────────────────── */
+
+.deck-system-badge {
+  display: inline-block;
+  margin-left: 5px;
+  font-size: 9px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.deck-system-badge--detail {
+  font-size: 10px;
+  margin-left: 8px;
+  opacity: 0.75;
+}

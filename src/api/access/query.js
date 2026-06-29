@@ -451,7 +451,7 @@ class DocumentQuery {
                 ${easeFactorExpr} AS ease_factor,
                 ${intervalExpr} AS interval_days
             FROM Flashcards f
-            JOIN Documents d ON d.id = f.document_id
+            LEFT JOIN Documents d ON d.id = f.document_id
             JOIN FlashcardContent fc ON fc.id = f.content_id
             LEFT JOIN PedagogicalCategories pc ON pc.id = f.category_id
             ${sm2Join}
@@ -954,14 +954,18 @@ class DocumentQuery {
         const nodeInfo = this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(deckNodeTypeId);
         const nodeId = nodeInfo.lastInsertRowid;
         const info = this.db.prepare(`
-            INSERT INTO Decks (node_id, global_hash, name, description)
-            VALUES (?, ?, ?, ?)
-        `).run(nodeId, data.globalHash, data.name, data.description ?? null);
+            INSERT INTO Decks (node_id, global_hash, name, description, is_system)
+            VALUES (?, ?, ?, ?, ?)
+        `).run(nodeId, data.globalHash, data.name, data.description ?? null, data.isSystem ?? 0);
         return info.lastInsertRowid;
     }
 
     getDeckByHash(hash) {
-        return this.db.prepare('SELECT id, node_id, global_hash, name, description, created_at, updated_at FROM Decks WHERE global_hash = ?').get(hash);
+        return this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE global_hash = ?').get(hash);
+    }
+
+    getSystemDeck() {
+        return this.db.prepare('SELECT id, node_id, global_hash, name FROM Decks WHERE is_system = 1 LIMIT 1').get();
     }
 
     getFlashcardNodeIdByHash(cardHash) {
@@ -1103,6 +1107,25 @@ class DocumentQuery {
         return this.db.prepare(`
             SELECT COUNT(*) as c FROM Flashcards f ${contentJoin} ${where}
         `).get(...params).c;
+    }
+
+    updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category }) {
+        const card = this.db.prepare('SELECT id, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+        if (!card) return false;
+        let categoryId = null;
+        if (category) {
+            const cat = this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(category);
+            if (cat) categoryId = cat.id;
+        }
+        this.db.prepare('UPDATE Flashcards SET name = ?, card_type = ?, category_id = ? WHERE id = ?')
+            .run(name || null, cardType || 'basic', categoryId, card.id);
+        this.db.prepare('UPDATE FlashcardContent SET frontText = ?, backText = ? WHERE id = ?')
+            .run(frontText || null, backText || null, card.content_id);
+        return true;
+    }
+
+    deleteFlashcardDeckEntries(cardHash) {
+        return this.db.prepare('DELETE FROM DeckEntries WHERE card_hash = ?').run(cardHash);
     }
 
     // --- Highlights ---

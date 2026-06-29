@@ -381,3 +381,60 @@
   min-width: 60px;
   text-align: center;
 }
+
+/* ── New card button ────────────────────────────────────────────────────── */
+
+.fc-new-card-btn {
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+
+.fc-new-card-btn:hover {
+  background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+/* ── Standalone card badges ─────────────────────────────────────────────── */
+
+.fc-card-row--standalone {
+  border-color: color-mix(in srgb, var(--color-accent) 25%, var(--color-border));
+}
+
+.fc-card-standalone {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 25%, transparent);
+  white-space: nowrap;
+  opacity: 0.75;
+}
+
+.fc-card-delete {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  background: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  opacity: 0.4;
+  transition: opacity 120ms ease, color 120ms ease;
+  line-height: 1;
+}
+
+.fc-card-delete:hover {
+  opacity: 1;
+  color: #e55;
+  border-color: #e55;
+}
+

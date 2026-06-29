@@ -167,6 +167,7 @@ addTable('Decks', (table) => {
     table.string('global_hash', 500).notNullable().unique().index();
     table.string('name', 500).notNullable();
     table.text('description');
+    table.integer('is_system').notNullable().defaultTo(0);
     table.timestamp('created_at').defaultTo(k.fn.now());
     table.timestamp('updated_at').defaultTo(k.fn.now());
 });

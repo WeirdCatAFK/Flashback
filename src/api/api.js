@@ -13,6 +13,7 @@ import decksRouter from './routes/decks.js';
 import highlightsRouter from './routes/highlights.js';
 import categoriesRouter from './routes/categories.js';
 import searchRouter from './routes/search.js';
+import flashcardsRouter from './routes/flashcards.js';
 
 class api {
 /**
@@ -68,6 +69,7 @@ class api {
     this.app.use('/api/highlights', highlightsRouter);
     this.app.use('/api/categories', categoriesRouter);
     this.app.use('/api/search', searchRouter);
+    this.app.use('/api/flashcards', flashcardsRouter);
 
     // 404
     this.app.use((req, res) => {

@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStats } from '../api/srs';
-import { searchCards } from '../api/decks';
+import { searchCards, deleteStandaloneCard } from '../api/decks';
+import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import './Flashcards.css';
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
@@ -56,6 +57,7 @@ export default function FlashcardsView() {
     const [cards, setCards]   = useState([]);
     const [total, setTotal]   = useState(0);
     const [loading, setLoading] = useState(false);
+    const [showNewCard, setShowNewCard] = useState(false);
 
     const debounceRef = useRef(null);
 
@@ -96,6 +98,16 @@ export default function FlashcardsView() {
         resetToPage0();
     };
 
+    const handleDeleteCard = async (hash) => {
+        if (!window.confirm('Delete this standalone card?')) return;
+        try {
+            await deleteStandaloneCard(hash);
+            loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+        } catch (err) {
+            console.error(err);
+        }
+    };
+
     const handleQueryChange = (e) => {
         setQuery(e.target.value);
         setPage(0);
@@ -108,6 +120,7 @@ export default function FlashcardsView() {
     const hasFilters = query || levelFilter !== null || cardType;
 
     return (
+        <>
         <div className="flashcards-view">
             {/* ── Sidebar ────────────────────────────────────────────────── */}
             <div className="fc-sidebar">
@@ -168,6 +181,13 @@ export default function FlashcardsView() {
                             <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                     </select>
+                    <button
+                        className="fc-new-card-btn"
+                        onClick={() => setShowNewCard(true)}
+                        title="Create a standalone card"
+                    >
+                        + New card
+                    </button>
                 </div>
 
                 {/* Card-type filter pills */}
@@ -198,7 +218,7 @@ export default function FlashcardsView() {
                 {/* Card list */}
                 <div className="fc-card-list">
                     {cards.map(card => (
-                        <div key={card.global_hash} className="fc-card-row">
+                        <div key={card.global_hash} className={`fc-card-row${!card.document_name ? ' fc-card-row--standalone' : ''}`}>
                             <LevelDot level={card.level ?? 0} />
                             <div className="fc-card-body">
                                 <div className="fc-card-front">{card.frontText || card.name || '(untitled)'}</div>
@@ -211,15 +231,23 @@ export default function FlashcardsView() {
                                 {card.card_type && card.card_type !== 'basic' && (
                                     <span className="fc-card-type">{card.card_type.replace('_', ' ')}</span>
                                 )}
-                                {card.document_name && (
-                                    <span
-                                        className="fc-card-doc"
-                                        title={card.document_path}
-                                    >
+                                {card.document_name ? (
+                                    <span className="fc-card-doc" title={card.document_path}>
                                         {card.document_name}
                                     </span>
+                                ) : (
+                                    <span className="fc-card-standalone" title="Standalone card">standalone</span>
                                 )}
                                 <RelativeTime iso={card.last_recall} />
+                                {!card.document_name && (
+                                    <button
+                                        className="fc-card-delete"
+                                        title="Delete card"
+                                        onClick={() => handleDeleteCard(card.global_hash)}
+                                    >
+                                        ✕
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}
@@ -252,5 +280,15 @@ export default function FlashcardsView() {
                 )}
             </div>
         </div>
+        {showNewCard && (
+            <StandaloneCardModal
+                onClose={() => setShowNewCard(false)}
+                onCreated={() => {
+                    setShowNewCard(false);
+                    loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+                }}
+            />
+        )}
+        </>
     );
 }

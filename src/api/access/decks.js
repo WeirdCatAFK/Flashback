@@ -14,6 +14,25 @@ export default class Decks {
         if (!fs.existsSync(this.decksPath)) {
             fs.mkdirSync(this.decksPath, { recursive: true });
         }
+        this._ensureSystemDeckFile();
+    }
+
+    _ensureSystemDeckFile() {
+        const cols = db.prepare("PRAGMA table_info(Decks)").all();
+        if (!cols.find(c => c.name === 'is_system')) return;
+        const systemDeck = this.query.getSystemDeck();
+        if (!systemDeck) return;
+        const filePath = this._filePath(systemDeck.global_hash);
+        if (!fs.existsSync(filePath)) {
+            this._write(systemDeck.global_hash, {
+                globalHash: systemDeck.global_hash,
+                name: systemDeck.name,
+                isSystem: true,
+                created: new Date().toISOString(),
+                modified: new Date().toISOString(),
+                entries: [],
+            });
+        }
     }
 
     _filePath(globalHash) {
@@ -65,6 +84,7 @@ export default class Decks {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
+        this._ensureSystemDeckFile();
         const file = this._read(globalHash);
         if (name !== undefined) file.name = name;
         if (description !== undefined) file.description = description;
@@ -87,6 +107,7 @@ export default class Decks {
     deleteDeck(globalHash) {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+        if (deck.is_system) throw new Error('Cannot delete the system deck');
 
         this._remove(globalHash);
         db.transaction(() => {
@@ -159,5 +180,74 @@ export default class Decks {
 
     getCardCount({ search, level = null, cardType = null } = {}) {
         return this.query.getFlashcardCountFiltered({ search, level, cardType });
+    }
+
+    createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null } = {}) {
+        const systemDeck = this.query.getSystemDeck();
+        if (!systemDeck) throw new Error('System deck not initialised — run migrations');
+
+        const globalHash = crypto.randomUUID();
+
+        db.transaction(() => {
+            const nodeId = this.query.createNode('Flashcard');
+            this.query.insertFlashcard({
+                globalHash, nodeId, documentId: null,
+                vanillaData: { frontText: frontText || null, backText: backText || null },
+                customData: customHtml ? { html: customHtml } : null,
+                category, cardType, name,
+                level: 0, sm2Reps: 0, fileIndex: 0,
+            });
+            const position = this.query.getDeckEntryCount(systemDeck.id);
+            this.query.insertDeckEntry({
+                deckId: systemDeck.id, cardHash: globalHash,
+                documentPath: null, position, inlineCard: null,
+            });
+            if (systemDeck.node_id) {
+                const cardNodeId = this.query.getFlashcardNodeIdByHash(globalHash);
+                if (cardNodeId) this.query.insertDeckConnection(systemDeck.node_id, cardNodeId);
+            }
+        })();
+
+        this._ensureSystemDeckFile();
+        const file = this._read(systemDeck.global_hash);
+        file.entries.push({ cardHash: globalHash, documentPath: null });
+        file.modified = new Date().toISOString();
+        this._write(systemDeck.global_hash, file);
+
+        return globalHash;
+    }
+
+    updateStandaloneCard(hash, { frontText, backText, name, cardType, category } = {}) {
+        const card = this.query.getFlashcardByHash(hash);
+        if (!card) throw new Error(`Card not found: ${hash}`);
+        if (card.document_id !== null && card.document_id !== undefined) {
+            throw new Error('Card is linked to a document — edit from the document instead');
+        }
+        db.transaction(() => {
+            this.query.updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category });
+        })();
+    }
+
+    deleteStandaloneCard(hash) {
+        const card = this.query.getFlashcardByHash(hash);
+        if (!card) throw new Error(`Card not found: ${hash}`);
+        if (card.document_id !== null && card.document_id !== undefined) {
+            throw new Error('Card is linked to a document — delete from the document instead');
+        }
+
+        db.transaction(() => {
+            this.query.deleteFlashcardDeckEntries(hash);
+            this.query.deleteFlashcard(card.id);
+        })();
+
+        const systemDeck = this.query.getSystemDeck();
+        if (systemDeck) {
+            try {
+                const file = this._read(systemDeck.global_hash);
+                file.entries = file.entries.filter(e => e.cardHash !== hash);
+                file.modified = new Date().toISOString();
+                this._write(systemDeck.global_hash, file);
+            } catch (_) { /* best-effort */ }
+        }
     }
 }

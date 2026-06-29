@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards } from '../api/decks';
+import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -165,6 +166,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     const [deck, setDeck] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showAddPanel, setShowAddPanel] = useState(false);
+    const [showNewCard, setShowNewCard] = useState(false);
     const [renaming, setRenaming] = useState(false);
     const [renameVal, setRenameVal] = useState('');
 
@@ -212,6 +214,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     const existingHashes = new Set((deck.entries || []).map(e => e.card_hash));
 
     return (
+        <>
         <div className="deck-content" style={{ position: 'relative' }}>
             <div className="deck-detail-header">
                 <div className="deck-detail-title-group">
@@ -228,14 +231,20 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     <div className="deck-detail-meta">
                         {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
                         {deck.description ? ` · ${deck.description}` : ''}
+                        {deck.is_system && <span className="deck-system-badge deck-system-badge--detail">default deck · standalone cards live here</span>}
                     </div>
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
                         <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
                     )}
+                    {deck.is_system && (
+                        <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>+ New card</button>
+                    )}
                     <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
-                    <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                    {!deck.is_system && (
+                        <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                    )}
                 </div>
             </div>
 
@@ -256,6 +265,13 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     onAdded={() => { load(); onRefreshList(); }} onClose={() => setShowAddPanel(false)} />
             )}
         </div>
+        {showNewCard && (
+            <StandaloneCardModal
+                onClose={() => setShowNewCard(false)}
+                onCreated={() => { setShowNewCard(false); load(); onRefreshList(); }}
+            />
+        )}
+        </>
     );
 }
 
@@ -289,7 +305,10 @@ export default function DecksView({ onStudyDeck }) {
                             onClick={() => { setActiveDeck(deck.global_hash); setCreating(false); }}>
                             <span className="deck-item-icon">▤</span>
                             <div className="deck-item-info">
-                                <div className="deck-item-name">{deck.name}</div>
+                                <div className="deck-item-name">
+                                    {deck.name}
+                                    {deck.is_system ? <span className="deck-system-badge">default</span> : null}
+                                </div>
                                 <div className="deck-item-count">{deck.entry_count} card{deck.entry_count !== 1 ? 's' : ''}</div>
                             </div>
                         </div>

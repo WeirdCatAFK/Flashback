@@ -8,6 +8,7 @@ const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
         if (err.message?.includes('already in deck')) return res.status(409).json({ error: err.message });
         if (err.message?.includes('not found')) return res.status(404).json({ error: err.message });
+        if (err.message?.includes('system deck')) return res.status(403).json({ error: err.message });
         next(err);
     });
 
