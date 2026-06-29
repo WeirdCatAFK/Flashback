@@ -41,10 +41,34 @@ const listFolder = async (relPath) => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
+import { getWorkspacePath } from '../../src/api/access/Config.js';
+
 describe('Flashback API', () => {
 
     before(async () => {
         if (!validate()) throw new Error('Validation failed');
+        db.exec(`
+            PRAGMA foreign_keys = OFF;
+            DELETE FROM FlashcardReference;
+            DELETE FROM FlashcardContent;
+            DELETE FROM Flashcards;
+            DELETE FROM DocumentLinks;
+            DELETE FROM Documents;
+            DELETE FROM Folders;
+            DELETE FROM Connections;
+            DELETE FROM InheritedTags;
+            DELETE FROM Tags;
+            DELETE FROM ReviewLogs;
+            DELETE FROM Media;
+            DELETE FROM Decks;
+            DELETE FROM DeckEntries;
+            DELETE FROM Subscriptions;
+            PRAGMA foreign_keys = ON;
+        `);
+        const gitDir = path.join(getWorkspacePath(), '.git');
+        if (fsSync.existsSync(gitDir)) {
+            fsSync.rmSync(gitDir, { recursive: true, force: true });
+        }
         await sealTools.init();
         api = new Api({ port: 0, logFormat: 'tiny' });
         const server = await api.start();

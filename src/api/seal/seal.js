@@ -27,18 +27,24 @@ function author() {
     return { name: config?.vaultName || "flashback", email: "seal@flashback.local" };
 }
 
+function normPath(p) {
+    return p ? p.replace(/\\/g, "/") : p;
+}
+
 async function stageAll(workspace, paths) {
-    for (const p of paths) await git.add({ fs, dir: workspace, filepath: p });
+    for (const p of paths) await git.add({ fs, dir: workspace, filepath: normPath(p) });
 }
 
 async function removeAll(workspace, paths) {
-    for (const p of paths) await git.remove({ fs, dir: workspace, filepath: p });
+    for (const p of paths) await git.remove({ fs, dir: workspace, filepath: normPath(p) });
 }
 
 async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
     const workspace = dir();
-    await stageAll(workspace, [...extraRelPaths, sidecarRelPath]);
-    await git.commit({ fs, dir: workspace, message: `${action}: ${sidecarRelPath}`, author: author() });
+    const normSidecar = normPath(sidecarRelPath);
+    const normExtras = extraRelPaths.map(normPath);
+    await stageAll(workspace, [...normExtras, normSidecar]);
+    await git.commit({ fs, dir: workspace, message: `${action}: ${normSidecar}`, author: author() });
 }
 
 const EDIT_DEBOUNCE_MS = 2000;
@@ -99,7 +105,7 @@ export class SealEventEmitter {
      */
     async create(sidecarRelPath, extraRelPaths = []) {
         await this.flushEdits();
-        await stageAndCommit("create", sidecarRelPath, extraRelPaths);
+        await stageAndCommit("create", normPath(sidecarRelPath), extraRelPaths.map(normPath));
     }
 
     /**
@@ -111,8 +117,8 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async edit(sidecarRelPath, extraRelPaths = []) {
-        this._pendingEditPaths.add(sidecarRelPath);
-        for (const p of extraRelPaths) this._pendingEditPaths.add(p);
+        this._pendingEditPaths.add(normPath(sidecarRelPath));
+        for (const p of extraRelPaths) this._pendingEditPaths.add(normPath(p));
         this._cancelDebounce();
         this._debounceTimer = setTimeout(() => {
             this._debounceTimer = null;
@@ -131,12 +137,17 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async move(oldDocRelPath, newDocRelPath, removedRelPaths, addedRelPaths) {
-        for (const p of removedRelPaths) this._pendingEditPaths.delete(p);
+        const normRemoved = removedRelPaths.map(normPath);
+        const normAdded = addedRelPaths.map(normPath);
+        const normOldDoc = normPath(oldDocRelPath);
+        const normNewDoc = normPath(newDocRelPath);
+
+        for (const p of normRemoved) this._pendingEditPaths.delete(p);
         await this.flushEdits();
         const workspace = dir();
-        await removeAll(workspace, removedRelPaths);
-        await stageAll(workspace, addedRelPaths);
-        await git.commit({ fs, dir: workspace, message: `move: ${oldDocRelPath} -> ${newDocRelPath}`, author: author() });
+        await removeAll(workspace, normRemoved);
+        await stageAll(workspace, normAdded);
+        await git.commit({ fs, dir: workspace, message: `move: ${normOldDoc} -> ${normNewDoc}`, author: author() });
     }
 
     /**
@@ -148,12 +159,13 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async delete(sidecarRelPath, extraRelPaths = []) {
-        const allRemoved = [...extraRelPaths, sidecarRelPath];
+        const normSidecar = normPath(sidecarRelPath);
+        const allRemoved = [...extraRelPaths, sidecarRelPath].map(normPath);
         for (const p of allRemoved) this._pendingEditPaths.delete(p);
         await this.flushEdits();
         const workspace = dir();
         await removeAll(workspace, allRemoved);
-        await git.commit({ fs, dir: workspace, message: `delete: ${sidecarRelPath}`, author: author() });
+        await git.commit({ fs, dir: workspace, message: `delete: ${normSidecar}`, author: author() });
     }
 }
 

@@ -35,6 +35,28 @@ describe('Media & Binary Operations', () => {
 
     before(async () => {
         cleanup();
+        db.exec(`
+            PRAGMA foreign_keys = OFF;
+            DELETE FROM FlashcardReference;
+            DELETE FROM FlashcardContent;
+            DELETE FROM Flashcards;
+            DELETE FROM DocumentLinks;
+            DELETE FROM Documents;
+            DELETE FROM Folders;
+            DELETE FROM Connections;
+            DELETE FROM InheritedTags;
+            DELETE FROM Tags;
+            DELETE FROM ReviewLogs;
+            DELETE FROM Media;
+            DELETE FROM Decks;
+            DELETE FROM DeckEntries;
+            DELETE FROM Subscriptions;
+            PRAGMA foreign_keys = ON;
+        `);
+        const gitDir = path.join(getWorkspacePath(), '.git');
+        if (fs.existsSync(gitDir)) {
+            fs.rmSync(gitDir, { recursive: true, force: true });
+        }
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });
@@ -81,7 +103,7 @@ describe('Media & Binary Operations', () => {
 
         const mediaBuffer = Buffer.from("fake-image-data-integrity-check");
         const expectedHash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
-        const beforeCommits = (await sealTools.log()).length;
+        const beforeCommits = (await sealTools.log(1000)).length;
 
         await docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
 
@@ -101,9 +123,9 @@ describe('Media & Binary Operations', () => {
         assert.ok(card.customData.media[trimmedName], "Metadata should reference the new media");
 
         await sealEmitter.flushEdits();
-        const afterCommits = (await sealTools.log()).length;
+        const afterCommits = (await sealTools.log(1000)).length;
         assert.equal(afterCommits, beforeCommits + 1, "addMediaToFlashcard should produce one Seal commit");
-        assert.ok((await sealTools.log())[0].commit.message.startsWith('edit:'), "Seal commit for media addition should be an edit");
+        assert.ok((await sealTools.log(1000))[0].commit.message.startsWith('edit:'), "Seal commit for media addition should be an edit");
     });
 
     it('should not write file when flashcard hash is not found in sidecar', async () => {
