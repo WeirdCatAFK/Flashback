@@ -228,9 +228,14 @@ describe('Media Orchestrator', () => {
         await docs.createFolder("OrchestratorSuite", TEST_ROOT);
     });
 
-    after(() => {
+    after(async () => {
         db.close();
-        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        try {
+            fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        } catch (e) {
+            console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
+        }
     });
 
     it('should add vanilla media: write file, update sidecar, register in DB, and fire a Seal commit', async () => {

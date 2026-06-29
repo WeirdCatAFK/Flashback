@@ -197,10 +197,15 @@ describe('Tag propagation — performance', () => {
         console.log(`  Seeded in ${(performance.now() - t0).toFixed(0)}ms`);
     });
 
-    after(() => {
+    after(async () => {
         rmWorkspace(ROOT);
         db.close();
-        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        try {
+            fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        } catch (e) {
+            console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
+        }
     });
 
     it('getGraphData stays under 500ms with ~25k inherited tag edges', () => {

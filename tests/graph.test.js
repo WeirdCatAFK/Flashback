@@ -44,9 +44,14 @@ describe('Graph hierarchy — inheritance edges', () => {
         await docs.createFolder(ROOT);
     });
 
-    after(() => {
+    after(async () => {
         db.close();
-        fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        await new Promise(resolve => setTimeout(resolve, 50));
+        try {
+            fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        } catch (e) {
+            console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
+        }
     });
 
     it('creating a file in a folder adds an inheritance edge folder→file', async () => {

@@ -54,9 +54,14 @@ describe('Flashback API', () => {
     after(async () => {
         await api.stop();
         db.close();
+        await new Promise(resolve => setTimeout(resolve, 50));
         const dataPath = path.join(process.cwd(), 'data');
         if (fsSync.existsSync(dataPath)) {
-            await fs.rm(dataPath, { recursive: true, force: true });
+            try {
+                await fs.rm(dataPath, { recursive: true, force: true });
+            } catch (e) {
+                console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
+            }
         }
     });
 
