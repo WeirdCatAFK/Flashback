@@ -13,6 +13,18 @@ import Files from './files.js';
 import query from './query.js';
 import db from './Database.js';
 
+const CLOZE_PATTERN = /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g;
+
+// Templater's non-cloze {{...}} placeholders (e.g. `# {{title}}`) are syntactically identical
+// to a bare Flashback inline cloze (`{{word}}`), so they can only be told apart heuristically:
+// Templater placeholders show up in headings and use a small fixed set of core variable names.
+const TEMPLATER_CORE_VARS = new Set(['title', 'date', 'time', 'folder', 'cursor']);
+function isTemplaterPlaceholderLine(line) {
+    if (/^#{1,6}\s/.test(line.trim())) return true;
+    const bracketContent = line.match(/\{\{([^{}]+)\}\}/)?.[1]?.trim().toLowerCase();
+    return !!bracketContent && TEMPLATER_CORE_VARS.has(bracketContent);
+}
+
 export default class ObsidianImport {
     constructor() {
         this.documents = new Documents();
@@ -149,11 +161,19 @@ export default class ObsidianImport {
                                 }
                             }
 
-                            // Inline tags: match #tag (ignore hex codes or code blocks where possible)
-                            const inlineTagMatches = content.matchAll(/(?:^|\s)#([a-zA-Z0-9_\-\/]+)/g);
+                            // Strip the frontmatter block now that tags have been extracted from it —
+                            // otherwise the raw --- ... --- YAML leaks as literal text in the note body.
+                            content = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
+                            // Strip Obsidian %% ... %% comments (never meant to be visible content).
+                            content = content.replace(/%%[\s\S]*?%%/g, '');
+
+                            // Inline tags: match #tag, ignoring anything inside fenced code blocks
+                            // (Dataview query syntax like #dv/list or #type/books is not a real tag).
+                            const contentForTags = content.replace(/```[\s\S]*?```/g, '');
+                            const inlineTagMatches = contentForTags.matchAll(/(?:^|\s)#([a-zA-Z0-9_\-\/]+)/g);
                             for (const m of inlineTagMatches) {
-                                const tag = m[1];
-                                if (!/^[0-9]+$/.test(tag)) {
+                                const tag = m[1].replace(/\/+$/, '');
+                                if (tag && !/^[0-9]+$/.test(tag)) {
                                     tags.push(tag);
                                 }
                             }
@@ -244,7 +264,7 @@ export default class ObsidianImport {
                                     const parts = line.split(' ::: ');
                                     const front = parts[0].trim();
                                     const extra = parts[1].trim();
-                                    const cleanedFront = front.replace(/{{c\d+::([^:}]+)(?:::[^}]*)?}}/g, '{{$1}}');
+                                    const cleanedFront = front.replace(CLOZE_PATTERN, '{{$1}}');
 
                                     const cardHashRaw = `obsidian-cloze-${globalHash}-${i}`;
                                     const cardHash = crypto.createHash('sha256').update(cardHashRaw).digest('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
@@ -261,9 +281,9 @@ export default class ObsidianImport {
                                         vanillaData: { frontText: cleanedFront, backText: extra || cleanedFront, media: {} },
                                         customData: { html: "" }
                                     });
-                                } else if (line.includes('{{') && line.includes('}}')) {
+                                } else if (line.includes('{{') && line.includes('}}') && !isTemplaterPlaceholderLine(line)) {
                                     // Inline cloze card (no extra section)
-                                    const cleanedFront = line.replace(/{{c\d+::([^:}]+)(?:::[^}]*)?}}/g, '{{$1}}').trim();
+                                    const cleanedFront = line.replace(CLOZE_PATTERN, '{{$1}}').trim();
                                     const cardHashRaw = `obsidian-cloze-inline-${globalHash}-${i}`;
                                     const cardHash = crypto.createHash('sha256').update(cardHashRaw).digest('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
 
