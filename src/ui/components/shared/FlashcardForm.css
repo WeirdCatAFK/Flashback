@@ -317,11 +317,9 @@
    Flex-column parents can't reliably do this for height:100% children. */
 .fc-card-stage {
   width: 100%;
+  aspect-ratio: 4 / 3;
   position: relative;
 }
-
-.fc-card-stage--landscape { aspect-ratio: 4 / 3; }
-.fc-card-stage--portrait  { aspect-ratio: 3 / 4; }
 
 /* Flashcard fills the stage; its own aspect-ratio + margin are overridden. */
 .fc-card-stage .flashcard {

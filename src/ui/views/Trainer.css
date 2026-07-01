@@ -159,7 +159,7 @@
   flex-direction: column;
   align-items: center;
   gap: 14px;
-  width: min(100%, 420px);
+  width: min(100%, 640px);
 }
 
 .trainer-card-meta,

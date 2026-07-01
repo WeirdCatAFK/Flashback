@@ -260,10 +260,51 @@ router.post(
     const targetPath = norm(req.body.targetPath ?? "");
     const tempPath = path.join(
       os.tmpdir(),
-      `flashback_${crypto.randomUUID()}.zip`,
+      `flashback_${crypto.randomUUID()}_import.zip`,
     );
     await fs.writeFile(tempPath, req.file.buffer);
     try {
+      // Auto-detect package type by inspecting Zip content
+      const { default: AdmZip } = await import("adm-zip");
+      const zip = new AdmZip(tempPath);
+      let isAnki = false;
+      let isObsidian = false;
+      let isFlashback = false;
+
+      const entries = zip.getEntries();
+      for (const entry of entries) {
+        const name = entry.entryName.toLowerCase();
+        if (name.includes("collection.anki2") || name.includes("collection.anki21")) {
+          isAnki = true;
+          break;
+        }
+        if (name.includes(".flashback")) {
+          isFlashback = true;
+        }
+      }
+
+      if (isAnki) {
+        const { default: AnkiImport } = await import("../access/ankiImport.js");
+        const importer = new AnkiImport();
+        const result = await importer.importApkg(req.file.buffer, targetPath);
+        return res.status(201).json(result);
+      }
+
+      if (!isFlashback) {
+        const hasMd = entries.some(e => e.entryName.toLowerCase().endsWith(".md"));
+        if (hasMd) {
+          isObsidian = true;
+        }
+      }
+
+      if (isObsidian) {
+        const { default: ObsidianImport } = await import("../access/obsidianImport.js");
+        const importer = new ObsidianImport();
+        const result = await importer.importVault(req.file.buffer, targetPath);
+        return res.status(201).json(result);
+      }
+
+      // Default to Flashback ZIP package
       await docs.processZipPackage(tempPath, targetPath);
       res.status(201).json({ ok: true });
     } finally {
@@ -271,6 +312,37 @@ router.post(
     }
   }),
 );
+
+// POST /api/documents/import/anki
+// Multipart: file field + body { targetPath? }
+router.post(
+  "/import/anki",
+  upload.single("file"),
+  catchError(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const targetPath = norm(req.body.targetPath ?? "");
+    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const importer = new AnkiImport();
+    const result = await importer.importApkg(req.file.buffer, targetPath);
+    res.status(201).json(result);
+  }),
+);
+
+// POST /api/documents/import/obsidian
+// Multipart: file field + body { targetPath? }
+router.post(
+  "/import/obsidian",
+  upload.single("file"),
+  catchError(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const targetPath = norm(req.body.targetPath ?? "");
+    const { default: ObsidianImport } = await import("../access/obsidianImport.js");
+    const importer = new ObsidianImport();
+    const result = await importer.importVault(req.file.buffer, targetPath);
+    res.status(201).json(result);
+  }),
+);
+
 
 // GET /api/documents/by-hash/:hash
 // Resolves a globalHash to { relativePath, name } — used by the renderer to

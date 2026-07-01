@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, getEntityTags, getTags, getSidecar, updateMetadata } from '../../api/documents';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, importZipWithProgress, getEntityTags, getTags, getSidecar, updateMetadata } from '../../api/documents';
 import IconFolder from '../icons/IconFolder';
 import IconFolderOpen from '../icons/IconFolderOpen';
 import IconFile from '../icons/IconFile';
@@ -449,10 +449,17 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
           const fd = new FormData();
           fd.append('file', file);
           fd.append('name', file.name);
-          fd.append('parentPath', path);
-          await importFileWithProgress(fd, (pct) =>
-            onImportProgress({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
-          );
+          if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.apkg')) {
+            fd.append('targetPath', path);
+            await importZipWithProgress(fd, (pct) =>
+              onImportProgress({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+            );
+          } else {
+            fd.append('parentPath', path);
+            await importFileWithProgress(fd, (pct) =>
+              onImportProgress({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+            );
+          }
           onImportProgress({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
         }
         refresh();
@@ -604,11 +611,45 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const [tagsTarget, setTagsTarget]   = useState(null); // folder path being edited
   const [swatchTarget, setSwatchTarget] = useState(null); // { path, color } for color picker
   const swatchRefreshRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const ctxMenuTargetRef = useRef('');
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const openCtxMenu  = useCallback((e, config) => {
     setCtxMenu({ x: e.clientX, y: e.clientY, ...config });
   }, []);
+
+  const handleImportFiles = async (files, parent = '') => {
+    if (!files || !files.length) return;
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('name', file.name);
+        if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.apkg')) {
+          fd.append('targetPath', parent);
+          await importZipWithProgress(fd, (pct) =>
+            setImporting({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+          );
+        } else {
+          fd.append('parentPath', parent);
+          await importFileWithProgress(fd, (pct) =>
+            setImporting({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
+          );
+        }
+        setImporting({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
+      }
+      loadRoot();
+    } catch (err) { console.error('Import failed', err); }
+    finally { setImporting(null); }
+  };
+
+  const handleFilePickerChange = (e) => {
+    const files = Array.from(e.target.files || []);
+    handleImportFiles(files, ctxMenuTargetRef.current || '');
+    e.target.value = ''; // Reset
+  };
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
@@ -641,22 +682,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
     if (!srcPath) {
       const files = Array.from(e.dataTransfer.files);
-      if (!files.length) return;
-      try {
-        for (let i = 0; i < files.length; i++) {
-          const file = files[i];
-          const fd = new FormData();
-          fd.append('file', file);
-          fd.append('name', file.name);
-          fd.append('parentPath', '');
-          await importFileWithProgress(fd, (pct) =>
-            setImporting({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
-          );
-          setImporting({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
-        }
-        loadRoot();
-      } catch (err) { console.error('Import failed', err); }
-      finally { setImporting(null); }
+      await handleImportFiles(files, '');
       return;
     }
 
@@ -687,12 +713,24 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           setSwatchTarget({ path: ctxMenu.folderPath, color: ctxMenu.folderColor ?? '' });
         }
       },
+      { label: 'Import to folder', action: () => {
+          ctxMenuTargetRef.current = ctxMenu.folderPath;
+          fileInputRef.current?.click();
+        }
+      },
       { separator: true },
     ] : []),
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
       { label: 'New File',   action: ctxMenu.doNewFile   },
       { label: 'New Folder', action: ctxMenu.doNewFolder },
-      ...(ctxMenu.isRoot ? [] : [{ separator: true }]),
+      ...(ctxMenu.isRoot ? [
+        { label: 'Import files/packages', action: () => {
+            ctxMenuTargetRef.current = '';
+            fileInputRef.current?.click();
+          }
+        },
+        { separator: true }
+      ] : [{ separator: true }]),
     ] : []),
     ...(ctxMenu.isRoot ? [] : [
       { label: 'Rename', action: ctxMenu.triggerRename },
@@ -721,6 +759,13 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
               <path d="M9 1H3.5A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9A1.5 1.5 0 0 0 14 13.5V6L9 1z"/>
               <polyline points="9,1 9,6 14,6"/>
               <line x1="8" y1="9" x2="8" y2="13"/><line x1="6" y1="11" x2="10" y2="11"/>
+            </svg>
+          </button>
+          <button type="button" className="fe-action-btn" onClick={() => { ctxMenuTargetRef.current = ''; fileInputRef.current?.click(); }} title="Import files / packages (.zip, .apkg, .md)" aria-label="Import files">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+              <path d="M12 12L8 8L4 12"/>
+              <line x1="8" y1="8" x2="8" y2="15"/>
+              <rect x="2" y="2" width="12" height="4" rx="1"/>
             </svg>
           </button>
         </div>
@@ -779,6 +824,16 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           onSaved={() => { swatchRefreshRef.current?.(); setSwatchTarget(null); }}
         />
       )}
+
+      <input
+        ref={fileInputRef}
+        type="file"
+        style={{ display: 'none' }}
+        multiple
+        accept=".zip,.apkg,.md,.txt"
+        onChange={handleFilePickerChange}
+        aria-label="Upload files"
+      />
     </div>
   );
 }

@@ -1,7 +1,6 @@
 import { useMemo, useState } from 'react';
 import { readFile, updateMetadata } from '../api/documents';
 import Flashcard from './shared/Flashcard';
-import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
 import './shared/FlashcardForm.css';
 
 const CARD_TYPES = [
@@ -13,7 +12,6 @@ const CARD_TYPES = [
 ];
 
 export default function FlashcardEditor({ card, documentPath, onSaved, onCancel }) {
-  const [orientation] = useFlashcardOrientation();
   const originalType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
   const vd = card?.vanillaData ?? {};
 
@@ -102,13 +100,12 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       <button type="button" className="fc-editor-back" onClick={onCancel}>← Cards</button>
 
       <div className="fc-editor-preview">
-        <div className={`fc-card-stage fc-card-stage--${orientation}`}>
+        <div className="fc-card-stage">
           <Flashcard
             card={previewCard}
             face={previewFace}
             onFlip={cardType !== 'type_answer' ? setPreviewFace : undefined}
             variant="full"
-            orientation={orientation}
           />
         </div>
         {cardType !== 'type_answer' && (

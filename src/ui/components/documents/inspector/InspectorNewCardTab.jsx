@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { createVanillaCard } from '../../../api/media';
 import FlashcardForm from '../../shared/FlashcardForm';
-import useFlashcardOrientation from '../../../hooks/useFlashcardOrientation';
 
 export default function InspectorNewCardTab({ path, selection, highlightId, onCancel, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
-  const [orientation] = useFlashcardOrientation();
 
   const filename = path?.replace(/\\/g, '/').split('/').pop() ?? '';
   const location  = highlightId ? { type: 'highlight', id: highlightId } : null;
@@ -31,7 +29,6 @@ export default function InspectorNewCardTab({ path, selection, highlightId, onCa
       selection={selection}
       sourceLabel={selection?.text ? `${highlightId ? 'highlight' : 'unanchored'} · ${filename}` : undefined}
       location={location}
-      orientation={orientation}
       saving={saving}
       error={error}
       onSubmit={handleSubmit}

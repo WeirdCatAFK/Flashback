@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
 import "./Config.css";
-import useFlashcardOrientation from "../hooks/useFlashcardOrientation";
 import KeybindingsEditor from "../components/KeybindingsEditor";
 import ProgressDialog from "../components/shared/ProgressDialog";
 import { migrateProgress } from "../api/srs";
@@ -667,7 +666,6 @@ export default function ConfigView({
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
   const [restartPending, setRestartPending] = useState(false);
-  const [orientation, setOrientation] = useFlashcardOrientation();
   const { algorithm, applyAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
 
   // Algorithm migration confirm state.
@@ -776,21 +774,6 @@ export default function ConfigView({
         <h2 className="config-heading">Flashcards</h2>
         <table className="config-table">
           <tbody>
-            <tr>
-              <td>
-                <label htmlFor="flashcard-orientation">Card orientation</label>
-              </td>
-              <td>
-                <select
-                  id="flashcard-orientation"
-                  value={orientation}
-                  onChange={(e) => setOrientation(e.target.value)}
-                >
-                  <option value="landscape">Landscape (4:3)</option>
-                  <option value="portrait">Portrait (3:4)</option>
-                </select>
-              </td>
-            </tr>
             <tr>
               <td>
                 <label htmlFor="srs-algorithm">SRS algorithm</label>

@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards } from '../api/decks';
+import { importZipWithProgress } from '../api/documents';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
+import ProgressDialog from '../components/shared/ProgressDialog';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -281,17 +283,60 @@ export default function DecksView({ onStudyDeck }) {
     const { decks, loading, refresh } = useDecks();
     const [activeDeck, setActiveDeck] = useState(null);
     const [creating, setCreating] = useState(false);
+    const [importing, setImporting] = useState(null); // null | { pct, processing, filename }
+    const [importVersion, setImportVersion] = useState(0); // bumped after each import to force DeckDetail to reload
+    const importInputRef = useRef(null);
 
     const handleCreated = (hash) => { setCreating(false); refresh(); setActiveDeck(hash); };
     const handleDeleted = () => { setActiveDeck(null); refresh(); };
     const handleStudy = (deck) => onStudyDeck?.({ deck: deck.global_hash, deckName: deck.name });
+
+    const handleImportFile = async (e) => {
+        const file = e.target.files?.[0];
+        e.target.value = ''; // reset so re-selecting the same file re-triggers change
+        if (!file) return;
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('name', file.name);
+        fd.append('targetPath', '');
+        setImporting({ pct: 0, processing: false, filename: file.name });
+        try {
+            await importZipWithProgress(fd, (pct) =>
+                setImporting({ pct, processing: pct >= 100, filename: file.name })
+            );
+            refresh();
+            setImportVersion(v => v + 1);
+        } catch (err) {
+            console.error('Import failed', err);
+            window.alert('Import failed. Check the console for details.');
+        } finally {
+            setImporting(null);
+        }
+    };
 
     return (
         <div className="decks-view">
             <div className="decks-panel">
                 <div className="decks-panel-header">
                     <span className="decks-panel-title">Decks</span>
-                    <button type="button" className="decks-panel-new" title="New deck" onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                    <div className="decks-panel-actions">
+                        <button type="button" className="decks-panel-import" title="Import an Anki deck (.apkg) or Obsidian vault (.zip)"
+                            onClick={() => importInputRef.current?.click()} aria-label="Import deck">
+                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                                <path d="M12 12L8 8L4 12"/>
+                                <line x1="8" y1="8" x2="8" y2="15"/>
+                                <rect x="2" y="2" width="12" height="4" rx="1"/>
+                            </svg>
+                        </button>
+                        <button type="button" className="decks-panel-new" title="New deck" onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                    </div>
+                    <input
+                        ref={importInputRef}
+                        type="file"
+                        accept=".apkg,.zip"
+                        style={{ display: 'none' }}
+                        onChange={handleImportFile}
+                    />
                 </div>
 
                 <div className="decks-list">
@@ -327,7 +372,7 @@ export default function DecksView({ onStudyDeck }) {
                         <NewDeckForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
                     </>
                 ) : activeDeck ? (
-                    <DeckDetail key={activeDeck} deckHash={activeDeck}
+                    <DeckDetail key={`${activeDeck}:${importVersion}`} deckHash={activeDeck}
                         onDeleted={handleDeleted} onRefreshList={refresh} onStudy={handleStudy} />
                 ) : (
                     <div className="deck-empty-state">
@@ -336,6 +381,15 @@ export default function DecksView({ onStudyDeck }) {
                     </div>
                 )}
             </div>
+            {importing && (
+                <ProgressDialog
+                    title="Importing deck"
+                    filename={importing.filename}
+                    progress={importing.pct}
+                    processing={importing.processing}
+                    statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
+                />
+            )}
         </div>
     );
 }

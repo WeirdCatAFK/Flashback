@@ -9,14 +9,20 @@ const norm = (p) => p ? path.normalize(p) : p;
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // POST /api/srs/review
-// Body: { path, flashcardHash, outcome, easeFactor, newLevel }
+// Body: { path?, flashcardHash, outcome, easeFactor, newLevel }
+// path is optional: document-linked cards include it so the sidecar is updated;
+// standalone cards (no document) omit it and only the DB is updated.
 router.post('/review', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     const { flashcardHash, outcome, easeFactor, newLevel, algorithm } = req.body;
-    if (!relPath || !flashcardHash || outcome == null || easeFactor == null || newLevel == null) {
-        return res.status(400).json({ error: 'path, flashcardHash, outcome, easeFactor, and newLevel required' });
+    if (!flashcardHash || outcome == null || easeFactor == null || newLevel == null) {
+        return res.status(400).json({ error: 'flashcardHash, outcome, easeFactor, and newLevel required' });
     }
-    await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm);
+    if (relPath) {
+        await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm);
+    } else {
+        SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm);
+    }
     res.json({ ok: true });
 }));
 

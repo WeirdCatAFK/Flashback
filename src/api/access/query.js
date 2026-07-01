@@ -280,6 +280,10 @@ class DocumentQuery {
         return this.db.prepare('SELECT id, document_id FROM Flashcards WHERE global_hash = ?').get(hash);
     }
 
+    setFlashcardSrsState(id, level, sm2Reps) {
+        this.db.prepare('UPDATE Flashcards SET level = ?, sm2_reps = ? WHERE id = ?').run(level, sm2Reps, id);
+    }
+
     getAllFlashcardSrsState() {
         return this.db.prepare('SELECT global_hash, level, sm2_reps, last_recall FROM Flashcards').all();
     }
@@ -880,6 +884,13 @@ class DocumentQuery {
             LEFT JOIN FlashcardContent fcc ON fcc.id = fc.content_id
             LEFT JOIN Documents fcd        ON fcd.id = fc.document_id
             LEFT JOIN Decks dk ON dk.node_id = n.id
+            WHERE NOT (
+                nt.name = 'Deck' AND NOT EXISTS (
+                    SELECT 1 FROM Connections c2
+                    JOIN ConnectionTypes ct2 ON c2.type_id = ct2.id
+                    WHERE c2.origin_id = n.id AND ct2.name = 'deck'
+                )
+            )
         `).all();
 
         const edges = this.db.prepare(`

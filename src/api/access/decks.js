@@ -182,7 +182,7 @@ export default class Decks {
         return this.query.getFlashcardCountFiltered({ search, level, cardType });
     }
 
-    createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null } = {}) {
+    createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
 
@@ -192,7 +192,11 @@ export default class Decks {
             const nodeId = this.query.createNode('Flashcard');
             this.query.insertFlashcard({
                 globalHash, nodeId, documentId: null,
-                vanillaData: { frontText: frontText || null, backText: backText || null },
+                vanillaData: { 
+                    frontText: frontText || null, 
+                    backText: backText || null,
+                    media: media || {}
+                },
                 customData: customHtml ? { html: customHtml } : null,
                 category, cardType, name,
                 level: 0, sm2Reps: 0, fileIndex: 0,

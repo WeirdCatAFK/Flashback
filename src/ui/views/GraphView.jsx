@@ -22,6 +22,8 @@ function useThemeVersion() {
 }
 
 function buildGraphData({ nodes = [], edges = [] }) {
+  const nodeIdSet = new Set(nodes.map(n => n.id));
+
   const disconnected = new Set();
   for (const e of edges) {
     if (e.relation === 'disconnection') {
@@ -40,6 +42,11 @@ function buildGraphData({ nodes = [], edges = [] }) {
 
   const links = [];
   for (const e of edges) {
+    // Drop links whose endpoints aren't in the nodes array — the nodes query
+    // intentionally excludes some nodes (e.g. standalone flashcards) but the
+    // edges query returns all connections, leaving orphaned references that
+    // crash react-force-graph-2d with "node not found".
+    if (!nodeIdSet.has(e.fromId) || !nodeIdSet.has(e.toId)) continue;
     if (e.relation !== 'disconnection') {
       const key = `${Math.min(e.fromId, e.toId)}-${Math.max(e.fromId, e.toId)}`;
       if (disconnected.has(key)) continue;
@@ -366,6 +373,12 @@ export default function GraphView({ isActive = false, onNavigate }) {
       nodes = nodes.filter(n => !originIds.has(n.id));
       links = links.filter(l => !originIds.has(nodeId(l.source)) && !originIds.has(nodeId(l.target)));
     }
+
+    // Final guard: drop any link whose endpoint was removed by the filters above.
+    // Filtering by relation type alone (e.g. removing Tag nodes but not all tag-adjacent
+    // links) can leave orphaned references that crash react-force-graph-2d.
+    const visibleIds = new Set(nodes.map(n => n.id));
+    links = links.filter(l => visibleIds.has(nodeId(l.source)) && visibleIds.has(nodeId(l.target)));
 
     return { nodes, links };
   }, [graphData, showTags, showDecks, showLinks, showOrigin]);

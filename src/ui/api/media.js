@@ -13,8 +13,11 @@ const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
  */
 export const mediaFileSrc = (docPath, ref) => {
   if (!ref) return null;
+  if (/^[a-f0-9]{64}$/i.test(ref)) {
+    return `${getBaseUrl()}/api/media?hash=${encodeURIComponent(ref)}`;
+  }
   const name = ref.replace(/^\.?\/?media\//, '');
-  return `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(name)}`;
+  return `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath || '')}&name=${encodeURIComponent(name)}`;
 };
 
 /**

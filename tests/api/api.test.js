@@ -387,6 +387,23 @@ describe('Flashback API', () => {
             const res = await fetch(`${baseUrl}/api/documents/import/zip`, { method: 'POST', body: form });
             assert.equal(res.status, 400);
         });
+
+        it('POST /api/documents/import/zip (Obsidian) → auto-detects and imports Obsidian vault', async () => {
+            const zip = new AdmZip();
+            zip.addFile('ObsidianNote.md', Buffer.from('# Obsidian Note\nHello world.\nQuestion :: Answer'));
+            const form = new FormData();
+            form.append('file', new Blob([zip.toBuffer()], { type: 'application/zip' }), 'obsidian.zip');
+            form.append('targetPath', ROOT);
+
+            const res = await fetch(`${baseUrl}/api/documents/import/zip`, { method: 'POST', body: form });
+            assert.equal(res.status, 201);
+
+            const data = await res.json();
+            assert.ok(data.path.includes('Obsidian_Import_'));
+            
+            const innerItems = await listFolder(data.path);
+            assert.ok(innerItems.some(i => i.name === 'ObsidianNote.md'), 'Obsidian imported note should exist');
+        });
     });
 
     // ── Media ──────────────────────────────────────────────────────────────

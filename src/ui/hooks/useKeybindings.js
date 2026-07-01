@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { loadKeybindings, KB_EVENT } from '../keybindings';
 
-// Reactive access to the resolved keybinding map. Like the theme/orientation
-// state it lives in localStorage and broadcasts a custom event, so every mounted
-// consumer updates the moment a binding changes.
+// Reactive access to the resolved keybinding map. Like the theme state it lives
+// in localStorage and broadcasts a custom event, so every mounted consumer
+// updates the moment a binding changes.
 export default function useKeybindings() {
   const [map, setMap] = useState(loadKeybindings);
 

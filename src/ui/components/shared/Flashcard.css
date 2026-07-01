@@ -4,17 +4,14 @@
   --fc-radius: 12px;
   position: relative;
   width: 100%;
-  max-width: 420px;
+  max-width: 640px;
+  aspect-ratio: 4 / 3;
   margin: 0 auto;
   perspective: 1400px;
   cursor: pointer;
   user-select: none;
   touch-action: pan-y;
 }
-
-/* Strict aspect ratios keep cards consistent across devices. */
-.flashcard--landscape { aspect-ratio: 4 / 3; }
-.flashcard--portrait  { aspect-ratio: 3 / 4; max-width: 320px; }
 
 .flashcard:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -101,10 +98,51 @@
   min-height: 0;
   max-width: 100%;
   overflow-y: auto;
-  text-align: center;
+  text-align: justify;
   line-height: 1.4;
   font-size: clamp(13px, 5cqw, 22px);
   word-break: break-word;
+}
+
+/* Markdown block elements rendered inside card text — kept tight so they read
+   like a single card face rather than a full document. */
+.flashcard-text p { margin: 0 0 0.5em; }
+.flashcard-text p:last-child { margin-bottom: 0; }
+.flashcard-text ul,
+.flashcard-text ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; text-align: left; }
+.flashcard-text blockquote {
+  margin: 0 0 0.5em;
+  padding-inline-start: 0.8em;
+  border-inline-start: 3px solid var(--color-border);
+  text-align: left;
+}
+.flashcard-text code {
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.9em;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+.flashcard-text pre {
+  margin: 0 0 0.5em;
+  padding: 0.6em 0.8em;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  text-align: left;
+  overflow-x: auto;
+}
+.flashcard-text pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.flashcard-text .katex-display {
+  margin: 0.4em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 /* Floats in the bottom-right corner, out of the content flow, so it stays clear
@@ -203,7 +241,6 @@
 
 /* Cloze: inline text with blanks */
 .flashcard-cloze {
-  text-align: left;
   line-height: 1.8;
 }
 

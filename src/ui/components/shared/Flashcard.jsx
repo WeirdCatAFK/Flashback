@@ -1,4 +1,9 @@
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
+import remarkMath from 'remark-math';
+import rehypeKatex from 'rehype-katex';
+import 'katex/dist/katex.min.css';
 import './Flashcard.css';
 
 // Presentation-only flashcard renderer. No evaluation/SRS/persistence logic.
@@ -26,6 +31,40 @@ function parseCloze(text = '') {
   }
   if (last < text.length) parts.push({ type: 'text', content: text.slice(last) });
   return parts;
+}
+
+// Renders inline-only (no <p>/<pre> wrappers) so it stays valid nested inside a <span> —
+// used for cloze fragments, which must flow inline alongside the blank/answer spans.
+const INLINE_MARKDOWN_COMPONENTS = { p: 'span' };
+
+// Anki's default MathJax config (and its older tex plugin) mark math with
+// \(...\)/\[...\] or [$]...[/$]/[$$]...[/$$] rather than the $/$$ that
+// remark-math looks for.
+const MATH_DELIMITER = /\\\(|\\\[|\[\$\]|\[\$\$\]/;
+
+function normalizeMathDelimiters(text) {
+  return text
+    .replace(/\[\$\$\]([\s\S]+?)\[\/\$\$\]/g, (_, expr) => `$$${expr}$$`)
+    .replace(/\[\$\]([\s\S]+?)\[\/\$\]/g, (_, expr) => `$${expr}$`)
+    .replace(/\\\[([\s\S]+?)\\\]/g, (_, expr) => `$$${expr}$$`)
+    .replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => `$${expr}$`);
+}
+
+// remark-math treats any $...$ pair as math, so it's only enabled for cards that
+// actually use one of Anki's math delimiters — otherwise a stray "$5 and $10"
+// in unrelated card text would get misread as an equation.
+function CardMarkdown({ children, inline = false }) {
+  if (!children) return null;
+  const hasMath = MATH_DELIMITER.test(children);
+  return (
+    <ReactMarkdown
+      remarkPlugins={hasMath ? [remarkBreaks, remarkMath] : [remarkBreaks]}
+      rehypePlugins={hasMath ? [rehypeKatex] : undefined}
+      components={inline ? INLINE_MARKDOWN_COMPONENTS : undefined}
+    >
+      {hasMath ? normalizeMathDelimiters(children) : children}
+    </ReactMarkdown>
+  );
 }
 
 function AudioIcon() {
@@ -57,7 +96,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
           <img src={imgSrc} alt="" draggable={false} />
         </div>
       )}
-      {text && <div className="flashcard-text">{text}</div>}
+      {text && <div className="flashcard-text"><CardMarkdown>{text}</CardMarkdown></div>}
       {soundSrc && (
         <>
           <audio ref={audioRef} src={soundSrc} preload="auto" aria-hidden="true" />
@@ -87,7 +126,7 @@ function ClozeFace({ side, parts }) {
             ? <span key={`blank-${i}`} className={side === 'front' ? 'cloze-blank' : 'cloze-answer'}>
                 {side === 'front' ? '      ' : p.content}
               </span>
-            : <span key={`text-${i}`}>{p.content}</span>
+            : <span key={`text-${i}`}><CardMarkdown inline>{p.content}</CardMarkdown></span>
         )}
       </div>
     </div>
@@ -100,7 +139,6 @@ const Flashcard = forwardRef(function Flashcard({
   onFlip,
   onSwipe,
   onTypeCheck,           // (typedAnswer: string) => void — type_answer only
-  orientation = 'landscape',
   variant = 'full',      // 'full' (flip canvas) | 'static' (no flip, single face)
   resolveMedia,
   className = '',
@@ -191,7 +229,7 @@ const Flashcard = forwardRef(function Flashcard({
   if (cardType === 'custom') {
     const html = card?.customData?.html ?? '';
     return (
-      <div className={`flashcard flashcard--${orientation} flashcard--static flashcard--custom ${className}`}>
+      <div className={`flashcard flashcard--static flashcard--custom ${className}`}>
         <div className="flashcard-inner">
           {html
             ? <div className="flashcard-face flashcard-custom-live">
@@ -239,9 +277,32 @@ const Flashcard = forwardRef(function Flashcard({
     frontFace = <ClozeFace side="front" parts={clozeParts} />;
     backFace  = <ClozeFace side="back"  parts={clozeParts} />;
   } else if (cardType === 'type_answer') {
+    const frontImgSrc  = frontImg   ? resolve(frontImg)   : null;
+    const frontSndSrc  = frontSound ? resolve(frontSound) : null;
+    const backImgSrc   = backImg    ? resolve(backImg)    : null;
+    const backSndSrc   = backSound  ? resolve(backSound)  : null;
+    const replayFront  = (e) => {
+      e.stopPropagation();
+      const a = frontAudioRef?.current;
+      if (a) { try { a.currentTime = 0; } catch { } a.play().catch(() => {}); }
+    };
+    const replayBack = (e) => {
+      e.stopPropagation();
+      const a = backAudioRef?.current;
+      if (a) { try { a.currentTime = 0; } catch { } a.play().catch(() => {}); }
+    };
     frontFace = (
       <div className="flashcard-face flashcard-face--front">
-        {frontText && <div className="flashcard-text">{frontText}</div>}
+        {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt="" draggable={false} /></div>}
+        {frontText && <div className="flashcard-text"><CardMarkdown>{frontText}</CardMarkdown></div>}
+        {frontSndSrc && (
+          <>
+            <audio ref={frontAudioRef} src={frontSndSrc} preload="auto" aria-hidden="true" />
+            <button type="button" className="flashcard-audio-btn" onClick={replayFront}
+              onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+              aria-label="Replay audio" title="Replay audio"><AudioIcon /></button>
+          </>
+        )}
         {!isStatic && (
           <div className="type-answer-wrap" onPointerDown={(e) => e.stopPropagation()}>
             <textarea
@@ -274,7 +335,16 @@ const Flashcard = forwardRef(function Flashcard({
     );
     backFace = (
       <div className="flashcard-face flashcard-face--back">
-        {backText && <div className="flashcard-text">{backText}</div>}
+        {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt="" draggable={false} /></div>}
+        {backText && <div className="flashcard-text"><CardMarkdown>{backText}</CardMarkdown></div>}
+        {backSndSrc && (
+          <>
+            <audio ref={backAudioRef} src={backSndSrc} preload="auto" aria-hidden="true" />
+            <button type="button" className="flashcard-audio-btn" onClick={replayBack}
+              onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
+              aria-label="Replay audio" title="Replay audio"><AudioIcon /></button>
+          </>
+        )}
       </div>
     );
   } else {
@@ -291,7 +361,7 @@ const Flashcard = forwardRef(function Flashcard({
 
   if (isStatic) {
     return (
-      <div className={`flashcard flashcard--${orientation} flashcard--static ${className}`}>
+      <div className={`flashcard flashcard--static ${className}`}>
         <div className="flashcard-inner">{face === 'back' ? backFace : frontFace}</div>
       </div>
     );
@@ -358,7 +428,7 @@ const Flashcard = forwardRef(function Flashcard({
   return (
     <div
       ref={rootRef}
-      className={`flashcard flashcard--${orientation} ${className}`}
+      className={`flashcard ${className}`}
       data-face={face}
       role="button"
       tabIndex={0}

@@ -28,7 +28,6 @@ export default function FlashcardForm({
   selection,
   sourceLabel,
   location = null,
-  orientation = 'landscape',
   saving = false,
   error = null,
   onSubmit,
@@ -167,12 +166,11 @@ export default function FlashcardForm({
       </select>
 
       <div className="fc-form-preview">
-        <div className={`fc-card-stage fc-card-stage--${orientation}`}>
+        <div className="fc-card-stage">
           <Flashcard
             card={previewCard}
             face={previewFace}
             onFlip={cardType !== 'type_answer' ? setPreviewFace : undefined}
-            orientation={orientation}
             variant="full"
           />
         </div>

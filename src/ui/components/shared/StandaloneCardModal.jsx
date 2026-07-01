@@ -1,13 +1,11 @@
 import { useState } from 'react';
 import FlashcardForm from './FlashcardForm';
 import { createStandaloneCard } from '../../api/decks';
-import useFlashcardOrientation from '../../hooks/useFlashcardOrientation';
 import './StandaloneCardModal.css';
 
 export default function StandaloneCardModal({ onClose, onCreated }) {
     const [saving, setSaving] = useState(false);
     const [error, setError]   = useState(null);
-    const [orientation]       = useFlashcardOrientation();
 
     const handleSubmit = async ({ card }) => {
         setSaving(true);
@@ -37,7 +35,6 @@ export default function StandaloneCardModal({ onClose, onCreated }) {
                 </div>
                 <div className="sc-modal-body">
                     <FlashcardForm
-                        orientation={orientation}
                         saving={saving}
                         error={error}
                         onSubmit={handleSubmit}

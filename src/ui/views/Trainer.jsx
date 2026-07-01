@@ -5,7 +5,6 @@ import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
-import useFlashcardOrientation from '../hooks/useFlashcardOrientation';
 import useKeybindings from '../hooks/useKeybindings';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
 import './Trainer.css';
@@ -439,7 +438,7 @@ function DeckPicker({ onPick }) {
   );
 }
 
-function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, onResult, onViewSource }) {
+function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -457,8 +456,12 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
     ...card,
     vanillaData: {
       ...card.vanillaData,
-      frontText: card.vanillaData?.frontText ?? card.name ?? card.globalHash,
-      backText: card.vanillaData?.backText ?? '(no back text)',
+      frontText: card.vanillaData?.frontText || (
+        (card.vanillaData?.media?.front_img || card.vanillaData?.media?.front_sound) ? '' : (card.name ?? card.globalHash)
+      ),
+      backText: card.vanillaData?.backText || (
+        (card.vanillaData?.media?.back_img || card.vanillaData?.media?.back_sound) ? '' : '(no back text)'
+      ),
     },
   };
 
@@ -548,7 +551,6 @@ function FlashcardReviewer({ card, orientation, remaining, isActive, stageRef, o
           onFlip={(next) => setFlipped(next === 'back')}
           onSwipe={handleSwipe}
           onTypeCheck={handleTypeCheck}
-          orientation={orientation}
           resolveMedia={(ref) => mediaFileSrc(card.documentPath, ref)}
         />
       </div>
@@ -701,8 +703,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     maxNew,
     refreshToken,
   });
-  const [orientation] = useFlashcardOrientation();
-
   // The card is horizontally centered, so the pop only needs the card's top
   // measured (relative to the arena) to sit at the top of the card.
   const arenaRef = useRef(null);
@@ -902,7 +902,6 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
           <FlashcardReviewer
             key={turn}
             card={currentCard}
-            orientation={orientation}
             remaining={remaining}
             isActive={isActive}
             stageRef={stageRef}

@@ -31,6 +31,7 @@ const tests = [
     'tests/subs.test.js',
     'tests/seal.test.js',
     'tests/tags.test.js',
+    'tests/imports.test.js',
     'tests/api/api.test.js',
 ];
 

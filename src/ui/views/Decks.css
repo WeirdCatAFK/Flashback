@@ -34,7 +34,14 @@
   color: var(--color-fg-secondary);
 }
 
-.decks-panel-new {
+.decks-panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.decks-panel-new,
+.decks-panel-import {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -50,7 +57,8 @@
   transition: color 0.12s, border-color 0.12s, background 0.12s;
 }
 
-.decks-panel-new:hover {
+.decks-panel-new:hover,
+.decks-panel-import:hover {
   color: var(--color-accent);
   border-color: var(--color-accent);
   background: var(--color-accent-subtle);
