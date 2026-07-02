@@ -14,6 +14,7 @@ const isNotFound = (err) => err.message?.toLowerCase().includes('not found');
 const catchError = fn => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(err => {
         if (isNotFound(err)) return res.status(404).json({ error: err.message });
+        if (err.message?.startsWith('Unknown category')) return res.status(400).json({ error: err.message });
         next(err);
     });
 

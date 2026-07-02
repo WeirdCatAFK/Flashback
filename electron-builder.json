@@ -1,6 +1,6 @@
 {
   "appId": "com.dpineda.flashback",
-  "files": ["dist-react", "src/api", "src/electron"],
+  "files": ["dist-react", "src/api", "src/electron", "src/mcp"],
   "icon": "flashback.ico",
   "mac": {
     "target": "dmg"

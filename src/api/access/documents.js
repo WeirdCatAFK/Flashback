@@ -66,17 +66,16 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(fileRelPath);
-            const parentAbsPath = path.dirname(absPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Document');
-                const folderId = this._getParentFolderId(absPath);
+                const folderId = this._ensureFolderPath(relativePath);
                 this.query.insertDocument({
                     folderId, nodeId, globalHash,
                     relativePath: fileRelPath, absolutePath: absPath, name: resolvedName,
                     encoding: 'UTF-8'
                 });
-                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
-                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+                const parentFolder = this.query.getFolderById(folderId);
+                if (parentFolder?.node_id) this.query.insertInheritance(parentFolder.node_id, nodeId);
             })();
         } catch (err) {
             this.files.delete(fileRelPath, false);
@@ -91,15 +90,14 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(folderRelPath);
-            const parentAbsPath = path.dirname(absPath);
             db.transaction(() => {
                 const nodeId = this.query.createNode('Folder');
-                const parentId = this._getParentFolderId(absPath);
+                const parentId = this._ensureFolderPath(relativePath);
                 this.query.insertFolder({
                     nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
-                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
-                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+                const parentFolder = this.query.getFolderById(parentId);
+                if (parentFolder?.node_id) this.query.insertInheritance(parentFolder.node_id, nodeId);
             })();
         } catch (err) {
             this.files.delete(folderRelPath, true);
@@ -581,6 +579,14 @@ export default class Documents {
         const doc = this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
+        // Reject an unrecognized category up front rather than silently writing it
+        // to the sidecar with no matching category_id in the DB — a mismatch here
+        // used to persist as a split-brain (sidecar keeps the literal string forever,
+        // the derived layer silently links to no category) with no error surfaced.
+        if (cardData.category && !this.query.getCategoryByName(cardData.category)) {
+            throw new Error(`Unknown category: "${cardData.category}". Call GET /api/categories for valid values.`);
+        }
+
         // 1. Append the card; writeMetadata assigns its immutable globalHash.
         const meta = this.files.getMetadata(relativePath) || {};
         if (!Array.isArray(meta.flashcards)) meta.flashcards = [];
@@ -666,6 +672,55 @@ export default class Documents {
     }
 
     // --- Private / Internal ---
+
+    // Ensures every folder segment in relativePath is properly registered — DB row,
+    // sidecar, and inheritance edge — auto-creating any that are missing. Used by
+    // createFile/createFolder instead of _getParentFolderId, because Files.createFile's
+    // recursive mkdirSync can create several levels of plain directories on disk for a
+    // multi-level parentPath that doesn't exist yet, none of which _getParentFolderId's
+    // single lookup would find — leaving the new document/folder's own parent (and any
+    // folders above it) as untracked ghost directories: no sidecar, no Folders row, no
+    // tag inheritance, invisible to folder-scoped search/due-card queries, and a 404
+    // from any route that reads their metadata (e.g. update_tags). Returns the deepest
+    // segment's folder id.
+    _ensureFolderPath(relativePath) {
+        let root = this.query.getFolderByPath("");
+        let parentId;
+        let parentAbs = this.files.workspaceRoot;
+        if (root) {
+            parentId = root.id;
+        } else {
+            const nodeId = this.query.createNode('Folder');
+            const info = this.query.insertFolder({
+                nodeId, globalHash: crypto.randomUUID(), parentId: null,
+                relativePath: "", absolutePath: parentAbs, name: path.basename(parentAbs),
+            });
+            parentId = info.lastInsertRowid;
+        }
+        if (!relativePath) return parentId;
+
+        const segments = relativePath.split(/[\\/]+/).filter(Boolean);
+        let builtRel = "";
+        for (const seg of segments) {
+            const priorRel = builtRel;
+            builtRel = builtRel ? path.join(builtRel, seg) : seg;
+            let folder = this.query.getFolderByPath(builtRel);
+            if (!folder) {
+                const globalHash = this.files.ensureFolderMetadata(priorRel, seg);
+                const absPath = this.files.safePath(builtRel);
+                const nodeId = this.query.createNode('Folder');
+                const info = this.query.insertFolder({
+                    nodeId, globalHash, parentId, relativePath: builtRel, absolutePath: absPath, name: seg,
+                });
+                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbs);
+                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+                folder = { id: info.lastInsertRowid };
+            }
+            parentId = folder.id;
+            parentAbs = this.files.safePath(builtRel);
+        }
+        return parentId;
+    }
 
     _getParentFolderId(absolutePath) {
         const parentDir = path.dirname(absolutePath);

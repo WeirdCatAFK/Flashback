@@ -22,17 +22,9 @@ export default class Decks {
         if (!cols.find(c => c.name === 'is_system')) return;
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) return;
-        const filePath = this._filePath(systemDeck.global_hash);
-        if (!fs.existsSync(filePath)) {
-            this._write(systemDeck.global_hash, {
-                globalHash: systemDeck.global_hash,
-                name: systemDeck.name,
-                isSystem: true,
-                created: new Date().toISOString(),
-                modified: new Date().toISOString(),
-                entries: [],
-            });
-        }
+        // _readOrRebuild both ensures the file exists AND recovers any DeckEntries
+        // the DB still knows about, instead of always starting from an empty deck.
+        this._readOrRebuild(systemDeck.global_hash, systemDeck);
     }
 
     _filePath(globalHash) {
@@ -41,6 +33,37 @@ export default class Decks {
 
     _read(globalHash) {
         return JSON.parse(fs.readFileSync(this._filePath(globalHash), 'utf-8'));
+    }
+
+    // Reads a deck's canonical JSON, rebuilding it from the DB if the file is
+    // unexpectedly missing (decks.js doesn't participate in Seal yet — see
+    // Backlog #38 — so a deck's file has no version history to restore from;
+    // the DeckEntries table is the next-best source of truth). This turns a
+    // desync into a self-heal instead of a raw fs crash reaching the caller.
+    _readOrRebuild(globalHash, deckRow) {
+        try {
+            return this._read(globalHash);
+        } catch (err) {
+            if (err.code !== 'ENOENT') throw err;
+            const entries = this.query.getDeckEntries(deckRow.id).map((e) => {
+                const entry = { cardHash: e.card_hash, documentPath: e.document_path };
+                if (e.inline_card) {
+                    try { entry.card = JSON.parse(e.inline_card); } catch { /* ignore malformed snapshot */ }
+                }
+                return entry;
+            });
+            const rebuilt = {
+                globalHash,
+                name: deckRow.name,
+                description: deckRow.description ?? '',
+                isSystem: !!deckRow.is_system,
+                created: deckRow.created_at ?? new Date().toISOString(),
+                modified: new Date().toISOString(),
+                entries,
+            };
+            this._write(globalHash, rebuilt);
+            return rebuilt;
+        }
     }
 
     _write(globalHash, data) {
@@ -85,7 +108,7 @@ export default class Decks {
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
         this._ensureSystemDeckFile();
-        const file = this._read(globalHash);
+        const file = this._readOrRebuild(globalHash, deck);
         if (name !== undefined) file.name = name;
         if (description !== undefined) file.description = description;
         file.modified = new Date().toISOString();
@@ -124,7 +147,7 @@ export default class Decks {
 
         const position = this.query.getDeckEntryCount(deck.id);
 
-        const file = this._read(deckHash);
+        const file = this._readOrRebuild(deckHash, deck);
         const entry = { cardHash, documentPath };
         if (inlineCard) entry.card = inlineCard;
         file.entries.push(entry);
@@ -153,7 +176,7 @@ export default class Decks {
         const deck = this.query.getDeckByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
-        const file = this._read(deckHash);
+        const file = this._readOrRebuild(deckHash, deck);
         const before = [...file.entries];
         file.entries = file.entries.filter(e => e.cardHash !== cardHash);
         file.modified = new Date().toISOString();
@@ -185,6 +208,9 @@ export default class Decks {
     createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
+        if (category && !this.query.getCategoryByName(category)) {
+            throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
+        }
 
         const globalHash = crypto.randomUUID();
 
@@ -226,6 +252,9 @@ export default class Decks {
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
             throw new Error('Card is linked to a document — edit from the document instead');
+        }
+        if (category && !this.query.getCategoryByName(category)) {
+            throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
         db.transaction(() => {
             this.query.updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category });

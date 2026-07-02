@@ -191,6 +191,46 @@ ipcMain.handle('restart-app', () => {
 // IPC: renderer reads the app userData path (used for path preview in onboarding)
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 
+// Resolves the MCP server config a user should paste into Claude Code's .mcp.json
+// or Claude Desktop's claude_desktop_config.json. The server itself (src/mcp/server.js)
+// is a plain Node/HTTP client of this app's own API — see src/mcp/ — so all that's
+// needed here is telling an MCP host how to launch it and where the API is.
+//
+// Packaged: the script lives inside app.asar, and end users won't have Node.js
+// installed separately, so we point the "command" at this app's own executable
+// with ELECTRON_RUN_AS_NODE=1 — Electron's bundled Node runs the script directly
+// (and, critically, its asar-aware fs patches mean it can read the script and its
+// node_modules straight out of app.asar; a system `node` binary could not).
+// Dev: plain `node`, matching what's already verified to work during development.
+function getMcpServerConfig() {
+  const serverPath = path.join(__dirname, '../mcp/server.js');
+  const config = readConfig();
+  const apiUrl = `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
+
+  if (app.isPackaged) {
+    return {
+      command: process.execPath,
+      args: [serverPath],
+      env: { ELECTRON_RUN_AS_NODE: '1', FLASHBACK_API_URL: apiUrl },
+    };
+  }
+  return {
+    command: 'node',
+    args: [serverPath],
+    env: { FLASHBACK_API_URL: apiUrl },
+  };
+}
+
+// IPC: renderer asks for a ready-to-paste MCP config snippet (Config → AI Assistant)
+ipcMain.handle('get-mcp-config', () => {
+  const flashback = getMcpServerConfig();
+  return {
+    isPackaged: app.isPackaged,
+    serverPath: flashback.args[0],
+    json: JSON.stringify({ mcpServers: { flashback } }, null, 2),
+  };
+});
+
 // Single Instance Lock (Recommended)
 const gotTheLock = app.requestSingleInstanceLock();
 

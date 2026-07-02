@@ -9,6 +9,12 @@ const catchError = (fn) => (req, res, next) =>
         if (err.message?.includes('already in deck')) return res.status(409).json({ error: err.message });
         if (err.message?.includes('not found')) return res.status(404).json({ error: err.message });
         if (err.message?.includes('system deck')) return res.status(403).json({ error: err.message });
+        // Belt-and-suspenders: never let a raw fs error (absolute path, username) reach a
+        // client. decks.js self-heals a missing deck file (see _readOrRebuild), so this
+        // should be rare, but a permissions error or similar could still surface one.
+        if (err.code === 'ENOENT' || err.code === 'EACCES' || err.code === 'EPERM') {
+            return res.status(500).json({ error: 'Deck storage is temporarily unavailable — try again.' });
+        }
         next(err);
     });
 

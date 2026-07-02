@@ -358,6 +358,35 @@ _regenerateIdentities(absPath) {
     }
 
     /**
+     * Ensures a folder has a `.flashback` sidecar, writing default metadata if
+     * missing. Unlike createFolder(), this never throws if the directory already
+     * exists — it's used to backfill intermediate folders that were auto-created
+     * as plain directories (e.g. by createFile()'s recursive mkdirSync when a
+     * multi-level parentPath doesn't exist yet) without ever going through
+     * createFolder()'s sidecar-writing path.
+     * @param {string} relPath - The relative path the folder lives in.
+     * @param {string} name - The folder's own name.
+     * @returns {string} The folder's globalHash (existing or newly assigned).
+     */
+    ensureFolderMetadata(relPath, name) {
+        const folderRel = path.join(relPath, name);
+        const folderPath = this.safePath(folderRel);
+        if (!fs.existsSync(folderPath)) fs.mkdirSync(folderPath, { recursive: true });
+
+        const existing = this.getMetadata(folderRel, true);
+        if (existing && existing.globalHash) return existing.globalHash;
+
+        let metadata = existing || newFolderMetadata();
+        metadata = this._ensureGlobalHash(metadata, true);
+        metadata.name = name;
+        metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+        metadata.createdAt = metadata.createdAt || new Date().toISOString();
+
+        this.writeMetadata(folderRel, metadata, true);
+        return metadata.globalHash;
+    }
+
+    /**
      * Renames a file or folder at the given relative path to the given new name.
      * If the item does not exist at the given relative path, an error is thrown.
      * If the item already exists at the given relative path with the new name, an error is thrown.

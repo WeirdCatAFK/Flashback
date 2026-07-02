@@ -631,6 +631,74 @@ function CategoriesEditor() {
   );
 }
 
+// ── AI assistant (MCP) integration ───────────────────────────────────────────
+
+function McpIntegration() {
+  const [state, setState] = useState({ loading: true, data: null, error: null });
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (!window.flashback) return;
+    window.flashback
+      .getMcpConfig()
+      .then((data) => setState({ loading: false, data, error: null }))
+      .catch((error) => setState({ loading: false, data: null, error }));
+  }, []);
+
+  const handleCopy = () => {
+    if (!state.data) return;
+    navigator.clipboard.writeText(state.data.json);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  if (state.loading) return <p className="config-hint">Loading…</p>;
+  if (state.error) return <p className="theme-editor-error">{state.error.message}</p>;
+
+  return (
+    <div className="mcp-integration">
+      <p className="config-hint">
+        Connect an AI assistant to this vault — it can search your notes, draft flashcards from a
+        document, and add them to a deck, right from a conversation. Nothing it changes skips
+        Flashback's normal save path.
+      </p>
+
+      <div className="theme-text-panel">
+        <div className="theme-text-toolbar">
+          <span className="theme-text-label">MCP config</span>
+          <button type="button" className="te-btn" onClick={handleCopy}>
+            {copied ? 'Copied!' : 'Copy'}
+          </button>
+        </div>
+        <textarea
+          className="theme-textarea"
+          aria-label="MCP server configuration JSON"
+          value={state.data?.json ?? ''}
+          readOnly
+          spellCheck={false}
+          rows={8}
+        />
+      </div>
+
+      <ul className="mcp-instructions">
+        <li>
+          <strong>Claude Desktop</strong> — paste this into{' '}
+          <code>%APPDATA%\Claude\claude_desktop_config.json</code>, then restart Claude Desktop.
+        </li>
+        <li>
+          <strong>Claude Code</strong> — save this as <code>.mcp.json</code> in your project, then
+          restart and run <code>/mcp</code> to check the connection.
+        </li>
+      </ul>
+
+      <p className="config-hint">
+        Flashback needs to be running for this to work — since you're looking at this screen, it
+        already is.
+      </p>
+    </div>
+  );
+}
+
 // ── SRS study preferences (stored in localStorage) ───────────────────────────
 
 function useSrsPrefs() {
@@ -1000,6 +1068,11 @@ export default function ConfigView({
                 </div>
               </div>
             )}
+          </section>
+
+          <section className="config-section">
+            <h2 className="config-heading">AI Assistant</h2>
+            <McpIntegration />
           </section>
         </>
       )}

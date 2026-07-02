@@ -8,6 +8,7 @@ contextBridge.exposeInMainWorld('flashback', {
   isFirstRun:      ()       => ipcRenderer.invoke('is-first-run'),
   completeSetup:   (config) => ipcRenderer.invoke('complete-setup', config),
   getUserDataPath: ()       => ipcRenderer.invoke('get-user-data-path'),
+  getMcpConfig:    ()       => ipcRenderer.invoke('get-mcp-config'),
   windowMinimize:  ()       => ipcRenderer.send('window-minimize'),
   windowMaximize:  ()       => ipcRenderer.send('window-maximize'),
   windowClose:     ()       => ipcRenderer.send('window-close'),

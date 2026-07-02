@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "flashback": {
+      "command": "node",
+      "args": ["src/mcp/server.js"]
+    }
+  }
+}

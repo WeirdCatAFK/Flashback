@@ -757,12 +757,15 @@ class DocumentQuery {
         }
 
         if (deck) {
+            // Accepts either an exact globalHash (programmatic callers — MCP tools,
+            // getDueFlashcards elsewhere uses hash-only) or a name substring (the
+            // in-app search modal's `deck:<name>` prefix syntax, human-typed).
             conditions.push(`f.global_hash IN (
                 SELECT de.card_hash FROM DeckEntries de
                 JOIN Decks dk ON dk.id = de.deck_id
-                WHERE dk.name LIKE ?
+                WHERE dk.global_hash = ? OR dk.name LIKE ?
             )`);
-            condParams.push(`%${deck}%`);
+            condParams.push(deck, `%${deck}%`);
         }
 
         if (docQ) {
@@ -976,7 +979,7 @@ class DocumentQuery {
     }
 
     getSystemDeck() {
-        return this.db.prepare('SELECT id, node_id, global_hash, name FROM Decks WHERE is_system = 1 LIMIT 1').get();
+        return this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE is_system = 1 LIMIT 1').get();
     }
 
     getFlashcardNodeIdByHash(cardHash) {
@@ -1207,6 +1210,10 @@ class DocumentQuery {
         return this.db.prepare(
             'SELECT id, name, priority, description FROM PedagogicalCategories ORDER BY priority ASC, name ASC'
         ).all();
+    }
+
+    getCategoryByName(name) {
+        return this.db.prepare('SELECT id, name, priority, description FROM PedagogicalCategories WHERE name = ?').get(name);
     }
 
     getCategoryUsageCount(id) {
