@@ -125,7 +125,7 @@ export default function FlashcardsView() {
             {/* ── Sidebar ────────────────────────────────────────────────── */}
             <div className="fc-sidebar">
                 <div className="fc-sidebar-header">
-                    <span className="fc-sidebar-title">Leitner boxes</span>
+                    <span className="fc-sidebar-title">Levels</span>
                     {levelFilter !== null && (
                         <button className="fc-clear-level" onClick={() => { setLevel(null); setPage(0); }}>
                             clear

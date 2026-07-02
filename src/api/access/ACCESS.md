@@ -2,7 +2,7 @@
 
 The Access layer is the core of the Flashback system, responsible for maintaining synchronization between the canonical (filesystem) and derived (SQLite) data layers.
 
-**CRITICAL**: All data modifications must go through these modules. Never write directly to `.flashback` sidecars or call `db.prepare()` outside of `Query.js`. For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
+**CRITICAL**: All data modifications must go through these modules. Never write directly to `.flashback` sidecars or call `db.prepare()` outside of `query.js`. For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
 
 ---
 
@@ -11,39 +11,43 @@ The Access layer is the core of the Flashback system, responsible for maintainin
 Modules are organized in three strict tiers. A module may only import from tiers below it.
 
 ```
-Tier 3 — Orchestration   Documents · Subscriptions · Media · SRS
-Tier 2 — Single-resource  Query · Files
-Tier 1 — Primitives       Config · Database
+Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights
+Tier 3 — Package import  ankiImport · obsidianImport   (built on top of the orchestration tier)
+Tier 2 — Single-resource  query · files
+Tier 1 — Primitives       config · database
 ```
 
+Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
+
 **Import rules:**
-- `Query.js` and `Files.js` never import each other.
-- `SRS.js` and `Documents.js` never import each other.
-- `Subscriptions.js` is the only module allowed to import `Documents.js`.
-- Raw `db.prepare()` calls outside `Query.js` are not allowed.
+- `query.js` and `files.js` never import each other.
+- `srs.js` and `documents.js` never import each other.
+- `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge) and `obsidianImport.js` (vault import creates one document per note). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
+- `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
+- Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
 
 ---
 
 ## Tier 1 — Primitives
 
-### `Config.js`
+### `config.js`
 Environment-aware config reader/writer. Detects Electron vs. Node.js runtime to locate `config.json`. Exposes:
 - `get()` — returns the config object (cached after first read; creates default if missing).
 - `getWorkspacePath()` — canonical resolver for `workspaceRoot`; respects `isCustomPath`/`customPath` from config, otherwise falls back to `USER_DATA_PATH/workspace`.
 - `set(config)` — writes and caches a new config object.
 
-### `Database.js`
+### `database.js`
 SQLite connection singleton via `better-sqlite3`. WAL mode and foreign keys are always enabled. The single exported `db` instance is shared across all modules.
 
 ---
 
 ## Tier 2 — Single-resource access
 
-### `Query.js`
-The **only** layer allowed to call `db.prepare()`. Contains all parameterized SQL statements organized by domain (folders, documents, flashcards, tags, nodes, media, SRS, etc.). Exported as a singleton instance.
+### `query.js`
+The **only** layer allowed to call `db.prepare()` for data queries (see the `PRAGMA` exception above). Contains all parameterized SQL statements organized by domain (folders, documents, flashcards, highlights, decks, tags, nodes, media, SRS, etc.). Exported as a singleton instance.
 
-### `Files.js`
-The **only** layer allowed to read/write `.flashback` sidecar files. Resolves all paths against `workspaceRoot` (set via `Config.getWorkspacePath()`). Key responsibilities:
+### `files.js`
+The **only** layer allowed to read/write `.flashback` sidecar files. Resolves all paths against `workspaceRoot` (set via `config.getWorkspacePath()`). Key responsibilities:
 - `safePath(relPath)` — prevents directory traversal; all other methods call this internally.
 - Create, read, update, delete files and folders on disk.
 - Read/write sidecar JSON (`filename.ext.flashback` for files, `.flashback` inside folders).
@@ -54,21 +58,39 @@ The **only** layer allowed to read/write `.flashback` sidecar files. Resolves al
 
 ## Tier 3 — Orchestration
 
-### `Documents.js`
-Main orchestrator. Coordinates `Files`, `Query`, `SRS`, and `SealEventEmitter` atomically. Handles: `createFile`, `createFolder`, `importFile`, `importZip`, `exportZip`, `move`, `copy`, `rename`, `delete`, `readFile`, `updateFile`, `updateMetadata`, `listFolder`, `search`, `getGraph`, `addMediaToFlashcard`. All writes use the `db.transaction(() => { ... })()` IIFE pattern and emit a Seal commit afterward.
+### `documents.js`
+Main orchestrator. Coordinates `files`, `query`, `srs`, and `SealEventEmitter` atomically. Handles: `createFile`, `createFolder`, `importFile`, `importPackage`/`exportPackage`, `move`, `copy`, `rename`, `delete`, `readFile`, `updateFile`, `updateMetadata`, `listFolder`, `search`, `getGraph`, `addMediaToFlashcard`, `syncDocumentLinks` (parses `flashback://` links out of saved Markdown into the `DocumentLinks` queue table). All writes use the `db.transaction(() => { ... })()` IIFE pattern and emit a Seal commit afterward.
 
-### `SRS.js`
-Handles spaced-repetition review submissions. `submitReview()` updates `Flashcards` and inserts into `ReviewLogs` in a single transaction. `getLeitnerStats()` returns box distribution and mastery percentage. Calls `Query` and `Database` only — never imports `Documents`.
+### `srs.js`
+Handles spaced-repetition review submissions. `submitReview()` updates `Flashcards` and inserts into `ReviewLogs` in a single transaction; the client computes the new level/ease (see `DATAMODEL.md`), the server just persists it. `getLeitnerStats()`/`getDue()` return box distribution, mastery percentage, and scoped due-card queries. `migrateProgress()` remaps existing cards between the Leitner and SM-2 algorithms. Calls `query` and `database` only — never imports `documents.js`.
 
-### `Media.js`
+### `media.js`
 Orchestrator for media asset lifecycle:
 - `serve(hash)` — resolves a media file by SHA-256 hash for API streaming.
 - `list(folderRelPath)` — enumerates a folder's `media/` dir cross-referenced with the DB.
-- `addVanillaMedia()` — writes vanilla media (FS + sidecar + DB + Seal).
+- `addVanillaMedia()` — writes vanilla media (FS + sidecar + DB + Seal); a single call can also create the owning flashcard atomically so the client never has to sequence create → read hash → upload.
 - `removeMedia()` — removes media (FS + sidecar + DB + Seal).
 - `reconcile()` — drops DB entries whose files are missing on disk.
 
-Custom HTML flashcard media linkage stays in `Documents.addMediaToFlashcard()`, not here.
+Custom HTML flashcard media linkage stays in `documents.addMediaToFlashcard()`, not here.
 
-### `Subscriptions.js`
-Manages magazine/course issue import and merge. The **only** module allowed to import `Documents.js`. `importIssue()` unpacks a zip, compares it against the existing workspace folder (matching by `globalHash` or path), creates/updates/deletes files accordingly, and records the subscription in the DB.
+### `subscriptions.js`
+Manages magazine/course issue import and merge. `importIssue()` unpacks a zip, compares it against the existing workspace folder (matching by `globalHash`, falling back to path), creates/updates/deletes files accordingly (anything under the target folder untouched by the new issue is pruned), and records the subscription in the DB. No route/UI currently calls this — reachable only via direct API call.
+
+### `decks.js`
+Orchestrator for user-curated card collections, and the **only** place standalone (document-less) flashcards are created/edited/deleted. Each deck is dual-written: a canonical JSON file at `workspace/_decks/<uuid>.json` (the Seal-tracked source of truth) and mirrored `Decks`/`DeckEntries` rows in the DB; the JSON write happens first and is rolled back if the DB write fails, keeping the two in sync. One deck is flagged `is_system` (auto-created by migration `003_system_deck.js`, protected from deletion) — it's the home for every standalone card. Key methods: `listDecks`, `createDeck`/`updateDeck`/`deleteDeck`, `addEntry`/`removeEntry` (also maintains a `deck`-type graph connection between the deck's node and the card's node), `searchCards` (cross-deck card search used by the "Add cards" panel), `createStandaloneCard`/`updateStandaloneCard`/`deleteStandaloneCard` (reject the call if the target card turns out to be document-linked, directing the caller to edit it from its document instead).
+
+### `highlights.js`
+Orchestrator for document-scoped highlights — a highlight is a first-class entity (own DB row + sidecar entry) independent of any flashcard; a flashcard optionally anchors to one via a `{type: 'highlight', id: <sidecar id>}` reference (see `DATAMODEL.md`). Key methods: `getHighlights(relPath)`, `createHighlight`/`updateHighlight`/`deleteHighlight` (sidecar + `Highlights` table together), and `syncFromSidecar(documentId, highlightsData)` (reconciles the DB's `Highlights` rows for a document against its sidecar's `highlights[]` array on every save — inserts new ones, deletes ones no longer present).
+
+---
+
+## Tier 3 — Package Import (built on the orchestration tier)
+
+These two modules parse a third-party archive format and populate decks/documents/media from it. They're dynamically `import()`-ed by `routes/documents.js` only when an import request actually needs them (avoids loading `better-sqlite3`'s Anki-DB-reading path and `adm-zip` parsing on every server start).
+
+### `ankiImport.js`
+Parses an Anki `.apkg` (opens `collection.anki21b`/`.anki21`/`.anki2` with a standalone `better-sqlite3` connection, independent of Flashback's own DB connection). Anki notes become Flashback cards 1:1 (not raw generated "cards", so multi-template notes collapse to one card); card type is inferred from the notetype (cloze/type-answer/image-occlusion/reversible/basic). Talks to `files.js` (media directory resolution), `query.js` (media dedup lookups, direct card/media inserts), and `decks.js` (deck lookup-or-create, `addEntry`/`createStandaloneCard`) — it never imports `documents.js`, because Anki cards have no source document.
+
+### `obsidianImport.js`
+Parses an Obsidian vault `.zip` into a mirrored folder tree of real documents. Talks to `documents.js` (`createFolder`/`importFile` — this is the actual document creation path) plus `files.js`/`query.js` directly for extras that don't fit the single-document `importFile` call: per-folder `media/` copying and DB registration, and frontmatter/wikilink/tag extraction ahead of each file's import.

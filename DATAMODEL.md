@@ -274,15 +274,29 @@ Tier 3 — Orchestration
   srs.js          Coordinates review submissions: updates Flashcards and inserts ReviewLogs in one transaction.
   documents.js    Main orchestrator. Coordinates files + query + srs to keep both layers in sync.
   subscriptions.js Coordinates issue import/merge on top of documents.
-  media.js Coordinates media management for the flashcards
+  media.js        Coordinates media management for the flashcards.
+  decks.js        Coordinates deck CRUD and standalone (document-less) flashcards; dual-writes a
+                   canonical JSON file per deck (workspace/_decks/<uuid>.json) and the Decks/
+                   DeckEntries tables.
+  highlights.js   Coordinates document-scoped highlights (sidecar highlights[] + Highlights table).
+
+Tier 3 — Package import (built on the orchestration tier, loaded on demand by the import route)
+  ankiImport.js      Parses a .apkg into decks + standalone-ish cards. Talks to files/query/decks
+                      directly — never imports documents.js, since Anki cards have no source file.
+  obsidianImport.js  Parses a vault .zip into a mirrored folder of real documents via documents.js,
+                      plus files/query directly for media copying and tag/link extraction.
 ```
 
 **Rules that keep this stable long-term:**
 
 - `query.js` and `files.js` never import each other.
 - `srs.js` and `documents.js` never import each other.
-- `subscriptions.js` is the only module allowed to import `documents.js`.
-- Raw `db.prepare()` calls outside `query.js` are not allowed.
+- `documents.js` may be imported by any Tier 3 orchestrator that needs to create/update real
+  workspace files as part of a larger operation — currently `subscriptions.js` and
+  `obsidianImport.js`. (Previously written as a `subscriptions.js`-only exception; no longer
+  accurate now that `obsidianImport.js` exists.)
+- Raw `db.prepare()` calls outside `query.js` are not allowed, except a single `PRAGMA
+  table_info(Decks)` schema-introspection check in `decks.js` (not a data query).
 - Filesystem access outside `files.js` is not allowed (except temp-dir work in orchestrators).
 
 ---
@@ -383,6 +397,10 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
   - Anchors a flashcard to a document position, page, or bounding box.
   - Allows spatial or positional memory association.
+- **Highlights**
+
+  - A document-scoped colored span (or PDF region) that exists independently of any flashcard; a flashcard optionally anchors to one via its `reference`'s `{type: 'highlight', id}`.
+  - Synced from the owning document's sidecar `highlights[]` array on every save, not written through the flashcard-creation path.
 - **Documents** and **Folders**
 
   - Hierarchical organization of knowledge sources.
@@ -397,12 +415,12 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
   - Tags inherit through `Connections` using `InheritedTags`.
 - **Connections** and **ConnectionTypes**
 
-  - Define graph edges between `Nodes`.
-  - `is_directed` marks whether the relationship has directionality.
+  - Define graph edges between `Nodes`. Connection types in active use: `connection`, `disconnection` (an explicit override that suppresses a same-pair `connection` edge), `inheritance`, `tag`, `reference`, `deck`, `link`.
+  - `is_directed` marks whether the relationship has directionality (`inheritance` and `reference` are directed; the rest are not).
 - **Nodes** and **NodeTypes**
 
-  - Universal graph nodes that can represent flashcards, documents, tags, or categories.
-  - Provide flexible abstraction for connections.
+  - Universal graph nodes that can represent flashcards, documents, folders, tags, or decks.
+  - Provide flexible abstraction for connections. A `DELETE` trigger on each typed table removes the corresponding `Nodes` row automatically.
 - **Media**
 
   - Repository of static assets (images, audio, etc.), retrievable by `hash` or `name`.
@@ -410,11 +428,19 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
   - Tracks spaced repetition history per flashcard.
   - Includes `timestamp`, `outcome`, `ease_factor`, and `level` for performance analysis.
+- **Decks** and **DeckEntries**
+
+  - A deck is a user-curated, named collection of flashcard references (linked by hash, not copied). Canonical storage is a JSON file per deck under `workspace/_decks/`; the DB tables are a queryable mirror kept in sync on every write.
+  - One deck is flagged `is_system` and holds every standalone (document-less) flashcard, so those cards still participate in deck-scoped study sessions.
+- **DocumentLinks**
+
+  - A hash-keyed queue of `flashback://` wiki-style links found in Markdown documents, resolved lazily so a link to a not-yet-imported document is still recorded.
+  - Rendered as `link`-type graph edges between Document nodes.
 - **Subscriptions**
 
   - Tracks magazine/course subscriptions. One row per `magazine_id`.
   - Stores the current `issue_id`, `version`, `target_path` (where in the workspace the content lives), and `last_sync` timestamp.
-  - Updated on each `importIssue()` call by `Subscriptions.js`.
+  - Updated on each `importIssue()` call by `subscriptions.js`. No UI currently triggers this — reachable only via direct API call.
 
 ---
 
@@ -438,6 +464,72 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | level        | integer      | Number of consecutive positive recalls.                                                                                                                                          |
 | fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                |
 | card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent. |
+| sm2_reps     | integer      | Repetition count under the SM-2 algorithm (separate from the Leitner `level`). Defaults to 0.                                                                                    |
+
+`document_id` is nullable — a **standalone card** (created from the Flashcards browser, not anchored to any document) has `document_id = NULL` and lives only in the DB plus an entry in the reserved system deck's JSON file (see `Decks` below).
+
+---
+
+### Table: Highlights
+
+| Column      | Type         | Description                                                                                     |
+| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| id          | integer (PK) | Unique identifier.                                                                                |
+| document_id | integer (FK) | Owning document.**(ON DELETE CASCADE)**                                                    |
+| global_hash | varchar(500) | UUID, unique — the id referenced by a flashcard's `location: { type: 'highlight', id }`.         |
+| type        | varchar(50)  | Anchoring strategy:`text_offset` (default), `pdf_location`, `video_timestamp`.                  |
+| start       | float        | Start offset/position (meaning depends on `type`).                                                |
+| end         | float        | End offset/position.                                                                              |
+| page        | integer      | PDF page number, if applicable.                                                                   |
+| bbox        | json         | Bounding box for PDF anchoring (stored as text).                                                  |
+| color       | varchar(20)  | Swatch key (e.g.`amber`/`green`/`blue`/`pink`), defaults to `amber`.                            |
+| note        | text         | Optional free-text note attached to the highlight.                                                |
+| created_at  | timestamp    | Creation time.                                                                                     |
+
+A highlight is a first-class entity independent of any flashcard — it exists as long as its owning document does, and multiple flashcards may anchor to the same one. It is synced from the document's sidecar `highlights[]` array on every save (`highlights.syncFromSidecar`), not written by a flashcard insert. See the "Reference examples" section above for how a flashcard's `location` points at a highlight by its `global_hash`.
+
+---
+
+### Table: DocumentLinks
+
+| Column      | Type         | Description                                                                                     |
+| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| id          | integer (PK) | Unique identifier.                                                                                |
+| source_hash | varchar(500) | `global_hash` of the document containing the link.                                                |
+| target_hash | varchar(500) | `global_hash` of the linked document.                                                             |
+| anchor_text | varchar(500) | The link's visible text at the time it was last synced.                                           |
+
+A hash-based queue, not a graph table — it has no foreign keys, so a link to a not-yet-imported document can be recorded immediately and resolved lazily once the target exists. `(source_hash, target_hash)` is unique. Populated by `documents.syncDocumentLinks()`, which scans saved Markdown for `[text](flashback://hash)` links; the Graph view renders these as toggleable `link`-type edges between Document nodes.
+
+---
+
+### Table: Decks
+
+| Column      | Type         | Description                                                                                     |
+| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| id          | integer (PK) | Unique identifier.                                                                                |
+| node_id     | integer (FK) | Integration into the graph.                                                                       |
+| global_hash | varchar(500) | UUID, unique — also the filename of the deck's canonical JSON (`_decks/<global_hash>.json`).      |
+| name        | varchar(500) | Deck name.                                                                                         |
+| description | text         | Optional description.                                                                             |
+| is_system   | integer      | `1` for the single reserved deck that holds standalone (document-less) cards; `0` otherwise. Protected from deletion. |
+| created_at  | timestamp    | Creation time.                                                                                     |
+| updated_at  | timestamp    | Last-modified time.                                                                                |
+
+This table is a queryable mirror of the canonical `_decks/<uuid>.json` files under `workspace/` — every write goes to the JSON file first, then this row, so the two never drift (a DB write failure rolls back the JSON write). `_decks/` is filtered out of the file explorer's document tree.
+
+---
+
+### Table: DeckEntries
+
+| Column        | Type         | Description                                                                                     |
+| ------------- | ------------ | ------------------------------------------------------------------------------------------------ |
+| id            | integer (PK) | Unique identifier.                                                                                |
+| deck_id       | integer (FK) | Owning deck.**(ON DELETE CASCADE)**                                                         |
+| card_hash     | varchar(500) | `global_hash` of the referenced flashcard — decks link to cards, they don't copy them.            |
+| document_path | varchar(500) | Relative path of the card's source document, if any (denormalized for display without a join).    |
+| position      | integer      | Insertion order within the deck; defaults to 0. No manual reordering UI exists yet.                |
+| inline_card   | text         | Reserved for a card snapshot stored directly on the entry; unused by the current standalone-card flow (standalone cards are looked up by `card_hash` like any other). |
 
 ---
 
