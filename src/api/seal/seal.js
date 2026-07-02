@@ -7,7 +7,7 @@
  *   SealTools         Orchestrator. Coordinates git operations with query.js to handle
  *                     history navigation, out-of-band change detection, and SRS-aware rollback.
  */
-import git from "isomorphic-git";
+import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getWorkspacePath, get as getConfig } from "../access/Config.js";
@@ -29,6 +29,53 @@ function author() {
 
 function normPath(p) {
     return p ? p.replace(/\\/g, "/") : p;
+}
+
+/**
+ * Diffs a commit's tree against its first parent (or, for a root commit, against nothing)
+ * and returns the .flashback sidecar paths that were added/modified/deleted.
+ * @param {string} oid - Commit hash to diff.
+ * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
+ */
+async function commitDiff(oid) {
+    const workspace = dir();
+    const added = [];
+    const modified = [];
+    const deleted = [];
+
+    const commitObj = await git.readCommit({ fs, dir: workspace, oid });
+    const parentOid = commitObj.commit.parent[0];
+
+    if (!parentOid) {
+        await git.walk({
+            fs,
+            dir: workspace,
+            trees: [TREE({ ref: oid })],
+            map: async (filepath, [entry]) => {
+                if (filepath === "." || !entry) return;
+                if ((await entry.type()) !== "blob") return;
+                if (filepath.endsWith(".flashback")) added.push(filepath);
+            },
+        });
+        return { added, modified, deleted };
+    }
+
+    await git.walk({
+        fs,
+        dir: workspace,
+        trees: [TREE({ ref: parentOid }), TREE({ ref: oid })],
+        map: async (filepath, [before, after]) => {
+            if (filepath === "." || !filepath.endsWith(".flashback")) return;
+            const beforeType = before ? await before.type() : null;
+            const afterType = after ? await after.type() : null;
+            if (beforeType === "tree" || afterType === "tree") return;
+            if (!before && after) added.push(filepath);
+            else if (before && !after) deleted.push(filepath);
+            else if (before && after && (await before.oid()) !== (await after.oid())) modified.push(filepath);
+        },
+    });
+
+    return { added, modified, deleted };
 }
 
 async function stageAll(workspace, paths) {
@@ -186,12 +233,35 @@ export class SealTools {
     }
 
     /**
-     * Returns the most recent seal commits in reverse chronological order.
+     * Returns the most recent seal commits in reverse chronological order. Each entry carries
+     * a `stats` field ({added, modified, deleted} counts) diffed against its parent, so the UI
+     * can show change volume without fetching every file path up front.
      * @param {number} [limit=20] - Maximum number of commits to return.
-     * @returns {Promise<import('isomorphic-git').ReadCommitResult[]>}
+     * @returns {Promise<Array<import('isomorphic-git').ReadCommitResult & { stats: { added: number, modified: number, deleted: number } }>>}
      */
     async log(limit = 20) {
-        return git.log({ fs, dir: dir(), depth: limit });
+        const commits = await git.log({ fs, dir: dir(), depth: limit }).catch(err => {
+            if (err.code === "NotFoundError") return [];
+            throw err;
+        });
+        return Promise.all(commits.map(async commit => {
+            const diff = await commitDiff(commit.oid);
+            return {
+                ...commit,
+                stats: { added: diff.added.length, modified: diff.modified.length, deleted: diff.deleted.length },
+            };
+        }));
+    }
+
+    /**
+     * Returns the full .flashback sidecar paths changed by a single commit, categorized as
+     * added/modified/deleted against its parent. Fetched lazily per-commit (rather than bundled
+     * into log()) since a single commit — e.g. a large import — can touch hundreds of paths.
+     * @param {string} oid - Commit hash to inspect.
+     * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
+     */
+    async commitFiles(oid) {
+        return commitDiff(oid);
     }
 
     /**

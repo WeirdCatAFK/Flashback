@@ -17,6 +17,12 @@ router.get('/inspect', catchError(async (req, res) => {
     res.json(diff);
 }));
 
+// GET /api/seal/commit/:oid/files
+router.get('/commit/:oid/files', catchError(async (req, res) => {
+    const files = await sealTools.commitFiles(req.params.oid);
+    res.json(files);
+}));
+
 // POST /api/seal/rollback
 // Body: { ref, keepSrsProgress? }
 router.post('/rollback', catchError(async (req, res) => {

@@ -169,7 +169,7 @@ export default function App() {
       case "decks":      return <DecksView onStudyDeck={handleStartStudy} />;
       case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
-      case "seal":       return <SealView />;
+      case "seal":       return <SealView isActive={activeView === 'seal'} />;
       case "config":     return (
         <ConfigView
           theme={theme}
