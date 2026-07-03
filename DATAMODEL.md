@@ -351,6 +351,7 @@ Each commit message follows the pattern `<action>: <sidecar-path>`:
 | `edit: path/file.md.flashback`   | `updateFile`, `updateMetadata`, `submitReview`, `addMediaToFlashcard` |
 | `move: old/path -> new/path`     | `rename`, `move`                                                          |
 | `delete: path/file.md.flashback` | `delete`                                                                    |
+| `reconcile: <path \| N files>`     | `SealTools.commitDrift()` — the Vault Doctor sealing out-of-band changes it reconciled |
 
 For folder operations, all contained file and sidecar paths are staged in the same commit so each commit represents one atomic user action.
 
@@ -361,7 +362,7 @@ SRS progress (`level`, `ease_factor`, `last_recall`) lives in the database and i
 - **`keepSrsProgress: true` (default)** — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
 - **`keepSrsProgress: false`** — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
 
-In both cases the caller must rebuild the derived layer from the rolled-back sidecars before the app is usable again (via `sealTools.inspect()` and reconciliation).
+In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the **Vault Doctor** (`access/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
 
 ### Out-of-band Change Detection
 
@@ -371,11 +372,13 @@ In both cases the caller must rebuild the derived layer from the rolled-back sid
 { added: string[], modified: string[], deleted: string[] }
 ```
 
-Only `.flashback` sidecar paths are returned — the caller (a route or startup check) is responsible for reconciling each category against the derived layer:
+Only `.flashback` sidecar paths are returned. This drift feeds the Seal view's "Loose pages" panel and is one input to the Vault Doctor, which reconciles each category against the derived layer:
 
-- **added** — import the new sidecar into the database
-- **modified** — re-sync the sidecar's flashcards and metadata
-- **deleted** — remove the corresponding document or folder from the database
+- **added** — index the new sidecar into the database (`documents.indexDocument` / `indexFolder`)
+- **modified** — re-sync the sidecar's flashcards and metadata (`documents.reindexDocument`)
+- **deleted** — remove the corresponding document or folder from the database (`documents.removeFromIndex`)
+
+The Doctor's `checkIndex()` does **not** rely on `inspect()` alone (it is blind after a rollback, see above) — it walks the workspace and compares against the DB directly, using git drift only as supplementary context. `SealTools.commitDrift()` is the inverse of `inspect()`: it stages *all* out-of-band changes (including deletions, and non-sidecar files) into one `reconcile:` commit so a later rollback treats them as real history.
 
 ---
 
@@ -529,7 +532,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | card_hash     | varchar(500) | `global_hash` of the referenced flashcard — decks link to cards, they don't copy them.            |
 | document_path | varchar(500) | Relative path of the card's source document, if any (denormalized for display without a join).    |
 | position      | integer      | Insertion order within the deck; defaults to 0. No manual reordering UI exists yet.                |
-| inline_card   | text         | Reserved for a card snapshot stored directly on the entry; unused by the current standalone-card flow (standalone cards are looked up by `card_hash` like any other). |
+| inline_card   | text         | JSON snapshot of a standalone (document-less) card's content, written by `decks.createStandaloneCard`/`updateStandaloneCard` alongside the system-deck JSON entry. Cards are still looked up by `card_hash` in normal operation; this snapshot exists so the Vault Doctor's `rebuildIndex()` can restore standalone cards from the canonical files after the derived layer is wiped (their content lives nowhere else on disk). Null for document-sourced cards. |
 
 ---
 

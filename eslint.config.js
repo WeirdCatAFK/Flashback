@@ -7,11 +7,13 @@ import reactRefresh from "eslint-plugin-react-refresh";
 export default [
   { ignores: ["dist"] },
   {
-    env: { node: true },
     files: ["**/*.{js,jsx}"],
     languageOptions: {
       ecmaVersion: 2020,
-      globals: globals.browser,
+      // Electron codebase: renderer files use browser globals, the API/Electron
+      // main and tests use Node globals — allow both (flat config replaces the
+      // old `env: { node: true }` key, which is unsupported here).
+      globals: { ...globals.browser, ...globals.node },
       parserOptions: {
         ecmaVersion: "latest",
         ecmaFeatures: { jsx: true },
@@ -30,6 +32,10 @@ export default [
       ...react.configs["jsx-runtime"].rules,
       ...reactHooks.configs.recommended.rules,
       "react/jsx-no-target-blank": "off",
+      // This codebase does not use prop-types (runtime validation) anywhere;
+      // component contracts are documented in INTERFACE.md instead. Leaving the
+      // recommended rule on would flag every component in the app.
+      "react/prop-types": "off",
       "react-refresh/only-export-components": [
         "warn",
         { allowConstantExport: true },

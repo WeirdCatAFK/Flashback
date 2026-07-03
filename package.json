@@ -28,6 +28,7 @@
     "genCDB": "node scripts/genCDB.js",
     "seed": "node scripts/seed.js",
     "test:seal": "node --test tests/seal.test.js",
+    "test:doctor": "node --test tests/doctor.test.js",
     "test:api": "node --test tests/api/api.test.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js"

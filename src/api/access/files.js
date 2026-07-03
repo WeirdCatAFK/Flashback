@@ -75,7 +75,7 @@ export default class Files {
     exists(relPath) {
         try {
             return fs.existsSync(this.safePath(relPath));
-        } catch (err) {
+        } catch {
             // If safePath throws, consider it non-existent (but rethrow might be better for caller)
             return false;
         }
@@ -843,6 +843,82 @@ _regenerateIdentities(absPath) {
  * @throws {Error} If the folder does not exist.
  * @returns {Array<object>} An array of objects containing the file or folder's name, type, and metadata.
  */
+    /**
+     * Read-only recursive walk of the entire workspace canonical layer. Never
+     * writes or mutates anything (unlike _regenerateIdentities). Used by the
+     * Vault Doctor to compare disk state against the derived layer.
+     *
+     * Skip rules: `.git` everywhere, `_decks` at the workspace root only (its
+     * canonical location — a user folder named `_decks` deeper in the tree is
+     * walked normally), `media/` directories (recorded in mediaDirs, contents
+     * not treated as documents), and sidecar files themselves (attached to
+     * their owner's entry instead).
+     *
+     * Folders are emitted in pre-order (parents before children) so callers
+     * can ingest them in array order.
+     *
+     * @returns {{
+     *   folders:   Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>,
+     *   documents: Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>,
+     *   mediaDirs: string[],
+     *   strayItems: Array<{ relPath: string, kind: 'untracked-file'|'orphan-sidecar' }>
+     * }} `meta: null` with `sidecarExists: true` means the sidecar file exists
+     *    but is malformed JSON (`sidecarCorrupt: true`); with `sidecarExists:
+     *    false` it's a ghost item that never got a sidecar.
+     */
+    walkWorkspace() {
+        const folders = [];
+        const documents = [];
+        const mediaDirs = [];
+        const strayItems = [];
+
+        const walk = (relPath) => {
+            const absDir = relPath ? this.safePath(relPath) : this.workspaceRoot;
+            const entries = fs.readdirSync(absDir, { withFileTypes: true });
+            const names = new Set(entries.map(e => e.name));
+
+            for (const entry of entries) {
+                if (entry.name === ".git") continue;
+                if (!relPath && entry.name === "_decks" && entry.isDirectory()) continue;
+                const entryRel = relPath ? path.join(relPath, entry.name) : entry.name;
+
+                if (entry.isDirectory()) {
+                    if (entry.name === "media") {
+                        mediaDirs.push(entryRel);
+                        continue;
+                    }
+                    const sidecarExists = fs.existsSync(path.join(absDir, entry.name, ".flashback"));
+                    const meta = sidecarExists ? this.getMetadata(entryRel, true) : null;
+                    folders.push({
+                        relPath: entryRel, meta, sidecarExists,
+                        sidecarCorrupt: sidecarExists && meta === null,
+                    });
+                    walk(entryRel);
+                } else {
+                    if (entry.name === ".flashback") continue; // the parent folder's own sidecar
+                    if (entry.name.endsWith(".flashback")) {
+                        const owner = entry.name.slice(0, -".flashback".length);
+                        if (!names.has(owner)) strayItems.push({ relPath: entryRel, kind: "orphan-sidecar" });
+                        continue;
+                    }
+                    const sidecarExists = names.has(entry.name + ".flashback");
+                    if (!sidecarExists) {
+                        strayItems.push({ relPath: entryRel, kind: "untracked-file" });
+                        continue;
+                    }
+                    const meta = this.getMetadata(entryRel, false);
+                    documents.push({
+                        relPath: entryRel, meta, sidecarExists,
+                        sidecarCorrupt: meta === null,
+                    });
+                }
+            }
+        };
+
+        walk("");
+        return { folders, documents, mediaDirs, strayItems };
+    }
+
     listFolder(relPath) {
         const folderPath = this.safePath(relPath);
         if (!this.exists(relPath)) throw new Error("Folder does not exist");

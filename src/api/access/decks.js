@@ -114,17 +114,12 @@ export default class Decks {
         file.modified = new Date().toISOString();
 
         this._write(globalHash, file);
-        try {
-            db.transaction(() => {
-                this.query.updateDeck(deck.id, {
-                    name: name ?? deck.name,
-                    description: description !== undefined ? description : deck.description,
-                });
-            })();
-        } catch (err) {
-            // best-effort rollback: re-read original from DB isn't feasible here; log and rethrow
-            throw err;
-        }
+        db.transaction(() => {
+            this.query.updateDeck(deck.id, {
+                name: name ?? deck.name,
+                description: description !== undefined ? description : deck.description,
+            });
+        })();
     }
 
     deleteDeck(globalHash) {
@@ -205,6 +200,24 @@ export default class Decks {
         return this.query.getFlashcardCountFiltered({ search, level, cardType });
     }
 
+    // Builds the canonical content snapshot stored alongside a standalone card's
+    // deck entry (file entry.card + DeckEntries.inline_card). Standalone cards
+    // have no document sidecar, so this snapshot is their only canonical-layer
+    // representation — without it they'd be unrecoverable after a DB rebuild.
+    _standaloneSnapshot({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
+        return {
+            name: name ?? null,
+            cardType,
+            category,
+            vanillaData: {
+                frontText: frontText || null,
+                backText: backText || null,
+                media: media || {},
+            },
+            customData: customHtml ? { html: customHtml } : null,
+        };
+    }
+
     createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
@@ -213,24 +226,21 @@ export default class Decks {
         }
 
         const globalHash = crypto.randomUUID();
+        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category, customHtml, media });
 
         db.transaction(() => {
             const nodeId = this.query.createNode('Flashcard');
             this.query.insertFlashcard({
                 globalHash, nodeId, documentId: null,
-                vanillaData: { 
-                    frontText: frontText || null, 
-                    backText: backText || null,
-                    media: media || {}
-                },
-                customData: customHtml ? { html: customHtml } : null,
+                vanillaData: snapshot.vanillaData,
+                customData: snapshot.customData,
                 category, cardType, name,
                 level: 0, sm2Reps: 0, fileIndex: 0,
             });
             const position = this.query.getDeckEntryCount(systemDeck.id);
             this.query.insertDeckEntry({
                 deckId: systemDeck.id, cardHash: globalHash,
-                documentPath: null, position, inlineCard: null,
+                documentPath: null, position, inlineCard: JSON.stringify(snapshot),
             });
             if (systemDeck.node_id) {
                 const cardNodeId = this.query.getFlashcardNodeIdByHash(globalHash);
@@ -240,7 +250,7 @@ export default class Decks {
 
         this._ensureSystemDeckFile();
         const file = this._read(systemDeck.global_hash);
-        file.entries.push({ cardHash: globalHash, documentPath: null });
+        file.entries.push({ cardHash: globalHash, documentPath: null, card: snapshot });
         file.modified = new Date().toISOString();
         this._write(systemDeck.global_hash, file);
 
@@ -256,9 +266,24 @@ export default class Decks {
         if (category && !this.query.getCategoryByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
+        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category });
+        const systemDeck = this.query.getSystemDeck();
         db.transaction(() => {
             this.query.updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category });
+            if (systemDeck) this.query.updateDeckEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
         })();
+
+        if (systemDeck) {
+            try {
+                const file = this._readOrRebuild(systemDeck.global_hash, systemDeck);
+                const entry = file.entries.find(e => e.cardHash === hash);
+                if (entry) {
+                    entry.card = snapshot;
+                    file.modified = new Date().toISOString();
+                    this._write(systemDeck.global_hash, file);
+                }
+            } catch { /* best-effort, mirrors deleteStandaloneCard */ }
+        }
     }
 
     deleteStandaloneCard(hash) {
@@ -280,7 +305,218 @@ export default class Decks {
                 file.entries = file.entries.filter(e => e.cardHash !== hash);
                 file.modified = new Date().toISOString();
                 this._write(systemDeck.global_hash, file);
-            } catch (_) { /* best-effort */ }
+            } catch { /* best-effort */ }
         }
+    }
+
+    // --- Vault Doctor support ---
+
+    /**
+     * Enumerates and parses every canonical deck file in _decks/.
+     * @returns {Array<{ globalHash: string, data: object|null }>} data is null for malformed JSON.
+     */
+    listDeckFiles() {
+        if (!fs.existsSync(this.decksPath)) return [];
+        return fs.readdirSync(this.decksPath)
+            .filter(f => f.endsWith('.json'))
+            .map(f => {
+                const globalHash = path.basename(f, '.json');
+                try {
+                    return { globalHash, data: this._read(globalHash) };
+                } catch {
+                    return { globalHash, data: null };
+                }
+            });
+    }
+
+    /**
+     * Compares _decks/*.json files against the Decks/DeckEntries tables.
+     * Read-only.
+     * @returns {{ fileWithoutDb: string[], dbWithoutFile: string[], corruptFiles: string[],
+     *             entryMismatches: Array<{ deckHash, missingInDb: string[], missingInFile: string[] }>,
+     *             danglingEntries: Array<{ deckHash, cardHash }> }}
+     */
+    diagnoseDecks() {
+        const files = this.listDeckFiles();
+        const dbDecks = this.query.getAllDecks();
+        const fileByHash = new Map(files.map(f => [f.globalHash, f]));
+        const dbByHash = new Map(dbDecks.map(d => [d.global_hash, d]));
+
+        const fileWithoutDb = [];
+        const dbWithoutFile = [];
+        const corruptFiles = [];
+        const entryMismatches = [];
+        const danglingEntries = [];
+
+        for (const f of files) {
+            if (f.data === null) { corruptFiles.push(f.globalHash); continue; }
+            if (!dbByHash.has(f.globalHash)) fileWithoutDb.push(f.globalHash);
+        }
+        for (const d of dbDecks) {
+            if (!fileByHash.has(d.global_hash)) { dbWithoutFile.push(d.global_hash); continue; }
+
+            const f = fileByHash.get(d.global_hash);
+            if (f.data === null) continue;
+            const fileHashes = new Set((f.data.entries ?? []).map(e => e.cardHash));
+            const dbEntries = this.query.getDeckEntries(d.id);
+            const dbHashes = new Set(dbEntries.map(e => e.card_hash));
+
+            const missingInDb = [...fileHashes].filter(h => !dbHashes.has(h));
+            const missingInFile = [...dbHashes].filter(h => !fileHashes.has(h));
+            if (missingInDb.length || missingInFile.length) {
+                entryMismatches.push({ deckHash: d.global_hash, missingInDb, missingInFile });
+            }
+            for (const e of dbEntries) {
+                if (!this.query.getFlashcardByHash(e.card_hash)) {
+                    danglingEntries.push({ deckHash: d.global_hash, cardHash: e.card_hash });
+                }
+            }
+        }
+        return { fileWithoutDb, dbWithoutFile, corruptFiles, entryMismatches, danglingEntries };
+    }
+
+    // Inserts a deck (+ entries + graph connections) into the DB from its
+    // canonical JSON. isSystem is only honored when no system deck exists yet —
+    // the invariant is exactly one.
+    _importDeckFile(globalHash, data) {
+        db.transaction(() => {
+            const isSystem = data.isSystem && !this.query.getSystemDeck() ? 1 : 0;
+            const deckId = this.query.insertDeck({
+                globalHash,
+                name: data.name ?? 'Recovered deck',
+                description: data.description ?? '',
+                isSystem,
+            });
+            const deck = this.query.getDeckByHash(globalHash);
+            (data.entries ?? []).forEach((e, i) => {
+                this.query.insertDeckEntry({
+                    deckId, cardHash: e.cardHash,
+                    documentPath: e.documentPath ?? null,
+                    position: i,
+                    inlineCard: e.card ? JSON.stringify(e.card) : null,
+                });
+                if (deck.node_id) {
+                    const cardNodeId = this.query.getFlashcardNodeIdByHash(e.cardHash);
+                    if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                }
+            });
+        })();
+    }
+
+    /**
+     * Applies deck diagnosis: files without DB rows are imported (file wins),
+     * DB rows without files self-heal via _readOrRebuild (DB is the next-best
+     * truth there), and entry mismatches resolve in the file's favor — normal
+     * ops write the file first, so it is the canonical side.
+     * Dangling entries (card hash with no Flashcards row) are left for rebuild,
+     * which can restore them from inline_card snapshots.
+     * @returns {{ decksImported: number, deckFilesRebuilt: number, entriesAdded: number, entriesRemoved: number }}
+     */
+    repairFromFiles() {
+        const diag = this.diagnoseDecks();
+        const actions = { decksImported: 0, deckFilesRebuilt: 0, entriesAdded: 0, entriesRemoved: 0 };
+
+        for (const hash of diag.fileWithoutDb) {
+            this._importDeckFile(hash, this._read(hash));
+            actions.decksImported++;
+        }
+        for (const hash of diag.dbWithoutFile) {
+            this._readOrRebuild(hash, this.query.getDeckByHash(hash));
+            actions.deckFilesRebuilt++;
+        }
+        for (const mm of diag.entryMismatches) {
+            const deck = this.query.getDeckByHash(mm.deckHash);
+            const data = this._read(mm.deckHash);
+            db.transaction(() => {
+                for (const h of mm.missingInDb) {
+                    const entry = (data.entries ?? []).find(e => e.cardHash === h);
+                    this.query.insertDeckEntry({
+                        deckId: deck.id, cardHash: h,
+                        documentPath: entry?.documentPath ?? null,
+                        position: this.query.getDeckEntryCount(deck.id),
+                        inlineCard: entry?.card ? JSON.stringify(entry.card) : null,
+                    });
+                    if (deck.node_id) {
+                        const cardNodeId = this.query.getFlashcardNodeIdByHash(h);
+                        if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                    }
+                    actions.entriesAdded++;
+                }
+                for (const h of mm.missingInFile) {
+                    if (deck.node_id) {
+                        const cardNodeId = this.query.getFlashcardNodeIdByHash(h);
+                        if (cardNodeId) this.query.deleteDeckConnection(deck.node_id, cardNodeId);
+                    }
+                    this.query.deleteDeckEntry(deck.id, h);
+                    actions.entriesRemoved++;
+                }
+            })();
+        }
+        return actions;
+    }
+
+    /**
+     * Full _decks/*.json → DB import for the Doctor's rebuild path. Assumes the
+     * deck tables were just wiped. Standalone cards are restored from their
+     * inline_card snapshots (level resets to 0 — a standalone card's SRS state
+     * has no canonical-layer home). Guarantees exactly one system deck.
+     * @returns {{ decks: number, restoredCards: number, warnings: string[] }}
+     */
+    rebuildFromFiles() {
+        const warnings = [];
+        let decksImported = 0;
+        let restoredCards = 0;
+
+        for (const f of this.listDeckFiles()) {
+            if (f.data === null) {
+                warnings.push(`Corrupt deck file skipped: _decks/${f.globalHash}.json`);
+                continue;
+            }
+            try {
+                this._importDeckFile(f.globalHash, f.data);
+                decksImported++;
+            } catch (err) {
+                warnings.push(`Failed to import deck ${f.globalHash}: ${err.message}`);
+                continue;
+            }
+
+            // Restore document-less cards from their content snapshots.
+            for (const e of f.data.entries ?? []) {
+                if (!e.card || e.documentPath || this.query.getFlashcardByHash(e.cardHash)) continue;
+                try {
+                    db.transaction(() => {
+                        const nodeId = this.query.createNode('Flashcard');
+                        this.query.insertFlashcard({
+                            globalHash: e.cardHash, nodeId, documentId: null,
+                            vanillaData: e.card.vanillaData ?? null,
+                            customData: e.card.customData ?? null,
+                            category: e.card.category ?? null,
+                            cardType: e.card.cardType ?? 'basic',
+                            name: e.card.name ?? null,
+                            level: 0, sm2Reps: 0, fileIndex: 0,
+                        });
+                        const deck = this.query.getDeckByHash(f.globalHash);
+                        if (deck?.node_id) {
+                            const cardNodeId = this.query.getFlashcardNodeIdByHash(e.cardHash);
+                            if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                        }
+                    })();
+                    restoredCards++;
+                } catch (err) {
+                    warnings.push(`Failed to restore standalone card ${e.cardHash}: ${err.message}`);
+                }
+            }
+        }
+
+        // The system deck must exist even if its file was lost.
+        if (!this.query.getSystemDeck()) {
+            const globalHash = crypto.randomUUID();
+            this.query.insertDeck({ globalHash, name: 'Cards', description: '', isSystem: 1 });
+            this._readOrRebuild(globalHash, this.query.getDeckByHash(globalHash));
+            warnings.push('System deck file was missing — recreated empty.');
+            decksImported++;
+        }
+
+        return { decks: decksImported, restoredCards, warnings };
     }
 }

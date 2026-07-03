@@ -402,24 +402,7 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(fileRelPath);
-            const parentAbsPath = path.dirname(absPath);
-            db.transaction(() => {
-                const nodeId = this.query.createNode('Document');
-                const folderId = this._getParentFolderId(absPath);
-                const info = this.query.insertDocument({
-                    folderId, nodeId, globalHash: metadata.globalHash,
-                    relativePath: fileRelPath, absolutePath: absPath, name,
-                    encoding
-                });
-                const docId = info.lastInsertRowid;
-
-                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
-                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
-
-                if (metadata.tags) this._syncTags(nodeId, metadata.tags);
-                if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards);
-                if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
-            })();
+            this._registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata });
         } catch (err) {
             this.files.delete(fileRelPath, false);
             throw err;
@@ -431,6 +414,151 @@ export default class Documents {
         if (imported) {
             await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
         }
+    }
+
+    // Registers a document's full derived-layer state (row, inheritance, tags,
+    // flashcards, highlights) from its sidecar payload in one transaction. The
+    // DB-only core of importFile, shared with the Vault Doctor's ingest path —
+    // it never touches the filesystem and never emits Seal events.
+    _registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata }) {
+        const parentAbsPath = path.dirname(absPath);
+        return db.transaction(() => {
+            const nodeId = this.query.createNode('Document');
+            const folderId = this._getParentFolderId(absPath);
+            const info = this.query.insertDocument({
+                folderId, nodeId, globalHash: metadata.globalHash,
+                relativePath: fileRelPath, absolutePath: absPath, name,
+                encoding
+            });
+            const docId = info.lastInsertRowid;
+
+            const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
+            if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+
+            if (metadata.tags) this._syncTags(nodeId, metadata.tags);
+            if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards);
+            if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
+            return docId;
+        })();
+    }
+
+    // --- Indexing (Vault Doctor) ---
+    //
+    // The derived SQLite layer is an index of the canonical files. These
+    // methods make that index match what is already on disk. They never write
+    // document content, never regenerate identities, and never emit Seal
+    // events — sealing reconciled drift is the Doctor's decision, made once at
+    // the end of a sync via SealTools.commitDrift().
+
+    /**
+     * Indexes a document that exists on disk (file + sidecar) but has no
+     * derived-layer row. Reads only; the sidecar's globalHash and SRS state
+     * are adopted as-is. Delegates to reindexDocument if the row already
+     * exists, so it is safe to call for any on-disk document.
+     * @param {string} relPath - document path relative to the workspace root.
+     * @returns {Promise<number>} the document's DB id.
+     */
+    async indexDocument(relPath) {
+        if (this.query.getDocumentByPath(relPath)) return this.reindexDocument(relPath);
+
+        const metadata = this.files.getMetadata(relPath, false);
+        if (!metadata?.globalHash) throw new Error(`No valid sidecar for ${relPath}`);
+
+        const absPath = this.files.safePath(relPath);
+        const parentDir = path.dirname(relPath);
+        // _ensureFolderPath registers every missing ancestor folder (DB row +
+        // sidecar backfill for ghost directories) so _getParentFolderId resolves.
+        this._ensureFolderPath(parentDir === '.' ? '' : parentDir);
+        const docId = this._registerDocumentDerived({
+            name: path.basename(relPath),
+            fileRelPath: relPath,
+            absPath,
+            encoding: metadata.encoding ?? null,
+            metadata,
+        });
+        await this._resolvePendingLinks(metadata.globalHash, this.query.getDocumentByPath(relPath).node_id, relPath);
+        return docId;
+    }
+
+    /**
+     * Refreshes an existing document's index rows from its sidecar: adopts the
+     * sidecar's globalHash (sidecar is canonical), diffs flashcards by hash with
+     * max-merge of SRS progress (via _syncDocumentFlashcards — a level lowered
+     * out-of-band never regresses the DB), and replaces tags/highlights/links
+     * wholesale so out-of-band removals propagate too.
+     * @param {string} relPath - document path relative to the workspace root.
+     * @returns {Promise<number>} the document's DB id.
+     */
+    async reindexDocument(relPath) {
+        const doc = this.query.getDocumentByPath(relPath);
+        if (!doc) return this.indexDocument(relPath);
+
+        const metadata = this.files.getMetadata(relPath, false);
+        if (!metadata) throw new Error(`No readable sidecar for ${relPath}`);
+
+        db.transaction(() => {
+            if (metadata.globalHash && metadata.globalHash !== doc.global_hash) {
+                this.query.updateDocumentMetadata(doc.id, { globalHash: metadata.globalHash });
+            }
+            this._syncTags(doc.node_id, metadata.tags ?? []);
+            this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? []);
+            // query-level sync (not highlightsService.syncFromSidecar, which
+            // no-ops on an empty array): out-of-band highlight deletions must
+            // clear the derived rows as well.
+            this.query.syncDocumentHighlights(doc.id, metadata.highlights ?? []);
+
+            if (doc.folder_id) {
+                const folder = this.query.getFolderById(doc.folder_id);
+                if (folder) {
+                    const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
+                    const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
+                    this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
+                }
+            }
+        })();
+
+        await this.syncDocumentLinks(relPath);
+        return doc.id;
+    }
+
+    /**
+     * Indexes a folder that exists on disk (row for every missing ancestor
+     * included) and syncs its tags + inheritance from its sidecar. Idempotent
+     * for already-indexed folders.
+     * @param {string} relPath - folder path relative to the workspace root ('' = root).
+     * @returns {number} the folder's DB id.
+     */
+    indexFolder(relPath) {
+        const folderId = this._ensureFolderPath(relPath);
+        const folder = this.query.getFolderById(folderId);
+        const metadata = this.files.getMetadata(relPath, true) || {};
+
+        db.transaction(() => {
+            if (metadata.globalHash && metadata.globalHash !== folder.global_hash) {
+                this.query.updateFolderMetadata(folder.id, { globalHash: metadata.globalHash });
+            }
+            if (folder.node_id) this._syncTags(folder.node_id, metadata.tags ?? []);
+            this._propagateFolderTags(folder.id, folder.node_id, metadata);
+        })();
+        return folderId;
+    }
+
+    /**
+     * Removes a document's or folder tree's index rows for an item already
+     * deleted on disk. DB-only counterpart of delete(): no filesystem call, no
+     * Seal event. Folder FK cascades clean up contained documents/flashcards.
+     * @param {string} relPath - path relative to the workspace root.
+     * @param {boolean} [isFolder=false]
+     */
+    removeFromIndex(relPath, isFolder = false) {
+        const absPath = this.files.safePath(relPath);
+        db.transaction(() => {
+            if (isFolder) {
+                this.query.deleteFolderTree(absPath, path.sep);
+            } else {
+                this.query.deleteDocumentByAbsPath(absPath);
+            }
+        })();
     }
 
     async importPackage(externalPath, targetRelPath = "") {

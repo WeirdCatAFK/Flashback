@@ -621,3 +621,157 @@
 .seal-restart-btn--primary:hover {
   filter: brightness(1.1);
 }
+
+/* ── Vault doctor ────────────────────────────────────────────────────────
+   Reconciles the whole derived index against the canonical files. Sits below
+   the loose-pages panel and reuses the loose-group palette for issue lists. */
+
+.seal-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: #000;
+}
+
+.seal-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.1);
+  background: var(--color-accent);
+  color: #000;
+}
+
+/* Quieter danger — a text/outline button for the rarely-wanted rebuild, so it
+   reads as available but not as the primary path. */
+.seal-btn--danger-quiet {
+  border-color: var(--color-danger);
+  color: var(--color-danger);
+  background: none;
+}
+
+.seal-btn--danger-quiet:hover:not(:disabled) {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.seal-doctor-group-label--warn { color: var(--color-hl-3); }
+
+.seal-doctor-status {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.seal-doctor-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.seal-doctor-badge--ok {
+  color: var(--color-review-good);
+  background: color-mix(in srgb, var(--color-review-good) 14%, transparent);
+}
+
+.seal-doctor-badge--bad {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.seal-doctor-counts {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.seal-doctor-count {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+}
+
+.seal-doctor-count-n {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.seal-doctor-count-label {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seal-doctor-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.seal-doctor-result {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent);
+}
+
+.seal-doctor-result-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-result-body {
+  font-size: 12px;
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-result-meta {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+}
+
+.seal-doctor-result-warn {
+  font-size: 11px;
+  color: var(--color-hl-3);
+  margin-top: 2px;
+}
+
+.seal-doctor-type-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.seal-doctor-type-token {
+  font-family: var(--font-mono, monospace);
+  font-weight: 600;
+  color: var(--color-danger);
+  letter-spacing: 0.08em;
+}
+
+.seal-doctor-type-input {
+  font-size: 13px;
+  font-family: var(--font-mono, monospace);
+  letter-spacing: 0.08em;
+  padding: 6px 10px;
+  border-radius: 5px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-type-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}

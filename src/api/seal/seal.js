@@ -296,6 +296,36 @@ export class SealTools {
     }
 
     /**
+     * Binds all out-of-band workdir changes (documents, sidecars, and media —
+     * everything statusMatrix reports, not just .flashback paths) into a single
+     * `reconcile:` commit. Called by the Vault Doctor at the end of a repair so
+     * out-of-band deletions can't silently resurrect on a later rollback, and
+     * the Loose Pages panel comes back clean.
+     *
+     * No-drift is the common case after a rollback (HEAD already equals the
+     * workdir) — nothing is committed and null is returned.
+     * @returns {Promise<string|null>} the new commit oid, or null when there was no drift.
+     */
+    async commitDrift() {
+        const workspace = dir();
+        const matrix = await git.statusMatrix({ fs, dir: workspace });
+
+        const staged = [];
+        const removed = [];
+        for (const [filepath, head, workdir] of matrix) {
+            if (workdir === MODIFIED) staged.push(filepath);           // added or modified
+            else if (head === UNCHANGED && workdir === ABSENT) removed.push(filepath);
+        }
+        if (staged.length === 0 && removed.length === 0) return null;
+
+        await stageAll(workspace, staged);
+        await removeAll(workspace, removed);
+        const total = staged.length + removed.length;
+        const label = total === 1 ? (staged[0] ?? removed[0]) : `${total} files`;
+        return git.commit({ fs, dir: workspace, message: `reconcile: ${label}`, author: author() });
+    }
+
+    /**
      * Detects .flashback sidecars that changed outside of Flashback with no seal commit.
      * Uses git's status matrix to diff HEAD against the current workdir state.
      * The caller is responsible for reconciling each category against the derived layer:

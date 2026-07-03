@@ -1142,6 +1142,70 @@ class DocumentQuery {
         return this.db.prepare('DELETE FROM DeckEntries WHERE card_hash = ?').run(cardHash);
     }
 
+    // --- Doctor / Reconciliation ---
+
+    integrityCheck() {
+        return this.db.prepare('PRAGMA integrity_check').get().integrity_check;
+    }
+
+    getAllDocuments() {
+        return this.db.prepare('SELECT id, folder_id, node_id, global_hash, relative_path, absolute_path, name, encoding FROM Documents').all();
+    }
+
+    getAllFolders() {
+        return this.db.prepare('SELECT id, parent_id, node_id, global_hash, relative_path, absolute_path, name FROM Folders').all();
+    }
+
+    getAllMedia() {
+        return this.db.prepare('SELECT id, hash, name, relative_path, absolute_path FROM Media').all();
+    }
+
+    getStandaloneCardCount() {
+        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id IS NULL').get().c;
+    }
+
+    getPendingLinkCount() {
+        return this.db.prepare('SELECT COUNT(*) as c FROM DocumentLinks').get().c;
+    }
+
+    updateDeckEntryInlineCard(deckId, cardHash, inlineCard) {
+        this.db.prepare('UPDATE DeckEntries SET inline_card = ? WHERE deck_id = ? AND card_hash = ?')
+            .run(inlineCard, deckId, cardHash);
+    }
+
+    // Rebuild only: a card's SM-2 ease factor lives in its latest ReviewLogs row
+    // (see getLatestEaseFactors), so recovery re-seeds one synthetic log entry per
+    // card. outcome is NULL to mark it as synthetic rather than a real review.
+    insertSyntheticReviewLog(flashcardId, easeFactor, level) {
+        this.db.prepare(`
+            INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level)
+            VALUES (?, datetime('now'), NULL, ?, ?)
+        `).run(flashcardId, easeFactor, level ?? 0);
+    }
+
+    // Deletes all rows derived from the canonical layer, keeping reference data
+    // (NodeTypes, ConnectionTypes, PedagogicalCategories, SchemaVersion) and
+    // Subscriptions. Order respects FKs; entity-delete triggers clean up
+    // FlashcardContent/FlashcardReference, and the final Nodes sweep is safe
+    // because every table referencing node_id has just been emptied.
+    wipeDerivedContent() {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM DeckEntries').run();
+            this.db.prepare('DELETE FROM InheritedTags').run();
+            this.db.prepare('DELETE FROM ReviewLogs').run();
+            this.db.prepare('DELETE FROM DocumentLinks').run();
+            this.db.prepare('DELETE FROM Highlights').run();
+            this.db.prepare('DELETE FROM Flashcards').run();
+            this.db.prepare('DELETE FROM Documents').run();
+            this.db.prepare('DELETE FROM Folders').run();
+            this.db.prepare('DELETE FROM Decks').run();
+            this.db.prepare('DELETE FROM Tags').run();
+            this.db.prepare('DELETE FROM Media').run();
+            this.db.prepare('DELETE FROM Connections').run();
+            this.db.prepare('DELETE FROM Nodes').run();
+        })();
+    }
+
     // --- Highlights ---
 
     getHighlightsByDocumentId(documentId) {

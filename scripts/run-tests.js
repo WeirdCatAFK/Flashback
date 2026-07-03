@@ -30,6 +30,7 @@ const tests = [
     'tests/media.test.js',
     'tests/subs.test.js',
     'tests/seal.test.js',
+    'tests/doctor.test.js',
     'tests/tags.test.js',
     'tests/imports.test.js',
     'tests/api/api.test.js',

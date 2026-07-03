@@ -55,7 +55,10 @@ api/media.js         /api/media/*
 api/srs.js           /api/srs/*
 api/subscriptions.js /api/subscriptions/*
 api/seal.js          /api/seal/*
+api/doctor.js        /api/doctor/*   (checkIndex / syncIndex / rebuildIndex — Vault Doctor)
 ```
+
+(Not every domain is listed here — `decks`, `highlights`, `categories`, `search`, `flashcards` each have a sibling module too.)
 
 Function signatures mirror the route they call. Parameters match the backend's required fields exactly so there is no translation layer to maintain:
 
