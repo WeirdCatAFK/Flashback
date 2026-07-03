@@ -159,7 +159,7 @@
   border: 1px solid var(--color-border);
   border-radius: 6px;
   padding: 12px 14px;
-  background: var(--color-bg-hover);
+  background: var(--color-bg-base);
 }
 
 .seal-loose-groups {

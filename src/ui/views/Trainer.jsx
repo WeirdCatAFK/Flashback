@@ -569,7 +569,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
         <div className={`type-answer-verdict type-answer-verdict--${isCorrect ? 'correct' : 'wrong'}`}>
           {isCorrect
             ? '✓ Correct!'
-            : <span>✗ You typed: <em>"{typedAnswer}"</em></span>
+            : <span> You typed: <em>"{typedAnswer}"</em></span>
           }
         </div>
       )}

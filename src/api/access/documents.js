@@ -223,39 +223,48 @@ export default class Documents {
     // Regex that matches [anchor text](flashback://hash) in Markdown content.
     static _LINK_RE = /\[([^\]]*)\]\(flashback:\/\/([a-f0-9-]+)\)/g;
 
-    // Scans a document's content for flashback:// links, updates the sidecar
-    // links array, then materializes Connections for resolved targets and queues
-    // the rest in DocumentLinks for lazy resolution on future imports.
-    async syncDocumentLinks(relPath) {
+    // Parses flashback:// links out of a document's content. Returns null for
+    // non-text files or unreadable content (a signal to skip link handling
+    // entirely), otherwise an array (possibly empty) of {anchorText, targetHash}.
+    _extractLinks(relPath) {
         const ext = path.extname(relPath).toLowerCase();
-        const textTypes = ['.md', '.txt', '.markdown'];
-        if (!textTypes.includes(ext)) return;
-
-        const doc = this.query.getDocumentByPath(relPath);
-        if (!doc) return;
-
+        if (!['.md', '.txt', '.markdown'].includes(ext)) return null;
         let content;
         try {
             ({ content } = this.files.readFile(relPath));
         } catch {
-            return;
+            return null;
         }
-
         const found = [];
         for (const m of (content ?? '').matchAll(Documents._LINK_RE)) {
             found.push({ anchorText: m[1], targetHash: m[2] });
         }
+        return found;
+    }
 
-        // Update sidecar links array
+    // Writes the sidecar's links array, but only when it actually changed —
+    // returns true if a write happened. Does NOT emit a Seal event: callers seal
+    // this write themselves, and must do so BEFORE their own create/edit commit
+    // so the sealed sidecar matches what is on disk (otherwise a post-seal link
+    // write shows up as permanent out-of-band drift). Skips no-op text files so a
+    // save with no link changes never touches the sidecar.
+    _writeSidecarLinks(relPath, links) {
+        if (links === null) return false;
         const sidecar = this.files.getMetadata(relPath, false) ?? {};
-        sidecar.links = found;
+        if (JSON.stringify(sidecar.links ?? []) === JSON.stringify(links)) return false;
+        sidecar.links = links;
         this.files.writeMetadata(relPath, sidecar, false);
+        return true;
+    }
 
+    // Materializes a document's outbound links in the derived layer: resolved
+    // targets become Connections, unresolved ones queue in DocumentLinks for lazy
+    // resolution on a future import. DB-only — never touches disk.
+    _writeLinkConnections(doc, links) {
         db.transaction(() => {
             this.query.deleteDocumentLinkConnections(doc.node_id);
             this.query.deleteDocumentLinkQueueBySource(doc.global_hash);
-
-            for (const { anchorText, targetHash } of found) {
+            for (const { anchorText, targetHash } of (links ?? [])) {
                 const target = this.query.getDocumentByHash(targetHash);
                 if (target) {
                     this.query.insertDocumentLinkConnection(doc.node_id, target.node_id);
@@ -266,8 +275,33 @@ export default class Documents {
         })();
     }
 
-    // When a document is imported, resolve any pending DocumentLinks that were
-    // waiting for it, and sync its own outbound links.
+    // Write path (real content saves): refresh the sidecar's links array from the
+    // document's content and sync the derived layer. The sidecar write is sealed
+    // as its own follow-up edit only when the links changed, so link-free saves
+    // and metadata-only saves add no drift.
+    async syncDocumentLinks(relPath) {
+        const links = this._extractLinks(relPath);
+        if (links === null) return;
+        if (this._writeSidecarLinks(relPath, links)) {
+            await sealEmitter.edit(relPath + '.flashback');
+        }
+        const doc = this.query.getDocumentByPath(relPath);
+        if (doc) this._writeLinkConnections(doc, links);
+    }
+
+    // Read-only path (Vault Doctor): re-derive a document's link Connections from
+    // its content without writing the sidecar or emitting a Seal event.
+    indexDocumentLinks(relPath) {
+        const links = this._extractLinks(relPath);
+        if (links === null) return;
+        const doc = this.query.getDocumentByPath(relPath);
+        if (doc) this._writeLinkConnections(doc, links);
+    }
+
+    // When a document is indexed, resolve any pending DocumentLinks that were
+    // waiting for it, then index its own outbound links. DB-only: the caller owns
+    // the sidecar's links write (importFile does it before sealing; a live save
+    // goes through syncDocumentLinks).
     async _resolvePendingLinks(globalHash, nodeId, relPath) {
         const pending = this.query.getPendingLinksForTarget(globalHash);
         if (pending.length > 0) {
@@ -286,8 +320,8 @@ export default class Documents {
                 }
             })();
         }
-        // Sync outbound links for the newly imported file
-        await this.syncDocumentLinks(relPath);
+        // Index this document's own outbound links into the derived layer (DB-only).
+        this.indexDocumentLinks(relPath);
     }
 
     async delete(relativePath, isFolder = false) {
@@ -407,9 +441,14 @@ export default class Documents {
             this.files.delete(fileRelPath, false);
             throw err;
         }
+
+        // Fold any flashback:// links into the sidecar BEFORE sealing, so the
+        // single create commit captures them — a post-seal link write would leave
+        // the sidecar permanently diverged from its sealed version (out-of-band drift).
+        this._writeSidecarLinks(fileRelPath, this._extractLinks(fileRelPath));
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
 
-        // Resolve any pending DocumentLinks targeting this doc, and sync its own outbound links
+        // Resolve any pending DocumentLinks targeting this doc, and index its own outbound links.
         const imported = this.query.getDocumentByPath(fileRelPath);
         if (imported) {
             await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
@@ -517,7 +556,9 @@ export default class Documents {
             }
         })();
 
-        await this.syncDocumentLinks(relPath);
+        // Read-only: re-derive link Connections from content without rewriting the
+        // sidecar or sealing — the Doctor reconciles the index, it doesn't mutate files.
+        this.indexDocumentLinks(relPath);
         return doc.id;
     }
 

@@ -7,7 +7,7 @@ import db from '../src/api/access/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
-import { sealTools } from '../src/api/seal/seal.js';
+import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
@@ -780,6 +780,31 @@ describe('Documents Orchestrator Integration Tests', () => {
             const { edges } = docs.getGraphData();
             const linkEdge = edges.find(e => e.relation === 'link');
             assert.ok(linkEdge, 'getGraphData() should include at least one link-type edge');
+        });
+
+        // Regression: importFile sealed the sidecar with a non-debounced create
+        // commit, then syncDocumentLinks rewrote the sidecar's links array afterward
+        // without sealing — so every imported document that contained a flashback://
+        // link showed up as permanent out-of-band drift (hit hard by bulk imports:
+        // Obsidian, subscriptions, the seed script). The links write must now happen
+        // before the seal; once edits are flushed, inspect() must report it clean.
+        it('leaves no out-of-band drift after importing a linked document', async () => {
+            await docs.importFile('linktarget.md', linksRoot, '# Target', {});
+            const tHash = docs.files.getMetadata(path.join(linksRoot, 'linktarget.md')).globalHash;
+            await docs.importFile('linksource.md', linksRoot, `See [t](flashback://${tHash}).`, {});
+            await sealEmitter.flushEdits();
+
+            // The parsed link must have been folded into the sealed sidecar...
+            const sidecar = docs.files.getMetadata(path.join(linksRoot, 'linksource.md'));
+            assert.equal(sidecar.links?.[0]?.targetHash, tHash, 'imported sidecar should record the link');
+
+            // ...so once edits are flushed, the sidecar is NOT reported as drift.
+            const drift = await sealTools.inspect();
+            const dirty = [...drift.added, ...drift.modified, ...drift.deleted];
+            assert.ok(
+                !dirty.some(p => p.endsWith('linksource.md.flashback')),
+                `linked import should seal the sidecar, but it drifted: ${JSON.stringify(dirty)}`
+            );
         });
     });
 });
