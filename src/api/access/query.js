@@ -877,7 +877,8 @@ class DocumentQuery {
                    d.relative_path  as documentPath,
                    fc.global_hash   as flashcardHash,
                    fcc.frontText    as flashcardFront,
-                   fcd.relative_path as flashcardDocPath
+                   fcd.relative_path as flashcardDocPath,
+                   dk.is_system      as deckIsSystem
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
             LEFT JOIN Documents d   ON d.node_id   = n.id

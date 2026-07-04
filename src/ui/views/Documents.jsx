@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import FileExplorer  from '../components/documents/FileExplorer';
 import DocumentEditor from '../components/documents/DocumentEditor';
+import { relocatePath } from '../utils/relocatePath';
 import './Documents.css';
 
 const MIN_WIDTH     = 150;
@@ -69,6 +70,28 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
   openTabsRef.current = openTabs;
 
   const [pendingHighlight, setPendingHighlight] = useState(null); // { path, id }
+  const [relocation, setRelocation] = useState(null); // { from, to } — last move/rename
+
+  // A move/rename changed an item's path on disk. Remap every path-keyed piece of
+  // tab state to follow it, then delegate to the App-level relocate (expanded
+  // folders + active selection). DocumentEditor watches `relocation` to remap its
+  // own dirty flags and drafts. Wired to the explorer as `relocatePaths`, so it
+  // fires for files and folders alike.
+  const relocateTabs = useCallback((oldPrefix, newPrefix) => {
+    setOpenTabs(prev => {
+      let changed = false;
+      const next = prev.map(t => {
+        const np = relocatePath(t.path, oldPrefix, newPrefix);
+        if (np !== t.path) changed = true;
+        return np === t.path ? t : { ...t, path: np };
+      });
+      return changed ? next : prev;
+    });
+    setPreviewTab(prev => relocatePath(prev, oldPrefix, newPrefix));
+    setPendingHighlight(prev => prev ? { ...prev, path: relocatePath(prev.path, oldPrefix, newPrefix) } : prev);
+    setRelocation({ from: oldPrefix, to: newPrefix });
+    relocatePaths(oldPrefix, newPrefix);
+  }, [relocatePaths]);
 
   // Stable refs so the openSource effect always calls the latest callbacks
   // without needing them as deps (they're inline arrows in App.jsx).
@@ -147,7 +170,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
           selectedPath={selectedPath}
           openPaths={openPaths}
           toggleOpen={toggleOpen}
-          relocatePaths={relocatePaths}
+          relocatePaths={relocateTabs}
           onStudyFolder={onStudyFolder}
         />
       </aside>
@@ -177,6 +200,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
           pendingHighlight={pendingHighlight}
           onHighlightConsumed={() => setPendingHighlight(null)}
           onNavigate={handleFileSelect}
+          relocation={relocation}
         />
       </main>
     </div>

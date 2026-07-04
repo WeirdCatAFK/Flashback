@@ -3,13 +3,68 @@
   align-items: stretch;
   background: var(--color-bg-base);
   border-bottom: 1px solid var(--color-border);
-  overflow-x: auto;
   flex-shrink: 0;
   height: 34px;
 }
 
-.tab-bar::-webkit-scrollbar {
+.tab-bar-scroll {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tab-bar-scroll::-webkit-scrollbar {
   height: 0;
+}
+
+.tab-bar-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
+
+.tab-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.tab-save-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.tab-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Dirty: pull attention with the accent, matching the tab dirty dot. */
+.tab-save-btn--dirty {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tab-save-btn--dirty:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
 }
 
 .tab {

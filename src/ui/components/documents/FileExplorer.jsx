@@ -252,7 +252,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 // ── File ──────────────────────────────────────────────────────────────────────
 
-function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
+function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, relocatePaths, onCtxMenu }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
   const FileIcon = getFileIcon(name);
@@ -281,6 +281,8 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, newName, false);
+      // Keep an open tab/draft for this file pointing at its new name.
+      relocatePaths?.(path, path.slice(0, path.length - name.length) + newName);
       onRefresh();
     } catch {
       setDraft(name);
@@ -420,7 +422,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
     if (srcPath.replace(/\\/g, '/') === destPath.replace(/\\/g, '/')) return;
     try {
       await moveItem(srcPath, destPath, isFolder);
-      if (isFolder) relocatePaths(srcPath, destPath);
+      relocatePaths(srcPath, destPath);
       refresh();
     } catch (err) { console.error('Move failed', err); }
   };
@@ -432,6 +434,8 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, trimmed, true);
+      // Replace the final path segment so open tabs/drafts under this folder follow the rename.
+      relocatePaths(path, path.slice(0, path.length - name.length) + trimmed);
       onRefresh();
     } catch {
       setDraft(name);
@@ -537,6 +541,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
                   globalHash={item.metadata?.globalHash}
                   flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
+                  relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} />
           )}
         </div>
@@ -638,7 +643,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     if (srcPath.replace(/\\/g, '/') === srcName) return;
     try {
       await moveItem(srcPath, srcName, isFolder);
-      if (isFolder) relocatePaths(srcPath, srcName);
+      relocatePaths(srcPath, srcName);
       loadRoot();
     } catch (err) { console.error('Move to root failed', err); }
   };
@@ -748,6 +753,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
                 globalHash={item.metadata?.globalHash}
                 flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
+                relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} />
         )}
       </div>

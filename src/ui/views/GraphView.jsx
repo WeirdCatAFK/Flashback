@@ -40,6 +40,14 @@ function buildGraphData({ nodes = [], edges = [] }) {
     if (n.type === 'Folder' && !inheritanceTargets.has(n.id)) originIds.add(n.id);
   }
 
+  // The system "Default" deck is the automatic home for cards with no source
+  // document — it links to nearly every standalone card and dominates the layout,
+  // so it gets its own toggle (like Origin folders).
+  const defaultDeckIds = new Set();
+  for (const n of nodes) {
+    if (n.type === 'Deck' && n.deckIsSystem) defaultDeckIds.add(n.id);
+  }
+
   const links = [];
   for (const e of edges) {
     // Drop links whose endpoints aren't in the nodes array — the nodes query
@@ -63,6 +71,7 @@ function buildGraphData({ nodes = [], edges = [] }) {
     })),
     links,
     originIds,
+    defaultDeckIds,
   };
 }
 
@@ -306,6 +315,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
   const [showDecks, setShowDecks] = useState(true);
   const [showLinks, setShowLinks] = useState(true);
   const [showOrigin, setShowOrigin] = useState(true);
+  const [showDefaultDeck, setShowDefaultDeck] = useState(true);
   const [selected, setSelected] = useState(null);
   const [hovered, setHovered] = useState(null);
   const containerRef = useRef(null);
@@ -353,7 +363,12 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
   const visibleData = useMemo(() => {
     if (!graphData) return null;
-    let { nodes, links, originIds } = graphData;
+    let { nodes, links, originIds, defaultDeckIds } = graphData;
+
+    if (!showDefaultDeck && defaultDeckIds.size > 0) {
+      nodes = nodes.filter(n => !defaultDeckIds.has(n.id));
+      links = links.filter(l => !defaultDeckIds.has(nodeId(l.source)) && !defaultDeckIds.has(nodeId(l.target)));
+    }
 
     if (!showTags) {
       nodes = nodes.filter(n => n.type !== 'Tag');
@@ -381,7 +396,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
     links = links.filter(l => visibleIds.has(nodeId(l.source)) && visibleIds.has(nodeId(l.target)));
 
     return { nodes, links };
-  }, [graphData, showTags, showDecks, showLinks, showOrigin]);
+  }, [graphData, showTags, showDecks, showLinks, showOrigin, showDefaultDeck]);
 
   const focusedIds = useMemo(() => {
     if (!selected || !visibleData) return null;
@@ -461,11 +476,13 @@ export default function GraphView({ isActive = false, onNavigate }) {
     const fg = fgRef.current;
     if (!fg || !visibleData) return;
 
-    fg.d3Force('charge').strength(-90);
-    fg.d3Force('link').distance(60);
+    // Spread nodes further apart so labels stay legible and don't overlap:
+    // stronger repulsion + longer links + a roomier collision radius.
+    fg.d3Force('charge').strength(-240);
+    fg.d3Force('link').distance(110);
     fg.d3Force('collide', forceCollide(node => {
       const presenceNorm = Math.min(1, (node.presence || 0) / 10);
-      return NODE_R + presenceNorm * 12;
+      return NODE_R + 16 + presenceNorm * 12;
     }));
   }, [visibleData]);
 
@@ -676,88 +693,68 @@ export default function GraphView({ isActive = false, onNavigate }) {
           />
 
           <div className="graph-controls">
-            {Object.entries(colors.nodes).map(([type, color]) => (
-              <div key={type} className="graph-controls-item">
-                <span className="graph-controls-dot" style={{ background: color }} />
-                <span>{type}</span>
-              </div>
-            ))}
+            <div className="graph-controls-section">
+              <div className="graph-controls-heading">Legend</div>
+              {Object.entries(colors.nodes).map(([type, color]) => (
+                <div key={type} className="graph-legend-item">
+                  <span className="graph-controls-dot" style={{ background: color }} />
+                  <span>{type}</span>
+                </div>
+              ))}
+            </div>
 
-            <div className="graph-controls-sep" />
+            <div className="graph-controls-section">
+              <div className="graph-controls-heading">Show</div>
+              {[
+                { key: 'origin',  label: 'Origin folder', on: showOrigin, toggle: () => setShowOrigin(s => !s),
+                  swatch: 'dot', color: colors.nodes.Folder, when: true },
+                { key: 'default', label: 'All decks', on: showDefaultDeck, toggle: () => setShowDefaultDeck(s => !s),
+                  swatch: 'dot', color: colors.nodes.Deck, when: graphData?.defaultDeckIds?.size > 0 },
+                { key: 'tags',    label: 'Tags', on: showTags, toggle: () => setShowTags(s => !s),
+                  swatch: 'line', color: colors.links.tag, when: true },
+                { key: 'decks',   label: 'Decks', on: showDecks, toggle: () => setShowDecks(s => !s),
+                  swatch: 'dot', color: colors.nodes.Deck, when: true },
+                { key: 'links',   label: 'Links', on: showLinks, toggle: () => setShowLinks(s => !s),
+                  swatch: 'line', color: colors.links.link, when: true },
+              ].filter(f => f.when).map(f => (
+                <button key={f.key} type="button" role="switch" aria-checked={f.on}
+                  className={`graph-filter${f.on ? ' graph-filter--on' : ''}`}
+                  onClick={f.toggle}
+                  title={`${f.on ? 'Hide' : 'Show'} ${f.label.toLowerCase()}`}
+                >
+                  <span className={f.swatch === 'line' ? 'graph-controls-line' : 'graph-controls-dot'}
+                    style={{ background: f.color, opacity: f.on ? 1 : 0.3 }} />
+                  <span className="graph-filter-label">{f.label}</span>
+                  <span className="graph-switch" aria-hidden="true" />
+                </button>
+              ))}
+            </div>
 
-            <button type="button"
-              className={`graph-toggle-btn${showOrigin ? ' graph-toggle-btn--active' : ''}`}
-              onClick={() => setShowOrigin(s => !s)}
-              title={showOrigin ? 'Hide workspace origin nodes' : 'Show workspace origin nodes'}
-            >
-              <span className="graph-controls-dot" style={{
-                background: colors.nodes.Folder,
-                opacity: showOrigin ? 1 : 0.25,
-              }} />
-              <span>Origin</span>
-            </button>
+            <div className="graph-controls-actions">
+              <button type="button"
+                className="graph-action-btn"
+                onClick={refresh}
+                title="Refresh graph data"
+                disabled={loading}
+              >
+                Refresh
+              </button>
 
-            <button type="button"
-              className={`graph-toggle-btn${showTags ? ' graph-toggle-btn--active' : ''}`}
-              onClick={() => setShowTags(s => !s)}
-              title={showTags ? 'Hide tag connections' : 'Show tag connections'}
-            >
-              <span className="graph-controls-line" style={{
-                background: colors.links.tag,
-                opacity: showTags ? 1 : 0.25,
-              }} />
-              <span>Tags</span>
-            </button>
-
-            <button type="button"
-              className={`graph-toggle-btn${showDecks ? ' graph-toggle-btn--active' : ''}`}
-              onClick={() => setShowDecks(s => !s)}
-              title={showDecks ? 'Hide deck connections' : 'Show deck connections'}
-            >
-              <span className="graph-controls-dot" style={{
-                background: colors.nodes.Deck,
-                opacity: showDecks ? 1 : 0.25,
-              }} />
-              <span>Decks</span>
-            </button>
-
-            <button type="button"
-              className={`graph-toggle-btn${showLinks ? ' graph-toggle-btn--active' : ''}`}
-              onClick={() => setShowLinks(s => !s)}
-              title={showLinks ? 'Hide document links' : 'Show document links'}
-            >
-              <span className="graph-controls-line" style={{
-                background: colors.links.link,
-                opacity: showLinks ? 1 : 0.25,
-              }} />
-              <span>Links</span>
-            </button>
-
-            <div className="graph-controls-sep" />
-
-            <button type="button"
-              className="graph-toggle-btn"
-              onClick={refresh}
-              title="Refresh graph data"
-              disabled={loading}
-            >
-              Refresh
-            </button>
-
-            <button type="button"
-              className={`graph-toggle-btn${showExportMenu ? ' graph-toggle-btn--active' : ''}`}
-              onClick={() => setShowExportMenu(s => !s)}
-              title="Export graph"
-            >
-              Export
-            </button>
+              <button type="button"
+                className={`graph-action-btn${showExportMenu ? ' graph-action-btn--active' : ''}`}
+                onClick={() => setShowExportMenu(s => !s)}
+                title="Export graph"
+              >
+                Export
+              </button>
+            </div>
 
             {showExportMenu && (
-              <>
+              <div className="graph-export-menu">
                 <button type="button" className="graph-export-item" onClick={handleExportPng}>PNG image</button>
                 <button type="button" className="graph-export-item" onClick={handleExportJson}>JSON data</button>
                 <button type="button" className="graph-export-item" onClick={handleExportHtml}>Interactive HTML</button>
-              </>
+              </div>
             )}
           </div>
 

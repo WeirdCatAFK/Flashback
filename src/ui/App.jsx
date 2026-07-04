@@ -14,6 +14,7 @@ import AppGate from "./components/AppGate";
 import SearchModal from "./components/search/SearchModal";
 import ShortcutsOverlay from "./components/ShortcutsOverlay";
 import TitleBar from "./components/TitleBar";
+import { relocatePath } from "./utils/relocatePath";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
@@ -90,6 +91,9 @@ export default function App() {
       }
       return next;
     });
+    // Keep the active selection pointing at the moved/renamed file so its open
+    // tab and any subsequent save follow it to the new location.
+    setSelectedPath(prev => relocatePath(prev, oldPrefix, newPrefix));
   }, []);
 
   const [zoom, setZoom] = useState(

@@ -17,7 +17,12 @@ function useDecks() {
     const refresh = useCallback(() => {
         setLoading(true);
         setError(null);
-        listDecks().then(setDecks).catch(setError).finally(() => setLoading(false));
+        // The system deck is the home for every standalone card, so it always
+        // leads the list; other decks keep the order the API returns them in.
+        listDecks()
+            .then(list => setDecks([...list].sort((a, b) => (b.is_system ? 1 : 0) - (a.is_system ? 1 : 0))))
+            .catch(setError)
+            .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => { refresh(); }, [refresh]);
@@ -251,14 +256,14 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     <div className="deck-detail-meta">
                         {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
                         {deck.description ? ` · ${deck.description}` : ''}
-                        {deck.is_system && <span className="deck-system-badge deck-system-badge--detail">default deck · standalone cards live here</span>}
+                        {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">Standalone cards live here</span>}
                     </div>
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
                         <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
                     )}
-                    {deck.is_system && (
+                    {!!deck.is_system && (
                         <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>+ New card</button>
                     )}
                     <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>

@@ -135,3 +135,5 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
 // useHighlightableRenderer); DocumentEditor reads this flag to enable the
 // highlight toolbar without knowing the renderer's identity.
 MarkdownRenderer.supportsHighlight = true;
+// Text content is user-editable, so DocumentEditor shows a Save button for it.
+MarkdownRenderer.editable = true;

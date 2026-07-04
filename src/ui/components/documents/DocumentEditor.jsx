@@ -8,6 +8,7 @@ import TextRenderer      from './renderers/TextRenderer';
 import PdfRenderer       from './renderers/PdfRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile, updateMetadata } from '../../api/documents';
+import { relocatePath } from '../../utils/relocatePath';
 import './DocumentEditor.css';
 
 function pickRenderer(path) {
@@ -21,7 +22,7 @@ function pickRenderer(path) {
 
 const DEFAULT_HL_COLOR = 'amber';
 
-export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate }) {
+export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate, relocation }) {
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -46,6 +47,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   // stays agnostic about which renderers those are.
   const activeRenderer = pickRenderer(activeTab);
   const supportsHighlight = !!activeRenderer?.supportsHighlight;
+  // Editable renderers (markdown/text) get a visible Save button in the tab bar.
+  const editable = !!activeRenderer?.editable;
+  const isActiveDirty = dirtyPaths.has(activeTab);
 
   // Reset selection and inspector panel inline when the active file changes.
   // Inline (not useEffect) so users never see a stale-state intermediate render.
@@ -61,6 +65,34 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setFlashcards([]);
     setTags([]);
     setExcludedTags([]);
+  }
+
+  // When a file/folder is moved or renamed in the explorer, its open tab's path
+  // changed underneath us. Remap the path-keyed dirty flags and unsaved drafts so
+  // the editor keeps tracking the same file (and a later save writes to the new
+  // location instead of silently failing against the old one). Done during render
+  // — not in an effect — so the remapped draft is already in place when the
+  // renderer re-loads under its new path, preserving unsaved edits across a move.
+  const [prevRelocation, setPrevRelocation] = useState(relocation);
+  if (prevRelocation !== relocation) {
+    setPrevRelocation(relocation);
+    if (relocation) {
+      const { from, to } = relocation;
+      const remapSet = (set) => {
+        let changed = false;
+        const next = new Set();
+        for (const p of set) { const np = relocatePath(p, from, to); if (np !== p) changed = true; next.add(np); }
+        return changed ? next : set;
+      };
+      const remapMap = (map) => {
+        let changed = false;
+        const next = new Map();
+        for (const [p, v] of map) { const np = relocatePath(p, from, to); if (np !== p) changed = true; next.set(np, v); }
+        return changed ? next : map;
+      };
+      setDirtyPaths(remapSet);
+      setDrafts(remapMap);
+    }
   }
 
   // The toolbar is portalled to document.body and floats above everything.
@@ -317,6 +349,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
         onTabChange={onTabChange}
         onTabClose={onTabClose}
         onTabDoubleClick={onTabDoubleClick}
+        onSave={editable ? () => saveRef.current?.() : undefined}
+        canSave={isActiveDirty}
+        isDirty={isActiveDirty}
       />
 
       <div className="doc-editor-body">
