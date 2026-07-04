@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import query from './query.js';
 import db from './Database.js';
 import { getWorkspacePath } from './Config.js';
+import { sealEmitter } from '../seal/seal.js';
 
 const DECKS_DIR = '_decks';
 
@@ -31,15 +32,23 @@ export default class Decks {
         return path.join(this.decksPath, `${globalHash}.json`);
     }
 
+    // Workspace-relative path to a deck's canonical JSON, used as the Seal commit
+    // label. Always forward-slashed (normPath in seal.js would convert it anyway,
+    // but keeping it canonical here matches the `<action>: <path>` messages that
+    // documents.js emits for sidecars).
+    _sealRelPath(globalHash) {
+        return `${DECKS_DIR}/${globalHash}.json`;
+    }
+
     _read(globalHash) {
         return JSON.parse(fs.readFileSync(this._filePath(globalHash), 'utf-8'));
     }
 
     // Reads a deck's canonical JSON, rebuilding it from the DB if the file is
-    // unexpectedly missing (decks.js doesn't participate in Seal yet — see
-    // Backlog #38 — so a deck's file has no version history to restore from;
-    // the DeckEntries table is the next-best source of truth). This turns a
-    // desync into a self-heal instead of a raw fs crash reaching the caller.
+    // unexpectedly missing (e.g. deleted out-of-band). Seal versions deck writes,
+    // but a live desync still needs an immediate recovery source, and the
+    // DeckEntries table is the next-best truth. This turns a desync into a
+    // self-heal instead of a raw fs crash reaching the caller.
     _readOrRebuild(globalHash, deckRow) {
         try {
             return this._read(globalHash);
@@ -79,7 +88,7 @@ export default class Decks {
         return this.query.getAllDecks();
     }
 
-    createDeck(name, description = '') {
+    async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
         const now = new Date().toISOString();
         const file = { globalHash, name, description, created: now, modified: now, entries: [] };
@@ -93,6 +102,9 @@ export default class Decks {
             this._remove(globalHash);
             throw err;
         }
+        // A new deck file is a structural op: create() flushes any pending debounced
+        // edits first so commit order stays chronological.
+        await sealEmitter.create(this._sealRelPath(globalHash));
         return globalHash;
     }
 
@@ -103,7 +115,7 @@ export default class Decks {
         return { ...deck, entries, entry_count: entries.length };
     }
 
-    updateDeck(globalHash, { name, description }) {
+    async updateDeck(globalHash, { name, description }) {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
@@ -120,9 +132,10 @@ export default class Decks {
                 description: description !== undefined ? description : deck.description,
             });
         })();
+        await sealEmitter.edit(this._sealRelPath(globalHash));
     }
 
-    deleteDeck(globalHash) {
+    async deleteDeck(globalHash) {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         if (deck.is_system) throw new Error('Cannot delete the system deck');
@@ -131,9 +144,10 @@ export default class Decks {
         db.transaction(() => {
             this.query.deleteDeck(deck.id);
         })();
+        await sealEmitter.delete(this._sealRelPath(globalHash));
     }
 
-    addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
+    async addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
         const deck = this.query.getDeckByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
@@ -165,9 +179,12 @@ export default class Decks {
             this._write(deckHash, file);
             throw err;
         }
+        // Debounced edit — a bulk import that adds many cards to one deck batches
+        // into a single commit rather than one per card (see #3).
+        await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
-    removeEntry(deckHash, cardHash) {
+    async removeEntry(deckHash, cardHash) {
         const deck = this.query.getDeckByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
@@ -190,6 +207,7 @@ export default class Decks {
             this._write(deckHash, file);
             throw err;
         }
+        await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
     searchCards({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
@@ -218,7 +236,7 @@ export default class Decks {
         };
     }
 
-    createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
+    async createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
         if (category && !this.query.getCategoryByName(category)) {
@@ -254,10 +272,13 @@ export default class Decks {
         file.modified = new Date().toISOString();
         this._write(systemDeck.global_hash, file);
 
+        // Editing the system deck's file. Debounced so a bulk standalone-card
+        // import (e.g. an MCP-driven batch) collapses into one commit (see #3).
+        await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         return globalHash;
     }
 
-    updateStandaloneCard(hash, { frontText, backText, name, cardType, category } = {}) {
+    async updateStandaloneCard(hash, { frontText, backText, name, cardType, category } = {}) {
         const card = this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -283,10 +304,11 @@ export default class Decks {
                     this._write(systemDeck.global_hash, file);
                 }
             } catch { /* best-effort, mirrors deleteStandaloneCard */ }
+            await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         }
     }
 
-    deleteStandaloneCard(hash) {
+    async deleteStandaloneCard(hash) {
         const card = this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -306,6 +328,7 @@ export default class Decks {
                 file.modified = new Date().toISOString();
                 this._write(systemDeck.global_hash, file);
             } catch { /* best-effort */ }
+            await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         }
     }
 

@@ -292,7 +292,7 @@ describe('Vault Doctor', () => {
     // --- 8. DECKS ---
     describe('deck reconciliation', () => {
         it('reimports a deck whose DB row vanished (file wins)', async () => {
-            const hash = decks.createDeck('LostRow', 'db row will vanish');
+            const hash = await decks.createDeck('LostRow', 'db row will vanish');
             query.deleteDeck(query.getDeckByHash(hash).id);
             assert.equal(query.getDeckByHash(hash), undefined);
 
@@ -305,7 +305,7 @@ describe('Vault Doctor', () => {
         });
 
         it('self-heals a deck file that vanished (DB is next-best truth)', async () => {
-            const hash = decks.createDeck('LostFile', 'json will vanish');
+            const hash = await decks.createDeck('LostFile', 'json will vanish');
             const filePath = path.join(workspace, '_decks', `${hash}.json`);
             fs.unlinkSync(filePath);
 
@@ -318,9 +318,9 @@ describe('Vault Doctor', () => {
         });
 
         it('resolves entry mismatches in the file\'s favor', async () => {
-            const cardHash = decks.createStandaloneCard({ frontText: 'standalone-q', backText: 'standalone-a' });
-            const deckHash = decks.createDeck('Mismatch', '');
-            decks.addEntry(deckHash, { cardHash });
+            const cardHash = await decks.createStandaloneCard({ frontText: 'standalone-q', backText: 'standalone-a' });
+            const deckHash = await decks.createDeck('Mismatch', '');
+            await decks.addEntry(deckHash, { cardHash });
 
             // Out-of-band: remove the entry from the file only.
             const filePath = path.join(workspace, '_decks', `${deckHash}.json`);
@@ -445,9 +445,9 @@ describe('Vault Doctor', () => {
             targetHash = readSidecar(docARel).globalHash;
             await docs.importFile('LinkSource.md', folderRel, `See [target](flashback://${targetHash})`, {});
 
-            standaloneHash = decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
-            deckHash = decks.createDeck('RebuildDeck', 'survives rebuilds');
-            decks.addEntry(deckHash, { cardHash });
+            standaloneHash = await decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
+            deckHash = await decks.createDeck('RebuildDeck', 'survives rebuilds');
+            await decks.addEntry(deckHash, { cardHash });
 
             fs.mkdirSync(abs(folderRel, 'media'), { recursive: true });
             fs.writeFileSync(abs(folderRel, 'media', 'art.png'), Buffer.from('art-bytes'));

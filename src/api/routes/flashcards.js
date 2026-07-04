@@ -13,22 +13,22 @@ const catchError = (fn) => (req, res, next) =>
     });
 
 // POST /api/flashcards — create standalone card
-router.post('/', catchError((req, res) => {
+router.post('/', catchError(async (req, res) => {
     const { frontText, backText, name, cardType = 'basic', category, customHtml } = req.body;
-    const globalHash = decks.createStandaloneCard({ frontText, backText, name, cardType, category, customHtml });
+    const globalHash = await decks.createStandaloneCard({ frontText, backText, name, cardType, category, customHtml });
     res.status(201).json({ globalHash });
 }));
 
 // PUT /api/flashcards/:hash — update standalone card content
-router.put('/:hash', catchError((req, res) => {
+router.put('/:hash', catchError(async (req, res) => {
     const { frontText, backText, name, cardType, category } = req.body;
-    decks.updateStandaloneCard(req.params.hash, { frontText, backText, name, cardType, category });
+    await decks.updateStandaloneCard(req.params.hash, { frontText, backText, name, cardType, category });
     res.json({ ok: true });
 }));
 
 // DELETE /api/flashcards/:hash — delete standalone card
-router.delete('/:hash', catchError((req, res) => {
-    decks.deleteStandaloneCard(req.params.hash);
+router.delete('/:hash', catchError(async (req, res) => {
+    await decks.deleteStandaloneCard(req.params.hash);
     res.json({ ok: true });
 }));
 
