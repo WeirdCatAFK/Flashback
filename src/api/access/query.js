@@ -336,6 +336,38 @@ class DocumentQuery {
         `).run(data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level);
     }
 
+    // Undo support: drop a card's most recent review so a misgraded result can be
+    // taken back. Returns true if a row was removed, false if the card had no logs.
+    deleteLatestReviewLog(flashcardId) {
+        const row = this.db.prepare(
+            'SELECT id FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(flashcardId);
+        if (!row) return false;
+        this.db.prepare('DELETE FROM ReviewLogs WHERE id = ?').run(row.id);
+        return true;
+    }
+
+    // The card's now-latest review after an undo — the state to restore it to.
+    // Null when no reviews remain (the card is new again).
+    getLatestReviewLog(flashcardId) {
+        return this.db.prepare(
+            'SELECT timestamp, outcome, ease_factor, level FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(flashcardId) ?? null;
+    }
+
+    // Restore a card's SRS state after an undo. Mirrors updateFlashcardReview but
+    // allows a null last_recall (card reverts to never-reviewed) and touches only
+    // the algorithm's own progress column.
+    undoFlashcardReview(id, value, lastRecall, algorithm = 'leitner') {
+        if (algorithm === 'sm2') {
+            this.db.prepare('UPDATE Flashcards SET last_recall = ?, sm2_reps = ? WHERE id = ?')
+                .run(lastRecall, value, id);
+        } else {
+            this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
+                .run(lastRecall, value, id);
+        }
+    }
+
     getLeitnerBoxes() {
         return this.db.prepare('SELECT level, COUNT(*) as count FROM Flashcards GROUP BY level ORDER BY level ASC').all();
     }

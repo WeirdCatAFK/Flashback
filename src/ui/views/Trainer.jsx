@@ -1,6 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
-import { submitReview, getDue } from '../api/srs';
+import { submitReview, undoReview, getDue } from '../api/srs';
 import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
@@ -346,7 +346,7 @@ function FolderPicker({ onPick }) {
           {browsePath && (
             <button type="button" className="scope-picker-apply"
               onClick={() => { onPick(browsePath); setOpen(false); }}>
-              Study "{crumbs.at(-1)}"
+              Study &quot;{crumbs.at(-1)}&quot;
             </button>
           )}
           <div className="scope-picker-list">
@@ -439,7 +439,7 @@ function DeckPicker({ onPick }) {
   );
 }
 
-function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError }) {
+function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError, onUndo, canUndo }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -578,7 +578,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
         <div className={`type-answer-verdict type-answer-verdict--${isCorrect ? 'correct' : 'wrong'}`}>
           {isCorrect
             ? 'Correct!'
-            : <span> You typed: <em>"{typedAnswer}"</em></span>
+            : <span> You typed: <em>&quot;{typedAnswer}&quot;</em></span>
           }
         </div>
       )}
@@ -596,6 +596,15 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
               <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>
             </button>
           ))}
+          <button type="button"
+            className="trainer-grade trainer-grade--undo"
+            onClick={onUndo}
+            disabled={!canUndo}
+            title="Take back your last grade and review that card again"
+          >
+            {keymap['trainer.undo']?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap['trainer.undo'][0])}</kbd>}
+            <span className="grade-label">Undo</span>
+          </button>
         </div>
       )}
 
@@ -650,6 +659,11 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // Set when a review write fails; shown as a dismissible banner so an optimistic
   // advance can never hide lost progress from the user.
   const [saveError, setSaveError] = useState(null);
+  // Snapshot of the session state just before the most recent grade, so a
+  // misdiagnosed result can be taken back and the card re-graded. Null when
+  // there's nothing to undo (session start, or the last action was itself an undo).
+  const [lastAction, setLastAction] = useState(null);
+  const keymap = useKeybindings();
 
   // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
   const applyMaxNew = (display) => {
@@ -788,6 +802,9 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   }, [currentCard, onOpenSource]);
 
   const handleResult = ({ key, success, toLevel, easeFactor }) => {
+    // Snapshot the pre-grade session so this result can be undone. Closures here
+    // hold the current (pre-mutation) queue/stats/lastSession.
+    setLastAction({ key, card: queue[0], queue, stats, lastSession });
     const newStats = { ...stats, [key]: stats[key] + 1 };
     setStats(newStats);
     setPop({ id: Date.now(), kind: success ? 'up' : 'down', toLevel });
@@ -814,6 +831,46 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     }
     setTurn((t) => t + 1);
   };
+
+  const handleUndo = useCallback(async () => {
+    if (!lastAction) return;
+    const action = lastAction;
+    // Restore the session to just before the graded result, then reverse it on the
+    // server (drops the erroneous review log and restores the card's prior state).
+    setLastAction(null);
+    setPop(null);
+    setSaveError(null);
+    setQueue(action.queue);
+    setStats(action.stats);
+    setLastSession(action.lastSession);
+    setSessionDone(false);
+    setTurn((t) => t + 1);
+    try {
+      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+      await undoReview(action.card.documentPath, action.card.globalHash, algorithm);
+    } catch (err) {
+      console.error(err);
+      setSaveError(err);
+    }
+  }, [lastAction]);
+
+  // The undo shortcut lives on the parent (not the reviewer) so it still works
+  // from the session-complete screen, after the reviewer has unmounted.
+  const handleUndoRef = useRef(handleUndo);
+  handleUndoRef.current = handleUndo;
+  useEffect(() => {
+    const onKey = (e) => {
+      if (!isActive) return;
+      const t = e.target;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if ((keymap['trainer.undo'] ?? []).includes(eventKeyName(e))) {
+        e.preventDefault();
+        handleUndoRef.current?.();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive, keymap]);
 
   return (
     <div className="trainer-view">
@@ -927,6 +984,8 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onResult={handleResult}
             onViewSource={handleViewSource}
             onSaveError={setSaveError}
+            onUndo={handleUndo}
+            canUndo={!!lastAction}
           />
           <GradePop pop={pop} top={popTop} />
         </div>
