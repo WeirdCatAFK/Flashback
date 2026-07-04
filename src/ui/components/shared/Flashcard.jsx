@@ -93,7 +93,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
       {badge}
       {imgSrc && (
         <div className="flashcard-media">
-          <img src={imgSrc} alt="" draggable={false} />
+          <img src={imgSrc} alt={`${side} side image`} draggable={false} />
         </div>
       )}
       {text && <div className="flashcard-text"><CardMarkdown>{text}</CardMarkdown></div>}
@@ -293,7 +293,7 @@ const Flashcard = forwardRef(function Flashcard({
     };
     frontFace = (
       <div className="flashcard-face flashcard-face--front">
-        {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt="" draggable={false} /></div>}
+        {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt="Front side image" draggable={false} /></div>}
         {frontText && <div className="flashcard-text"><CardMarkdown>{frontText}</CardMarkdown></div>}
         {frontSndSrc && (
           <>
@@ -335,7 +335,7 @@ const Flashcard = forwardRef(function Flashcard({
     );
     backFace = (
       <div className="flashcard-face flashcard-face--back">
-        {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt="" draggable={false} /></div>}
+        {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt="Back side image" draggable={false} /></div>}
         {backText && <div className="flashcard-text"><CardMarkdown>{backText}</CardMarkdown></div>}
         {backSndSrc && (
           <>

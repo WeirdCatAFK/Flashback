@@ -344,7 +344,7 @@
   height: 32px;
   padding: 0 16px;
   background: var(--color-accent);
-  color: #1C1917;
+  color: var(--color-on-accent);
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;

@@ -114,6 +114,7 @@ export default function SearchModal({ onClose, onNavigate }) {
     const [query, setQuery]     = useState('');
     const [results, setResults] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [error, setError] = useState(false);
     const [focusIdx, setFocusIdx] = useState(0);
 
     const inputRef   = useRef(null);
@@ -154,11 +155,16 @@ export default function SearchModal({ onClose, onNavigate }) {
         }
 
         setLoading(true);
+        setError(false);
         try {
             const data = await superSearch(params);
             setResults(data);
             setFocusIdx(0);
-        } catch { /* ignore */ } finally {
+        } catch (err) {
+            console.error(err);
+            setError(true);
+            setResults(null);
+        } finally {
             setLoading(false);
         }
     }, []);
@@ -258,14 +264,18 @@ export default function SearchModal({ onClose, onNavigate }) {
                     <kbd className="sq-esc-hint" onClick={onClose}>esc</kbd>
                 </div>
 
-                {!results && !loading && (
+                {error && (
+                    <div className="sq-empty sq-empty--error"><span>Search failed. Check your connection and try again.</span></div>
+                )}
+
+                {!error && !results && !loading && (
                     <div className="sq-empty">
                         <p className="sq-hint-row"><span className="sq-prefix-chip">tag:</span> cards with tag &nbsp;·&nbsp; <span className="sq-prefix-chip">deck:</span> cards in deck</p>
                         <p className="sq-hint-row"><span className="sq-prefix-chip">doc:</span> cards by document &nbsp;·&nbsp; <span className="sq-prefix-chip">in:</span> cards in folder</p>
                     </div>
                 )}
 
-                {isEmpty && <div className="sq-empty"><span>No results</span></div>}
+                {!error && isEmpty && <div className="sq-empty"><span>No results</span></div>}
 
                 {flatItems.length > 0 && (
                     <div className="sq-results">

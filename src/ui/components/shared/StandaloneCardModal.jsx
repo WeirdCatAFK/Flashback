@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import FlashcardForm from './FlashcardForm';
+import Modal from './Modal';
 import { createStandaloneCard } from '../../api/decks';
 import './StandaloneCardModal.css';
 
@@ -27,21 +28,13 @@ export default function StandaloneCardModal({ onClose, onCreated }) {
     };
 
     return (
-        <div className="sc-modal-backdrop" onClick={onClose}>
-            <div className="sc-modal" onClick={e => e.stopPropagation()}>
-                <div className="sc-modal-header">
-                    <span className="sc-modal-title">New standalone card</span>
-                    <button className="sc-modal-close" onClick={onClose} type="button">✕</button>
-                </div>
-                <div className="sc-modal-body">
-                    <FlashcardForm
-                        saving={saving}
-                        error={error}
-                        onSubmit={handleSubmit}
-                        onCancel={onClose}
-                    />
-                </div>
-            </div>
-        </div>
+        <Modal title="New standalone card" size="lg" onClose={onClose} dismissible={!saving}>
+            <FlashcardForm
+                saving={saving}
+                error={error}
+                onSubmit={handleSubmit}
+                onCancel={onClose}
+            />
+        </Modal>
     );
 }

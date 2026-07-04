@@ -1,5 +1,44 @@
 @import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap');
 
+/* ── Design tokens (theme-invariant) ─────────────────────────────────────────
+   Spacing, radius, type, and motion scales are the same across every theme, so
+   they live once on :root. Only color/elevation vary per theme (below).
+   Use these instead of hardcoded px literals so every surface stays on-scale. */
+
+:root {
+  /* Spacing — 4px base grid */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Radius */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-pill: 999px;
+
+  /* Type scale */
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-base: 14px;
+  --text-md: 16px;
+  --text-lg: 20px;
+  --text-xl: 28px;
+  --text-2xl: 40px;
+
+  /* Font families */
+  --font-sans: 'Geist', system-ui, sans-serif;
+  --font-mono: 'Geist Mono', 'Cascadia Code', 'Consolas', monospace;
+
+  /* Motion */
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+}
+
 /* ── Theme variables ─────────────────────────────────────────────────────── */
 
 :root,
@@ -14,6 +53,7 @@
   --color-fg-secondary:   #78716C;
   --color-fg-icon:        #57534E;
   --color-accent:         #D97706;
+  --color-on-accent:      #1C1917;
   --color-border:         #D6D3D1;
   --color-title-bar:      #E8E4E0;
   /* extended */
@@ -21,10 +61,10 @@
   --color-tree-indent:    #D6D3D1;
   --color-sidebar-header: #E2DFDC;
   /* highlight swatches */
-  --color-hl-1:       #FCD34D;
-  --color-hl-2:       #86EFAC;
-  --color-hl-3:        #93C5FD;
-  --color-hl-4:        #FCA5A5;
+  --color-hl-1:       #FDE68A;
+  --color-hl-2:       #D9F99D;
+  --color-hl-3:        #BFDBFE;
+  --color-hl-4:        #FBCFE8;
   /* review grade swatches */
   --color-review-again:   #FCA5A5;
   --color-review-good:    #86EFAC;
@@ -39,6 +79,7 @@
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
+  --shadow-sm:          0 1px 3px rgba(0,0,0,.08);
   --shadow-float:       0 4px 16px -2px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
   --color-danger:       #DC2626;
   --color-danger-bg:    rgba(220, 38, 38, 0.08);
@@ -55,6 +96,7 @@
   --color-fg-secondary:   #A8A29E;
   --color-fg-icon:        #A8A29E;
   --color-accent:         #F59E0B;
+  --color-on-accent:      #1C1917;
   --color-border:         #3C3530;
   --color-title-bar:      #0C0A09;
   /* extended */
@@ -62,13 +104,13 @@
   --color-tree-indent:    #2C2420;
   --color-sidebar-header: #0F0D0B;
   /* highlight swatches */
-  --color-hl-1:       #F59E0B;
-  --color-hl-2:       #10B981;
-  --color-hl-3:        #3B82F6;
-  --color-hl-4:        #EC4899;
+  --color-hl-1:       #A16207;
+  --color-hl-2:       #4D7C0F;
+  --color-hl-3:        #1D4ED8;
+  --color-hl-4:        #9D174D;
   /* review grade swatches */
-  --color-review-again:   #EC4899;
-  --color-review-good:    #10B981;
+  --color-review-again:   #EF4444;
+  --color-review-good:    #22C55E;
   --color-review-easy:    #3B82F6;
   /* graph node & link colors */
   --color-graph-document:   var(--color-accent);
@@ -80,6 +122,7 @@
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
+  --shadow-sm:          0 1px 3px rgba(0,0,0,.35);
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22);
   --color-danger:       #F87171;
   --color-danger-bg:    rgba(248, 113, 113, 0.12);
@@ -89,39 +132,51 @@
   --color-bg-base:        #0F0F10;
   --color-bg-sidebar:     #151516;
   --color-bg-surface:     #1C1C1E;
-  --color-bg-hover:       #2A1520;
+  --color-bg-hover:       #24161C;
   --color-bg-reader:      #161618;
-  --color-bg-editor:      dark;  
+  --color-bg-editor:      dark;
+
   --color-fg-primary:     #F2F2F3;
   --color-fg-secondary:   #A8A8AD;
   --color-fg-icon:        #D0D0D4;
+
   --color-accent:         #FF1744;
-  --color-border:         #3C3530;
+  --color-on-accent:      #FFFFFF;
+
+  --color-border:         #2B2B2E;
   --color-title-bar:      #0A0A0B;
+
   /* extended */
   --color-accent-subtle:  #2D0811;
-  --color-tree-indent:    rgba(255, 23, 68, 0.19);
+  --color-tree-indent:    rgba(255, 23, 68, 0.18);
   --color-sidebar-header: #0A0A0B;
+
   /* highlight swatches */
-  --color-hl-1:       #FF1744;
-  --color-hl-2:       #FF6D00;
-  --color-hl-3:        #00B0FF;
-  --color-hl-4:        #D500F9;
+  --color-hl-1:           #FF8A65; /* coral */
+  --color-hl-2:           #F06292; /* rose */
+  --color-hl-3:           #9575CD; /* soft violet */
+  --color-hl-4:           #4FC3F7; /* soft cyan */
+
   /* review grade swatches */
-  --color-review-again:   #FF1744;
-  --color-review-good:    #00C853;
-  --color-review-easy:    #00B0FF;
+  --color-review-again:   #FF5252;
+  --color-review-good:    #66BB6A;
+  --color-review-easy:    #42A5F5;
+
   /* graph node & link colors */
   --color-graph-document:   var(--color-accent);
   --color-graph-folder:     var(--color-fg-secondary);
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #2dd4bf;
+  --color-graph-deck:       #B388FF;
+  --color-graph-link:       #CE93D8;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
+
   /* semantic + elevation */
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.60), 0 2px 8px rgba(0,0,0,.28);
+  --shadow-sm:          0 1px 3px rgba(0,0,0,.45);
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.60),
+                        0 2px 8px rgba(0,0,0,.28);
+
   --color-danger:       #FF5252;
   --color-danger-bg:    rgba(255, 82, 82, 0.12);
 }
@@ -129,42 +184,54 @@
 [data-theme="raven-indigo"] {
   --color-bg-base:        #17151F;
   --color-bg-sidebar:     #211C3A;
-  --color-bg-surface:     #4A4293;
-  --color-bg-hover:       #5A52A8;
-  --color-bg-reader:      #e6e6eb;
-  --color-bg-editor:      light;  
+  --color-bg-surface:     #3E3A7D;
+  --color-bg-hover:       #4A4293;
+  --color-bg-reader:      #E6E6EB;
+  --color-bg-editor:      light;
+
   --color-fg-primary:     #F5F2FF;
   --color-fg-secondary:   #C3B8E6;
   --color-fg-icon:        #E2D9FF;
+
   --color-accent:         #B77AD9;
-  --color-border:         #6D63B8;
+  --color-on-accent:      #17151F;
+
+  --color-border:         #5A52A8;
   --color-title-bar:      #2B2450;
+
   /* extended */
   --color-accent-subtle:  #2A1F4A;
-  --color-tree-indent:    rgba(183, 122, 217, 0.31);
+  --color-tree-indent:    rgba(183, 122, 217, 0.28);
   --color-sidebar-header: #17132E;
+
   /* highlight swatches */
-  --color-hl-1:       #B77AD9;
-  --color-hl-2:       #06B6D4;
-  --color-hl-3:        #818CF8;
-  --color-hl-4:        #F472B6;
+  --color-hl-1:           #D8B4FE; /* lavender */
+  --color-hl-2:           #67E8F9; /* cyan */
+  --color-hl-3:           #A5B4FC; /* periwinkle */
+  --color-hl-4:           #F9A8D4; /* pink */
+
   /* review grade swatches */
-  --color-review-again:   #F472B6;
-  --color-review-good:    #34D399;
-  --color-review-easy:    #818CF8;
+  --color-review-again:   #FB7185;
+  --color-review-good:    #4ADE80;
+  --color-review-easy:    #60A5FA;
+
   /* graph node & link colors */
   --color-graph-document:   var(--color-accent);
   --color-graph-folder:     var(--color-fg-secondary);
   --color-graph-flashcard:  var(--color-hl-1);
   --color-graph-tag:        var(--color-hl-2);
   --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #2dd4bf;
+  --color-graph-link:       #818CF8;
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
+
   /* semantic + elevation */
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
-  --color-danger:       #F472B6;
-  --color-danger-bg:    rgba(244, 114, 182, 0.12);
+  --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
+  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55),
+                        0 2px 8px rgba(0,0,0,.25);
+
+  --color-danger:       #FB7185;
+  --color-danger-bg:    rgba(251, 113, 133, 0.12);
 }
 
 [data-theme="focus-blue"] {
@@ -178,6 +245,7 @@
   --color-fg-secondary:   #A1A1AA;
   --color-fg-icon:        #D4D4D8;
   --color-accent:         #818CF8;
+  --color-on-accent:      #18181B;
   --color-border:         #3F3F46;
   --color-title-bar:      #07070A;
   /* extended */
@@ -203,6 +271,7 @@
   --color-graph-disconnect: var(--color-review-again);
   --color-graph-inherit:    var(--color-review-easy);
   /* semantic + elevation */
+  --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
   --color-danger:       #FB7185;
   --color-danger-bg:    rgba(251, 113, 133, 0.12);
@@ -227,8 +296,8 @@ body,
 }
 
 body {
-  font-family: 'Geist', system-ui, sans-serif;
-  font-size: 14px;
+  font-family: var(--font-sans);
+  font-size: var(--text-base);
   line-height: 1.5;
   color: var(--color-fg-primary);
   background: var(--color-bg-base);
@@ -256,8 +325,8 @@ select {
   color: var(--color-fg-primary);
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
-  border-radius: 4px;
-  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
 }
 
 input:focus,
@@ -266,6 +335,27 @@ select:focus {
   outline: none;
   border-color: var(--color-accent);
   box-shadow: 0 0 0 3px var(--color-accent-subtle);
+}
+
+/* ── Accessibility floor ─────────────────────────────────────────────────────
+   A visible focus ring for keyboard users on any interactive element that
+   doesn't already style its own :focus, and honoring reduced-motion globally. */
+
+:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 a {

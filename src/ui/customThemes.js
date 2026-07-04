@@ -19,6 +19,7 @@ export const THEME_VARS = [
   // Accent
   { key: '--color-accent',         label: 'Accent / active' },
   { key: '--color-accent-subtle',  label: 'Accent tint' },
+  { key: '--color-on-accent',      label: 'Text on accent' },
   // Borders
   { key: '--color-border',         label: 'Borders' },
   { key: '--color-tree-indent',    label: 'Tree indent line' },

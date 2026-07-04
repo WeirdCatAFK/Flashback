@@ -135,7 +135,7 @@ function LoosePagesPanel({ drift, loading, error, onRefresh }) {
             <div className="seal-loose-card">
                 {error && <div className="seal-error">{error}</div>}
                 {!error && empty && (
-                    <p className="seal-loose-empty">Every page is bound in — nothing changed outside Flashback.</p>
+                    <p className="seal-loose-empty">Mothing changed outside Flashback.</p>
                 )}
                 {!error && drift && !empty && (
                     <div className="seal-loose-groups">

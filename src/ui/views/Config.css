@@ -91,7 +91,7 @@
 .config-save-btn--dirty {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #000;
+  color: var(--color-on-accent);
   cursor: pointer;
   opacity: 1;
 }
@@ -163,7 +163,7 @@
 .config-restart-btn--primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #000;
+  color: var(--color-on-accent);
 }
 
 .config-restart-btn--primary:hover {
@@ -406,7 +406,7 @@
 .te-btn-primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .te-btn-primary:hover:not(:disabled) {
@@ -471,13 +471,13 @@
 .algo-migrate-btn--primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #1C1917;
+  color: var(--color-on-accent);
   font-weight: 600;
 }
 
 .algo-migrate-btn--primary:hover {
   filter: brightness(1.1);
-  color: #1C1917;
+  color: var(--color-on-accent);
   border-color: var(--color-accent);
 }
 

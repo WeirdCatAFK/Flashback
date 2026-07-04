@@ -90,10 +90,14 @@
 /* Empty / hints */
 
 .sq-empty {
-  padding: 20px 16px;
+  padding: var(--space-4) var(--space-4);
   text-align: center;
-  color: var(--color-fg-tertiary);
+  color: var(--color-fg-secondary);
   font-size: 13px;
+}
+
+.sq-empty--error {
+  color: var(--color-danger);
 }
 
 .sq-hint-row {
@@ -161,8 +165,8 @@
 .sq-result-icon--folder   { color: var(--color-accent); }
 .sq-result-icon--document { color: var(--color-fg-secondary); }
 .sq-result-icon--flashcard { color: var(--color-fg-secondary); }
-.sq-result-icon--tag      { color: #10b981; }
-.sq-result-icon--deck     { color: #8b5cf6; }
+.sq-result-icon--tag      { color: var(--color-graph-tag); }
+.sq-result-icon--deck     { color: var(--color-graph-deck); }
 
 .sq-result-primary {
   font-size: 13px;

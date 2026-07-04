@@ -689,7 +689,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 background: colors.nodes.Folder,
                 opacity: showOrigin ? 1 : 0.25,
               }} />
-              <span>origin</span>
+              <span>Origin</span>
             </button>
 
             <button type="button"
@@ -701,7 +701,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 background: colors.links.tag,
                 opacity: showTags ? 1 : 0.25,
               }} />
-              <span>tags</span>
+              <span>Tags</span>
             </button>
 
             <button type="button"
@@ -713,7 +713,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 background: colors.nodes.Deck,
                 opacity: showDecks ? 1 : 0.25,
               }} />
-              <span>decks</span>
+              <span>Decks</span>
             </button>
 
             <button type="button"
@@ -725,7 +725,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 background: colors.links.link,
                 opacity: showLinks ? 1 : 0.25,
               }} />
-              <span>links</span>
+              <span>Links</span>
             </button>
 
             <div className="graph-controls-sep" />
@@ -736,7 +736,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
               title="Refresh graph data"
               disabled={loading}
             >
-              refresh
+              Refresh
             </button>
 
             <button type="button"
@@ -744,7 +744,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
               onClick={() => setShowExportMenu(s => !s)}
               title="Export graph"
             >
-              export
+              Export
             </button>
 
             {showExportMenu && (

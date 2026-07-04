@@ -1,0 +1,72 @@
+/* Shared loading / error / empty states — see StateView.jsx. All spacing, radius,
+   and color come from the design tokens so every view's states read as one system. */
+
+.state-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--color-fg-secondary);
+}
+
+.state-view__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-fg-icon);
+  opacity: 0.8;
+}
+
+.state-view__title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.state-view__message {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  max-width: 44ch;
+  line-height: 1.5;
+}
+
+.state-view--error .state-view__title {
+  color: var(--color-danger);
+}
+
+.state-view__action {
+  margin-top: var(--space-1);
+}
+
+.state-view__btn {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  transition: background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.state-view__btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+}
+
+/* Spinner */
+.state-view__spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-accent);
+  animation: state-view-spin 0.7s linear infinite;
+}
+
+@keyframes state-view-spin {
+  to { transform: rotate(360deg); }
+}

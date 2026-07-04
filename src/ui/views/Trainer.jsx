@@ -5,6 +5,7 @@ import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
+import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
 import './Trainer.css';
@@ -438,7 +439,7 @@ function DeckPicker({ onPick }) {
   );
 }
 
-function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource }) {
+function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -473,6 +474,8 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   // remounts via key={turn} so staleness is never observable in practice).
   const onViewSourceRef = useRef(onViewSource);
   onViewSourceRef.current = onViewSource;
+  const onSaveErrorRef = useRef(onSaveError);
+  onSaveErrorRef.current = onSaveError;
 
   const handleGrade = (key) => {
     if (busyRef.current) return;
@@ -485,7 +488,13 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
     // Leitner "Again" floors at level 1 (1-day interval); level 0 = 0-day would
     // make the card permanently due every session. SM-2 level 0 gives 1 day already.
     const toLevel = (key === 'again' && algorithm !== 'sm2') ? Math.max(1, rawLevel) : rawLevel;
-    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm).catch(console.error);
+    // We advance the UI optimistically for a fluid review flow, but a failed write
+    // must never be silent — surface it so the user knows this grade wasn't saved.
+    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm)
+      .catch((err) => {
+        console.error(err);
+        onSaveErrorRef.current?.(err);
+      });
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
@@ -638,6 +647,9 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   const [turn, setTurn] = useState(0);
   const [stats, setStats] = useState({ again: 0, good: 0, easy: 0 });
   const [pop, setPop] = useState(null);
+  // Set when a review write fails; shown as a dismissible banner so an optimistic
+  // advance can never hide lost progress from the user.
+  const [saveError, setSaveError] = useState(null);
 
   // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
   const applyMaxNew = (display) => {
@@ -807,8 +819,15 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     <div className="trainer-view">
       <h2>Trainer</h2>
 
-      {loading && !sessionDone && <p>Loading cards...</p>}
-      {error && <p>Error: {error.message}</p>}
+      {loading && !sessionDone && <LoadingState message="Loading cards…" />}
+      {error && <ErrorState error={error} title="Couldn't load your cards" onRetry={() => setRefreshToken(t => t + 1)} />}
+
+      {saveError && (
+        <div className="trainer-save-error" role="alert">
+          <span>{`Couldn't save your last review — ${saveError.message || 'the change may not be recorded'}.`}</span>
+          <button type="button" onClick={() => setSaveError(null)} aria-label="Dismiss">×</button>
+        </div>
+      )}
 
       {result && !sessionDone && (
         <p className="trainer-session-info">
@@ -907,6 +926,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             stageRef={stageRef}
             onResult={handleResult}
             onViewSource={handleViewSource}
+            onSaveError={setSaveError}
           />
           <GradePop pop={pop} top={popTop} />
         </div>
