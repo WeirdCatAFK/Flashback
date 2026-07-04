@@ -230,7 +230,17 @@ components/
 `components/documents/renderers/` holds one editor per file type plus the shared
 highlight machinery. `DocumentEditor` chooses a renderer by extension
 (`pickRenderer`) and talks to it through a fixed prop contract — it never imports
-TipTap or touches an editor instance directly.
+TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
+→ `MarkdownRenderer`, `txt`/`text` → `TextRenderer`, `pdf` → `PdfRenderer`,
+`youtube` → `YoutubeRenderer`, `clip` → `ClipRenderer`, else `PlaceholderRenderer`.
+
+`PdfRenderer`, `ClipRenderer`, and `YoutubeRenderer` are the non-editable
+references: they own their own load/save (metadata-only — the body is immutable)
+instead of `useHighlightableRenderer`, and supply their own `highlightRef` object.
+`ClipRenderer` anchors highlights by character offset into the container's
+`textContent` (`clip_range`); `YoutubeRenderer` anchors by timestamp
+(`video_timestamp`) created via a "Mark this moment" button rather than a text
+selection.
 
 ### The renderer prop contract
 

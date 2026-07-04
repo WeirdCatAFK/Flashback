@@ -463,3 +463,114 @@
   background: none;
   flex-shrink: 0;
 }
+
+/* ── Clip-from-URL modal ─────────────────────────────────────────────────── */
+
+.clip-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 320px;
+}
+
+.clip-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.clip-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-fg-secondary);
+}
+
+.clip-input {
+  width: 100%;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.clip-input:focus {
+  border-color: var(--color-accent);
+}
+
+.clip-kind {
+  display: inline-flex;
+  gap: 4px;
+  padding: 3px;
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  align-self: flex-start;
+}
+
+.clip-kind-btn {
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  background: none;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+.clip-kind-btn:hover:not(:disabled) {
+  color: var(--color-fg-primary);
+  background: var(--color-bg-hover);
+}
+
+.clip-kind-btn--active,
+.clip-kind-btn--active:hover {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+}
+
+.clip-hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.clip-error {
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}
+
+.clip-btn {
+  padding: 7px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.clip-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.clip-btn--primary {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.clip-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  background: var(--color-accent);
+}
+
+.clip-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}

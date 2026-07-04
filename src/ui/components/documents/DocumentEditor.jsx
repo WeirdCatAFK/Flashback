@@ -6,6 +6,8 @@ import HighlightRemoveDialog from './HighlightRemoveDialog';
 import MarkdownRenderer  from './renderers/MarkdownRenderer';
 import TextRenderer      from './renderers/TextRenderer';
 import PdfRenderer       from './renderers/PdfRenderer';
+import YoutubeRenderer   from './renderers/YoutubeRenderer';
+import ClipRenderer      from './renderers/ClipRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
@@ -17,6 +19,8 @@ function pickRenderer(path) {
   if (['md', 'markdown'].includes(ext)) return MarkdownRenderer;
   if (['txt', 'text'].includes(ext))    return TextRenderer;
   if (ext === 'pdf')                    return PdfRenderer;
+  if (ext === 'youtube')                return YoutubeRenderer;
+  if (ext === 'clip')                   return ClipRenderer;
   return PlaceholderRenderer;
 }
 

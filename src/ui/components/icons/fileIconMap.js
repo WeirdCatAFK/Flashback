@@ -42,6 +42,10 @@ const EXT_MAP = {
   webm:     IconFileVideo,
   mov:      IconFileVideo,
   avi:      IconFileVideo,
+
+  // Captured formats
+  youtube:  IconFileVideo,
+  clip:     IconFileHtml,
 };
 
 export default function getFileIcon(filename) {

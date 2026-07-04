@@ -14,6 +14,85 @@ import os from 'os';
 import AdmZip from 'adm-zip';
 import { sealEmitter } from '../seal/seal.js';
 import highlightsService from './highlights.js';
+import newFileMetadata from '../config/defaults/FlashbackFile.js';
+
+/**
+ * Extracts the 11-char video id from any common YouTube URL shape
+ * (watch?v=, youtu.be/, /embed/, /shorts/, /live/). Returns null if none.
+ */
+export function extractYoutubeId(url) {
+    if (!url) return null;
+    const patterns = [
+        /[?&]v=([A-Za-z0-9_-]{11})/,
+        /youtu\.be\/([A-Za-z0-9_-]{11})/,
+        /\/(?:embed|shorts|live|v)\/([A-Za-z0-9_-]{11})/,
+    ];
+    for (const re of patterns) {
+        const m = url.match(re);
+        if (m) return m[1];
+    }
+    return null;
+}
+
+/**
+ * Turns an arbitrary title into a filesystem-safe base name (no extension).
+ * Strips characters illegal on Windows, collapses whitespace, caps length,
+ * and falls back to "clip" when nothing usable remains.
+ */
+export function slugifyName(title) {
+    const cleaned = String(title || "")
+        .replace(/[\\/:*?"<>|]/g, " ")   // Windows-illegal path chars
+        .replace(/[\r\n\t]+/g, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 120)
+        .trim();
+    return cleaned || "clip";
+}
+
+// Best-effort image extension from an HTTP content-type header.
+function extFromContentType(ct) {
+    if (!ct) return null;
+    const type = ct.split(';')[0].trim().toLowerCase();
+    const map = {
+        'image/jpeg': 'jpg', 'image/jpg': 'jpg', 'image/png': 'png',
+        'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg',
+        'image/avif': 'avif', 'image/bmp': 'bmp',
+    };
+    return map[type] || null;
+}
+
+// Best-effort image extension from a URL path.
+function extFromUrl(u) {
+    try {
+        const m = new URL(u).pathname.match(/\.([a-z0-9]{1,5})$/i);
+        return m ? m[1].toLowerCase() : null;
+    } catch { return null; }
+}
+
+// Whitelist for stored clip HTML — readable structure only, no scripts/handlers.
+// Relative `./media/` image src survive (verified); remote/data src are kept as
+// a fallback for images that couldn't be cached locally.
+const CLIP_SANITIZE_OPTS = {
+    allowedTags: [
+        'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'ul', 'ol', 'li',
+        'blockquote', 'pre', 'code', 'em', 'strong', 'b', 'i', 'u', 's',
+        'sub', 'sup', 'br', 'hr', 'img', 'figure', 'figcaption', 'table',
+        'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'span',
+        'div', 'mark', 'small', 'abbr', 'cite', 'time',
+    ],
+    allowedAttributes: {
+        a: ['href', 'title'],
+        img: ['src', 'alt', 'title', 'width', 'height'],
+        '*': ['id'],
+    },
+    allowedSchemes: ['http', 'https', 'mailto'],
+    allowedSchemesByTag: { img: ['http', 'https', 'data'] },
+    allowProtocolRelative: false,
+};
+
+const MAX_CLIP_IMAGES = 40;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
 export default class Documents {
     constructor() {
@@ -436,7 +515,14 @@ export default class Documents {
 
         try {
             const absPath = this.files.safePath(fileRelPath);
-            this._registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata });
+            // When the caller's metadata carries no identity of its own (a blank
+            // template, e.g. webclip/youtube), adopt the real globalHash createFile
+            // assigned to the sidecar so the derived row matches the canonical file.
+            // Blank ("") hashes would otherwise collide on the second such import.
+            const registerMeta = metadata?.globalHash
+                ? metadata
+                : { ...metadata, globalHash: this.files.getMetadata(fileRelPath)?.globalHash };
+            this._registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata: registerMeta });
         } catch (err) {
             this.files.delete(fileRelPath, false);
             throw err;
@@ -453,6 +539,10 @@ export default class Documents {
         if (imported) {
             await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
         }
+
+        // Return the resolved location + canonical (sidecar) identity so callers that
+        // synthesize documents (webclip / youtube) can report the created path and hash.
+        return { path: fileRelPath, globalHash: this.files.getMetadata(fileRelPath)?.globalHash };
     }
 
     // Registers a document's full derived-layer state (row, inheritance, tags,
@@ -479,6 +569,182 @@ export default class Documents {
             if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
             return docId;
         })();
+    }
+
+    // --- Custom captured formats (webclip / youtube) ---
+    //
+    // Both build a full sidecar (default template + a `source` block) plus a
+    // body string, then delegate to the importFile pipeline (disk → sidecar →
+    // DB → Seal). The DB layer only syncs known sidecar keys; the extra `source`
+    // key rides along on disk untouched.
+
+    // Builds the `.youtube` body + `source` block from a URL. Fetches oEmbed
+    // metadata (title/author/thumbnail) best-effort — offline just falls back to
+    // the video id. Throws on a URL with no extractable id.
+    async _buildYoutubeDoc(url) {
+        const videoId = extractYoutubeId(url);
+        if (!videoId) throw new Error("Invalid YouTube URL");
+
+        let title = "", author = "", thumbnailUrl = "";
+        try {
+            const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(url)}&format=json`;
+            const resp = await fetch(oembedUrl);
+            if (resp.ok) {
+                const data = await resp.json();
+                title = data.title || "";
+                author = data.author_name || "";
+                thumbnailUrl = data.thumbnail_url || "";
+            }
+        } catch { /* offline / blocked — fall back to the id */ }
+
+        const body = JSON.stringify({ url, videoId, title, author, thumbnailUrl }, null, 2);
+        const source = { url, videoId, title, author, clippedAt: new Date().toISOString() };
+        return { videoId, title, body, source };
+    }
+
+    /**
+     * Captures a YouTube URL as a new `.youtube` reference document. The body is
+     * a small JSON descriptor the renderer embeds; highlights anchor to
+     * timestamps (seconds), not text.
+     * @param {string} url
+     * @param {string} [relativePath=""] destination folder
+     * @returns {Promise<{path: string, globalHash: string}>}
+     */
+    async createYoutube(url, relativePath = "") {
+        const { videoId, title, body, source } = await this._buildYoutubeDoc(url);
+        const metadata = { ...newFileMetadata(), source };
+        const name = slugifyName(title || videoId) + ".youtube";
+        return this.importFile(name, relativePath, body, metadata);
+    }
+
+    /**
+     * Populates an existing (e.g. blank, hand-created) `.youtube` file from a
+     * URL — writes the descriptor body and merges the `source` block into the
+     * sidecar, preserving existing highlights/tags. Used by the renderer's
+     * empty-state URL form so a `.youtube` created via "New file" isn't a dead end.
+     * @param {string} relPath existing `.youtube` file
+     * @param {string} url
+     */
+    async setYoutubeSource(relPath, url) {
+        if (!this.files.exists(relPath)) throw new Error("File not found");
+        const { body, source } = await this._buildYoutubeDoc(url);
+        const existing = this.files.getMetadata(relPath) || newFileMetadata();
+        this.files.updateFile(relPath, body, { ...existing, source });
+        await sealEmitter.edit(relPath + '.flashback', [relPath]);
+        return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
+    }
+
+    // Fetches a page, extracts its readable article, caches its images into
+    // `<mediaFolder>/media/`, and returns the sanitized HTML + `source` block +
+    // the cached media rel-paths. `mediaFolder` is the folder the clip lives in
+    // (media/ is a sibling of the clip file). Throws on fetch/extraction failure.
+    async _buildClipDoc(url, mediaFolder) {
+        let html;
+        try {
+            const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback webclipper)' } });
+            if (!resp.ok) throw new Error(`status ${resp.status}`);
+            html = await resp.text();
+        } catch (err) {
+            throw new Error(`Failed to fetch: ${err.message}`);
+        }
+
+        const { JSDOM } = await import('jsdom');
+        const { Readability } = await import('@mozilla/readability');
+        const sanitizeHtml = (await import('sanitize-html')).default;
+
+        const dom = new JSDOM(html, { url });
+        const doc = dom.window.document;
+        const siteName = doc.querySelector('meta[property="og:site_name"]')?.getAttribute('content') || '';
+        const article = new Readability(doc).parse();
+        if (!article || !article.content) {
+            throw new Error('Could not extract readable content from that page');
+        }
+
+        // Re-parse the article fragment with the page URL as base so relative
+        // <img> src resolve to absolute URLs we can fetch.
+        const contentDom = new JSDOM(`<body>${article.content}</body>`, { url });
+        const cdoc = contentDom.window.document;
+
+        const mediaRelPaths = [];
+        const seen = new Map(); // absolute src -> ./media/<name>
+        for (const img of Array.from(cdoc.querySelectorAll('img')).slice(0, MAX_CLIP_IMAGES)) {
+            const raw = img.getAttribute('src') || '';
+            let absSrc;
+            try { absSrc = new URL(raw, url).href; } catch { continue; }
+            if (!/^https?:/i.test(absSrc)) continue; // leave data:/other src untouched
+            if (seen.has(absSrc)) { img.setAttribute('src', seen.get(absSrc)); img.removeAttribute('srcset'); continue; }
+            try {
+                const r = await fetch(absSrc);
+                if (!r.ok) continue;
+                const buf = Buffer.from(await r.arrayBuffer());
+                if (buf.length === 0 || buf.length > MAX_IMAGE_BYTES) continue;
+                const hash = crypto.createHash('sha256').update(buf).digest('hex');
+                const ext = extFromContentType(r.headers.get('content-type')) || extFromUrl(absSrc) || 'img';
+                const name = `clip-${hash.slice(0, 12)}.${ext}`;
+                const mediaRel = path.join(mediaFolder, 'media', name);
+                const mediaAbs = this.files.safePath(mediaRel);
+                fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
+                fs.writeFileSync(mediaAbs, buf);
+                db.transaction(() => {
+                    this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+                })();
+                const localRef = `./media/${name}`;
+                img.setAttribute('src', localRef);
+                img.removeAttribute('srcset');
+                seen.set(absSrc, localRef);
+                mediaRelPaths.push(mediaRel);
+            } catch { /* best-effort — leave the remote src in place */ }
+        }
+
+        const clean = sanitizeHtml(cdoc.body.innerHTML, CLIP_SANITIZE_OPTS);
+        const source = {
+            url,
+            siteName: siteName || article.siteName || '',
+            byline: article.byline || '',
+            title: article.title || '',
+            excerpt: article.excerpt || '',
+            clippedAt: new Date().toISOString(),
+        };
+        return { html: clean, source, title: article.title || 'clip', mediaRelPaths };
+    }
+
+    /**
+     * Fetches a web page and stores a readable, image-cached `.clip` snapshot.
+     * Highlights anchor by text offset. See _buildClipDoc for the pipeline.
+     * @param {string} url
+     * @param {string} [relativePath=""] destination folder
+     * @returns {Promise<{path: string, globalHash: string}>}
+     */
+    async createClip(url, relativePath = "") {
+        const { html, source, title, mediaRelPaths } = await this._buildClipDoc(url, relativePath);
+        const metadata = { ...newFileMetadata(), source };
+        const name = slugifyName(title) + ".clip";
+        const result = await this.importFile(name, relativePath, html, metadata);
+
+        // importFile only sealed the clip + sidecar; stage the cached images too.
+        if (mediaRelPaths.length && result?.path) {
+            await sealEmitter.edit(result.path + '.flashback', mediaRelPaths);
+        }
+        return result;
+    }
+
+    /**
+     * Populates an existing (e.g. blank, hand-created) `.clip` file from a URL —
+     * fetches/parses the page, caches images alongside it, writes the sanitized
+     * HTML body, and merges the `source` block into the sidecar (preserving
+     * existing highlights/tags). Backs the renderer's empty-state URL form.
+     * @param {string} relPath existing `.clip` file
+     * @param {string} url
+     */
+    async setClipSource(relPath, url) {
+        if (!this.files.exists(relPath)) throw new Error("File not found");
+        const parent = path.dirname(relPath);
+        const mediaFolder = parent === '.' ? '' : parent;
+        const { html, source, mediaRelPaths } = await this._buildClipDoc(url, mediaFolder);
+        const existing = this.files.getMetadata(relPath) || newFileMetadata();
+        this.files.updateFile(relPath, html, { ...existing, source });
+        await sealEmitter.edit(relPath + '.flashback', [relPath, ...mediaRelPaths]);
+        return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
     }
 
     // --- Indexing (Vault Doctor) ---
