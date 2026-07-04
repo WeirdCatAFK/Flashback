@@ -3,6 +3,7 @@
   "productName": "Flashback",
   "files": ["dist-react", "src/api", "src/electron", "src/mcp"],
   "icon": "flashback.ico",
+  "extraResources": ["flashback.ico", "flashback.png"],
   "publish": [
     {
       "provider": "github",
