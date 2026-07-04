@@ -23,6 +23,21 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
     document.body.style.userSelect = 'none';
   }, [sidebarWidth]);
 
+  // Keyboard resize: arrow keys nudge, Home/End jump to the limits.
+  const onResizeKeyDown = useCallback((e) => {
+    const STEP = 16;
+    let next = null;
+    if (e.key === 'ArrowLeft')  next = sidebarWidth - STEP;
+    else if (e.key === 'ArrowRight') next = sidebarWidth + STEP;
+    else if (e.key === 'Home')  next = MIN_WIDTH;
+    else if (e.key === 'End')   next = MAX_WIDTH;
+    if (next == null) return;
+    e.preventDefault();
+    next = Math.min(MAX_WIDTH, Math.max(MIN_WIDTH, next));
+    setSidebarWidth(next);
+    localStorage.setItem('fb-sidebar-width', next);
+  }, [sidebarWidth]);
+
   useEffect(() => {
     const onMouseMove = (e) => {
       if (!dragging.current) return;
@@ -137,7 +152,18 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
         />
       </aside>
 
-      <div className="documents-resize-handle" onMouseDown={onMouseDown} />
+      <div
+        className="documents-resize-handle"
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize sidebar"
+        aria-valuenow={sidebarWidth}
+        aria-valuemin={MIN_WIDTH}
+        aria-valuemax={MAX_WIDTH}
+        tabIndex={0}
+        onMouseDown={onMouseDown}
+        onKeyDown={onResizeKeyDown}
+      />
 
       <main className="documents-main">
         <DocumentEditor

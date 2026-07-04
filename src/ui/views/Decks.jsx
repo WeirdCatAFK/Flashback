@@ -297,9 +297,17 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 
 // ── Main view ────────────────────────────────────────────────────────────────
 
-export default function DecksView({ onStudyDeck }) {
+export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed }) {
     const { decks, loading, error, refresh } = useDecks();
     const [activeDeck, setActiveDeck] = useState(null);
+
+    // A deck opened from global search: select it and clear the request.
+    useEffect(() => {
+        if (!openDeck) return;
+        setActiveDeck(openDeck);
+        setCreating(false);
+        onOpenDeckConsumed?.();
+    }, [openDeck, onOpenDeckConsumed]);
     const [creating, setCreating] = useState(false);
     const [importing, setImporting] = useState(null); // null | { pct, processing, filename }
     const [importError, setImportError] = useState(null);

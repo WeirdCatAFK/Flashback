@@ -4,6 +4,7 @@ import { searchCards, deleteStandaloneCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
+import { relativeFromIso } from '../utils/relativeTime';
 import './Flashcards.css';
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
@@ -34,17 +35,7 @@ function LevelDot({ level }) {
 
 function RelativeTime({ iso }) {
     if (!iso) return null;
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    const hrs  = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    let label;
-    if (mins < 2)    label = 'just now';
-    else if (hrs < 1) label = `${mins}m ago`;
-    else if (days < 1) label = `${hrs}h ago`;
-    else if (days < 30) label = `${days}d ago`;
-    else label = new Date(iso).toLocaleDateString();
-    return <span className="fc-time" title={iso}>{label}</span>;
+    return <span className="fc-time" title={iso}>{relativeFromIso(iso)}</span>;
 }
 
 export default function FlashcardsView() {

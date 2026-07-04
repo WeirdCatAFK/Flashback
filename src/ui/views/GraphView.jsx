@@ -640,7 +640,12 @@ export default function GraphView({ isActive = false, onNavigate }) {
     <div ref={containerRef} className="graph-root">
       {loading && <div className="graph-status">Loading graph…</div>}
       {error   && <div className="graph-status graph-status--error">Error: {error.message}</div>}
-      {!loading && !error && visibleData && (
+      {!loading && !error && (!visibleData || visibleData.nodes.length === 0) && (
+        <div className="graph-status">
+          Nothing to see here. You're empty inside. Just like me.
+        </div>
+      )}
+      {!loading && !error && visibleData && visibleData.nodes.length > 0 && (
         <>
           <ForceGraph2D
             ref={fgRef}
@@ -801,13 +806,19 @@ export default function GraphView({ isActive = false, onNavigate }) {
                                 onNavigate({ type: 'document', payload: { path: n.documentPath } });
                               }
                             } : undefined;
-                            return (
-                              <span
+                            const chipTitle = n.type === 'Flashcard' && n.flashcardFront ? n.flashcardFront : n.name;
+                            return canNavigate ? (
+                              <button
+                                type="button"
                                 key={n.id}
-                                className={`graph-info-neighbor${canNavigate ? ' graph-info-neighbor--link' : ''}`}
-                                title={n.type === 'Flashcard' && n.flashcardFront ? n.flashcardFront : n.name}
+                                className="graph-info-neighbor graph-info-neighbor--link"
+                                title={chipTitle}
                                 onClick={handleChipClick}
                               >
+                                {displayName}
+                              </button>
+                            ) : (
+                              <span key={n.id} className="graph-info-neighbor" title={chipTitle}>
                                 {displayName}
                               </span>
                             );

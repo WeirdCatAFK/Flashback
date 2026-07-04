@@ -246,9 +246,29 @@
 }
 
 .fe-empty {
-  padding: 20px 12px;
+  padding: var(--space-6) var(--space-3);
   text-align: center;
   line-height: 1.5;
+}
+
+.fe-empty--error {
+  color: var(--color-danger);
+}
+
+.fe-retry {
+  display: block;
+  margin: var(--space-2) auto 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.fe-retry:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
 }
 
 /* ── Folder tags modal ───────────────────────────────────────────────────── */

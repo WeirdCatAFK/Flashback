@@ -13,6 +13,7 @@ import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
 import SearchModal from "./components/search/SearchModal";
 import ShortcutsOverlay from "./components/ShortcutsOverlay";
+import TitleBar from "./components/TitleBar";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
 
@@ -63,6 +64,7 @@ export default function App() {
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
 
   const [pendingSource, setPendingSource] = useState(null); // { path, highlightId }
+  const [pendingDeck, setPendingDeck] = useState(null); // deck global_hash to open from search
   const handleOpenDocumentSource = useCallback((documentPath, highlightId) => {
     setActiveView('documents');
     setPendingSource({ path: documentPath, highlightId: highlightId ?? null });
@@ -152,6 +154,7 @@ export default function App() {
         break;
       case 'deck':
         setActiveView('decks');
+        setPendingDeck(payload.hash);
         break;
       default: break;
     }
@@ -166,7 +169,7 @@ export default function App() {
     switch (view) {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudyFolder={(folder) => handleStartStudy({ folder })} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
       case "flashcards": return <FlashcardsView />;
-      case "decks":      return <DecksView onStudyDeck={handleStartStudy} />;
+      case "decks":      return <DecksView onStudyDeck={handleStartStudy} openDeck={pendingDeck} onOpenDeckConsumed={() => setPendingDeck(null)} />;
       case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView isActive={activeView === 'seal'} />;
@@ -185,37 +188,7 @@ export default function App() {
 
   return (
     <div id="app-shell">
-      <div id="title-bar">
-        <span id="app-title">Flashback</span>
-        <button
-          type="button"
-          id="search-btn"
-          title="Search (Ctrl+K)"
-          aria-label="Search"
-          onClick={() => setSearchOpen(true)}
-        >
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-            aria-hidden="true">
-            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-          </svg>
-          <kbd>Ctrl+K</kbd>
-        </button>
-        <div id="window-controls">
-          <button type="button" className="wc-btn wc-minimize" title="Minimize" aria-label="Minimize"
-            onClick={() => window.flashback?.windowMinimize()}>
-            <svg width="10" height="1" viewBox="0 0 10 1"><rect width="10" height="1" fill="currentColor"/></svg>
-          </button>
-          <button type="button" className="wc-btn wc-maximize" title="Maximize" aria-label="Maximize"
-            onClick={() => window.flashback?.windowMaximize()}>
-            <svg width="9" height="9" viewBox="0 0 9 9" fill="none"><rect x=".5" y=".5" width="8" height="8" stroke="currentColor"/></svg>
-          </button>
-          <button type="button" className="wc-btn wc-close" title="Close" aria-label="Close"
-            onClick={() => window.flashback?.windowClose()}>
-            <svg width="10" height="10" viewBox="0 0 10 10"><line x1="0" y1="0" x2="10" y2="10" stroke="currentColor" strokeWidth="1.2"/><line x1="10" y1="0" x2="0" y2="10" stroke="currentColor" strokeWidth="1.2"/></svg>
-          </button>
-        </div>
-      </div>
+      <TitleBar onSearch={() => setSearchOpen(true)} />
 
       <AppGate>
         <div id="app-body">
