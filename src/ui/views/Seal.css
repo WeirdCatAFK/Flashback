@@ -615,7 +615,7 @@
 .seal-restart-btn--primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #000;
+  color: var(--color-on-accent);
 }
 
 .seal-restart-btn--primary:hover {
@@ -629,13 +629,13 @@
 .seal-btn--primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #000;
+  color: var(--color-on-accent);
 }
 
 .seal-btn--primary:hover:not(:disabled) {
   filter: brightness(1.1);
   background: var(--color-accent);
-  color: #000;
+  color: var(--color-on-accent);
 }
 
 /* Quieter danger — a text/outline button for the rarely-wanted rebuild, so it

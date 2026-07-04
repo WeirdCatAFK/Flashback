@@ -3,6 +3,8 @@ import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, remov
 import { importZipWithProgress } from '../api/documents';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import ProgressDialog from '../components/shared/ProgressDialog';
+import { LoadingState, ErrorState } from '../components/shared/StateView';
+import { useConfirm } from '../components/shared/ConfirmDialog';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -10,13 +12,21 @@ import './Decks.css';
 function useDecks() {
     const [decks, setDecks] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
 
     const refresh = useCallback(() => {
-        listDecks().then(setDecks).catch(console.error).finally(() => setLoading(false));
+        setLoading(true);
+        setError(null);
+        // The system deck is the home for every standalone card, so it always
+        // leads the list; other decks keep the order the API returns them in.
+        listDecks()
+            .then(list => setDecks([...list].sort((a, b) => (b.is_system ? 1 : 0) - (a.is_system ? 1 : 0))))
+            .catch(setError)
+            .finally(() => setLoading(false));
     }, []);
 
     useEffect(() => { refresh(); }, [refresh]);
-    return { decks, loading, refresh };
+    return { decks, loading, error, refresh };
 }
 
 // ── NewDeckForm ──────────────────────────────────────────────────────────────
@@ -165,8 +175,10 @@ function CardRow({ entry, onRemove }) {
 // ── DeckDetail ───────────────────────────────────────────────────────────────
 
 function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
+    const confirm = useConfirm();
     const [deck, setDeck] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
     const [showAddPanel, setShowAddPanel] = useState(false);
     const [showNewCard, setShowNewCard] = useState(false);
     const [renaming, setRenaming] = useState(false);
@@ -174,7 +186,11 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 
     const load = useCallback(() => {
         setLoading(true);
-        getDeck(deckHash).then(d => { setDeck(d); setLoading(false); }).catch(console.error);
+        setError(null);
+        getDeck(deckHash)
+            .then(d => setDeck(d))
+            .catch(setError)
+            .finally(() => setLoading(false));
     }, [deckHash]);
 
     // Reset the add panel inline when the deck changes; the async fetch stays in an effect.
@@ -188,9 +204,15 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     };
 
     const handleDelete = async () => {
-        if (!confirm(`Delete deck "${deck.name}"? This cannot be undone.`)) return;
+        const ok = await confirm({
+            title: `Delete "${deck.name}"?`,
+            message: 'This removes the deck. The cards themselves are not deleted.',
+            confirmLabel: 'Delete deck',
+            tone: 'danger',
+        });
+        if (!ok) return;
         try { await deleteDeck(deckHash); onDeleted(); }
-        catch (err) { console.error(err); }
+        catch (err) { setError(err); }
     };
 
     const startRename = () => { setRenameVal(deck.name); setRenaming(true); };
@@ -207,9 +229,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     };
 
     if (loading) return (
-        <div className="deck-content">
-            <div className="deck-empty-state"><span className="deck-empty-text">Loading…</span></div>
-        </div>
+        <div className="deck-content"><LoadingState message="Loading deck…" /></div>
+    );
+    if (error) return (
+        <div className="deck-content"><ErrorState error={error} title="Couldn't load this deck" onRetry={load} /></div>
     );
     if (!deck) return null;
 
@@ -233,14 +256,14 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     <div className="deck-detail-meta">
                         {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
                         {deck.description ? ` · ${deck.description}` : ''}
-                        {deck.is_system && <span className="deck-system-badge deck-system-badge--detail">default deck · standalone cards live here</span>}
+                        {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">Standalone cards live here</span>}
                     </div>
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
                         <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
                     )}
-                    {deck.is_system && (
+                    {!!deck.is_system && (
                         <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>+ New card</button>
                     )}
                     <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
@@ -279,11 +302,20 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 
 // ── Main view ────────────────────────────────────────────────────────────────
 
-export default function DecksView({ onStudyDeck }) {
-    const { decks, loading, refresh } = useDecks();
+export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed }) {
+    const { decks, loading, error, refresh } = useDecks();
     const [activeDeck, setActiveDeck] = useState(null);
+
+    // A deck opened from global search: select it and clear the request.
+    useEffect(() => {
+        if (!openDeck) return;
+        setActiveDeck(openDeck);
+        setCreating(false);
+        onOpenDeckConsumed?.();
+    }, [openDeck, onOpenDeckConsumed]);
     const [creating, setCreating] = useState(false);
     const [importing, setImporting] = useState(null); // null | { pct, processing, filename }
+    const [importError, setImportError] = useState(null);
     const [importVersion, setImportVersion] = useState(0); // bumped after each import to force DeckDetail to reload
     const importInputRef = useRef(null);
 
@@ -300,6 +332,7 @@ export default function DecksView({ onStudyDeck }) {
         fd.append('name', file.name);
         fd.append('targetPath', '');
         setImporting({ pct: 0, processing: false, filename: file.name });
+        setImportError(null);
         try {
             await importZipWithProgress(fd, (pct) =>
                 setImporting({ pct, processing: pct >= 100, filename: file.name })
@@ -308,7 +341,7 @@ export default function DecksView({ onStudyDeck }) {
             setImportVersion(v => v + 1);
         } catch (err) {
             console.error('Import failed', err);
-            window.alert('Import failed. Check the console for details.');
+            setImportError(`Couldn't import "${file.name}". ${err.message || 'The file may be unsupported or corrupt.'}`);
         } finally {
             setImporting(null);
         }
@@ -341,7 +374,13 @@ export default function DecksView({ onStudyDeck }) {
 
                 <div className="decks-list">
                     {loading && <div className="decks-empty">Loading…</div>}
-                    {!loading && decks.length === 0 && !creating && (
+                    {!loading && error && (
+                        <div className="decks-empty decks-empty--error">
+                            <span>Failed to load decks.</span>
+                            <button type="button" className="decks-retry" onClick={refresh}>Try again</button>
+                        </div>
+                    )}
+                    {!loading && !error && decks.length === 0 && !creating && (
                         <div className="decks-empty">No decks yet.<br />Click + to create one.</div>
                     )}
                     {decks.map(deck => (
@@ -389,6 +428,12 @@ export default function DecksView({ onStudyDeck }) {
                     processing={importing.processing}
                     statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
                 />
+            )}
+            {importError && (
+                <div className="decks-import-error" role="alert">
+                    <span>{importError}</span>
+                    <button type="button" onClick={() => setImportError(null)} aria-label="Dismiss">×</button>
+                </div>
             )}
         </div>
     );

@@ -26,6 +26,26 @@ router.post('/review', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
+// POST /api/srs/undo
+// Body: { path?, flashcardHash, algorithm }
+// Reverses the card's most recent review (a misgraded result): removes the last
+// log and restores the card's prior SRS state. Like /review, `path` is present for
+// document-linked cards (so the sidecar is corrected too) and omitted for standalone.
+router.post('/undo', catchError(async (req, res) => {
+    const relPath = norm(req.body.path);
+    const { flashcardHash, algorithm } = req.body;
+    if (!flashcardHash) {
+        return res.status(400).json({ error: 'flashcardHash required' });
+    }
+    let restored;
+    if (relPath) {
+        restored = await docs.undoReview(relPath, flashcardHash, algorithm);
+    } else {
+        ({ restored } = SRS.undoReview(flashcardHash, algorithm));
+    }
+    res.json({ ok: true, restored });
+}));
+
 // GET /api/srs/stats
 router.get('/stats', catchError((req, res) => {
     const boxes = docs.query.getLeitnerBoxes();

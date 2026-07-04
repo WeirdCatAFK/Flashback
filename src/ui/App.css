@@ -71,7 +71,7 @@
   border: 1px solid var(--color-border);
   border-radius: 4px;
   background: var(--color-bg-base);
-  color: var(--color-fg-tertiary);
+  color: var(--color-fg-secondary);
   font-size: 11px;
   cursor: pointer;
   transition: border-color 0.1s, color 0.1s;

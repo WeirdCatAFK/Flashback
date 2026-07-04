@@ -34,10 +34,17 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 
-// Helper to get the icon path correctly in both Dev and Prod
-function getIconPath() {
-  // flashback.ico is in the root
-  return path.join(__dirname, "../../flashback.ico");
+// Resolve an app icon path in both dev and prod. In dev the icons sit in the repo
+// root (two levels up from src/electron); once packaged they're copied next to the
+// asar via electron-builder's `extraResources`, so they must be read from
+// `process.resourcesPath` — reading them from inside the asar fails (they're not in
+// `files`), which is why the tray icon was missing in the packaged build.
+// Windows renders .ico crisply; the tray on Linux/macOS wants a PNG.
+function getIconPath(ext = process.platform === 'win32' ? 'ico' : 'png') {
+  const file = `flashback.${ext}`;
+  return app.isPackaged
+    ? path.join(process.resourcesPath, file)
+    : path.join(__dirname, '../../', file);
 }
 
 function createTray() {

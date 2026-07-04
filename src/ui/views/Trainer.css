@@ -1,10 +1,36 @@
 .trainer-view {
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: 14px;
   height: 100%;
   overflow: auto;
+}
+
+/* Review-save failure banner — a review write didn't persist. Danger-tinted so
+   it reads as a problem, with a dismiss control. */
+.trainer-save-error {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-danger-bg);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.trainer-save-error button {
+  margin-left: auto;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-md);
+  line-height: 1;
+  padding: 0 var(--space-1);
+}
+
+.trainer-save-error button:hover {
+  color: var(--color-danger);
 }
 
 .trainer-session-info {
@@ -158,8 +184,13 @@
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 14px;
   width: min(100%, 640px);
+  /* Fill the arena's height so the card can be sized against the space that's
+     actually available, and centre the stack when there's room to spare. */
+  height: 100%;
+  min-height: 0;
 }
 
 .trainer-card-meta,
@@ -170,19 +201,32 @@
 }
 
 /* Card stage: the live card sits above the reducing deck, and slides in. The
-   bottom margin reserves room for the deck so it never overlaps the buttons. */
+   bottom margin reserves room for the deck so it never overlaps the buttons.
+   The stage *is* the card-sized box — it holds the 4/3 ratio and grows with the
+   available width, but `flex: 0 1 auto` + `min-height: 0` let it shrink to the
+   leftover height on short windows so the card never spills out of the trainer.
+   The card and the deck both fill it absolutely, so they always stay the same
+   size as each other. */
 .card-stage {
   position: relative;
   width: 100%;
-  margin-bottom: 30px;
-  display: flex;
-  justify-content: center;
+  max-width: 100%;
+  aspect-ratio: 4 / 3;
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: 0 auto 30px;
   animation: card-enter 340ms cubic-bezier(.2, .7, .2, 1);
 }
 
 .card-stage .flashcard {
-  position: relative;
+  position: absolute;
+  inset: 0;
   z-index: 1;
+  width: 100%;
+  height: 100%;
+  /* The stage owns the sizing/ratio now; drop the standalone-card defaults. */
+  max-width: none;
+  aspect-ratio: auto;
 }
 
 /* Reducing deck: one faint card-back per remaining card (capped). */
@@ -280,40 +324,41 @@
   gap: 2px;
   padding: 10px 12px 8px;
   border-radius: 10px;
-  border: none;
+  border: 1px solid transparent;
   color: var(--color-fg-primary);
   cursor: pointer;
-  box-shadow: 0 2px 0 rgba(0,0,0,.18), 0 4px 14px rgba(0,0,0,.08);
-  transition: transform 80ms ease, box-shadow 80ms ease;
+  transition: filter 80ms ease, border-color 80ms ease, color 80ms ease;
 }
 
-.trainer-grade:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 4px 2px rgba(0,0,0,.10), 0 8px 22px rgba(0,0,0,.10);
+.trainer-grade:hover:not(:disabled) {
+  filter: brightness(1.08);
 }
 
-.trainer-grade:active {
-  transform: translateY(1px);
-  box-shadow: 0 1px 0 rgba(0,0,0,.16), 0 2px 6px rgba(0,0,0,.06);
+.trainer-grade:active:not(:disabled) {
+  filter: brightness(0.94);
 }
 
-.trainer-grade--again {
-  background: linear-gradient(168deg,
-    color-mix(in srgb, var(--color-review-again) 78%, white) 0%,
-    var(--color-review-again) 100%
-  );
+/* Flat solid fills — no gradient, no elevation. */
+.trainer-grade--again { background: var(--color-review-again); }
+.trainer-grade--good  { background: var(--color-review-good); }
+.trainer-grade--easy  { background: var(--color-review-easy); }
+
+/* Undo: outline only, no fill or color — reads as the secondary action. */
+.trainer-grade--undo {
+  background: transparent;
+  border-color: var(--color-border);
+  color: var(--color-fg-secondary);
 }
-.trainer-grade--good {
-  background: linear-gradient(168deg,
-    color-mix(in srgb, var(--color-review-good) 78%, white) 0%,
-    var(--color-review-good) 100%
-  );
+
+.trainer-grade--undo:hover:not(:disabled) {
+  filter: none;
+  border-color: var(--color-accent);
+  color: var(--color-fg-primary);
 }
-.trainer-grade--easy {
-  background: linear-gradient(168deg,
-    color-mix(in srgb, var(--color-review-easy) 78%, white) 0%,
-    var(--color-review-easy) 100%
-  );
+
+.trainer-grade--undo:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 .grade-label { font-size: 13px; font-weight: 700; }
@@ -528,15 +573,15 @@
 }
 
 .type-answer-verdict--correct {
-  color: var(--color-review-easy, #4ade80);
-  background: color-mix(in srgb, var(--color-review-easy, #4ade80) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-review-easy, #4ade80) 30%, transparent);
+  color: var(--color-review-easy);
+  background: color-mix(in srgb, var(--color-review-easy) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-review-easy) 30%, transparent);
 }
 
 .type-answer-verdict--wrong {
-  color: var(--color-review-again, #f87171);
-  background: color-mix(in srgb, var(--color-review-again, #f87171) 12%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-review-again, #f87171) 30%, transparent);
+  color: var(--color-review-again);
+  background: color-mix(in srgb, var(--color-review-again) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-review-again) 30%, transparent);
 }
 
 .type-answer-verdict em {
@@ -730,7 +775,7 @@
 
 .trainer-algo-btn.active {
   background: var(--color-accent);
-  color: var(--color-bg-base, #fff);
+  color: var(--color-bg-base);
 }
 
 .trainer-setting-input {

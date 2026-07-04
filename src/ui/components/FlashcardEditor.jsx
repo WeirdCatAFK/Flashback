@@ -1,15 +1,8 @@
 import { useMemo, useState } from 'react';
 import { readFile, updateMetadata } from '../api/documents';
 import Flashcard from './shared/Flashcard';
+import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './shared/flashcardFields';
 import './shared/FlashcardForm.css';
-
-const CARD_TYPES = [
-  { key: 'basic',       label: 'Basic' },
-  { key: 'reversible',  label: 'Reversible' },
-  { key: 'cloze',       label: 'Cloze' },
-  { key: 'type_answer', label: 'Type Answer' },
-  { key: 'custom',      label: 'Custom HTML' },
-];
 
 export default function FlashcardEditor({ card, documentPath, onSaved, onCancel }) {
   const originalType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
@@ -28,12 +21,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   const [error, setError]                   = useState(null);
   const [previewFace, setPreviewFace]       = useState('front');
 
-  const previewCard = useMemo(() => {
-    if (cardType === 'custom')      return { cardType: 'custom', customData: { html: customHtml } };
-    if (cardType === 'cloze')       return { cardType: 'cloze',       vanillaData: { frontText: clozeText,      backText: clozeText,        media: {} } };
-    if (cardType === 'type_answer') return { cardType: 'type_answer', vanillaData: { frontText: question,       backText: expectedAnswer,    media: {} } };
-    return { cardType, direction: 'forward', vanillaData: { frontText: front, backText: back, media: {} } };
-  }, [cardType, front, back, clozeText, question, expectedAnswer, customHtml]);
+  const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
+  const previewCard = useMemo(
+    () => previewCardFor(cardType, fields),
+    [cardType, front, back, clozeText, question, expectedAnswer, customHtml] // eslint-disable-line react-hooks/exhaustive-deps
+  );
 
   const addTag = () => {
     const t = tagInput.trim();
@@ -43,17 +35,8 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   const removeTag = (tag) => setTags((p) => p.filter((t) => t !== tag));
   const onTagKey  = (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } };
 
-  const hasClozeBlank = /\{\{[^}]+\}\}/.test(clozeText);
-  const canSave = !saving && (() => {
-    switch (cardType) {
-      case 'basic':
-      case 'reversible':  return front.trim() !== '' && back.trim() !== '';
-      case 'cloze':       return clozeText.trim() !== '' && hasClozeBlank;
-      case 'type_answer': return question.trim() !== '' && expectedAnswer.trim() !== '';
-      case 'custom':      return customHtml.trim() !== '';
-      default:            return false;
-    }
-  })();
+  const clozeReady = hasClozeBlank(clozeText);
+  const canSave = !saving && isCardValid(cardType, fields);
 
   const handleSave = async () => {
     if (!canSave) return;
@@ -67,23 +50,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       if (idx === -1) throw new Error('Card not found');
       const ex = meta.flashcards[idx];
 
-      let updated;
-      if (cardType === 'custom') {
-        updated = { ...ex, cardType: 'custom', name: 'Custom card', tags,
-          customData: { html: customHtml } };
-      } else if (cardType === 'cloze') {
-        updated = { ...ex, cardType: 'cloze', tags,
-          name: clozeText.replace(/\{\{([^}]+)\}\}/g, '$1').slice(0, 80),
-          vanillaData: { ...ex.vanillaData, frontText: clozeText.trim(), backText: clozeText.trim() } };
-      } else if (cardType === 'type_answer') {
-        updated = { ...ex, cardType: 'type_answer', tags,
-          name: question.trim().slice(0, 80),
-          vanillaData: { ...ex.vanillaData, frontText: question.trim(), backText: expectedAnswer.trim() } };
-      } else {
-        updated = { ...ex, cardType, tags,
-          name: front.trim(),
-          vanillaData: { ...ex.vanillaData, frontText: front.trim(), backText: back.trim() } };
-      }
+      const core = deriveCardCore(cardType, fields);
+      const updated = core.cardType === 'custom'
+        ? { ...ex, cardType: 'custom', name: core.name, tags, customData: { html: core.html } }
+        : { ...ex, cardType: core.cardType, name: core.name, tags,
+            vanillaData: { ...ex.vanillaData, frontText: core.frontText, backText: core.backText } };
 
       meta.flashcards[idx] = updated;
       await updateMetadata(documentPath, meta, false);
@@ -140,7 +111,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
             aria-label="Cloze text"
             onChange={(e) => setClozeText(e.target.value)}
             placeholder="The {{mitochondria}} is the powerhouse of the {{cell}}." />
-          {clozeText && !hasClozeBlank && (
+          {clozeText && !clozeReady && (
             <p className="fc-form-warn">Add at least one {'{{blank}}'}.</p>
           )}
         </>

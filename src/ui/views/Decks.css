@@ -2,6 +2,7 @@
   display: flex;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
 /* ── Left panel: deck list ──────────────────────────────────────────────── */
@@ -121,11 +122,62 @@
 }
 
 .decks-empty {
-  padding: 24px 16px;
+  padding: var(--space-6) var(--space-4);
   text-align: center;
   color: var(--color-fg-secondary);
-  font-size: 12px;
+  font-size: var(--text-sm);
   line-height: 1.5;
+}
+
+.decks-empty--error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-danger);
+}
+
+.decks-retry {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.decks-retry:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-accent);
+}
+
+/* Import failure banner — floats at the bottom of the view, dismissible. */
+.decks-import-error {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 90%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.decks-import-error button {
+  color: var(--color-fg-secondary);
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.decks-import-error button:hover {
+  color: var(--color-danger);
 }
 
 /* stats section at bottom of panel */
@@ -277,7 +329,7 @@
 .deck-btn.primary {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .deck-btn.primary:hover {

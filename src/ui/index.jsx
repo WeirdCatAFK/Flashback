@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { initClient } from './api/client.js';
 import App from './App.jsx';
 import OnboardingView from './views/Onboarding.jsx';
+import { ConfirmProvider } from './components/shared/ConfirmDialog.jsx';
 import './index.css';
 
 const root = createRoot(document.getElementById('root'));
@@ -34,7 +35,9 @@ async function launchApp() {
   initClient(apiUrl, apiToken);
   root.render(
     <StrictMode>
-      <App />
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
     </StrictMode>
   );
 }

@@ -76,3 +76,5 @@ export default function TextRenderer(props) {
 // Participates in the document-highlight system (offset-anchored). DocumentEditor
 // reads this flag to enable the highlight toolbar.
 TextRenderer.supportsHighlight = true;
+// Text content is user-editable, so DocumentEditor shows a Save button for it.
+TextRenderer.editable = true;

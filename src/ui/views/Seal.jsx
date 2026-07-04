@@ -1,6 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getLog, inspectDrift, rollback, getCommitFiles } from '../api/seal';
 import { checkIndex, syncIndex, rebuildIndex } from '../api/doctor';
+import Modal from '../components/shared/Modal';
+import { relativeFromMs } from '../utils/relativeTime';
 import './Seal.css';
 
 const ACTION_LABELS = {
@@ -31,17 +33,7 @@ function formatOid(oid) {
 function formatCommitTime(unixSeconds) {
     if (!unixSeconds) return { relative: '', absolute: '' };
     const date = new Date(unixSeconds * 1000);
-    const diff = Date.now() - date.getTime();
-    const mins = Math.floor(diff / 60000);
-    const hrs  = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    let relative;
-    if (mins < 2) relative = 'just now';
-    else if (hrs < 1) relative = `${mins}m ago`;
-    else if (days < 1) relative = `${hrs}h ago`;
-    else if (days < 30) relative = `${days}d ago`;
-    else relative = date.toLocaleDateString();
-    return { relative, absolute: date.toLocaleString() };
+    return { relative: relativeFromMs(date.getTime()), absolute: date.toLocaleString() };
 }
 
 // A small embossed glyph stamped into each wax seal — gives the action a shape, not just a
@@ -135,7 +127,7 @@ function LoosePagesPanel({ drift, loading, error, onRefresh }) {
             <div className="seal-loose-card">
                 {error && <div className="seal-error">{error}</div>}
                 {!error && empty && (
-                    <p className="seal-loose-empty">Every page is bound in — nothing changed outside Flashback.</p>
+                    <p className="seal-loose-empty">Mothing changed outside Flashback.</p>
                 )}
                 {!error && drift && !empty && (
                     <div className="seal-loose-groups">
@@ -323,59 +315,57 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
     };
 
     return (
-        <div className="seal-modal-backdrop" onClick={busy ? undefined : onCancel}>
-            <div className="seal-modal" onClick={e => e.stopPropagation()}>
-                <div className="seal-modal-header">
-                    <span className="seal-modal-title">Restore this version</span>
-                    <button type="button" className="seal-modal-close" onClick={onCancel} disabled={busy}>✕</button>
-                </div>
-                <div className="seal-modal-body">
-                    <div className="seal-modal-target">
-                        <span className={`seal-stamp seal-stamp--${action} seal-stamp--sm`} aria-hidden="true">
-                            <ActionGlyph action={action} />
-                        </span>
-                        <span>{detail}</span>
-                        <span className="seal-entry-oid" title={commit.oid}>{formatOid(commit.oid)}</span>
-                        <span className="seal-entry-time">{absolute}</span>
-                    </div>
-
-                    <p className="seal-modal-warning">
-                        This restores the workspace to this point in time and discards any uncommitted
-                        changes on disk.
-                        {newerCount > 0 && (
-                            <> If you keep editing afterward, the {newerCount} entr{newerCount === 1 ? 'y' : 'ies'} newer
-                            than this point will no longer appear in the log.</>
-                        )}
-                    </p>
-
-                    <label className="seal-modal-checkbox">
-                        <input
-                            type="checkbox"
-                            checked={keepSrsProgress}
-                            onChange={e => setKeepSrsProgress(e.target.checked)}
-                            disabled={busy}
-                        />
-                        Keep current review progress (recommended)
-                    </label>
-                    <p className="seal-modal-hint">
-                        {keepSrsProgress
-                            ? 'Flashcard review history and scheduling stay as they are now — only document content and structure roll back.'
-                            : 'Flashcard review history and scheduling also roll back to what they were at this point.'}
-                    </p>
-
-                    {error && <div className="seal-error">{error}</div>}
-
-                    <div className="seal-modal-actions">
-                        <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>
-                            Cancel
-                        </button>
-                        <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy}>
-                            {busy ? 'Restoring…' : 'Restore'}
-                        </button>
-                    </div>
-                </div>
+        <Modal
+            title="Restore this version"
+            size="md"
+            onClose={onCancel}
+            dismissible={!busy}
+            footer={
+                <>
+                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>
+                        Cancel
+                    </button>
+                    <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy}>
+                        {busy ? 'Restoring…' : 'Restore'}
+                    </button>
+                </>
+            }
+        >
+            <div className="seal-modal-target">
+                <span className={`seal-stamp seal-stamp--${action} seal-stamp--sm`} aria-hidden="true">
+                    <ActionGlyph action={action} />
+                </span>
+                <span>{detail}</span>
+                <span className="seal-entry-oid" title={commit.oid}>{formatOid(commit.oid)}</span>
+                <span className="seal-entry-time">{absolute}</span>
             </div>
-        </div>
+
+            <p className="seal-modal-warning">
+                This restores the workspace to this point in time and discards any uncommitted
+                changes on disk.
+                {newerCount > 0 && (
+                    <> If you keep editing afterward, the {newerCount} entr{newerCount === 1 ? 'y' : 'ies'} newer
+                    than this point will no longer appear in the log.</>
+                )}
+            </p>
+
+            <label className="seal-modal-checkbox">
+                <input
+                    type="checkbox"
+                    checked={keepSrsProgress}
+                    onChange={e => setKeepSrsProgress(e.target.checked)}
+                    disabled={busy}
+                />
+                Keep current review progress (recommended)
+            </label>
+            <p className="seal-modal-hint">
+                {keepSrsProgress
+                    ? 'Flashcard review history and scheduling stay as they are now — only document content and structure roll back.'
+                    : 'Flashcard review history and scheduling also roll back to what they were at this point.'}
+            </p>
+
+            {error && <div className="seal-error">{error}</div>}
+        </Modal>
     );
 }
 
@@ -500,48 +490,46 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
     const hasConflicts = report.documents.hashConflicts.length > 0;
 
     return (
-        <div className="seal-modal-backdrop" onClick={busy ? undefined : onCancel}>
-            <div className="seal-modal" onClick={e => e.stopPropagation()}>
-                <div className="seal-modal-header">
-                    <span className="seal-modal-title">Sync index to files</span>
-                    <button type="button" className="seal-modal-close" onClick={onCancel} disabled={busy}>✕</button>
-                </div>
-                <div className="seal-modal-body">
-                    <p className="seal-modal-warning">
-                        Your files on disk are the source of truth. This indexes anything new, refreshes
-                        documents that changed outside Flashback, and drops index entries for things that
-                        were deleted. Review progress is never lowered.
-                        {hasConflicts && (
-                            <> Documents that share a duplicate identity are left untouched and reported.</>
-                        )}
-                    </p>
+        <Modal
+            title="Sync index to files"
+            size="md"
+            onClose={onCancel}
+            dismissible={!busy}
+            footer={
+                <>
+                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                    <button type="button" className="seal-btn seal-btn--primary" onClick={handleConfirm} disabled={busy}>
+                        {busy ? 'Syncing…' : 'Sync index'}
+                    </button>
+                </>
+            }
+        >
+            <p className="seal-modal-warning">
+                Your files on disk are the source of truth. This indexes anything new, refreshes
+                documents that changed outside Flashback, and drops index entries for things that
+                were deleted. Review progress is never lowered.
+                {hasConflicts && (
+                    <> Documents that share a duplicate identity are left untouched and reported.</>
+                )}
+            </p>
 
-                    <label className="seal-modal-checkbox">
-                        <input
-                            type="checkbox"
-                            checked={sealDrift}
-                            onChange={e => setSealDrift(e.target.checked)}
-                            disabled={busy}
-                        />
-                        Seal out-of-band changes into history (recommended)
-                    </label>
-                    <p className="seal-modal-hint">
-                        {sealDrift
-                            ? 'Changes made outside Flashback are bound into the seal log as one entry, so a later rollback treats them as real history.'
-                            : 'Changes made outside Flashback stay unsealed — a later rollback may undo or resurrect them.'}
-                    </p>
+            <label className="seal-modal-checkbox">
+                <input
+                    type="checkbox"
+                    checked={sealDrift}
+                    onChange={e => setSealDrift(e.target.checked)}
+                    disabled={busy}
+                />
+                Seal out-of-band changes into history (recommended)
+            </label>
+            <p className="seal-modal-hint">
+                {sealDrift
+                    ? 'Changes made outside Flashback are bound into the seal log as one entry, so a later rollback treats them as real history.'
+                    : 'Changes made outside Flashback stay unsealed — a later rollback may undo or resurrect them.'}
+            </p>
 
-                    {error && <div className="seal-error">{error}</div>}
-
-                    <div className="seal-modal-actions">
-                        <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
-                        <button type="button" className="seal-btn seal-btn--primary" onClick={handleConfirm} disabled={busy}>
-                            {busy ? 'Syncing…' : 'Sync index'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+            {error && <div className="seal-error">{error}</div>}
+        </Modal>
     );
 }
 
@@ -567,46 +555,44 @@ function RebuildConfirmModal({ onCancel, onConfirm }) {
     };
 
     return (
-        <div className="seal-modal-backdrop" onClick={busy ? undefined : onCancel}>
-            <div className="seal-modal" onClick={e => e.stopPropagation()}>
-                <div className="seal-modal-header">
-                    <span className="seal-modal-title">Rebuild index from files</span>
-                    <button type="button" className="seal-modal-close" onClick={onCancel} disabled={busy}>✕</button>
-                </div>
-                <div className="seal-modal-body">
-                    <p className="seal-modal-warning">
-                        This discards the entire document index and regenerates it from your <code>.flashback</code>{' '}
-                        files. Use it only when the index is corrupt or badly out of sync — <strong>Sync index</strong>{' '}
-                        is the safe everyday choice.
-                    </p>
-                    <p className="seal-modal-hint">
-                        Card levels and ease survive (they are stored in the files), but per-review history
-                        (each card&apos;s review log) is lost and scheduling is re-seeded from the saved levels.
-                    </p>
+        <Modal
+            title="Rebuild index from files"
+            size="md"
+            onClose={onCancel}
+            dismissible={!busy}
+            footer={
+                <>
+                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                    <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy || !armed}>
+                        {busy ? 'Rebuilding…' : 'Rebuild index'}
+                    </button>
+                </>
+            }
+        >
+            <p className="seal-modal-warning">
+                This discards the entire document index and regenerates it from your <code>.flashback</code>{' '}
+                files. Use it only when the index is corrupt or badly out of sync — <strong>Sync index</strong>{' '}
+                is the safe everyday choice.
+            </p>
+            <p className="seal-modal-hint">
+                Card levels and ease survive (they are stored in the files), but per-review history
+                (each card&apos;s review log) is lost and scheduling is re-seeded from the saved levels.
+            </p>
 
-                    <label className="seal-doctor-type-label">
-                        Type <span className="seal-doctor-type-token">REBUILD</span> to confirm
-                        <input
-                            className="seal-doctor-type-input"
-                            value={typed}
-                            onChange={e => setTyped(e.target.value)}
-                            disabled={busy}
-                            autoFocus
-                            spellCheck={false}
-                        />
-                    </label>
+            <label className="seal-doctor-type-label">
+                Type <span className="seal-doctor-type-token">REBUILD</span> to confirm
+                <input
+                    className="seal-doctor-type-input"
+                    value={typed}
+                    onChange={e => setTyped(e.target.value)}
+                    disabled={busy}
+                    autoFocus
+                    spellCheck={false}
+                />
+            </label>
 
-                    {error && <div className="seal-error">{error}</div>}
-
-                    <div className="seal-modal-actions">
-                        <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
-                        <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy || !armed}>
-                            {busy ? 'Rebuilding…' : 'Rebuild index'}
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
+            {error && <div className="seal-error">{error}</div>}
+        </Modal>
     );
 }
 

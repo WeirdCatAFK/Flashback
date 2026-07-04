@@ -840,6 +840,32 @@ export default class Documents {
         await sealEmitter.edit(relativePath + '.flashback');
     }
 
+    // Reverse the last review of a document-linked card: undo it in the derived
+    // layer, then mirror the restored SRS state back into the sidecar and seal the
+    // change so the canonical layer stays authoritative. Returns the restored state.
+    async undoReview(relativePath, flashcardHash, algorithm = 'leitner') {
+        const { document_id, restored } = this.srs.undoReview(flashcardHash, algorithm);
+
+        const metadata = this.files.getMetadata(relativePath);
+        const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+        if (card) {
+            const value = restored ? restored.value : 0;
+            if (algorithm === 'sm2') card.sm2Reps = value; else card.level = value;
+            if (restored) {
+                card.easeFactor = restored.easeFactor;
+            } else {
+                delete card.easeFactor;
+            }
+            if (restored?.lastRecall) card.lastRecall = restored.lastRecall;
+            else delete card.lastRecall;
+            this.files.writeMetadata(relativePath, metadata);
+            await sealEmitter.edit(relativePath + '.flashback');
+        }
+
+        if (document_id) this.propagatePresence(document_id);
+        return restored;
+    }
+
     // --- Private / Internal ---
 
     // Ensures every folder segment in relativePath is properly registered — DB row,

@@ -2,6 +2,9 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStats } from '../api/srs';
 import { searchCards, deleteStandaloneCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
+import { ErrorState } from '../components/shared/StateView';
+import { useConfirm } from '../components/shared/ConfirmDialog';
+import { relativeFromIso } from '../utils/relativeTime';
 import './Flashcards.css';
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
@@ -32,17 +35,7 @@ function LevelDot({ level }) {
 
 function RelativeTime({ iso }) {
     if (!iso) return null;
-    const diff = Date.now() - new Date(iso).getTime();
-    const mins = Math.floor(diff / 60000);
-    const hrs  = Math.floor(diff / 3600000);
-    const days = Math.floor(diff / 86400000);
-    let label;
-    if (mins < 2)    label = 'just now';
-    else if (hrs < 1) label = `${mins}m ago`;
-    else if (days < 1) label = `${hrs}h ago`;
-    else if (days < 30) label = `${days}d ago`;
-    else label = new Date(iso).toLocaleDateString();
-    return <span className="fc-time" title={iso}>{label}</span>;
+    return <span className="fc-time" title={iso}>{relativeFromIso(iso)}</span>;
 }
 
 export default function FlashcardsView() {
@@ -57,18 +50,21 @@ export default function FlashcardsView() {
     const [cards, setCards]   = useState([]);
     const [total, setTotal]   = useState(0);
     const [loading, setLoading] = useState(false);
+    const [error, setError]   = useState(null);
     const [showNewCard, setShowNewCard] = useState(false);
 
     const debounceRef = useRef(null);
+    const confirm = useConfirm();
 
     const [sortBy, sortDir] = sort.split(':');
 
     const loadCards = useCallback((q, lv, ct, sb, sd, pg) => {
         setLoading(true);
+        setError(null);
         const offset = pg * PAGE_SIZE;
         searchCards({ search: q || null, level: lv, cardType: ct, sortBy: sb, sortDir: sd, limit: PAGE_SIZE, offset })
             .then(res => { setCards(res.cards); setTotal(res.total); })
-            .catch(console.error)
+            .catch(setError)
             .finally(() => setLoading(false));
     }, []);
 
@@ -99,12 +95,18 @@ export default function FlashcardsView() {
     };
 
     const handleDeleteCard = async (hash) => {
-        if (!window.confirm('Delete this standalone card?')) return;
+        const ok = await confirm({
+            title: 'Delete this card?',
+            message: 'This permanently removes the standalone card. This cannot be undone.',
+            confirmLabel: 'Delete card',
+            tone: 'danger',
+        });
+        if (!ok) return;
         try {
             await deleteStandaloneCard(hash);
             loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
         } catch (err) {
-            console.error(err);
+            setError(err);
         }
     };
 
@@ -251,7 +253,14 @@ export default function FlashcardsView() {
                             </div>
                         </div>
                     ))}
-                    {!loading && cards.length === 0 && (
+                    {!loading && error && (
+                        <ErrorState
+                            error={error}
+                            title="Couldn't load your cards"
+                            onRetry={() => loadCards(query, levelFilter, cardType, sortBy, sortDir, page)}
+                        />
+                    )}
+                    {!loading && !error && cards.length === 0 && (
                         <div className="fc-empty">No cards found.</div>
                     )}
                 </div>

@@ -1,19 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
+import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './flashcardFields';
 import './FlashcardForm.css';
 
 // Reusable flashcard creator. Supports all five card types. Owns no server state:
 // on save it hands { card, media } to `onSubmit` and the consumer makes the request.
 
 const CATEGORIES = ['Definition', 'Terminology', 'Symbol', 'Concept', 'Example', 'Exercise', 'Procedure'];
-
-const CARD_TYPES = [
-  { key: 'basic',       label: 'Basic',       desc: 'Front and back' },
-  { key: 'reversible',  label: 'Reversible',  desc: 'Either direction' },
-  { key: 'cloze',       label: 'Cloze',       desc: '{{fill in blanks}}' },
-  { key: 'type_answer', label: 'Type Answer', desc: 'Typed input check' },
-  { key: 'custom',      label: 'Custom HTML', desc: 'Full HTML template' },
-];
 
 const MEDIA_SLOTS = [
   { key: 'front_img',   label: 'Front image', accept: 'image/*' },
@@ -74,21 +67,10 @@ export default function FlashcardForm({
     front_sound: urls.front_sound, back_sound: urls.back_sound,
   }), [urls]);
 
-  const previewCard = useMemo(() => {
-    if (cardType === 'custom') {
-      return { cardType: 'custom', customData: { html: customHtml } };
-    }
-    if (cardType === 'cloze') {
-      return { cardType: 'cloze', vanillaData: { frontText: clozeText, backText: clozeText, media: mediaObj } };
-    }
-    if (cardType === 'type_answer') {
-      return { cardType: 'type_answer', vanillaData: { frontText: question, backText: expectedAnswer, media: mediaObj } };
-    }
-    return {
-      cardType, direction: 'forward',
-      vanillaData: { frontText: front, backText: back, media: mediaObj },
-    };
-  }, [cardType, front, back, clozeText, question, expectedAnswer, customHtml, mediaObj]);
+  const previewCard = useMemo(
+    () => previewCardFor(cardType, { front, back, clozeText, question, expectedAnswer, customHtml }, mediaObj),
+    [cardType, front, back, clozeText, question, expectedAnswer, customHtml, mediaObj]
+  );
 
   const addTag = () => {
     const t = tagInput.trim();
@@ -101,47 +83,26 @@ export default function FlashcardForm({
   };
   const setFile = (key, file) => setFiles((prev) => ({ ...prev, [key]: file ?? null }));
 
-  const hasClozeBlank = /\{\{[^}]+\}\}/.test(clozeText);
-
-  const canSave = !saving && (() => {
-    switch (cardType) {
-      case 'basic':
-      case 'reversible':  return front.trim() !== '' && back.trim() !== '';
-      case 'cloze':       return clozeText.trim() !== '' && hasClozeBlank;
-      case 'type_answer': return question.trim() !== '' && expectedAnswer.trim() !== '';
-      case 'custom':      return customHtml.trim() !== '';
-      default:            return false;
-    }
-  })();
+  const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
+  const clozeReady = hasClozeBlank(clozeText);
+  const canSave = !saving && isCardValid(cardType, fields);
 
   const handleSave = () => {
     if (!canSave) return;
 
-    let card;
-    let media = {};
+    const core = deriveCardCore(cardType, fields);
     const base = { lastRecall: null, level: 0, presence: 0, tags, category };
     const emptyMedia = { front_img: null, back_img: null, front_sound: null, back_sound: null };
 
-    if (cardType === 'custom') {
-      card = { ...base, name: 'Custom card', cardType: 'custom', customData: { html: customHtml },
-        vanillaData: { frontText: '', backText: '', media: emptyMedia, location } };
-    } else if (cardType === 'cloze') {
-      card = { ...base,
-        name: clozeText.replace(/\{\{([^}]+)\}\}/g, '$1').slice(0, 80),
-        cardType: 'cloze', customData: { html: '' },
-        vanillaData: { frontText: clozeText.trim(), backText: clozeText.trim(), media: emptyMedia, location } };
-    } else if (cardType === 'type_answer') {
-      card = { ...base,
-        name: question.trim().slice(0, 80),
-        cardType: 'type_answer', customData: { html: '' },
-        vanillaData: { frontText: question.trim(), backText: expectedAnswer.trim(), media: emptyMedia, location } };
-    } else {
-      card = { ...base,
-        name: front.trim(),
-        cardType, customData: { html: '' },
-        vanillaData: { frontText: front.trim(), backText: back.trim(), media: emptyMedia, location } };
-      media = files;
-    }
+    const card = {
+      ...base,
+      name: core.name,
+      cardType: core.cardType,
+      customData: { html: core.html },
+      vanillaData: { frontText: core.frontText, backText: core.backText, media: emptyMedia, location },
+    };
+    // Only the basic/reversible types carry uploaded media files.
+    const media = (cardType === 'basic' || cardType === 'reversible') ? files : {};
 
     onSubmit?.({ card, media });
   };
@@ -214,7 +175,7 @@ export default function FlashcardForm({
             rows={3}
             placeholder="The {{mitochondria}} is the powerhouse of the {{cell}}."
           />
-          {clozeText && !hasClozeBlank && (
+          {clozeText && !clozeReady && (
             <p className="fc-form-warn">Add at least one {'{{blank}}'} to save this card.</p>
           )}
         </>

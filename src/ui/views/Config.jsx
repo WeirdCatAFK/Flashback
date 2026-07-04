@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import "./Config.css";
 import KeybindingsEditor from "../components/KeybindingsEditor";
 import ProgressDialog from "../components/shared/ProgressDialog";
+import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { migrateProgress } from "../api/srs";
 import {
   getCategories,
@@ -1024,8 +1025,8 @@ export default function ConfigView({
         </div>
       </section>
 
-      {loading && <p>Loading config…</p>}
-      {error && <p>Error: {error.message}</p>}
+      {loading && <LoadingState message="Loading settings…" />}
+      {error && <ErrorState error={error} title="Couldn't load settings" />}
 
       {form && (
         <>

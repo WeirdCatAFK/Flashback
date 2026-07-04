@@ -7,6 +7,7 @@ import IconFile from '../icons/IconFile';
 import getFileIcon from '../icons/fileIconMap';
 import ContextMenu from '../shared/ContextMenu';
 import ProgressDialog from '../shared/ProgressDialog';
+import TagChipInput from '../shared/TagChipInput';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -29,61 +30,6 @@ const reservedNameError = (name, type) => {
     return 'The "media" folder name is reserved for flashcard assets and is managed automatically.';
   return null;
 };
-
-// ── Tag chip input (shared with FolderTagsModal) ──────────────────────────────
-
-function TagChipInput({ tags, onAdd, onRemove, allKnownTags = [], placeholder = 'Add tag…', chipClass = '' }) {
-  const [input, setInput] = useState('');
-  const [open, setOpen]   = useState(false);
-
-  const suggestions = input.trim()
-    ? allKnownTags.filter(t => t.toLowerCase().includes(input.toLowerCase()) && !tags.includes(t)).slice(0, 8)
-    : allKnownTags.filter(t => !tags.includes(t)).slice(0, 8);
-
-  const addTag = (name) => {
-    const t = name.trim();
-    if (t && !tags.includes(t)) onAdd(t);
-    setInput('');
-    setOpen(false);
-  };
-
-  const handleKeyDown = (e) => {
-    if (e.key === 'Enter')     { e.preventDefault(); if (input.trim()) addTag(input); }
-    if (e.key === 'Escape')    { setOpen(false); setInput(''); }
-    if (e.key === 'Backspace' && !input && tags.length > 0) onRemove(tags[tags.length - 1]);
-  };
-
-  return (
-    <div className="tci-wrap">
-      <div className={`tci-row${open && suggestions.length > 0 ? ' tci-row--open' : ''}`}>
-        {tags.map(t => (
-          <span key={t} className={`tag-chip ${chipClass}`}>
-            {t}
-            <button type="button" className="tag-chip-remove" onClick={() => onRemove(t)}>×</button>
-          </span>
-        ))}
-        <input
-          className="tci-input"
-          value={input}
-          placeholder={tags.length === 0 ? placeholder : ''}
-          onChange={e => { setInput(e.target.value); setOpen(true); }}
-          onKeyDown={handleKeyDown}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          spellCheck={false}
-          autoComplete="off"
-        />
-      </div>
-      {open && suggestions.length > 0 && (
-        <ul className="tci-dropdown">
-          {suggestions.map(s => (
-            <li key={s} className="tci-suggestion" onMouseDown={() => addTag(s)}>{s}</li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
 
 // ── Folder swatch modal ───────────────────────────────────────────────────────
 
@@ -306,7 +252,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 // ── File ──────────────────────────────────────────────────────────────────────
 
-function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, onCtxMenu }) {
+function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, relocatePaths, onCtxMenu }) {
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
   const FileIcon = getFileIcon(name);
@@ -335,6 +281,8 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, newName, false);
+      // Keep an open tab/draft for this file pointing at its new name.
+      relocatePaths?.(path, path.slice(0, path.length - name.length) + newName);
       onRefresh();
     } catch {
       setDraft(name);
@@ -474,7 +422,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
     if (srcPath.replace(/\\/g, '/') === destPath.replace(/\\/g, '/')) return;
     try {
       await moveItem(srcPath, destPath, isFolder);
-      if (isFolder) relocatePaths(srcPath, destPath);
+      relocatePaths(srcPath, destPath);
       refresh();
     } catch (err) { console.error('Move failed', err); }
   };
@@ -486,6 +434,8 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, trimmed, true);
+      // Replace the final path segment so open tabs/drafts under this folder follow the rename.
+      relocatePaths(path, path.slice(0, path.length - name.length) + trimmed);
       onRefresh();
     } catch {
       setDraft(name);
@@ -591,6 +541,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
                   globalHash={item.metadata?.globalHash}
                   flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
+                  relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} />
           )}
         </div>
@@ -604,6 +555,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
 export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
   const [items, setItems]       = useState([]);
   const [loading, setLoading]   = useState(true);
+  const [rootError, setRootError] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [ctxMenu, setCtxMenu]   = useState(null);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
@@ -653,8 +605,9 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
   const loadRoot = useCallback(async () => {
     setLoading(true);
+    setRootError(false);
     try { setItems(sortItems(await listFolder(''))); }
-    catch (err) { console.error('Load root failed', err); }
+    catch (err) { console.error('Load root failed', err); setRootError(true); }
     finally { setLoading(false); }
   }, []);
 
@@ -690,7 +643,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     if (srcPath.replace(/\\/g, '/') === srcName) return;
     try {
       await moveItem(srcPath, srcName, isFolder);
-      if (isFolder) relocatePaths(srcPath, srcName);
+      relocatePaths(srcPath, srcName);
       loadRoot();
     } catch (err) { console.error('Move to root failed', err); }
   };
@@ -780,7 +733,13 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           />
         )}
         {loading && <span className="fe-loading">Loading…</span>}
-        {!loading && !pendingNew && items.length === 0 && (
+        {!loading && rootError && (
+          <span className="fe-empty fe-empty--error">
+            Couldn&apos;t load your files.
+            <button type="button" className="fe-retry" onClick={loadRoot}>Try again</button>
+          </span>
+        )}
+        {!loading && !rootError && !pendingNew && items.length === 0 && (
           <span className="fe-empty">No files yet — use the buttons above to get started.</span>
         )}
         {!loading && items.map(item =>
@@ -794,6 +753,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
                 globalHash={item.metadata?.globalHash}
                 flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
+                relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} />
         )}
       </div>

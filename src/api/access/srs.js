@@ -64,6 +64,31 @@ class SRSService {
         })();
     }
 
+    // Reverse a card's most recent review (a misgraded result). Removes the last
+    // ReviewLog and restores the card's SRS progress to the review before it — or
+    // to a never-reviewed state when no reviews remain. Returns the document id
+    // and the restored state ({ value, easeFactor, lastRecall }) so the caller can
+    // mirror it into the sidecar; `restored` is null when there was nothing to undo.
+    undoReview(flashcardHash, algorithm = 'leitner') {
+        return db.transaction(() => {
+            const fc = query.getFlashcardByHash(flashcardHash);
+            if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
+
+            const removed = query.deleteLatestReviewLog(fc.id);
+            if (!removed) return { document_id: fc.document_id, restored: null };
+
+            const prev = query.getLatestReviewLog(fc.id);
+            const restored = {
+                value: prev ? prev.level : 0,
+                easeFactor: prev ? prev.ease_factor : 2.5,
+                lastRecall: prev ? prev.timestamp : null,
+            };
+            query.undoFlashcardReview(fc.id, restored.value, restored.lastRecall, algorithm);
+
+            return { document_id: fc.document_id, restored };
+        })();
+    }
+
     getLeitnerStats() {
         const boxes = query.getLeitnerBoxes();
         const total = query.getFlashcardCount();

@@ -4,6 +4,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import Documents from '../src/api/access/documents.js';
+import Decks from '../src/api/access/decks.js';
 import db from '../src/api/access/database.js';
 import validate from '../src/api/config/validate.js';
 import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
@@ -215,6 +216,53 @@ describe('Seal Integration Tests', () => {
 
             const result = await sealTools.inspect();
             assert.ok(result.deleted.some(p => p.endsWith(deletionFile + '.flashback')), 'Should report the missing sidecar as deleted');
+        });
+    });
+
+    // --- 5. DECKS PARTICIPATE IN SEAL (Backlog #38) ---
+    // Runs last so its commits don't perturb the Rollback/Inspect sections above,
+    // which are sensitive to workspace/HEAD state.
+    describe('Deck writes are versioned', () => {
+        const decks = new Decks();
+
+        it('createDeck fires a create commit referencing the _decks path', async () => {
+            const before = (await sealTools.log()).length;
+            const hash = await decks.createDeck('SealDeck', 'versioned deck');
+            const commits = await sealTools.log();
+            assert.equal(commits.length, before + 1, 'Should add one commit');
+            assert.ok(commits[0].commit.message.startsWith('create:'), 'Commit message should start with create:');
+            assert.ok(commits[0].commit.message.includes(`_decks/${hash}.json`), 'Commit should reference the deck JSON path');
+        });
+
+        it('createStandaloneCard fires a debounced edit commit on the system deck file', async () => {
+            const before = (await sealTools.log()).length;
+            await decks.createStandaloneCard({ frontText: 'seal-q', backText: 'seal-a' });
+            await sealEmitter.flushEdits();
+            const commits = await sealTools.log();
+            assert.equal(commits.length, before + 1, 'Should add one commit after flush');
+            assert.ok(commits[0].commit.message.startsWith('edit:'), 'Commit message should start with edit:');
+            assert.ok(commits[0].commit.message.includes('_decks/'), 'Commit should reference a deck JSON path');
+        });
+
+        it('rapid standalone-card creation batches into a single edit commit', async () => {
+            const before = (await sealTools.log()).length;
+            for (let i = 0; i < 5; i++) {
+                await decks.createStandaloneCard({ frontText: `batch-q${i}`, backText: `batch-a${i}` });
+            }
+            await sealEmitter.flushEdits();
+            const commits = await sealTools.log();
+            assert.equal(commits.length, before + 1, 'Five cards should collapse into one debounced commit');
+            assert.ok(commits[0].commit.message.startsWith('edit:'), 'Commit message should start with edit:');
+        });
+
+        it('deleteDeck fires a delete commit', async () => {
+            const hash = await decks.createDeck('DeleteMe', '');
+            const before = (await sealTools.log()).length;
+            await decks.deleteDeck(hash);
+            const commits = await sealTools.log();
+            assert.equal(commits.length, before + 1, 'Should add one commit');
+            assert.ok(commits[0].commit.message.startsWith('delete:'), 'Commit message should start with delete:');
+            assert.ok(commits[0].commit.message.includes(`_decks/${hash}.json`), 'Commit should reference the deck JSON path');
         });
     });
 });

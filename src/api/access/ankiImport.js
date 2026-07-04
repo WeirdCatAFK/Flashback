@@ -263,7 +263,7 @@ export default class AnkiImport {
                 const existingDeck = allDecks.find(d => d.name === deckName);
                 const deckHash = existingDeck
                     ? existingDeck.global_hash
-                    : this.decksService.createDeck(deckName, 'Imported from Anki package.');
+                    : await this.decksService.createDeck(deckName, 'Imported from Anki package.');
 
                 for (let idx = 0; idx < primaryCards.length; idx++) {
                     const primaryCard = primaryCards[idx];
@@ -296,7 +296,7 @@ export default class AnkiImport {
                     if (cardType === 'custom') {
                         // Image Occlusion and other rich-HTML types: store raw HTML verbatim
                         processMediaRef(frontText); // copy media even if we can't inline it
-                        globalHash = this.decksService.createStandaloneCard({
+                        globalHash = await this.decksService.createStandaloneCard({
                             name: deriveCardName(htmlToMarkdown(frontText), 'Custom card'),
                             cardType: 'custom',
                             category: 'Concept',
@@ -307,7 +307,7 @@ export default class AnkiImport {
                         const clozeText = frontText.replace(/{{c\d+::([^:}]+)(?:::[^}]*)?}}/g, '{{$1}}');
                         const frontRes = processMediaRef(clozeText);
                         const cleanCloze = htmlToMarkdown(frontRes.text);
-                        globalHash = this.decksService.createStandaloneCard({
+                        globalHash = await this.decksService.createStandaloneCard({
                             name: deriveCardName(cleanCloze.replace(/\{\{([^}]+)\}\}/g, '$1')),
                             cardType: 'cloze',
                             category: 'Concept',
@@ -320,7 +320,7 @@ export default class AnkiImport {
                         const frontRes = processMediaRef(frontText);
                         const backRes = processMediaRef(backText);
                         const cleanFront = htmlToMarkdown(frontRes.text);
-                        globalHash = this.decksService.createStandaloneCard({
+                        globalHash = await this.decksService.createStandaloneCard({
                             name: deriveCardName(cleanFront),
                             cardType,
                             category: 'Concept',
@@ -335,7 +335,7 @@ export default class AnkiImport {
                         });
                     }
 
-                    this.decksService.addEntry(deckHash, { cardHash: globalHash });
+                    await this.decksService.addEntry(deckHash, { cardHash: globalHash });
 
                     // Replay Anki SRS history onto the new card
                     const cardInDb = this.query.getFlashcardByHash(globalHash);

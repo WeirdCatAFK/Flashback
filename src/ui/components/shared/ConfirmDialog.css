@@ -1,0 +1,44 @@
+/* Confirm dialog — see ConfirmDialog.jsx. Buttons live in the modal footer. */
+
+.confirm-message {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.confirm-btn {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out),
+    filter var(--dur-fast) var(--ease-out);
+}
+
+.confirm-btn:hover {
+  background: var(--color-bg-hover);
+}
+
+.confirm-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.confirm-btn--primary:hover {
+  background: var(--color-accent);
+  filter: brightness(1.08);
+}
+
+.confirm-btn--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+
+.confirm-btn--danger:hover {
+  background: var(--color-danger);
+  filter: brightness(1.08);
+}

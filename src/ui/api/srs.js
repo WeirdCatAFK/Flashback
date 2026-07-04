@@ -6,6 +6,9 @@ export const getStats = () =>
 export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm) =>
   request('POST', '/api/srs/review', { path, flashcardHash, outcome, easeFactor, newLevel, algorithm });
 
+export const undoReview = (path, flashcardHash, algorithm) =>
+  request('POST', '/api/srs/undo', { path, flashcardHash, algorithm });
+
 export const migrateProgress = (from, to) =>
   request('POST', '/api/srs/migrate', { from, to });
 

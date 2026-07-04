@@ -210,7 +210,7 @@
 .fc-type-pill--active {
   background: var(--color-accent);
   border-color: var(--color-accent);
-  color: #fff;
+  color: var(--color-on-accent);
 }
 
 .fc-filter-count {
@@ -434,7 +434,7 @@
 
 .fc-card-delete:hover {
   opacity: 1;
-  color: #e55;
-  border-color: #e55;
+  color: var(--color-danger);
+  border-color: var(--color-danger);
 }
 
