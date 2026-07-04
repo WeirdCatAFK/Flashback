@@ -1,10 +1,11 @@
 {
   "name": "Flashback",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "main": "src/electron/main.js",
   "description": "The memorization workspace",
+  "license": "GPL-3.0-only",
   "scripts": {
     "dev": "npm run electron:rebuild && npm-run-all --parallel dev:react dev:electron",
     "dev:onboarding": "npm run electron:rebuild && npm-run-all --parallel dev:react dev:electron:onboarding",
@@ -20,7 +21,9 @@
     "electron:start": "electron .",
     "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
     "dist:linux": "npm run electron:rebuild && npm run build && electron-builder --linux --x64",
+    "test": "node scripts/run-tests.js",
     "tests": "node scripts/run-tests.js",
+    "lint": "eslint .",
     "test:docs": "node --test tests/docs.test.js",
     "test:performance": "node --test tests/performance.test.js",
     "test:media": "node --test tests/media.test.js",
@@ -31,6 +34,8 @@
     "test:seal": "node --test tests/seal.test.js",
     "test:doctor": "node --test tests/doctor.test.js",
     "test:api": "node --test tests/api/api.test.js",
+    "test:tags": "node --test tests/tags.test.js",
+    "test:imports": "node --test tests/imports.test.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js"
   },
