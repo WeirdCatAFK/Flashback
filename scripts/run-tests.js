@@ -33,6 +33,7 @@ const tests = [
     'tests/doctor.test.js',
     'tests/tags.test.js',
     'tests/imports.test.js',
+    'tests/clips.test.js',
     'tests/api/api.test.js',
 ];
 

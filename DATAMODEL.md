@@ -143,11 +143,23 @@ Reference data varies from the types of documents, so the data might change acco
 - **Text Documents (legacy):**
   - `{"type": "text_offset", "data": {"start": 123, "end": 150}}`
     (character offsets; fragile — shifts when the document is edited. Superseded by `highlight`.)
-- **PDFs:**
-  - `{"type": "pdf_location", "data": {"page": 12, "bbox": [100, 200, 400, 250]}}`
-    (page number + bounding box of referenced text/area)
-- **Videos/Audio:**
-  - `{"type": "video_timestamp", "data": {"start": 45.2, "end": 50.8}}`
+- **PDFs / clips / videos (preferred = highlight-anchored):**
+  - In practice these formats also use `{"type": "highlight", "id": "..."}`; the
+    anchor geometry lives on the highlight registry entry, not the card. The
+    highlight's own `type` encodes the strategy (see below). The legacy direct
+    forms `{"type": "pdf_location"|"video_timestamp", "data": {...}}` are still
+    accepted by `FlashcardReference` but the UI no longer emits them.
+
+**Highlight anchor types** (the `type` field on each `highlights[]` entry / the
+`Highlights.type` column — free-text, no migration needed to add more):
+
+| `type`             | Producer                     | Position encoding                                   |
+| ------------------ | ---------------------------- | --------------------------------------------------- |
+| `text_offset`      | `.txt` (default)             | `start`/`end` char offsets, `text` snapshot fallback |
+| *(inline)*         | Markdown                     | `<mark data-hl>` in the body; no offsets            |
+| `pdf_bbox`         | `PdfRenderer`                | `page` + `bbox {x,y,width,height}` in PDF units (scale=1) |
+| `clip_range`       | `ClipRenderer` (web clips)   | `start`/`end` char offsets into rendered `textContent`, `text` fallback |
+| `video_timestamp`  | `YoutubeRenderer`            | `start`/`end` in **seconds** into the video          |
 
 ## Flashcard Types
 
@@ -480,7 +492,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | id          | integer (PK) | Unique identifier.                                                                                |
 | document_id | integer (FK) | Owning document.**(ON DELETE CASCADE)**                                                    |
 | global_hash | varchar(500) | UUID, unique — the id referenced by a flashcard's `location: { type: 'highlight', id }`.         |
-| type        | varchar(50)  | Anchoring strategy:`text_offset` (default), `pdf_location`, `video_timestamp`.                  |
+| type        | varchar(50)  | Anchoring strategy:`text_offset` (default), `pdf_bbox`, `clip_range`, `video_timestamp` (free-text). |
 | start       | float        | Start offset/position (meaning depends on `type`).                                                |
 | end         | float        | End offset/position.                                                                              |
 | page        | integer      | PDF page number, if applicable.                                                                   |

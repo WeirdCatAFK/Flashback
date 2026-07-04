@@ -13,7 +13,7 @@ const upload = multer({ storage: multer.memoryStorage() });
 const norm = (p) => (p ? path.normalize(p) : p);
 
 const CONFLICT_PHRASES = ['already exists', 'already in use'];
-const CLIENT_ERROR_PHRASES = ['Cannot create .flashback'];
+const CLIENT_ERROR_PHRASES = ['Cannot create .flashback', 'Invalid YouTube URL', 'Invalid URL', 'Failed to fetch', 'File not found'];
 const isConflict = (err) => CONFLICT_PHRASES.some(p => err.message?.includes(p));
 const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.includes(p));
 
@@ -247,6 +247,54 @@ router.post(
       return res.status(400).json({ error: "file and name required" });
     await docs.importFile(name, norm(parentPath), req.file.buffer, {});
     res.status(201).json({ ok: true });
+  }),
+);
+
+// POST /api/documents/youtube
+// JSON body { url, parentPath? } — captures a YouTube URL as a .youtube reference doc
+router.post(
+  "/youtube",
+  catchError(async (req, res) => {
+    const { url, parentPath = "" } = req.body ?? {};
+    if (!url) return res.status(400).json({ error: "url required" });
+    const result = await docs.createYoutube(url, norm(parentPath));
+    res.status(201).json(result);
+  }),
+);
+
+// POST /api/documents/clip
+// JSON body { url, parentPath? } — fetches a web page and stores a readable .clip snapshot
+router.post(
+  "/clip",
+  catchError(async (req, res) => {
+    const { url, parentPath = "" } = req.body ?? {};
+    if (!url) return res.status(400).json({ error: "url required" });
+    const result = await docs.createClip(url, norm(parentPath));
+    res.status(201).json(result);
+  }),
+);
+
+// PUT /api/documents/youtube
+// JSON body { path, url } — populates an existing (blank) .youtube file from a URL
+router.put(
+  "/youtube",
+  catchError(async (req, res) => {
+    const { path: relPath, url } = req.body ?? {};
+    if (!relPath || !url) return res.status(400).json({ error: "path and url required" });
+    const result = await docs.setYoutubeSource(norm(relPath), url);
+    res.json(result);
+  }),
+);
+
+// PUT /api/documents/clip
+// JSON body { path, url } — populates an existing (blank) .clip file from a URL
+router.put(
+  "/clip",
+  catchError(async (req, res) => {
+    const { path: relPath, url } = req.body ?? {};
+    if (!relPath || !url) return res.status(400).json({ error: "path and url required" });
+    const result = await docs.setClipSource(norm(relPath), url);
+    res.json(result);
   }),
 );
 

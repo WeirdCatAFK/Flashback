@@ -19,3 +19,8 @@ export const importFileWithProgress = (formData, onProgress)    => uploadWithPro
 export const importZipWithProgress = (formData, onProgress)     => uploadWithProgress('/api/documents/import/zip', formData, onProgress);
 
 export const getDocumentByHash = (hash) => request('GET', `/api/documents/by-hash/${encodeURIComponent(hash)}`);
+
+export const clipYoutube = (url, parentPath = '') => request('POST', '/api/documents/youtube', { url, parentPath });
+export const clipUrl     = (url, parentPath = '') => request('POST', '/api/documents/clip',    { url, parentPath });
+export const setYoutubeSource = (path, url) => request('PUT', '/api/documents/youtube', { path, url });
+export const setClipSource    = (path, url) => request('PUT', '/api/documents/clip',    { path, url });

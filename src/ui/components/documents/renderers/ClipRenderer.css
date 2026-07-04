@@ -1,0 +1,137 @@
+.clip-renderer {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 32px 64px;
+  color: var(--color-fg-primary);
+}
+
+.clip-meta {
+  max-width: 720px;
+  margin: 0 auto 20px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.clip-meta-title {
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+  margin-bottom: 6px;
+}
+
+.clip-meta-sub {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.clip-meta-source {
+  color: var(--color-accent);
+  text-decoration: none;
+}
+
+.clip-meta-source:hover { text-decoration: underline; }
+
+/* Readable article column */
+.clip-body {
+  max-width: 720px;
+  margin: 0 auto;
+  font-size: 16px;
+  line-height: 1.7;
+}
+
+.clip-body h1,
+.clip-body h2,
+.clip-body h3,
+.clip-body h4 {
+  line-height: 1.3;
+  margin: 1.4em 0 0.5em;
+  font-weight: 650;
+}
+
+.clip-body h1 { font-size: 1.6em; }
+.clip-body h2 { font-size: 1.35em; }
+.clip-body h3 { font-size: 1.15em; }
+
+.clip-body p,
+.clip-body ul,
+.clip-body ol,
+.clip-body blockquote,
+.clip-body pre,
+.clip-body figure {
+  margin: 0 0 1em;
+}
+
+.clip-body ul,
+.clip-body ol { padding-left: 1.5em; }
+
+.clip-body a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.clip-body img,
+.clip-body video {
+  max-width: 100%;
+  height: auto;
+  border-radius: 6px;
+  display: block;
+  margin: 1em auto;
+}
+
+.clip-body figcaption {
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+  text-align: center;
+}
+
+.clip-body blockquote {
+  padding-left: 1em;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-fg-secondary);
+}
+
+.clip-body pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+.clip-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.9em;
+}
+
+.clip-body table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 0 0 1em;
+  display: block;
+  overflow-x: auto;
+}
+
+.clip-body th,
+.clip-body td {
+  border: 1px solid var(--color-border);
+  padding: 6px 10px;
+  text-align: left;
+}
+
+/* Highlights — colored marks driven by data-color (shared color system) */
+.clip-body mark[data-hl] {
+  border-radius: 2px;
+  padding: 0.05em 0;
+  background: var(--color-hl-1);
+  color: inherit;
+}
+
+.clip-body mark[data-color="amber"] { background: var(--color-hl-1); }
+.clip-body mark[data-color="green"] { background: var(--color-hl-2); }
+.clip-body mark[data-color="blue"]  { background: var(--color-hl-3); }
+.clip-body mark[data-color="pink"]  { background: var(--color-hl-4); }

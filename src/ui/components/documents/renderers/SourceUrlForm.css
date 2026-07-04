@@ -1,0 +1,70 @@
+.srcform {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  padding: 48px 24px;
+  overflow-y: auto;
+}
+
+.srcform-card {
+  width: 100%;
+  max-width: 460px;
+  padding: 24px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+}
+
+.srcform-title {
+  margin: 0 0 6px;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.srcform-hint {
+  margin: 0 0 16px;
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+}
+
+.srcform-row {
+  display: flex;
+  gap: 8px;
+}
+
+.srcform-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  outline: none;
+}
+
+.srcform-input:focus { border-color: var(--color-accent); }
+
+.srcform-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.srcform-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.srcform-btn:disabled { opacity: 0.55; cursor: default; }
+
+.srcform-error {
+  margin: 12px 0 0;
+  font-size: 12px;
+  color: var(--color-danger);
+}

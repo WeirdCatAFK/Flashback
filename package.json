@@ -45,6 +45,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "@mozilla/readability": "^0.6.0",
     "@tiptap/extension-highlight": "^3.23.6",
     "@tiptap/extension-typography": "^3.23.6",
     "@tiptap/pm": "^3.23.6",
@@ -59,6 +60,7 @@
     "express": "^5.1.0",
     "iconv-lite": "^0.7.0",
     "isomorphic-git": "^1.37.5",
+    "jsdom": "^29.1.1",
     "katex": "^0.17.0",
     "knex": "^3.1.0",
     "morgan": "^1.10.1",
@@ -73,6 +75,7 @@
     "rehype-katex": "^7.0.1",
     "remark-breaks": "^4.0.0",
     "remark-math": "^6.0.0",
+    "sanitize-html": "^2.17.5",
     "tiptap-markdown": "^0.9.0",
     "zod": "^4.4.3"
   },

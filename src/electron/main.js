@@ -1,5 +1,5 @@
 // src/electron/main.js
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -105,14 +105,51 @@ function createWindow() {
     mainWindow.loadFile("dist-react/index.html");
   }
 
+  // True for a real external destination (web article links, YouTube, mailto)
+  // that should open in the user's default browser rather than hijacking the
+  // single app window. Same-origin http (the Vite dev server / HMR reloads) is
+  // left alone so development keeps working; in a packaged build the app is
+  // served from file://, so every http(s) link is external.
+  const isExternalLink = (url) => {
+    try {
+      const u = new URL(url);
+      if (u.protocol === 'mailto:') return true;
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return false;
+      const current = mainWindow.webContents.getURL();
+      if (current) {
+        const cur = new URL(current);
+        if ((cur.protocol === 'http:' || cur.protocol === 'https:') && cur.host === u.host) return false;
+      }
+      return true;
+    } catch { return false; }
+  };
+
   // Block any Electron-level navigation to flashback:// — these are internal
   // document links that React handles via onClickCapture + IPC; the OS must
-  // never see them as protocol URLs.
+  // never see them as protocol URLs. External web links (clipped articles,
+  // video sources) open in the default browser instead of replacing the app.
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('flashback://')) {
       event.preventDefault();
       mainWindow.webContents.send('flashback-navigate', url.slice('flashback://'.length));
+      return;
     }
+    if (isExternalLink(url)) {
+      event.preventDefault();
+      shell.openExternal(url);
+    }
+  });
+
+  // target="_blank" / window.open (e.g. the clip's source link, YouTube's own
+  // in-player links) must never spawn a second Electron window — route real web
+  // URLs to the default browser and deny the popup entirely.
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('flashback://')) {
+      mainWindow.webContents.send('flashback-navigate', url.slice('flashback://'.length));
+    } else if (/^(https?|mailto):/i.test(url)) {
+      shell.openExternal(url);
+    }
+    return { action: 'deny' };
   });
 
   // --- TRAY MODE LOGIC ---

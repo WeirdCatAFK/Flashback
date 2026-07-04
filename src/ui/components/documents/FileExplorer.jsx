@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, importZipWithProgress, getEntityTags, getTags, getSidecar, updateMetadata } from '../../api/documents';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, importZipWithProgress, getEntityTags, getTags, getSidecar, updateMetadata, clipUrl, clipYoutube } from '../../api/documents';
 import IconFolder from '../icons/IconFolder';
 import IconFolderOpen from '../icons/IconFolderOpen';
 import IconFile from '../icons/IconFile';
@@ -8,6 +8,7 @@ import getFileIcon from '../icons/fileIconMap';
 import ContextMenu from '../shared/ContextMenu';
 import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
+import Modal from '../shared/Modal';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -550,6 +551,103 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
   );
 }
 
+// ── Clip-from-URL modal ───────────────────────────────────────────────────────
+
+const YOUTUBE_HOST = /(^|\.)(youtube\.com|youtu\.be)$/i;
+const looksLikeYoutube = (url) => {
+  try { return YOUTUBE_HOST.test(new URL(url).hostname); } catch { return false; }
+};
+
+// Captures a web article (.clip) or a YouTube reference (.youtube) into the
+// target folder. Kind auto-detects from the host but can be overridden.
+function ClipUrlModal({ targetPath, onClose, onCreated }) {
+  const [url, setUrl]     = useState('');
+  const [kind, setKind]   = useState('auto'); // 'auto' | 'article' | 'youtube'
+  const [busy, setBusy]   = useState(false);
+  const [error, setError] = useState(null);
+
+  const effectiveKind = kind === 'auto' ? (looksLikeYoutube(url) ? 'youtube' : 'article') : kind;
+
+  const submit = async () => {
+    const u = url.trim();
+    if (!u || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const result = effectiveKind === 'youtube'
+        ? await clipYoutube(u, targetPath)
+        : await clipUrl(u, targetPath);
+      onCreated(result?.path);
+    } catch (err) {
+      setError(err?.message || 'Could not capture that URL.');
+      setBusy(false);
+    }
+  };
+
+  const onKeyDown = (e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } };
+
+  return (
+    <Modal
+      title="Clip from URL"
+      size="sm"
+      dismissible={!busy}
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="clip-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="clip-btn clip-btn--primary" onClick={submit} disabled={busy || !url.trim()}>
+            {busy ? 'Clipping…' : 'Clip'}
+          </button>
+        </>
+      }
+    >
+      <div className="clip-form">
+        <label className="clip-field">
+          <span className="clip-label">Page or video URL</span>
+          <input
+            className="clip-input"
+            type="url"
+            inputMode="url"
+            placeholder="https://…"
+            value={url}
+            autoFocus
+            disabled={busy}
+            onChange={(e) => setUrl(e.target.value)}
+            onKeyDown={onKeyDown}
+          />
+        </label>
+        <div className="clip-kind" role="radiogroup" aria-label="Capture as">
+          {[
+            ['auto', 'Auto'],
+            ['article', 'Article'],
+            ['youtube', 'YouTube'],
+          ].map(([val, lbl]) => (
+            <button
+              key={val}
+              type="button"
+              role="radio"
+              aria-checked={kind === val}
+              className={`clip-kind-btn${kind === val ? ' clip-kind-btn--active' : ''}`}
+              disabled={busy}
+              onClick={() => setKind(val)}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
+        <p className="clip-hint">
+          {kind === 'auto'
+            ? `Auto-detected: ${effectiveKind === 'youtube' ? 'YouTube video' : 'web article'}.`
+            : effectiveKind === 'youtube'
+              ? 'Stores the video reference with timestamp highlights.'
+              : 'Fetches and stores a readable snapshot of the page.'}
+        </p>
+        {error && <p className="clip-error">{error}</p>}
+      </div>
+    </Modal>
+  );
+}
+
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
@@ -562,9 +660,17 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const [importing, setImporting]   = useState(null); // null | { done, total, pct }
   const [tagsTarget, setTagsTarget]   = useState(null); // folder path being edited
   const [swatchTarget, setSwatchTarget] = useState(null); // { path, color } for color picker
+  const [clipTarget, setClipTarget] = useState(null); // { path } destination folder for Clip-from-URL
   const swatchRefreshRef = useRef(null);
+  const clipRefreshRef = useRef(null);
   const fileInputRef = useRef(null);
   const ctxMenuTargetRef = useRef('');
+
+  // Open the Clip-from-URL dialog targeting `path`; `refresh` re-lists that folder on success.
+  const openClip = useCallback((path, refresh) => {
+    clipRefreshRef.current = refresh || null;
+    setClipTarget({ path: path || '' });
+  }, []);
 
   const closeCtxMenu = useCallback(() => setCtxMenu(null), []);
   const openCtxMenu  = useCallback((e, config) => {
@@ -676,6 +782,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
       { label: 'New File',   action: ctxMenu.doNewFile   },
       { label: 'New Folder', action: ctxMenu.doNewFolder },
+      { label: 'Clip from URL', action: () => openClip(ctxMenu.isRoot ? '' : ctxMenu.folderPath, ctxMenu.isRoot ? loadRoot : ctxMenu.doRefreshOnColorSave) },
       ...(ctxMenu.isRoot ? [
         { label: 'Import files/packages', action: () => {
             ctxMenuTargetRef.current = '';
@@ -719,6 +826,12 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
               <path d="M12 12L8 8L4 12"/>
               <line x1="8" y1="8" x2="8" y2="15"/>
               <rect x="2" y="2" width="12" height="4" rx="1"/>
+            </svg>
+          </button>
+          <button type="button" className="fe-action-btn" onClick={() => openClip('', loadRoot)} title="Clip from URL (web article or YouTube)" aria-label="Clip from URL">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2.4-2.4a2.5 2.5 0 1 0-3.5-3.5l-1 1"/>
+              <path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1L3.5 8.8a2.5 2.5 0 1 0 3.5 3.5l1-1"/>
             </svg>
           </button>
         </div>
@@ -782,6 +895,18 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           currentColor={swatchTarget.color}
           onClose={() => setSwatchTarget(null)}
           onSaved={() => { swatchRefreshRef.current?.(); setSwatchTarget(null); }}
+        />
+      )}
+
+      {clipTarget && (
+        <ClipUrlModal
+          targetPath={clipTarget.path}
+          onClose={() => setClipTarget(null)}
+          onCreated={(newPath) => {
+            clipRefreshRef.current?.();
+            setClipTarget(null);
+            if (newPath) onDoubleSelect?.(newPath.replace(/\\/g, '/'));
+          }}
         />
       )}
 
