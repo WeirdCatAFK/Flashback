@@ -298,7 +298,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
 
           {isNameTaken && (
             <p className="theme-editor-error">
-              "{name}" is a built-in theme name and cannot be overwritten.
+              &ldquo;{name}&rdquo; is a built-in theme name and cannot be overwritten.
             </p>
           )}
 
@@ -660,7 +660,7 @@ function McpIntegration() {
       <p className="config-hint">
         Connect an AI assistant to this vault — it can search your notes, draft flashcards from a
         document, and add them to a deck, right from a conversation. Nothing it changes skips
-        Flashback's normal save path.
+        Flashback&rsquo;s normal save path.
       </p>
 
       <div className="theme-text-panel">
@@ -692,9 +692,125 @@ function McpIntegration() {
       </ul>
 
       <p className="config-hint">
-        Flashback needs to be running for this to work — since you're looking at this screen, it
+        Flashback needs to be running for this to work — since you&rsquo;re looking at this screen, it
         already is.
       </p>
+    </div>
+  );
+}
+
+// ── About & updates ──────────────────────────────────────────────────────────
+
+// Renders the changing part of the update flow off the 'update-status' IPC stream.
+function UpdateStatusLine({ status, onDownload, onInstall, busy }) {
+  switch (status.state) {
+    case 'available':
+      return (
+        <span className="config-update-notice">
+          Version {status.version} is available.
+          <button
+            type="button"
+            className="config-restart-btn config-restart-btn--primary"
+            onClick={onDownload}
+            disabled={busy}
+          >
+            Update now
+          </button>
+        </span>
+      );
+    case 'downloading':
+      return <span className="config-status">Downloading… {status.percent ?? 0}%</span>;
+    case 'downloaded':
+      return (
+        <span className="config-update-notice">
+          Version {status.version} is ready to install.
+          <button
+            type="button"
+            className="config-restart-btn config-restart-btn--primary"
+            onClick={onInstall}
+          >
+            Restart &amp; install
+          </button>
+        </span>
+      );
+    case 'none':
+      return <span className="config-status">You&rsquo;re up to date.</span>;
+    case 'dev':
+      return <span className="config-hint">Updates are only available in the packaged app.</span>;
+    case 'error':
+      return (
+        <span className="config-status config-status--error">
+          {status.message || 'Update check failed.'}
+        </span>
+      );
+    default:
+      return null;
+  }
+}
+
+function AboutUpdates() {
+  const [version, setVersion] = useState(null);
+  const [status, setStatus] = useState({ state: 'idle' });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!window.flashback) return;
+    window.flashback.getAppVersion?.().then(setVersion).catch(() => {});
+    // Background checks (startup + daily) and download progress arrive here too.
+    return window.flashback.onUpdateStatus?.((s) => setStatus(s));
+  }, []);
+
+  const handleCheck = async () => {
+    setBusy(true);
+    setStatus({ state: 'checking' });
+    const r = await window.flashback.checkForUpdates();
+    setBusy(false);
+    if (!r.ok) setStatus({ state: r.dev ? 'dev' : 'error', message: r.error });
+    else if (!r.version) setStatus({ state: 'none' });
+    // When r.version is set, the 'update-available' event already updated status.
+  };
+
+  const handleDownload = async () => {
+    setBusy(true);
+    const r = await window.flashback.downloadUpdate();
+    setBusy(false);
+    if (!r.ok) setStatus({ state: 'error', message: r.error });
+    // Progress + 'downloaded' arrive over the status stream.
+  };
+
+  const handleInstall = () => window.flashback.installUpdate();
+
+  if (!window.flashback) {
+    return <p className="config-hint">Version and updates are available in the desktop app.</p>;
+  }
+
+  return (
+    <div className="config-about">
+      <table className="config-table">
+        <tbody>
+          <tr>
+            <td><label>Version</label></td>
+            <td><span className="config-version">{version ? `v${version}` : '—'}</span></td>
+          </tr>
+        </tbody>
+      </table>
+
+      <div className="config-update-row">
+        <button
+          type="button"
+          className="config-restart-btn"
+          onClick={handleCheck}
+          disabled={busy || status.state === 'checking' || status.state === 'downloading'}
+        >
+          {status.state === 'checking' ? 'Checking…' : 'Check for updates'}
+        </button>
+        <UpdateStatusLine
+          status={status}
+          onDownload={handleDownload}
+          onInstall={handleInstall}
+          busy={busy}
+        />
+      </div>
     </div>
   );
 }
@@ -879,7 +995,7 @@ export default function ConfigView({
                       </button>
                     </div>
                     <p className="algo-migrate-hint">
-                      Carry over maps each card's current interval to the nearest equivalent in {pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}.
+                      Carry over maps each card&rsquo;s current interval to the nearest equivalent in {pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}.
                     </p>
                   </div>
                 </td>
@@ -1073,6 +1189,11 @@ export default function ConfigView({
           <section className="config-section">
             <h2 className="config-heading">AI Assistant</h2>
             <McpIntegration />
+          </section>
+
+          <section className="config-section">
+            <h2 className="config-heading">About</h2>
+            <AboutUpdates />
           </section>
         </>
       )}

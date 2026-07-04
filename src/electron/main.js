@@ -1,15 +1,32 @@
 // src/electron/main.js
-import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
+import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog } from "electron";
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
 import spawn from './api_process.js';
+import log, { getLogPath } from "./logger.js";
+import { initUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from "./updater.js";
 
 // Reconstruct __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Process-level crash handlers: log with a full stack and (for exceptions) show the
+// user a dialog pointing at the log file, instead of dying silently in a packaged build.
+process.on("uncaughtException", (err) => {
+  log.error("Uncaught exception in main process:", err);
+  try {
+    dialog.showErrorBox(
+      "Flashback encountered an error",
+      `${err?.stack || err}\n\nA log was written to:\n${getLogPath()}`,
+    );
+  } catch { /* dialog can be unavailable before app 'ready' — the log line is enough */ }
+});
+process.on("unhandledRejection", (reason) => {
+  log.error("Unhandled promise rejection in main process:", reason);
+});
 
 let forceOnboarding = process.argv.includes('--onboarding');
 
@@ -102,6 +119,10 @@ function createWindow() {
       return false;
     }
   });
+
+  // Start the notify-first update checker (no-op unless packaged) once the window
+  // exists so status events have somewhere to go.
+  initUpdater(mainWindow, { isPackaged: app.isPackaged });
 }
 
 function getConfigPath() {
@@ -218,6 +239,41 @@ ipcMain.handle('restart-app', () => {
 
 // IPC: renderer reads the app userData path (used for path preview in onboarding)
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
+
+// IPC: renderer reads the running app version (Config → About)
+ipcMain.handle('get-app-version', () => app.getVersion());
+
+// IPC: renderer forwards an uncaught error (window.onerror / unhandledrejection) into
+// the shared log file so front-end crashes aren't lost in packaged builds.
+ipcMain.on('renderer-error', (_event, payload) => {
+  log.error('[renderer]', payload);
+});
+
+// IPC: update lifecycle (notify-first). Checks/downloads only run in a packaged build;
+// in dev they short-circuit with a friendly message rather than throwing.
+ipcMain.handle('updater-check', async () => {
+  if (!app.isPackaged) return { ok: false, dev: true, error: 'Updates are only available in the packaged app.' };
+  try {
+    const version = await checkForUpdates();
+    return { ok: true, version };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+ipcMain.handle('updater-download', async () => {
+  if (!app.isPackaged) return { ok: false, dev: true, error: 'Updates are only available in the packaged app.' };
+  try {
+    await downloadUpdate();
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, error: String(err?.message || err) };
+  }
+});
+ipcMain.handle('updater-install', () => {
+  if (!app.isPackaged) return { ok: false, dev: true };
+  quitAndInstall();
+  return { ok: true };
+});
 
 // Resolves the MCP server config a user should paste into Claude Code's .mcp.json
 // or Claude Desktop's claude_desktop_config.json. The server itself (src/mcp/server.js)

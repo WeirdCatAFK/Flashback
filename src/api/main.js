@@ -4,6 +4,18 @@ import validate from './../api/config/validate.js';
 import { get as getConfig } from './access/Config.js';
 import { sealTools } from './seal/seal.js';
 
+// Crash handlers: log a full stack to stderr (which the Electron host captures into the
+// shared log file via api_process.js) and exit nonzero so the parent notices the death
+// rather than the process wedging in a half-initialized state.
+process.on('uncaughtException', (err) => {
+  console.error('Uncaught exception in API process:', err?.stack || err);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error('Unhandled promise rejection in API process:', reason?.stack || reason);
+  process.exit(1);
+});
+
 /**
  * Main entry point for the API. Will validate the configuration, create
  * an instance of the Api class and start it. Also sets up a SIGINT

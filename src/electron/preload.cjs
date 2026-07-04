@@ -13,6 +13,18 @@ contextBridge.exposeInMainWorld('flashback', {
   windowMinimize:  ()       => ipcRenderer.send('window-minimize'),
   windowMaximize:  ()       => ipcRenderer.send('window-maximize'),
   windowClose:     ()       => ipcRenderer.send('window-close'),
+  // App version + notify-first updates (Config → About)
+  getAppVersion:   ()       => ipcRenderer.invoke('get-app-version'),
+  checkForUpdates: ()       => ipcRenderer.invoke('updater-check'),
+  downloadUpdate:  ()       => ipcRenderer.invoke('updater-download'),
+  installUpdate:   ()       => ipcRenderer.invoke('updater-install'),
+  onUpdateStatus:  (cb)     => {
+    const listener = (_event, status) => cb(status);
+    ipcRenderer.on('update-status', listener);
+    return () => ipcRenderer.removeListener('update-status', listener);
+  },
+  // Forward a renderer crash into the main-process log file
+  logRendererError: (payload) => ipcRenderer.send('renderer-error', payload),
   // Fallback for flashback:// links that reach Electron's will-navigate handler
   // (shouldn't happen with onClickCapture, but kept as safety net).
   onFlashbackNavigate: (cb) => {

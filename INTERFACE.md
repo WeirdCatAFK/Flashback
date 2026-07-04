@@ -311,6 +311,18 @@ Current channels:
 | `get-api-token`    | renderer → main | Get the API bearer token from config.json (for `initClient`) |
 | `get-config`       | renderer → main | Read the full config.json object                           |
 | `set-config`       | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
+| `is-first-run`     | renderer → main | True when config.json is absent or `--onboarding` was passed |
+| `complete-setup`   | renderer → main | Write initial config, mint token, spawn API; returns `{ ok, error? }` |
+| `restart-app`      | renderer → main | Relaunch the app                                           |
+| `get-user-data-path` | renderer → main | Electron userData path (onboarding path preview)         |
+| `get-mcp-config`   | renderer → main | Ready-to-paste MCP server config snippet                   |
+| `get-app-version`  | renderer → main | Running app version (Config → About)                       |
+| `updater-check`    | renderer → main | Check GitHub for a newer version; `{ ok, version?, dev?, error? }` |
+| `updater-download` | renderer → main | Download the available update; `{ ok, error? }`            |
+| `updater-install`  | renderer → main | Quit and install the downloaded update                     |
+| `update-status`    | main → renderer | Update lifecycle events (`checking`/`available`/`downloading`/`downloaded`/`none`/`error`); subscribe via `onUpdateStatus` |
+| `renderer-error`   | renderer → main | Forward an uncaught renderer error into the main log file  |
+| `flashback-navigate` | main → renderer | `flashback://` link that reached `will-navigate` (safety net) |
 | `window-minimize`  | renderer → main | Minimize the window                                        |
 | `window-maximize`  | renderer → main | Maximize or unmaximize the window                          |
 | `window-close`     | renderer → main | Close the window (hides to tray unless quitting)           |

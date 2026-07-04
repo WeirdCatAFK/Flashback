@@ -170,6 +170,29 @@
   filter: brightness(1.1);
 }
 
+/* ── About & updates ─────────────────────────────────────────────────────── */
+
+.config-version {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-primary);
+}
+
+.config-update-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-top: 6px;
+}
+
+.config-update-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+}
+
 /* ── Collapsible editors (theme + keybindings) ───────────────────────────── */
 
 .config-collapsibles {

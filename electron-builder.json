@@ -1,7 +1,15 @@
 {
   "appId": "com.dpineda.flashback",
+  "productName": "Flashback",
   "files": ["dist-react", "src/api", "src/electron", "src/mcp"],
   "icon": "flashback.ico",
+  "publish": [
+    {
+      "provider": "github",
+      "owner": "WeirdCatAFK",
+      "repo": "Flashback"
+    }
+  ],
   "mac": {
     "target": "dmg"
   },
@@ -10,6 +18,11 @@
     "category": "Utility"
   },
   "win": {
-    "target": ["msi"]
+    "target": ["nsis"]
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true
   }
 }

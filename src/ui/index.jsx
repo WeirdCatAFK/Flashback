@@ -7,6 +7,20 @@ import './index.css';
 
 const root = createRoot(document.getElementById('root'));
 
+// Forward uncaught renderer errors into the main-process log file so front-end
+// crashes aren't lost in packaged builds (no-op in the browser-only dev fallback).
+if (window.flashback?.logRendererError) {
+  window.addEventListener('error', (event) => {
+    window.flashback.logRendererError(
+      event.error?.stack || `${event.message} (${event.filename}:${event.lineno}:${event.colno})`,
+    );
+  });
+  window.addEventListener('unhandledrejection', (event) => {
+    const reason = event.reason;
+    window.flashback.logRendererError(reason?.stack || String(reason));
+  });
+}
+
 async function launchApp() {
   const apiUrl = window.flashback
     ? await window.flashback.getApiUrl()
