@@ -708,12 +708,12 @@ export default function GraphView({ isActive = false, onNavigate }) {
               {[
                 { key: 'origin',  label: 'Origin folder', on: showOrigin, toggle: () => setShowOrigin(s => !s),
                   swatch: 'dot', color: colors.nodes.Folder, when: true },
-                { key: 'default', label: 'All decks', on: showDefaultDeck, toggle: () => setShowDefaultDeck(s => !s),
+                { key: 'default', label: 'Cards node', on: showDefaultDeck, toggle: () => setShowDefaultDeck(s => !s),
                   swatch: 'dot', color: colors.nodes.Deck, when: graphData?.defaultDeckIds?.size > 0 },
-                { key: 'tags',    label: 'Tags', on: showTags, toggle: () => setShowTags(s => !s),
-                  swatch: 'line', color: colors.links.tag, when: true },
                 { key: 'decks',   label: 'Decks', on: showDecks, toggle: () => setShowDecks(s => !s),
                   swatch: 'dot', color: colors.nodes.Deck, when: true },
+                { key: 'tags',    label: 'Tags', on: showTags, toggle: () => setShowTags(s => !s),
+                  swatch: 'line', color: colors.links.tag, when: true },
                 { key: 'links',   label: 'Links', on: showLinks, toggle: () => setShowLinks(s => !s),
                   swatch: 'line', color: colors.links.link, when: true },
               ].filter(f => f.when).map(f => (
