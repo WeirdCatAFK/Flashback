@@ -14,6 +14,12 @@ process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 let baseUrl;
 let api;
 
+// The suite runs against a token-guarded API. `rawFetch` is the unwrapped fetch
+// (captured before the before() hook wraps the global to auto-attach the token) —
+// the Authentication tests use it to exercise the missing/invalid-token paths.
+const API_TOKEN = 'test-api-token-0123456789abcdef';
+const rawFetch = globalThis.fetch;
+
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 const post = (url, body) =>
@@ -70,12 +76,18 @@ describe('Flashback API', () => {
             fsSync.rmSync(gitDir, { recursive: true, force: true });
         }
         await sealTools.init();
-        api = new Api({ port: 0, logFormat: 'tiny' });
+        api = new Api({ port: 0, logFormat: 'tiny', apiToken: API_TOKEN });
         const server = await api.start();
         baseUrl = `http://localhost:${server.address().port}`;
+
+        // Wrap fetch once so every existing call in the suite carries the bearer
+        // token; the Authentication describe below uses rawFetch for the raw paths.
+        globalThis.fetch = (url, opts = {}) =>
+            rawFetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${API_TOKEN}` } });
     });
 
     after(async () => {
+        globalThis.fetch = rawFetch;
         await api.stop();
         db.close();
         await new Promise(resolve => setTimeout(resolve, 50));
@@ -101,6 +113,40 @@ describe('Flashback API', () => {
         assert.equal(res.status, 404);
         const body = await res.json();
         assert.ok(body.code === 404 || body.error);
+    });
+
+    // ── Authentication ────────────────────────────────────────────────────
+    // Uses rawFetch (no auto-attached token) to probe the guard directly.
+
+    describe('Authentication', () => {
+        // Lazy — baseUrl isn't assigned until the before() hook runs, long after
+        // this describe body is evaluated during collection.
+        const probe = () => `${baseUrl}/api/documents/list?path=`;
+
+        it('leaves the GET / ping open (no token required)', async () => {
+            const res = await rawFetch(`${baseUrl}/`);
+            assert.equal(res.status, 200);
+        });
+
+        it('rejects an /api request with no token → 401', async () => {
+            const res = await rawFetch(probe());
+            assert.equal(res.status, 401);
+        });
+
+        it('rejects an /api request with a wrong token → 401', async () => {
+            const res = await rawFetch(probe(), { headers: { Authorization: 'Bearer not-the-token' } });
+            assert.equal(res.status, 401);
+        });
+
+        it('accepts a valid Bearer token → 200', async () => {
+            const res = await rawFetch(probe(), { headers: { Authorization: `Bearer ${API_TOKEN}` } });
+            assert.equal(res.status, 200);
+        });
+
+        it('accepts a valid ?token= query param → 200', async () => {
+            const res = await rawFetch(`${baseUrl}/api/documents/list?path=&token=${API_TOKEN}`);
+            assert.equal(res.status, 200);
+        });
     });
 
     // ── Documents ─────────────────────────────────────────────────────────

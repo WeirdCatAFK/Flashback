@@ -2,6 +2,7 @@
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain } from "electron";
 import path from "path";
 import fs from "fs";
+import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
 import spawn from './api_process.js';
@@ -123,6 +124,25 @@ function readConfig() {
   }
 }
 
+// The Electron main process owns the API token: it mints one (persisted in
+// config.json) if missing, BEFORE spawning the API, so the API process reads an
+// already-present token and there is a single writer (no split-brain with the API
+// process). Called ahead of every spawn(). Returns the token, or null if config.json
+// doesn't exist yet (first run, before onboarding writes it).
+function ensureApiToken() {
+  if (!configExists()) return null;
+  const config = readConfig();
+  if (!config.apiToken) {
+    config.apiToken = crypto.randomBytes(32).toString('hex');
+    try {
+      fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+    } catch (err) {
+      console.error('Failed to persist API token:', err);
+    }
+  }
+  return config.apiToken;
+}
+
 // IPC: window controls (custom title bar)
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
@@ -134,6 +154,11 @@ ipcMain.handle('get-api-url', () => {
   return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
 });
 
+// IPC: renderer asks for the API token once on startup (paired with get-api-url in
+// client init). By the time the renderer runs, config.json already holds the token
+// (minted by ensureApiToken/complete-setup before the API was spawned).
+ipcMain.handle('get-api-token', () => readConfig().apiToken ?? null);
+
 // IPC: first-run detection — true when config.json does not yet exist or --onboarding passed
 ipcMain.handle('is-first-run', () => isFirstRun());
 
@@ -143,6 +168,9 @@ ipcMain.handle('is-first-run', () => isFirstRun());
 ipcMain.handle('complete-setup', (_event, config) => {
   try {
     fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
+    // Mint the API token into the very first config write so the API process
+    // (spawned just below) reads an already-guarded config.
+    if (!config.apiToken) config.apiToken = crypto.randomBytes(32).toString('hex');
     fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
     forceOnboarding = false;
   } catch (err) {
@@ -206,18 +234,19 @@ function getMcpServerConfig() {
   const serverPath = path.join(__dirname, '../mcp/server.js');
   const config = readConfig();
   const apiUrl = `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
+  const apiToken = config.apiToken ?? '';
 
   if (app.isPackaged) {
     return {
       command: process.execPath,
       args: [serverPath],
-      env: { ELECTRON_RUN_AS_NODE: '1', FLASHBACK_API_URL: apiUrl },
+      env: { ELECTRON_RUN_AS_NODE: '1', FLASHBACK_API_URL: apiUrl, FLASHBACK_API_TOKEN: apiToken },
     };
   }
   return {
     command: 'node',
     args: [serverPath],
-    env: { FLASHBACK_API_URL: apiUrl },
+    env: { FLASHBACK_API_URL: apiUrl, FLASHBACK_API_TOKEN: apiToken },
   };
 }
 
@@ -247,7 +276,8 @@ if (!gotTheLock) {
 
   app.on("ready", () => {
     if (!isFirstRun()) {
-      spawn();       // API only runs when there's a config to read
+      ensureApiToken(); // mint the token (upgrades from a pre-token install) before the API starts
+      spawn();          // API only runs when there's a config to read
       createTray();
     }
     createWindow();

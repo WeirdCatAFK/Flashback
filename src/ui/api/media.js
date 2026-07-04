@@ -1,4 +1,4 @@
-import { upload, getBaseUrl } from './client.js';
+import { upload, getBaseUrl, appendToken } from './client.js';
 
 const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
 
@@ -13,11 +13,13 @@ const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
  */
 export const mediaFileSrc = (docPath, ref) => {
   if (!ref) return null;
+  // Loaded by <img>/<audio>, which can't send an Authorization header — the token
+  // rides along as a query param instead.
   if (/^[a-f0-9]{64}$/i.test(ref)) {
-    return `${getBaseUrl()}/api/media?hash=${encodeURIComponent(ref)}`;
+    return appendToken(`${getBaseUrl()}/api/media?hash=${encodeURIComponent(ref)}`);
   }
   const name = ref.replace(/^\.?\/?media\//, '');
-  return `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath || '')}&name=${encodeURIComponent(name)}`;
+  return appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath || '')}&name=${encodeURIComponent(name)}`);
 };
 
 /**

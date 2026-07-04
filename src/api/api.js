@@ -2,6 +2,7 @@
  can be called on it's own or as a module on the backend, the spawn.js
  file creates a child process and the main.js file runs it on it's own*/
 import express from "express";
+import crypto from "crypto";
 import cors from './config/cors.js';
 import morgan from "morgan";
 import documentsRouter from './routes/documents.js';
@@ -37,6 +38,12 @@ class api {
     this.host = config.host || "localhost";
     this.isLocalhost = config.isLocalhost ?? true;
 
+    // Bearer/query-param token guarding every /api route. When no token is
+    // configured (standalone dev without the Electron app, which is the only
+    // process that mints one) auth is disabled — the packaged app always has a
+    // token, so production is always guarded.
+    this.apiToken = config.apiToken || null;
+
     if (!this.isLocalhost && this.host === "localhost") {
       console.warn(
         "Warning: isLocalhost is false, but host is set to localhost. Binding to all interfaces (0.0.0.0)."
@@ -56,11 +63,17 @@ class api {
     this.app.use(express.json());
     this.app.use(express.urlencoded({ extended: true }));
 
-    // Route mounting
+    // Readiness ping — stays open (unauthenticated) so the renderer can gate on it
+    // before it has fetched the token, and health checks don't need credentials.
     this.app.get("/", (req, res) => {
       res.status(200).send("Welcome to flashback");
     });
 
+    // Auth guard for everything under /api. Browser-initiated loads that can't
+    // set headers (PDF/media URLs, <img>/<audio>) pass the token as ?token=.
+    this.app.use('/api', (req, res, next) => this.authenticate(req, res, next));
+
+    // Route mounting
     this.app.use('/api/documents', documentsRouter);
     this.app.use('/api/media', mediaRouter);
     this.app.use('/api/srs', srsRouter);
@@ -85,6 +98,31 @@ class api {
       res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }
+  /* Express middleware: rejects any /api request without a valid token.
+     Accepts `Authorization: Bearer <token>` or a `?token=` query param.
+     No-ops when no token is configured (see constructor). */
+  authenticate(req, res, next) {
+    if (!this.apiToken) return next();
+    const provided = this._extractToken(req);
+    if (provided && this._tokenMatches(provided)) return next();
+    return res.status(401).json({ error: 'Unauthorized: missing or invalid API token' });
+  }
+
+  _extractToken(req) {
+    const auth = req.headers['authorization'];
+    if (auth && auth.startsWith('Bearer ')) return auth.slice(7).trim();
+    if (typeof req.query.token === 'string') return req.query.token;
+    return null;
+  }
+
+  // Constant-time comparison so a caller can't probe the token byte-by-byte.
+  _tokenMatches(provided) {
+    const a = Buffer.from(provided);
+    const b = Buffer.from(this.apiToken);
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  }
+
   /*Starts the api after being built*/
   async start() {
     return new Promise((resolve, reject) => {

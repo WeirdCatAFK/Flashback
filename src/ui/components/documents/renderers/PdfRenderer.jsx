@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { getDocument, GlobalWorkerOptions, TextLayer } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { readFile, updateMetadata } from '../../../api/documents';
-import { getBaseUrl } from '../../../api/client';
+import { getBaseUrl, appendToken } from '../../../api/client';
 import './PdfRenderer.css';
 import './Renderer.css';
 
@@ -149,7 +149,8 @@ export default function PdfRenderer({
     highlightsRef.current = [];
     loadedPathRef.current = null;
 
-    const pdfUrl = `${getBaseUrl()}/api/documents/raw?path=${encodeURIComponent(path)}`;
+    // pdf.js fetches this URL itself, so the token goes in the query string.
+    const pdfUrl = appendToken(`${getBaseUrl()}/api/documents/raw?path=${encodeURIComponent(path)}`);
     let mounted = true;
 
     Promise.all([

@@ -11,7 +11,13 @@ async function launchApp() {
   const apiUrl = window.flashback
     ? await window.flashback.getApiUrl()
     : 'http://localhost:50500';
-  initClient(apiUrl);
+  // Electron hands the token over IPC. In the browser-only dev fallback there is
+  // no IPC; a token can be supplied via VITE_FLASHBACK_API_TOKEN, otherwise none
+  // is sent (the standalone dev API leaves auth disabled).
+  const apiToken = window.flashback
+    ? await window.flashback.getApiToken()
+    : (import.meta.env?.VITE_FLASHBACK_API_TOKEN ?? null);
+  initClient(apiUrl, apiToken);
   root.render(
     <StrictMode>
       <App />

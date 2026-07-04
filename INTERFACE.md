@@ -23,24 +23,25 @@ Layer 1 — Client         src/ui/api/client.js
 
 ## Layer 1  Client (`src/ui/api/client.js`)
 
-The client is initialized once on startup with the base URL received from Electron via IPC. After that it is a transparent request wrapper.
+The client is initialized once on startup with the base URL **and API token** received from Electron via IPC. After that it is a transparent request wrapper that attaches `Authorization: Bearer <token>` to every request.
 
 **Startup flow:**
 
 ```
-Electron main  →  ipcMain.handle('get-api-url')  →  reads config.json  →  returns URL
-React renderer →  window.flashback.getApiUrl()   →  initClient(url)    →  app renders
+Electron main  →  ipcMain.handle('get-api-url' / 'get-api-token')  →  reads config.json  →  returns URL + token
+React renderer →  window.flashback.getApiUrl()/getApiToken()       →  initClient(url, token)  →  app renders
 ```
 
 The preload script (`src/electron/preload.cjs`) bridges IPC to the renderer using `contextBridge`. The renderer never imports from `electron` directly. The `.cjs` extension is required because Electron's sandboxed preload context is CommonJS-only — it does not support ES module `import` even when the project has `"type": "module"` in `package.json`.
 
 **Exports:**
 
-- `initClient(url)` — called once in `index.jsx` before the React tree mounts.
-- `request(method, path, body?)` — JSON request, throws on non-2xx.
-- `upload(path, formData)` — multipart upload, throws on non-2xx.
+- `initClient(url, token?)` — called once in `index.jsx` before the React tree mounts; stores the base URL and bearer token.
+- `request(method, path, body?)` — JSON request (token attached), throws on non-2xx.
+- `upload(path, formData)` / `uploadWithProgress(...)` — multipart upload (token attached), throws on non-2xx.
+- `appendToken(url)` — appends `?token=`/`&token=` to a URL for browser-initiated loads that can't send headers (`mediaFileSrc` in `api/media.js`, the PDF raw URL in `PdfRenderer.jsx`). No-op when no token is configured.
 
-Errors thrown by `request` and `upload` carry a `.status` property so callers can branch on 400 vs 404 vs 500 without parsing message strings.
+Errors thrown by `request` and `upload` carry a `.status` property so callers can branch on 400 vs 404 vs 500 without parsing message strings. A 401 means the token is missing or invalid.
 
 ---
 
@@ -125,11 +126,12 @@ const GraphView      = lazy(() => import('./views/GraphView'));
 
 ## Entry Point (`src/ui/index.jsx`)
 
-`index.jsx` is the only place where startup sequencing happens. It calls `getApiUrl()` over IPC, initializes the client, then mounts the React tree. Nothing renders until the URL is known.
+`index.jsx` is the only place where startup sequencing happens. It calls `getApiUrl()` and `getApiToken()` over IPC, initializes the client, then mounts the React tree. Nothing renders until the URL is known.
 
 ```js
 const url = await window.flashback.getApiUrl();
-initClient(url);
+const token = await window.flashback.getApiToken();
+initClient(url, token);
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <QueryClientProvider client={queryClient}>
@@ -306,6 +308,7 @@ Current channels:
 | Channel         | Direction        | Purpose                                                    |
 | --------------- | ---------------- | ---------------------------------------------------------- |
 | `get-api-url`      | renderer → main | Get the API base URL derived from config.json              |
+| `get-api-token`    | renderer → main | Get the API bearer token from config.json (for `initClient`) |
 | `get-config`       | renderer → main | Read the full config.json object                           |
 | `set-config`       | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
 | `window-minimize`  | renderer → main | Minimize the window                                        |

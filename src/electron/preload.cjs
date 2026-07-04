@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('flashback', {
   getApiUrl:       ()       => ipcRenderer.invoke('get-api-url'),
+  getApiToken:     ()       => ipcRenderer.invoke('get-api-token'),
   getConfig:       ()       => ipcRenderer.invoke('get-config'),
   setConfig:       (config) => ipcRenderer.invoke('set-config', config),
   restartApp:      ()       => ipcRenderer.invoke('restart-app'),
