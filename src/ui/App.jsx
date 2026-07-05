@@ -8,6 +8,7 @@ import IconGraph from "./components/icons/IconGraph";
 import IconTrainer from "./components/icons/IconTrainer";
 import IconConfig from "./components/icons/IconConfig";
 import IconSeal from "./components/icons/IconSeal";
+import IconManage from "./components/icons/IconManage";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
@@ -17,7 +18,7 @@ import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
 import { relocatePath } from "./utils/relocatePath";
 
-const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'config'];
+const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'manage', 'config'];
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
@@ -26,6 +27,7 @@ const GraphView      = lazy(() => import("./views/GraphView"));
 const TrainerView    = lazy(() => import("./views/Trainer"));
 const ConfigView     = lazy(() => import("./views/Config"));
 const SealView       = lazy(() => import("./views/Seal"));
+const ManageView     = lazy(() => import("./views/Manage"));
 
 const NAV_ITEMS = [
   { id: "documents",  Icon: IconDocuments,  label: "Documents" },
@@ -34,6 +36,7 @@ const NAV_ITEMS = [
   { id: "graph",      Icon: IconGraph,      label: "Graph" },
   { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
   { id: "seal",       Icon: IconSeal,       label: "Seal" },
+  { id: "manage",     Icon: IconManage,     label: "Manage" },
 ];
 
 export default function App() {
@@ -191,6 +194,7 @@ export default function App() {
       case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView isActive={activeView === 'seal'} />;
+      case "manage":     return <ManageView isActive={activeView === 'manage'} />;
       case "config":     return (
         <ConfigView
           theme={theme}
@@ -216,6 +220,7 @@ export default function App() {
               {NAV_ITEMS.map(({ id, Icon, label }) => (
                 <button type="button"
                   key={id}
+                  data-tour={`nav-${id}`}
                   className={`activity-btn${activeView === id ? " active" : ""}`}
                   onClick={() => setActiveView(id)}
                   title={label}
@@ -229,6 +234,7 @@ export default function App() {
 
             <div id="activity-bottom">
               <button type="button"
+                data-tour="nav-config"
                 className={`activity-btn${activeView === "config" ? " active" : ""}`}
                 onClick={() => setActiveView("config")}
                 title="Config"
@@ -250,6 +256,10 @@ export default function App() {
             ))}
           </main>
         </div>
+
+        {/* Mounted inside AppGate so the shell and its nav exist before the
+            spotlight tour tries to point at them. */}
+        {tourOpen && <OnboardingTour onClose={handleCloseTour} onNavigate={setActiveView} />}
       </AppGate>
 
       {searchOpen && (
@@ -262,8 +272,6 @@ export default function App() {
       {shortcutsOpen && (
         <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
       )}
-
-      {tourOpen && <OnboardingTour onClose={handleCloseTour} />}
     </div>
   );
 }

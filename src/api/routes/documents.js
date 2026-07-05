@@ -82,6 +82,15 @@ router.get(
   }),
 );
 
+// GET /api/documents/tags/usage
+// Returns [{ name, count }] — every tag and how many entities apply it directly.
+router.get(
+  "/tags/usage",
+  catchError((req, res) => {
+    res.json({ tags: docs.query.getTagsWithCounts() });
+  }),
+);
+
 // GET /api/documents/tags/entity?path=&isFolder=
 // Returns { direct, inherited, excluded } for a specific file or folder.
 router.get(

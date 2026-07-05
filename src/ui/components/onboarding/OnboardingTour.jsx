@@ -1,155 +1,138 @@
-import { useState } from "react";
-import Modal from "../shared/Modal";
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
+import { createPortal } from "react-dom";
 import IconDocuments from "../icons/IconDocuments";
 import IconFlashcards from "../icons/IconFlashcards";
 import IconDecks from "../icons/IconDecks";
 import IconGraph from "../icons/IconGraph";
 import IconTrainer from "../icons/IconTrainer";
+import IconManage from "../icons/IconManage";
 import IconSeal from "../icons/IconSeal";
 import "./OnboardingTour.css";
 
 /**
  * OnboardingTour — the replayable feature walkthrough. This is the "onboarding"
- * proper: a centered slideshow of what Flashback does. It writes nothing to
- * config.json and never runs setup — App gates it purely on the
- * `fb-onboarding-seen` localStorage flag (auto-once) and the Config replay button.
+ * proper, and unlike a plain slideshow it is an *interactive spotlight*: it dims
+ * the running app, rings the real UI element for each feature, switches the live
+ * view behind the dim so the section is genuinely on screen, and floats a callout
+ * next to the target explaining what it does and how to use it.
+ *
+ * It writes nothing to config.json and never runs setup — App gates it purely on
+ * the `fb-onboarding-seen` localStorage flag (auto-once) and the Config replay
+ * button, and mounts it inside AppGate so the shell (and its nav) already exist.
  *
  * Setup (vault creation) lives separately in views/Setup.jsx, gated by isFirstRun().
  */
 
-// ── Slide artwork ───────────────────────────────────────────────────────────
-// Existing nav icons are reused where they exist; the rest are small inline SVGs
-// so the tour stays self-contained. All strokes/fills use theme tokens.
-
-function IconMark({ size = 40 }) {
+// A small inline mark for the target-less welcome/finish steps.
+function IconMark({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 52 52" fill="none" aria-hidden="true">
-      <path d="M26 6L46 26L26 46L6 26Z" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M26 6L46 26L26 46L6 26Z" stroke="currentColor" strokeWidth="2.5" />
       <path d="M26 16L36 26L26 36L16 26Z" fill="currentColor" />
     </svg>
   );
 }
 
-function IconHighlight({ size = 40 }) {
+function IconSearch({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M4 15l7-7 5 5-7 7H4v-5z" />
-      <path d="M13 6l3-3 5 5-3 3" />
-      <line x1="3" y1="21" x2="21" y2="21" />
-    </svg>
-  );
-}
-
-function IconCategories({ size = 40 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="4" rx="1" />
-      <rect x="3" y="14" width="12" height="4" rx="1" />
-      <line x1="19" y1="14" x2="19" y2="18" />
-      <line x1="21" y1="16" x2="17" y2="16" />
-    </svg>
-  );
-}
-
-function IconTags({ size = 40 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-      <path d="M20.6 13.4L12 22l-9-9V4h9l8.6 8.6a1.4 1.4 0 0 1 0 2z" />
-      <circle cx="7.5" cy="7.5" r="1.5" />
-    </svg>
-  );
-}
-
-function IconSearch({ size = 40 }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <circle cx="11" cy="11" r="7" />
       <line x1="21" y1="21" x2="16.65" y2="16.65" />
     </svg>
   );
 }
 
-// ── Slides ──────────────────────────────────────────────────────────────────
+// ── Steps ─────────────────────────────────────────────────────────────────────
+// Each step points a spotlight at a live element (`target`, a CSS selector), and
+// optionally switches the app to a `view` first so the real section shows behind
+// the dim. Target-less steps (welcome / finish) render a centered card.
 
-const SLIDES = [
+const STEPS = [
   {
     Icon: IconMark,
     title: "Welcome to Flashback",
-    body: "A knowledge database with everything you need for spaced repetition — your notes, documents, and flashcards in one place. Here's a quick tour of what it can do.",
+    body: "Your notes, documents, and flashcards in one place, built for spaced repetition. This quick tour points out where each feature lives and how to use it — the app is live behind this, so follow along.",
   },
   {
+    target: '[data-tour="nav-documents"]',
+    view: "documents",
     Icon: IconDocuments,
     title: "Documents & your vault",
-    body: "Everything lives in a vault — a folder of files you own. Browse the tree in the explorer and open Markdown, PDFs, text, YouTube videos, and web clips right inside the app.",
+    body: "This opens your vault — a folder of files you own. Browse the tree on the left and open Markdown, PDFs, text, YouTube, or web clips. While reading, select any passage to highlight it and turn that highlight straight into a flashcard.",
   },
   {
-    Icon: IconHighlight,
-    title: "Highlight & capture",
-    body: "Select any passage while reading to highlight it in one of four colors — then turn that highlight straight into a flashcard or reference, anchored back to its exact spot in the source.",
-  },
-  {
+    target: '[data-tour="nav-flashcards"]',
+    view: "flashcards",
     Icon: IconFlashcards,
     title: "Flashcards",
-    body: "Create basic, reversible, cloze, type-answer, or fully custom HTML cards. The Flashcards library shows every card, its mastery level, and lets you filter, search, and edit them.",
+    body: "Every card you make, in one library. Create basic, reversible, cloze, type-answer, or fully custom HTML cards, then filter, search, and edit them here — each card also shows its mastery level.",
   },
   {
-    Icon: IconCategories,
-    title: "Pedagogical categories",
-    body: "Classify each card by its learning purpose — definition, concept, application, and so on. Categories (managed in Settings → Flashcards) are what let you build proper, well-structured study material instead of a loose pile of cards.",
-  },
-  {
-    Icon: IconTrainer,
-    title: "The Trainer",
-    body: "Review what's due and grade each card Again, Good, or Easy — all from the keyboard. Pick Leitner or SM-2 as your scheduling algorithm; Flashback plans the rest.",
-  },
-  {
+    target: '[data-tour="nav-decks"]',
+    view: "decks",
     Icon: IconDecks,
     title: "Decks",
-    body: "Curate cards into decks for focused study, and import existing collections from Anki (.apkg) or Obsidian (.zip). Study a whole deck in one session.",
+    body: "Curate cards into decks for focused study, and import existing collections from Anki (.apkg) or Obsidian (.zip). Study a whole deck in a single session.",
   },
   {
+    target: '[data-tour="nav-graph"]',
+    view: "graph",
     Icon: IconGraph,
     title: "Knowledge graph",
-    body: "See how everything connects — documents, folders, cards, tags, and decks — in an interactive graph. Follow links to discover related material and spot gaps.",
+    body: "See how everything connects — documents, folders, cards, tags, and decks — in an interactive graph. Follow links to discover related material and spot the gaps.",
   },
   {
-    Icon: IconTags,
-    title: "Tags that inherit",
-    body: "Tag a folder and everything inside inherits it automatically. Tags flow down the tree, so organizing once keeps your whole vault searchable and study-ready.",
+    target: '[data-tour="nav-trainer"]',
+    view: "trainer",
+    Icon: IconTrainer,
+    title: "The Trainer",
+    body: "Review what's due and grade each card Again, Good, or Easy — all from the keyboard (1/2/3). Choose Leitner or SM-2 as your scheduling algorithm and Flashback plans the rest.",
   },
   {
-    Icon: IconSearch,
-    title: "Search everything",
-    body: "Press Ctrl+K anywhere to jump to any document, card, tag, or deck. Use prefixes like tag:, deck:, and doc: to narrow results instantly.",
-  },
-  {
+    target: '[data-tour="nav-seal"]',
+    view: "seal",
     Icon: IconSeal,
     title: "Seal & Vault Doctor",
-    body: "Every change is versioned automatically. Browse your history, restore any earlier state, and use the Vault Doctor to check and repair the index — your work is never lost.",
+    body: "Every change is versioned automatically. Browse your history, restore any earlier state, and run the Vault Doctor to check and repair the index — your work is never lost.",
   },
   {
+    target: '[data-tour="nav-manage"]',
+    view: "manage",
+    Icon: IconManage,
+    title: "Manage categories & tags",
+    body: "The vault-wide metadata that shapes your whole knowledge base. Edit pedagogical categories — classify cards by learning purpose (definition, concept, application…) to build proper study material — and see every tag and how widely it's used.",
+  },
+  {
+    target: "#search-btn",
+    Icon: IconSearch,
+    title: "Search everything",
+    body: "Press Ctrl+K anywhere to jump to any document, card, tag, or deck. Use prefixes like tag:, deck:, and doc: to narrow results — and since tags inherit down the folder tree, tag: search finds everything beneath a tagged folder.",
+  },
+  {
+    view: "documents",
     Icon: IconMark,
     title: "You're all set",
-    body: "That's the tour. Dive in and start building your vault — and you can replay this anytime from Settings → Getting started.",
+    body: "That's the tour. Dive in and start building your vault — you can replay this anytime from Config → Getting started.",
   },
 ];
 
-// ── Progress dots ─────────────────────────────────────────────────────────────
+const PAD = 6;   // ring padding around the target
+const GAP = 14;  // gap between target and callout
+const EDGE = 12; // keep the callout this far from the viewport edge
+
+// ── Progress dots ───────────────────────────────────────────────────────────
 
 function TourDots({ step, total, onJump }) {
   return (
-    <div className="tour-dots" aria-label={`Slide ${step + 1} of ${total}`}>
+    <div className="spot-dots" aria-label={`Step ${step + 1} of ${total}`}>
       {Array.from({ length: total }, (_, i) => (
         <button
           key={i}
           type="button"
-          className={`tour-dot${i === step ? " tour-dot--active" : i < step ? " tour-dot--done" : ""}`}
+          className={`spot-dot${i === step ? " spot-dot--active" : i < step ? " spot-dot--done" : ""}`}
           onClick={() => onJump(i)}
-          aria-label={`Go to slide ${i + 1}`}
+          aria-label={`Go to step ${i + 1}`}
           aria-current={i === step ? "true" : undefined}
         />
       ))}
@@ -157,52 +140,166 @@ function TourDots({ step, total, onJump }) {
   );
 }
 
-// ── Root ────────────────────────────────────────────────────────────────────
+// ── Root ──────────────────────────────────────────────────────────────────────
 
-export default function OnboardingTour({ onClose }) {
+export default function OnboardingTour({ onClose, onNavigate }) {
   const [step, setStep] = useState(0);
-  const total = SLIDES.length;
+  const [rect, setRect] = useState(null); // target's viewport rect, or null (centered)
+  const [pos, setPos] = useState(null);   // computed callout position
+  const calloutRef = useRef(null);
+
+  const total = STEPS.length;
   const isLast = step === total - 1;
-  const slide = SLIDES[step];
-  const { Icon } = slide;
+  const current = STEPS[step];
+  const { Icon } = current;
 
-  const next = () => (isLast ? onClose() : setStep((s) => Math.min(total - 1, s + 1)));
-  const back = () => setStep((s) => Math.max(0, s - 1));
-
-  const footer = (
-    <div className="tour-footer">
-      <button type="button" className="tour-btn tour-btn--ghost" onClick={onClose}>
-        Skip
-      </button>
-      <TourDots step={step} total={total} onJump={setStep} />
-      <div className="tour-footer-right">
-        {step > 0 && (
-          <button type="button" className="tour-btn tour-btn--ghost" onClick={back}>
-            Back
-          </button>
-        )}
-        <button type="button" className="tour-btn tour-btn--primary" onClick={next}>
-          {isLast ? "Get started" : "Next"}
-          {!isLast && (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-              <line x1="2" y1="7" x2="12" y2="7" />
-              <polyline points="8,3 12,7 8,11" />
-            </svg>
-          )}
-        </button>
-      </div>
-    </div>
+  const next = useCallback(
+    () => (isLast ? onClose() : setStep((s) => Math.min(total - 1, s + 1))),
+    [isLast, onClose, total]
   );
+  const back = useCallback(() => setStep((s) => Math.max(0, s - 1)), []);
 
-  return (
-    <Modal ariaLabel="Welcome tour" onClose={onClose} size="lg" footer={footer}>
-      <div className="tour-slide">
-        <div className="tour-icon" aria-hidden="true">
-          <Icon size={44} />
+  // Switch to the step's view, then locate its target element. Views are lazy, so
+  // after navigating we retry across a few frames until the element mounts.
+  useEffect(() => {
+    if (current.view) onNavigate?.(current.view);
+    if (!current.target) {
+      setRect(null);
+      return;
+    }
+    let cancelled = false;
+    let raf = 0;
+    let tries = 0;
+    const find = () => {
+      if (cancelled) return;
+      const el = document.querySelector(current.target);
+      if (el) {
+        setRect(el.getBoundingClientRect());
+        return;
+      }
+      if (tries++ < 90) raf = requestAnimationFrame(find);
+      else setRect(null); // give up gracefully → centered card
+    };
+    find();
+
+    const remeasure = () => {
+      const el = document.querySelector(current.target);
+      if (el) setRect(el.getBoundingClientRect());
+    };
+    window.addEventListener("resize", remeasure);
+    window.addEventListener("scroll", remeasure, true);
+    return () => {
+      cancelled = true;
+      if (raf) cancelAnimationFrame(raf);
+      window.removeEventListener("resize", remeasure);
+      window.removeEventListener("scroll", remeasure, true);
+    };
+  }, [step, current.view, current.target, onNavigate]);
+
+  // Position the callout once it (and the target rect) are known. Prefer the side
+  // with room — right → left → below → above → centered — and clamp to the viewport.
+  useLayoutEffect(() => {
+    const node = calloutRef.current;
+    if (!node) return;
+    const cw = node.offsetWidth;
+    const ch = node.offsetHeight;
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+    const clampTop = (t) => Math.min(Math.max(t, EDGE), vh - ch - EDGE);
+    const clampLeft = (l) => Math.min(Math.max(l, EDGE), vw - cw - EDGE);
+
+    if (!rect) {
+      setPos({ top: (vh - ch) / 2, left: (vw - cw) / 2, placement: "center" });
+      return;
+    }
+    const midY = rect.top + rect.height / 2 - ch / 2;
+    const midX = rect.left + rect.width / 2 - cw / 2;
+    if (rect.right + GAP + cw <= vw - EDGE) {
+      setPos({ top: clampTop(midY), left: rect.right + GAP, placement: "right" });
+    } else if (rect.left - GAP - cw >= EDGE) {
+      setPos({ top: clampTop(midY), left: rect.left - GAP - cw, placement: "left" });
+    } else if (rect.bottom + GAP + ch <= vh - EDGE) {
+      setPos({ top: rect.bottom + GAP, left: clampLeft(midX), placement: "bottom" });
+    } else if (rect.top - GAP - ch >= EDGE) {
+      setPos({ top: rect.top - GAP - ch, left: clampLeft(midX), placement: "top" });
+    } else {
+      setPos({ top: (vh - ch) / 2, left: (vw - cw) / 2, placement: "center" });
+    }
+  }, [rect, step]);
+
+  // Keyboard: Esc skips, arrows navigate.
+  useEffect(() => {
+    const onKeyDown = (e) => {
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      } else if (e.key === "ArrowRight") {
+        e.preventDefault();
+        next();
+      } else if (e.key === "ArrowLeft") {
+        e.preventDefault();
+        back();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => document.removeEventListener("keydown", onKeyDown, true);
+  }, [next, back, onClose]);
+
+  const ringStyle = rect
+    ? {
+        top: rect.top - PAD,
+        left: rect.left - PAD,
+        width: rect.width + 2 * PAD,
+        height: rect.height + 2 * PAD,
+      }
+    : null;
+
+  return createPortal(
+    <div className="spot-overlay" role="dialog" aria-modal="true" aria-label="Welcome tour">
+      {rect ? (
+        <div className="spot-ring" style={ringStyle} aria-hidden="true" />
+      ) : (
+        <div className="spot-fulldim" aria-hidden="true" />
+      )}
+
+      <div
+        ref={calloutRef}
+        className="spot-callout"
+        data-placement={pos?.placement}
+        style={pos ? { top: pos.top, left: pos.left } : { opacity: 0 }}
+      >
+        <div className="spot-head">
+          <span className="spot-icon" aria-hidden="true">
+            <Icon size={20} />
+          </span>
+          <h2 className="spot-title">{current.title}</h2>
         </div>
-        <h2 className="tour-title">{slide.title}</h2>
-        <p className="tour-body">{slide.body}</p>
+        <p className="spot-body">{current.body}</p>
+
+        <div className="spot-footer">
+          <button type="button" className="spot-btn spot-btn--ghost" onClick={onClose}>
+            Skip
+          </button>
+          <TourDots step={step} total={total} onJump={setStep} />
+          <div className="spot-footer-right">
+            {step > 0 && (
+              <button type="button" className="spot-btn spot-btn--ghost" onClick={back}>
+                Back
+              </button>
+            )}
+            <button type="button" className="spot-btn spot-btn--primary" onClick={next}>
+              {isLast ? "Get started" : "Next"}
+              {!isLast && (
+                <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+                  <line x1="2" y1="7" x2="12" y2="7" />
+                  <polyline points="8,3 12,7 8,11" />
+                </svg>
+              )}
+            </button>
+          </div>
+        </div>
       </div>
-    </Modal>
+    </div>,
+    document.body
   );
 }

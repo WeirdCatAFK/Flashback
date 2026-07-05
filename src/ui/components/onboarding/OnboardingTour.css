@@ -1,118 +1,199 @@
-/* OnboardingTour — feature slideshow. Rendered inside the shared Modal (see
-   OnboardingTour.jsx); these styles cover only the slide body and footer. All
-   colors come from theme tokens so it follows light/dark themes. */
+/* OnboardingTour — interactive spotlight walkthrough. A fixed overlay dims the
+   running app; a ring cuts a bright hole around the live target element (via a
+   large box-shadow), and a floating callout explains it. All colors come from
+   theme tokens so it follows light/dark themes. */
 
-.tour-slide {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  text-align: center;
-  gap: var(--space-4);
-  padding: var(--space-6) var(--space-4) var(--space-4);
-  min-height: 240px;
+.spot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
 }
 
-.tour-icon {
+/* Full dim for target-less steps (welcome / finish). */
+.spot-fulldim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+}
+
+/* The spotlight: a transparent box whose huge box-shadow dims everything around
+   it, plus an accent ring so the target reads as highlighted. */
+.spot-ring {
+  position: fixed;
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 0 0 9999px rgba(0, 0, 0, 0.55),
+    0 0 0 2px var(--color-accent),
+    0 0 0 6px var(--color-accent-subtle);
+  transition: top var(--dur-base) var(--ease-out),
+              left var(--dur-base) var(--ease-out),
+              width var(--dur-base) var(--ease-out),
+              height var(--dur-base) var(--ease-out);
+  pointer-events: none;
+}
+
+/* ── Callout ──────────────────────────────────────────────────────────────── */
+
+.spot-callout {
+  position: fixed;
+  width: min(340px, calc(100vw - 2 * var(--space-4)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.28);
+  transition: top var(--dur-base) var(--ease-out),
+              left var(--dur-base) var(--ease-out);
+}
+
+/* Directional arrow pointing back at the spotlighted element. */
+.spot-callout::before {
+  content: "";
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  transform: rotate(45deg);
+}
+.spot-callout[data-placement="right"]::before {
+  left: -7px;
+  top: 24px;
+  border-right: none;
+  border-top: none;
+}
+.spot-callout[data-placement="left"]::before {
+  right: -7px;
+  top: 24px;
+  border-left: none;
+  border-bottom: none;
+}
+.spot-callout[data-placement="bottom"]::before {
+  top: -7px;
+  left: 24px;
+  border-right: none;
+  border-bottom: none;
+}
+.spot-callout[data-placement="top"]::before {
+  bottom: -7px;
+  left: 24px;
+  border-left: none;
+  border-top: none;
+}
+.spot-callout[data-placement="center"]::before {
+  display: none;
+}
+
+.spot-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spot-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 76px;
-  height: 76px;
-  border-radius: var(--radius-lg);
+  flex: none;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
   color: var(--color-accent);
   background: var(--color-accent-subtle);
   border: 1px solid var(--color-border);
 }
 
-.tour-title {
+.spot-title {
   font-size: var(--text-lg);
   font-weight: 600;
   color: var(--color-fg-primary);
 }
 
-.tour-body {
-  max-width: 46ch;
-  font-size: var(--text-base);
+.spot-body {
+  font-size: var(--text-sm);
   line-height: 1.6;
   color: var(--color-fg-secondary);
 }
 
 /* ── Footer (Skip · dots · Back/Next) ─────────────────────────────────────── */
 
-.tour-footer {
+.spot-footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--space-3);
-  width: 100%;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
 }
 
-.tour-footer-right {
+.spot-footer-right {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.tour-dots {
+.spot-dots {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 5px;
 }
 
-.tour-dot {
-  width: 7px;
-  height: 7px;
+.spot-dot {
+  width: 6px;
+  height: 6px;
   border-radius: var(--radius-pill);
   background: var(--color-border);
   transition: background var(--dur-fast) var(--ease-out),
               transform var(--dur-fast) var(--ease-out);
 }
 
-.tour-dot:hover {
+.spot-dot:hover {
   background: var(--color-fg-secondary);
 }
 
-.tour-dot--done {
+.spot-dot--done {
   background: var(--color-fg-secondary);
 }
 
-.tour-dot--active {
+.spot-dot--active {
   background: var(--color-accent);
   transform: scale(1.35);
 }
 
 /* ── Buttons ──────────────────────────────────────────────────────────────── */
 
-.tour-btn {
+.spot-btn {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-4);
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-md);
-  font-size: var(--text-base);
+  font-size: var(--text-sm);
   font-weight: 500;
   transition: background var(--dur-fast) var(--ease-out),
               color var(--dur-fast) var(--ease-out),
               border-color var(--dur-fast) var(--ease-out);
 }
 
-.tour-btn--primary {
+.spot-btn--primary {
   background: var(--color-accent);
   color: var(--color-on-accent);
   border: 1px solid var(--color-accent);
 }
 
-.tour-btn--primary:hover {
+.spot-btn--primary:hover {
   filter: brightness(1.05);
 }
 
-.tour-btn--ghost {
+.spot-btn--ghost {
   background: transparent;
   color: var(--color-fg-secondary);
   border: 1px solid transparent;
 }
 
-.tour-btn--ghost:hover {
+.spot-btn--ghost:hover {
   background: var(--color-bg-hover);
   color: var(--color-fg-primary);
 }

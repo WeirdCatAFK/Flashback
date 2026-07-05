@@ -534,6 +534,21 @@ class DocumentQuery {
         return this.db.prepare('SELECT DISTINCT name FROM Tags ORDER BY name ASC').all().map(r => r.name);
     }
 
+    // Every tag with how many entities apply it directly (a 'tag' connection
+    // pointing at the tag's node). Inherited occurrences are derived elsewhere and
+    // deliberately not counted here — this is "where is this tag actually set".
+    getTagsWithCounts() {
+        const { tagConnTypeId } = this._typeIds();
+        return this.db.prepare(`
+            SELECT t.name AS name, COUNT(c.id) AS count
+            FROM Tags t
+            LEFT JOIN Connections c
+              ON c.destiny_id = t.node_id AND c.type_id = ?
+            GROUP BY t.node_id, t.name
+            ORDER BY count DESC, t.name ASC
+        `).all(tagConnTypeId);
+    }
+
     getTagByName(name) {
         return this.db.prepare('SELECT * FROM Tags WHERE name = ?').get(name);
     }
