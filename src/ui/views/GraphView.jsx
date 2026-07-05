@@ -727,6 +727,23 @@ export default function GraphView({ isActive = false, onNavigate }) {
             }}
           />
 
+          <a
+            className="graph-kofi"
+            href="https://ko-fi.com/D1J122ME9O"
+            target="_blank"
+            rel="noreferrer"
+            title="Support Flashback on Ko-fi"
+          >
+            <svg className="graph-kofi-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M4 5h13a3 3 0 0 1 0 6h-1.2A5 5 0 0 1 11 15H8a4 4 0 0 1-4-4V5Z" fill="currentColor" opacity="0.28" />
+              <path d="M4.5 5.5h12.5a2.5 2.5 0 0 1 0 5H15.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+              <path d="M4.5 5.5v5.5A3.5 3.5 0 0 0 8 14.5h3a3.5 3.5 0 0 0 3.5-3.5V5.5H4.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M8 3c0 .8-.9.9-.9 1.8M11 3c0 .8-.9.9-.9 1.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" />
+              <path d="M6 18h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.5" />
+            </svg>
+            <span className="graph-kofi-label">Support me on Ko-fi</span>
+          </a>
+
           <div className={`graph-controls${controlsCollapsed ? ' graph-controls--collapsed' : ''}`}>
             <button
               type="button"

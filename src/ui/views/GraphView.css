@@ -20,6 +20,51 @@
   color: var(--color-review-again);
 }
 
+/* ── Ko-fi support button (top-left) ────────────────────────────────────── */
+
+.graph-kofi {
+  position: absolute;
+  top: var(--space-4, 16px);
+  left: var(--space-4, 16px);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  padding: 6px 11px 6px 9px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, transparent);
+  border-radius: var(--radius-pill, 999px);
+  background: color-mix(in srgb, var(--color-bg-surface) 82%, transparent);
+  backdrop-filter: blur(12px) saturate(1.4);
+  -webkit-backdrop-filter: blur(12px) saturate(1.4);
+  box-shadow: var(--shadow-float);
+  color: var(--color-accent);
+  font-size: var(--text-sm, 12px);
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  user-select: none;
+  opacity: 0.85;
+  transition: opacity var(--dur-fast, 120ms) var(--ease-out, ease),
+              background var(--dur-fast, 120ms) var(--ease-out, ease),
+              border-color var(--dur-fast, 120ms) var(--ease-out, ease),
+              transform var(--dur-fast, 120ms) var(--ease-out, ease);
+}
+
+.graph-kofi:hover {
+  opacity: 1;
+  background: var(--color-accent-subtle);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, transparent);
+  transform: translateY(-1px);
+}
+
+.graph-kofi-icon {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.graph-kofi-label {
+  white-space: nowrap;
+}
+
 /* ── Controls panel (top-right) ─────────────────────────────────────────── */
 
 .graph-controls {
