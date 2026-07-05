@@ -129,23 +129,23 @@ function StepVault({ state, onChange, onNext, onBack }) {
             <input
               type="radio"
               name="ob-algorithm"
-              value="leitner"
-              checked={algorithm === 'leitner'}
-              onChange={() => onChange("algorithm", "leitner")}
-            />
-            <span className="ob-algo-name">Leitner</span>
-            <span className="ob-algo-desc">Box system — intervals double each level. Simple and effective.</span>
-          </label>
-          <label className={`ob-algo-option${algorithm === 'sm2' ? ' ob-algo-option--active' : ''}`}>
-            <input
-              type="radio"
-              name="ob-algorithm"
               value="sm2"
               checked={algorithm === 'sm2'}
               onChange={() => onChange("algorithm", "sm2")}
             />
             <span className="ob-algo-name">SM-2</span>
             <span className="ob-algo-desc">Ease factor — adapts to your recall speed. Better for large collections.</span>
+          </label>
+          <label className={`ob-algo-option${algorithm === 'leitner' ? ' ob-algo-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="ob-algorithm"
+              value="leitner"
+              checked={algorithm === 'leitner'}
+              onChange={() => onChange("algorithm", "leitner")}
+            />
+            <span className="ob-algo-name">Leitner</span>
+            <span className="ob-algo-desc">Box system — intervals double each level. Simple and effective.</span>
           </label>
         </div>
         <span className="ob-field-msg">You can change this later in Settings → Flashcards.</span>
@@ -315,7 +315,7 @@ export default function SetupView({ onComplete }) {
     customPath:   "",
     port:         50500,
     logFormat:    "dev",
-    algorithm:    "leitner",
+    algorithm:    "sm2",
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);

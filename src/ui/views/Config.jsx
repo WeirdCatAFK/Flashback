@@ -595,7 +595,7 @@ function AboutUpdates() {
 
 function useSrsPrefs() {
   const [algorithm, setAlgorithmState] = useState(
-    () => localStorage.getItem('fb-srs-algorithm') ?? 'leitner',
+    () => localStorage.getItem('fb-srs-algorithm') ?? 'sm2',
   );
   const [maxNew, setMaxNewState] = useState(
     () => parseInt(localStorage.getItem('fb-srs-max-new') ?? '20', 10),

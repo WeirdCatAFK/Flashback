@@ -92,7 +92,7 @@ function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
   useEffect(() => {
     // Read algorithm fresh from localStorage so Config changes are picked up
     // on the next fetch without needing a separate state channel.
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
     const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
     getDue({
       algorithm,
@@ -481,7 +481,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
     if (busyRef.current) return;
     busyRef.current = true;
     const g = GRADES[key];
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
     const easeFactor = Math.min(3.0, Math.max(1.3, (card.easeFactor ?? 2.5) + g.ease));
     const fromLevel = card.level ?? 0;
     const rawLevel = g.level(fromLevel);
@@ -846,7 +846,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setSessionDone(false);
     setTurn((t) => t + 1);
     try {
-      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'leitner';
+      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
       await undoReview(action.card.documentPath, action.card.globalHash, algorithm);
     } catch (err) {
       console.error(err);
