@@ -331,6 +331,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
   const selectedByHoverRef = useRef(false);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
+  const [controlsCollapsed, setControlsCollapsed] = useState(false);
 
   const { width, height } = useContainerSize(containerRef);
   const themeVer = useThemeVersion();
@@ -692,7 +693,30 @@ export default function GraphView({ isActive = false, onNavigate }) {
             }}
           />
 
-          <div className="graph-controls">
+          <div className={`graph-controls${controlsCollapsed ? ' graph-controls--collapsed' : ''}`}>
+            <button
+              type="button"
+              className="graph-controls-toggle"
+              onClick={() => {
+                setControlsCollapsed(c => !c);
+                setShowExportMenu(false);
+              }}
+              aria-expanded={!controlsCollapsed}
+              title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+            >
+              <svg className="graph-controls-glyph" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                <circle cx="4" cy="4" r="2" fill="currentColor" />
+                <circle cx="12" cy="6" r="2" fill="currentColor" />
+                <circle cx="6" cy="12" r="2" fill="currentColor" />
+                <path d="M4 4L12 6M12 6L6 12M6 12L4 4" stroke="currentColor" strokeWidth="1" opacity="0.5" />
+              </svg>
+              <span className="graph-controls-title">Graph</span>
+              <svg className="graph-controls-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+                <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+
+            <div className="graph-controls-body" hidden={controlsCollapsed}>
             <div className="graph-controls-section">
               <div className="graph-controls-heading">Legend</div>
               {Object.entries(colors.nodes).map(([type, color]) => (
@@ -756,6 +780,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 <button type="button" className="graph-export-item" onClick={handleExportHtml}>Interactive HTML</button>
               </div>
             )}
+            </div>
           </div>
 
           {selected && (
