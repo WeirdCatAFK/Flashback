@@ -69,6 +69,19 @@ class api {
       res.status(200).send("Welcome to flashback");
     });
 
+    // YouTube embed proxy. The renderer is served from file:// in the packaged app,
+    // which has an opaque origin and sends no Referer — and since late 2025 YouTube
+    // rejects such embeds with "Error 153 (video player configuration error)". This
+    // page is served over the real http://localhost origin, so the embedded player
+    // gets a valid origin/referrer and authorizes. It carries no vault data, so it
+    // sits OUTSIDE the /api token guard (keeping the token out of the iframe URL and
+    // the Referer YouTube sees). The renderer iframes it and drives it via postMessage.
+    this.app.get("/embed/youtube", (req, res) => {
+      const videoId = String(req.query.v || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
+      res.set("Content-Type", "text/html; charset=utf-8");
+      res.send(renderYoutubeEmbed(videoId));
+    });
+
     // Auth guard for everything under /api. Browser-initiated loads that can't
     // set headers (PDF/media URLs, <img>/<audio>) pass the token as ?token=.
     this.app.use('/api', (req, res, next) => this.authenticate(req, res, next));
@@ -155,6 +168,54 @@ class api {
       }
     });
   }
+}
+
+// Standalone embed shell served by GET /embed/youtube. Runs the YouTube IFrame
+// API from this page's real http://localhost origin (so the late-2025 referrer/
+// origin check passes) and bridges the minimal control surface the renderer needs
+// over postMessage: parent → { cmd: 'seek'|'mark' }, iframe → { event: 'ready'|
+// 'error'|'markAt' }. Uses youtube-nocookie + strict-origin-when-cross-origin, the
+// combination YouTube documents for embeds. `videoId` is pre-sanitized by the route.
+function renderYoutubeEmbed(videoId) {
+  const safeId = JSON.stringify(videoId); // already ^[A-Za-z0-9_-]$ filtered; quote for JS
+  return `<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="referrer" content="strict-origin-when-cross-origin">
+<style>html,body{margin:0;padding:0;height:100%;background:#000;overflow:hidden}#player{width:100%;height:100%}</style>
+</head>
+<body>
+<div id="player"></div>
+<script>
+  var VIDEO_ID = ${safeId};
+  var player = null;
+  function post(msg){ try { parent.postMessage(Object.assign({ type: 'fb-yt' }, msg), '*'); } catch (e) {} }
+  window.onYouTubeIframeAPIReady = function(){
+    player = new YT.Player('player', {
+      videoId: VIDEO_ID,
+      host: 'https://www.youtube-nocookie.com',
+      playerVars: { rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin },
+      events: {
+        onReady: function(){ post({ event: 'ready' }); },
+        onError: function(e){ post({ event: 'error', code: e && e.data }); }
+      }
+    });
+  };
+  window.addEventListener('message', function(ev){
+    var d = ev.data;
+    if (!d || d.type !== 'fb-yt-cmd' || !player) return;
+    try {
+      if (d.cmd === 'seek') { player.seekTo(d.seconds, true); if (player.playVideo) player.playVideo(); }
+      else if (d.cmd === 'mark') { post({ event: 'markAt', seconds: (player.getCurrentTime && player.getCurrentTime()) || 0 }); }
+    } catch (e) {}
+  });
+  var tag = document.createElement('script');
+  tag.src = 'https://www.youtube.com/iframe_api';
+  document.head.appendChild(tag);
+</script>
+</body>
+</html>`;
 }
 
 export default api;

@@ -84,6 +84,25 @@
   border-radius: 6px;
 }
 
+/* Overlaid on the (empty) player when YT.onError fires — embedding disabled,
+   age-restricted, private, or removed. Covers the black player box. */
+.yt-playback-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+}
+
+.yt-playback-error .yt-thumb { max-width: 220px; }
+.yt-playback-error p { margin: 0; max-width: 420px; font-size: 13px; }
+
 .yt-toolbar {
   display: flex;
   align-items: center;

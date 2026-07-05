@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, setYoutubeSource } from '../../../api/documents';
+import { getBaseUrl } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
 import './YoutubeRenderer.css';
 import './Renderer.css';
@@ -18,22 +19,6 @@ function formatTime(seconds) {
   return h > 0 ? `${h}:${pad(m)}:${pad(sec)}` : `${m}:${pad(sec)}`;
 }
 
-// Loads the YouTube IFrame API once for the whole app. Resolves with window.YT.
-let ytApiPromise = null;
-function loadYouTubeApi() {
-  if (window.YT && window.YT.Player) return Promise.resolve(window.YT);
-  if (ytApiPromise) return ytApiPromise;
-  ytApiPromise = new Promise((resolve, reject) => {
-    const prev = window.onYouTubeIframeAPIReady;
-    window.onYouTubeIframeAPIReady = () => { prev?.(); resolve(window.YT); };
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    tag.onerror = () => reject(new Error('Failed to load the YouTube player'));
-    document.head.appendChild(tag);
-  });
-  return ytApiPromise;
-}
-
 export default function YoutubeRenderer({
   path,
   saveRef,
@@ -47,6 +32,7 @@ export default function YoutubeRenderer({
   const [error,      setError]      = useState(null);
   const [playerReady, setPlayerReady] = useState(false);
   const [apiFailed,  setApiFailed]  = useState(false);
+  const [playbackError, setPlaybackError] = useState(null); // { code, message } from the embed's onError
   const [reloadTick, setReloadTick] = useState(0);
 
   const pathRef        = useRef(path);
@@ -55,8 +41,14 @@ export default function YoutubeRenderer({
   highlightsRef.current = highlights;
   const currentHlRef   = useRef(null);
   const loadedPathRef  = useRef(null);
-  const playerRef      = useRef(null);
-  const mountRef       = useRef(null);
+  const iframeRef      = useRef(null);
+
+  // The player runs inside the /embed/youtube proxy page, which the API serves over
+  // the real http://localhost origin so YouTube's post-2025 referrer/origin check
+  // passes (a file:// renderer can't provide either — that's the Error 153 cause).
+  const embedSrc = meta?.videoId && getBaseUrl()
+    ? `${getBaseUrl()}/embed/youtube?v=${encodeURIComponent(meta.videoId)}`
+    : null;
 
   // Load body (JSON descriptor) + sidecar highlights
   useEffect(() => {
@@ -68,6 +60,7 @@ export default function YoutubeRenderer({
     highlightsRef.current = [];
     setPlayerReady(false);
     setApiFailed(false);
+    setPlaybackError(null);
     loadedPathRef.current = null;
     let mounted = true;
 
@@ -98,26 +91,62 @@ export default function YoutubeRenderer({
     return () => { mounted = false; };
   }, [path, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Create the IFrame player once we have a videoId and the mount node
-  useEffect(() => {
-    if (!meta?.videoId || !mountRef.current) return;
-    let cancelled = false;
-
-    loadYouTubeApi().then((YT) => {
-      if (cancelled || !mountRef.current) return;
-      playerRef.current = new YT.Player(mountRef.current, {
-        videoId: meta.videoId,
-        playerVars: { rel: 0, modestbranding: 1 },
-        events: { onReady: () => { if (!cancelled) setPlayerReady(true); } },
-      });
-    }).catch(() => { if (!cancelled) setApiFailed(true); });
-
-    return () => {
-      cancelled = true;
-      try { playerRef.current?.destroy?.(); } catch { /* ignore */ }
-      playerRef.current = null;
+  // Append a timestamp highlight at the given playback position (seconds).
+  const addMomentAt = useCallback((seconds) => {
+    const now = new Date().toISOString();
+    const hl = {
+      id: generateId(),
+      color: 'amber',
+      type: 'video_timestamp',
+      start: seconds, end: seconds,
+      text: `@ ${formatTime(seconds)}`,
+      createdAt: now, updatedAt: now,
+      cardHashes: [], refIds: [],
     };
-  }, [meta?.videoId]);
+    const next = [...highlightsRef.current, hl].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
+    highlightsRef.current = next;
+    setHighlights(next);
+    handleSaveRef.current?.();
+  }, []);
+
+  // Bridge to the embed proxy: parent → { cmd } out, iframe → { event } in.
+  const postCmd = useCallback((msg) => {
+    iframeRef.current?.contentWindow?.postMessage({ type: 'fb-yt-cmd', ...msg }, '*');
+  }, []);
+
+  useEffect(() => {
+    if (!embedSrc) return;
+    setPlayerReady(false);
+    setPlaybackError(null);
+
+    function onMessage(ev) {
+      // Only trust messages from our own embed iframe.
+      if (!iframeRef.current || ev.source !== iframeRef.current.contentWindow) return;
+      const d = ev.data;
+      if (!d || d.type !== 'fb-yt') return;
+      if (d.event === 'ready') {
+        setPlayerReady(true);
+        setPlaybackError(null);
+      } else if (d.event === 'error') {
+        const code = d.code;
+        // 101/150 = owner disabled embedding (incl. age-restricted / adult content,
+        // which YouTube never allows in third-party embeds); 100 = removed/private;
+        // 2/5 = bad id / HTML5 error. Surface a link out instead of a dead player.
+        const embedBlocked = code === 101 || code === 150;
+        setPlaybackError({
+          code,
+          message: embedBlocked
+            ? "This video can't be played in an embed (the owner disabled embedding, or it's age-restricted). Open it on YouTube instead."
+            : 'This video is unavailable (it may be private or removed).',
+        });
+      } else if (d.event === 'markAt') {
+        addMomentAt(d.seconds || 0);
+      }
+    }
+
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, [embedSrc, addMomentAt]);
 
   // Save: sidecar only (the .youtube body is immutable)
   const handleSaveRef = useRef(null);
@@ -140,33 +169,14 @@ export default function YoutubeRenderer({
   });
 
   const seekTo = useCallback((seconds) => {
-    const p = playerRef.current;
-    if (!p?.seekTo) return;
-    try { p.seekTo(seconds, true); p.playVideo?.(); } catch { /* ignore */ }
-  }, []);
+    postCmd({ cmd: 'seek', seconds });
+  }, [postCmd]);
 
-  // Capture the current playback position as a timestamp highlight
+  // Ask the player for its current position; addMomentAt runs when it answers.
   const markMoment = useCallback(() => {
-    const p = playerRef.current;
-    if (!p?.getCurrentTime) return;
-    let t = 0;
-    try { t = p.getCurrentTime() || 0; } catch { t = 0; }
-    const now = new Date().toISOString();
-    const hl = {
-      id: generateId(),
-      color: 'amber',
-      type: 'video_timestamp',
-      start: t,
-      end: t,
-      text: `@ ${formatTime(t)}`,
-      createdAt: now, updatedAt: now,
-      cardHashes: [], refIds: [],
-    };
-    const next = [...highlightsRef.current, hl].sort((a, b) => (a.start ?? 0) - (b.start ?? 0));
-    highlightsRef.current = next;
-    setHighlights(next);
-    handleSaveRef.current?.();
-  }, []);
+    if (!playerReady) return;
+    postCmd({ cmd: 'mark' });
+  }, [playerReady, postCmd]);
 
   const removeMoment = useCallback((id) => {
     const next = highlightsRef.current.filter(h => h.id !== id);
@@ -235,15 +245,36 @@ export default function YoutubeRenderer({
       </div>
 
       <div className="yt-player-wrap">
-        {apiFailed ? (
+        {apiFailed || !embedSrc ? (
           <div className="yt-offline">
             {meta.thumbnailUrl && <img className="yt-thumb" src={meta.thumbnailUrl} alt="" />}
-            <p>Couldn&apos;t load the player (offline?).{' '}
+            <p>Couldn&apos;t load the player.{' '}
               {meta.url && <a href={meta.url} target="_blank" rel="noreferrer">Open on YouTube ↗</a>}
             </p>
           </div>
         ) : (
-          <div className="yt-player"><div ref={mountRef} /></div>
+          <div className="yt-player">
+            <iframe
+              ref={iframeRef}
+              title={meta.title || 'YouTube video'}
+              src={embedSrc}
+              referrerPolicy="strict-origin-when-cross-origin"
+              allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
+              allowFullScreen
+              onError={() => setApiFailed(true)}
+            />
+            {playbackError && (
+              <div className="yt-playback-error">
+                {meta.thumbnailUrl && <img className="yt-thumb" src={meta.thumbnailUrl} alt="" />}
+                <p>{playbackError.message}</p>
+                {meta.url && (
+                  <a className="yt-source-link" href={meta.url} target="_blank" rel="noreferrer">
+                    Open on YouTube ↗
+                  </a>
+                )}
+              </div>
+            )}
+          </div>
         )}
       </div>
 
