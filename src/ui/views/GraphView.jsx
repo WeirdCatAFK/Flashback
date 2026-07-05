@@ -337,15 +337,21 @@ export default function GraphView({ isActive = false, onNavigate }) {
   // short window after something changes — load, hover, or selection.
   const rafRef = useRef(null);
   const animateUntilRef = useRef(0);
+  // While `animating` is true we disable ForceGraph's autoPauseRedraw so the
+  // canvas repaints every frame and the custom per-node lerps below can play.
+  // react-force-graph-2d exposes no imperative repaint method (no `refresh()`),
+  // so the redraw window is driven through this prop, not a ref call.
+  const [animating, setAnimating] = useState(false);
   const nudgeAnimation = useCallback((durationMs = 900) => {
     animateUntilRef.current = Math.max(animateUntilRef.current, performance.now() + durationMs);
+    setAnimating(true);
     if (rafRef.current != null) return;
     const step = () => {
-      fgRef.current?.refresh();
       if (performance.now() < animateUntilRef.current) {
         rafRef.current = requestAnimationFrame(step);
       } else {
         rafRef.current = null;
+        setAnimating(false);
       }
     };
     rafRef.current = requestAnimationFrame(step);
@@ -703,6 +709,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
             nodeRelSize={7}
             nodeCanvasObjectMode={() => 'replace'}
             nodeCanvasObject={paintNode}
+            autoPauseRedraw={!animating}
             cooldownTime={visibleData.nodes.length > 800 ? 8000 : 15000}
             linkColor={getLinkColor}
             linkDirectionalArrowColor={getLinkColor}

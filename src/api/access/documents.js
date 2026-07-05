@@ -7,7 +7,7 @@ import path from 'path';
 import fs from 'fs';
 import Files from './files.js';
 import query from './query.js';
-import srsService from './SRS.js';
+import srsService from './srs.js';
 import db from './Database.js';
 import crypto from 'crypto';
 import os from 'os';
