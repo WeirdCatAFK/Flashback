@@ -1,7 +1,7 @@
 import BetterSQLite from "better-sqlite3";
 import path from "path";
 import fs from "fs";
-import { getDatabasePath } from "./Config.js";
+import { getDatabasePath } from "./config.js";
 
 function getDatabase() {
     const dbPath = getDatabasePath();

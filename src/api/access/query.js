@@ -4,7 +4,7 @@
  * Handles all direct SQLite interactions.
  */
 
-import db from './Database.js';
+import db from './database.js';
 
 class DocumentQuery {
     constructor() {

@@ -11,7 +11,7 @@ import path from 'path';
 import os from 'os';
 import Files from './files.js';
 import query from './query.js';
-import db from './Database.js';
+import db from './database.js';
 import Decks from './decks.js';
 
 function htmlToMarkdown(html) {

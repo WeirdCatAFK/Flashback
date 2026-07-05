@@ -47,7 +47,7 @@ const listFolder = async (relPath) => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-import { getWorkspacePath } from '../../src/api/access/Config.js';
+import { getWorkspacePath } from '../../src/api/access/config.js';
 
 describe('Flashback API', () => {
 

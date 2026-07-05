@@ -8,7 +8,7 @@ import fs from 'fs';
 import Files from './files.js';
 import query from './query.js';
 import srsService from './srs.js';
-import db from './Database.js';
+import db from './database.js';
 import crypto from 'crypto';
 import os from 'os';
 import AdmZip from 'adm-zip';

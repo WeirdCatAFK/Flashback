@@ -20,7 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as getConfig, getWorkspacePath } from "./Config.js";
+import { get as getConfig, getWorkspacePath } from "./config.js";
 import newFileMetadata from "./../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "./../config/defaults/FlashbackFolder.js";
 

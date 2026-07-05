@@ -4,7 +4,7 @@
  */
 
 import query from './query.js';
-import db from './Database.js';
+import db from './database.js';
 
 // Interval helpers (mirror the SQL expressions in getDueFlashcards).
 function sm2Interval(reps, ef) {

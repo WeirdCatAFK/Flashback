@@ -11,7 +11,7 @@ import os from 'os';
 import Documents from './documents.js';
 import Files from './files.js';
 import query from './query.js';
-import db from './Database.js';
+import db from './database.js';
 
 const CLOZE_PATTERN = /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g;
 

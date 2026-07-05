@@ -1,4 +1,4 @@
-import { get } from "../../access/Config.js";
+import { get } from "../../access/config.js";
 
 const required = ["port", "logFormat", "host", "isLocalhost"];
 
