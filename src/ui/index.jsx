@@ -2,7 +2,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { initClient } from './api/client.js';
 import App from './App.jsx';
-import OnboardingView from './views/Onboarding.jsx';
+import SetupView from './views/Setup.jsx';
 import { ConfirmProvider } from './components/shared/ConfirmDialog.jsx';
 import './index.css';
 
@@ -46,7 +46,7 @@ async function bootstrap() {
   if (window.flashback && await window.flashback.isFirstRun()) {
     root.render(
       <StrictMode>
-        <OnboardingView onComplete={launchApp} />
+        <SetupView onComplete={launchApp} />
       </StrictMode>
     );
     return;

@@ -13,6 +13,7 @@ import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
 import SearchModal from "./components/search/SearchModal";
 import ShortcutsOverlay from "./components/ShortcutsOverlay";
+import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
 import { relocatePath } from "./utils/relocatePath";
 
@@ -63,6 +64,19 @@ export default function App() {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+
+  // Feature tour ("onboarding"). Auto-runs once — the first time the app loads
+  // after setup, and once for existing users upgrading — then only on demand from
+  // Config. Gated purely by localStorage, never by config.json, so replaying it
+  // can't re-trigger the setup wizard.
+  const [tourOpen, setTourOpen] = useState(false);
+  useEffect(() => {
+    if (!localStorage.getItem("fb-onboarding-seen")) setTourOpen(true);
+  }, []);
+  const handleCloseTour = useCallback(() => {
+    localStorage.setItem("fb-onboarding-seen", "1");
+    setTourOpen(false);
+  }, []);
 
   const [pendingSource, setPendingSource] = useState(null); // { path, highlightId }
   const [pendingDeck, setPendingDeck] = useState(null); // deck global_hash to open from search
@@ -184,6 +198,7 @@ export default function App() {
           allThemes={allThemes}
           customThemes={customThemes}
           onCustomThemesChange={setCustomThemes}
+          onReplayTour={() => setTourOpen(true)}
         />
       );
       default: return null;
@@ -247,6 +262,8 @@ export default function App() {
       {shortcutsOpen && (
         <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
       )}
+
+      {tourOpen && <OnboardingTour onClose={handleCloseTour} />}
     </div>
   );
 }

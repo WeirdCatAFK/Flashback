@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
-import "./Onboarding.css";
+import "./Setup.css";
 import "../App.css";
 import TitleBar from "../components/TitleBar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// Windows-illegal filename chars, including control chars (intentional).
+// eslint-disable-next-line no-control-regex
 const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
 
 function nameError(v) {
@@ -123,7 +125,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
       <div className="ob-field">
         <label className="ob-label">SRS algorithm</label>
         <div className="ob-algo-group">
-          <label className={`ob-algo-option${algorithm === 'leitner' ? ' ob-algo-option--active' : ''}`}>
+          <label className={`ob-algo-option${algorithm === 'sm2' ? ' ob-algo-option--active' : ''}`}>
             <input
               type="radio"
               name="ob-algorithm"
@@ -254,7 +256,7 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">You're all set</h2>
+      <h2 className="ob-step-title">You&rsquo;re all set</h2>
       <p className="ob-step-desc">Review your vault settings before creating it.</p>
 
       <div className="ob-summary">
@@ -305,7 +307,7 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
-export default function OnboardingView({ onComplete }) {
+export default function SetupView({ onComplete }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     vaultName:    "dreams",

@@ -1,8 +1,8 @@
 /**
  * TitleBar — the frameless-window drag region with the app title and window
- * controls. App and Onboarding each hand-copied this markup; this is the shared
+ * controls. App and Setup each hand-copied this markup; this is the shared
  * source. Pass `onSearch` to include the Ctrl+K search button (App only); omit it
- * for the bare title bar (Onboarding).
+ * for the bare title bar (Setup).
  *
  * Styles live in App.css (#title-bar, #search-btn, .wc-btn), loaded by the shell.
  */

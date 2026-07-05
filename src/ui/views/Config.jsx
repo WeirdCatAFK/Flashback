@@ -846,6 +846,7 @@ export default function ConfigView({
   onThemeChange,
   allThemes,
   onCustomThemesChange,
+  onReplayTour,
 }) {
   const { config, setConfig, loading, error } = useConfig();
   const [form, setForm] = useState(null);
@@ -1024,6 +1025,23 @@ export default function ConfigView({
           <CategoriesEditor />
         </div>
       </section>
+
+      {onReplayTour && (
+        <section className="config-section">
+          <h2 className="config-heading">Getting started</h2>
+          <p className="config-hint">
+            Take the guided tour of Flashback&rsquo;s features again — this only
+            replays the walkthrough, it doesn&rsquo;t touch your vault or settings.
+          </p>
+          <button
+            type="button"
+            className="config-restart-btn config-restart-btn--primary"
+            onClick={onReplayTour}
+          >
+            Replay welcome tour
+          </button>
+        </section>
+      )}
 
       {loading && <LoadingState message="Loading settings…" />}
       {error && <ErrorState error={error} title="Couldn't load settings" />}
