@@ -5,6 +5,7 @@ import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
+import { useDataInvalidation } from '../utils/dataBus';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -318,6 +319,10 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
     const [importError, setImportError] = useState(null);
     const [importVersion, setImportVersion] = useState(0); // bumped after each import to force DeckDetail to reload
     const importInputRef = useRef(null);
+
+    // A Seal rollback / Vault Doctor sync rewrote the deck index — reload the deck
+    // list and remount the open deck detail (importVersion is part of its key).
+    useDataInvalidation(() => { refresh(); setImportVersion(v => v + 1); });
 
     const handleCreated = (hash) => { setCreating(false); refresh(); setActiveDeck(hash); };
     const handleDeleted = () => { setActiveDeck(null); refresh(); };

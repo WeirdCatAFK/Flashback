@@ -9,6 +9,7 @@ import ContextMenu from '../shared/ContextMenu';
 import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
+import { useDataInvalidation } from '../../utils/dataBus';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -719,6 +720,12 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
   useEffect(() => { loadRoot(); }, [loadRoot]);
 
+  // After a Seal rollback / Vault Doctor sync, the files on disk were rewritten.
+  // Reload the root listing and bump treeVersion so every open FolderNode remounts
+  // and re-fetches its children (FolderNode reloads on mount when it starts open).
+  const [treeVersion, setTreeVersion] = useState(0);
+  useDataInvalidation(() => { loadRoot(); setTreeVersion(v => v + 1); });
+
   const handleCreate = (isFolder) => setPendingNew(isFolder ? 'folder' : 'file');
 
   const handleRootInlineConfirm = async (newName) => {
@@ -857,7 +864,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         )}
         {!loading && items.map(item =>
           item.type === 'folder'
-            ? <FolderNode key={item.name} name={item.name} path={item.name}
+            ? <FolderNode key={`${item.name}:${treeVersion}`} name={item.name} path={item.name}
                 flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}

@@ -5,6 +5,7 @@ import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { relativeFromIso } from '../utils/relativeTime';
+import { useDataInvalidation } from '../utils/dataBus';
 import './Flashcards.css';
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
@@ -20,8 +21,10 @@ const PAGE_SIZE = 50;
 
 function useStats() {
     const [stats, setStats] = useState(null);
-    useEffect(() => { getStats().then(setStats).catch(() => {}); }, []);
-    return stats;
+    const [token, setToken] = useState(0);
+    useEffect(() => { getStats().then(setStats).catch(() => {}); }, [token]);
+    const refreshStats = useCallback(() => setToken(t => t + 1), []);
+    return { stats, refreshStats };
 }
 
 function LevelDot({ level }) {
@@ -39,7 +42,7 @@ function RelativeTime({ iso }) {
 }
 
 export default function FlashcardsView() {
-    const stats = useStats();
+    const { stats, refreshStats } = useStats();
 
     const [query, setQuery]         = useState('');
     const [levelFilter, setLevel]   = useState(null);
@@ -76,6 +79,13 @@ export default function FlashcardsView() {
             query ? 250 : 0
         );
     }, [query, levelFilter, cardType, sortBy, sortDir, page, loadCards]);
+
+    // A Seal rollback / Vault Doctor sync rewrote the card index — reload the
+    // current page and the level histogram so the list reflects the restore.
+    useDataInvalidation(() => {
+        loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+        refreshStats();
+    });
 
     const resetToPage0 = () => setPage(0); // page reset helper — called by filter changes
 

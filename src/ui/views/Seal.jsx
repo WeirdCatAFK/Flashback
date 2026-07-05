@@ -3,6 +3,7 @@ import { getLog, inspectDrift, rollback, getCommitFiles } from '../api/seal';
 import { checkIndex, syncIndex, rebuildIndex } from '../api/doctor';
 import Modal from '../components/shared/Modal';
 import { relativeFromMs } from '../utils/relativeTime';
+import { invalidateData } from '../utils/dataBus';
 import './Seal.css';
 
 const ACTION_LABELS = {
@@ -127,7 +128,7 @@ function LoosePagesPanel({ drift, loading, error, onRefresh }) {
             <div className="seal-loose-card">
                 {error && <div className="seal-error">{error}</div>}
                 {!error && empty && (
-                    <p className="seal-loose-empty">Mothing changed outside Flashback.</p>
+                    <p className="seal-loose-empty">Nothing changed outside Flashback.</p>
                 )}
                 {!error && drift && !empty && (
                     <div className="seal-loose-groups">
@@ -649,6 +650,9 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
         const res = await syncIndex(sealDrift);
         setModal(null);
         setResult({ kind: 'sync', ...res });
+        // The derived index was rewritten to match the files — every other view's
+        // cached data is now potentially stale.
+        invalidateData();
         onSynced?.();
         await onCheck();
     };
@@ -657,6 +661,7 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
         const res = await rebuildIndex();
         setModal(null);
         setResult({ kind: 'rebuild', ...res });
+        invalidateData();
         onRebuilt?.();
         await onCheck();
     };
@@ -758,6 +763,11 @@ export default function SealView({ isActive = false }) {
         setRollbackDone(true);
         refreshLog();
         refreshDrift();
+        // The canonical sidecars on disk were rewritten to the restored version, so
+        // views that read files directly (file explorer, open documents) must reload.
+        // The derived SQLite index still lags until the sync below runs, which fires
+        // its own invalidateData() to refresh the DB-backed views (Flashcards/Decks).
+        invalidateData();
     };
 
     const [bannerSyncing, setBannerSyncing] = useState(false);
@@ -768,6 +778,8 @@ export default function SealView({ isActive = false }) {
             await syncIndex(false);
             setRollbackDone(false);
             refreshDrift();
+            // The derived index now matches the restored files — refresh every view.
+            invalidateData();
             if (doctorReport) runDoctorCheck();
         } finally {
             setBannerSyncing(false);

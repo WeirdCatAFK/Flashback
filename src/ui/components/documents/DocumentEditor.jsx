@@ -11,6 +11,7 @@ import ClipRenderer      from './renderers/ClipRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
+import { useDataInvalidation } from '../../utils/dataBus';
 import './DocumentEditor.css';
 
 function pickRenderer(path) {
@@ -41,6 +42,10 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const [selectedHighlightId, setSelectedHighlightId] = useState(null);
   // Orphan-removal confirmation: { id, cardCount } | null
   const [pendingRemoval, setPendingRemoval] = useState(null);
+
+  // Bumped by a Seal rollback / Vault Doctor sync to force the active renderer to
+  // remount and re-read the (now rewritten) file from disk.
+  const [dataVersion, setDataVersion] = useState(0);
 
   const rendererRef  = useRef(null);
   const saveRef      = useRef(null);
@@ -171,6 +176,15 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
       }
     } catch { /* ignore */ }
   }, [activeTab]);
+
+  // The vault was rewritten under us (Seal rollback / Doctor sync). Remount the
+  // active renderer so it re-reads the file, and re-pull the sidecar-derived
+  // Inspector state. Unsaved drafts live in `drafts` here (not in the renderer),
+  // so they survive the remount via draftContent.
+  useDataInvalidation(() => {
+    setDataVersion(v => v + 1);
+    if (activeTab) refreshSidecar(activeTab);
+  });
 
   const handleTagsChange = useCallback(async (newTags, newExcludedTags) => {
     if (!activeTab) return;
@@ -367,6 +381,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
           >
             {Renderer && (
               <Renderer
+                key={`${activeTab}:${dataVersion}`}
                 path={activeTab}
                 onDirtyChange={handleDirtyChange}
                 saveRef={saveRef}
