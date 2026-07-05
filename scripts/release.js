@@ -49,13 +49,18 @@ if (tags.includes(tag)) {
   process.exit(1);
 }
 
-console.log(`→ ${pkg.version} → ${next}`);
+// If the requested version already matches package.json (e.g. the very first
+// release at the current version), there's nothing to bump — just tag HEAD.
+if (next === pkg.version) {
+  console.log(`→ version already ${next}; tagging current commit`);
+} else {
+  console.log(`→ ${pkg.version} → ${next}`);
+  pkg.version = next;
+  writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
+  runLoud(`git add package.json`);
+  runLoud(`git commit -m "Release ${tag}"`);
+}
 
-pkg.version = next;
-writeFileSync(pkgPath, JSON.stringify(pkg, null, 2) + '\n');
-
-runLoud(`git add package.json`);
-runLoud(`git commit -m "Release ${tag}"`);
 runLoud(`git tag -a ${tag} -m "Release ${tag}"`);
 runLoud(`git push origin HEAD`);
 runLoud(`git push origin ${tag}`);
