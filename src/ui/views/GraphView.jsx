@@ -330,15 +330,37 @@ export default function GraphView({ isActive = false, onNavigate }) {
   const hoverTimerRef = useRef(null);
   const selectedByHoverRef = useRef(false);
 
+  // On-demand animation loop. The custom per-node lerps (entrance fade, hover
+  // scale, focus dim) need fresh frames to animate, but repainting every frame
+  // forever tanks performance on large graphs. Instead we let ForceGraph pause
+  // when idle (autoPauseRedraw defaults to true) and only force repaints for a
+  // short window after something changes — load, hover, or selection.
+  const rafRef = useRef(null);
+  const animateUntilRef = useRef(0);
+  const nudgeAnimation = useCallback((durationMs = 900) => {
+    animateUntilRef.current = Math.max(animateUntilRef.current, performance.now() + durationMs);
+    if (rafRef.current != null) return;
+    const step = () => {
+      fgRef.current?.refresh();
+      if (performance.now() < animateUntilRef.current) {
+        rafRef.current = requestAnimationFrame(step);
+      } else {
+        rafRef.current = null;
+      }
+    };
+    rafRef.current = requestAnimationFrame(step);
+  }, []);
+
   const [showExportMenu, setShowExportMenu] = useState(false);
   const [controlsCollapsed, setControlsCollapsed] = useState(false);
 
   const { width, height } = useContainerSize(containerRef);
   const themeVer = useThemeVersion();
 
-  // Clean up hover timer on unmount
+  // Clean up hover timer and animation loop on unmount
   useEffect(() => () => {
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
+    if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
   }, []);
 
   const colors = useMemo(() => ({
@@ -398,6 +420,11 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
     return { nodes, links };
   }, [graphData, showTags, showDecks, showLinks, showOrigin, showDefaultDeck]);
+
+  // Kick the on-demand animation loop whenever visual state that drives a lerp
+  // changes. Entrance fades run for 700ms; focus-dim/hover lerps settle in ~800ms.
+  useEffect(() => { nudgeAnimation(900); }, [visibleData, nudgeAnimation]);
+  useEffect(() => { nudgeAnimation(700); }, [hovered, selected, nudgeAnimation]);
 
   const focusedIds = useMemo(() => {
     if (!selected || !visibleData) return null;
@@ -676,7 +703,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
             nodeRelSize={7}
             nodeCanvasObjectMode={() => 'replace'}
             nodeCanvasObject={paintNode}
-            autoPauseRedraw={false}
+            cooldownTime={visibleData.nodes.length > 800 ? 8000 : 15000}
             linkColor={getLinkColor}
             linkDirectionalArrowColor={getLinkColor}
             linkWidth={1.5}
