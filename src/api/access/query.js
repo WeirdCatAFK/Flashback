@@ -562,7 +562,22 @@ class DocumentQuery {
         for (const conn of currentConns) {
             if (!tagNodeIdSet.has(conn.destiny_id)) {
                 this.db.prepare("DELETE FROM Connections WHERE id = ?").run(conn.id);
+                this.deleteTagIfOrphaned(conn.destiny_id);
             }
+        }
+    }
+
+    // Removes a Tag whose node no longer has any 'tag' connection pointing to it,
+    // so tags with zero references stop showing up in getAllTags()/list_tags.
+    // Deleting the Tags row cascades to its Node (AFTER DELETE trigger) and to any
+    // InheritedTags via tag_id ON DELETE CASCADE.
+    deleteTagIfOrphaned(tagNodeId) {
+        const { tagConnTypeId } = this._typeIds();
+        const remaining = this.db.prepare(
+            "SELECT 1 FROM Connections WHERE destiny_id = ? AND type_id = ? LIMIT 1"
+        ).get(tagNodeId, tagConnTypeId);
+        if (!remaining) {
+            this.db.prepare("DELETE FROM Tags WHERE node_id = ?").run(tagNodeId);
         }
     }
 

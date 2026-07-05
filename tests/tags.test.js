@@ -156,6 +156,48 @@ describe('Tag propagation — correctness', () => {
         }
         console.log('  Document-level tags propagated to all 4 flashcards');
     });
+
+    it('tag with no remaining references disappears from getAllTags', async () => {
+        await docs.createFolder('Orphans', ROOT);
+        const orphPath = path.join(ROOT, 'Orphans');
+
+        await docs.importFile('lonely.md', orphPath, Buffer.from('# Lonely'), {
+            globalHash: crypto.randomUUID(),
+        });
+        const docRel = path.join(orphPath, 'lonely.md');
+
+        await docs.updateMetadata(docRel, { tags: ['ephemeral', 'kept'] }, false);
+        assert.ok(query.getAllTags().includes('ephemeral'), 'tag should exist after being added');
+
+        // Remove only "ephemeral"; nothing else references it, so it must be gone.
+        await docs.updateMetadata(docRel, { tags: ['kept'] }, false);
+        const tags = query.getAllTags();
+        assert.ok(!tags.includes('ephemeral'), '"ephemeral" should be pruned once unreferenced');
+        assert.ok(tags.includes('kept'), '"kept" should remain');
+        console.log('  Unreferenced tag pruned from getAllTags');
+    });
+
+    it('shared tag survives while any reference remains', async () => {
+        await docs.createFolder('SharedTag', ROOT);
+        const base = path.join(ROOT, 'SharedTag');
+
+        await docs.importFile('a.md', base, Buffer.from('# A'), { globalHash: crypto.randomUUID() });
+        await docs.importFile('b.md', base, Buffer.from('# B'), { globalHash: crypto.randomUUID() });
+        const aRel = path.join(base, 'a.md');
+        const bRel = path.join(base, 'b.md');
+
+        await docs.updateMetadata(aRel, { tags: ['shared'] }, false);
+        await docs.updateMetadata(bRel, { tags: ['shared'] }, false);
+
+        // Remove from a — b still references it, so it must stay.
+        await docs.updateMetadata(aRel, { tags: [] }, false);
+        assert.ok(query.getAllTags().includes('shared'), 'shared tag should survive while b references it');
+
+        // Remove from b — now orphaned, should vanish.
+        await docs.updateMetadata(bRel, { tags: [] }, false);
+        assert.ok(!query.getAllTags().includes('shared'), 'shared tag should be pruned once fully unreferenced');
+        console.log('  Shared tag pruned only after last reference removed');
+    });
 });
 
 // ── Performance ───────────────────────────────────────────────────────────────
