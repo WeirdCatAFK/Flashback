@@ -6,6 +6,7 @@ import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
 import Documents from '../src/api/access/documents.js';
+import Decks from '../src/api/access/decks.js';
 import db from '../src/api/access/database.js';
 import query from '../src/api/access/query.js';
 import { sealTools } from '../src/api/seal/seal.js';
@@ -19,6 +20,7 @@ if (!validate()) {
 }
 
 const docs = new Documents();
+const decks = new Decks();
 
 const makeCards = (n) => Array.from({ length: n }, (_, i) => ({
     globalHash: crypto.randomUUID(),
@@ -197,6 +199,122 @@ describe('Tag propagation — correctness', () => {
         await docs.updateMetadata(bRel, { tags: [] }, false);
         assert.ok(!query.getAllTags().includes('shared'), 'shared tag should be pruned once fully unreferenced');
         console.log('  Shared tag pruned only after last reference removed');
+    });
+});
+
+// ── Deck tag propagation ────────────────────────────────────────────────────────
+
+describe('Deck tag propagation — correctness', () => {
+    const ROOT = 'DeckTagWorkspace';
+    let deckHash;
+    let cardRows = [];          // cards seeded into a document and added to the deck
+    let extraCard;              // a card added to the deck AFTER tags were set
+    let docRel;
+
+    // Reads the current global_hash + node_id for every flashcard under a document.
+    const cardsForDoc = (relPath) => {
+        const doc = query.getDocumentByPath(relPath);
+        return db.prepare('SELECT global_hash, node_id FROM Flashcards WHERE document_id = ?').all(doc.id);
+    };
+
+    before(async () => {
+        rmWorkspace(ROOT);
+        await sealTools.init();
+        await docs.createFolder(ROOT);
+
+        await docs.importFile('deck-cards.md', ROOT, Buffer.from('# Deck cards'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(3),
+        });
+        docRel = path.join(ROOT, 'deck-cards.md');
+        cardRows = cardsForDoc(docRel);
+
+        // A separate card we'll add to the deck only after tagging it.
+        await docs.importFile('late-card.md', ROOT, Buffer.from('# Late'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(1),
+        });
+        [extraCard] = cardsForDoc(path.join(ROOT, 'late-card.md'));
+
+        deckHash = await decks.createDeck('Study Deck');
+        for (const c of cardRows) {
+            await decks.addEntry(deckHash, { cardHash: c.global_hash, documentPath: docRel });
+        }
+    });
+
+    after(() => rmWorkspace(ROOT));
+
+    it('deck tags flow down to member cards', async () => {
+        await decks.setTags(deckHash, ['exam2026']);
+
+        const deck = query.getDeckByHash(deckHash);
+        assert.deepEqual(query.getDirectTagNames(deck.node_id), ['exam2026'],
+            'deck node should carry the direct tag');
+
+        for (const c of cardRows) {
+            assert.ok(query.getInheritedTagNames(c.node_id).includes('exam2026'),
+                `card ${c.global_hash} should inherit "exam2026" from its deck`);
+        }
+        console.log('  Deck tag "exam2026" propagated to 3 member cards');
+    });
+
+    it('deck tags compose with document tags (union, no clobber)', async () => {
+        await docs.updateMetadata(docRel, { tags: ['sourcedoc'] }, false);
+
+        for (const c of cardRows) {
+            const tags = query.getInheritedTagNames(c.node_id);
+            assert.ok(tags.includes('exam2026'), 'deck tag should survive a document-tag change');
+            assert.ok(tags.includes('sourcedoc'), 'document tag should coexist with the deck tag');
+        }
+        console.log('  Cards carry the union of deck + document tags');
+    });
+
+    it('a card added after tagging inherits the deck tags immediately', async () => {
+        await decks.addEntry(deckHash, { cardHash: extraCard.global_hash, documentPath: path.join(ROOT, 'late-card.md') });
+        assert.ok(query.getInheritedTagNames(extraCard.node_id).includes('exam2026'),
+            'late-added card should inherit the deck tag on entry');
+        console.log('  Late-added card inherited "exam2026"');
+    });
+
+    it('superSearch tag: finds cards via deck-inherited tags', () => {
+        const results = query.superSearch({ tag: 'exam2026', limit: 50 });
+        assert.ok(results.flashcards.length >= 4,
+            `Should find ≥4 cards tagged via deck; got ${results.flashcards.length}`);
+        console.log(`  tag:exam2026 search → ${results.flashcards.length} card(s)`);
+    });
+
+    it('graph shows card→tag edges for deck-inherited tags', () => {
+        const { nodes, edges } = query.getGraphData();
+        const tagNode = nodes.find(n => n.type === 'Tag' && n.label === 'exam2026');
+        assert.ok(tagNode, '"exam2026" tag node should be in graph');
+        const cardNodeIds = new Set(cardRows.map(c => c.node_id));
+        const cardTagEdges = edges.filter(e =>
+            e.toId === tagNode.id && cardNodeIds.has(e.fromId) && e.relation === 'tag');
+        assert.ok(cardTagEdges.length >= 3,
+            `Graph should have ≥3 card→exam2026 edges; got ${cardTagEdges.length}`);
+        console.log(`  Graph: ${cardTagEdges.length} card→exam2026 edge(s)`);
+    });
+
+    it('removing a card from the deck drops the deck tag but keeps document tags', async () => {
+        const target = cardRows[0];
+        await decks.removeEntry(deckHash, target.global_hash);
+
+        const tags = query.getInheritedTagNames(target.node_id);
+        assert.ok(!tags.includes('exam2026'), 'removed card should lose the deck tag');
+        assert.ok(tags.includes('sourcedoc'), 'removed card should keep its document tag');
+        console.log('  Removed card lost "exam2026", kept "sourcedoc"');
+    });
+
+    it('deleting the deck removes the deck tag from remaining cards and prunes it', async () => {
+        await decks.deleteDeck(deckHash);
+
+        for (const c of cardRows.slice(1)) {
+            assert.ok(!query.getInheritedTagNames(c.node_id).includes('exam2026'),
+                'deleting the deck should clear its inherited tag from cards');
+        }
+        assert.ok(!query.getAllTags().includes('exam2026'),
+            '"exam2026" should be pruned once its only deck is gone');
+        console.log('  Deck deletion cleared and pruned "exam2026"');
     });
 });
 

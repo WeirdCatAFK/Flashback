@@ -1056,6 +1056,24 @@ describe('Flashback API', () => {
                 'Created deck must appear in the full list');
         });
 
+        it('PUT /api/decks/:hash/tags → 200, sets deck tags returned by GET', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            const res = await put(`${baseUrl}/api/decks/${deckHash}/tags`, { tags: ['apitag', 'apitag', ' '] });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.deepEqual(body.tags, ['apitag'], 'response should return the cleaned tag set');
+
+            const deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.deepEqual(deck.tags, ['apitag'], 'GET deck must reflect the saved tags');
+        });
+
+        it('PUT /api/decks/:hash/tags → clears tags when given an empty array', async () => {
+            const res = await put(`${baseUrl}/api/decks/${deckHash}/tags`, { tags: [] });
+            assert.equal(res.status, 200);
+            const deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.deepEqual(deck.tags, [], 'tags must be cleared');
+        });
+
         it('GET /api/decks/cards → returns paginated card browser results', async () => {
             const res = await fetch(`${baseUrl}/api/decks/cards?search=Deck+Q`);
             assert.equal(res.status, 200);

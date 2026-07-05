@@ -65,6 +65,7 @@ export default class Decks {
                 globalHash,
                 name: deckRow.name,
                 description: deckRow.description ?? '',
+                tags: deckRow.node_id ? this.query.getDirectTagNames(deckRow.node_id) : [],
                 isSystem: !!deckRow.is_system,
                 created: deckRow.created_at ?? new Date().toISOString(),
                 modified: new Date().toISOString(),
@@ -91,7 +92,7 @@ export default class Decks {
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
         const now = new Date().toISOString();
-        const file = { globalHash, name, description, created: now, modified: now, entries: [] };
+        const file = { globalHash, name, description, tags: [], created: now, modified: now, entries: [] };
 
         this._write(globalHash, file);
         try {
@@ -112,7 +113,69 @@ export default class Decks {
         const deck = this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         const entries = this.query.getDeckEntries(deck.id);
-        return { ...deck, entries, entry_count: entries.length };
+        const tags = deck.node_id ? this.query.getDirectTagNames(deck.node_id) : [];
+        return { ...deck, entries, entry_count: entries.length, tags };
+    }
+
+    // Resolves existing tag names to their Tags row ids (skipping unknown names).
+    // Callers must ensure the tags exist first (via _syncDeckNodeTags).
+    _tagIdsForNames(tagNames) {
+        const ids = [];
+        for (const name of tagNames) {
+            const tag = this.query.getTagByName(name);
+            if (tag) ids.push(tag.id);
+        }
+        return ids;
+    }
+
+    // Makes the given tag names the deck node's exact set of direct tags, creating
+    // any that don't exist and pruning those left unreferenced. Mirrors
+    // documents._syncTags; the deck node holding the direct 'tag' connection is what
+    // keeps a deck-only tag alive in getAllTags().
+    _syncDeckNodeTags(nodeId, tagNames) {
+        const tagNodeIds = [];
+        for (const name of tagNames) {
+            let tag = this.query.getTagByName(name);
+            if (!tag) {
+                const tNodeId = this.query.createNode('Tag');
+                this.query.insertTag(name, tNodeId);
+                tagNodeIds.push(tNodeId);
+            } else {
+                tagNodeIds.push(tag.node_id);
+            }
+        }
+        this.query.syncNodeTags(nodeId, tagNodeIds);
+    }
+
+    // Pushes a deck's direct tags down onto every current member card as inherited
+    // tags. Tags must already exist (call _syncDeckNodeTags first).
+    _propagateTagsToCards(deck, tagNames) {
+        if (!deck.node_id) return;
+        const tagIds = this._tagIdsForNames(tagNames);
+        for (const e of this.query.getDeckEntries(deck.id)) {
+            const cardNodeId = this.query.getFlashcardNodeIdByHash(e.card_hash);
+            if (cardNodeId) this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+        }
+    }
+
+    // Replaces a deck's tags, syncing the deck node's direct tags and re-propagating
+    // them to every member card. Persists to the canonical deck file and seals.
+    async setTags(globalHash, tags) {
+        const deck = this.query.getDeckByHash(globalHash);
+        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+        const clean = [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
+
+        const file = this._readOrRebuild(globalHash, deck);
+        file.tags = clean;
+        file.modified = new Date().toISOString();
+        this._write(globalHash, file);
+
+        db.transaction(() => {
+            this._syncDeckNodeTags(deck.node_id, clean);
+            this._propagateTagsToCards(deck, clean);
+        })();
+        await sealEmitter.edit(this._sealRelPath(globalHash));
+        return clean;
     }
 
     async updateDeck(globalHash, { name, description }) {
@@ -142,6 +205,10 @@ export default class Decks {
 
         this._remove(globalHash);
         db.transaction(() => {
+            // Drop the deck's direct tags first so any left unreferenced are pruned.
+            // Deleting the Decks row then fires delete_deck_node, cascading the deck's
+            // Connections (and their InheritedTags) off every member card.
+            if (deck.node_id) this._syncDeckNodeTags(deck.node_id, []);
             this.query.deleteDeck(deck.id);
         })();
         await sealEmitter.delete(this._sealRelPath(globalHash));
@@ -171,7 +238,12 @@ export default class Decks {
                 });
                 if (deck.node_id) {
                     const cardNodeId = this.query.getFlashcardNodeIdByHash(cardHash);
-                    if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                    if (cardNodeId) {
+                        this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                        // A freshly-added card inherits the deck's current tags immediately.
+                        const tagIds = this._tagIdsForNames(this.query.getDirectTagNames(deck.node_id));
+                        if (tagIds.length) this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+                    }
                 }
             })();
         } catch (err) {
@@ -262,7 +334,11 @@ export default class Decks {
             });
             if (systemDeck.node_id) {
                 const cardNodeId = this.query.getFlashcardNodeIdByHash(globalHash);
-                if (cardNodeId) this.query.insertDeckConnection(systemDeck.node_id, cardNodeId);
+                if (cardNodeId) {
+                    this.query.insertDeckConnection(systemDeck.node_id, cardNodeId);
+                    const tagIds = this._tagIdsForNames(this.query.getDirectTagNames(systemDeck.node_id));
+                    if (tagIds.length) this.query.setDeckConnectionInheritedTags(systemDeck.node_id, cardNodeId, tagIds);
+                }
             }
         })();
 
@@ -423,6 +499,24 @@ export default class Decks {
                     if (cardNodeId) this.query.insertDeckConnection(deck.node_id, cardNodeId);
                 }
             });
+            // Register the deck's own direct tags now; propagation to member cards
+            // is deferred to _propagateAllDeckTags() once every card row exists
+            // (documents/standalone cards may still be rebuilding at this point).
+            if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
+                this._syncDeckNodeTags(deck.node_id, data.tags);
+            }
+        })();
+    }
+
+    // Final Doctor pass: re-pushes every deck's direct tags onto its member cards.
+    // Runs after all documents/standalone cards are rebuilt so no card is missed
+    // by ordering (a deck may reference a card whose row was created after the deck).
+    _propagateAllDeckTags() {
+        db.transaction(() => {
+            for (const deck of this.query.getAllDecks()) {
+                const tags = deck.node_id ? this.query.getDirectTagNames(deck.node_id) : [];
+                if (tags.length) this._propagateTagsToCards(deck, tags);
+            }
         })();
     }
 
@@ -475,6 +569,7 @@ export default class Decks {
                 }
             })();
         }
+        this._propagateAllDeckTags();
         return actions;
     }
 
@@ -539,6 +634,9 @@ export default class Decks {
             warnings.push('System deck file was missing — recreated empty.');
             decksImported++;
         }
+
+        // Every card row now exists — flow each deck's tags down to its members.
+        this._propagateAllDeckTags();
 
         return { decks: decksImported, restoredCards, warnings };
     }

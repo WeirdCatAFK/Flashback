@@ -447,6 +447,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
   - A deck is a user-curated, named collection of flashcard references (linked by hash, not copied). Canonical storage is a JSON file per deck under `workspace/_decks/`; the DB tables are a queryable mirror kept in sync on every write.
   - One deck is flagged `is_system` and holds every standalone (document-less) flashcard, so those cards still participate in deck-scoped study sessions.
+  - A deck may carry `tags` (stored in its `_decks/<uuid>.json` and as direct tags on the deck's graph node). Deck tags **flow down to member cards** as inherited tags, stored on the deck→card `Connections` row (type `deck`) — the same `InheritedTags` mechanism folders use, so a card carries the union of its document-chain tags and every deck it belongs to. Adding a card to a tagged deck tags it immediately; removing it (or deleting/retagging the deck) revokes those tags via `InheritedTags`' cascade on `connection_id`. Decks have no parent, so their own tags are direct-only (never inherited).
 - **DocumentLinks**
 
   - A hash-keyed queue of `flashback://` wiki-style links found in Markdown documents, resolved lazily so a link to a not-yet-imported document is still recorded.

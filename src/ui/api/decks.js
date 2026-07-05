@@ -15,6 +15,9 @@ export const updateDeck = (hash, data) =>
 export const deleteDeck = (hash) =>
     request('DELETE', `/api/decks/${hash}`);
 
+export const setDeckTags = (hash, tags) =>
+    request('PUT', `/api/decks/${hash}/tags`, { tags });
+
 export const addEntry = (deckHash, cardHash, documentPath = null) =>
     request('POST', `/api/decks/${deckHash}/entries`, { cardHash, documentPath });
 

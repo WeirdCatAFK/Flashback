@@ -796,7 +796,7 @@ class DocumentQuery {
                     JOIN Connections c ON it.connection_id = c.id
                     JOIN Tags tg ON tg.id = it.tag_id
                     WHERE c.destiny_id = f.node_id
-                      AND c.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
+                      AND c.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
                       AND tg.name LIKE ?
                 )
             )`);
@@ -877,12 +877,18 @@ class DocumentQuery {
         return { id: this._typeIds().inheritanceTypeId };
     }
 
+    // Inherited tags reach a node through two connection types: 'inheritance'
+    // (folder/document → child) and 'deck' (deck → member card). Only card nodes
+    // are ever the destiny of a 'deck' connection, so broadening the filter never
+    // adds tags to documents/folders — it just lets a deck's tags flow to its
+    // cards. DISTINCT dedupes a tag a card inherits from both its document and a deck.
     getInheritedTagNames(nodeId) {
         return this.db.prepare(`
-            SELECT t.name FROM InheritedTags it
+            SELECT DISTINCT t.name FROM InheritedTags it
             JOIN Connections c ON it.connection_id = c.id
             JOIN Tags t ON t.id = it.tag_id
-            WHERE c.destiny_id = ? AND c.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
+            WHERE c.destiny_id = ?
+              AND c.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
         `).all(nodeId).map(t => t.name);
     }
 
@@ -1049,6 +1055,18 @@ class DocumentQuery {
         this.db.prepare(
             'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
         ).run(deckNodeId, cardNodeId, deckConnTypeId);
+    }
+
+    // Stores a deck's tags as InheritedTags on the deck → card connection, so they
+    // flow to the card via getInheritedTagNames without touching the card's own
+    // document-inheritance connection. Removing the card from the deck (or deleting
+    // the deck) drops the connection, and InheritedTags cascades on connection_id.
+    setDeckConnectionInheritedTags(deckNodeId, cardNodeId, tagIds) {
+        const { deckConnTypeId } = this._typeIds();
+        if (!deckConnTypeId) return;
+        const conn = this.getOrCreateConnection(deckNodeId, cardNodeId, deckConnTypeId);
+        this.clearInheritedTags(conn.id);
+        for (const tagId of tagIds) this.insertInheritedTag(conn.id, tagId);
     }
 
     getAllDecks() {

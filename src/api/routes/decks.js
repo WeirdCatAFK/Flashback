@@ -65,6 +65,14 @@ router.delete('/:hash', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
+// PUT /api/decks/:hash/tags
+// Body: { tags: string[] } — replaces the deck's tags; they flow to member cards.
+router.put('/:hash/tags', catchError(async (req, res) => {
+    const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
+    const saved = await decks.setTags(req.params.hash, tags);
+    res.json({ ok: true, tags: saved });
+}));
+
 // POST /api/decks/:hash/entries
 // Body: { cardHash, documentPath?, inlineCard? }
 router.post('/:hash/entries', catchError(async (req, res) => {

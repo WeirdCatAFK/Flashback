@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards } from '../api/decks';
-import { importZipWithProgress } from '../api/documents';
+import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards, setDeckTags } from '../api/decks';
+import { importZipWithProgress, getTags } from '../api/documents';
+import TagChipInput from '../components/shared/TagChipInput';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
@@ -173,6 +174,42 @@ function CardRow({ entry, onRemove }) {
     );
 }
 
+// ── DeckTags ─────────────────────────────────────────────────────────────────
+
+function DeckTags({ deckHash, tags, onChanged }) {
+    const [allTags, setAllTags] = useState([]);
+    const [saving, setSaving] = useState(false);
+
+    useEffect(() => {
+        getTags().then(({ tags: all }) => setAllTags(all ?? [])).catch(() => {});
+    }, []);
+
+    const save = async (next) => {
+        setSaving(true);
+        try { await setDeckTags(deckHash, next); onChanged(); }
+        catch (err) { console.error(err); }
+        finally { setSaving(false); }
+    };
+
+    const addTag = (name) => { if (!tags.includes(name)) save([...tags, name]); };
+    const removeTag = (name) => save(tags.filter(t => t !== name));
+
+    return (
+        <div className="deck-tags" aria-busy={saving}>
+            <span className="deck-tags-label">Tags</span>
+            <TagChipInput
+                tags={tags}
+                onAdd={addTag}
+                onRemove={removeTag}
+                allKnownTags={allTags}
+                placeholder="Add a tag…"
+                chipClass="tag-chip--direct"
+            />
+            <span className="deck-tags-hint">Tags flow down to every card in this deck.</span>
+        </div>
+    );
+}
+
 // ── DeckDetail ───────────────────────────────────────────────────────────────
 
 function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
@@ -273,6 +310,9 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     )}
                 </div>
             </div>
+
+            <DeckTags deckHash={deckHash} tags={deck.tags || []}
+                onChanged={() => { load(); onRefreshList(); }} />
 
             <div className="deck-cards-area">
                 {deck.entries?.length === 0 ? (

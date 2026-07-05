@@ -687,3 +687,133 @@
   margin-left: 8px;
   opacity: 0.75;
 }
+
+/* ── Deck tags ───────────────────────────────────────────────────────────── */
+
+.deck-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.deck-tags[aria-busy="true"] {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.deck-tags-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-fg-secondary);
+}
+
+.deck-tags-hint {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  opacity: 0.8;
+}
+
+/* Tag chip + input primitives. These class names are shared with the document
+   inspector (Inspector.css); duplicated here because the Decks view never mounts
+   the inspector, so its stylesheet isn't loaded. Keep the two in sync. */
+.deck-tags .tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.deck-tags .tag-chip--direct {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.deck-tags .tag-chip-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  font-size: 13px;
+  line-height: 1;
+  transition: opacity 80ms;
+  display: flex;
+  align-items: center;
+}
+
+.deck-tags .tag-chip-remove:hover { opacity: 1; }
+
+.deck-tags .tci-wrap { position: relative; }
+
+.deck-tags .tci-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  min-height: 34px;
+  padding: 4px 8px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  cursor: text;
+  transition: border-color 100ms;
+}
+
+.deck-tags .tci-row:focus-within,
+.deck-tags .tci-row--open { border-color: var(--color-accent); }
+
+.deck-tags .tci-input {
+  flex: 1;
+  min-width: 80px;
+  background: none;
+  border: none;
+  outline: none;
+  font-size: 12px;
+  color: var(--color-fg-primary);
+  padding: 0;
+  caret-color: var(--color-accent);
+}
+
+.deck-tags .tci-input::placeholder { color: var(--color-fg-secondary); opacity: 0.6; }
+
+.deck-tags .tci-dropdown {
+  position: absolute;
+  top: calc(100% + 3px);
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  z-index: 200;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.deck-tags .tci-suggestion {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  transition: background 60ms;
+}
+
+.deck-tags .tci-suggestion:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+}
