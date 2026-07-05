@@ -16,7 +16,8 @@
   },
   "linux": {
     "target": "AppImage",
-    "category": "Utility"
+    "category": "Utility",
+    "icon": "flashback.png"
   },
   "win": {
     "target": ["nsis"]
