@@ -21,6 +21,7 @@
     "electron:start": "electron .",
     "dist:win": "npm run electron:rebuild && npm run build && electron-builder --win --x64",
     "dist:linux": "npm run electron:rebuild && npm run build && electron-builder --linux --x64",
+    "release": "node scripts/release.js",
     "test": "node scripts/run-tests.js",
     "tests": "node scripts/run-tests.js",
     "lint": "eslint .",

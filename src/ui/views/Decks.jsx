@@ -6,7 +6,7 @@ import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
-import { useDataInvalidation } from '../utils/dataBus';
+import { useDataInvalidation, invalidateData } from '../utils/dataBus';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -382,8 +382,10 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
             await importZipWithProgress(fd, (pct) =>
                 setImporting({ pct, processing: pct >= 100, filename: file.name })
             );
-            refresh();
-            setImportVersion(v => v + 1);
+            // Broadcast so every DB-backed view (this deck list, Flashcards, the
+            // file tree, the graph) reloads — not just this one. Our own
+            // useDataInvalidation subscriber handles refresh() + importVersion bump.
+            invalidateData();
         } catch (err) {
             console.error('Import failed', err);
             setImportError(`Couldn't import "${file.name}". ${err.message || 'The file may be unsupported or corrupt.'}`);

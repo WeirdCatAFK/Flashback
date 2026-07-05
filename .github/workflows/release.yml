@@ -1,0 +1,64 @@
+name: Release
+
+# Publishes an electron-updater-compatible GitHub Release.
+#
+# Trigger: push a tag like `v0.2.0` (see scripts/release.js, `npm run release`).
+# electron-builder builds the installers AND the update-metadata files
+# (latest.yml / latest-linux.yml + *.blockmap) and uploads them to a *draft*
+# GitHub Release. Review the draft, then hit "Publish release" — electron-updater
+# only sees published, non-prerelease releases.
+#
+# Requires no extra secrets: the built-in GITHUB_TOKEN can create releases and
+# upload assets for this repo.
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # create the release and upload assets
+
+jobs:
+  release:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            build: npm run dist:win -- --publish always
+          - os: ubuntu-latest
+            build: npm run dist:linux -- --publish always
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Fail early if the tag (e.g. v0.2.0) doesn't match package.json version (0.2.0).
+      # electron-updater keys everything off the version in latest.yml, which comes
+      # from package.json — a mismatch ships an update no client will ever see.
+      - name: Verify tag matches package.json version
+        shell: bash
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          PKG=$(node -p "require('./package.json').version")
+          if [ "$TAG" != "$PKG" ]; then
+            echo "::error::Tag v$TAG does not match package.json version $PKG"
+            exit 1
+          fi
+          echo "Version OK: $PKG"
+
+      - name: Build and publish
+        run: ${{ matrix.build }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

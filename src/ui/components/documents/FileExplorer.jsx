@@ -9,7 +9,7 @@ import ContextMenu from '../shared/ContextMenu';
 import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
-import { useDataInvalidation } from '../../utils/dataBus';
+import { useDataInvalidation, invalidateData } from '../../utils/dataBus';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -413,6 +413,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
           onImportProgress({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
         }
         refresh();
+        invalidateData(); // also reload Decks/Flashcards/graph, not just this folder
       } catch (err) { console.error('Import failed', err); }
       finally { onImportProgress(null); }
       return;
@@ -699,7 +700,10 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         }
         setImporting({ done: i + 1, total: files.length, pct: 0, processing: false, filename: file.name });
       }
-      loadRoot();
+      // Broadcast so Decks, Flashcards and the graph reload too — not just this
+      // tree. Our own useDataInvalidation subscriber handles loadRoot() + the
+      // treeVersion bump that remounts subtrees (imports can create nested dirs).
+      invalidateData();
     } catch (err) { console.error('Import failed', err); }
     finally { setImporting(null); }
   };
