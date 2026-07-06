@@ -926,7 +926,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         type="file"
         style={{ display: 'none' }}
         multiple
-        accept=".zip,.apkg,.md,.txt"
+        accept=".zip,.apkg,.md,.txt,.pdf,.epub"
         onChange={handleFilePickerChange}
         aria-label="Upload files"
       />

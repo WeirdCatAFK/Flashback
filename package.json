@@ -58,6 +58,7 @@
     "d3-force": "^3.0.0",
     "electron-log": "^5.4.4",
     "electron-updater": "^6.8.9",
+    "epubjs": "^0.3.93",
     "express": "^5.1.0",
     "iconv-lite": "^0.7.0",
     "isomorphic-git": "^1.37.5",

@@ -6,6 +6,7 @@ import HighlightRemoveDialog from './HighlightRemoveDialog';
 import MarkdownRenderer  from './renderers/MarkdownRenderer';
 import TextRenderer      from './renderers/TextRenderer';
 import PdfRenderer       from './renderers/PdfRenderer';
+import EpubRenderer      from './renderers/EpubRenderer';
 import YoutubeRenderer   from './renderers/YoutubeRenderer';
 import ClipRenderer      from './renderers/ClipRenderer';
 import PlaceholderRenderer from './renderers/PlaceholderRenderer';
@@ -20,6 +21,7 @@ function pickRenderer(path) {
   if (['md', 'markdown'].includes(ext)) return MarkdownRenderer;
   if (['txt', 'text'].includes(ext))    return TextRenderer;
   if (ext === 'pdf')                    return PdfRenderer;
+  if (ext === 'epub')                   return EpubRenderer;
   if (ext === 'youtube')                return YoutubeRenderer;
   if (ext === 'clip')                   return ClipRenderer;
   return PlaceholderRenderer;
@@ -199,6 +201,18 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setSelection(null);
     setSelectionRect(null);
   }, []);
+
+  // Bridge for iframe-based renderers (EPUB) whose text selection lives outside
+  // the top-window selection pipeline. They report a viewport-space rect and the
+  // selected text; we drive the same SelectionToolbar from it. `null` clears.
+  const handleExternalSelection = useCallback((payload) => {
+    if (!payload || !payload.text || !payload.rect) {
+      clearSelection();
+      return;
+    }
+    setSelection({ text: payload.text, startOffset: 0, endOffset: 0 });
+    setSelectionRect(payload.rect);
+  }, [clearSelection]);
 
   const handleMouseUp = useCallback(() => {
     const sel = window.getSelection();
@@ -391,6 +405,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 draftContent={drafts.get(activeTab)}
                 onDraftChange={handleDraftChange}
                 onNavigate={onNavigate}
+                onExternalSelection={handleExternalSelection}
               />
             )}
           </div>
