@@ -42,9 +42,13 @@ const NAV_ITEMS = [
 export default function App() {
   const [activeView, setActiveView] = useState("documents");
 
-  const [theme, setTheme] = useState(
-    () => localStorage.getItem("fb-theme") ?? "light-workbench"
-  );
+  const [theme, setTheme] = useState(() => {
+    const saved = localStorage.getItem("fb-theme");
+    if (saved) return saved;
+    // No explicit choice yet — follow the OS light/dark preference.
+    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    return prefersDark ? "dark-workbench" : "light-workbench";
+  });
   const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
   const allThemes = useMemo(() => [...THEMES, ...customThemes.map(t => t.name)], [customThemes]);
 
