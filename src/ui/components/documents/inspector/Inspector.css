@@ -234,6 +234,20 @@
   color: var(--color-accent);
 }
 
+.card-item-delete {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+  padding: 1px 5px;
+  border-radius: 3px;
+  cursor: pointer;
+  transition: background 80ms, color 80ms;
+}
+
+.card-item-delete:hover {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
 .card-item-custom-label {
   font-size: 12px;
   color: var(--color-fg-secondary);

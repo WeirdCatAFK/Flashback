@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { readFile } from '../../../api/documents';
+import { readFile, updateMetadata } from '../../../api/documents';
+import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
 
 const TYPE_LABELS = {
@@ -10,7 +11,7 @@ const TYPE_LABELS = {
   custom:      'Custom',
 };
 
-function CardItem({ card, index, onEdit, onJumpToHighlight }) {
+function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
   const cardType     = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
   const front        = card.vanillaData?.frontText ?? card.name ?? '—';
   const back         = card.vanillaData?.backText ?? '';
@@ -35,6 +36,7 @@ function CardItem({ card, index, onEdit, onJumpToHighlight }) {
             </button>
           )}
           <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
+          <button type="button" className="card-item-delete" onClick={() => onDelete(card)} title="Delete card">✕</button>
         </div>
       </div>
 
@@ -61,6 +63,7 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
   const [postEditCards, setPostEditCards] = useState(null);
   const [loading, setLoading]             = useState(false);
   const [editingCard, setEditingCard]     = useState(null);
+  const confirm = useConfirm();
 
   // After an inline edit the parent's sidecar state may not have refreshed yet,
   // so we re-fetch directly. Also used as the initial load when no prop is given.
@@ -72,6 +75,29 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
       .catch(() => setPostEditCards(null))
       .finally(() => setLoading(false));
   }, [path]);
+
+  // Delete a document-linked card: drop it from the sidecar's flashcards[] and
+  // save. updateMetadata re-syncs the derived layer, removing the card whose
+  // hash is no longer present (documents.js), so no dedicated endpoint is needed.
+  const deleteCard = useCallback(async (card) => {
+    if (!path) return;
+    const ok = await confirm({
+      title: 'Delete this card?',
+      message: 'This permanently removes the flashcard from this document, including its review history. This cannot be undone.',
+      confirmLabel: 'Delete card',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      const data = await readFile(path);
+      const meta = data.metadata ?? {};
+      if (!Array.isArray(meta.flashcards)) return;
+      meta.flashcards = meta.flashcards.filter((f) => f.globalHash !== card.globalHash);
+      await updateMetadata(path, meta, false);
+    } finally {
+      loadCards();
+    }
+  }, [path, confirm, loadCards]);
 
   // Reset local post-edit snapshot when the document changes or parent sends fresh data.
   useEffect(() => {
@@ -117,6 +143,7 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
           card={card}
           index={i}
           onEdit={setEditingCard}
+          onDelete={deleteCard}
           onJumpToHighlight={onJumpToHighlight}
         />
       ))}
