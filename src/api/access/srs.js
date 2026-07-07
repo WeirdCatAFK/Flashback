@@ -77,13 +77,17 @@ class SRSService {
     _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9) {
         const current = query.getFlashcardFsrsState(cardId);
         const next = fsrs.nextState(current, rating, new Date(timestamp), this.getWeights(), requestRetention);
+        // Keep the app-wide `level` scalar in step with FSRS strength: map the new
+        // interval to the nearest Leitner box so LevelDot, the box histogram, and
+        // mastery counts stay meaningful regardless of the active algorithm.
+        next.level = intervalToLeitnerLevel(next.interval);
         query.updateFlashcardFsrs(cardId, next);
         query.insertReviewLog({
             flashcardId: cardId,
             timestamp,
             outcome: rating > 1 ? 1 : 0,   // keep the binary flag for legacy stats
             easeFactor: null,
-            level: null,
+            level: next.level,             // snapshot so undo can restore the level too
             rating,
             fsrsStability: next.stability,
             fsrsDifficulty: next.difficulty,
@@ -148,11 +152,12 @@ class SRSService {
                     state: prev.fsrs_state,
                     reps,
                     lapses: cur?.lapses ?? 0,
+                    level: prev.level ?? 0,   // restore the display-strength scalar too
                     lastRecall: prev.timestamp,
                 } : null;
                 query.updateFlashcardFsrs(fc.id, restored
                     ? { ...restored, last_review: restored.lastRecall }
-                    : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, last_review: null });
+                    : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null });
                 return { document_id: fc.document_id, restored };
             }
 
@@ -336,6 +341,7 @@ class SRSService {
                     fsrsState: reviewed ? 2 : 0,   // 2 = review
                     fsrsReps: reviewed ? 1 : 0,
                     fsrsLapses: 0,
+                    level: reviewed ? intervalToLeitnerLevel(interval) : 0,
                     lastRecall: c.last_recall ?? null,
                 };
             });

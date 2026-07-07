@@ -71,11 +71,15 @@ describe('FSRS review loop', () => {
         assert.ok(c.fsrs_due, 'due set');
         assert.equal(c.fsrs_state, 2, 'state = review');
         assert.equal(c.fsrs_reps, 1);
+        // The app-wide `level` scalar must track FSRS strength so level-based UI
+        // (LevelDot, box histogram, mastery counts) works under FSRS.
+        assert.ok(c.level >= 1, 'level derived from the FSRS interval');
 
         const log = db.prepare('SELECT * FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
         assert.equal(log.rating, 3);
         assert.equal(log.outcome, 1);
         assert.ok(log.fsrs_stability > 0, 'log snapshots stability');
+        assert.equal(log.level, c.level, 'log snapshots the derived level for undo');
     });
 
     it('the sidecar mirrors the FSRS state', () => {
@@ -84,6 +88,7 @@ describe('FSRS review loop', () => {
         assert.ok(card.fsrsStability > 0);
         assert.equal(card.fsrsState, 2);
         assert.ok(card.fsrsDue);
+        assert.ok(card.level >= 1, 'sidecar mirrors the derived level');
     });
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', () => {
@@ -120,6 +125,7 @@ describe('FSRS review loop', () => {
         const c = cardRow();
         assert.equal(c.fsrs_state, 0, 'reverted to new');
         assert.equal(c.fsrs_stability, null, 'stability cleared');
+        assert.equal(c.level, 0, 'level reverted to new');
         const logs = db.prepare('SELECT COUNT(*) AS n FROM ReviewLogs WHERE flashcard_id = ?').get(c.id);
         assert.equal(logs.n, 0, 'review log removed');
     });

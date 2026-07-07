@@ -304,11 +304,13 @@ class DocumentQuery {
     }
 
     // Batch-seed FSRS state during an algorithm migration (keyed by global_hash).
+    // Also sets `level` (display-strength scalar) from the seeded interval so
+    // level-based UI is correct immediately after switching into FSRS.
     batchSetFsrsState(cards) {
         const stmt = this.db.prepare(`
             UPDATE Flashcards SET
                 fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?,
-                fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?, last_recall = ?
+                fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?, last_recall = ?, level = ?
             WHERE global_hash = ?
         `);
         this.db.transaction((rows) => {
@@ -316,7 +318,7 @@ class DocumentQuery {
                 stmt.run(
                     c.fsrsStability ?? null, c.fsrsDifficulty ?? null, c.fsrsDue ?? null,
                     c.fsrsState ?? 0, c.fsrsReps ?? 0, c.fsrsLapses ?? 0, c.lastRecall ?? null,
-                    c.global_hash,
+                    c.level ?? 0, c.global_hash,
                 );
             }
         })(cards);
@@ -395,13 +397,16 @@ class DocumentQuery {
     }
 
     // Persist a computed FSRS state (from fsrs.nextState) back onto the card.
+    // Also writes `level` — the app-wide display-strength scalar every algorithm
+    // maintains (LevelDot, box histogram, mastery counts) — derived by the caller
+    // from the FSRS interval so level-based UI stays meaningful under FSRS.
     updateFlashcardFsrs(id, s) {
         this.db.prepare(`
             UPDATE Flashcards SET
-                last_recall = ?, fsrs_stability = ?, fsrs_difficulty = ?,
+                last_recall = ?, level = ?, fsrs_stability = ?, fsrs_difficulty = ?,
                 fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?
             WHERE id = ?
-        `).run(s.last_review, s.stability, s.difficulty, s.due, s.state, s.reps, s.lapses, id);
+        `).run(s.last_review, s.level ?? 0, s.stability, s.difficulty, s.due, s.state, s.reps, s.lapses, id);
     }
 
     // --- FSRS weight vector (single-row FsrsParameters) ---

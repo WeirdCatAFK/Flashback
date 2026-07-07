@@ -1108,6 +1108,7 @@ export default class Documents {
             card.fsrsState = fsrs.state;
             card.fsrsReps = fsrs.reps;
             card.fsrsLapses = fsrs.lapses;
+            card.level = fsrs.level;   // display-strength scalar, derived from the interval
             card.lastRecall = fsrs.last_review;
         } else {
             if (algorithm === 'sm2') card.sm2Reps = newLevel; else card.level = newLevel;
@@ -1137,11 +1138,13 @@ export default class Documents {
                     card.fsrsState = restored.state;
                     card.fsrsReps = restored.reps;
                     card.fsrsLapses = restored.lapses;
+                    card.level = restored.level ?? 0;
                     if (restored.lastRecall) card.lastRecall = restored.lastRecall;
                     else delete card.lastRecall;
                 } else {
                     delete card.fsrsStability; delete card.fsrsDifficulty; delete card.fsrsDue;
                     delete card.fsrsState; delete card.fsrsReps; delete card.fsrsLapses;
+                    card.level = 0;   // card reverts to never-reviewed strength
                     delete card.lastRecall;
                 }
             } else {
