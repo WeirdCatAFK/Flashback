@@ -340,6 +340,7 @@
 
 /* Flat solid fills — no gradient, no elevation. */
 .trainer-grade--again { background: var(--color-review-again); }
+.trainer-grade--hard  { background: var(--color-review-hard); }
 .trainer-grade--good  { background: var(--color-review-good); }
 .trainer-grade--easy  { background: var(--color-review-easy); }
 

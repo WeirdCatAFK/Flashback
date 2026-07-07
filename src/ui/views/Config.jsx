@@ -3,7 +3,7 @@ import "./Config.css";
 import KeybindingsEditor from "../components/KeybindingsEditor";
 import ProgressDialog from "../components/shared/ProgressDialog";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
-import { migrateProgress } from "../api/srs";
+import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
 import {
   THEME_VARS,
@@ -600,6 +600,9 @@ function useSrsPrefs() {
   const [maxNew, setMaxNewState] = useState(
     () => parseInt(localStorage.getItem('fb-srs-max-new') ?? '20', 10),
   );
+  const [retention, setRetentionState] = useState(
+    () => Number(localStorage.getItem('fb-fsrs-retention')) || 0.9,
+  );
 
   const applyAlgorithm = (v) => {
     localStorage.setItem('fb-srs-algorithm', v);
@@ -610,8 +613,102 @@ function useSrsPrefs() {
     localStorage.setItem('fb-srs-max-new', String(n));
     setMaxNewState(n);
   };
+  const setRetention = (v) => {
+    const r = Math.max(0.7, Math.min(0.97, Number(v) || 0.9));
+    localStorage.setItem('fb-fsrs-retention', String(r));
+    setRetentionState(r);
+  };
 
-  return { algorithm, applyAlgorithm, maxNew, setMaxNew };
+  return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention };
+}
+
+// Display name for an algorithm id (used in the picker and migrate prompts).
+const ALGO_LABEL = { leitner: 'Leitner', sm2: 'SM-2', fsrs: 'FSRS' };
+const algoLabel = (a) => ALGO_LABEL[a] ?? a;
+
+// Per-vault FSRS optimizer panel. Shows how many rated reviews exist, when the
+// weights were last fitted, and runs the fit on demand (reporting before/after
+// loss). Rendered only while FSRS is the active algorithm.
+function FsrsOptimizer() {
+  const [info, setInfo] = useState(null);
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const load = () => {
+    getFsrsInfo().then(setInfo).catch(() => setInfo(null));
+  };
+  useEffect(load, []);
+
+  const enough = info && info.reviewCount >= info.minReviews;
+
+  const run = async () => {
+    setRunning(true);
+    setError(null);
+    setResult(null);
+    try {
+      const res = await optimizeFsrs();
+      setResult(res);
+      load();
+    } catch (e) {
+      setError(e?.message ?? 'Optimization failed');
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const fmtLoss = (n) => (typeof n === 'number' ? n.toFixed(4) : '—');
+  const fmtDate = (s) => {
+    if (!s) return null;
+    const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
+    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
+  };
+
+  return (
+    <div className="fsrs-optimizer">
+      <p className="config-hint">
+        Fit the memory model to your own review history for more accurate
+        scheduling. Needs at least {info?.minReviews ?? 400} graded reviews
+        {info != null && ` — you have ${info.reviewCount}`}.
+      </p>
+
+      {info?.optimizedAt && (
+        <p className="fsrs-optimizer-status">
+          Last fitted {fmtDate(info.optimizedAt)}
+          {info.weightReviewCount != null && ` from ${info.weightReviewCount} reviews`}.
+        </p>
+      )}
+      {info && !info.optimizedAt && (
+        <p className="fsrs-optimizer-status">Using default weights.</p>
+      )}
+
+      <button
+        type="button"
+        className="config-restart-btn config-restart-btn--primary"
+        onClick={run}
+        disabled={running || !enough}
+      >
+        {running ? 'Optimizing…' : 'Optimize FSRS parameters'}
+      </button>
+
+      {result && result.optimized && (
+        <p className="fsrs-optimizer-result">
+          Fitted from {result.reviewCount} reviews. Loss{' '}
+          {fmtLoss(result.initialLoss)} → <strong>{fmtLoss(result.loss)}</strong>
+          {result.loss < result.initialLoss
+            ? ' (improved).'
+            : ' (already near-optimal).'}
+        </p>
+      )}
+      {result && !result.optimized && (
+        <p className="fsrs-optimizer-result">
+          Not enough graded reviews yet ({result.reviewCount} of{' '}
+          {result.minReviews}). Keep reviewing and try again later.
+        </p>
+      )}
+      {error && <p className="fsrs-optimizer-error">{error}</p>}
+    </div>
+  );
 }
 
 // ── Main Config view ──────────────────────────────────────────────────────────
@@ -627,7 +724,7 @@ export default function ConfigView({
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
   const [restartPending, setRestartPending] = useState(false);
-  const { algorithm, applyAlgorithm, maxNew, setMaxNew } = useSrsPrefs();
+  const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention } = useSrsPrefs();
 
   // Algorithm migration confirm state.
   const [pendingAlgo, setPendingAlgo] = useState(null); // algorithm the user selected but hasn't confirmed
@@ -747,6 +844,7 @@ export default function ConfigView({
                 >
                   <option value="leitner">Leitner (doubles each level)</option>
                   <option value="sm2">SM-2 (ease factor)</option>
+                  <option value="fsrs">FSRS (memory model)</option>
                 </select>
               </td>
             </tr>
@@ -755,7 +853,7 @@ export default function ConfigView({
                 <td colSpan={2}>
                   <div className="algo-migrate-confirm">
                     <p className="algo-migrate-msg">
-                      Switch to <strong>{pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}</strong>?
+                      Switch to <strong>{algoLabel(pendingAlgo)}</strong>?
                     </p>
                     <div className="algo-migrate-actions">
                       <button type="button" className="algo-migrate-btn algo-migrate-btn--primary"
@@ -772,9 +870,43 @@ export default function ConfigView({
                       </button>
                     </div>
                     <p className="algo-migrate-hint">
-                      Carry over maps each card&rsquo;s current interval to the nearest equivalent in {pendingAlgo === 'sm2' ? 'SM-2' : 'Leitner'}.
+                      Carry over maps each card&rsquo;s current interval to the nearest equivalent in {algoLabel(pendingAlgo)}.
                     </p>
                   </div>
+                </td>
+              </tr>
+            )}
+            {algorithm === 'fsrs' && (
+              <tr>
+                <td>
+                  <label htmlFor="fsrs-retention">Desired retention</label>
+                </td>
+                <td>
+                  <div className="fsrs-retention-row">
+                    <input
+                      id="fsrs-retention"
+                      type="range"
+                      min={0.7}
+                      max={0.97}
+                      step={0.01}
+                      value={retention}
+                      onChange={(e) => setRetention(e.target.value)}
+                    />
+                    <span className="fsrs-retention-value">{Math.round(retention * 100)}%</span>
+                  </div>
+                  <p className="config-hint">
+                    Higher = more frequent reviews and stronger recall; lower = fewer reviews. 90% is a good default.
+                  </p>
+                </td>
+              </tr>
+            )}
+            {algorithm === 'fsrs' && (
+              <tr>
+                <td>
+                  <label>Optimize parameters</label>
+                </td>
+                <td>
+                  <FsrsOptimizer />
                 </td>
               </tr>
             )}

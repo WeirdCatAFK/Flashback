@@ -34,6 +34,8 @@ const tests = [
     'tests/tags.test.js',
     'tests/imports.test.js',
     'tests/clips.test.js',
+    'tests/fsrs.test.js',
+    'tests/fsrs.api.test.js',
     'tests/api/api.test.js',
 ];
 

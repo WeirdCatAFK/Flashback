@@ -2,7 +2,8 @@
 import * as m001 from './migrations/001_pre_beta.js';
 import * as m002 from './migrations/002_document_links.js';
 import * as m003 from './migrations/003_system_deck.js';
-const MIGRATIONS = [m001, m002, m003];
+import * as m004 from './migrations/004_fsrs.js';
+const MIGRATIONS = [m001, m002, m003, m004];
 
 function ensureVersionTable(db) {
     db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (

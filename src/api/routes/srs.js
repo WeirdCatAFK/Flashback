@@ -9,19 +9,27 @@ const norm = (p) => p ? path.normalize(p) : p;
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 // POST /api/srs/review
-// Body: { path?, flashcardHash, outcome, easeFactor, newLevel }
+// Body: { path?, flashcardHash, algorithm, ...algorithm-specific }
+//   leitner/sm2: outcome, easeFactor, newLevel (computed client-side)
+//   fsrs:        rating (1-4), requestRetention (server computes the schedule)
 // path is optional: document-linked cards include it so the sidecar is updated;
 // standalone cards (no document) omit it and only the DB is updated.
 router.post('/review', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
-    const { flashcardHash, outcome, easeFactor, newLevel, algorithm } = req.body;
-    if (!flashcardHash || outcome == null || easeFactor == null || newLevel == null) {
-        return res.status(400).json({ error: 'flashcardHash, outcome, easeFactor, and newLevel required' });
+    const { flashcardHash, outcome, easeFactor, newLevel, algorithm, rating, requestRetention } = req.body;
+    if (!flashcardHash) {
+        return res.status(400).json({ error: 'flashcardHash required' });
     }
+    if (algorithm === 'fsrs') {
+        if (rating == null) return res.status(400).json({ error: 'rating (1-4) required for fsrs' });
+    } else if (outcome == null || easeFactor == null || newLevel == null) {
+        return res.status(400).json({ error: 'outcome, easeFactor, and newLevel required' });
+    }
+    const opts = { rating, requestRetention };
     if (relPath) {
-        await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm);
+        await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     } else {
-        SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm);
+        SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     }
     res.json({ ok: true });
 }));
@@ -62,11 +70,28 @@ router.post('/migrate', catchError((req, res) => {
     if (!from || !to || from === to) {
         return res.status(400).json({ error: 'from and to are required and must differ' });
     }
-    if (!['leitner', 'sm2'].includes(from) || !['leitner', 'sm2'].includes(to)) {
-        return res.status(400).json({ error: 'from and to must be leitner or sm2' });
+    const ALGS = ['leitner', 'sm2', 'fsrs'];
+    if (!ALGS.includes(from) || !ALGS.includes(to)) {
+        return res.status(400).json({ error: 'from and to must be leitner, sm2, or fsrs' });
     }
     const count = SRS.migrateProgress(from, to);
     res.json({ ok: true, count });
+}));
+
+// POST /api/srs/optimize
+// Fits the vault's FSRS weights from its own rated review history and persists
+// them (no-op below the minimum-data threshold). Returns before/after loss and
+// review counts. No body required.
+router.post('/optimize', catchError((req, res) => {
+    const result = SRS.optimizeParameters();
+    res.json({ ok: true, ...result });
+}));
+
+// GET /api/srs/fsrs-info
+// Optimizer status for the Config panel: rated-review count, whether the weights
+// have been fitted, and when.
+router.get('/fsrs-info', catchError((req, res) => {
+    res.json(SRS.getFsrsInfo());
 }));
 
 // GET /api/srs/due

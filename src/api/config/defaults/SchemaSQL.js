@@ -90,6 +90,13 @@ addTable('Flashcards', (table) => {
     table.integer('level');
     table.integer('sm2_reps').notNullable().defaultTo(0);
     table.timestamp('last_recall').index();
+    // FSRS-6 per-card state (used when the active algorithm is 'fsrs')
+    table.float('fsrs_stability');
+    table.float('fsrs_difficulty');
+    table.timestamp('fsrs_due');
+    table.integer('fsrs_state').notNullable().defaultTo(0);
+    table.integer('fsrs_reps').notNullable().defaultTo(0);
+    table.integer('fsrs_lapses').notNullable().defaultTo(0);
     table.string('name', 255).index();
     table.string('origin', 500);
     table.float('presence').index();
@@ -120,6 +127,21 @@ addTable('ReviewLogs', (table) => {
     table.integer('outcome').index();
     table.float('ease_factor').index();
     table.integer('level').index();
+    // FSRS: the real 1–4 grade + post-review state snapshot (for undo & fitting)
+    table.integer('rating');
+    table.float('fsrs_stability');
+    table.float('fsrs_difficulty');
+    table.timestamp('fsrs_due');
+    table.integer('fsrs_state');
+});
+
+// Active FSRS weight vector for this vault (single row; seeded lazily with
+// published defaults on first read). Derived data, so it lives in the DB.
+addTable('FsrsParameters', (table) => {
+    table.increments('id').primary();
+    table.text('weights_json').notNullable();
+    table.timestamp('optimized_at');
+    table.integer('review_count');
 });
 
 addTable('Tags', (table) => {

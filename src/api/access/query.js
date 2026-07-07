@@ -118,7 +118,9 @@ class DocumentQuery {
     // --- Flashcards ---
 
     getFlashcardsByDocument(documentId) {
-        return this.db.prepare('SELECT id, node_id, global_hash, level, sm2_reps, last_recall, content_id, card_type FROM Flashcards WHERE document_id = ?').all(documentId);
+        return this.db.prepare(`SELECT id, node_id, global_hash, level, sm2_reps, last_recall,
+            fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
+            content_id, card_type FROM Flashcards WHERE document_id = ?`).all(documentId);
     }
 
     getFlashcardCountsByFolder(folderId) {
@@ -215,12 +217,16 @@ class DocumentQuery {
 
         // 3. Main Entry
         const stmt = this.db.prepare(`
-            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, sm2_reps, name, fileIndex, presence, card_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, sm2_reps,
+                fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
+                name, fileIndex, presence, card_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
         `);
         return stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
             contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.sm2Reps || 0,
+            data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
+            data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
             data.name || null, data.fileIndex || 0, data.cardType || 'basic'
         );
     }
@@ -234,9 +240,16 @@ class DocumentQuery {
 
         this.db.prepare(`
             UPDATE Flashcards
-            SET last_recall = ?, level = ?, sm2_reps = ?, category_id = ?, name = ?, fileIndex = ?, card_type = ?
+            SET last_recall = ?, level = ?, sm2_reps = ?,
+                fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?,
+                category_id = ?, name = ?, fileIndex = ?, card_type = ?
             WHERE id = ?
-        `).run(data.lastRecall, data.level ?? 0, data.sm2Reps ?? 0, categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id);
+        `).run(
+            data.lastRecall, data.level ?? 0, data.sm2Reps ?? 0,
+            data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
+            data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
+            categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id,
+        );
 
         // Content
         const contentUpdates = [];
@@ -285,7 +298,28 @@ class DocumentQuery {
     }
 
     getAllFlashcardSrsState() {
-        return this.db.prepare('SELECT global_hash, level, sm2_reps, last_recall FROM Flashcards').all();
+        return this.db.prepare(
+            'SELECT global_hash, level, sm2_reps, last_recall, fsrs_stability FROM Flashcards'
+        ).all();
+    }
+
+    // Batch-seed FSRS state during an algorithm migration (keyed by global_hash).
+    batchSetFsrsState(cards) {
+        const stmt = this.db.prepare(`
+            UPDATE Flashcards SET
+                fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?,
+                fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?, last_recall = ?
+            WHERE global_hash = ?
+        `);
+        this.db.transaction((rows) => {
+            for (const c of rows) {
+                stmt.run(
+                    c.fsrsStability ?? null, c.fsrsDifficulty ?? null, c.fsrsDue ?? null,
+                    c.fsrsState ?? 0, c.fsrsReps ?? 0, c.fsrsLapses ?? 0, c.lastRecall ?? null,
+                    c.global_hash,
+                );
+            }
+        })(cards);
     }
 
     getLatestEaseFactors() {
@@ -330,10 +364,78 @@ class DocumentQuery {
     }
 
     insertReviewLog(data) {
+        // FSRS fields (rating + post-review snapshot) default to null so the
+        // existing Leitner/SM-2 callers keep working unchanged.
         this.db.prepare(`
-            INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level)
-            VALUES (?, ?, ?, ?, ?)
-        `).run(data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level);
+            INSERT INTO ReviewLogs
+                (flashcard_id, timestamp, outcome, ease_factor, level,
+                 rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level,
+            data.rating ?? null,
+            data.fsrsStability ?? null,
+            data.fsrsDifficulty ?? null,
+            data.fsrsDue ?? null,
+            data.fsrsState ?? null,
+        );
+    }
+
+    // --- FSRS per-card state ---
+
+    // Load a card's FSRS record shaped for access/fsrs.js (last_recall aliased to
+    // last_review). Fields are null for a card never reviewed under FSRS.
+    getFlashcardFsrsState(id) {
+        return this.db.prepare(`
+            SELECT fsrs_stability AS stability, fsrs_difficulty AS difficulty,
+                   fsrs_due AS due, fsrs_state AS state,
+                   fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
+            FROM Flashcards WHERE id = ?
+        `).get(id);
+    }
+
+    // Persist a computed FSRS state (from fsrs.nextState) back onto the card.
+    updateFlashcardFsrs(id, s) {
+        this.db.prepare(`
+            UPDATE Flashcards SET
+                last_recall = ?, fsrs_stability = ?, fsrs_difficulty = ?,
+                fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?
+            WHERE id = ?
+        `).run(s.last_review, s.stability, s.difficulty, s.due, s.state, s.reps, s.lapses, id);
+    }
+
+    // --- FSRS weight vector (single-row FsrsParameters) ---
+
+    getFsrsWeights() {
+        const row = this.db.prepare(
+            'SELECT weights_json, review_count, optimized_at FROM FsrsParameters ORDER BY id DESC LIMIT 1'
+        ).get();
+        if (!row) return null;
+        return {
+            weights: JSON.parse(row.weights_json),
+            reviewCount: row.review_count,
+            optimizedAt: row.optimized_at,
+        };
+    }
+
+    setFsrsWeights(weightsJson, reviewCount) {
+        this.db.transaction(() => {
+            this.db.prepare('DELETE FROM FsrsParameters').run();
+            this.db.prepare(
+                "INSERT INTO FsrsParameters (weights_json, optimized_at, review_count) VALUES (?, datetime('now'), ?)"
+            ).run(weightsJson, reviewCount);
+        })();
+    }
+
+    // Every FSRS-rated review across the vault, grouped/ordered per card, for the
+    // parameter optimizer. Excludes pre-FSRS logs (rating IS NULL).
+    getAllReviewHistories() {
+        return this.db.prepare(`
+            SELECT flashcard_id, timestamp, rating
+            FROM ReviewLogs
+            WHERE rating IS NOT NULL
+            ORDER BY flashcard_id ASC, id ASC
+        `).all();
     }
 
     // Undo support: drop a card's most recent review so a misgraded result can be
@@ -350,9 +452,11 @@ class DocumentQuery {
     // The card's now-latest review after an undo — the state to restore it to.
     // Null when no reviews remain (the card is new again).
     getLatestReviewLog(flashcardId) {
-        return this.db.prepare(
-            'SELECT timestamp, outcome, ease_factor, level FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1'
-        ).get(flashcardId) ?? null;
+        return this.db.prepare(`
+            SELECT timestamp, outcome, ease_factor, level,
+                   rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
+            FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1
+        `).get(flashcardId) ?? null;
     }
 
     // Restore a card's SRS state after an undo. Mirrors updateFlashcardReview but
@@ -460,17 +564,24 @@ class DocumentQuery {
                 ELSE min(365, CAST(pow(2.0, CAST(COALESCE(f.level, 0) - 1 AS REAL)) AS INTEGER))
                END`;
 
+        const isFsrs = algorithm === 'fsrs';
+
         // Expose the algorithm-relevant count as "level" so the frontend shows a
-        // meaningful number regardless of which algorithm is active.
-        const levelExpr = algorithm === 'sm2'
-            ? 'COALESCE(f.sm2_reps, 0)'
-            : 'COALESCE(f.level, 0)';
+        // meaningful number regardless of which algorithm is active. For FSRS the
+        // stability (rounded, in days) is the natural "strength" number.
+        const levelExpr = isFsrs
+            ? 'CAST(ROUND(COALESCE(f.fsrs_stability, 0)) AS INTEGER)'
+            : algorithm === 'sm2'
+                ? 'COALESCE(f.sm2_reps, 0)'
+                : 'COALESCE(f.level, 0)';
 
         cteParts.push(`cards AS (
             SELECT
                 f.global_hash,
                 ${levelExpr} AS level,
                 f.last_recall,
+                f.fsrs_due,
+                f.fsrs_state,
                 f.name,
                 f.card_type,
                 d.relative_path AS document_path,
@@ -495,18 +606,38 @@ class DocumentQuery {
             ${extraWhere}
         )`);
 
-        const allRows = this.db.prepare(`
-            WITH RECURSIVE ${cteParts.join(',\n')}
-            SELECT *,
-              CASE
+        // Due-date & status are derived from a formula over last_recall for
+        // Leitner/SM-2, but FSRS stores an explicit next-due datetime (fsrs_due),
+        // so it reads that column directly and keys "new" off fsrs_state.
+        // fsrs_due is stored as a JS ISO string (has 'T'/'Z'/millis); normalize it
+        // through SQLite datetime() so it matches the "YYYY-MM-DD HH:MM:SS" format
+        // the rest of the pipeline (comparisons, sort, and the frontend's
+        // formatNextDue) expects. Comparing the raw ISO string against
+        // datetime('now') mis-sorts on same-day boundaries ('T' vs ' ').
+        const dueDateExpr = isFsrs
+            ? 'datetime(fsrs_due)'
+            : `CASE
                 WHEN last_recall IS NULL THEN NULL
                 ELSE datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days')
-              END AS due_date,
-              CASE
+              END`;
+
+        const statusExpr = isFsrs
+            ? `CASE
+                WHEN fsrs_state = 0 OR fsrs_due IS NULL THEN 'new'
+                WHEN datetime(fsrs_due) <= datetime('now') THEN 'due'
+                ELSE 'future'
+              END`
+            : `CASE
                 WHEN last_recall IS NULL THEN 'new'
                 WHEN datetime(last_recall, '+' || CAST(interval_days AS TEXT) || ' days') <= datetime('now') THEN 'due'
                 ELSE 'future'
-              END AS _status
+              END`;
+
+        const allRows = this.db.prepare(`
+            WITH RECURSIVE ${cteParts.join(',\n')}
+            SELECT *,
+              ${dueDateExpr} AS due_date,
+              ${statusExpr} AS _status
             FROM cards
         `).all(...params);
 

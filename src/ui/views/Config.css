@@ -528,3 +528,44 @@
   font-family: monospace;
 }
 
+
+/* FSRS desired-retention slider row */
+.fsrs-retention-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.fsrs-retention-row input[type="range"] {
+  flex: 1;
+  accent-color: var(--color-accent);
+}
+.fsrs-retention-value {
+  min-width: 3ch;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.fsrs-optimizer {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+.fsrs-optimizer .config-hint {
+  margin: 0;
+}
+.fsrs-optimizer-status {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+.fsrs-optimizer-result {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-text);
+}
+.fsrs-optimizer-error {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--color-danger);
+}

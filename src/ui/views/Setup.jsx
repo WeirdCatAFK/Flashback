@@ -147,6 +147,17 @@ function StepVault({ state, onChange, onNext, onBack }) {
             <span className="ob-algo-name">Leitner</span>
             <span className="ob-algo-desc">Box system — intervals double each level. Simple and effective.</span>
           </label>
+          <label className={`ob-algo-option${algorithm === 'fsrs' ? ' ob-algo-option--active' : ''}`}>
+            <input
+              type="radio"
+              name="ob-algorithm"
+              value="fsrs"
+              checked={algorithm === 'fsrs'}
+              onChange={() => onChange("algorithm", "fsrs")}
+            />
+            <span className="ob-algo-name">FSRS</span>
+            <span className="ob-algo-desc">Memory model — predicts recall to minimise reviews. Most efficient; the modern default.</span>
+          </label>
         </div>
         <span className="ob-field-msg">You can change this later in Settings → Flashcards.</span>
       </div>
@@ -275,7 +286,7 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
         <div className="ob-summary-divider" />
         <div className="ob-summary-row">
           <span className="ob-summary-key">SRS algorithm</span>
-          <span className="ob-summary-val">{algorithm === 'sm2' ? 'SM-2' : 'Leitner'}</span>
+          <span className="ob-summary-val">{algorithm === 'sm2' ? 'SM-2' : algorithm === 'fsrs' ? 'FSRS' : 'Leitner'}</span>
         </div>
         <div className="ob-summary-row">
           <span className="ob-summary-key">API port</span>

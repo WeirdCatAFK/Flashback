@@ -67,6 +67,7 @@
   --color-hl-4:        #FBCFE8;
   /* review grade swatches */
   --color-review-again:   #FCA5A5;
+  --color-review-hard:    #FCD34D;
   --color-review-good:    #86EFAC;
   --color-review-easy:    #93C5FD;
   /* graph node & link colors (override individually per theme if desired) */
@@ -110,6 +111,7 @@
   --color-hl-4:        #9D174D;
   /* review grade swatches */
   --color-review-again:   #EF4444;
+  --color-review-hard:    #F59E0B;
   --color-review-good:    #22C55E;
   --color-review-easy:    #3B82F6;
   /* graph node & link colors */
@@ -159,6 +161,7 @@
 
   /* review grade swatches */
   --color-review-again:   #FF5252;
+  --color-review-hard:    #FFA726;
   --color-review-good:    #66BB6A;
   --color-review-easy:    #42A5F5;
 
@@ -212,6 +215,7 @@
 
   /* review grade swatches */
   --color-review-again:   #FB7185;
+  --color-review-hard:    #FBBF24;
   --color-review-good:    #4ADE80;
   --color-review-easy:    #60A5FA;
 
@@ -259,6 +263,7 @@
   --color-hl-4:        #FB7185;
   /* review grade swatches */
   --color-review-again:   #FB7185;
+  --color-review-hard:    #FBBF24;
   --color-review-good:    #34D399;
   --color-review-easy:    #22D3EE;
   /* graph node & link colors */

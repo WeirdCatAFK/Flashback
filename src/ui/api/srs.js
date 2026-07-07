@@ -3,14 +3,27 @@ import { request } from './client.js';
 export const getStats = () =>
   request('GET', '/api/srs/stats');
 
-export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm) =>
-  request('POST', '/api/srs/review', { path, flashcardHash, outcome, easeFactor, newLevel, algorithm });
+// opts carries the FSRS-only fields { rating, requestRetention }; Leitner/SM-2
+// ignore them and rely on the client-computed outcome/easeFactor/newLevel.
+export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts = {}) =>
+  request('POST', '/api/srs/review', {
+    path, flashcardHash, outcome, easeFactor, newLevel, algorithm,
+    rating: opts.rating, requestRetention: opts.requestRetention,
+  });
 
 export const undoReview = (path, flashcardHash, algorithm) =>
   request('POST', '/api/srs/undo', { path, flashcardHash, algorithm });
 
 export const migrateProgress = (from, to) =>
   request('POST', '/api/srs/migrate', { from, to });
+
+// FSRS per-vault optimizer: fit the weights from this vault's review history.
+export const optimizeFsrs = () =>
+  request('POST', '/api/srs/optimize');
+
+// Optimizer status (rated-review count, last-optimized timestamp) for Config.
+export const getFsrsInfo = () =>
+  request('GET', '/api/srs/fsrs-info');
 
 export const getDue = ({ algorithm, folder, deck, tags, maxNew, minPriority } = {}) => {
   const qs = new URLSearchParams();

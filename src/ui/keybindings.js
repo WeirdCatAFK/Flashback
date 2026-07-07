@@ -35,11 +35,14 @@ export const KEYBINDING_ACTIONS = [
   {
     group: 'Trainer',
     actions: [
+      // Unified Anki-style numbering: 1=Again, 2=Hard, 3=Good, 4=Easy. "Hard"
+      // only appears under FSRS; Leitner/SM-2 use 1/3/4 (2 is inert for them).
       { id: 'trainer.reveal',     label: 'Reveal answer', default: ['Space', 'Enter'] },
       { id: 'trainer.gradeAgain', label: 'Grade · Again', default: ['1'] },
-      { id: 'trainer.gradeGood',  label: 'Grade · Good',  default: ['2'] },
-      { id: 'trainer.gradeEasy',  label: 'Grade · Easy',  default: ['3'] },
-      { id: 'trainer.undo',       label: 'Undo last grade', default: ['4'] },
+      { id: 'trainer.gradeHard',  label: 'Grade · Hard (FSRS)', default: ['2'] },
+      { id: 'trainer.gradeGood',  label: 'Grade · Good',  default: ['3'] },
+      { id: 'trainer.gradeEasy',  label: 'Grade · Easy',  default: ['4'] },
+      { id: 'trainer.undo',       label: 'Undo last grade', default: ['Backspace'] },
       { id: 'trainer.viewSource', label: 'View source',   default: ['S'] },
     ],
   },

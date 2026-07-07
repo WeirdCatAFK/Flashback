@@ -23,12 +23,27 @@ const GRADES = {
   easy:  { label: 'Easy',  outcome: 1, ease:  0.15, level: (l) => l + 2, kind: 'accept', action: 'trainer.gradeEasy' },
 };
 
+// FSRS uses a four-button rating (Again/Hard/Good/Easy → 1..4). The schedule is
+// computed server-side, so unlike GRADES these carry no client-side level/ease
+// math — just the rating and the exit flight (`kind`).
+const FSRS_GRADES = {
+  again: { label: 'Again', rating: 1, kind: 'reject', action: 'trainer.gradeAgain' },
+  hard:  { label: 'Hard',  rating: 2, kind: 'reject', action: 'trainer.gradeHard' },
+  good:  { label: 'Good',  rating: 3, kind: 'accept', action: 'trainer.gradeGood' },
+  easy:  { label: 'Easy',  rating: 4, kind: 'accept', action: 'trainer.gradeEasy' },
+};
+
+const gradesFor = (algorithm) => (algorithm === 'fsrs' ? FSRS_GRADES : GRADES);
+
 const MAX_DECK = 5; // how many cards we draw behind the live one
 
 function formatNextDue(sqliteStr) {
   if (!sqliteStr) return null;
-  // SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" (UTC, no tz suffix)
-  const next = new Date(sqliteStr.replace(' ', 'T') + 'Z');
+  // SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" (UTC, no tz suffix); an ISO
+  // string (already containing 'T') is parsed as-is so we never build "...ZZ".
+  const iso = sqliteStr.includes('T') ? sqliteStr : sqliteStr.replace(' ', 'T') + 'Z';
+  const next = new Date(iso);
+  if (Number.isNaN(next.getTime())) return null;
   const diffMs = next - Date.now();
   if (diffMs <= 0) return 'now';
   const mins  = Math.round(diffMs / 60_000);
@@ -480,8 +495,23 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   const handleGrade = (key) => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const g = GRADES[key];
     const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+
+    if (algorithm === 'fsrs') {
+      const g = FSRS_GRADES[key];
+      const requestRetention = Number(localStorage.getItem('fb-fsrs-retention')) || 0.9;
+      // FSRS grading is computed server-side; we only send the rating. Optimistic
+      // UI advance; a failed write is surfaced, never silent.
+      submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention })
+        .catch((err) => {
+          console.error(err);
+          onSaveErrorRef.current?.(err);
+        });
+      onResult({ key, success: g.rating > 1, toLevel: card.level ?? 0, easeFactor: card.easeFactor ?? 2.5 });
+      return;
+    }
+
+    const g = GRADES[key];
     const easeFactor = Math.min(3.0, Math.max(1.3, (card.easeFactor ?? 2.5) + g.ease));
     const fromLevel = card.level ?? 0;
     const rawLevel = g.level(fromLevel);
@@ -501,7 +531,10 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   const handleSwipe = (dir) => handleGrade(dir === 'right' ? 'good' : 'again');
 
   const gradeWithAnimation = (key) => {
-    Promise.resolve(cardRef.current?.flyOut(GRADES[key].kind)).then((ok) => {
+    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+    const g = gradesFor(algorithm)[key];
+    if (!g) return;
+    Promise.resolve(cardRef.current?.flyOut(g.kind)).then((ok) => {
       if (ok !== false) handleGrade(key);
     });
   };
@@ -535,7 +568,8 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
         }
         return;
       }
-      for (const [gkey, g] of Object.entries(GRADES)) {
+      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+      for (const [gkey, g] of Object.entries(gradesFor(algorithm))) {
         if (hits(g.action)) { e.preventDefault(); gradeWithAnimationRef.current(gkey); break; }
       }
     };
@@ -585,7 +619,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
       {flipped && (
         <div className="trainer-grades">
-          {Object.entries(GRADES).map(([key, g]) => (
+          {Object.entries(gradesFor(localStorage.getItem('fb-srs-algorithm') ?? 'sm2')).map(([key, g]) => (
             <button type="button"
               key={key}
               className={`trainer-grade trainer-grade--${key}`}
@@ -593,7 +627,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
             >
               {keymap[g.action]?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap[g.action][0])}</kbd>}
               <span className="grade-label">{g.label}</span>
-              <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>
+              {g.level && <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>}
             </button>
           ))}
           <button type="button"

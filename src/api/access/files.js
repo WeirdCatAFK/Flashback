@@ -172,6 +172,8 @@ _regenerateIdentities(absPath) {
                         fc.globalHash = crypto.randomUUID();
                         fc.level = 0;
                         delete fc.lastRecall;
+                        delete fc.fsrsStability; delete fc.fsrsDifficulty; delete fc.fsrsDue;
+                        delete fc.fsrsState; delete fc.fsrsReps; delete fc.fsrsLapses;
                     }
                 }
 
@@ -574,6 +576,8 @@ _regenerateIdentities(absPath) {
                         fc.globalHash = crypto.randomUUID();
                         fc.level = 0;
                         delete fc.lastRecall;
+                        delete fc.fsrsStability; delete fc.fsrsDifficulty; delete fc.fsrsDue;
+                        delete fc.fsrsState; delete fc.fsrsReps; delete fc.fsrsLapses;
                     }
                 }
 

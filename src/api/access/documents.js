@@ -956,6 +956,8 @@ export default class Documents {
                                 fc.globalHash = crypto.randomUUID();
                                 fc.level = 0;
                                 delete fc.lastRecall;
+                                delete fc.fsrsStability; delete fc.fsrsDifficulty; delete fc.fsrsDue;
+                                delete fc.fsrsState; delete fc.fsrsReps; delete fc.fsrsLapses;
                             });
                         }
                     }
@@ -1087,22 +1089,34 @@ export default class Documents {
 
     // --- SRS Support ---
 
-    async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner') {
+    async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
         if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
 
-        if (algorithm === 'sm2') {
-            card.sm2Reps = newLevel;
+        // Persist to the derived layer first. For FSRS the schedule is computed
+        // server-side, so we mirror the returned state into the sidecar; for
+        // Leitner/SM-2 the client-computed scalar is authoritative.
+        const { documentId, fsrs } = this.srs.submitReview(
+            flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
+        );
+
+        if (algorithm === 'fsrs' && fsrs) {
+            card.fsrsStability = fsrs.stability;
+            card.fsrsDifficulty = fsrs.difficulty;
+            card.fsrsDue = fsrs.due;
+            card.fsrsState = fsrs.state;
+            card.fsrsReps = fsrs.reps;
+            card.fsrsLapses = fsrs.lapses;
+            card.lastRecall = fsrs.last_review;
         } else {
-            card.level = newLevel;
+            if (algorithm === 'sm2') card.sm2Reps = newLevel; else card.level = newLevel;
+            card.easeFactor = easeFactor;
+            card.lastRecall = new Date().toISOString();
         }
-        card.easeFactor = easeFactor;
-        card.lastRecall = new Date().toISOString();
         this.files.writeMetadata(relativePath, metadata);
 
-        const docId = this.srs.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm);
-        this.propagatePresence(docId);
+        this.propagatePresence(documentId);
         await sealEmitter.edit(relativePath + '.flashback');
     }
 
@@ -1115,15 +1129,32 @@ export default class Documents {
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
         if (card) {
-            const value = restored ? restored.value : 0;
-            if (algorithm === 'sm2') card.sm2Reps = value; else card.level = value;
-            if (restored) {
-                card.easeFactor = restored.easeFactor;
+            if (algorithm === 'fsrs') {
+                if (restored) {
+                    card.fsrsStability = restored.stability;
+                    card.fsrsDifficulty = restored.difficulty;
+                    card.fsrsDue = restored.due;
+                    card.fsrsState = restored.state;
+                    card.fsrsReps = restored.reps;
+                    card.fsrsLapses = restored.lapses;
+                    if (restored.lastRecall) card.lastRecall = restored.lastRecall;
+                    else delete card.lastRecall;
+                } else {
+                    delete card.fsrsStability; delete card.fsrsDifficulty; delete card.fsrsDue;
+                    delete card.fsrsState; delete card.fsrsReps; delete card.fsrsLapses;
+                    delete card.lastRecall;
+                }
             } else {
-                delete card.easeFactor;
+                const value = restored ? restored.value : 0;
+                if (algorithm === 'sm2') card.sm2Reps = value; else card.level = value;
+                if (restored) {
+                    card.easeFactor = restored.easeFactor;
+                } else {
+                    delete card.easeFactor;
+                }
+                if (restored?.lastRecall) card.lastRecall = restored.lastRecall;
+                else delete card.lastRecall;
             }
-            if (restored?.lastRecall) card.lastRecall = restored.lastRecall;
-            else delete card.lastRecall;
             this.files.writeMetadata(relativePath, metadata);
             await sealEmitter.edit(relativePath + '.flashback');
         }
@@ -1231,8 +1262,24 @@ export default class Documents {
                     ? fcData.lastRecall
                     : (match.last_recall ?? fcData.lastRecall);
 
+                // FSRS state isn't a monotonic scalar, so it can't be max-merged.
+                // Take it from whichever side carries the more recent review; when
+                // the sidecar is newer (or equal) fcData already holds it, otherwise
+                // override with the DB row's snapshot.
+                const sidecarNewer = fcData.lastRecall
+                    && (!match.last_recall || fcData.lastRecall >= match.last_recall);
+                const fsrsFromDb = sidecarNewer ? {} : {
+                    fsrsStability: match.fsrs_stability,
+                    fsrsDifficulty: match.fsrs_difficulty,
+                    fsrsDue: match.fsrs_due,
+                    fsrsState: match.fsrs_state,
+                    fsrsReps: match.fsrs_reps,
+                    fsrsLapses: match.fsrs_lapses,
+                };
+
                 this.query.updateFlashcard(match.id, {
                     ...fcData,
+                    ...fsrsFromDb,
                     level: mergedLevel,
                     sm2Reps: mergedSm2Reps,
                     lastRecall: mergedRecall,
