@@ -196,7 +196,23 @@ export default function EpubRenderer({
         const iframe = contents.document?.defaultView?.frameElement;
         const io = iframe?.getBoundingClientRect();
         if (r && io) {
-          rect = { top: r.top + io.top, left: r.left + io.left, width: r.width, height: r.height };
+          // `r` comes from range.getBoundingClientRect() *inside* the section
+          // iframe, which stays in the iframe's own layout pixels; `io` is the
+          // iframe element measured in the top document, whose coordinates ARE
+          // scaled by the page zoom. When zoom ≠ 100% (Chromium stores it per
+          // origin, so a packaged file:// build can differ from dev) the two are
+          // in different scales and composing them directly makes the toolbar
+          // drift a little further each page. Scale the in-iframe rect by the
+          // iframe's rendered/layout ratio (the effective zoom) first; this is
+          // a no-op at 100%.
+          const scaleX = iframe.offsetWidth ? io.width / iframe.offsetWidth : 1;
+          const scaleY = iframe.offsetHeight ? io.height / iframe.offsetHeight : 1;
+          rect = {
+            top:    io.top  + r.top   * scaleY,
+            left:   io.left + r.left  * scaleX,
+            width:  r.width  * scaleX,
+            height: r.height * scaleY,
+          };
         }
       } catch { /* ignore */ }
       pendingSelRef.current = { cfiRange, text };
