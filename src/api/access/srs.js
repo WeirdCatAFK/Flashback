@@ -207,6 +207,91 @@ class SRSService {
         };
     }
 
+    // Vault-wide analytics for the Stats view. Algorithm-aware because a card's
+    // interval/maturity/next-due are derived differently per scheduler; the active
+    // algorithm is passed from the client (like getDue). All read-only.
+    //
+    // Returns { algorithm, totals, maturity, forecast, overdue, activity, streak }.
+    getStatistics({ algorithm = 'leitner' } = {}) {
+        const DAY = 86400000;
+        const MATURE_DAYS = 21;      // Anki's convention: interval ≥ 21d ⇒ "mature"
+        const FORECAST_DAYS = 14;
+
+        const cards = query.getAllFlashcardSrsState();
+        const efMap = algorithm === 'sm2' ? query.getLatestEaseFactors() : null;
+
+        // Scheduled interval (days) for a card under the active algorithm.
+        const intervalOf = (c) => {
+            if (algorithm === 'fsrs') return c.fsrs_stability != null ? fsrs.intervalFromStability(c.fsrs_stability, 0.9) : 0;
+            if (algorithm === 'sm2') return sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5);
+            return leitnerInterval(c.level ?? 0);
+        };
+        const isReviewed = (c) => (algorithm === 'fsrs'
+            ? (c.fsrs_state ?? 0) !== 0 && c.fsrs_stability != null
+            : !!c.last_recall);
+        const dueDateOf = (c) => {
+            if (algorithm === 'fsrs') return c.fsrs_due ? new Date(c.fsrs_due) : null;
+            if (!c.last_recall) return null;
+            return new Date(new Date(c.last_recall).getTime() + intervalOf(c) * DAY);
+        };
+
+        const now = new Date();
+        // Work in UTC days so bucketing matches SQLite's date(timestamp).
+        const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+        const dayStr = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+        let neu = 0, young = 0, mature = 0, overdue = 0;
+        const forecast = new Array(FORECAST_DAYS).fill(0);
+        for (const c of cards) {
+            if (!isReviewed(c)) { neu++; continue; }
+            if (intervalOf(c) >= MATURE_DAYS) mature++; else young++;
+
+            const due = dueDateOf(c);
+            if (!due) continue;
+            const offset = Math.floor((due.getTime() - todayMs) / DAY);
+            if (offset < 0) overdue++;
+            else if (offset < FORECAST_DAYS) forecast[offset]++;
+        }
+
+        const since30 = dayStr(todayMs - 30 * DAY);
+        const since365 = dayStr(todayMs - 364 * DAY);
+        const allTotals = query.getReviewTotals();
+        const totals30 = query.getReviewTotals(since30);
+        const activity = query.getReviewActivity(since365);
+        const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
+
+        // Study streaks from the activity days (ordered ASC, UTC 'YYYY-MM-DD').
+        const daySet = new Set(activity.filter(a => a.total > 0).map(a => a.day));
+        let current = 0;
+        let cursor = daySet.has(dayStr(todayMs)) ? todayMs : todayMs - DAY;
+        while (daySet.has(dayStr(cursor))) { current++; cursor -= DAY; }
+        let longest = 0, run = 0, prev = null;
+        for (const a of activity) {
+            if (a.total <= 0) continue;
+            const ms = Date.parse(a.day);
+            run = (prev !== null && ms - prev === DAY) ? run + 1 : 1;
+            prev = ms;
+            if (run > longest) longest = run;
+        }
+
+        return {
+            algorithm,
+            totals: {
+                cards: cards.length,
+                reviews: allTotals.total ?? 0,
+                reviewsToday: activity.find(a => a.day === dayStr(todayMs))?.total ?? 0,
+                retentionAll: retention(allTotals),
+                retention30: retention(totals30),
+                daysStudied: daySet.size,
+            },
+            maturity: { new: neu, young, mature },
+            forecast: forecast.map((due, i) => ({ date: dayStr(todayMs + i * DAY), due })),
+            overdue,
+            activity,
+            streak: { current, longest },
+        };
+    }
+
     migrateProgress(from, to) {
         if (from === to) return 0;
 

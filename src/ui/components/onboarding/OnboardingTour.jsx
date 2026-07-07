@@ -7,6 +7,7 @@ import IconGraph from "../icons/IconGraph";
 import IconTrainer from "../icons/IconTrainer";
 import IconManage from "../icons/IconManage";
 import IconSeal from "../icons/IconSeal";
+import IconStats from "../icons/IconStats";
 import "./OnboardingTour.css";
 
 /**
@@ -87,7 +88,14 @@ const STEPS = [
     view: "trainer",
     Icon: IconTrainer,
     title: "The Trainer",
-    body: "Review what's due and grade each card Again, Good, or Easy — all from the keyboard (1/2/3). Choose Leitner or SM-2 as your scheduling algorithm and Flashback plans the rest.",
+    body: "Review what's due and grade each card from the keyboard. Choose Leitner, SM-2, or FSRS as your scheduling algorithm and Flashback plans the rest.",
+  },
+  {
+    target: '[data-tour="nav-stats"]',
+    view: "stats",
+    Icon: IconStats,
+    title: "Track your progress",
+    body: "See how your vault is doing at a glance — retention, review activity, card maturity, and what's coming due. All read-only, derived from your review history.",
   },
   {
     target: '[data-tour="nav-seal"]',

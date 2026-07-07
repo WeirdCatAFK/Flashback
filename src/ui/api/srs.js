@@ -3,6 +3,10 @@ import { request } from './client.js';
 export const getStats = () =>
   request('GET', '/api/srs/stats');
 
+// Vault-wide analytics for the Stats view; algorithm-aware (defaults server-side).
+export const getStatistics = (algorithm) =>
+  request('GET', `/api/srs/statistics${algorithm ? `?algorithm=${encodeURIComponent(algorithm)}` : ''}`);
+
 // opts carries the FSRS-only fields { rating, requestRetention }; Leitner/SM-2
 // ignore them and rely on the client-computed outcome/easeFactor/newLevel.
 export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts = {}) =>

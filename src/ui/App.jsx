@@ -9,6 +9,7 @@ import IconTrainer from "./components/icons/IconTrainer";
 import IconConfig from "./components/icons/IconConfig";
 import IconSeal from "./components/icons/IconSeal";
 import IconManage from "./components/icons/IconManage";
+import IconStats from "./components/icons/IconStats";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
@@ -18,7 +19,7 @@ import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
 import { relocatePath } from "./utils/relocatePath";
 
-const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'seal', 'manage', 'config'];
+const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'seal', 'manage', 'config'];
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
@@ -28,6 +29,7 @@ const TrainerView    = lazy(() => import("./views/Trainer"));
 const ConfigView     = lazy(() => import("./views/Config"));
 const SealView       = lazy(() => import("./views/Seal"));
 const ManageView     = lazy(() => import("./views/Manage"));
+const StatsView      = lazy(() => import("./views/Stats"));
 
 const NAV_ITEMS = [
   { id: "documents",  Icon: IconDocuments,  label: "Documents" },
@@ -35,6 +37,7 @@ const NAV_ITEMS = [
   { id: "decks",      Icon: IconDecks,      label: "Decks" },
   { id: "graph",      Icon: IconGraph,      label: "Graph" },
   { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
+  { id: "stats",      Icon: IconStats,      label: "Statistics" },
   { id: "seal",       Icon: IconSeal,       label: "Seal" },
   { id: "manage",     Icon: IconManage,     label: "Manage" },
 ];
@@ -199,6 +202,7 @@ export default function App() {
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView isActive={activeView === 'seal'} />;
       case "manage":     return <ManageView isActive={activeView === 'manage'} />;
+      case "stats":      return <StatsView isActive={activeView === 'stats'} />;
       case "config":     return (
         <ConfigView
           theme={theme}

@@ -542,7 +542,7 @@
 .fsrs-retention-value {
   min-width: 3ch;
   font-variant-numeric: tabular-nums;
-  color: var(--color-text);
+  color: var(--color-fg-primary);
 }
 
 .fsrs-optimizer {
@@ -557,12 +557,12 @@
 .fsrs-optimizer-status {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--color-text-muted);
+  color: var(--color-fg-secondary);
 }
 .fsrs-optimizer-result {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--color-text);
+  color: var(--color-fg-primary);
 }
 .fsrs-optimizer-error {
   margin: 0;

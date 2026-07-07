@@ -299,7 +299,7 @@ class DocumentQuery {
 
     getAllFlashcardSrsState() {
         return this.db.prepare(
-            'SELECT global_hash, level, sm2_reps, last_recall, fsrs_stability FROM Flashcards'
+            'SELECT global_hash, level, sm2_reps, last_recall, fsrs_stability, fsrs_due, fsrs_state FROM Flashcards'
         ).all();
     }
 
@@ -482,6 +482,41 @@ class DocumentQuery {
 
     getMasteredFlashcardCount(threshold) {
         return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
+    }
+
+    // Per-day review counts for the Stats activity heatmap and retention. Real
+    // reviews only — synthetic rebuild logs carry a NULL outcome and are excluded.
+    // `sinceIso` optionally bounds the window (null = all time). Days are UTC
+    // (SQLite date()), matching the ISO timestamps written on review.
+    getReviewActivity(sinceIso = null) {
+        const clause = sinceIso
+            ? 'WHERE outcome IS NOT NULL AND timestamp >= ?'
+            : 'WHERE outcome IS NOT NULL';
+        const stmt = this.db.prepare(`
+            SELECT date(timestamp) AS day,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
+            FROM ReviewLogs
+            ${clause}
+            GROUP BY day
+            ORDER BY day ASC
+        `);
+        return sinceIso ? stmt.all(sinceIso) : stmt.all();
+    }
+
+    // Total / correct review counts for the retention headline. `sinceIso` bounds
+    // the window (null = all time). Excludes synthetic (NULL-outcome) logs.
+    getReviewTotals(sinceIso = null) {
+        const clause = sinceIso
+            ? 'WHERE outcome IS NOT NULL AND timestamp >= ?'
+            : 'WHERE outcome IS NOT NULL';
+        const stmt = this.db.prepare(`
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
+            FROM ReviewLogs
+            ${clause}
+        `);
+        return sinceIso ? stmt.get(sinceIso) : stmt.get();
     }
 
     getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {

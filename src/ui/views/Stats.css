@@ -1,0 +1,290 @@
+/* Stats — read-only study analytics. Same quiet workbench language as Manage/
+   Config: token colours only, thin borders, generous breathing room. A single
+   accent hue does double duty as a sequential ramp (light→dark = magnitude). */
+
+.stats-view {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px 32px 48px;
+  background: var(--color-bg-base);
+}
+
+.stats-body {
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+
+.stats-header {
+  margin-bottom: 24px;
+}
+
+.stats-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-lede {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.stats-empty,
+.stats-empty-inline {
+  color: var(--color-fg-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.stats-empty {
+  max-width: 52ch;
+  padding: 32px 0;
+}
+
+/* ── Headline tiles ─────────────────────────────────────────────────────────── */
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.stats-tile {
+  padding: 16px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.stats-tile-value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-tile-label {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-tile-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+/* ── Panels ─────────────────────────────────────────────────────────────────── */
+
+.stats-panel {
+  padding: 18px 20px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 16px;
+}
+
+.stats-panel-head {
+  margin-bottom: 16px;
+}
+
+.stats-panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-panel-hint {
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+.stats-two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.stats-two-col .stats-panel {
+  margin-bottom: 0;
+}
+
+/* ── Maturity stacked bar ───────────────────────────────────────────────────── */
+
+.stats-maturity-track {
+  display: flex;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-maturity-seg {
+  min-width: 3px;
+  /* 2px surface gap between adjacent fills, per the mark spec. */
+  box-shadow: inset 2px 0 0 var(--color-bg-surface);
+}
+.stats-maturity-seg:first-child {
+  box-shadow: none;
+}
+
+.stats-legend {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.stats-legend-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.stats-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  align-self: center;
+}
+
+.stats-legend-label {
+  color: var(--color-fg-primary);
+  font-weight: 500;
+}
+
+.stats-legend-count {
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stats-legend-hint {
+  color: var(--color-fg-secondary);
+  text-align: right;
+}
+
+/* ── Due forecast ───────────────────────────────────────────────────────────── */
+
+.stats-overdue {
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+.stats-overdue strong {
+  color: var(--color-accent);
+}
+
+.stats-forecast-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 150px;
+}
+
+.stats-forecast-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.stats-forecast-count {
+  font-size: 11px;
+  height: 14px;
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-forecast-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.stats-forecast-bar {
+  width: 100%;
+  max-width: 22px;
+  min-height: 2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: height var(--dur-base) var(--ease-out);
+}
+
+.stats-forecast-x {
+  margin-top: 6px;
+  font-size: 10px;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+.stats-forecast-x.is-today {
+  color: var(--color-fg-primary);
+  font-weight: 600;
+}
+
+/* ── Activity heatmap ───────────────────────────────────────────────────────── */
+
+.stats-heatmap-wrap {
+  overflow-x: auto;
+}
+
+.stats-heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 13px;
+  grid-template-rows: repeat(7, 13px);
+  gap: 3px;
+  width: max-content;
+}
+
+.stats-heatmap-cell {
+  width: 13px;
+  height: 13px;
+  border-radius: 2px;
+}
+.stats-heatmap-cell.is-pad {
+  background: transparent !important;
+}
+
+.stats-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 12px;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+}
+.stats-heatmap-legend .stats-heatmap-cell {
+  width: 11px;
+  height: 11px;
+  min-width: 11px;
+  aspect-ratio: auto;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+
+@media (max-width: 720px) {
+  .stats-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .stats-two-col {
+    grid-template-columns: 1fr;
+  }
+}

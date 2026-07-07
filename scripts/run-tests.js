@@ -36,6 +36,7 @@ const tests = [
     'tests/clips.test.js',
     'tests/fsrs.test.js',
     'tests/fsrs.api.test.js',
+    'tests/stats.test.js',
     'tests/api/api.test.js',
 ];
 

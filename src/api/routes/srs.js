@@ -94,6 +94,14 @@ router.get('/fsrs-info', catchError((req, res) => {
     res.json(SRS.getFsrsInfo());
 }));
 
+// GET /api/srs/statistics?algorithm=leitner|sm2|fsrs
+// Vault-wide analytics for the Stats view (retention, maturity, due forecast,
+// activity heatmap, streaks). Read-only. Algorithm defaults server-side.
+router.get('/statistics', catchError((req, res) => {
+    const algorithm = req.query.algorithm || undefined;
+    res.json(SRS.getStatistics({ algorithm }));
+}));
+
 // GET /api/srs/due
 // Query params (all optional, user preferences come from browser storage):
 //   algorithm=leitner|sm2  — SRS scheduling algorithm (stored in localStorage by the frontend)
