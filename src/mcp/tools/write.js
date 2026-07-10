@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import fs from 'node:fs/promises';
+import nodePath from 'node:path';
 import { request, upload } from '../client.js';
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
@@ -6,8 +8,42 @@ const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
   isError: true,
 });
+const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
+
+// Document-anchored cards live in their document's sidecar, not behind a
+// per-card endpoint. Editing one is a read-modify-write of the sidecar via
+// PUT /api/documents/metadata — the exact pattern the app's own card editor
+// uses — so these two helpers are shared by update/delete below.
+const readDocMeta = async (docPath) => {
+  const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(docPath)}`);
+  return doc.metadata ?? {};
+};
+const saveDocMeta = (docPath, metadata) =>
+  request('PUT', '/api/documents/metadata', { path: docPath, metadata, isFolder: false });
+
+// PUT /api/documents/metadata does not validate category names (unknown ones
+// silently link to no category in the DB), so the sidecar edit path validates
+// here to match the standalone endpoint's explicit rejection.
+const assertKnownCategory = async (category) => {
+  const cats = await request('GET', '/api/categories');
+  if (!cats.some((c) => c.name === category)) {
+    throw Object.assign(
+      new Error(`Unknown category: "${category}". Call list_categories for valid values.`),
+      { status: 400 },
+    );
+  }
+};
+
+// A card's home (standalone vs. document-anchored) decides which write path an
+// edit takes. When the caller doesn't say, ask the API — GET /api/flashcards/:hash
+// resolves any hash to its documentPath (null = standalone). A 404 propagates.
+const resolveDocumentPath = async (globalHash, documentPath) => {
+  if (documentPath) return documentPath;
+  const card = await request('GET', `/api/flashcards/${encodeURIComponent(globalHash)}`);
+  return card.documentPath;
+};
 
 export function registerWriteTools(server) {
   server.registerTool(
@@ -19,7 +55,9 @@ export function registerWriteTools(server) {
         'sidecar, same as creating a card from the Inspector); omit `path` to create a standalone card in the ' +
         'system deck. For "cloze" cards, wrap blanks in {{double curly braces}} in frontText and backText. ' +
         'For "type_answer" cards, frontText is the question and backText is the expected answer. For "custom" ' +
-        'cards, put raw HTML in customHtml (frontText/backText are unused).',
+        'cards, put raw HTML in customHtml (frontText/backText are unused). Pass `highlightHash` (from ' +
+        'create_highlight or the document sidecar\'s highlights[]) to anchor the card to the exact passage it ' +
+        'came from.',
       inputSchema: {
         path: z.string().optional().describe('Relative path of the document to attach this card to. Omit for a standalone card.'),
         cardType: z.enum(CARD_TYPES).default('basic'),
@@ -29,11 +67,23 @@ export function registerWriteTools(server) {
         name: z.string().optional().describe('Optional descriptive name for the card.'),
         category: z.string().optional().describe('Pedagogical category name. Call list_categories first to see valid values — an unrecognized name is rejected with an error, not silently dropped.'),
         tags: z.array(z.string()).optional().describe('Tags to apply to the card. Only used for document-anchored cards.'),
+        highlightHash: z.string().optional().describe('The `id` of a highlight in the same document to anchor this card to (returned by create_highlight, listed in the sidecar\'s highlights[]). Requires `path`.'),
       },
     },
-    async ({ path, cardType, frontText, backText, customHtml, name, category, tags }) => {
+    async ({ path, cardType, frontText, backText, customHtml, name, category, tags, highlightHash }) => {
       try {
+        if (highlightHash && !path) {
+          return asToolError('`highlightHash` requires `path` — a highlight anchor only makes sense on a document-anchored card.');
+        }
         if (path) {
+          if (highlightHash) {
+            // Verify the anchor exists so we never write a dangling reference.
+            // Sidecar highlights carry their hash in `id`.
+            const { highlights } = await request('GET', `/api/highlights?path=${encodeURIComponent(path)}`);
+            if (!highlights?.some((h) => h.id === highlightHash)) {
+              return asToolError(`No highlight ${highlightHash} in ${path}. Read the document's sidecar (read_document) or create one with create_highlight first.`);
+            }
+          }
           const formData = new FormData();
           formData.append('docPath', path);
           formData.append(
@@ -43,7 +93,12 @@ export function registerWriteTools(server) {
               name: name || undefined,
               category: category || undefined,
               tags: tags && tags.length ? tags : undefined,
-              vanillaData: { frontText: frontText || '', backText: backText || '', media: {} },
+              vanillaData: {
+                frontText: frontText || '',
+                backText: backText || '',
+                media: {},
+                location: highlightHash ? { type: 'highlight', id: highlightHash } : undefined,
+              },
               customData: { html: customHtml || '' },
             }),
           );
@@ -65,22 +120,88 @@ export function registerWriteTools(server) {
     {
       title: 'Update flashcard',
       description:
-        'Edit an existing standalone flashcard\'s content (front/back text, name, type, or category). Only works ' +
-        'on standalone cards (created via create_flashcard with no `path`) — a document-anchored card must be ' +
-        'edited from its document instead, this will return an error if given one.',
+        'Edit an existing flashcard\'s content — standalone or document-anchored, the tool routes the edit ' +
+        'automatically. Only the fields you pass change; everything else (review progress, source anchoring, ' +
+        'media) is preserved.',
       inputSchema: {
         globalHash: z.string().describe('The card\'s globalHash.'),
+        documentPath: z.string().optional().describe('Relative path of the card\'s source document, if you already know it (from search_flashback/list_cards `document_path`) — saves a lookup. Resolved automatically when omitted.'),
         frontText: z.string().optional(),
         backText: z.string().optional(),
         name: z.string().optional(),
         cardType: z.enum(CARD_TYPES).optional(),
         category: z.string().optional().describe('Call list_categories first — an unrecognized name is rejected, not silently dropped.'),
+        customHtml: z.string().optional().describe('Raw HTML body for "custom" cards.'),
+        tags: z.array(z.string()).optional().describe('Replaces the card\'s tags. Document-anchored cards only.'),
       },
     },
-    async ({ globalHash, frontText, backText, name, cardType, category }) => {
+    async ({ globalHash, documentPath, frontText, backText, name, cardType, category, customHtml, tags }) => {
       try {
-        const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`, { frontText, backText, name, cardType, category });
-        return asText(data);
+        documentPath = await resolveDocumentPath(globalHash, documentPath);
+        if (!documentPath) {
+          const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`, { frontText, backText, name, cardType, category, customHtml });
+          return asText(data);
+        }
+
+        if (category !== undefined && category !== null) await assertKnownCategory(category);
+
+        const meta = await readDocMeta(documentPath);
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        const idx = cards.findIndex((f) => f.globalHash === globalHash);
+        if (idx === -1) {
+          return asToolError(`Card ${globalHash} is not in ${documentPath}'s sidecar. Use read_document to list that document's cards, or search_flashback to find the card's document_path.`);
+        }
+        const ex = cards[idx];
+        const nextType = cardType ?? ex.cardType ?? 'basic';
+        const updated = { ...ex, cardType: nextType };
+        if (name !== undefined) updated.name = name;
+        if (tags !== undefined) updated.tags = tags;
+        if (category !== undefined) updated.category = category;
+        if (nextType === 'custom') {
+          updated.customData = { ...(ex.customData || {}), html: customHtml !== undefined ? customHtml : (ex.customData?.html ?? '') };
+        } else {
+          updated.vanillaData = {
+            ...(ex.vanillaData || {}),
+            frontText: frontText !== undefined ? frontText : (ex.vanillaData?.frontText ?? ''),
+            backText: backText !== undefined ? backText : (ex.vanillaData?.backText ?? ''),
+          };
+        }
+        meta.flashcards[idx] = updated;
+        await saveDocMeta(documentPath, meta);
+        return asText({ ok: true, globalHash, documentPath, card: updated });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_flashcard',
+    {
+      title: 'Delete flashcard',
+      description:
+        'Permanently delete a flashcard, including its review history — this cannot be undone. Works on ' +
+        'standalone and document-anchored cards alike (the source document itself is untouched).',
+      inputSchema: {
+        globalHash: z.string().describe('The card\'s globalHash.'),
+        documentPath: z.string().optional().describe('Relative path of the card\'s source document, if you already know it — saves a lookup. Resolved automatically when omitted.'),
+      },
+    },
+    async ({ globalHash, documentPath }) => {
+      try {
+        documentPath = await resolveDocumentPath(globalHash, documentPath);
+        if (!documentPath) {
+          const data = await request('DELETE', `/api/flashcards/${encodeURIComponent(globalHash)}`);
+          return asText(data);
+        }
+        const meta = await readDocMeta(documentPath);
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        if (!cards.some((f) => f.globalHash === globalHash)) {
+          return asToolError(`Card ${globalHash} is not in ${documentPath}'s sidecar. Use read_document to list that document's cards.`);
+        }
+        meta.flashcards = cards.filter((f) => f.globalHash !== globalHash);
+        await saveDocMeta(documentPath, meta);
+        return asText({ ok: true, deleted: globalHash, documentPath });
       } catch (err) {
         return asError(err);
       }
@@ -106,6 +227,51 @@ export function registerWriteTools(server) {
           await request('PUT', '/api/documents/file', { path: fullPath, content });
         }
         return asText({ ok: true, path: fullPath });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'create_folder',
+    {
+      title: 'Create folder',
+      description: 'Create a new folder in the workspace, so documents can be organized into it (create_document requires its parent folder to already exist).',
+      inputSchema: {
+        name: z.string().describe('Folder name.'),
+        parentPath: z.string().optional().describe('Relative path of the parent folder. Omit for the workspace root.'),
+      },
+    },
+    async ({ name, parentPath }) => {
+      try {
+        await request('POST', '/api/documents/folder', { name, parentPath: parentPath ?? '' });
+        return asText({ ok: true, path: parentPath ? `${parentPath}/${name}` : name });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_document',
+    {
+      title: 'Update document content',
+      description:
+        'Replace the body content of an existing document. This overwrites the ENTIRE body — always ' +
+        'read_document first and send the full new text, even for a small edit. Document body text is not ' +
+        'versioned by Seal (only sidecars are), so an overwrite is not recoverable in-app. Flashcards, tags, ' +
+        'and highlights on the document are unaffected, but character-offset highlight anchors may drift if ' +
+        'the highlighted text moves.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document.'),
+        content: z.string().describe('The full new body content.'),
+      },
+    },
+    async ({ path, content }) => {
+      try {
+        await request('PUT', '/api/documents/file', { path, content });
+        return asText({ ok: true, path });
       } catch (err) {
         return asError(err);
       }
@@ -158,6 +324,57 @@ export function registerWriteTools(server) {
   );
 
   server.registerTool(
+    'update_deck',
+    {
+      title: 'Update deck',
+      description:
+        'Rename a deck, change its description, or replace its tags. Deck tags flow down to every member ' +
+        'card, so tagging a deck is the fast way to tag a whole collection at once.',
+      inputSchema: {
+        deckHash: z.string().describe('The deck\'s globalHash (from list_decks).'),
+        name: z.string().optional(),
+        description: z.string().optional(),
+        tags: z.array(z.string()).optional().describe('Replaces the deck\'s full tag set (does not merge); the tags propagate to member cards.'),
+      },
+    },
+    async ({ deckHash, name, description, tags }) => {
+      try {
+        if (name !== undefined || description !== undefined) {
+          await request('PUT', `/api/decks/${encodeURIComponent(deckHash)}`, { name, description });
+        }
+        let savedTags;
+        if (tags !== undefined) {
+          ({ tags: savedTags } = await request('PUT', `/api/decks/${encodeURIComponent(deckHash)}/tags`, { tags }));
+        }
+        return asText({ ok: true, deckHash, ...(savedTags !== undefined ? { tags: savedTags } : {}) });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_deck',
+    {
+      title: 'Delete deck',
+      description:
+        'Delete a deck. Cards are only LINKED to decks, so the cards themselves survive — only the grouping ' +
+        'is removed. The system deck cannot be deleted.',
+      inputSchema: {
+        deckHash: z.string().describe('The deck\'s globalHash (from list_decks).'),
+      },
+    },
+    async ({ deckHash }) => {
+      try {
+        const data = await request('DELETE', `/api/decks/${encodeURIComponent(deckHash)}`);
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
     'add_to_deck',
     {
       title: 'Add card to deck',
@@ -182,15 +399,83 @@ export function registerWriteTools(server) {
   );
 
   server.registerTool(
+    'remove_from_deck',
+    {
+      title: 'Remove card from deck',
+      description: 'Remove a flashcard from a deck. The card itself is untouched (delete_flashcard actually deletes it).',
+      inputSchema: {
+        deckHash: z.string().describe('The globalHash of the deck (from list_decks).'),
+        cardHash: z.string().describe('The globalHash of the flashcard to remove.'),
+      },
+    },
+    async ({ deckHash, cardHash }) => {
+      try {
+        const data = await request('DELETE', `/api/decks/${encodeURIComponent(deckHash)}/entries/${encodeURIComponent(cardHash)}`);
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'attach_media',
+    {
+      title: 'Attach media to flashcard',
+      description:
+        'Attach an image or audio file from the local filesystem to the front or back of an existing ' +
+        'document-anchored vanilla flashcard (basic/reversible/cloze/type_answer — not "custom"). The media ' +
+        'type is inferred from the file extension. Standalone cards cannot carry media.',
+      inputSchema: {
+        documentPath: z.string().describe('Relative path of the card\'s source document.'),
+        flashcardHash: z.string().describe('The card\'s globalHash.'),
+        filePath: z.string().describe('Absolute path to the media file on this machine.'),
+        position: z.enum(['front', 'back']).describe('Which side of the card the media goes on.'),
+        name: z.string().optional().describe('File name to store, including extension. Defaults to the source file\'s name.'),
+      },
+    },
+    async ({ documentPath, flashcardHash, filePath, position, name }) => {
+      try {
+        const IMAGE_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.bmp', '.avif'];
+        const SOUND_EXT = ['.mp3', '.wav', '.ogg', '.m4a', '.flac', '.aac', '.opus'];
+        const storedName = name || nodePath.basename(filePath);
+        const ext = nodePath.extname(storedName).toLowerCase();
+        const type = IMAGE_EXT.includes(ext) ? 'image' : SOUND_EXT.includes(ext) ? 'sound' : null;
+        if (!type) {
+          return asToolError(`Unsupported media extension "${ext}" — images (${IMAGE_EXT.join(' ')}) or audio (${SOUND_EXT.join(' ')}) only.`);
+        }
+        let buffer;
+        try {
+          buffer = await fs.readFile(filePath);
+        } catch {
+          return asToolError(`Cannot read ${filePath} — check the path exists and is accessible.`);
+        }
+        const formData = new FormData();
+        formData.append('file', new Blob([buffer]), storedName);
+        formData.append('docPath', documentPath);
+        formData.append('flashcardHash', flashcardHash);
+        formData.append('name', storedName);
+        formData.append('type', type);
+        formData.append('position', position);
+        const data = await upload('/api/media/vanilla', formData);
+        return asText({ ...data, name: storedName, type, position });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
     'create_highlight',
     {
       title: 'Create highlight',
       description:
         'Create a highlight anchored to a passage in a document, so a flashcard can later reference the exact ' +
-        'text it came from. Prefer `snippet` — an exact-substring quote copied from read_document\'s output — ' +
-        'over `start`/`end`: hand-counted character offsets are error-prone and easy to get off-by-one. If the ' +
-        'snippet appears more than once, the first occurrence is used. Only meaningful for plain-text documents ' +
-        '(type "text_offset") — PDF/video anchoring requires page/bbox or timestamp data this tool does not compute.',
+        'text it came from (pass the returned globalHash as create_flashcard\'s `highlightHash`). Prefer ' +
+        '`snippet` — an exact-substring quote copied from read_document\'s output — over `start`/`end`: ' +
+        'hand-counted character offsets are error-prone and easy to get off-by-one. If the snippet appears ' +
+        'more than once, the first occurrence is used. Only meaningful for plain-text documents (type ' +
+        '"text_offset") — PDF/video anchoring requires page/bbox or timestamp data this tool does not compute.',
       inputSchema: {
         path: z.string().describe('Relative path to the document.'),
         snippet: z.string().optional().describe('Exact text to anchor to, copied verbatim from the document. Preferred over start/end.'),
@@ -206,17 +491,58 @@ export function registerWriteTools(server) {
           const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
           const idx = doc.content.indexOf(snippet);
           if (idx === -1) {
-            return {
-              content: [{ type: 'text', text: `Snippet not found verbatim in ${path}. Re-check whitespace/punctuation against read_document's output and try again.` }],
-              isError: true,
-            };
+            return asToolError(`Snippet not found verbatim in ${path}. Re-check whitespace/punctuation against read_document's output and try again.`);
           }
           start = idx;
           end = idx + snippet.length;
         } else if (start == null || end == null) {
-          return { content: [{ type: 'text', text: 'Provide either `snippet`, or both `start` and `end`.' }], isError: true };
+          return asToolError('Provide either `snippet`, or both `start` and `end`.');
         }
         const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note });
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_highlight',
+    {
+      title: 'Update highlight',
+      description: 'Change the color or note of an existing highlight. Its anchored text range cannot be changed — delete and recreate for that.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the highlight\'s document.'),
+        highlightHash: z.string().describe('The highlight\'s `id` (from the document sidecar\'s highlights[]).'),
+        color: z.enum(['amber', 'green', 'blue', 'pink']).optional(),
+        note: z.string().optional(),
+      },
+    },
+    async ({ path, highlightHash, color, note }) => {
+      try {
+        const data = await request('PUT', `/api/highlights/${encodeURIComponent(highlightHash)}`, { path, color, note });
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_highlight',
+    {
+      title: 'Delete highlight',
+      description:
+        'Delete a highlight from a document. Flashcards anchored to it lose their source reference (the ' +
+        'cards themselves survive) — check the sidecar via read_document if that matters.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the highlight\'s document.'),
+        highlightHash: z.string().describe('The highlight\'s `id`.'),
+      },
+    },
+    async ({ path, highlightHash }) => {
+      try {
+        const data = await request('DELETE', `/api/highlights/${encodeURIComponent(highlightHash)}?path=${encodeURIComponent(path)}`);
         return asText(data);
       } catch (err) {
         return asError(err);

@@ -12,6 +12,13 @@ const catchError = (fn) => (req, res, next) =>
         next(err);
     });
 
+// GET /api/flashcards/:hash — resolve any card (standalone or anchored) to its
+// content + source document path, so clients can route edits correctly.
+router.get('/:hash', catchError((req, res) => {
+    const card = decks.getCard(req.params.hash);
+    res.json(card);
+}));
+
 // POST /api/flashcards — create standalone card
 router.post('/', catchError(async (req, res) => {
     const { frontText, backText, name, cardType = 'basic', category, customHtml } = req.body;
@@ -19,10 +26,11 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-// PUT /api/flashcards/:hash — update standalone card content
+// PUT /api/flashcards/:hash — update standalone card content (partial: omitted
+// fields keep their stored values)
 router.put('/:hash', catchError(async (req, res) => {
-    const { frontText, backText, name, cardType, category } = req.body;
-    await decks.updateStandaloneCard(req.params.hash, { frontText, backText, name, cardType, category });
+    const { frontText, backText, name, cardType, category, customHtml } = req.body;
+    await decks.updateStandaloneCard(req.params.hash, { frontText, backText, name, cardType, category, customHtml });
     res.json({ ok: true });
 }));
 

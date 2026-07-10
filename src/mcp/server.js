@@ -25,23 +25,34 @@ const INSTRUCTIONS = `
 Flashback is a local spaced-repetition knowledge vault. A few things aren't obvious from
 individual tool schemas alone:
 
+- Cards are either DOCUMENT-ANCHORED (created with a \`path\`; they live in that document's
+  sidecar) or STANDALONE (no path; they live in the system deck). update_flashcard and
+  delete_flashcard work on both and resolve the card's home automatically; passing
+  \`documentPath\` (from search_flashback/list_cards \`document_path\`) just skips the lookup.
+- Documents wiki-link to each other with \`[anchor text](flashback://<document globalHash>)\`
+  in Markdown — hashes come from search results or a folder listing's metadata. Use this
+  syntax when writing notes that should reference other notes; get_links shows a document's
+  outgoing links and backlinks.
 - Cards have a \`cardType\`: basic, reversible, cloze, type_answer, or custom. Non-custom types
   store their content in \`vanillaData\` (frontText/backText/media); "custom" stores raw HTML in
   \`customData.html\` instead and ignores vanillaData. This is a real storage split, not just an
-  API convenience — call list_categories before setting \`category\` on a card, since an
-  unrecognized value is silently dropped rather than rejected.
+  API convenience. Call list_categories before setting \`category\` on a card — an unrecognized
+  name is rejected with an error.
 - Every card has a \`level\` field: it's the card's spaced-repetition strength, starting at 0 for
-  a never-reviewed card and increasing after each correct review (Leitner box number, or grade
-  history under SM-2 — either way, higher = better known, 0 = new).
-- Decks link to cards by hash; cards aren't copied into a deck. One deck always has
-  \`is_system: 1\` — it's the automatic home for cards with no source document. Create a
-  document-less card with create_flashcard (omit \`path\`) and it lands there on its own; you
-  generally don't need to call add_to_deck on it yourself.
+  a never-reviewed card and increasing after each correct review — higher = better known, 0 = new.
+  Reviewing is the user's job: there is deliberately no tool to submit review grades.
+- Decks link to cards by hash; cards aren't copied into a deck (delete_deck keeps the cards,
+  delete_flashcard destroys one). One deck always has \`is_system: 1\` — it's the automatic home
+  for cards with no source document. Create a document-less card with create_flashcard (omit
+  \`path\`) and it lands there on its own; you generally don't need to call add_to_deck on it
+  yourself. Deck tags (update_deck) propagate to every member card.
+- Sidecar changes (cards, tags, highlights) are versioned by Seal, the built-in git layer.
+  Document BODY text is not — update_document overwrites irreversibly, so read_document first.
 - Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
   what already exists rather than guessing or duplicating.
 `.trim();
 
-const server = new McpServer({ name: 'flashback', version: '0.1.0' }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: 'flashback', version: '0.2.0' }, { instructions: INSTRUCTIONS });
 
 registerReadTools(server);
 registerWriteTools(server);

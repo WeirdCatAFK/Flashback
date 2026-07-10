@@ -354,7 +354,26 @@ export default class Decks {
         return globalHash;
     }
 
-    async updateStandaloneCard(hash, { frontText, backText, name, cardType, category } = {}) {
+    // Resolves any card (standalone or document-anchored) to its content plus
+    // source document path — the lookup clients need to route an edit to the
+    // right layer (sidecar RMW vs. the standalone endpoints).
+    getCard(hash) {
+        const card = this.query.getFlashcardContentByHash(hash);
+        if (!card) throw new Error(`Card not found: ${hash}`);
+        return {
+            globalHash: hash,
+            name: card.name,
+            cardType: card.card_type,
+            level: card.level,
+            frontText: card.frontText,
+            backText: card.backText,
+            customHtml: card.custom_html,
+            category: card.category,
+            documentPath: card.document_path ?? null,
+        };
+    }
+
+    async updateStandaloneCard(hash, { frontText, backText, name, cardType, category, customHtml } = {}) {
         const card = this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -363,10 +382,27 @@ export default class Decks {
         if (category && !this.query.getCategoryByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
-        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category });
+        // Partial update: fields the caller omits keep their stored values —
+        // a bare category or name change must not wipe the card's text.
+        const existing = this.query.getFlashcardContentByHash(hash);
+        const merged = {
+            frontText: frontText !== undefined ? frontText : existing.frontText,
+            backText: backText !== undefined ? backText : existing.backText,
+            name: name !== undefined ? name : existing.name,
+            cardType: cardType !== undefined ? cardType : existing.card_type,
+            category: category !== undefined ? category : existing.category,
+            customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
+            media: {
+                front_img: existing.front_img || null,
+                back_img: existing.back_img || null,
+                front_sound: existing.front_sound || null,
+                back_sound: existing.back_sound || null,
+            },
+        };
+        const snapshot = this._standaloneSnapshot(merged);
         const systemDeck = this.query.getSystemDeck();
         db.transaction(() => {
-            this.query.updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category });
+            this.query.updateFlashcardContentByHash(hash, merged);
             if (systemDeck) this.query.updateDeckEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
         })();
 

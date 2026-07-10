@@ -293,6 +293,20 @@ class DocumentQuery {
         return this.db.prepare('SELECT id, document_id FROM Flashcards WHERE global_hash = ?').get(hash);
     }
 
+    getFlashcardContentByHash(hash) {
+        return this.db.prepare(`
+            SELECT f.id, f.document_id, f.name, f.card_type, f.level, c.frontText, c.backText, c.custom_html,
+                   c.front_img, c.back_img, c.front_sound, c.back_sound,
+                   pc.name AS category,
+                   d.relative_path AS document_path
+            FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN PedagogicalCategories pc ON pc.id = f.category_id
+            LEFT JOIN Documents d ON d.id = f.document_id
+            WHERE f.global_hash = ?
+        `).get(hash);
+    }
+
     setFlashcardSrsState(id, level, sm2Reps) {
         this.db.prepare('UPDATE Flashcards SET level = ?, sm2_reps = ? WHERE id = ?').run(level, sm2Reps, id);
     }
@@ -1200,6 +1214,23 @@ class DocumentQuery {
         ).run(sourceNodeId, targetNodeId, linkConnTypeId);
     }
 
+    // Resolved flashback:// link edges for one document, both directions.
+    getDocumentLinkEdges(nodeId) {
+        const { linkConnTypeId } = this._typeIds();
+        if (!linkConnTypeId) return { outgoing: [], backlinks: [] };
+        const outgoing = this.db.prepare(`
+            SELECT d.name, d.relative_path AS path, d.global_hash
+            FROM Connections c JOIN Documents d ON d.node_id = c.destiny_id
+            WHERE c.origin_id = ? AND c.type_id = ?
+        `).all(nodeId, linkConnTypeId);
+        const backlinks = this.db.prepare(`
+            SELECT d.name, d.relative_path AS path, d.global_hash
+            FROM Connections c JOIN Documents d ON d.node_id = c.origin_id
+            WHERE c.destiny_id = ? AND c.type_id = ?
+        `).all(nodeId, linkConnTypeId);
+        return { outgoing, backlinks };
+    }
+
     // --- Decks ---
 
     insertDeck(data) {
@@ -1328,7 +1359,7 @@ class DocumentQuery {
         }
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sortCols = { level: 'f.level', name: 'f.name', last_recall: 'f.last_recall' };
+        const sortCols = { level: 'f.level', name: 'f.name', last_recall: 'f.last_recall', lapses: 'f.fsrs_lapses' };
         const sortCol = sortCols[sortBy] ?? 'f.level';
         const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
 
@@ -1336,6 +1367,7 @@ class DocumentQuery {
 
         return this.db.prepare(`
             SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
+                   f.fsrs_lapses as lapses,
                    c.frontText, c.backText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
                    pc.name as category
@@ -1375,7 +1407,7 @@ class DocumentQuery {
         `).get(...params).c;
     }
 
-    updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category }) {
+    updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category, customHtml }) {
         const card = this.db.prepare('SELECT id, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
         if (!card) return false;
         let categoryId = null;
@@ -1385,8 +1417,8 @@ class DocumentQuery {
         }
         this.db.prepare('UPDATE Flashcards SET name = ?, card_type = ?, category_id = ? WHERE id = ?')
             .run(name || null, cardType || 'basic', categoryId, card.id);
-        this.db.prepare('UPDATE FlashcardContent SET frontText = ?, backText = ? WHERE id = ?')
-            .run(frontText || null, backText || null, card.content_id);
+        this.db.prepare('UPDATE FlashcardContent SET frontText = ?, backText = ?, custom_html = ? WHERE id = ?')
+            .run(frontText || null, backText || null, customHtml || null, card.content_id);
         return true;
     }
 

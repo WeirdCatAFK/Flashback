@@ -38,6 +38,7 @@ const tests = [
     'tests/fsrs.api.test.js',
     'tests/stats.test.js',
     'tests/api/api.test.js',
+    'tests/mcp.test.js',
 ];
 
 function restore() {

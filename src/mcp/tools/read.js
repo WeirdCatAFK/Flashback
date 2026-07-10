@@ -107,12 +107,59 @@ export function registerReadTools(server) {
         tags: z.array(z.string()).optional().describe('Restrict to cards carrying any of these tags.'),
         minPriority: z.number().int().optional().describe('Only include cards whose category priority >= this value.'),
         maxNew: z.number().int().optional().describe('Cap on how many never-reviewed cards to include.'),
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduling algorithm to compute dueness with. Should match the algorithm the user reviews with (a UI preference the server cannot see); the server default is used if omitted.'),
       },
     },
-    safe(async ({ folder, deck, tags, minPriority, maxNew }) => {
+    safe(async ({ folder, deck, tags, minPriority, maxNew, algorithm }) => {
       const data = await request(
         'GET',
-        `/api/srs/due${qs({ folder, deck, tag: tags, minPriority, maxNew })}`,
+        `/api/srs/due${qs({ folder, deck, tag: tags, minPriority, maxNew, algorithm })}`,
+      );
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'get_statistics',
+    {
+      title: 'Get study statistics',
+      description:
+        'Vault-wide spaced-repetition analytics: retention rate, card maturity distribution, due-date ' +
+        'forecast, review activity heatmap, and streaks — the same data as the app\'s Stats view. Read-only.',
+      inputSchema: {
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Algorithm to compute schedule-dependent stats with. Should match the user\'s reviewing algorithm; server default if omitted.'),
+      },
+    },
+    safe(async ({ algorithm } = {}) => {
+      const data = await request('GET', `/api/srs/statistics${qs({ algorithm })}`);
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'list_cards',
+    {
+      title: 'List cards',
+      description:
+        'Browse every flashcard in the vault with filters, sorting, and pagination — unlike search_flashback ' +
+        '(fuzzy text match, capped results), this can enumerate exhaustively: e.g. all cloze cards, all ' +
+        'never-reviewed cards (level 0), or the strongest cards first. Returns `total` so you know when to ' +
+        'paginate with offset. Each card includes its `document_path` (null for standalone cards) — the ' +
+        'value update_flashcard/delete_flashcard need as `documentPath`.',
+      inputSchema: {
+        search: z.string().optional().describe('Substring filter on front/back text and card name.'),
+        level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
+        cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
+        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — usually a sign the card is badly written and worth rewriting.'),
+        sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Default "desc".'),
+        limit: z.number().int().min(1).max(200).optional().describe('Page size. Default 50, max 200.'),
+        offset: z.number().int().min(0).optional().describe('Pagination offset.'),
+      },
+    },
+    safe(async ({ search, level, cardType, sortBy, sortDir, limit, offset } = {}) => {
+      const data = await request(
+        'GET',
+        `/api/decks/cards${qs({ search, level, cardType, sortBy, sortDir, limit, offset })}`,
       );
       return asText(data);
     }),
@@ -172,6 +219,69 @@ export function registerReadTools(server) {
     safe(async () => {
       const data = await request('GET', '/api/documents/graph');
       return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'search_content',
+    {
+      title: 'Search document contents',
+      description:
+        'Substring search inside document BODIES (Markdown/text files) — use this when the term is in the ' +
+        'prose of a note rather than in a name, tag, or flashcard (search_flashback covers those). ' +
+        'Case-insensitive; returns matching documents with per-document match counts and context snippets.',
+      inputSchema: {
+        query: z.string().describe('Text to find inside document bodies.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max documents to return. Default 20.'),
+      },
+    },
+    safe(async ({ query, limit }) => {
+      const data = await request('GET', `/api/documents/search/content${qs({ q: query, limit })}`);
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'get_links',
+    {
+      title: 'Get document links',
+      description:
+        'The flashback:// wiki-link neighborhood of one document: `outgoing` (documents it links to), ' +
+        '`backlinks` (documents linking to it), and `pending` (link targets that don\'t exist yet). Use it to ' +
+        'navigate related notes; get_graph is the whole-vault view.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document.'),
+      },
+    },
+    safe(async ({ path }) => {
+      const data = await request('GET', `/api/documents/links${qs({ path })}`);
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'get_recent_changes',
+    {
+      title: 'Get recent changes',
+      description:
+        'Recent commits from Seal, the vault\'s built-in versioning of the canonical layer (sidecars and deck ' +
+        'files — every card/tag/highlight/deck change, including ones made through these tools). Messages ' +
+        'follow "<action>: <sidecar-path>" (create/edit/move/delete/reconcile). Use it to answer "what changed ' +
+        'lately" or to show the user what you just modified. Read-only.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(100).optional().describe('Max commits to return, newest first. Default 20.'),
+      },
+    },
+    safe(async ({ limit } = {}) => {
+      const log = await request('GET', `/api/seal/log${qs({ limit })}`);
+      // Flatten isomorphic-git's log shape to what a model actually needs.
+      const entries = (log ?? []).map((e) => ({
+        ref: e.oid,
+        message: e.commit?.message?.trim() ?? '',
+        author: e.commit?.author?.name ?? null,
+        date: e.commit?.author?.timestamp ? new Date(e.commit.author.timestamp * 1000).toISOString() : null,
+      }));
+      return asText(entries);
     }),
   );
 }

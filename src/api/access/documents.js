@@ -1412,6 +1412,53 @@ export default class Documents {
     }
 
     search(q) { return this.query.search(q); }
+
+    // Case-insensitive substring search across text document BODIES. Name/card
+    // matching lives in query.search / superSearch — bodies exist only on disk,
+    // so this reads each text document (same whitelist as _extractLinks) and
+    // returns per-document match counts with context snippets.
+    searchContent(q, limit = 20) {
+        const needle = String(q ?? '').toLowerCase();
+        if (!needle) return [];
+        const results = [];
+        for (const doc of this.query.getAllDocuments()) {
+            if (results.length >= limit) break;
+            const ext = path.extname(doc.relative_path).toLowerCase();
+            if (!['.md', '.txt', '.markdown'].includes(ext)) continue;
+            let content;
+            try { ({ content } = this.files.readFile(doc.relative_path)); } catch { continue; }
+            if (!content) continue;
+            const hay = content.toLowerCase();
+            let idx = hay.indexOf(needle);
+            if (idx === -1) continue;
+            const snippets = [];
+            let matches = 0;
+            while (idx !== -1) {
+                matches++;
+                if (snippets.length < 3) {
+                    const from = Math.max(0, idx - 80);
+                    const to = Math.min(content.length, idx + needle.length + 80);
+                    snippets.push(`${from > 0 ? '…' : ''}${content.slice(from, to)}${to < content.length ? '…' : ''}`);
+                }
+                idx = hay.indexOf(needle, idx + needle.length);
+            }
+            results.push({ path: doc.relative_path, name: doc.name, matches, snippets });
+        }
+        return results;
+    }
+
+    // Outgoing flashback:// links and backlinks for one document. Resolved edges
+    // come from the graph Connections; unresolved outgoing targets (a linked
+    // hash whose document doesn't exist yet) come from the DocumentLinks queue.
+    getLinks(relPath) {
+        const doc = this.query.getDocumentByPath(relPath);
+        if (!doc) throw new Error(`Document ${relPath} not found`);
+        const { outgoing, backlinks } = this.query.getDocumentLinkEdges(doc.node_id);
+        const pending = this.query.getPendingLinksFromSource(doc.global_hash)
+            .map((l) => ({ targetHash: l.target_hash, anchorText: l.anchor_text }));
+        return { outgoing, backlinks, pending };
+    }
+
     getGraphData() { return this.query.getGraphData(); }
     exists(rel, derived, isFolder) {
         if (derived) return isFolder ? this.query.getFolderByPath(rel) : this.query.getDocumentByPath(rel);

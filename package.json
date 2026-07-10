@@ -35,6 +35,7 @@
     "test:seal": "node --test tests/seal.test.js",
     "test:doctor": "node --test tests/doctor.test.js",
     "test:api": "node --test tests/api/api.test.js",
+    "test:mcp": "node --test tests/mcp.test.js",
     "test:tags": "node --test tests/tags.test.js",
     "test:imports": "node --test tests/imports.test.js",
     "doctor": "react-doctor",

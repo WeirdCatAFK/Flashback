@@ -66,6 +66,36 @@ router.get(
   }),
 );
 
+// GET /api/documents/search/content?q=&limit=
+// Substring search over text document bodies (which live on disk, not in the
+// DB) — returns per-document match counts and context snippets.
+router.get(
+  "/search/content",
+  catchError((req, res) => {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: "q required" });
+    const limit = Math.min(parseInt(req.query.limit ?? "20", 10), 100);
+    res.json(docs.searchContent(q, limit));
+  }),
+);
+
+// GET /api/documents/links?path=
+// flashback:// link edges for one document: outgoing, backlinks, and pending
+// (linked hashes whose target document doesn't exist yet).
+router.get(
+  "/links",
+  catchError((req, res) => {
+    const relPath = norm(req.query.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    try {
+      res.json(docs.getLinks(relPath));
+    } catch (err) {
+      if (err.message?.includes("not found")) return res.status(404).json({ error: err.message });
+      throw err;
+    }
+  }),
+);
+
 // GET /api/documents/graph
 router.get(
   "/graph",
