@@ -223,11 +223,10 @@ export default function ClipRenderer({
         const existingId = highlightIdAtSelection(root);
         if (existingId) {
           const existing = highlightsRef.current.find((h) => h.id === existingId);
+          // Same color is a no-op — removal only happens via the explicit
+          // unset command, which confirms when cards are linked.
           if (existing?.color === color) {
-            unwrap(root, existingId);
-            const next = highlightsRef.current.filter((h) => h.id !== existingId);
-            highlightsRef.current = next; setHighlights(next);
-            return { kind: 'removed', id: existingId };
+            return { kind: 'existing', id: existingId };
           }
           root.querySelectorAll(`mark[data-hl="${existingId}"]`).forEach((m) => m.setAttribute('data-color', color));
           const next = highlightsRef.current.map((h) =>
@@ -261,6 +260,17 @@ export default function ClipRenderer({
         const next = highlightsRef.current.filter((h) => h.id !== id);
         highlightsRef.current = next; setHighlights(next);
         currentHlRef.current = null;
+        return { kind: 'removed', id };
+      },
+
+      // Remove by registry id (Highlights tab delete button).
+      remove: (id) => {
+        if (!id || !highlightsRef.current.some((h) => h.id === id)) return null;
+        const root = bodyRef.current;
+        if (root) unwrap(root, id);
+        const next = highlightsRef.current.filter((h) => h.id !== id);
+        highlightsRef.current = next; setHighlights(next);
+        if (currentHlRef.current === id) currentHlRef.current = null;
         return { kind: 'removed', id };
       },
 

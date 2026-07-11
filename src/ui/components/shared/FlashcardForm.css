@@ -23,9 +23,22 @@
 }
 
 .fc-form-source {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   font-size: 10px;
   color: var(--color-fg-secondary);
   font-family: 'Cascadia Code', 'Fira Mono', monospace;
+}
+
+.fc-form-anchor-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* The quote block is accent-tinted, so a same-hue dot needs an outline
+     to stay visible in the light themes. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-fg-secondary) 45%, transparent);
 }
 
 .fc-form-preview {
@@ -52,7 +65,11 @@
 
 .fc-form-field {
   width: 100%;
-  resize: vertical;
+  /* Grow with the content instead of forcing inner scroll at 2 rows;
+     max-height keeps a huge paste from swallowing the panel. */
+  field-sizing: content;
+  resize: none;
+  overflow-y: auto;
   font-size: 12px;
   line-height: 1.5;
   padding: 6px 8px;
@@ -61,6 +78,7 @@
   background: var(--color-bg-surface);
   color: var(--color-fg-primary);
   min-height: 48px;
+  max-height: 260px;
   box-sizing: border-box;
 }
 
@@ -275,8 +293,8 @@
   font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
   font-size: 11px;
   line-height: 1.6;
-  resize: vertical;
-  min-height: 80px;
+  min-height: 120px;
+  max-height: 360px;
 }
 
 /* FlashcardEditor */

@@ -8,7 +8,12 @@ const HIGHLIGHT_COLORS = [
   { key: 'pink',  cssVar: '--color-hl-4', label: 'Highlight 4' },
 ];
 
-export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighlight, onUnhighlight, onClear }) {
+// Floating toolbar over a text selection. Two verbs:
+//   • color dot — highlight the selection (the highlight IS the reference;
+//     it appears in the Highlights tab and can anchor cards later)
+//   • Card — highlight (default color) + open the New Card form anchored to it
+// Renderers that can't persist highlights only get the Card verb.
+export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhighlight, onClear }) {
   const top = rect.top - 42;
   const left = rect.left + rect.width / 2;
 
@@ -23,29 +28,34 @@ export default function SelectionToolbar({ rect, onMakeCard, onMakeRef, onHighli
       style={{ top, left }}
       onMouseDown={(e) => e.preventDefault()}
     >
-      {HIGHLIGHT_COLORS.map(({ key, cssVar, label }) => (
-        <button type="button"
-          key={key}
-          className="sel-color-dot"
-          style={{ background: `var(${cssVar})` }}
-          title={`Highlight — ${label}`}
-          aria-label={`Highlight: ${label}`}
-          onClick={() => handleColor(key)}
-        />
-      ))}
-      {onUnhighlight && (
-        <button type="button"
-          className="sel-color-dot sel-color-dot--clear"
-          title="Remove highlight"
-          onClick={onUnhighlight}
-          aria-label="Remove highlight"
-        >
-          ×
-        </button>
+      {onHighlight && (
+        <>
+          {HIGHLIGHT_COLORS.map(({ key, cssVar, label }) => (
+            <button type="button"
+              key={key}
+              className="sel-color-dot"
+              style={{ '--dot-color': `var(${cssVar})` }}
+              title={`Highlight — ${label}`}
+              aria-label={`Highlight: ${label}`}
+              onClick={() => handleColor(key)}
+            />
+          ))}
+          {onUnhighlight && (
+            <button type="button"
+              className="sel-color-dot sel-color-dot--clear"
+              title="Remove highlight"
+              onClick={onUnhighlight}
+              aria-label="Remove highlight"
+            >
+              ×
+            </button>
+          )}
+          <div className="sel-divider" />
+        </>
       )}
-      <div className="sel-divider" />
-      <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>Card</button>
-      <button type="button" className="sel-btn" onClick={onMakeRef ?? onClear}>Ref</button>
+      <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>
+        + Card
+      </button>
     </div>,
     document.body
   );

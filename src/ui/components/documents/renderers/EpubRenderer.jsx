@@ -315,10 +315,11 @@ export default function EpubRenderer({
         if (!pend) return null;
         const existing = findByCfi(pend.cfiRange);
         if (existing) {
+          // Same color is a no-op — removal only happens via the explicit
+          // unset command, which confirms when cards are linked.
           if (existing.color === color) {
-            removeHighlight(existing.id);
-            currentHlRef.current = null;
-            return { kind: 'removed', id: existing.id };
+            currentHlRef.current = existing.id;
+            return { kind: 'existing', id: existing.id };
           }
           const next = highlightsRef.current.map(h =>
             h.id === existing.id ? { ...h, color, updatedAt: new Date().toISOString() } : h);
@@ -342,6 +343,13 @@ export default function EpubRenderer({
         if (!id) return null;
         removeHighlight(id);
         currentHlRef.current = null;
+        return { kind: 'removed', id };
+      },
+      // Remove by registry id (Highlights tab delete button).
+      remove: (id) => {
+        if (!id || !highlightsRef.current.some(h => h.id === id)) return null;
+        removeHighlight(id);
+        if (currentHlRef.current === id) currentHlRef.current = null;
         return { kind: 'removed', id };
       },
       currentId: () => {

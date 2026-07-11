@@ -6,39 +6,44 @@
   background: var(--color-bg-reader);
 }
 
-/* Zoom toolbar — sticky at the top */
-.pdf-zoom-bar {
+/* Reader toolbar — sticky at the top */
+.pdf-toolbar {
   position: sticky;
   top: 0;
   z-index: 10;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 8px;
   padding: 6px 12px;
   background: var(--color-bg-surface);
   border-bottom: 1px solid var(--color-border);
+}
+
+/* Segmented zoom control: [−] 120% [+] */
+.pdf-zoom-group {
+  display: flex;
+  align-items: stretch;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  overflow: hidden;
 }
 
 .pdf-zoom-btn {
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 28px;
-  height: 28px;
-  padding: 0 8px;
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: 15px;
-  font-weight: 600;
+  width: 28px;
+  border: none;
+  background: transparent;
+  color: var(--color-fg-secondary);
   cursor: pointer;
-  transition: background 0.1s, border-color 0.1s;
+  transition: background 0.1s, color 0.1s;
 }
 
 .pdf-zoom-btn:hover:not(:disabled) {
   background: var(--color-bg-hover);
-  border-color: var(--color-accent);
+  color: var(--color-fg-primary);
 }
 
 .pdf-zoom-btn:disabled {
@@ -46,31 +51,79 @@
   cursor: default;
 }
 
-.pdf-zoom-btn--fit {
-  font-size: 12px;
-  font-weight: 500;
-  margin-left: 4px;
-}
-
-.pdf-zoom-btn--draw {
-  font-size: 12px;
-  font-weight: 500;
-  margin-left: 4px;
-}
-
-.pdf-zoom-btn--active {
-  background: var(--color-accent) !important;
-  border-color: var(--color-accent) !important;
-  color: #000 !important;
-  opacity: 1 !important;
-}
-
 .pdf-zoom-label {
-  min-width: 44px;
-  text-align: center;
-  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 46px;
+  padding: 0 4px;
+  border-left: 1px solid var(--color-border);
+  border-right: 1px solid var(--color-border);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-primary);
+}
+
+/* Labeled tool buttons: Fit width, Box highlight */
+.pdf-tool-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+
+.pdf-tool-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.pdf-tool-btn svg {
+  flex-shrink: 0;
+}
+
+.pdf-tool-btn--toggle.is-on {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.pdf-tool-btn--toggle.is-on:hover {
+  background: color-mix(in srgb, var(--color-accent) 88%, var(--color-fg-primary));
+  border-color: color-mix(in srgb, var(--color-accent) 88%, var(--color-fg-primary));
+  color: var(--color-on-accent);
+}
+
+.pdf-toolbar-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--color-border);
+  flex-shrink: 0;
+}
+
+.pdf-toolbar-hint {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pdf-toolbar-pages {
+  margin-left: auto;
+  font-size: 11px;
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-secondary);
+  flex-shrink: 0;
 }
 
 /* Page column */

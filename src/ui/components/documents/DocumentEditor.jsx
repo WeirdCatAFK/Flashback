@@ -41,7 +41,11 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const [flashcards, setFlashcards]       = useState([]);
   const [tags, setTags]                   = useState([]);
   const [excludedTags, setExcludedTags]   = useState([]);
-  const [selectedHighlightId, setSelectedHighlightId] = useState(null);
+  // Snapshot of what the New Card form is anchored to: { text, highlightId,
+  // color } | null. Captured when the user clicks "Card" (or "+ Add card" in
+  // the Highlights tab) so the form's context survives the browser selection
+  // collapsing the moment they click into a field.
+  const [cardDraft, setCardDraft] = useState(null);
   // Orphan-removal confirmation: { id, cardCount } | null
   const [pendingRemoval, setPendingRemoval] = useState(null);
 
@@ -70,7 +74,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setSelection(null);
     setSelectionRect(null);
     setInspectorTab('cards');
-    setSelectedHighlightId(null);
+    setCardDraft(null);
     setPendingRemoval(null);
     setHighlights([]);
     setFlashcards([]);
@@ -258,11 +262,12 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   , [flashcards]);
 
   // Apply a highlight color and persist (each highlight = one save/commit,
-  // matching the app's one-commit-per-action model).
+  // matching the app's one-commit-per-action model). Clicking the color a
+  // highlight already has is a no-op ('existing') — nothing to save.
   const handleHighlight = useCallback((color) => {
-    highlightRef.current?.toggle?.(color);
+    const res = highlightRef.current?.toggle?.(color);
     clearSelection();
-    saveRef.current?.();
+    if (res?.kind === 'created' || res?.kind === 'recolored') saveRef.current?.();
   }, [clearSelection]);
 
   // X button: if the highlight under the selection has linked cards, confirm
@@ -280,10 +285,24 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     saveRef.current?.();
   }, [clearSelection, countCardsForHighlight]);
 
+  // Delete button on a highlight in the Highlights tab: same confirmation
+  // flow as the toolbar's ×, but keyed by id instead of the selection.
+  const handleHighlightDeleteRequest = useCallback((id) => {
+    if (!id) return;
+    const count = countCardsForHighlight(id);
+    if (count > 0) {
+      setPendingRemoval({ id, cardCount: count });
+      return;
+    }
+    const res = highlightRef.current?.remove?.(id);
+    if (res?.kind === 'removed') saveRef.current?.();
+  }, [countCardsForHighlight]);
+
   const resolveRemoval = useCallback((deleteCards) => {
     const id = pendingRemoval?.id;
     setPendingRemoval(null);
-    highlightRef.current?.unset?.();
+    if (id) highlightRef.current?.remove?.(id);
+    else highlightRef.current?.unset?.();
     clearSelection();
     const transform = deleteCards && id
       ? (meta) => ({
@@ -296,30 +315,29 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     saveRef.current?.(transform);
   }, [pendingRemoval, clearSelection]);
 
-  // Card button: anchor the selection to a highlight, then open the New Card
-  // form with that highlight id so the card stores a stable reference.
+  // Card button: anchor the selection to a highlight, snapshot the context
+  // into a draft, then open the New Card form. The draft (not the live
+  // selection) feeds the form, so the quoted passage stays pinned while the
+  // user types even though clicking a field collapses the selection.
   const handleMakeCard = useCallback(() => {
+    const text = selection?.text ?? '';
     const res = highlightRef.current?.ensure?.(DEFAULT_HL_COLOR);
     if (res?.id) {
-      setSelectedHighlightId(res.id);
+      const color = res.kind === 'created'
+        ? DEFAULT_HL_COLOR
+        : (highlights.find(h => h.id === res.id)?.color ?? DEFAULT_HL_COLOR);
+      setCardDraft({ text, highlightId: res.id, color });
       if (res.kind === 'created') saveRef.current?.();
     } else {
-      setSelectedHighlightId(null);
+      setCardDraft(text ? { text, highlightId: null, color: null } : null);
     }
-    setInspectorTab('new-card');
-  }, []);
-
-  // Ref button: just create the highlight (no card). The highlight itself is
-  // the reference; it shows up in the Highlights tab.
-  const handleMakeRef = useCallback(() => {
-    const res = highlightRef.current?.ensure?.(DEFAULT_HL_COLOR);
     clearSelection();
-    if (res?.kind === 'created') saveRef.current?.();
-  }, [clearSelection]);
+    setInspectorTab('new-card');
+  }, [selection, highlights, clearSelection]);
 
   const handleCardSaved = useCallback(() => {
     clearSelection();
-    setSelectedHighlightId(null);
+    setCardDraft(null);
     setInspectorTab('cards');
     if (activeTab) refreshSidecar(activeTab);
   }, [clearSelection, activeTab, refreshSidecar]);
@@ -348,16 +366,20 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     return () => clearTimeout(t);
   }, [highlights, pendingHighlight, activeTab]);
 
+  // "+ Add card" on a highlight in the Highlights tab: seed the draft from
+  // the highlight's own text so the form shows the same anchored context as
+  // the selection path.
   const handleHighlightCardRequest = useCallback((highlightId) => {
-    setSelectedHighlightId(highlightId);
+    const h = highlights.find(x => x.id === highlightId);
+    setCardDraft({ text: h?.text ?? '', highlightId, color: h?.color ?? DEFAULT_HL_COLOR });
     setInspectorTab('new-card');
-  }, []);
+  }, [highlights]);
 
   const handleInspectorTabChange = useCallback((tab) => {
     setInspectorTab(tab);
     if (tab !== 'new-card') {
       clearSelection();
-      setSelectedHighlightId(null);
+      setCardDraft(null);
     }
   }, [clearSelection]);
 
@@ -414,7 +436,6 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
             <SelectionToolbar
               rect={selectionRect}
               onMakeCard={handleMakeCard}
-              onMakeRef={handleMakeRef}
               onHighlight={supportsHighlight ? handleHighlight : undefined}
               onUnhighlight={supportsHighlight ? handleUnhighlightRequest : undefined}
               onClear={clearSelection}
@@ -426,8 +447,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
           path={activeTab}
           activeTab={inspectorTab}
           onTabChange={handleInspectorTabChange}
-          selection={selection}
-          selectedHighlightId={selectedHighlightId}
+          cardDraft={cardDraft}
           highlights={highlights}
           flashcards={flashcards}
           tags={tags}
@@ -435,6 +455,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
           onTagsChange={handleTagsChange}
           onJumpToHighlight={handleJumpToHighlight}
           onHighlightCardRequest={handleHighlightCardRequest}
+          onHighlightDeleteRequest={handleHighlightDeleteRequest}
           onCardSaved={handleCardSaved}
           onSelectionClear={clearSelection}
           open={inspectorOpen}

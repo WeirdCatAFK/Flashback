@@ -2,12 +2,20 @@ import { useState } from 'react';
 import { createVanillaCard } from '../../../api/media';
 import FlashcardForm from '../../shared/FlashcardForm';
 
-export default function InspectorNewCardTab({ path, selection, highlightId, onCancel, onSaved }) {
+// `draft` is DocumentEditor's snapshot of what this card is anchored to:
+// { text, highlightId, color } | null. It is stable state — unlike the live
+// browser selection, it doesn't vanish when the user clicks into a field.
+export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
 
-  const filename = path?.replace(/\\/g, '/').split('/').pop() ?? '';
-  const location  = highlightId ? { type: 'highlight', id: highlightId } : null;
+  const filename    = path?.replace(/\\/g, '/').split('/').pop() ?? '';
+  const highlightId = draft?.highlightId ?? null;
+  const location    = highlightId ? { type: 'highlight', id: highlightId } : null;
+
+  const sourceLabel = draft?.text
+    ? (highlightId ? `Anchored to highlight in ${filename}` : `From ${filename} (not anchored)`)
+    : undefined;
 
   const handleSubmit = async ({ card, media }) => {
     setSaving(true);
@@ -26,8 +34,9 @@ export default function InspectorNewCardTab({ path, selection, highlightId, onCa
 
   return (
     <FlashcardForm
-      selection={selection}
-      sourceLabel={selection?.text ? `${highlightId ? 'highlight' : 'unanchored'} · ${filename}` : undefined}
+      selection={draft?.text ? { text: draft.text } : null}
+      sourceLabel={sourceLabel}
+      anchorColor={highlightId ? (draft?.color ?? 'amber') : null}
       location={location}
       saving={saving}
       error={error}

@@ -343,14 +343,13 @@ export default function PdfRenderer({
           if (!pageEl) return null;
           const pageNum = parseInt(pageEl.dataset.page, 10);
 
-          // Recolor or remove existing highlight under selection
+          // Recolor an existing highlight under the selection; same color is a
+          // no-op — removal only happens via the explicit unset command.
           const existingId = findOverlappingHighlight();
           if (existingId) {
             const existing = highlightsRef.current.find(h => h.id === existingId);
             if (existing?.color === color) {
-              const next = highlightsRef.current.filter(h => h.id !== existingId);
-              highlightsRef.current = next; setHighlights(next);
-              return { kind: 'removed', id: existingId };
+              return { kind: 'existing', id: existingId };
             }
             const next = highlightsRef.current.map(h =>
               h.id === existingId ? { ...h, color, updatedAt: new Date().toISOString() } : h
@@ -391,6 +390,15 @@ export default function PdfRenderer({
         return { kind: 'removed', id };
       },
 
+      // Remove by registry id (Highlights tab delete button).
+      remove: (id) => {
+        if (!id || !highlightsRef.current.some(h => h.id === id)) return null;
+        const next = highlightsRef.current.filter(h => h.id !== id);
+        highlightsRef.current = next; setHighlights(next);
+        if (currentHlRef.current === id) currentHlRef.current = null;
+        return { kind: 'removed', id };
+      },
+
       ensure: (color = 'amber') => {
         const existing = findOverlappingHighlight();
         if (existing) { currentHlRef.current = existing; return { kind: 'existing', id: existing }; }
@@ -419,30 +427,66 @@ export default function PdfRenderer({
 
   return (
     <div className={`pdf-renderer${drawMode ? ' pdf-renderer--draw' : ''}`} ref={rendererRef}>
-      <div className="pdf-zoom-bar">
-        <button
-          className="pdf-zoom-btn"
-          onClick={zoomOut}
-          disabled={scale <= SCALE_MIN}
-          title="Zoom out"
-        >−</button>
-        <span className="pdf-zoom-label">{Math.round(scale * 100)}%</span>
-        <button
-          className="pdf-zoom-btn"
-          onClick={zoomIn}
-          disabled={scale >= SCALE_MAX}
-          title="Zoom in"
-        >+</button>
-        <button className="pdf-zoom-btn pdf-zoom-btn--fit" onClick={fitWidth} title="Fit width">
-          Fit
+      <div className="pdf-toolbar">
+        <div className="pdf-zoom-group" role="group" aria-label="Zoom">
+          <button type="button"
+            className="pdf-zoom-btn"
+            onClick={zoomOut}
+            disabled={scale <= SCALE_MIN}
+            title="Zoom out"
+            aria-label="Zoom out"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <line x1="3" y1="7" x2="11" y2="7" />
+            </svg>
+          </button>
+          <span className="pdf-zoom-label">{Math.round(scale * 100)}%</span>
+          <button type="button"
+            className="pdf-zoom-btn"
+            onClick={zoomIn}
+            disabled={scale >= SCALE_MAX}
+            title="Zoom in"
+            aria-label="Zoom in"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+              <line x1="3" y1="7" x2="11" y2="7" />
+              <line x1="7" y1="3" x2="7" y2="11" />
+            </svg>
+          </button>
+        </div>
+
+        <button type="button" className="pdf-tool-btn" onClick={fitWidth} title="Zoom so a page fills the width">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <line x1="1.5" y1="2.5" x2="1.5" y2="11.5" />
+            <line x1="12.5" y1="2.5" x2="12.5" y2="11.5" />
+            <path d="M4 7h6M4 7l2-2M4 7l2 2M10 7l-2-2M10 7l-2 2" />
+          </svg>
+          Fit width
         </button>
-        <button
-          className={`pdf-zoom-btn pdf-zoom-btn--draw${drawMode ? ' pdf-zoom-btn--active' : ''}`}
+
+        <div className="pdf-toolbar-sep" aria-hidden="true" />
+
+        <button type="button"
+          className={`pdf-tool-btn pdf-tool-btn--toggle${drawMode ? ' is-on' : ''}`}
           onClick={() => setDrawMode(m => !m)}
-          title={drawMode ? 'Exit box-draw mode (Esc cancels current drag)' : 'Draw highlight box — drag to mark a region on scanned PDFs'}
+          aria-pressed={drawMode}
+          title={drawMode
+            ? 'Stop drawing highlight boxes'
+            : 'Draw a highlight box — for scanned PDFs where text can\'t be selected'}
         >
-          Box
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
+            <rect x="2" y="3" width="10" height="8" rx="1" strokeDasharray="2.5 2" />
+          </svg>
+          Box highlight
         </button>
+
+        {drawMode && (
+          <span className="pdf-toolbar-hint">Drag on a page to mark a region · Esc cancels</span>
+        )}
+
+        <span className="pdf-toolbar-pages">
+          {pages.length} page{pages.length === 1 ? '' : 's'}
+        </span>
       </div>
 
       <div className="pdf-pages" ref={pagesRef}>

@@ -56,15 +56,16 @@ export const ThemedHighlight = Highlight.extend({
 export function createHighlightCommands(editor) {
   return {
     // 'created' — new highlight added | 'recolored' — same id, new color
-    // 'removed' — same color clicked again, unset | null — no selection
+    // 'existing' — same color clicked again, no-op | null — no selection
+    // Removal is only ever explicit (unset via the toolbar's × button), which
+    // is the path that confirms before severing a highlight with linked cards.
     toggle: (color) => {
       if (!editor || editor.state.selection.empty) return null;
       const current = editor.getAttributes('highlight');
-      const chain = editor.chain().focus();
       if (current.color === color && current.id) {
-        chain.unsetHighlight().run();
-        return { kind: 'removed', id: current.id };
+        return { kind: 'existing', id: current.id };
       }
+      const chain = editor.chain().focus();
       if (current.color && current.id) {
         chain.setHighlight({ color, id: current.id }).run();
         return { kind: 'recolored', id: current.id };
@@ -79,6 +80,26 @@ export function createHighlightCommands(editor) {
       if (!current.id) return null;
       editor.chain().focus().unsetHighlight().run();
       return { kind: 'removed', id: current.id };
+    },
+    // Remove a highlight by registry id regardless of the current selection —
+    // used by the Highlights tab's delete button.
+    remove: (id) => {
+      if (!editor || !id) return null;
+      const markType = editor.schema.marks.highlight;
+      if (!markType) return null;
+      let tr = editor.state.tr;
+      let found = false;
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isText) return;
+        const mark = node.marks.find((m) => m.type === markType && m.attrs.id === id);
+        if (mark) {
+          tr = tr.removeMark(pos, pos + node.nodeSize, markType);
+          found = true;
+        }
+      });
+      if (!found) return null;
+      editor.view.dispatch(tr);
+      return { kind: 'removed', id };
     },
     // Ensure the selection is highlighted without changing an existing color.
     // Used by the Card / Ref buttons, which always want an anchor.

@@ -15,7 +15,7 @@ const TABS = [
 const MIN_WIDTH = 20;
 const MAX_WIDTH = 520;
 
-export default function Inspector({ path, activeTab, onTabChange, selection, onSelectionClear, open, onToggle, highlights, flashcards, tags, excludedTags, onTagsChange, onJumpToHighlight, onHighlightCardRequest, onCardSaved, selectedHighlightId }) {
+export default function Inspector({ path, activeTab, onTabChange, cardDraft, onSelectionClear, open, onToggle, highlights, flashcards, tags, excludedTags, onTagsChange, onJumpToHighlight, onHighlightCardRequest, onHighlightDeleteRequest, onCardSaved }) {
   const handleSaved  = () => { onCardSaved ? onCardSaved() : (onSelectionClear(), onTabChange('cards')); };
   const handleCancel = () => { onSelectionClear(); onTabChange('cards'); };
 
@@ -69,8 +69,18 @@ export default function Inspector({ path, activeTab, onTabChange, selection, onS
       {open && (
         <div className="inspector-content">
           {activeTab === 'cards'      && <InspectorCardsTab path={path} flashcards={flashcards} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
-          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} />}
-          {activeTab === 'new-card'   && <InspectorNewCardTab path={path} selection={selection} highlightId={selectedHighlightId} onSaved={handleSaved} onCancel={handleCancel} />}
+          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} onDelete={onHighlightDeleteRequest} />}
+          {activeTab === 'new-card'   && (
+            <InspectorNewCardTab
+              // Remount when the anchor changes so the form re-seeds from the
+              // new draft instead of keeping the previous passage's fields.
+              key={cardDraft ? `${cardDraft.highlightId ?? ''}:${cardDraft.text}` : 'blank'}
+              path={path}
+              draft={cardDraft}
+              onSaved={handleSaved}
+              onCancel={handleCancel}
+            />
+          )}
           {activeTab === 'tags'       && <InspectorTagsTab path={path} tags={tags ?? []} excludedTags={excludedTags ?? []} onTagsChange={onTagsChange} />}
         </div>
       )}

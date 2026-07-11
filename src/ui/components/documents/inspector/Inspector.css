@@ -355,6 +355,21 @@
   background: var(--color-accent-subtle);
 }
 
+.hl-delete-btn {
+  font-size: 13px;
+  color: var(--color-fg-secondary);
+  padding: 1px 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  line-height: 1;
+  transition: color 80ms, background 80ms;
+}
+
+.hl-delete-btn:hover {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
 /* Expanded card list inside a highlight */
 
 .hl-cards-list {

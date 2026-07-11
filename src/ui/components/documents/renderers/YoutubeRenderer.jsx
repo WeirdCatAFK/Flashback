@@ -199,6 +199,16 @@ export default function YoutubeRenderer({
         removeMoment(id);
         return { kind: 'removed', id };
       },
+      // Remove by registry id (Highlights tab delete button). Unlike
+      // removeMoment this doesn't save — DocumentEditor saves after removal.
+      remove: (id) => {
+        if (!id || !highlightsRef.current.some(h => h.id === id)) return null;
+        const next = highlightsRef.current.filter(h => h.id !== id);
+        highlightsRef.current = next;
+        setHighlights(next);
+        if (currentHlRef.current === id) currentHlRef.current = null;
+        return { kind: 'removed', id };
+      },
       ensure: () => (currentHlRef.current ? { kind: 'existing', id: currentHlRef.current } : null),
       currentId: () => currentHlRef.current,
       scrollTo: (id) => {

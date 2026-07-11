@@ -17,9 +17,17 @@ const MEDIA_SLOTS = [
 
 const EMPTY_FILES = { front_img: null, back_img: null, front_sound: null, back_sound: null };
 
+const HL_COLOR_VAR = {
+  amber: '--color-hl-1',
+  green: '--color-hl-2',
+  blue:  '--color-hl-3',
+  pink:  '--color-hl-4',
+};
+
 export default function FlashcardForm({
   selection,
   sourceLabel,
+  anchorColor = null, // highlight color key when the card is anchored to a highlight
   location = null,
   saving = false,
   error = null,
@@ -108,13 +116,24 @@ export default function FlashcardForm({
   };
 
   const showMedia = cardType !== 'custom';
+  const anchorVar = anchorColor ? HL_COLOR_VAR[anchorColor] ?? HL_COLOR_VAR.amber : null;
 
   return (
     <div className="fc-form">
       {selection?.text && (
-        <div className="fc-form-selection">
-          <p className="fc-form-selected-text">"{selection.text}"</p>
-          {sourceLabel && <span className="fc-form-source">{sourceLabel}</span>}
+        <div
+          className="fc-form-selection"
+          style={anchorVar ? { borderLeftColor: `var(${anchorVar})` } : undefined}
+        >
+          <p className="fc-form-selected-text">&ldquo;{selection.text}&rdquo;</p>
+          {sourceLabel && (
+            <span className="fc-form-source">
+              {anchorVar && (
+                <span className="fc-form-anchor-dot" style={{ background: `var(${anchorVar})` }} />
+              )}
+              {sourceLabel}
+            </span>
+          )}
         </div>
       )}
 

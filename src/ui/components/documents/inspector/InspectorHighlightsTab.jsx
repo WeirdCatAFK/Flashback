@@ -17,7 +17,7 @@ const TYPE_LABELS = {
   custom:      'Custom',
 };
 
-export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard }) {
+export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard, onDelete }) {
   const [expandedId, setExpandedId] = useState(null);
 
   const cardsByHighlight = new Map();
@@ -66,7 +66,9 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                 className="hl-item-dot"
                 style={{ background: `var(${cssVar})` }}
               />
-              <p className="hl-item-text">{h.text || '(empty)'}</p>
+              <p className="hl-item-text">
+                {h.text || (h.type === 'pdf_bbox' && h.page ? `Marked region on page ${h.page}` : '(empty)')}
+              </p>
               <div className="hl-item-meta">
                 {cards.length > 0 && (
                   <span className="card-item-level">{cards.length}</span>
@@ -77,6 +79,14 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                   onClick={(e) => { e.stopPropagation(); onJump?.(h.id); }}
                 >
                   ↗
+                </button>
+                <button type="button"
+                  className="hl-delete-btn"
+                  title={cards.length > 0 ? 'Remove highlight' : 'Remove highlight'}
+                  aria-label="Remove highlight"
+                  onClick={(e) => { e.stopPropagation(); onDelete?.(h.id); }}
+                >
+                  ×
                 </button>
               </div>
             </div>
