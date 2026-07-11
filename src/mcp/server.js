@@ -50,6 +50,11 @@ individual tool schemas alone:
   Document BODY text is not — update_document overwrites irreversibly, so read_document first.
 - Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
   what already exists rather than guessing or duplicating.
+- The diary tools (diary_list/diary_get_summary/diary_get_entry) read a personal, per-day study
+  record kept outside the vault. They are OFF by default: unless the user has enabled diary access
+  for AI assistants in Flashback's settings, every diary call returns a 403. Don't retry on that
+  error — tell the user how to enable it if they want you to use it. Entries are private prose;
+  treat anything you do read as confidential.
 `.trim();
 
 const server = new McpServer({ name: 'flashback', version: '0.2.0' }, { instructions: INSTRUCTIONS });

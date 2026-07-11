@@ -84,6 +84,7 @@ describe('MCP tools', () => {
             'search_flashback', 'list_folder', 'read_document', 'get_due_cards',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'search_content', 'get_links', 'get_recent_changes',
+            'diary_list', 'diary_get_summary', 'diary_get_entry',
             // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard',
             'create_document', 'update_document', 'create_folder', 'update_tags',
@@ -407,5 +408,38 @@ describe('MCP tools', () => {
         assert.equal(res.isError, false, res.text);
         assert.ok(Array.isArray(res.data.cards));
         if (res.data.cards.length) assert.ok('lapses' in res.data.cards[0]);
+    });
+
+    // The MCP client tags requests as `mcp`, so the API's diary privacy gate applies:
+    // every diary tool is refused with a 403 unless the user enables AI diary access
+    // in config.json (Config → AI Assistant). The gate reads the flag fresh from disk.
+    it('diary tools are refused until the user enables AI diary access', async () => {
+        const cfgPath = path.join(process.cwd(), 'data', 'config.json');
+        const original = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, 'utf-8') : null;
+        const base = original ? JSON.parse(original) : {};
+
+        // Disabled (default): a clean, non-crashing error mentioning it's disabled.
+        fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: false }, null, 2));
+        const denied = await call('diary_list', {});
+        assert.equal(denied.isError, true);
+        assert.match(denied.text, /disabled/i);
+
+        // Enabled: reads go through.
+        fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: true }, null, 2));
+        try {
+            const list = await call('diary_list', {});
+            assert.equal(list.isError, false, list.text);
+            assert.ok(Array.isArray(list.data));
+
+            const entry = await call('diary_get_entry', { date: '2022-02-02' });
+            assert.equal(entry.isError, false, entry.text);
+            assert.equal(entry.data.content, '');
+
+            const missing = await call('diary_get_summary', { date: '2022-02-02' });
+            assert.equal(missing.isError, true); // no summary that day → clean 404 error
+            assert.match(missing.text, /404/);
+        } finally {
+            if (original !== null) fs.writeFileSync(cfgPath, original);
+        }
     });
 });

@@ -8,10 +8,13 @@ const baseUrl = () => process.env.FLASHBACK_API_URL || 'http://localhost:50500';
 const apiToken = () => process.env.FLASHBACK_API_TOKEN || null;
 
 // The Electron host injects FLASHBACK_API_TOKEN when it launches this server (see
-// getMcpServerConfig in electron/main.js); attach it to every request.
+// getMcpServerConfig in electron/main.js); attach it to every request. Also tag every
+// request as coming from the MCP server so the API can apply the AI-assistant privacy
+// gate on the diary (see src/api/routes/diary.js) without affecting the renderer.
 function authHeaders(extra = {}) {
   const token = apiToken();
-  return token ? { ...extra, Authorization: `Bearer ${token}` } : { ...extra };
+  const base = { ...extra, 'X-Flashback-Client': 'mcp' };
+  return token ? { ...base, Authorization: `Bearer ${token}` } : base;
 }
 
 export async function request(method, path, body = null) {

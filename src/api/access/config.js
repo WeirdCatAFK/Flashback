@@ -60,7 +60,21 @@ export function getDatabasePath() {
     return path.join(getVaultPath(), `${vaultName}.db`);
 }
 
-function set(config) {
+// Whether AI assistants reaching the API through the MCP server may read the diary
+// (summaries + entries). Authorization boundary for a SEPARATE process, so it lives
+// in config.json (like apiToken) — not a renderer localStorage pref. Read FRESH from
+// disk (bypassing the module cache) so toggling it in Config takes effect without an
+// API restart. Fails CLOSED: any read/parse error → access denied. Default false.
+export function getMcpDiaryAccess() {
+    try {
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+        return cfg.mcpDiaryAccess === true;
+    } catch {
+        return false;
+    }
+}
+
+export function set(config) {
     const configPath = getConfigPath();
     try {
         fs.writeFileSync(configPath, JSON.stringify(config, null, 2));

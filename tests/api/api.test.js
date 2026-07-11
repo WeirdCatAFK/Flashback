@@ -1166,4 +1166,107 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Diary ──────────────────────────────────────────────────────────────
+    // Verifies the HTTP contract the Diary view + Trainer trigger depend on.
+    // Summary *derivation* from ReviewLogs is unit-tested in tests/diary.test.js;
+    // here we exercise routing, status codes, and the entry roundtrip. Diary files
+    // land in data/<vault>/diary and are removed by the suite's data/ teardown.
+
+    describe('Diary', () => {
+        const DATE = '2021-03-14';
+
+        it('POST /api/diary/summary → 200 with null summary when the day has no reviews', async () => {
+            const res = await post(`${baseUrl}/api/diary/summary`, { date: DATE });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.ok, true);
+            assert.equal(body.summary, null);
+        });
+
+        it('POST /api/diary/summary → 400 on a malformed date', async () => {
+            const res = await post(`${baseUrl}/api/diary/summary`, { date: '03/14/2021' });
+            assert.equal(res.status, 400);
+        });
+
+        it('GET /api/diary/summary/:date → 404 when no summary exists', async () => {
+            const res = await fetch(`${baseUrl}/api/diary/summary/${DATE}`);
+            assert.equal(res.status, 404);
+        });
+
+        it('GET /api/diary/entry/:date → empty content when no entry exists', async () => {
+            const res = await fetch(`${baseUrl}/api/diary/entry/${DATE}`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.content, '');
+        });
+
+        it('PUT then GET /api/diary/entry/:date → roundtrips the markdown', async () => {
+            const putRes = await put(`${baseUrl}/api/diary/entry/${DATE}`, { content: '# Reflection\nGood session.' });
+            assert.equal(putRes.status, 200);
+            const putBody = await putRes.json();
+            assert.equal(putBody.ok, true);
+            assert.equal(putBody.created, true);
+
+            const getRes = await fetch(`${baseUrl}/api/diary/entry/${DATE}`);
+            const getBody = await getRes.json();
+            assert.equal(getBody.content, '# Reflection\nGood session.');
+        });
+
+        it('PUT empty content for a fresh date is a no-op (lazy create)', async () => {
+            const res = await put(`${baseUrl}/api/diary/entry/2021-03-15`, { content: '   ' });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.created, false);
+        });
+
+        it('GET /api/diary lists dates with per-kind flags', async () => {
+            const res = await fetch(`${baseUrl}/api/diary`);
+            assert.equal(res.status, 200);
+            const list = await res.json();
+            assert.ok(Array.isArray(list));
+            const day = list.find(d => d.date === DATE);
+            assert.ok(day && day.hasEntry === true);
+        });
+
+        it('POST /api/diary/rebuild → 200 with a count', async () => {
+            const res = await post(`${baseUrl}/api/diary/rebuild`, {});
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.ok, true);
+            assert.equal(typeof body.count, 'number');
+        });
+
+        // Privacy gate: requests tagged as coming from the MCP server (the AI
+        // assistant) are refused unless config.json enables mcpDiaryAccess. The
+        // renderer sends no such header, so the in-app Diary view is never gated.
+        describe('AI-assistant access gate', () => {
+            const cfgPath = path.join(process.cwd(), 'data', 'config.json');
+            const mcp = (p) => fetch(`${baseUrl}${p}`, { headers: { 'X-Flashback-Client': 'mcp' } });
+            const setAccess = (allowed) => {
+                const cfg = fsSync.existsSync(cfgPath) ? JSON.parse(fsSync.readFileSync(cfgPath, 'utf-8')) : {};
+                fsSync.writeFileSync(cfgPath, JSON.stringify({ ...cfg, mcpDiaryAccess: allowed }, null, 2));
+            };
+
+            after(() => setAccess(false)); // leave the vault closed
+
+            it('403s MCP-tagged diary reads when access is disabled', async () => {
+                setAccess(false);
+                assert.equal((await mcp('/api/diary')).status, 403);
+                assert.equal((await mcp(`/api/diary/summary/${DATE}`)).status, 403);
+                assert.equal((await mcp(`/api/diary/entry/${DATE}`)).status, 403);
+            });
+
+            it('allows MCP-tagged diary reads once access is enabled', async () => {
+                setAccess(true);
+                assert.equal((await mcp('/api/diary')).status, 200);
+                assert.equal((await mcp(`/api/diary/entry/${DATE}`)).status, 200);
+            });
+
+            it('never gates the renderer (no MCP header), regardless of the flag', async () => {
+                setAccess(false);
+                assert.equal((await fetch(`${baseUrl}/api/diary`)).status, 200);
+            });
+        });
+    });
+
 });

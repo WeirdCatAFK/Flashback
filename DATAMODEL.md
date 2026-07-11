@@ -394,6 +394,68 @@ The Doctor's `checkIndex()` does **not** rely on `inspect()` alone (it is blind 
 
 ---
 
+## Diary — Study Record
+
+The **diary** is an opt-in, per-day record of study activity implemented in `src/api/access/diary.js` (`/api/diary`). It is deliberately **not** part of the knowledge graph: it is metadata *about* studying, not study material.
+
+### Purpose
+
+When enabled, a machine-written **summary** is derived from `ReviewLogs` every time a study session completes, and the user may optionally add a free-form markdown **entry** for any day. The diary powers a review-history view and can feed AI assistants (privacy-gated, below).
+
+### Repository Layout
+
+The diary lives at `{vaultPath}/diary/` — a **sibling of `workspace/`, not inside it**:
+
+```
+{baseDir}/
+└── {vaultName}/                     ← vault root
+    ├── {vaultName}.db               ← derived layer
+    ├── workspace/                   ← Seal git repo (documents)
+    └── diary/                       ← the diary — its OWN git repo
+        ├── .git/
+        ├── summaries/summary-YYYY-MM-DD.json   ← machine-derived, read-only in the UI
+        └── entries/entry-YYYY-MM-DD.md         ← optional user prose
+```
+
+Two consequences follow from the sibling location:
+
+- **Invisible for free.** The file walker (`files.walkWorkspace`), global search, and the knowledge graph only descend inside `workspaceRoot`, so diary files never appear in search results, graph output, the file explorer, or flashcard anchoring — with no exclusion code. No flashcards can be created on diary files.
+- **Its own git repo.** Seal's repo root *is* `workspace/`, so it does not track the diary. `diary.js` therefore carries a separate `isomorphic-git` repo, initialised **lazily on first write** (never at startup — the feature is opt-in on the client, and an opted-out vault stays clean). Commits follow the same `<action>: <path>` convention with actions `summary` and `entry`. Writes are atomic (temp + rename).
+
+Summary and entry are **independent files joined only by their date key** — neither is a sidecar of the other. A summary can exist with no entry (the common case); an entry can exist with no summary (a rest-day journal). There is **one cumulative summary per date**: multiple sessions in a day regenerate the same file.
+
+### Summary schema (v1)
+
+Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is **UTC** (`date(timestamp)` in SQLite), matching the Stats view.
+
+```json
+{
+  "schemaVersion": 1,
+  "date": "2026-07-10",
+  "generatedAt": "2026-07-10T22:31:04.000Z",
+  "totals": { "reviews": 57, "uniqueCards": 43, "newCards": 8, "failed": 6 },
+  "retention": { "passRate": 0.895 },
+  "byDeck": [ { "deck": "Japanese_Hiragana_Basic", "reviews": 40, "failed": 3 } ],
+  "byDocument": [ { "path": "Notas/programacion.md", "reviews": 5 } ],
+  "struggledCards": [ { "globalHash": "…", "front": "ぬ", "failCount": 2 } ],
+  "streak": { "current": 12, "longest": 34 }
+}
+```
+
+Field notes:
+
+- `newCards` = cards whose earliest-ever real review falls on this date; `failed` counts `outcome = 0` rows; `passRate = (reviews - failed) / reviews`.
+- `byDeck` is a per-deck view (a card in two decks counts once per deck); `byDocument` covers document-anchored cards only. `struggledCards` is capped at 10, most-failed first (`front` is `(custom card)` for custom-HTML cards).
+- `streak` is computed **as of the summary's date** (not wall-clock "now"), so regeneration stays idempotent.
+- Synthetic rebuild logs (`outcome IS NULL`, seeded by the Vault Doctor to preserve SM-2 ease) are excluded from every aggregate.
+- `timeSpentMs` and a session count were intentionally **omitted** in v1 — neither is cheaply derivable from `ReviewLogs` (no per-review duration, no session id), and v1 adds no new tracking.
+
+### AI-assistant privacy gate
+
+The diary holds personal reflections, so access by the MCP server (a *separate* process — see the MCP server notes) is gated by a single **`mcpDiaryAccess`** flag in `config.json` (default off), toggled in Config → AI Assistant. Enforcement is server-side: the MCP client tags every request with `X-Flashback-Client: mcp`, and `routes/diary.js` returns `403` for MCP-tagged requests to the whole diary namespace unless the flag is on. The flag is read **fresh from disk** (`config.getMcpDiaryAccess`, fail-closed) so toggling takes effect without an API restart. The React renderer sends no such header, so the in-app Diary view is never gated. The read-only tools are `diary_list`, `diary_get_summary`, and `diary_get_entry`.
+
+---
+
 # Derived data model
 
 Derived data for faster optimized querying.

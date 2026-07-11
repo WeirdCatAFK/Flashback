@@ -74,6 +74,15 @@ The DB-registration core of `importFile` is factored out as `_registerDocumentDe
 ### `srs.js`
 Handles spaced-repetition review submissions. `submitReview()` updates `Flashcards` and inserts into `ReviewLogs` in a single transaction; the client computes the new level/ease (see `DATAMODEL.md`), the server just persists it. `getLeitnerStats()`/`getDue()` return box distribution, mastery percentage, and scoped due-card queries. `migrateProgress()` remaps existing cards between the Leitner and SM-2 algorithms. Calls `query` and `database` only — never imports `documents.js`.
 
+### `diary.js`
+Per-day study **diary** orchestrator (see `DATAMODEL.md` § Diary). Derives an idempotent, cumulative daily **summary** from `ReviewLogs` (`buildSummary`/`generateSummary`/`rebuildAll`) and stores optional user **entries** (`saveEntry`/`getEntry`), plus `getSummary`/`list`. Imports `config` and `query` only.
+
+Two deliberate departures from the usual rules, both justified by the diary living **outside the workspace**:
+- **It is the one Tier-3 module that writes files directly** (atomic temp+rename) instead of going through `files.js`. `files.js` owns `.flashback` *sidecars under `workspaceRoot`*; diary files are neither sidecars nor inside the workspace, so `files.safePath` doesn't apply. Diary paths derive from `config.getVaultPath()` → `{vault}/diary/{summaries,entries}/`.
+- **It has its own `isomorphic-git` repo** at `{vault}/diary/`, independent of Seal (whose repo root is the workspace). Commits use the same `<action>: <path>` convention with actions `summary` and `entry`. The repo is initialized lazily on first write, never at startup — the feature is opt-in on the client (localStorage), and the server must not create `diary/` for an opted-out vault.
+
+Because the diary is a sibling of `workspace/`, it is automatically absent from `files.walkWorkspace()`, the SQLite index, global search, and the knowledge graph — no exclusion code, pinned by a test in `tests/diary.test.js`.
+
 ### `media.js`
 Orchestrator for media asset lifecycle:
 - `serve(hash)` — resolves a media file by SHA-256 hash for API streaming.

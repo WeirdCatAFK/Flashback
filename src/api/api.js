@@ -16,6 +16,7 @@ import categoriesRouter from './routes/categories.js';
 import searchRouter from './routes/search.js';
 import flashcardsRouter from './routes/flashcards.js';
 import doctorRouter from './routes/doctor.js';
+import diaryRouter from './routes/diary.js';
 
 class api {
 /**
@@ -98,6 +99,7 @@ class api {
     this.app.use('/api/search', searchRouter);
     this.app.use('/api/flashcards', flashcardsRouter);
     this.app.use('/api/doctor', doctorRouter);
+    this.app.use('/api/diary', diaryRouter);
 
     // 404
     this.app.use((req, res) => {

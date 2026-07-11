@@ -50,6 +50,24 @@
   line-height: 1.6;
 }
 
+.config-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+}
+
+.config-checkbox input {
+  flex: 0 0 auto;
+  accent-color: var(--color-accent);
+}
+
+.config-checkbox--spaced {
+  margin-top: 14px;
+}
+
 .config-save-row {
   margin-top: 14px;
   display: flex;

@@ -622,6 +622,19 @@ function useSrsPrefs() {
   return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention };
 }
 
+// Diary opt-in (stored in localStorage, default off). When on, the Trainer writes a
+// per-day summary to the diary on session completion. See DATAMODEL.md § Diary.
+function useDiaryPref() {
+  const [enabled, setEnabledState] = useState(
+    () => localStorage.getItem('fb-diary-enabled') === '1',
+  );
+  const setEnabled = (v) => {
+    localStorage.setItem('fb-diary-enabled', v ? '1' : '0');
+    setEnabledState(v);
+  };
+  return { enabled, setEnabled };
+}
+
 // Display name for an algorithm id (used in the picker and migrate prompts).
 const ALGO_LABEL = { leitner: 'Leitner', sm2: 'SM-2', fsrs: 'FSRS' };
 const algoLabel = (a) => ALGO_LABEL[a] ?? a;
@@ -725,6 +738,7 @@ export default function ConfigView({
   const [status, setStatus] = useState(null);
   const [restartPending, setRestartPending] = useState(false);
   const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention } = useSrsPrefs();
+  const { enabled: diaryEnabled, setEnabled: setDiaryEnabled } = useDiaryPref();
 
   // Algorithm migration confirm state.
   const [pendingAlgo, setPendingAlgo] = useState(null); // algorithm the user selected but hasn't confirmed
@@ -780,6 +794,17 @@ export default function ConfigView({
     } else {
       setStatus(`error: ${result.error}`);
     }
+  };
+
+  // Immediately persist the MCP diary-access flag to config.json (it's a cross-process
+  // authorization boundary the API reads from disk, not a renderer preference — see
+  // access/config.getMcpDiaryAccess). Merges into `form` so the main Save button can't
+  // later revert it; setConfig re-syncs form via the inline effect above.
+  const toggleDiaryAccess = async (checked) => {
+    if (!form) return;
+    const next = { ...form, mcpDiaryAccess: checked };
+    const result = await window.flashback.setConfig(next);
+    if (result?.ok) setConfig(next);
   };
 
   const isDirty =
@@ -924,6 +949,35 @@ export default function ConfigView({
                   value={maxNew}
                   onChange={(e) => setMaxNew(e.target.value)}
                 />
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </section>
+
+      <section className="config-section">
+        <h2 className="config-heading">Diary</h2>
+        <table className="config-table">
+          <tbody>
+            <tr>
+              <td>
+                <label htmlFor="diary-enabled">Study diary</label>
+              </td>
+              <td>
+                <label className="config-checkbox">
+                  <input
+                    id="diary-enabled"
+                    type="checkbox"
+                    checked={diaryEnabled}
+                    onChange={(e) => setDiaryEnabled(e.target.checked)}
+                  />
+                  <span>Record a daily summary when a study session finishes</span>
+                </label>
+                <p className="config-hint">
+                  Writes a per-day summary of your reviews (counts, pass rate, streak) to a
+                  private diary kept outside your workspace — never in the graph, search, or
+                  flashcards. You can also add your own written reflections. Off by default.
+                </p>
               </td>
             </tr>
           </tbody>
@@ -1112,6 +1166,19 @@ export default function ConfigView({
           <section className="config-section">
             <h2 className="config-heading">AI Assistant</h2>
             <McpIntegration />
+            <label className="config-checkbox config-checkbox--spaced">
+              <input
+                type="checkbox"
+                checked={form?.mcpDiaryAccess === true}
+                onChange={(e) => toggleDiaryAccess(e.target.checked)}
+              />
+              <span>Let AI assistants read your diary (summaries and entries)</span>
+            </label>
+            <p className="config-hint">
+              Off by default. When off, the MCP server can&rsquo;t read your daily summaries or
+              written reflections — every diary tool is refused. Turn it on only if you want an
+              assistant to see your study history and private notes.
+            </p>
           </section>
 
           <section className="config-section">

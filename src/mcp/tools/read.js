@@ -284,4 +284,65 @@ export function registerReadTools(server) {
       return asText(entries);
     }),
   );
+
+  // ── Diary (privacy-gated) ──────────────────────────────────────────────────
+  // The diary is a personal, per-day record of study activity kept OUTSIDE the
+  // workspace (never in the graph, search, or cards). These tools are read-only and
+  // are refused with a 403 unless the user has explicitly allowed AI-assistant access
+  // in Flashback → Config → AI Assistant. Dates are 'YYYY-MM-DD' (UTC).
+
+  server.registerTool(
+    'diary_list',
+    {
+      title: 'List diary days',
+      description:
+        'List the days that have a diary summary and/or a written entry, newest first. Each item is ' +
+        '{ date, hasSummary, hasEntry }. Requires the user to have enabled diary access for AI assistants ' +
+        '(otherwise every diary tool returns a 403). Read-only.',
+      inputSchema: {
+        from: z.string().optional().describe('Inclusive lower bound, YYYY-MM-DD.'),
+        to: z.string().optional().describe('Inclusive upper bound, YYYY-MM-DD.'),
+      },
+    },
+    safe(async ({ from, to } = {}) => {
+      const data = await request('GET', `/api/diary${qs({ from, to })}`);
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'diary_get_summary',
+    {
+      title: 'Get diary summary',
+      description:
+        'Get the machine-derived study summary for a day: review counts, new cards, pass rate, per-deck and ' +
+        'per-document breakdowns, cards the user struggled with, and streak. Derived from review history — ' +
+        'no personal prose. Returns a not-found error if that day has no summary. Requires diary access to be ' +
+        'enabled for AI assistants. Read-only.',
+      inputSchema: {
+        date: z.string().describe('The day to fetch, YYYY-MM-DD (UTC).'),
+      },
+    },
+    safe(async ({ date }) => {
+      const data = await request('GET', `/api/diary/summary/${encodeURIComponent(date)}`);
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'diary_get_entry',
+    {
+      title: 'Get diary entry',
+      description:
+        'Get the user\'s own written reflection (markdown) for a day, or empty content if none exists. This is ' +
+        'personal prose — treat it as private. Requires diary access to be enabled for AI assistants. Read-only.',
+      inputSchema: {
+        date: z.string().describe('The day to fetch, YYYY-MM-DD (UTC).'),
+      },
+    },
+    safe(async ({ date }) => {
+      const data = await request('GET', `/api/diary/entry/${encodeURIComponent(date)}`);
+      return asText(data);
+    }),
+  );
 }

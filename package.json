@@ -38,6 +38,7 @@
     "test:mcp": "node --test tests/mcp.test.js",
     "test:tags": "node --test tests/tags.test.js",
     "test:imports": "node --test tests/imports.test.js",
+    "test:diary": "node --test tests/diary.test.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js"
   },

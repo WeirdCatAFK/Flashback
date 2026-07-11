@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useRef, useMemo, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { submitReview, undoReview, getDue } from '../api/srs';
+import { generateSummary as generateDiarySummary } from '../api/diary';
 import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
@@ -798,6 +799,17 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setSessionDone(false);
     setLastSession(null);
   };
+
+  // When a session completes, record the day's summary to the diary — only if the
+  // user opted in (localStorage `fb-diary-enabled`, set in Config). Best-effort: the
+  // diary is non-critical and the server derives the summary idempotently from
+  // ReviewLogs, so a failure here is safe to swallow. A session with no real reviews
+  // produces no summary server-side.
+  useEffect(() => {
+    if (!sessionDone) return;
+    if (localStorage.getItem('fb-diary-enabled') !== '1') return;
+    generateDiarySummary().catch(() => {});
+  }, [sessionDone]);
 
   // The pop is transient — clear it after it plays so it never lingers to fire
   // again when the arena remounts.

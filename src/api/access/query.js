@@ -538,6 +538,99 @@ class DocumentQuery {
         return sinceIso ? stmt.get(sinceIso) : stmt.get();
     }
 
+    // ---------- Diary: per-UTC-day review aggregates ----------
+    // All of these bucket by date(timestamp) (UTC, matching the ISO timestamps
+    // written on review and the Stats view) and count real reviews only —
+    // synthetic rebuild logs (NULL outcome) are excluded. `dayIso` is 'YYYY-MM-DD'.
+    // Used by diary.js to derive an idempotent daily summary from ReviewLogs.
+
+    getDayReviewTotals(dayIso) {
+        return this.db.prepare(`
+            SELECT COUNT(*) AS reviews,
+                   COUNT(DISTINCT flashcard_id) AS uniqueCards,
+                   SUM(CASE WHEN outcome = 0 THEN 1 ELSE 0 END) AS failed
+            FROM ReviewLogs
+            WHERE outcome IS NOT NULL AND date(timestamp) = ?
+        `).get(dayIso);
+    }
+
+    // Cards whose earliest-ever real review falls on this day — i.e. cards first
+    // seen (in review terms) on `dayIso`. Idempotent: depends only on log history.
+    getDayNewCards(dayIso) {
+        return this.db.prepare(`
+            SELECT COUNT(*) AS newCards FROM (
+                SELECT flashcard_id, MIN(date(timestamp)) AS firstDay
+                FROM ReviewLogs
+                WHERE outcome IS NOT NULL
+                GROUP BY flashcard_id
+                HAVING firstDay = ?
+            )
+        `).get(dayIso).newCards;
+    }
+
+    // Reviews grouped by deck for the day. A card in multiple decks (rare) counts
+    // once per deck — this is a per-deck view, not a partition of the day's reviews.
+    getDayByDeck(dayIso) {
+        return this.db.prepare(`
+            SELECT d.name AS deck,
+                   COUNT(*) AS reviews,
+                   SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
+            FROM ReviewLogs rl
+            JOIN Flashcards f ON f.id = rl.flashcard_id
+            JOIN DeckEntries de ON de.card_hash = f.global_hash
+            JOIN Decks d ON d.id = de.deck_id
+            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            GROUP BY d.id
+            ORDER BY reviews DESC, d.name ASC
+        `).all(dayIso);
+    }
+
+    // Reviews grouped by source document for the day (document-anchored cards only;
+    // standalone cards have no document_id and are excluded here).
+    getDayByDocument(dayIso) {
+        return this.db.prepare(`
+            SELECT doc.relative_path AS path,
+                   COUNT(*) AS reviews,
+                   SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
+            FROM ReviewLogs rl
+            JOIN Flashcards f ON f.id = rl.flashcard_id
+            JOIN Documents doc ON doc.id = f.document_id
+            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            GROUP BY doc.id
+            ORDER BY reviews DESC, doc.relative_path ASC
+        `).all(dayIso);
+    }
+
+    // Cards that were failed at least once on the day, most-failed first. `front`
+    // is the vanilla front text (NULL for custom-HTML cards — caller substitutes).
+    getDayStruggledCards(dayIso, limit = 10) {
+        return this.db.prepare(`
+            SELECT f.global_hash AS globalHash,
+                   fc.frontText AS front,
+                   SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failCount
+            FROM ReviewLogs rl
+            JOIN Flashcards f ON f.id = rl.flashcard_id
+            LEFT JOIN FlashcardContent fc ON fc.id = f.content_id
+            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            GROUP BY f.id
+            HAVING failCount > 0
+            ORDER BY failCount DESC, f.id ASC
+            LIMIT ?
+        `).all(dayIso, limit);
+    }
+
+    // Distinct UTC days that carry at least one real review, ascending. Drives the
+    // diary "rebuild all summaries" command and streak computation.
+    getReviewActivityDays() {
+        return this.db.prepare(`
+            SELECT date(timestamp) AS day
+            FROM ReviewLogs
+            WHERE outcome IS NOT NULL
+            GROUP BY day
+            ORDER BY day ASC
+        `).all().map(r => r.day);
+    }
+
     getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
         const params = [];
         const cteParts = [];
