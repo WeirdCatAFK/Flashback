@@ -67,7 +67,19 @@ export default function App() {
   }, [theme]);
 
   const [selectedPath, setSelectedPath] = useState(null);
-  const [openPaths, setOpenPaths] = useState(() => new Set());
+  // Persist which folders are expanded so the tree reopens the way the user
+  // left it on the next launch. Stored as a plain array of paths in localStorage.
+  const [openPaths, setOpenPaths] = useState(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("fb-open-folders") ?? "[]");
+      return new Set(Array.isArray(saved) ? saved : []);
+    } catch {
+      return new Set();
+    }
+  });
+  useEffect(() => {
+    localStorage.setItem("fb-open-folders", JSON.stringify([...openPaths]));
+  }, [openPaths]);
 
   const [studySession, setStudySession] = useState(null);
   const handleStartStudy = useCallback((session) => {
