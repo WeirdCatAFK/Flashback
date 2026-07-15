@@ -90,6 +90,7 @@ describe('MCP tools', () => {
             'create_document', 'update_document', 'create_folder', 'update_tags',
             'create_deck', 'update_deck', 'delete_deck', 'add_to_deck', 'remove_from_deck',
             'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
+            'create_category', 'update_category',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
     });
@@ -158,6 +159,26 @@ describe('MCP tools', () => {
 
         const row = cardRow(anchoredHash);
         assert.equal(row.frontText, 'Which organelle is the powerhouse of the cell?', 'derived layer synced');
+    });
+
+    it('create_category adds a category that list_categories then reports, and update_category renames it', async () => {
+        const uniqueName = `MCP Concept ${Date.now()}`;
+        const created = await call('create_category', { name: uniqueName, priority: 7, description: 'from mcp test' });
+        assert.equal(created.isError, false, created.text);
+        assert.ok(Number.isInteger(created.data.id), 'returns numeric id');
+
+        let listed = await call('list_categories');
+        assert.ok(listed.data.some((c) => c.name === uniqueName && c.priority === 7), 'category is listed');
+
+        const renamed = `${uniqueName} (renamed)`;
+        const updated = await call('update_category', { id: created.data.id, name: renamed, priority: 3 });
+        assert.equal(updated.isError, false, updated.text);
+
+        listed = await call('list_categories');
+        const row = listed.data.find((c) => c.id === created.data.id);
+        assert.ok(row, 'category survives update (kept by id)');
+        assert.equal(row.name, renamed);
+        assert.equal(row.priority, 3);
     });
 
     it('update_flashcard rejects an unknown category on the sidecar path', async () => {
@@ -424,7 +445,18 @@ describe('MCP tools', () => {
         assert.equal(denied.isError, true);
         assert.match(denied.text, /disabled/i);
 
-        // Enabled: reads go through.
+        // Summaries-only: the day list and summaries are readable, but the personal
+        // written entry is refused with a 403.
+        fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: 'summaries' }, null, 2));
+        const summariesList = await call('diary_list', {});
+        assert.equal(summariesList.isError, false, summariesList.text);
+        assert.ok(Array.isArray(summariesList.data));
+
+        const blockedEntry = await call('diary_get_entry', { date: '2022-02-02' });
+        assert.equal(blockedEntry.isError, true);
+        assert.match(blockedEntry.text, /403/);
+
+        // Enabled (full): reads go through, including the written entry.
         fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: true }, null, 2));
         try {
             const list = await call('diary_list', {});

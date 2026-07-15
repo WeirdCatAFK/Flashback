@@ -549,4 +549,59 @@ export function registerWriteTools(server) {
       }
     },
   );
+
+  // Pedagogical categories are create/update only by design — there is no
+  // delete_category tool. Categories are referenced by every flashcard that
+  // carries one, so removing a name would orphan those cards; the vault's
+  // migration policy is strictly additive. Rename or re-prioritize instead.
+  server.registerTool(
+    'create_category',
+    {
+      title: 'Create pedagogical category',
+      description:
+        'Add a new pedagogical category (e.g. "Concept", "Definition") that flashcards can be tagged with ' +
+        'via the `category` field of create_flashcard/update_flashcard. Priority orders review — lower is ' +
+        'studied first. There is deliberately no way to delete a category; if a name is wrong, rename it ' +
+        'with update_category rather than removing it.',
+      inputSchema: {
+        name: z.string().describe('Category name. Must be unique; the create fails if it already exists.'),
+        priority: z.number().int().optional().describe('Review priority; lower = studied first. Defaults to 0.'),
+        description: z.string().optional().describe('Optional human-readable description of what the category means.'),
+      },
+    },
+    async ({ name, priority, description }) => {
+      try {
+        const data = await request('POST', '/api/categories', { name, priority, description });
+        return asText({ id: data.id, name, priority: priority ?? 0, description: description ?? '' });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'update_category',
+    {
+      title: 'Update pedagogical category',
+      description:
+        'Rename a pedagogical category, change its review priority, or edit its description. Identify it by ' +
+        '`id` from list_categories. Every field is optional — only the ones you pass are changed. Renaming ' +
+        'keeps all flashcards linked (they reference the category by id), which is why this, not a ' +
+        'delete-and-recreate, is the correct way to fix a category.',
+      inputSchema: {
+        id: z.number().int().describe('The category\'s numeric `id` (from list_categories).'),
+        name: z.string().optional().describe('New name. Must stay unique.'),
+        priority: z.number().int().optional().describe('New review priority; lower = studied first.'),
+        description: z.string().optional().describe('New description.'),
+      },
+    },
+    async ({ id, name, priority, description }) => {
+      try {
+        await request('PUT', `/api/categories/${encodeURIComponent(id)}`, { name, priority, description });
+        return asText({ ok: true, id });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
 }

@@ -335,7 +335,8 @@ export function registerReadTools(server) {
       title: 'Get diary entry',
       description:
         'Get the user\'s own written reflection (markdown) for a day, or empty content if none exists. This is ' +
-        'personal prose — treat it as private. Requires diary access to be enabled for AI assistants. Read-only.',
+        'personal prose — treat it as private. Requires FULL diary access: if the user has granted only ' +
+        'summaries-only access, this tool is refused with a 403 while diary_get_summary still works. Read-only.',
       inputSchema: {
         date: z.string().describe('The day to fetch, YYYY-MM-DD (UTC).'),
       },

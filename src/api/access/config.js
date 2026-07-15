@@ -60,17 +60,23 @@ export function getDatabasePath() {
     return path.join(getVaultPath(), `${vaultName}.db`);
 }
 
-// Whether AI assistants reaching the API through the MCP server may read the diary
-// (summaries + entries). Authorization boundary for a SEPARATE process, so it lives
-// in config.json (like apiToken) — not a renderer localStorage pref. Read FRESH from
-// disk (bypassing the module cache) so toggling it in Config takes effect without an
-// API restart. Fails CLOSED: any read/parse error → access denied. Default false.
+// How much of the diary AI assistants reaching the API through the MCP server may
+// read. Three levels: 'none' (closed), 'summaries' (machine-derived study summaries
+// only — the personal written entries stay private), 'full' (summaries + entries).
+// Authorization boundary for a SEPARATE process, so it lives in config.json (like
+// apiToken) — not a renderer localStorage pref. Read FRESH from disk (bypassing the
+// module cache) so toggling it in Config takes effect without an API restart. Fails
+// CLOSED: any unrecognized value or read/parse error → 'none'. Default 'none'.
+// Back-compat: the flag used to be a boolean (true = full, false = none).
 export function getMcpDiaryAccess() {
     try {
         const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
-        return cfg.mcpDiaryAccess === true;
+        const v = cfg.mcpDiaryAccess;
+        if (v === true || v === "full") return "full";
+        if (v === "summaries") return "summaries";
+        return "none";
     } catch {
-        return false;
+        return "none";
     }
 }
 

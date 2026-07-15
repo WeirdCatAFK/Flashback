@@ -12,14 +12,25 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // Privacy gate for AI assistants. The MCP server (a separate process) tags every
 // request with `X-Flashback-Client: mcp`; the diary holds personal reflections, so
-// the whole namespace is closed to MCP unless the user opted in (config.json
-// `mcpDiaryAccess`, toggled in Config → AI Assistant). The React renderer sends no
-// such header, so the in-app Diary view is never affected. This is real server-side
-// enforcement for our MCP server, not client-side self-censoring.
+// access is closed to MCP unless the user opted in (config.json `mcpDiaryAccess`,
+// toggled in Config → AI Assistant). Three levels: 'none' closes the whole namespace,
+// 'summaries' exposes the machine-derived study summaries and the day list but keeps
+// the personal written entries private, 'full' opens everything. The React renderer
+// sends no such header, so the in-app Diary view is never affected. This is real
+// server-side enforcement for our MCP server, not client-side self-censoring.
 router.use((req, res, next) => {
-    if (req.get('X-Flashback-Client') === 'mcp' && !getMcpDiaryAccess()) {
+    if (req.get('X-Flashback-Client') !== 'mcp') return next();
+    const access = getMcpDiaryAccess(); // 'none' | 'summaries' | 'full'
+    if (access === 'none') {
         return res.status(403).json({
             error: 'Diary access for AI assistants is disabled. Enable it in Flashback → Config → AI Assistant.',
+        });
+    }
+    // In summaries-only mode the personal written entries (the /entry routes) stay
+    // private, even though the derived summaries are readable.
+    if (access === 'summaries' && req.path.startsWith('/entry')) {
+        return res.status(403).json({
+            error: 'AI assistants can read your daily summaries but not your written diary entries. Change this in Flashback → Config → AI Assistant.',
         });
     }
     next();

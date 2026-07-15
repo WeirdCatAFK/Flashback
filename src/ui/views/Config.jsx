@@ -796,16 +796,26 @@ export default function ConfigView({
     }
   };
 
-  // Immediately persist the MCP diary-access flag to config.json (it's a cross-process
+  // Immediately persist the MCP diary-access level to config.json (it's a cross-process
   // authorization boundary the API reads from disk, not a renderer preference — see
-  // access/config.getMcpDiaryAccess). Merges into `form` so the main Save button can't
-  // later revert it; setConfig re-syncs form via the inline effect above.
-  const toggleDiaryAccess = async (checked) => {
+  // access/config.getMcpDiaryAccess). One of 'none' | 'summaries' | 'full'. Merges into
+  // `form` so the main Save button can't later revert it; setConfig re-syncs form via
+  // the inline effect above.
+  const setDiaryAccess = async (mode) => {
     if (!form) return;
-    const next = { ...form, mcpDiaryAccess: checked };
+    const next = { ...form, mcpDiaryAccess: mode };
     const result = await window.flashback.setConfig(next);
     if (result?.ok) setConfig(next);
   };
+
+  // The flag was historically a boolean (true = full, false = none); normalize either
+  // shape to the current tri-state for the selector.
+  const diaryAccess =
+    form?.mcpDiaryAccess === true || form?.mcpDiaryAccess === 'full'
+      ? 'full'
+      : form?.mcpDiaryAccess === 'summaries'
+        ? 'summaries'
+        : 'none';
 
   const isDirty =
     form && config && JSON.stringify(form) !== JSON.stringify(config);
@@ -1166,18 +1176,24 @@ export default function ConfigView({
           <section className="config-section">
             <h2 className="config-heading">AI Assistant</h2>
             <McpIntegration />
-            <label className="config-checkbox config-checkbox--spaced">
-              <input
-                type="checkbox"
-                checked={form?.mcpDiaryAccess === true}
-                onChange={(e) => toggleDiaryAccess(e.target.checked)}
-              />
-              <span>Let AI assistants read your diary (summaries and entries)</span>
+            <label className="config-checkbox config-checkbox--spaced" htmlFor="diary-access-select">
+              <span>What AI assistants may read from your diary</span>
             </label>
+            <select
+              id="diary-access-select"
+              value={diaryAccess}
+              onChange={(e) => setDiaryAccess(e.target.value)}
+            >
+              <option value="none">Nothing (off)</option>
+              <option value="summaries">Daily summaries only</option>
+              <option value="full">Summaries and written entries</option>
+            </select>
             <p className="config-hint">
-              Off by default. When off, the MCP server can&rsquo;t read your daily summaries or
-              written reflections — every diary tool is refused. Turn it on only if you want an
-              assistant to see your study history and private notes.
+              Off by default. <strong>Daily summaries only</strong> lets an assistant see your
+              machine-generated study record (review counts, pass rates, streaks) while keeping
+              your written reflections private — the right choice if you use the diary as a
+              personal journal. <strong>Summaries and written entries</strong> also exposes your
+              own prose. When off, every diary tool is refused.
             </p>
           </section>
 

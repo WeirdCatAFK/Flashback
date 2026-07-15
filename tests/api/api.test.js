@@ -1262,6 +1262,15 @@ describe('Flashback API', () => {
                 assert.equal((await mcp(`/api/diary/entry/${DATE}`)).status, 200);
             });
 
+            it('summaries-only access exposes summaries/list but hides written entries', async () => {
+                setAccess('summaries');
+                assert.equal((await mcp('/api/diary')).status, 200);
+                // summary/:date is 404 when absent, NOT 403 — the point is it's reachable.
+                assert.notEqual((await mcp(`/api/diary/summary/${DATE}`)).status, 403);
+                // the personal written entry stays private.
+                assert.equal((await mcp(`/api/diary/entry/${DATE}`)).status, 403);
+            });
+
             it('never gates the renderer (no MCP header), regardless of the flag', async () => {
                 setAccess(false);
                 assert.equal((await fetch(`${baseUrl}/api/diary`)).status, 200);
