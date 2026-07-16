@@ -219,15 +219,15 @@ class DocumentQuery {
         const stmt = this.db.prepare(`
             INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, sm2_reps,
                 fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
-                name, fileIndex, presence, card_type)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
+                name, fileIndex, presence, card_type, origin)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
         `);
         return stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
             contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.sm2Reps || 0,
             data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
             data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
-            data.name || null, data.fileIndex || 0, data.cardType || 'basic'
+            data.name || null, data.fileIndex || 0, data.cardType || 'basic', data.origin || null
         );
     }
 
@@ -242,13 +242,13 @@ class DocumentQuery {
             UPDATE Flashcards
             SET last_recall = ?, level = ?, sm2_reps = ?,
                 fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?,
-                category_id = ?, name = ?, fileIndex = ?, card_type = ?
+                category_id = ?, name = ?, fileIndex = ?, card_type = ?, origin = ?
             WHERE id = ?
         `).run(
             data.lastRecall, data.level ?? 0, data.sm2Reps ?? 0,
             data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
             data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
-            categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', id,
+            categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', data.origin || null, id,
         );
 
         // Content
@@ -295,7 +295,7 @@ class DocumentQuery {
 
     getFlashcardContentByHash(hash) {
         return this.db.prepare(`
-            SELECT f.id, f.document_id, f.name, f.card_type, f.level, c.frontText, c.backText, c.custom_html,
+            SELECT f.id, f.document_id, f.name, f.card_type, f.level, f.origin, c.frontText, c.backText, c.custom_html,
                    c.front_img, c.back_img, c.front_sound, c.back_sound,
                    pc.name AS category,
                    d.relative_path AS document_path
@@ -1036,7 +1036,7 @@ class DocumentQuery {
         ).all(term, limit);
 
         const flashcards = this.db.prepare(`
-            SELECT f.global_hash, f.name, f.card_type, f.level,
+            SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
                    c.frontText, c.backText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
@@ -1123,7 +1123,7 @@ class DocumentQuery {
 
         return this.db.prepare(`
             ${cteSQL}
-            SELECT f.global_hash, f.name, f.card_type, f.level,
+            SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
                    c.frontText, c.backText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
@@ -1433,7 +1433,14 @@ class DocumentQuery {
 
     // --- Card Browser ---
 
-    getAllFlashcards({ search = null, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+    // `origin` filter: 'ai' → only AI-created cards (origin = 'ai');
+    // 'human' → only cards NOT created by an AI assistant.
+    _flashcardOriginCondition(origin, conditions) {
+        if (origin === 'ai') conditions.push("f.origin = 'ai'");
+        else if (origin === 'human') conditions.push("(f.origin IS NULL OR f.origin <> 'ai')");
+    }
+
+    getAllFlashcards({ search = null, level = null, cardType = null, origin = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         const params = [];
         const conditions = [];
 
@@ -1450,6 +1457,7 @@ class DocumentQuery {
             conditions.push('f.card_type = ?');
             params.push(cardType);
         }
+        this._flashcardOriginCondition(origin, conditions);
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
         const sortCols = { level: 'f.level', name: 'f.name', last_recall: 'f.last_recall', lapses: 'f.fsrs_lapses' };
@@ -1460,7 +1468,7 @@ class DocumentQuery {
 
         return this.db.prepare(`
             SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
-                   f.fsrs_lapses as lapses,
+                   f.fsrs_lapses as lapses, f.origin,
                    c.frontText, c.backText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
                    pc.name as category
@@ -1474,7 +1482,7 @@ class DocumentQuery {
         `).all(...params);
     }
 
-    getFlashcardCountFiltered({ search = null, level = null, cardType = null } = {}) {
+    getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null } = {}) {
         const params = [];
         const conditions = [];
 
@@ -1491,6 +1499,7 @@ class DocumentQuery {
             conditions.push('f.card_type = ?');
             params.push(cardType);
         }
+        this._flashcardOriginCondition(origin, conditions);
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
@@ -1615,6 +1624,18 @@ class DocumentQuery {
 
     deleteHighlight(hash) {
         return this.db.prepare('DELETE FROM Highlights WHERE global_hash = ?').run(hash);
+    }
+
+    // Distinct workspace documents that currently have at least one highlight —
+    // the vault-wide entry point for highlight listings (the per-document
+    // detail always comes from the sidecar, the canonical layer).
+    getHighlightedDocumentPaths() {
+        return this.db.prepare(`
+            SELECT DISTINCT d.relative_path
+            FROM Highlights h
+            JOIN Documents d ON h.document_id = d.id
+            ORDER BY d.relative_path ASC
+        `).all().map(r => r.relative_path);
     }
 
     syncDocumentHighlights(documentId, highlightsData) {

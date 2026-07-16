@@ -48,6 +48,15 @@ individual tool schemas alone:
   yourself. Deck tags (update_deck) propagate to every member card.
 - Sidecar changes (cards, tags, highlights) are versioned by Seal, the built-in git layer.
   Document BODY text is not — update_document overwrites irreversibly, so read_document first.
+- Every card records its provenance in \`origin\`: cards created through these tools are marked
+  'ai' automatically; handmade cards have no origin. The core highlight→card workflow: the user
+  highlights passages while reading, you turn them into flashcards. list_highlights (with
+  \`uncardedOnly\`) shows which highlights still lack a card, with the highlighted text and its
+  surrounding context; anchor each new card to its source passage by passing the highlight's
+  \`id\` as create_flashcard's \`highlightHash\`. Before drafting, study the vault's existing
+  cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
+  cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
+  the vault has no handmade cards.
 - Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
   what already exists rather than guessing or duplicating.
 - The diary tools (diary_list/diary_get_summary/diary_get_entry) read a personal, per-day study
@@ -57,7 +66,7 @@ individual tool schemas alone:
   treat anything you do read as confidential.
 `.trim();
 
-const server = new McpServer({ name: 'flashback', version: '0.2.0' }, { instructions: INSTRUCTIONS });
+const server = new McpServer({ name: 'flashback', version: '0.3.0' }, { instructions: INSTRUCTIONS });
 
 registerReadTools(server);
 registerWriteTools(server);

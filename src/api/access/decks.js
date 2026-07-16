@@ -282,23 +282,24 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
-    searchCards({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        return this.query.getAllFlashcards({ search, level, cardType, sortBy, sortDir, limit, offset });
+    searchCards({ search, level = null, cardType = null, origin = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+        return this.query.getAllFlashcards({ search, level, cardType, origin, sortBy, sortDir, limit, offset });
     }
 
-    getCardCount({ search, level = null, cardType = null } = {}) {
-        return this.query.getFlashcardCountFiltered({ search, level, cardType });
+    getCardCount({ search, level = null, cardType = null, origin = null } = {}) {
+        return this.query.getFlashcardCountFiltered({ search, level, cardType, origin });
     }
 
     // Builds the canonical content snapshot stored alongside a standalone card's
     // deck entry (file entry.card + DeckEntries.inline_card). Standalone cards
     // have no document sidecar, so this snapshot is their only canonical-layer
     // representation — without it they'd be unrecoverable after a DB rebuild.
-    _standaloneSnapshot({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
+    _standaloneSnapshot({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
         return {
             name: name ?? null,
             cardType,
             category,
+            ...(origin ? { origin } : {}),
             vanillaData: {
                 frontText: frontText || null,
                 backText: backText || null,
@@ -308,7 +309,7 @@ export default class Decks {
         };
     }
 
-    async createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null } = {}) {
+    async createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
         if (category && !this.query.getCategoryByName(category)) {
@@ -316,7 +317,7 @@ export default class Decks {
         }
 
         const globalHash = crypto.randomUUID();
-        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category, customHtml, media });
+        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category, customHtml, media, origin });
 
         db.transaction(() => {
             const nodeId = this.query.createNode('Flashcard');
@@ -324,7 +325,7 @@ export default class Decks {
                 globalHash, nodeId, documentId: null,
                 vanillaData: snapshot.vanillaData,
                 customData: snapshot.customData,
-                category, cardType, name,
+                category, cardType, name, origin,
                 level: 0, sm2Reps: 0, fileIndex: 0,
             });
             const position = this.query.getDeckEntryCount(systemDeck.id);
@@ -365,6 +366,7 @@ export default class Decks {
             name: card.name,
             cardType: card.card_type,
             level: card.level,
+            origin: card.origin ?? null,
             frontText: card.frontText,
             backText: card.backText,
             customHtml: card.custom_html,
@@ -392,6 +394,7 @@ export default class Decks {
             cardType: cardType !== undefined ? cardType : existing.card_type,
             category: category !== undefined ? category : existing.category,
             customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
+            origin: existing.origin ?? null, // provenance is set at creation and never edited
             media: {
                 front_img: existing.front_img || null,
                 back_img: existing.back_img || null,
@@ -647,6 +650,7 @@ export default class Decks {
                             category: e.card.category ?? null,
                             cardType: e.card.cardType ?? 'basic',
                             name: e.card.name ?? null,
+                            origin: e.card.origin ?? null,
                             level: 0, sm2Reps: 0, fileIndex: 0,
                         });
                         const deck = this.query.getDeckByHash(f.globalHash);

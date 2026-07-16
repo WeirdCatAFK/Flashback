@@ -1029,6 +1029,9 @@ export default class Documents {
         if (!Array.isArray(meta.flashcards)) meta.flashcards = [];
         const card = { ...cardData };
         delete card.globalHash; // API-owned
+        // Provenance marker: 'ai' is the only recognized value ("created by an
+        // AI assistant", set by the MCP server). Anything else is dropped.
+        if (card.origin !== 'ai') delete card.origin;
         meta.flashcards.push(card);
         const cardIndex = meta.flashcards.length - 1;
         this.files.writeMetadata(relativePath, meta, false);
