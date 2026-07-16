@@ -84,7 +84,7 @@ describe('MCP tools', () => {
             'search_flashback', 'list_folder', 'read_document', 'get_due_cards',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'search_content', 'get_links', 'get_recent_changes',
-            'diary_list', 'diary_get_summary', 'diary_get_entry',
+            'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
             // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard',
             'create_document', 'update_document', 'create_folder', 'update_tags',
@@ -221,6 +221,48 @@ describe('MCP tools', () => {
         const read = await call('read_document', { path: docRel });
         const card = read.data.metadata.flashcards.find((f) => f.globalHash === res.data.globalHash);
         assert.deepEqual(card.vanillaData.location, { type: 'highlight', id: highlightHash });
+    });
+
+    it('list_highlights surfaces text, context, and card linkage; MCP cards are marked origin ai', async () => {
+        // Relies on the highlight + anchored card created in the previous test.
+        const res = await call('list_highlights', { path: docRel });
+        assert.equal(res.isError, false, res.text);
+        const hl = res.data.highlights.find((h) => h.id === highlightHash);
+        assert.ok(hl, 'created highlight is listed');
+        assert.equal(hl.text, 'Photosynthesis creates glucose', 'snippet snapshot persisted on creation');
+        assert.ok(hl.context?.includes('powerhouse of the cell'), 'context includes surrounding body text');
+        assert.equal(hl.hasCards, true);
+        assert.equal(hl.cardHashes.length, 1);
+
+        const uncarded = await call('list_highlights', { path: docRel, uncardedOnly: true });
+        assert.equal(uncarded.isError, false, uncarded.text);
+        assert.ok(!uncarded.data.highlights.some((h) => h.id === highlightHash), 'uncardedOnly excludes carded highlights');
+
+        // Provenance: the anchored card is origin 'ai' in the sidecar (canonical) and the DB row.
+        const read = await call('read_document', { path: docRel });
+        const aiCard = read.data.metadata.flashcards.find((f) => f.vanillaData?.location?.id === highlightHash);
+        assert.equal(aiCard.origin, 'ai');
+        const row = db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(aiCard.globalHash);
+        assert.equal(row.origin, 'ai');
+
+        // list_cards can slice by provenance so handmade cards can serve as style examples.
+        const ai = await call('list_cards', { origin: 'ai', limit: 200 });
+        assert.equal(ai.isError, false, ai.text);
+        assert.ok(ai.data.cards.some((c) => c.global_hash === aiCard.globalHash));
+        assert.ok(ai.data.cards.every((c) => c.origin === 'ai'));
+        const human = await call('list_cards', { origin: 'human', limit: 200 });
+        assert.equal(human.isError, false, human.text);
+        assert.ok(!human.data.cards.some((c) => c.global_hash === aiCard.globalHash));
+    });
+
+    it('standalone create_flashcard is marked origin ai too', async () => {
+        const res = await call('create_flashcard', {
+            cardType: 'basic', frontText: 'Standalone provenance Q', backText: 'A',
+        });
+        assert.equal(res.isError, false, res.text);
+        const row = db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(res.data.globalHash);
+        assert.equal(row.origin, 'ai');
+        await call('delete_flashcard', { globalHash: res.data.globalHash });
     });
 
     it('highlightHash without path is rejected up front', async () => {

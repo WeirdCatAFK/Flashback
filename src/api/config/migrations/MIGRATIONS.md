@@ -92,6 +92,10 @@ migration aborts startup — fix the `up()` function and restart.
 
 ## Current migrations
 
-| Version | File                | Description                                                            | Status                                                  |
-| ------- | ------------------- | ---------------------------------------------------------------------- | ------------------------------------------------------- |
-| 1       | `001_pre_beta.js` | Pre-beta schema changes: card columns, Highlights, indexes, Deck nodes | Not yet registered (register before first beta release) |
+| Version | File                     | Description                                                             | Status     |
+| ------- | ------------------------ | ------------------------------------------------------------------------ | ---------- |
+| 1       | `001_pre_beta.js`        | Pre-beta schema changes: card columns, Highlights, indexes, Deck nodes   | Registered |
+| 2       | `002_document_links.js`  | Inter-document links: DocumentLinks queue table + link ConnectionType    | Registered |
+| 3       | `003_system_deck.js`     | System deck: is_system column on Decks + Cards deck seed                 | Registered |
+| 4       | `004_fsrs.js`            | FSRS scheduler: card state columns, review snapshot, FsrsParameters      | Registered |
+| 5       | `005_card_origin.js`     | Flashcard provenance: ensure Flashcards.origin column exists             | Registered |

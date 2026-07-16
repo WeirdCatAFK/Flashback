@@ -14,6 +14,18 @@ router.get('/', catchError((req, res) => {
     res.json({ highlights });
 }));
 
+// GET /api/highlights/annotated?path=&color=&uncarded=&limit=
+// Highlights enriched with highlighted text, surrounding document context, and
+// the flashcards already anchored to each one. Vault-wide when path is omitted.
+router.get('/annotated', catchError((req, res) => {
+    const relPath = norm(req.query.path) || null;
+    const color = req.query.color || null;
+    const uncardedOnly = req.query.uncarded === 'true' || req.query.uncarded === '1';
+    const limit = Math.min(parseInt(req.query.limit) || 100, 500);
+    const all = highlightsService.listAnnotated({ path: relPath, color, uncardedOnly });
+    res.json({ highlights: all.slice(0, limit), total: all.length });
+}));
+
 // POST /api/highlights
 // Body: { path, type, start, end, page, bbox, color, note }
 router.post('/', catchError((req, res) => {

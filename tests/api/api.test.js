@@ -875,6 +875,129 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Annotated highlights & card provenance ────────────────────────────
+    // The highlight→card workflow surface: /api/highlights/annotated (text +
+    // context + card linkage) and the flashcard `origin` provenance marker
+    // ('ai' = AI-created, NULL = handmade) with its /api/decks/cards filter.
+
+    describe('Annotated highlights & card provenance', () => {
+        const ROOT = 'AnnotatedHlTest';
+        const FILE = `${ROOT}/cells.md`;
+        const BODY = 'The mitochondria is the powerhouse of the cell. Ribosomes synthesize proteins from amino acids.';
+        const HAND_HASH = 'annotated-hand-fc-001';
+        let hlCarded, hlUncarded, aiCardHash;
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFile('cells.md', ROOT);
+            // Body + one handmade card (no origin field) in a single sidecar write.
+            await updateFile(FILE, BODY, {
+                flashcards: [{ globalHash: HAND_HASH, vanillaData: { frontText: 'Handmade Q', backText: 'Handmade A' } }],
+            });
+        });
+
+        it('POST /api/highlights persists the text snapshot', async () => {
+            const s1 = BODY.indexOf('mitochondria');
+            const e1 = BODY.indexOf('cell.') + 'cell.'.length;
+            const res1 = await post(`${baseUrl}/api/highlights`, {
+                path: FILE, type: 'text_offset', start: s1, end: e1, color: 'amber', text: BODY.slice(s1, e1),
+            });
+            assert.equal(res1.status, 201);
+            const { highlight: h1 } = await res1.json();
+            assert.equal(h1.text, BODY.slice(s1, e1));
+            hlCarded = h1.id;
+
+            const s2 = BODY.indexOf('Ribosomes');
+            const res2 = await post(`${baseUrl}/api/highlights`, {
+                path: FILE, type: 'text_offset', start: s2, end: BODY.length, color: 'green', text: BODY.slice(s2),
+            });
+            assert.equal(res2.status, 201);
+            hlUncarded = (await res2.json()).highlight.id;
+        });
+
+        it('create-mode vanilla card carries origin "ai" into sidecar and DB row', async () => {
+            const form = new FormData();
+            form.append('docPath', FILE);
+            form.append('card', JSON.stringify({
+                cardType: 'basic',
+                origin: 'ai',
+                vanillaData: {
+                    frontText: 'What powers the cell?', backText: 'The mitochondria', media: {},
+                    location: { type: 'highlight', id: hlCarded },
+                },
+            }));
+            const res = await fetch(`${baseUrl}/api/media/vanilla`, { method: 'POST', body: form });
+            assert.equal(res.status, 201);
+            const { card } = await res.json();
+            aiCardHash = card.globalHash;
+            assert.equal(card.origin, 'ai', 'sidecar card keeps the provenance marker');
+
+            const readRes = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(FILE)}`);
+            const { metadata } = await readRes.json();
+            assert.equal(metadata.flashcards.find(f => f.globalHash === aiCardHash)?.origin, 'ai');
+        });
+
+        it('GET /api/highlights/annotated → text, context, and card linkage per highlight', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights/annotated?path=${encodeURIComponent(FILE)}`);
+            assert.equal(res.status, 200);
+            const { highlights, total } = await res.json();
+            assert.equal(total, 2);
+
+            const carded = highlights.find(h => h.id === hlCarded);
+            const uncarded = highlights.find(h => h.id === hlUncarded);
+            assert.ok(carded && uncarded, 'both highlights listed');
+
+            assert.ok(carded.text.startsWith('mitochondria'));
+            assert.ok(carded.context.includes('powerhouse'), 'context covers the highlighted region');
+            assert.ok(carded.context.includes('Ribosomes'), 'context includes surrounding body text');
+            assert.equal(path.normalize(carded.documentPath), path.normalize(FILE));
+
+            assert.equal(carded.hasCards, true);
+            assert.deepEqual(carded.cardHashes, [aiCardHash]);
+            assert.equal(uncarded.hasCards, false);
+            assert.deepEqual(uncarded.cardHashes, []);
+        });
+
+        it('GET /api/highlights/annotated?uncarded=true → only highlights without cards', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights/annotated?path=${encodeURIComponent(FILE)}&uncarded=true`);
+            const { highlights } = await res.json();
+            assert.deepEqual(highlights.map(h => h.id), [hlUncarded]);
+        });
+
+        it('GET /api/highlights/annotated (no path) → vault-wide listing', async () => {
+            const res = await fetch(`${baseUrl}/api/highlights/annotated`);
+            assert.equal(res.status, 200);
+            const { highlights } = await res.json();
+            assert.ok(highlights.some(h => h.id === hlCarded), 'vault-wide listing includes this document\'s highlights');
+        });
+
+        it('GET /api/decks/cards?origin= separates AI-created from handmade cards', async () => {
+            const aiRes = await fetch(`${baseUrl}/api/decks/cards?origin=ai&limit=200`);
+            const aiBody = await aiRes.json();
+            assert.ok(aiBody.cards.some(c => c.global_hash === aiCardHash), 'origin=ai includes the AI card');
+            assert.ok(aiBody.cards.every(c => c.origin === 'ai'), 'origin=ai returns only AI cards');
+
+            const humanRes = await fetch(`${baseUrl}/api/decks/cards?origin=human&limit=200`);
+            const humanBody = await humanRes.json();
+            assert.ok(humanBody.cards.some(c => c.global_hash === HAND_HASH), 'origin=human includes the handmade card');
+            assert.ok(!humanBody.cards.some(c => c.global_hash === aiCardHash), 'origin=human excludes the AI card');
+        });
+
+        it('unrecognized origin values are dropped, not stored', async () => {
+            const form = new FormData();
+            form.append('docPath', FILE);
+            form.append('card', JSON.stringify({
+                cardType: 'basic',
+                origin: 'totally-bogus',
+                vanillaData: { frontText: 'Q', backText: 'A', media: {} },
+            }));
+            const res = await fetch(`${baseUrl}/api/media/vanilla`, { method: 'POST', body: form });
+            assert.equal(res.status, 201);
+            const { card } = await res.json();
+            assert.equal(card.origin, undefined, 'bogus origin never reaches the sidecar');
+        });
+    });
+
     // ── Subscriptions ─────────────────────────────────────────────────────
 
     describe('Subscriptions', () => {

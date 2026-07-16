@@ -20,9 +20,12 @@ router.get('/:hash', catchError((req, res) => {
 }));
 
 // POST /api/flashcards — create standalone card
+// `origin` marks provenance ('ai' = created by an AI assistant); set once at
+// creation, never editable afterwards — the PUT below deliberately ignores it.
 router.post('/', catchError(async (req, res) => {
     const { frontText, backText, name, cardType = 'basic', category, customHtml } = req.body;
-    const globalHash = await decks.createStandaloneCard({ frontText, backText, name, cardType, category, customHtml });
+    const origin = req.body.origin === 'ai' ? 'ai' : null;
+    const globalHash = await decks.createStandaloneCard({ frontText, backText, name, cardType, category, customHtml, origin });
     res.status(201).json({ globalHash });
 }));
 

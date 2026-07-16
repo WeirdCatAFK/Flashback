@@ -94,6 +94,35 @@ export function registerReadTools(server) {
   );
 
   server.registerTool(
+    'list_highlights',
+    {
+      title: 'List highlights',
+      description:
+        'List highlights with everything needed to act on them: the highlighted text, ~200 chars of ' +
+        'surrounding document context, the user\'s note/color, and which flashcards already anchor to each ' +
+        'one (`hasCards`/`cardHashes`). Vault-wide by default; pass `path` to scope to one document. This is ' +
+        'the entry point for the highlight→flashcard workflow: the user highlights passages while reading, ' +
+        'you turn them into cards. Use `uncardedOnly` to find the highlights still waiting for a card, then ' +
+        'create_flashcard with `highlightHash` set to the highlight\'s `id` so the card stays anchored to its ' +
+        'source passage. Before writing the cards, look at the vault\'s existing HANDMADE cards (list_cards ' +
+        'with origin "human" — prefer them over AI-made ones as style examples) and match their conventions.',
+      inputSchema: {
+        path: z.string().optional().describe('Relative path to one document. Omit for a vault-wide listing.'),
+        color: z.enum(['amber', 'green', 'blue', 'pink']).optional().describe('Only highlights of this color. Users sometimes reserve a color for "make a card of this" — ask before assuming.'),
+        uncardedOnly: z.boolean().optional().describe('Only highlights that no flashcard anchors to yet.'),
+        limit: z.number().int().min(1).max(500).optional().describe('Max highlights to return, newest first. Default 100.'),
+      },
+    },
+    safe(async ({ path, color, uncardedOnly, limit } = {}) => {
+      const data = await request(
+        'GET',
+        `/api/highlights/annotated${qs({ path, color, uncarded: uncardedOnly ? 'true' : undefined, limit })}`,
+      );
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
     'get_due_cards',
     {
       title: 'Get due cards',
@@ -145,21 +174,23 @@ export function registerReadTools(server) {
         '(fuzzy text match, capped results), this can enumerate exhaustively: e.g. all cloze cards, all ' +
         'never-reviewed cards (level 0), or the strongest cards first. Returns `total` so you know when to ' +
         'paginate with offset. Each card includes its `document_path` (null for standalone cards) — the ' +
-        'value update_flashcard/delete_flashcard need as `documentPath`.',
+        'value update_flashcard/delete_flashcard need as `documentPath` — and its `origin` (\'ai\' = created ' +
+        'by an AI assistant, null = handmade).',
       inputSchema: {
         search: z.string().optional().describe('Substring filter on front/back text and card name.'),
         level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
         cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
+        origin: z.enum(['ai', 'human']).optional().describe('Filter by provenance: "human" = handmade cards only — use these as style examples when drafting new cards; "ai" = AI-created cards only.'),
         sortBy: z.enum(['level', 'name', 'last_recall', 'lapses']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — usually a sign the card is badly written and worth rewriting.'),
         sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Default "desc".'),
         limit: z.number().int().min(1).max(200).optional().describe('Page size. Default 50, max 200.'),
         offset: z.number().int().min(0).optional().describe('Pagination offset.'),
       },
     },
-    safe(async ({ search, level, cardType, sortBy, sortDir, limit, offset } = {}) => {
+    safe(async ({ search, level, cardType, origin, sortBy, sortDir, limit, offset } = {}) => {
       const data = await request(
         'GET',
-        `/api/decks/cards${qs({ search, level, cardType, sortBy, sortDir, limit, offset })}`,
+        `/api/decks/cards${qs({ search, level, cardType, origin, sortBy, sortDir, limit, offset })}`,
       );
       return asText(data);
     }),

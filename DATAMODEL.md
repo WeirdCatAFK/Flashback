@@ -98,6 +98,10 @@ wwwInteligencia_Artificial
   # Highlight anchoring differs by document type:
   #   • Markdown — stored inline in the body as <mark data-color data-hl>; the
   #     entry above mirrors it (no start/end). Survives edits to surrounding text.
+  #     A registry entry with no inline mark (created out-of-band — e.g. the MCP
+  #     server's create_highlight, which writes only the sidecar) is re-anchored
+  #     on load by searching the rendered text for its `text` snapshot; once the
+  #     document is saved the mark is serialized into the body and becomes native.
   #   • Plain text (.txt) — the body stays pure text, so the entry carries
   #     start/end character offsets. Offsets are tracked live while editing and
   #     re-anchored against `text` on load if the file changed out of band.
@@ -112,6 +116,7 @@ wwwInteligencia_Artificial
       "tags": ["Definition", "Supervised Learning"],
       "category": "Concept",
       "cardType": "basic",
+      "origin": "ai",                # provenance: present + 'ai' = AI-created (MCP); absent = handmade
       "customData": { "html": "" },
       "vanillaData": {
         "frontText": "What is KNN?",
@@ -537,7 +542,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 | reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                        |
 | last_recall  | timestamp    | Last time the flashcard was recalled.                                                                                                                                            |
 | name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                      |
-| origin       | varchar(500) | Source identifier (e.g., subscription magazine_id).                                                                                                                              |
+| origin       | varchar(500) | Provenance marker: `'ai'` = created by an AI assistant (via the MCP server); `NULL` = handmade (UI, imports). Set once at creation, never edited afterwards. Mirrored in the sidecar card's `origin` field (canonical). |
 | presence     | float        | Familiarity/strength metric (derived from reviews).                                                                                                                              |
 | level        | integer      | Number of consecutive positive recalls.                                                                                                                                          |
 | fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                |

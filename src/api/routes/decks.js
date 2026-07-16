@@ -32,17 +32,19 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-// GET /api/decks/cards?search=&level=&cardType=&sortBy=&sortDir=&limit=&offset=
+// GET /api/decks/cards?search=&level=&cardType=&origin=&sortBy=&sortDir=&limit=&offset=
 router.get('/cards', catchError((req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
     const cardType = req.query.cardType || null;
+    // 'ai' → only AI-created cards, 'human' → only cards not created by an AI assistant
+    const origin = ['ai', 'human'].includes(req.query.origin) ? req.query.origin : null;
     const sortBy = req.query.sortBy || 'level';
     const sortDir = req.query.sortDir || 'desc';
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
-    const cards = decks.searchCards({ search, level, cardType, sortBy, sortDir, limit, offset });
-    const total = decks.getCardCount({ search, level, cardType });
+    const cards = decks.searchCards({ search, level, cardType, origin, sortBy, sortDir, limit, offset });
+    const total = decks.getCardCount({ search, level, cardType, origin });
     res.json({ cards, total, limit, offset });
 }));
 

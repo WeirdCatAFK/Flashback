@@ -57,7 +57,10 @@ export function registerWriteTools(server) {
         'For "type_answer" cards, frontText is the question and backText is the expected answer. For "custom" ' +
         'cards, put raw HTML in customHtml (frontText/backText are unused). Pass `highlightHash` (from ' +
         'create_highlight or the document sidecar\'s highlights[]) to anchor the card to the exact passage it ' +
-        'came from.',
+        'came from. Cards you create are permanently marked `origin: "ai"` in the data model, so the user can ' +
+        'always tell them apart from handmade ones. Before drafting, look at existing HANDMADE cards ' +
+        '(list_cards with origin "human", or the same document\'s cards via read_document) and match their ' +
+        'style — length, tone, front/back phrasing conventions.',
       inputSchema: {
         path: z.string().optional().describe('Relative path of the document to attach this card to. Omit for a standalone card.'),
         cardType: z.enum(CARD_TYPES).default('basic'),
@@ -90,6 +93,7 @@ export function registerWriteTools(server) {
             'card',
             JSON.stringify({
               cardType,
+              origin: 'ai', // provenance marker — every MCP-created card carries it
               name: name || undefined,
               category: category || undefined,
               tags: tags && tags.length ? tags : undefined,
@@ -107,7 +111,7 @@ export function registerWriteTools(server) {
           // sidecar card object under `card`, that one returns a bare { globalHash }.
           return asText({ globalHash: data.card?.globalHash, documentPath: path, cardType, category: category ?? null });
         }
-        const data = await request('POST', '/api/flashcards', { frontText, backText, name, cardType, category, customHtml });
+        const data = await request('POST', '/api/flashcards', { frontText, backText, name, cardType, category, customHtml, origin: 'ai' });
         return asText({ globalHash: data.globalHash, documentPath: null, cardType, category: category ?? null });
       } catch (err) {
         return asError(err);
@@ -474,8 +478,10 @@ export function registerWriteTools(server) {
         'text it came from (pass the returned globalHash as create_flashcard\'s `highlightHash`). Prefer ' +
         '`snippet` — an exact-substring quote copied from read_document\'s output — over `start`/`end`: ' +
         'hand-counted character offsets are error-prone and easy to get off-by-one. If the snippet appears ' +
-        'more than once, the first occurrence is used. Only meaningful for plain-text documents (type ' +
-        '"text_offset") — PDF/video anchoring requires page/bbox or timestamp data this tool does not compute.',
+        'more than once, the first occurrence is used. Works on plain-text and Markdown documents; for ' +
+        'Markdown, keep the snippet inside one paragraph and avoid spans containing links or images (the app ' +
+        're-anchors it against the rendered text). PDF/video anchoring requires page/bbox or timestamp data ' +
+        'this tool does not compute.',
       inputSchema: {
         path: z.string().describe('Relative path to the document.'),
         snippet: z.string().optional().describe('Exact text to anchor to, copied verbatim from the document. Preferred over start/end.'),
@@ -487,6 +493,7 @@ export function registerWriteTools(server) {
     },
     async ({ path, snippet, start, end, color, note }) => {
       try {
+        let text = snippet || null;
         if (snippet) {
           const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
           const idx = doc.content.indexOf(snippet);
@@ -497,8 +504,15 @@ export function registerWriteTools(server) {
           end = idx + snippet.length;
         } else if (start == null || end == null) {
           return asToolError('Provide either `snippet`, or both `start` and `end`.');
+        } else {
+          // Offset mode: snapshot the covered text anyway so the highlight is
+          // self-describing in list_highlights and survives re-anchoring.
+          try {
+            const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
+            text = doc.content.slice(start, end) || null;
+          } catch { /* snapshot is best-effort */ }
         }
-        const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note });
+        const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note, text });
         return asText(data);
       } catch (err) {
         return asError(err);
