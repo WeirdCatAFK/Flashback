@@ -285,6 +285,93 @@ export function applyHighlightsToText(editor, highlights = []) {
   }
 }
 
+// ── Out-of-band re-anchoring (markdown) ────────────────────────────────────
+
+// Flatten every text node in document order, recording each node's char range
+// and ProseMirror position. Unlike buildTextIndex (flat .txt docs only), this
+// walks nested structure (lists, blockquotes); a positional gap between
+// consecutive text nodes (block boundary, hard break) becomes one '\n'.
+function buildInlineIndex(doc) {
+  const parts = [];
+  let text = '';
+  let prevEnd = null;
+  doc.descendants((node, pos) => {
+    if (!node.isText) return true;
+    if (prevEnd !== null && pos > prevEnd) text += '\n';
+    parts.push({ charStart: text.length, pmStart: pos, length: node.text.length });
+    text += node.text;
+    prevEnd = pos + node.nodeSize;
+    return true;
+  });
+  return { text, parts };
+}
+
+function inlineCharToPM(parts, offset) {
+  for (const p of parts) {
+    if (offset >= p.charStart && offset <= p.charStart + p.length) {
+      return p.pmStart + (offset - p.charStart);
+    }
+  }
+  return null;
+}
+
+// Locate `quote` in the rendered text. Quotes captured from the raw markdown
+// source (e.g. by the MCP server) can carry emphasis syntax the rendered text
+// doesn't have, so on a miss retry with those characters stripped from the
+// quote. Returns { start, end } char offsets or null.
+function findQuote(text, quote) {
+  let idx = text.indexOf(quote);
+  if (idx !== -1) return { start: idx, end: idx + quote.length };
+  const stripped = quote.replace(/[*_`~]/g, '');
+  if (stripped !== quote && stripped.trim()) {
+    idx = text.indexOf(stripped);
+    if (idx !== -1) return { start: idx, end: idx + stripped.length };
+  }
+  return null;
+}
+
+// Apply inline marks for registry entries that have none in a freshly-loaded
+// markdown doc — highlights created out-of-band (the MCP server's
+// create_highlight writes only the sidecar; it can't rewrite the body). Anchors
+// by quote search against the `text` snapshot, mirroring the .txt re-anchor
+// path. Entries that can't be anchored are left untouched here and dropped by
+// the next reconcile, same as a stale .txt highlight. Once the user saves, the
+// applied mark serializes into the body and the highlight becomes native.
+export function applyMissingHighlights(editor, highlights = []) {
+  if (!highlights.length) return;
+  const markType = editor.schema.marks.highlight;
+  if (!markType) return;
+
+  const present = new Set();
+  editor.state.doc.descendants((node) => {
+    if (!node.isText) return true;
+    for (const m of node.marks) {
+      if (m.type === markType && m.attrs.id) present.add(m.attrs.id);
+    }
+    return true;
+  });
+
+  const missing = highlights.filter((h) => h?.id && h.text && !present.has(h.id));
+  if (!missing.length) return;
+
+  const { text, parts } = buildInlineIndex(editor.state.doc);
+  let tr = editor.state.tr;
+  let changed = false;
+  for (const h of missing) {
+    const range = findQuote(text, h.text);
+    if (!range) continue;
+    const from = inlineCharToPM(parts, range.start);
+    const to = inlineCharToPM(parts, range.end);
+    if (from == null || to == null || to <= from) continue;
+    tr = tr.addMark(from, to, markType.create({ id: h.id, color: h.color ?? 'amber' }));
+    changed = true;
+  }
+  if (changed) {
+    tr.setMeta('addToHistory', false);
+    editor.view.dispatch(tr);
+  }
+}
+
 // Scroll the editor view to the mark with the given ID. Returns true if found.
 function scrollToHighlight(editor, id) {
   const el = editor?.view?.dom?.querySelector(`mark[data-hl="${id}"]`);

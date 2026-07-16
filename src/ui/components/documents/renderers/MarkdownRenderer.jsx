@@ -5,7 +5,7 @@ import Link from '@tiptap/extension-link';
 import { mergeAttributes } from '@tiptap/core';
 import Typography from '@tiptap/extension-typography';
 import { Markdown } from 'tiptap-markdown';
-import { ThemedHighlight, reconcileHighlights } from './highlights';
+import { ThemedHighlight, reconcileHighlights, applyMissingHighlights } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
 import { getDocumentByHash } from '../../../api/documents';
 import './MarkdownRenderer.css';
@@ -61,7 +61,14 @@ const EXTENSIONS = [
 ];
 
 const serialize = (editor) => editor.storage.markdown.getMarkdown();
-const loadContent = (editor, markdown) => editor.commands.setContent(markdown ?? '', false);
+// setContent parses inline <mark data-hl> highlights straight out of the body;
+// applyMissingHighlights then re-anchors any sidecar entry with no inline mark
+// (created out-of-band, e.g. by the MCP server) by quote search, so it renders
+// and survives the save-time reconcile instead of being silently dropped.
+const loadContent = (editor, markdown, meta) => {
+  editor.commands.setContent(markdown ?? '', false);
+  applyMissingHighlights(editor, meta?.highlights ?? []);
+};
 
 export default function MarkdownRenderer({ onNavigate, ...props }) {
   const { editor, loading } = useHighlightableRenderer({
