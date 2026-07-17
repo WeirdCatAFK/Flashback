@@ -4,8 +4,8 @@ import { forceCollide } from 'd3-force';
 import { getGraph } from '../api/documents';
 import './GraphView.css';
 
-const DIRECTED = new Set(['inheritance', 'reference']);
 const HOVER_SELECT_DELAY = 700; // ms before hover auto-selects a node
+const NODE_PAINT_MODE = () => 'replace';
 
 function getCSSVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -522,6 +522,14 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
   const NODE_R = 7;
 
+  // Text is by far the most expensive thing painted per frame, so on large
+  // graphs labels only appear once the user zooms in far enough to read them.
+  // Hovered/selected nodes keep their label at any zoom.
+  const labelMinScale = useMemo(() => {
+    const n = visibleData?.nodes.length ?? 0;
+    return n > 2000 ? 2.0 : n > 800 ? 1.3 : 0.8;
+  }, [visibleData]);
+
   const paintNode = useCallback((node, ctx, globalScale) => {
     if (!isFinite(node.x) || !isFinite(node.y)) return;
     const isSelected = selected?.id === node.id;
@@ -603,8 +611,9 @@ export default function GraphView({ isActive = false, onNavigate }) {
     ctx.fill();
 
     // Label (flashcard labels hidden unless hovered/selected)
-    const showLabel = node.type !== 'Flashcard' || isSelected || isHovered;
-    if (globalScale >= 0.8 && showLabel) {
+    const showLabel = isSelected || isHovered ||
+      (node.type !== 'Flashcard' && globalScale >= labelMinScale);
+    if (showLabel) {
       ctx.globalAlpha = effectiveAlpha;
       const fontSize = Math.min(14, Math.max(10, 12 / globalScale));
       ctx.font = `${fontSize}px Geist, system-ui, sans-serif`;
@@ -615,14 +624,29 @@ export default function GraphView({ isActive = false, onNavigate }) {
     }
 
     ctx.globalAlpha = 1;
-  }, [colors, focusedIds, selected, hovered]);
+  }, [colors, focusedIds, selected, hovered, labelMinScale]);
+
+  // Precompute the three alpha variants per relation once per theme change so
+  // the per-frame link color accessor returns cached strings instead of
+  // rebuilding rgba() strings for every link on every repaint.
+  const linkColors = useMemo(() => {
+    const out = {};
+    for (const [relation, base] of Object.entries(colors.links)) {
+      out[relation] = {
+        normal:  withAlpha(base, 0.45),
+        focused: withAlpha(base, 0.7),
+        dim:     withAlpha(base, 0.1),
+      };
+    }
+    return out;
+  }, [colors]);
 
   const getLinkColor = useCallback(link => {
-    const base = colors.links[link.relation] ?? colors.links.connection;
-    if (!focusedIds) return withAlpha(base, 0.45);
+    const c = linkColors[link.relation] ?? linkColors.connection;
+    if (!focusedIds) return c.normal;
     const focused = focusedIds.has(nodeId(link.source)) || focusedIds.has(nodeId(link.target));
-    return focused ? withAlpha(base, 0.7) : withAlpha(base, 0.1);
-  }, [colors, focusedIds]);
+    return focused ? c.focused : c.dim;
+  }, [linkColors, focusedIds]);
 
   const handleNodeHover = useCallback(node => {
     setHovered(node ?? null);
@@ -705,19 +729,14 @@ export default function GraphView({ isActive = false, onNavigate }) {
             height={height}
             backgroundColor={colors.bg}
             nodeLabel=""
-            nodeColor={node => colors.nodes[node.type] ?? colors.nodes.Document}
             nodeRelSize={7}
-            nodeCanvasObjectMode={() => 'replace'}
+            nodeCanvasObjectMode={NODE_PAINT_MODE}
             nodeCanvasObject={paintNode}
             autoPauseRedraw={!animating}
             cooldownTime={visibleData.nodes.length > 800 ? 8000 : 15000}
             linkColor={getLinkColor}
-            linkDirectionalArrowColor={getLinkColor}
             linkWidth={1.5}
-            linkHoverPrecision={8}
-            linkDirectionalArrowLength={link => DIRECTED.has(link.relation) ? 5 : 0}
-            linkDirectionalArrowRelPos={1}
-            linkLabel={link => link.relation}
+            d3AlphaDecay={visibleData.nodes.length > 800 ? 0.05 : 0.0228}
 
             onNodeClick={handleNodeClick}
             onNodeHover={handleNodeHover}
