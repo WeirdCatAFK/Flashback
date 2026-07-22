@@ -19,16 +19,20 @@
  * Opt-in is a client preference (localStorage), so the server never auto-creates diary/:
  * every write lazily inits the repo, and reads no-op cleanly when the folder is absent.
  * This is a Tier 3 orchestrator; it talks to query.js (for aggregates) and its own git
- * repo. It never imports documents/files/srs — diary data is metadata about studying,
- * not study material.
+ * repo. It never imports documents/files, and from srs.js it takes only the shared
+ * LEARNING_REVIEWS constant (no service, no scheduling) so the day's pass rate is split
+ * on exactly the same boundary the Stats view uses — diary data is metadata about
+ * studying, not study material.
  */
 import git from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getVaultPath, get as getConfig } from "./config.js";
 import query from "./query.js";
+import { LEARNING_REVIEWS } from "./srs.js";
 
-export const DIARY_SCHEMA_VERSION = 1;
+// v2 added the acquisition/review split to `retention` (see buildSummary).
+export const DIARY_SCHEMA_VERSION = 2;
 const STRUGGLED_CAP = 10;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -120,6 +124,11 @@ class Diary {
         const failed = totals.failed ?? 0;
         const passRate = reviews > 0 ? (reviews - failed) / reviews : null;
 
+        // Split the day's reviews on the same acquisition/review boundary the Stats
+        // view uses: a day spent on new material reads as a low pass rate otherwise.
+        const phase = query.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date);
+        const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
+
         const byDeck = query.getDayByDeck(date).map(r => ({
             deck: r.deck, reviews: r.reviews, failed: r.failed ?? 0,
         }));
@@ -142,7 +151,13 @@ class Diary {
                 newCards: query.getDayNewCards(date),
                 failed,
             },
-            retention: { passRate },
+            retention: {
+                passRate,                              // every review of the day
+                reviewPassRate: rate(phase.review),    // cards past their learning phase
+                learningPassRate: rate(phase.learning),
+                reviewCount: phase.review.total,
+                learningCount: phase.learning.total,
+            },
             byDeck,
             byDocument,
             struggledCards,

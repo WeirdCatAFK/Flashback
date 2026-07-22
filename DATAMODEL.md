@@ -429,17 +429,21 @@ Two consequences follow from the sibling location:
 
 Summary and entry are **independent files joined only by their date key** — neither is a sidecar of the other. A summary can exist with no entry (the common case); an entry can exist with no summary (a rest-day journal). There is **one cumulative summary per date**: multiple sessions in a day regenerate the same file.
 
-### Summary schema (v1)
+### Summary schema (v2)
 
 Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is **UTC** (`date(timestamp)` in SQLite), matching the Stats view.
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "date": "2026-07-10",
   "generatedAt": "2026-07-10T22:31:04.000Z",
   "totals": { "reviews": 57, "uniqueCards": 43, "newCards": 8, "failed": 6 },
-  "retention": { "passRate": 0.895 },
+  "retention": {
+    "passRate": 0.895,
+    "reviewPassRate": 0.94, "reviewCount": 45,
+    "learningPassRate": 0.72, "learningCount": 12
+  },
   "byDeck": [ { "deck": "Japanese_Hiragana_Basic", "reviews": 40, "failed": 3 } ],
   "byDocument": [ { "path": "Notas/programacion.md", "reviews": 5 } ],
   "struggledCards": [ { "globalHash": "…", "front": "ぬ", "failCount": 2 } ],
@@ -450,6 +454,7 @@ Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSu
 Field notes:
 
 - `newCards` = cards whose earliest-ever real review falls on this date; `failed` counts `outcome = 0` rows; `passRate = (reviews - failed) / reviews`.
+- **v2** splits the day's reviews on the same acquisition boundary the Stats view uses (`LEARNING_REVIEWS` in `access/srs.js`): a review is *learning* while it is among its card's first N reviews **ever** (not just today's), *review* afterwards. `reviewPassRate` is the honest retention figure for the day; `learningPassRate` shows how new material landed. Either is `null` when that phase had no reviews. `passRate` keeps its v1 meaning (all reviews) so v1 summaries stay readable; re-run "rebuild diary" to backfill the v2 fields.
 - `byDeck` is a per-deck view (a card in two decks counts once per deck); `byDocument` covers document-anchored cards only. `struggledCards` is capped at 10, most-failed first (`front` is `(custom card)` for custom-HTML cards).
 - `streak` is computed **as of the summary's date** (not wall-clock "now"), so regeneration stays idempotent.
 - Synthetic rebuild logs (`outcome IS NULL`, seeded by the Vault Doctor to preserve SM-2 ease) are excluded from every aggregate.

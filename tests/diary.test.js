@@ -74,16 +74,23 @@ describe('Diary storage layer', () => {
 
     after(() => cleanup());
 
-    it('derives the day summary from ReviewLogs with the v1 schema', async () => {
+    it('derives the day summary from ReviewLogs with the v2 schema', async () => {
         const s = await diary.generateSummary(DAY);
         assert.ok(s, 'summary written');
-        assert.equal(s.schemaVersion, 1);
+        assert.equal(s.schemaVersion, 2);
         assert.equal(s.date, DAY);
         assert.equal(s.totals.reviews, 4);
         assert.equal(s.totals.uniqueCards, 3);
         assert.equal(s.totals.newCards, 3);
         assert.equal(s.totals.failed, 2);
         assert.equal(s.retention.passRate, 0.5);
+
+        // Every review here is one of its card's first three ⇒ all acquisition, so
+        // the day contributes nothing to the review-phase pass rate.
+        assert.equal(s.retention.learningCount, 4);
+        assert.equal(s.retention.learningPassRate, 0.5);
+        assert.equal(s.retention.reviewCount, 0);
+        assert.equal(s.retention.reviewPassRate, null);
 
         const doc = s.byDocument.find(d => d.path.endsWith('deck.md'));
         assert.ok(doc, 'byDocument includes the source document');

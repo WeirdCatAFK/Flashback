@@ -25,15 +25,65 @@ const ramp = (pct) =>
 
 const pctText = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
 const num = (n) => (n ?? 0).toLocaleString();
+const oneDp = (n) => (n == null ? "—" : n.toFixed(1));
 
 // ── Headline tiles ────────────────────────────────────────────────────────────
 
-function StatTile({ label, value, sub }) {
+function StatTile({ label, value, sub, title }) {
   return (
-    <div className="stats-tile">
+    <div className="stats-tile" title={title}>
       <div className="stats-tile-value">{value}</div>
       <div className="stats-tile-label">{label}</div>
       {sub && <div className="stats-tile-sub">{sub}</div>}
+    </div>
+  );
+}
+
+// ── Acquisition (learning-phase measures) ─────────────────────────────────────
+
+// Retention answers "is what I learned staying?", which only means anything once a
+// card is actually learned. These are the other half: how new material lands while
+// it is still being acquired.
+function AcquisitionPanel({ acquisition }) {
+  const a = acquisition;
+  if (a.reviews === 0 && a.firstExposureCards === 0) {
+    return <p className="stats-empty-inline">No reviews yet — study some new cards to see how they land.</p>;
+  }
+
+  const metrics = [
+    {
+      key: "pass",
+      label: "New-card pass rate",
+      value: pctText(a.retentionAll),
+      sub: `${pctText(a.retention30)} last 30 days`,
+      hint: `${num(a.reviews)} learning review${a.reviews === 1 ? "" : "s"}`,
+    },
+    {
+      key: "first",
+      label: "First-recall rate",
+      value: pctText(a.firstExposureAll),
+      sub: `${pctText(a.firstExposure30)} last 30 days`,
+      hint: `correct on first sight · ${num(a.firstExposureCards)} card${a.firstExposureCards === 1 ? "" : "s"}`,
+    },
+    {
+      key: "cost",
+      label: "Reviews to learn",
+      value: oneDp(a.reviewsToRecall.median),
+      sub: `avg ${oneDp(a.reviewsToRecall.avg)}`,
+      hint: `median attempts to first recall · ${num(a.reviewsToRecall.cards)} card${a.reviewsToRecall.cards === 1 ? "" : "s"}`,
+    },
+  ];
+
+  return (
+    <div className="stats-metrics">
+      {metrics.map((m) => (
+        <div key={m.key} className="stats-metric">
+          <div className="stats-metric-value">{m.value}</div>
+          <div className="stats-metric-label">{m.label}</div>
+          <div className="stats-tile-sub">{m.sub}</div>
+          <div className="stats-metric-hint">{m.hint}</div>
+        </div>
+      ))}
     </div>
   );
 }
@@ -245,10 +295,16 @@ export default function Stats({ isActive }) {
               <StatTile label="Reviews" value={num(stats.totals.reviews)}
                 sub={stats.totals.reviewsToday > 0 ? `${num(stats.totals.reviewsToday)} today` : "none today"} />
               <StatTile label="Retention" value={pctText(stats.totals.retentionAll)}
-                sub={`${pctText(stats.totals.retention30)} last 30 days`} />
+                sub={`${pctText(stats.totals.retention30)} last 30 days`}
+                title={`Measured on ${num(stats.totals.retentionReviews)} reviews of cards past their learning phase — a card's first ${stats.acquisition.learningReviews} reviews are counted as acquisition instead.`} />
               <StatTile label="Streak" value={`${num(stats.streak.current)}d`}
                 sub={`best ${num(stats.streak.longest)}d`} />
             </div>
+
+            <Panel
+              title="Acquisition">
+              <AcquisitionPanel acquisition={stats.acquisition} />
+            </Panel>
 
             <Panel title="Review activity" hint="Reviews per day over the last 26 weeks.">
               <ActivityHeatmap activity={stats.activity} />

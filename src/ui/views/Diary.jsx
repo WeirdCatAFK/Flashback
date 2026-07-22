@@ -80,12 +80,18 @@ function SummaryPanel({ state, summary, onRebuild, rebuilding }) {
   }
 
   const t = summary.totals;
+  // Pass rate excludes cards still in their learning phase (schema v2); summaries
+  // written before that fall back to the day's overall rate.
+  const r = summary.retention ?? {};
   return (
     <div className="diary-summary">
       <div className="diary-tiles">
         <Tile label="Reviews" value={num(t.reviews)} />
         <Tile label="Cards seen" value={num(t.uniqueCards)} sub={`${num(t.newCards)} new`} />
-        <Tile label="Pass rate" value={pct(summary.retention?.passRate)} sub={`${num(t.failed)} failed`} />
+        <Tile label="Pass rate" value={pct(r.reviewPassRate ?? r.passRate)}
+          sub={r.learningPassRate != null
+            ? `${pct(r.learningPassRate)} on new · ${num(t.failed)} failed`
+            : `${num(t.failed)} failed`} />
         <Tile label="Streak" value={`${num(summary.streak?.current)}d`} sub={`best ${num(summary.streak?.longest)}d`} />
       </div>
 

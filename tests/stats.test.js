@@ -58,6 +58,8 @@ describe('SRS statistics', () => {
         const s = SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(s.algorithm, 'leitner');
         assert.ok(s.totals && typeof s.totals.cards === 'number');
+        assert.ok(s.acquisition && s.acquisition.learningReviews > 0);
+        assert.ok(s.acquisition.reviewsToRecall && 'median' in s.acquisition.reviewsToRecall);
         assert.ok(s.maturity && ['new', 'young', 'mature'].every(k => k in s.maturity));
         assert.equal(s.forecast.length, 14);
         assert.ok(Array.isArray(s.activity));
@@ -84,10 +86,62 @@ describe('SRS statistics', () => {
         // It is now scheduled (either upcoming in the forecast or overdue).
         assert.equal(scheduledTotal(after) - scheduledTotal(before), 1);
 
-        // Retention over the window is a valid fraction, and today logged a review.
-        assert.ok(after.totals.retentionAll > 0 && after.totals.retentionAll <= 1);
+        // A card's first review is acquisition, not retention: it counts toward the
+        // learning bucket and leaves the retention sample untouched.
+        assert.equal(after.acquisition.reviews - before.acquisition.reviews, 1);
+        assert.equal(after.totals.retentionReviews - before.totals.retentionReviews, 0);
+        assert.equal(after.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
+
         const today = after.activity.find(a => a.day === todayUTC());
         assert.ok(today && today.total >= 1, 'today appears in the activity heatmap data');
         assert.ok(after.streak.current >= 1, 'a review today gives at least a 1-day streak');
+    });
+
+    it('counts a card toward retention only once it is past the learning phase', async () => {
+        const before = SRS.getStatistics({ algorithm: 'leitner' });
+        const n = before.acquisition.learningReviews;
+
+        // hashA already has 1 review from the previous test. Take it to exactly n,
+        // then one past it: only that last review is a retention-phase review.
+        for (let i = 1; i < n; i++) {
+            await docs.submitReview(docRel, hashA, 1, 2.5, i + 1, 'leitner');
+        }
+        const atThreshold = SRS.getStatistics({ algorithm: 'leitner' });
+        assert.equal(atThreshold.acquisition.reviews - before.acquisition.reviews, n - 1,
+            'reviews up to the threshold all land in the learning bucket');
+        assert.equal(atThreshold.totals.retentionReviews - before.totals.retentionReviews, 0);
+
+        await docs.submitReview(docRel, hashA, 1, 2.5, n + 1, 'leitner');
+        const after = SRS.getStatistics({ algorithm: 'leitner' });
+        assert.equal(after.acquisition.reviews - atThreshold.acquisition.reviews, 0,
+            'past the threshold the learning bucket stops growing');
+        assert.equal(after.totals.retentionReviews - atThreshold.totals.retentionReviews, 1);
+        assert.ok(after.totals.retentionAll > 0 && after.totals.retentionAll <= 1,
+            'retention is now measurable');
+    });
+
+    it('measures acquisition cost as attempts to the first correct recall', async () => {
+        const before = SRS.getStatistics({ algorithm: 'leitner' });
+        // Sum of attempts across cards — the exact quantity a delta can be read off,
+        // unlike the vault-wide average/median.
+        const attemptSum = (s) => (s.acquisition.reviewsToRecall.avg ?? 0) * s.acquisition.reviewsToRecall.cards;
+        const firstCorrect = (s) => (s.acquisition.firstExposureAll ?? 0) * s.acquisition.firstExposureCards;
+
+        // hashB: fail, fail, pass ⇒ learned on the 3rd attempt.
+        await docs.submitReview(docRel, hashB, 0, 2.4, 1, 'leitner');
+        await docs.submitReview(docRel, hashB, 0, 2.3, 1, 'leitner');
+
+        const failing = SRS.getStatistics({ algorithm: 'leitner' });
+        assert.equal(failing.acquisition.reviewsToRecall.cards - before.acquisition.reviewsToRecall.cards, 0,
+            'a card never yet recalled contributes no acquisition-cost sample');
+        assert.equal(Math.round(firstCorrect(failing) - firstCorrect(before)), 0,
+            'a failed first exposure does not count as a first-sight recall');
+        assert.equal(failing.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
+
+        await docs.submitReview(docRel, hashB, 1, 2.4, 2, 'leitner');
+        const after = SRS.getStatistics({ algorithm: 'leitner' });
+        assert.equal(after.acquisition.reviewsToRecall.cards - failing.acquisition.reviewsToRecall.cards, 1);
+        assert.equal(Math.round(attemptSum(after) - attemptSum(failing)), 3,
+            'the card took three attempts before it was first recalled');
     });
 });

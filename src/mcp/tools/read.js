@@ -154,7 +154,9 @@ export function registerReadTools(server) {
       title: 'Get study statistics',
       description:
         'Vault-wide spaced-repetition analytics: retention rate, card maturity distribution, due-date ' +
-        'forecast, review activity heatmap, and streaks — the same data as the app\'s Stats view. Read-only.',
+        'forecast, review activity heatmap, and streaks — the same data as the app\'s Stats view. Read-only. ' +
+        'Retention counts only reviews past a card\'s learning phase (its first few reviews); the learning ' +
+        'phase is reported separately in `acquisition` (new-card pass rate, first-recall rate, attempts to learn a card).',
       inputSchema: {
         algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Algorithm to compute schedule-dependent stats with. Should match the user\'s reviewing algorithm; server default if omitted.'),
       },

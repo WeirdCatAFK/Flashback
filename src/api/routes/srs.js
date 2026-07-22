@@ -95,8 +95,10 @@ router.get('/fsrs-info', catchError((req, res) => {
 }));
 
 // GET /api/srs/statistics?algorithm=leitner|sm2|fsrs
-// Vault-wide analytics for the Stats view (retention, maturity, due forecast,
-// activity heatmap, streaks). Read-only. Algorithm defaults server-side.
+// Vault-wide analytics for the Stats view (retention, acquisition, maturity, due
+// forecast, activity heatmap, streaks). Retention counts only reviews past a card's
+// learning phase; the learning phase is reported separately under `acquisition`.
+// Read-only. Algorithm defaults server-side.
 router.get('/statistics', catchError((req, res) => {
     const algorithm = req.query.algorithm || undefined;
     res.json(SRS.getStatistics({ algorithm }));

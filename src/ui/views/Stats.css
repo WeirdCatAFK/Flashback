@@ -116,6 +116,46 @@
   gap: 16px;
 }
 
+/* ── In-panel metric row (Acquisition) ──────────────────────────────────────── */
+/* Same reading as the headline tiles, minus the chrome — these already sit inside
+   a panel, so they are separated by rule lines rather than borders. */
+
+.stats-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+.stats-metric + .stats-metric {
+  padding-left: 20px;
+  border-left: 1px solid var(--color-border);
+}
+
+.stats-metric-value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-metric-label {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-metric-hint {
+  margin-top: 4px;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--color-fg-secondary);
+  opacity: 0.85;
+}
+
 .stats-two-col .stats-panel {
   margin-bottom: 0;
 }
@@ -286,5 +326,15 @@
   }
   .stats-two-col {
     grid-template-columns: 1fr;
+  }
+  .stats-metrics {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  .stats-metric + .stats-metric {
+    padding-left: 0;
+    padding-top: 16px;
+    border-left: none;
+    border-top: 1px solid var(--color-border);
   }
 }

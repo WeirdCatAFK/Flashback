@@ -7,6 +7,13 @@ import query from './query.js';
 import db from './database.js';
 import * as fsrs from './fsrs.js';
 
+// A card's first N reviews are its acquisition phase — new material normally takes
+// a few attempts before it holds, and folding those attempts into retention makes
+// the headline number track how many new cards you added rather than how well the
+// schedule is working. Reviews past this count are the only ones true retention is
+// measured on; the acquisition phase gets its own measures. Shared with diary.js.
+export const LEARNING_REVIEWS = 3;
+
 // Interval helpers (mirror the SQL expressions in getDueFlashcards).
 function sm2Interval(reps, ef) {
     if (reps <= 1) return 1;
@@ -216,7 +223,9 @@ class SRSService {
     // interval/maturity/next-due are derived differently per scheduler; the active
     // algorithm is passed from the client (like getDue). All read-only.
     //
-    // Returns { algorithm, totals, maturity, forecast, overdue, activity, streak }.
+    // Returns { algorithm, totals, acquisition, maturity, forecast, overdue, activity,
+    // streak }. `totals.retention*` covers the review phase only; `acquisition` reports
+    // the learning phase separately (see LEARNING_REVIEWS).
     getStatistics({ algorithm = 'leitner' } = {}) {
         const DAY = 86400000;
         const MATURE_DAYS = 21;      // Anki's convention: interval ≥ 21d ⇒ "mature"
@@ -261,9 +270,29 @@ class SRSService {
         const since30 = dayStr(todayMs - 30 * DAY);
         const since365 = dayStr(todayMs - 364 * DAY);
         const allTotals = query.getReviewTotals();
-        const totals30 = query.getReviewTotals(since30);
         const activity = query.getReviewActivity(since365);
         const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
+
+        // Retention is measured on the review phase only; the learning phase is
+        // reported separately as acquisition (see LEARNING_REVIEWS).
+        const phaseAll = query.getReviewTotalsByPhase(LEARNING_REVIEWS);
+        const phase30 = query.getReviewTotalsByPhase(LEARNING_REVIEWS, since30);
+        const firstAll = query.getFirstExposureTotals();
+        const first30 = query.getFirstExposureTotals(since30);
+
+        // Attempts each card needed before its first correct recall — the cost of
+        // acquiring one card. Median alongside the mean because the distribution is
+        // long-tailed (a handful of stubborn cards would otherwise dominate).
+        const attempts = query.getReviewsToFirstRecall().map(r => r.attempts).sort((a, b) => a - b);
+        const median = attempts.length === 0 ? null
+            : attempts.length % 2
+                ? attempts[(attempts.length - 1) / 2]
+                : (attempts[attempts.length / 2 - 1] + attempts[attempts.length / 2]) / 2;
+        const reviewsToRecall = {
+            avg: attempts.length ? attempts.reduce((a, b) => a + b, 0) / attempts.length : null,
+            median,
+            cards: attempts.length,
+        };
 
         // Study streaks from the activity days (ordered ASC, UTC 'YYYY-MM-DD').
         const daySet = new Set(activity.filter(a => a.total > 0).map(a => a.day));
@@ -285,9 +314,20 @@ class SRSService {
                 cards: cards.length,
                 reviews: allTotals.total ?? 0,
                 reviewsToday: activity.find(a => a.day === dayStr(todayMs))?.total ?? 0,
-                retentionAll: retention(allTotals),
-                retention30: retention(totals30),
+                retentionAll: retention(phaseAll.review),
+                retention30: retention(phase30.review),
+                retentionReviews: phaseAll.review.total,
                 daysStudied: daySet.size,
+            },
+            acquisition: {
+                learningReviews: LEARNING_REVIEWS,
+                retentionAll: retention(phaseAll.learning),
+                retention30: retention(phase30.learning),
+                reviews: phaseAll.learning.total,
+                firstExposureAll: retention(firstAll),
+                firstExposure30: retention(first30),
+                firstExposureCards: firstAll.total,
+                reviewsToRecall,
             },
             maturity: { new: neu, young, mature },
             forecast: forecast.map((due, i) => ({ date: dayStr(todayMs + i * DAY), due })),

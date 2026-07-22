@@ -538,6 +538,75 @@ class DocumentQuery {
         return sinceIso ? stmt.get(sinceIso) : stmt.get();
     }
 
+    // ---------- Phase-aware review totals ----------
+    // A card's first `learningReviews` reviews are its *acquisition* phase: a new
+    // card usually needs a few failed attempts before it sticks, and counting those
+    // as forgetting makes the retention headline read as noise. Everything after is
+    // the *review* phase — the only reviews true retention is measured on.
+    //
+    // The rep number is always computed over the card's FULL history and any date
+    // window is applied afterwards, so a 30-day view never renumbers a card's reps.
+    // Synthetic rebuild logs (NULL outcome) are excluded, as everywhere else.
+
+    _orderedReviewsCte() {
+        return `
+            WITH ordered AS (
+                SELECT flashcard_id, outcome, timestamp,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY flashcard_id ORDER BY timestamp ASC, id ASC
+                       ) AS rep
+                FROM ReviewLogs
+                WHERE outcome IS NOT NULL
+            )
+        `;
+    }
+
+    // → { learning: { total, correct }, review: { total, correct } } (zeroed when a
+    // phase has no reviews, so callers never have to null-check the buckets).
+    getReviewTotalsByPhase(learningReviews, sinceIso = null) {
+        const stmt = this.db.prepare(`
+            ${this._orderedReviewsCte()}
+            SELECT CASE WHEN rep <= ? THEN 'learning' ELSE 'review' END AS phase,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
+            FROM ordered
+            ${sinceIso ? 'WHERE timestamp >= ?' : ''}
+            GROUP BY phase
+        `);
+        const rows = sinceIso ? stmt.all(learningReviews, sinceIso) : stmt.all(learningReviews);
+        const out = { learning: { total: 0, correct: 0 }, review: { total: 0, correct: 0 } };
+        for (const r of rows) out[r.phase] = { total: r.total ?? 0, correct: r.correct ?? 0 };
+        return out;
+    }
+
+    // Outcomes of each card's very first review — how much material lands on first
+    // contact. One row per card, so `total` here counts cards, not reviews.
+    getFirstExposureTotals(sinceIso = null) {
+        const stmt = this.db.prepare(`
+            ${this._orderedReviewsCte()}
+            SELECT COUNT(*) AS total,
+                   SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
+            FROM ordered
+            WHERE rep = 1 ${sinceIso ? 'AND timestamp >= ?' : ''}
+        `);
+        const row = sinceIso ? stmt.get(sinceIso) : stmt.get();
+        return { total: row?.total ?? 0, correct: row?.correct ?? 0 };
+    }
+
+    // Acquisition cost: how many attempts each card took before it was first recalled
+    // correctly (1 = right on first sight). Cards never yet recalled are absent — they
+    // have no answer yet, and counting their attempts so far would bias the average.
+    // Returns raw rows; the averaging/median lives in srs.js.
+    getReviewsToFirstRecall() {
+        return this.db.prepare(`
+            ${this._orderedReviewsCte()}
+            SELECT flashcard_id, MIN(rep) AS attempts
+            FROM ordered
+            WHERE outcome = 1
+            GROUP BY flashcard_id
+        `).all();
+    }
+
     // ---------- Diary: per-UTC-day review aggregates ----------
     // All of these bucket by date(timestamp) (UTC, matching the ISO timestamps
     // written on review and the Stats view) and count real reviews only —
@@ -552,6 +621,24 @@ class DocumentQuery {
             FROM ReviewLogs
             WHERE outcome IS NOT NULL AND date(timestamp) = ?
         `).get(dayIso);
+    }
+
+    // The day's reviews split into acquisition (a card's first `learningReviews`
+    // reviews, ever — not just today's) and review phase. Same shape and rationale as
+    // getReviewTotalsByPhase; the day filter is applied after the numbering.
+    getDayReviewTotalsByPhase(learningReviews, dayIso) {
+        const rows = this.db.prepare(`
+            ${this._orderedReviewsCte()}
+            SELECT CASE WHEN rep <= ? THEN 'learning' ELSE 'review' END AS phase,
+                   COUNT(*) AS total,
+                   SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
+            FROM ordered
+            WHERE date(timestamp) = ?
+            GROUP BY phase
+        `).all(learningReviews, dayIso);
+        const out = { learning: { total: 0, correct: 0 }, review: { total: 0, correct: 0 } };
+        for (const r of rows) out[r.phase] = { total: r.total ?? 0, correct: r.correct ?? 0 };
+        return out;
     }
 
     // Cards whose earliest-ever real review falls on this day — i.e. cards first
