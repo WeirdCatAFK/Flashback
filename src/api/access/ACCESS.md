@@ -11,19 +11,20 @@ The Access layer is the core of the Flashback system, responsible for maintainin
 Modules are organized in three strict tiers. A module may only import from tiers below it.
 
 ```
-Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor
+Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor · diary · mcpReader
 Tier 3 — Package import  ankiImport · obsidianImport   (built on top of the orchestration tier)
 Tier 2 — Single-resource  query · files
 Tier 1 — Primitives       config · database
 ```
 
-Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `doctor.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
+Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `doctor.js`, `diary.js`, `mcpReader.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
 
 **Import rules:**
 - `query.js` and `files.js` never import each other.
 - `srs.js` and `documents.js` never import each other.
 - `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
 - `doctor.js` is read-only toward the canonical layer: it re-derives the SQLite index from the on-disk files and sidecars but never writes document content or regenerates a `globalHash`. It imports `documents.js`, `decks.js`, `files.js`, `query.js`, and Seal.
+- `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
 - `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
 - Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
 
@@ -53,6 +54,9 @@ The **only** layer allowed to read/write `.flashback` sidecar files. Resolves al
 - Create, read, update, delete files and folders on disk.
 - Read/write sidecar JSON (`filename.ext.flashback` for files, `.flashback` inside folders).
 - Charset detection via `chardet`/`iconv-lite` for imported documents.
+- **Text vs. binary.** `readFile()` returns `{ content, encoding, binary, size }`. A file is binary if its extension is a known container format (`.pdf`, `.epub`, `.zip`, …) **or** the first 8 KB contain a NUL byte (unless chardet says UTF-16/32, which is legitimately NUL-heavy). The extension check matters on its own: an uncompressed PDF can be pure ASCII, and "decoding" it yields PDF syntax rather than prose. Binary files are **never decoded** — `content` is `null`, `encoding` is `"binary"` — and their bytes are served by `GET /api/documents/raw`, their *text* by [`mcpReader`](#mcpreaderjs). `isBinaryFile()` exposes the same test; `updateFile()` uses it to refuse a *string* write over a binary file (a `Buffer` write — a real re-import — still passes), because document bodies are not versioned by Seal and the overwrite would be unrecoverable. Callers that only handle prose (`documents._extractLinks`, `documents.searchContent`, `highlights` context) can therefore treat a null `content` as "skip" instead of each re-deriving the file-type rule.
+- `readBuffer()` / `statFile()` — raw bytes and size+mtime, for callers that parse a container format themselves (`mcpReader`) or key a cache on file version. They go through `safePath` like everything else, which is why those callers never touch `fs`.
+- `updateFile()` with `content == null` is a **metadata-only** write: the body is left untouched and the sidecar's recorded encoding is preserved.
 - `globalHash` generation on file/folder creation (immutable after first assignment).
 - `walkWorkspace()` — read-only, pre-order recursive walk returning `{folders, documents, mediaDirs, strayItems}`. Each folder/document entry carries `{relPath, meta, sidecarExists, sidecarCorrupt}`; `strayItems` are files with no sidecar (`kind: 'untracked-file'`) or sidecars with no owning file (`kind: 'orphan-sidecar'`). Skips `.git`, root-level `_decks`, and `media/` dirs (recorded in `mediaDirs`, not descended). Used by the Vault Doctor to compare disk against the index.
 
@@ -82,6 +86,17 @@ Two deliberate departures from the usual rules, both justified by the diary livi
 - **It has its own `isomorphic-git` repo** at `{vault}/diary/`, independent of Seal (whose repo root is the workspace). Commits use the same `<action>: <path>` convention with actions `summary` and `entry`. The repo is initialized lazily on first write, never at startup — the feature is opt-in on the client (localStorage), and the server must not create `diary/` for an opted-out vault.
 
 Because the diary is a sibling of `workspace/`, it is automatically absent from `files.walkWorkspace()`, the SQLite index, global search, and the knowledge graph — no exclusion code, pinned by a test in `tests/diary.test.js`.
+
+### `mcpReader.js`
+Read-only **text extraction** for documents the app renders but cannot decode as text. `files.readFile` deliberately refuses to decode a binary; this is the sanctioned way to get actual prose out of one. Singleton export (like `diary.js`) so its extraction cache is shared. Imports **`files.js` only** — no database, no `query.js`, no `documents.js` — and is read-only toward the canonical layer, like `doctor.js`. Heavy parsers (`pdfjs-dist`, `adm-zip`, `jsdom`) are lazily `await import`ed on first use (the `documents._buildClipDoc` precedent), so a vault with no PDFs pays nothing at startup.
+
+- `info(relPath)` → `{ format, unit, total, extractable, note?, sections? }`.
+- `read(relPath, { index, count, offset, limit, charOffset })` → one envelope for every format: `{ format, unit, index, total, label, text, hasMore, next, nextCharOffset, truncated }`.
+- Addressing is by each format's **native unit**, because that is how these documents are referenced: PDF by `page` (1-based `index`, `count` for a few at once), EPUB by spine `section` (1-based index *or* the spine href), Markdown/text/clips by `chars` window (`offset`/`limit`). Responses are capped at `MAX_CHARS`; a single oversized unit sets `truncated` and is resumed with `nextCharOffset`.
+- Formats: `.md`/`.markdown`/`.txt`/`.text` (via `files.readFile`), `.pdf` (pdfjs text layer), `.epub` (`container.xml` → OPF spine → XHTML), `.clip` (sanitized HTML flattened to prose), `.youtube` (a descriptor — there is no transcript). Anything else raises a 415-tagged error. Errors carry an HTTP `status` (404/415/400) that `routes/reader.js` passes straight through.
+- Extraction results are cached in memory, keyed by `relPath + mtimeMs + size` so an edited file invalidates itself, capped by entry count and total characters. **Nothing is cached to disk** — a cache file inside `workspace/` would surface as a stray item in the Vault Doctor and in Seal.
+
+**What it deliberately does not do:** produce highlight anchors. A highlight has to land in the coordinate system its renderer paints from (PDF text-layer bboxes, an epub.js CFI generated from the live iframe DOM), and neither is faithfully computable server-side. Cards don't need one — `create_flashcard`'s `highlightHash` is optional — so an assistant can read a book and draft cards from it while anchoring stays a reading gesture the user makes in the app.
 
 ### `media.js`
 Orchestrator for media asset lifecycle:

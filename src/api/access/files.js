@@ -24,6 +24,35 @@ import { get as getConfig, getWorkspacePath } from "./config.js";
 import newFileMetadata from "./../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "./../config/defaults/FlashbackFolder.js";
 
+// How much of a file is sniffed to decide text-vs-binary. Git uses the same idea
+// (a NUL byte in the first 8 KB ⇒ binary): cheap, and it never has to load a
+// 200 MB video to find out it is not prose.
+const BINARY_SNIFF_BYTES = 8000;
+
+// Container formats whose bytes are a document in their own right, never a body to
+// read or edit — checked by extension because the sniff alone is not enough: an
+// uncompressed PDF can be pure ASCII, and "decoding" it yields its source syntax,
+// not its prose. Their text is reached through mcpReader; their bytes through
+// /api/documents/raw. Formats that are always NUL-heavy (images, audio, video) do
+// not need listing — the sniff catches them and anything else unforeseen.
+const BINARY_EXTENSIONS = new Set([
+    ".pdf", ".epub", ".zip", ".apkg", ".docx", ".xlsx", ".pptx", ".odt",
+]);
+
+/**
+ * True when the file should never be decoded as text.
+ * UTF-16/32 text is full of NUL bytes by design, so a chardet verdict of one of
+ * those wins over the NUL test.
+ * @param {string} relPath - used for the format check.
+ * @param {Buffer} sample - the first bytes of the file.
+ * @param {string|null} encoding - chardet's guess, if any.
+ */
+function looksBinary(relPath, sample, encoding) {
+    if (BINARY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) return true;
+    if (encoding && /^utf-?(16|32)/i.test(encoding)) return false;
+    return sample.includes(0);
+}
+
 export default class Files {
     /**
      * Constructor for the Files class.
@@ -610,6 +639,7 @@ _regenerateIdentities(absPath) {
  * @param {object} [metadata=null] - The new metadata for the file.
  * @param {string} [encoding="utf-8"] - The encoding to use when writing the file.
  * @throws {Error} If the file does not exist at the given relative path.
+ * @throws {Error} If the file holds binary data and the new content is text.
  * @throws {Error} If there is an error while updating the file or its metadata.
  */
     updateFile(relPath, content, metadata, encoding = "utf-8") {
@@ -620,13 +650,27 @@ _regenerateIdentities(absPath) {
         try {
             const isBuffer = Buffer.isBuffer(content);
 
+            // Writing a string over a PDF/EPUB/image replaces the file with that
+            // string — and document bodies are not versioned by Seal, so it cannot
+            // be undone in-app. Buffer writes (real re-imports) still pass.
+            if (!isBuffer && content != null && this.isBinaryFile(relPath)) {
+                throw new Error(
+                    `Cannot overwrite the binary file ${relPath} with text content. ` +
+                    `Re-import the file instead; its flashcards, tags and highlights are edited through its sidecar.`
+                );
+            }
+
             if (isBuffer) {
                 // Auto-detect encoding; fall back to 'binary' for unrecognised formats
                 const detected = chardet.detect(content);
                 encoding = (detected && iconv.encodingExists(detected)) ? detected : 'binary';
                 fs.writeFileSync(filePath, content);
-            } else {
+            } else if (content != null) {
                 fs.writeFileSync(filePath, content, { encoding: /** @type {BufferEncoding} */ (encoding) });
+            } else {
+                // Metadata-only update: leave the body alone and keep whatever
+                // encoding the sidecar already recorded for it.
+                encoding = this.getMetadata(relPath, false)?.encoding ?? encoding;
             }
 
             const existing = this.getMetadata(relPath, false) || {};
@@ -799,10 +843,17 @@ _regenerateIdentities(absPath) {
     /**
      * Reads the contents of the file at the given relative path.
      * If the file does not exist, an error is thrown.
-     * The file's contents are returned as a string, along with the detected encoding.
-     * The encoding is detected using chardet, and falls back to utf-8 if chardet is unavailable.
+     *
+     * TEXT files come back decoded, with the encoding chardet detected (falling
+     * back to utf-8). BINARY files (PDF, EPUB, images, audio, video) come back as
+     * `{ content: null, binary: true }` and are never decoded: running a PDF through
+     * iconv produces megabytes of mojibake that no caller can use — the renderers
+     * fetch those bytes from /api/documents/raw and every text-only caller
+     * (link extraction, content search, highlight context) has to skip them anyway.
+     * `size` is always the file's size on disk in bytes.
+     *
      * @param {string} anyPath - The relative path to the file to read.
-     * @returns {object} An object containing the file's contents and the detected encoding.
+     * @returns {{content: string|null, encoding: string, binary: boolean, size: number}}
      * @throws {Error} If the file does not exist.
      */
     readFile(anyPath) {
@@ -813,9 +864,25 @@ _regenerateIdentities(absPath) {
         }
 
         try {
+            const size = fs.statSync(filePath).size;
+
             // detect encoding with chardet, fallback to utf-8
             let encoding = chardet.detectFileSync ? chardet.detectFileSync(filePath, { sampleSize: 64 * 1024 }) : null;
             encoding = encoding || "utf-8";
+
+            // Sniff before loading the whole file: a binary hit never reads past 8 KB.
+            const fd = fs.openSync(filePath, "r");
+            let sample;
+            try {
+                const buf = Buffer.alloc(Math.min(BINARY_SNIFF_BYTES, size));
+                const read = buf.length ? fs.readSync(fd, buf, 0, buf.length, 0) : 0;
+                sample = buf.subarray(0, read);
+            } finally {
+                fs.closeSync(fd);
+            }
+            if (looksBinary(anyPath, sample, encoding)) {
+                return { content: null, encoding: "binary", binary: true, size };
+            }
 
             const rawBuffer = fs.readFileSync(filePath);
 
@@ -827,10 +894,63 @@ _regenerateIdentities(absPath) {
                 content = rawBuffer.toString("utf-8");
             }
 
-            return { content, encoding };
+            return { content, encoding, binary: false, size };
         } catch (err) {
             console.error("Error reading file:", err);
             throw err;
+        }
+    }
+
+    /**
+     * The file's raw bytes, undecoded. For callers that parse a container format
+     * themselves (mcpReader extracting text from a PDF/EPUB) — going through here
+     * rather than fs keeps every path traversal check in this one layer.
+     * @param {string} anyPath - The relative path to the file.
+     * @returns {Buffer}
+     * @throws {Error} If the file does not exist.
+     */
+    readBuffer(anyPath) {
+        const filePath = this.safePath(anyPath);
+        if (!fs.existsSync(filePath)) throw new Error("File does not exist.");
+        return fs.readFileSync(filePath);
+    }
+
+    /**
+     * Size in bytes and last-modified time of a file, without reading it. Used as a
+     * cheap cache key by callers that memoize expensive per-file work.
+     * @param {string} anyPath - The relative path to the file.
+     * @returns {{size: number, mtimeMs: number}}
+     * @throws {Error} If the file does not exist.
+     */
+    statFile(anyPath) {
+        const filePath = this.safePath(anyPath);
+        if (!fs.existsSync(filePath)) throw new Error("File does not exist.");
+        const { size, mtimeMs } = fs.statSync(filePath);
+        return { size, mtimeMs };
+    }
+
+    /**
+     * Whether the file at the given relative path holds binary data (same sniff as
+     * readFile, without decoding anything). Used to keep text writes off binary
+     * files. Missing files are not binary — creating one is a text write.
+     * @param {string} anyPath - The relative path to the file.
+     * @returns {boolean}
+     */
+    isBinaryFile(anyPath) {
+        const filePath = this.safePath(anyPath);
+        if (!fs.existsSync(filePath)) return false;
+        if (BINARY_EXTENSIONS.has(path.extname(anyPath).toLowerCase())) return true;
+        const size = fs.statSync(filePath).size;
+        if (size === 0) return false;
+
+        const fd = fs.openSync(filePath, "r");
+        try {
+            const buf = Buffer.alloc(Math.min(BINARY_SNIFF_BYTES, size));
+            const read = fs.readSync(fd, buf, 0, buf.length, 0);
+            const encoding = chardet.detectFileSync ? chardet.detectFileSync(filePath, { sampleSize: 64 * 1024 }) : null;
+            return looksBinary(anyPath, buf.subarray(0, read), encoding);
+        } finally {
+            fs.closeSync(fd);
         }
     }
 

@@ -41,13 +41,15 @@ Lists the contents of a workspace folder. Sidecar files (`.flashback`) are exclu
 
 ### `GET /api/documents/read`
 
-Returns the raw content and sidecar metadata for a single document.
+Returns the decoded content and sidecar metadata for a single document.
 
 | Param    | In    | Type   | Required | Description                    |
 | -------- | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ content, encoding, metadata }`.
+**Response** `200` — `{ content, encoding, binary, size, metadata }`.
+
+Binary documents (PDF, EPUB, images, audio, video — recognized by container extension *or* by sniffing the first 8 KB) return `content: null`, `encoding: "binary"`, `binary: true`, and their `metadata` as usual: decoding those bytes as text produces only mojibake. Fetch the bytes from [`GET /api/documents/raw`](#get-apidocumentsraw) — which is what the PDF/EPUB renderers do, using this endpoint purely for the sidecar — or their **text** from [`/api/reader`](#reader-apireader).
 
 **Errors** `400` path required.
 
@@ -160,7 +162,9 @@ Updates the content and/or metadata of an existing document. Also syncs tags, fl
 
 **Response** `200` — `{ ok: true }`.
 
-**Errors** `400` path required.
+A `content` write is accepted **only** for `.md` / `.markdown` / `.txt` / `.text` — the formats with an editable renderer in the app. Every other format is a viewer, so a body write to one can only come from outside the app, and bodies are not versioned by Seal (the overwrite is unrecoverable). Metadata-only writes are accepted on any document, which is how the PDF/EPUB renderers save their sidecars. Clip and YouTube bodies are written by their own endpoints, not here.
+
+**Errors** `400` path required; `400` when `content` is present and the target is not an editable text format.
 
 ---
 
@@ -271,6 +275,49 @@ Imports a Flashback `.zip` package (produced by `GET /api/documents/export`) int
 **Response** `201` — `{ ok: true }`.
 
 **Errors** `400` file required.
+
+---
+
+## Reader `/api/reader`
+
+Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files. Built for the MCP server — which has no renderer and cannot receive bytes — but not restricted to it. Backed by [`access/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
+
+Addressing follows each format's **native unit**:
+
+| Format | `unit` | Addressed by |
+| --- | --- | --- |
+| `.pdf` | `page` | `index` (1-based), `count` |
+| `.epub` | `section` | `index` (1-based) **or** the spine href, `count` |
+| `.md` `.markdown` `.txt` `.text` `.clip` `.youtube` | `chars` | `offset`, `limit` |
+
+### `GET /api/reader/info`
+
+What the document is and how much of it there is, without returning a body.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ path, format, unit, total, extractable, note?, sections? }`. `total` counts pages, sections, or characters depending on `unit`. `sections` lists `{ index, label, href, chars }` for EPUBs. `extractable: false` with a `note` means the file parsed but holds no text layer (a scanned PDF needing OCR).
+
+**Errors** `400` path required · `404` no such document · `415` format has no readable text.
+
+### `GET /api/reader/read`
+
+One window of text.
+
+| Param        | In    | Type          | Required | Description                                                        |
+| ------------ | ----- | ------------- | -------- | ------------------------------------------------------------------ |
+| `path`       | query | string        | Yes      | Relative path to the document.                                     |
+| `index`      | query | number/string | No       | Page or section (1-based), or an EPUB spine href. Default 1.       |
+| `count`      | query | number        | No       | Pages/sections per call, capped at 10. Default 1.                  |
+| `offset`     | query | number        | No       | `chars` unit: start position. Default 0.                           |
+| `limit`      | query | number        | No       | `chars` unit: characters to return, capped server-side.            |
+| `charOffset` | query | number        | No       | Resume inside a single oversized unit (see `nextCharOffset`).       |
+
+**Response** `200` — `{ path, format, unit, index, total, label, text, hasMore, next, nextCharOffset, truncated }`. Follow `next` (and `nextCharOffset` when `truncated`) until `hasMore` is false. Every response is capped at 20 000 characters.
+
+**Errors** `400` path required, index out of range, unknown href, or offset past the end · `404` no such document · `415` format has no readable text.
 
 ---
 

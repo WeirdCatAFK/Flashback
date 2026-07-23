@@ -262,11 +262,13 @@ export function registerWriteTools(server) {
     {
       title: 'Update document content',
       description:
-        'Replace the body content of an existing document. This overwrites the ENTIRE body — always ' +
-        'read_document first and send the full new text, even for a small edit. Document body text is not ' +
-        'versioned by Seal (only sidecars are), so an overwrite is not recoverable in-app. Flashcards, tags, ' +
+        'Replace the body content of an existing TEXT document (Markdown/plain text). This overwrites the ENTIRE ' +
+        'body — always read_document first and send the full new text, even for a small edit. Document body text ' +
+        'is not versioned by Seal (only sidecars are), so an overwrite is not recoverable in-app. Flashcards, tags, ' +
         'and highlights on the document are unaffected, but character-offset highlight anchors may drift if ' +
-        'the highlighted text moves.',
+        'the highlighted text moves. Only .md/.markdown/.txt/.text bodies are writable — every other format is ' +
+        'read-only in the app (a viewer, not an editor), and writing text over a PDF/EPUB would destroy it. ' +
+        'To READ those formats use read_document_text; never write a fragment from it back through here.',
       inputSchema: {
         path: z.string().describe('Relative path to the document.'),
         content: z.string().describe('The full new body content.'),
@@ -496,6 +498,16 @@ export function registerWriteTools(server) {
         let text = snippet || null;
         if (snippet) {
           const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
+          // Character offsets only mean something in a decoded text body; a PDF or
+          // EPUB anchors by page/bbox or CFI, which the app computes from a real
+          // selection. Say so plainly instead of failing on a null body.
+          if (doc.binary || doc.content == null) {
+            return asToolError(
+              `${path} is a binary document (PDF/EPUB/media), so text-offset highlights do not apply to it. ` +
+              `Highlights on these formats have to be made in the app by selecting the passage; you can then ` +
+              `read them with list_highlights and build cards from them with create_flashcard's highlightHash.`,
+            );
+          }
           const idx = doc.content.indexOf(snippet);
           if (idx === -1) {
             return asToolError(`Snippet not found verbatim in ${path}. Re-check whitespace/punctuation against read_document's output and try again.`);
@@ -509,7 +521,7 @@ export function registerWriteTools(server) {
           // self-describing in list_highlights and survives re-anchoring.
           try {
             const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
-            text = doc.content.slice(start, end) || null;
+            text = doc.content?.slice(start, end) || null;
           } catch { /* snapshot is best-effort */ }
         }
         const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note, text });

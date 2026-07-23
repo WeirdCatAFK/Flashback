@@ -635,6 +635,34 @@ describe('Documents Orchestrator Integration Tests', () => {
             const result = docs.files.readFile(existingDoc);
             assert.ok(typeof result.content === 'string', 'content should be a string');
             assert.ok(typeof result.encoding === 'string', 'encoding should be detected and returned');
+            assert.equal(result.binary, false, 'a markdown file is not binary');
+            assert.ok(result.size > 0, 'size is reported');
+        });
+
+        // Decoding a PDF/image through iconv yields mojibake nobody can use — the
+        // renderers take those bytes from /api/documents/raw instead. readFile says
+        // so rather than pretending the file is text.
+        it('should flag a binary file instead of decoding it, and refuse a text overwrite', async () => {
+            const binRel = path.join(TEST_ROOT, 'Algebra', 'scan.pdf');
+            const bytes = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from([0x00, 0x01]), Buffer.alloc(512, 0xa7)]);
+            await docs.importFile('scan.pdf', path.join(TEST_ROOT, 'Algebra'), bytes, {});
+
+            const result = docs.files.readFile(binRel);
+            assert.equal(result.binary, true, 'flagged as binary');
+            assert.equal(result.content, null, 'no decoded content');
+            assert.equal(result.encoding, 'binary');
+            assert.equal(result.size, bytes.length);
+            assert.equal(docs.files.isBinaryFile(binRel), true);
+            assert.equal(docs.files.isBinaryFile(existingDoc), false);
+
+            await assert.rejects(
+                () => docs.updateFile(binRel, 'plain text', null),
+                /Cannot overwrite the binary file/,
+                'a text write over a binary file is refused',
+            );
+            assert.equal(docs.files.readFile(binRel).size, bytes.length, 'file untouched');
+
+            await docs.delete(binRel, false);
         });
 
         it('should list folder contents including type and metadata', () => {

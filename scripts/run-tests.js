@@ -38,6 +38,7 @@ const tests = [
     'tests/fsrs.api.test.js',
     'tests/stats.test.js',
     'tests/diary.test.js',
+    'tests/mcpReader.test.js',
     'tests/api/api.test.js',
     'tests/mcp.test.js',
 ];

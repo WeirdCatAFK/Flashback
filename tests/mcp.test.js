@@ -15,6 +15,7 @@ import db from '../src/api/access/database.js';
 import Documents from '../src/api/access/documents.js';
 import Api from '../src/api/api.js';
 import { getWorkspacePath } from '../src/api/access/config.js';
+import { buildPdf, buildEpub } from './fixtures.js';
 import { registerReadTools } from '../src/mcp/tools/read.js';
 import { registerWriteTools } from '../src/mcp/tools/write.js';
 
@@ -50,7 +51,12 @@ const cardRow = (hash) => db.prepare(`
     WHERE f.global_hash = ?
 `).get(hash);
 
-const rmWorkspace = () => {
+// Delete through the orchestrator so the DB rows go too. Removing the folder with
+// fs alone leaves orphaned Documents rows behind, and the NEXT run of this file then
+// collides on Documents.global_hash — a rerun has to start from the same clean slate
+// as a first run. fs.rmSync is the fallback for anything not in the index.
+const rmWorkspace = async () => {
+    try { await new Documents().delete(ROOT, true); } catch { /* not indexed */ }
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
@@ -64,7 +70,7 @@ describe('MCP tools', () => {
 
     before(async () => {
         if (!validate()) throw new Error('Validation failed');
-        rmWorkspace();
+        await rmWorkspace();
         await sealTools.init();
         api = new Api({ port: 0, logFormat: 'tiny', apiToken: API_TOKEN });
         const server = await api.start();
@@ -74,14 +80,14 @@ describe('MCP tools', () => {
     });
 
     after(async () => {
-        rmWorkspace();
+        await rmWorkspace();
         await api.stop();
     });
 
     it('registers the full tool set', () => {
         const expected = [
             // read
-            'search_flashback', 'list_folder', 'read_document', 'get_due_cards',
+            'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
@@ -464,6 +470,91 @@ describe('MCP tools', () => {
         } finally {
             fs.rmSync(tmpFile, { force: true });
         }
+    });
+
+    // A PDF/EPUB/media document has no readable body. Decoding one used to hand the
+    // assistant megabytes of mojibake; these pin the tools that touch a body, and the
+    // route from "you can't read this" to the tool that can.
+    describe('binary documents', () => {
+        const scanRel = `${ROOT}/scan.pdf`;
+        const bookRel = `${ROOT}/book.pdf`;
+        const epubRel = `${ROOT}/book.epub`;
+        // No text layer and unparseable — stands in for a scanned document.
+        const scanBytes = Buffer.concat([
+            Buffer.from('%PDF-1.4\n'),
+            Buffer.from([0x00, 0x01, 0x02, 0x00]),
+            Buffer.alloc(4096, 0xa7),
+        ]);
+
+        before(async () => {
+            const d = new Documents();
+            await d.importFile('scan.pdf', ROOT, scanBytes, {});
+            await d.importFile('book.pdf', ROOT, buildPdf([
+                ['Page one about mitochondria.'],
+                ['Page two about chloroplasts.'],
+            ]), {});
+            await d.importFile('book.epub', ROOT, buildEpub([
+                { href: 'ch1.xhtml', title: 'Chapter One', body: '<p>The cell is the unit of life.</p>' },
+            ]), {});
+        });
+
+        it('read_document returns metadata and guidance instead of decoded bytes', async () => {
+            const read = await call('read_document', { path: scanRel });
+            // Not a tool error: the sidecar is still perfectly useful.
+            assert.equal(read.isError, false, read.text);
+            assert.match(read.text, /binary document/i);
+            assert.match(read.text, /list_highlights/, 'points at where the readable substance is');
+            assert.match(read.text, /update_document/, 'warns against the destructive write');
+            assert.ok(!read.text.includes('%PDF'), 'no decoded file bytes leak into the response');
+        });
+
+        it('read_document routes an extractable PDF to read_document_text with its page count', async () => {
+            const read = await call('read_document', { path: bookRel });
+            assert.equal(read.isError, false, read.text);
+            assert.match(read.text, /read_document_text/);
+            assert.match(read.text, /2 pages/, 'says how much there is to read');
+        });
+
+        it('read_document_text reads a PDF page by page', async () => {
+            const p1 = await call('read_document_text', { path: bookRel });
+            assert.equal(p1.isError, false, p1.text);
+            assert.equal(p1.data.unit, 'page');
+            assert.equal(p1.data.total, 2);
+            assert.match(p1.data.text, /mitochondria/);
+            assert.equal(p1.data.next, 2);
+
+            const p2 = await call('read_document_text', { path: bookRel, index: p1.data.next });
+            assert.match(p2.data.text, /chloroplasts/);
+            assert.equal(p2.data.hasMore, false);
+        });
+
+        it('read_document_text reads an EPUB section', async () => {
+            const res = await call('read_document_text', { path: epubRel, index: 1 });
+            assert.equal(res.isError, false, res.text);
+            assert.equal(res.data.unit, 'section');
+            assert.match(res.data.text, /the unit of life/);
+        });
+
+        it('read_document_text reports a scanned PDF as unreadable rather than returning noise', async () => {
+            const res = await call('read_document_text', { path: scanRel });
+            assert.equal(res.isError, true);
+            assert.match(res.text, /415/);
+        });
+
+        it('update_document refuses to overwrite it, leaving the file intact', async () => {
+            const res = await call('update_document', { path: scanRel, content: 'plain text' });
+            assert.equal(res.isError, true);
+            assert.match(res.text, /editable bodies/i);
+
+            const abs = path.join(getWorkspacePath(), ROOT, 'scan.pdf');
+            assert.equal(fs.statSync(abs).size, scanBytes.length, 'the PDF still has its original bytes');
+        });
+
+        it('create_highlight rejects a text-offset anchor on it', async () => {
+            const res = await call('create_highlight', { path: scanRel, snippet: 'anything', color: 'amber' });
+            assert.equal(res.isError, true);
+            assert.match(res.text, /binary document/i);
+        });
     });
 
     it('list_cards can sort by lapses to surface problem cards', async () => {

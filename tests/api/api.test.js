@@ -179,6 +179,24 @@ describe('Flashback API', () => {
             assert.equal(res.status, 200);
         });
 
+        // Only the formats with an editable renderer accept a body write; everything
+        // else is a viewer in the app, so such a write can only come from outside it
+        // — and bodies are not versioned by Seal, making an overwrite unrecoverable.
+        it('PUT /api/documents/file → 400 for a body write to a non-editable format', async () => {
+            await createFile('data.json', ROOT);
+            const res = await updateFile(`${ROOT}/data.json`, '{"clobbered":true}');
+            assert.equal(res.status, 400);
+            const body = await res.json();
+            assert.match(body.error, /editable bodies/i);
+        });
+
+        it('PUT /api/documents/file → still accepts a metadata-only write on any format', async () => {
+            const res = await put(`${baseUrl}/api/documents/file`, {
+                path: `${ROOT}/data.json`, metadata: { tags: ['viewer-only'] },
+            });
+            assert.equal(res.status, 200);
+        });
+
         it('GET /api/documents/read → returns content and metadata', async () => {
             const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/note.md`)}`);
             assert.equal(res.status, 200);

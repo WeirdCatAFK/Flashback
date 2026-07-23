@@ -82,13 +82,90 @@ export function registerReadTools(server) {
       title: 'Read document',
       description:
         'Read a document\'s full content plus its sidecar metadata (existing flashcards, tags, highlights). ' +
-        'Use this before drafting new cards so you can see what the document already covers.',
+        'Use this before drafting new cards so you can see what the document already covers. ' +
+        'Only TEXT documents (Markdown, plain text, and the app\'s .clip/.youtube stubs) return a readable `content` ' +
+        'HERE. For a PDF, EPUB, image, audio or video document this returns `content: null` — this does NOT mean ' +
+        'the text is unavailable: it means the body is not plain text and you must read it with the companion tool ' +
+        '**read_document_text**, which extracts and paginates it (PDF by page, EPUB by section). Rule of thumb: if ' +
+        '`content` comes back null, immediately call read_document_text with the SAME path — never conclude the ' +
+        'document is unreadable. The response also spells out the exact next call.',
       inputSchema: {
         path: z.string().describe('Relative path to the document from the workspace root.'),
       },
     },
     safe(async ({ path }) => {
       const data = await request('GET', `/api/documents/read${qs({ path })}`);
+      // A PDF/EPUB/media body is bytes. Decoding it would hand back megabytes of
+      // mojibake, so say what the file is and route to the tool that CAN read it —
+      // with its real unit count, so the next call is obvious.
+      if (data.binary) {
+        const kb = data.size != null ? `${Math.max(1, Math.round(data.size / 1024)).toLocaleString()} KB` : 'unknown size';
+        const cards = data.metadata?.flashcards?.length ?? 0;
+        const highlights = data.metadata?.highlights?.length ?? 0;
+        // Best-effort: if the format is extractable, lead with that. A failure here
+        // (unsupported format, scanned PDF) just means no such line.
+        let readable = null;
+        try {
+          const info = await request('GET', `/api/reader/info${qs({ path })}`);
+          if (info.extractable) {
+            readable = info.unit === 'chars'
+              ? `- read_document_text with path="${path}" — its text (${info.total.toLocaleString()} characters), a window at a time.`
+              : `- read_document_text with path="${path}" — its text, ${info.unit} by ${info.unit} (${info.total} ${info.unit}${info.total === 1 ? '' : 's'}). Start with index=1.`;
+          } else if (info.note) {
+            readable = `- read_document_text does not help here: ${info.note}`;
+          }
+        } catch { /* not an extractable format — the other routes still apply */ }
+
+        return {
+          content: [{
+            type: 'text',
+            text:
+              `${path} is a binary document (${kb}); its bytes cannot be read as text through THIS tool, and ` +
+              `any text you appear to "read" from it would be garbage.\n\n` +
+              `What is available instead:\n` +
+              (readable ? `${readable}\n` : '') +
+              `- list_highlights with path="${path}" — the passages the user highlighted while reading, with ` +
+              `surrounding context (${highlights} highlight${highlights === 1 ? '' : 's'} on this one).\n` +
+              `- list_cards / search_flashback — the ${cards} flashcard${cards === 1 ? '' : 's'} already made from it.\n` +
+              `- The sidecar metadata below (tags, cards, highlights) is complete and safe to act on.\n\n` +
+              `Do NOT call update_document on this path: it writes text over the whole body and is refused ` +
+              `for this format.\n\n` +
+              JSON.stringify({ path, binary: true, size: data.size, metadata: data.metadata }, null, 2),
+          }],
+        };
+      }
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'read_document_text',
+    {
+      title: 'Read PDF / EPUB / long text (paginated)',
+      description:
+        'Get the readable TEXT of a PDF, an EPUB, or a saved web clip — the formats read_document returns as ' +
+        '`content: null` — or a window of a long text file. THIS is how you read a PDF or EPUB; a null `content` ' +
+        'from read_document is not a dead end, it is the signal to call this. Extraction happens on the server; ' +
+        'you get plain UTF-8. ' +
+        'ADDRESSING FOLLOWS THE FORMAT: a PDF is read by `index` = page number (1-based, `count` for a few ' +
+        'pages at once), an EPUB by `index` = spine section number or its href, Markdown/text/clips by ' +
+        '`offset`/`limit` character window. Call it with only `path` to get the first unit, then follow ' +
+        '`next` (and `nextCharOffset` if `truncated`) until `hasMore` is false. Each response reports ' +
+        '`total` (pages, sections, or characters) and a `label` such as "p. 37" — cite that label when a ' +
+        'card comes from a specific place. Scanned PDFs have no text layer and return nothing readable. ' +
+        'This is READ-ONLY and returns a FRAGMENT: never pass its output to update_document, which ' +
+        'overwrites an entire body — and which refuses these formats anyway.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document from the workspace root.'),
+        index: z.union([z.number().int(), z.string()]).optional().describe('PDF: page number (1-based). EPUB: section number (1-based) or its spine href. Ignored for text formats. Default 1.'),
+        count: z.number().int().min(1).max(10).optional().describe('How many pages/sections to return in one call. Default 1.'),
+        offset: z.number().int().min(0).optional().describe('Text formats only: character offset to start at. Default 0.'),
+        limit: z.number().int().min(1).optional().describe('Text formats only: how many characters to return. Capped server-side.'),
+        charOffset: z.number().int().min(0).optional().describe('Resume inside a single oversized page/section — pass the `nextCharOffset` from a truncated response.'),
+      },
+    },
+    safe(async ({ path, index, count, offset, limit, charOffset }) => {
+      const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset })}`);
       return asText(data);
     }),
   );
@@ -260,9 +337,11 @@ export function registerReadTools(server) {
     {
       title: 'Search document contents',
       description:
-        'Substring search inside document BODIES (Markdown/text files) — use this when the term is in the ' +
+        'Substring search inside document BODIES — use this when the term is in the ' +
         'prose of a note rather than in a name, tag, or flashcard (search_flashback covers those). ' +
-        'Case-insensitive; returns matching documents with per-document match counts and context snippets.',
+        'Case-insensitive; returns matching documents with per-document match counts and context snippets. ' +
+        'Covers .md/.markdown/.txt bodies ONLY: PDFs, EPUBs and media are never searched, so a miss here is not ' +
+        'evidence the vault lacks the topic — check list_highlights and the cards on those documents too.',
       inputSchema: {
         query: z.string().describe('Text to find inside document bodies.'),
         limit: z.number().int().min(1).max(100).optional().describe('Max documents to return. Default 20.'),

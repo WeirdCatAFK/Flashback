@@ -12,8 +12,16 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => (p ? path.normalize(p) : p);
 
+// Body writes are limited to the formats the app can actually edit — the same set
+// DocumentEditor's pickRenderer() gives an editable renderer. Every other format is
+// read-only in the app (a viewer), so a body write can only come from outside it,
+// and document bodies are not versioned by Seal: an overwrite is unrecoverable.
+// Clip/YouTube bodies are written by their own routes through documents.js, not here.
+const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.text']);
+const isEditableBody = (relPath) => EDITABLE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
+
 const CONFLICT_PHRASES = ['already exists', 'already in use'];
-const CLIENT_ERROR_PHRASES = ['Cannot create .flashback', 'Invalid YouTube URL', 'Invalid URL', 'Failed to fetch', 'File not found'];
+const CLIENT_ERROR_PHRASES = ['Cannot create .flashback', 'Cannot overwrite the binary file', 'Invalid YouTube URL', 'Invalid URL', 'Failed to fetch', 'File not found'];
 const isConflict = (err) => CONFLICT_PHRASES.some(p => err.message?.includes(p));
 const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.includes(p));
 
@@ -34,14 +42,18 @@ router.get(
 );
 
 // GET /api/documents/read?path=
+// Text documents come back decoded in `content`. Binary ones (PDF, EPUB, media)
+// come back with `content: null` and `binary: true` — their bytes belong to
+// /api/documents/raw — but still carry their sidecar `metadata`, which is what
+// the PDF/EPUB renderers actually want from this endpoint.
 router.get(
   "/read",
   catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const { content, encoding } = docs.files.readFile(relPath);
+    const { content, encoding, binary, size } = docs.files.readFile(relPath);
     const metadata = docs.files.getMetadata(relPath);
-    res.json({ content, encoding, metadata });
+    res.json({ content, encoding, binary, size, metadata });
   }),
 );
 
@@ -195,11 +207,21 @@ router.post(
 
 // PUT /api/documents/file
 // Body: { path, content, metadata? }
+// A `content` write is restricted to editable text formats (see EDITABLE_EXTENSIONS);
+// metadata-only writes are allowed on any document, which is how the PDF/EPUB
+// renderers save their sidecars.
 router.put(
   "/file",
   catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
+    if (req.body.content != null && !isEditableBody(relPath)) {
+      return res.status(400).json({
+        error: `Only ${[...EDITABLE_EXTENSIONS].join(', ')} documents have editable bodies; ` +
+          `${path.extname(relPath) || 'this format'} is read-only in the app. ` +
+          `Its flashcards, tags and highlights are edited through its sidecar (PUT /api/documents/metadata).`,
+      });
+    }
     await docs.updateFile(relPath, req.body.content, req.body.metadata);
     res.json({ ok: true });
   }),
