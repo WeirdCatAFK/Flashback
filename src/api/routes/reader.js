@@ -26,9 +26,10 @@ router.get('/info', catchError(async (req, res) => {
     res.json(await reader.info(relPath));
 }));
 
-// GET /api/reader/read?path=&index=&count=&offset=&limit=&charOffset=
+// GET /api/reader/read?path=&index=&count=&offset=&limit=&charOffset=&at=
 // One window of text. index/count address pages and sections (1-based); offset/limit
-// address character windows in text formats.
+// address character windows in text formats; at=<seconds> jumps to a YouTube
+// transcript moment.
 router.get('/read', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -38,6 +39,7 @@ router.get('/read', catchError(async (req, res) => {
         offset: req.query.offset,
         limit: req.query.limit,
         charOffset: req.query.charOffset,
+        at: req.query.at,
     }));
 }));
 

@@ -27,6 +27,9 @@ const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.inclu
 
 const catchError = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch((err) => {
+    // An explicit status on the error (e.g. 404/422 from the access layer) wins over
+    // the message-phrase heuristics below.
+    if (err.status) return res.status(err.status).json({ error: err.message });
     if (isConflict(err)) return res.status(409).json({ error: err.message });
     if (isClientError(err)) return res.status(400).json({ error: err.message });
     next(err);
@@ -343,6 +346,20 @@ router.put(
     const { path: relPath, url } = req.body ?? {};
     if (!relPath || !url) return res.status(400).json({ error: "path and url required" });
     const result = await docs.setYoutubeSource(norm(relPath), url);
+    res.json(result);
+  }),
+);
+
+// POST /api/documents/youtube/transcript
+// JSON body { path, lang? } — fetches the video's captions into the .youtube
+// document's sidecar so its spoken content becomes readable. 422 when the video
+// has no usable captions.
+router.post(
+  "/youtube/transcript",
+  catchError(async (req, res) => {
+    const { path: relPath, lang } = req.body ?? {};
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    const result = await docs.fetchYoutubeTranscript(norm(relPath), { lang });
     res.json(result);
   }),
 );

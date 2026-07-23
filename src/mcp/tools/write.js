@@ -120,6 +120,34 @@ export function registerWriteTools(server) {
   );
 
   server.registerTool(
+    'fetch_youtube_transcript',
+    {
+      title: 'Fetch YouTube transcript',
+      description:
+        'Pull a YouTube reference document\'s captions into the vault so its spoken content becomes readable. ' +
+        'Run this once on a `.youtube` document; afterwards read_document_text returns the transcript as ' +
+        'timestamped segments, and its video_timestamp highlights ("@ 0:29") can be resolved to text with ' +
+        'read_document_text\'s `at` parameter — the entry point for turning video moments into flashcards. ' +
+        'This makes a network request to YouTube and stores the transcript in the document\'s sidecar (a ' +
+        'versioned change). It fails with a 422 when the video has no captions available; there is no ' +
+        'local speech-to-text fallback. The transcript is auto-generated captions unless the uploader added ' +
+        'their own, so expect occasional transcription errors.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the .youtube document from the workspace root.'),
+        lang: z.string().optional().describe('Preferred caption language code, e.g. "en" or "es". Defaults to English, falling back to whatever the video has.'),
+      },
+    },
+    async ({ path, lang }) => {
+      try {
+        const data = await request('POST', '/api/documents/youtube/transcript', { path, lang });
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
     'update_flashcard',
     {
       title: 'Update flashcard',

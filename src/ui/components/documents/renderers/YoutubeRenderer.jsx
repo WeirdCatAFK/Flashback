@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { readFile, updateMetadata, setYoutubeSource } from '../../../api/documents';
+import { readFile, updateMetadata, setYoutubeSource, fetchYoutubeTranscript } from '../../../api/documents';
 import { getBaseUrl } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
 import './YoutubeRenderer.css';
@@ -34,6 +34,11 @@ export default function YoutubeRenderer({
   const [apiFailed,  setApiFailed]  = useState(false);
   const [playbackError, setPlaybackError] = useState(null); // { code, message } from the embed's onError
   const [reloadTick, setReloadTick] = useState(0);
+  const [transcript, setTranscript] = useState(null);        // { cues, lang, kind } once fetched, else null
+  const [transcriptCues, setTranscriptCues] = useState([]);  // the actual [{ start, dur, text }] lines
+  const [fetchingTranscript, setFetchingTranscript] = useState(false);
+  const [transcriptError, setTranscriptError] = useState(null);
+  const [showTranscript, setShowTranscript] = useState(false);
 
   const pathRef        = useRef(path);
   pathRef.current      = path;
@@ -61,6 +66,10 @@ export default function YoutubeRenderer({
     setPlayerReady(false);
     setApiFailed(false);
     setPlaybackError(null);
+    setTranscript(null);
+    setTranscriptCues([]);
+    setTranscriptError(null);
+    setShowTranscript(false);
     loadedPathRef.current = null;
     let mounted = true;
 
@@ -78,6 +87,10 @@ export default function YoutubeRenderer({
       });
       setHighlights(hls);
       highlightsRef.current = hls;
+      const tr = metadata?.source?.transcript;
+      const cues = Array.isArray(tr) ? tr : [];
+      setTranscriptCues(cues);
+      setTranscript(cues.length ? { cues: cues.length, ...(metadata?.source?.transcriptMeta ?? {}) } : null);
       loadedPathRef.current = path;
       onHighlightsChange?.(path, hls);
       onSidecarRefresh?.(path, metadata ?? {});
@@ -91,15 +104,17 @@ export default function YoutubeRenderer({
     return () => { mounted = false; };
   }, [path, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Append a timestamp highlight at the given playback position (seconds).
-  const addMomentAt = useCallback((seconds) => {
+  // Append a timestamp highlight at the given playback position (seconds). An
+  // optional label (e.g. a transcript line) rides along as the marker's text so a
+  // card made from it carries the quote; otherwise it's just the timestamp.
+  const addMomentAt = useCallback((seconds, label) => {
     const now = new Date().toISOString();
     const hl = {
       id: generateId(),
       color: 'amber',
       type: 'video_timestamp',
       start: seconds, end: seconds,
-      text: `@ ${formatTime(seconds)}`,
+      text: label ? `${label.trim()}` : `@ ${formatTime(seconds)}`,
       createdAt: now, updatedAt: now,
       cardHashes: [], refIds: [],
     };
@@ -107,6 +122,33 @@ export default function YoutubeRenderer({
     highlightsRef.current = next;
     setHighlights(next);
     handleSaveRef.current?.();
+  }, []);
+
+  // Fetch the video's captions into the sidecar so the transcript becomes readable
+  // (and AI-annotatable). One network call; a video without captions returns 422.
+  const handleFetchTranscript = useCallback(async () => {
+    const target = pathRef.current;
+    if (!target) return;
+    setFetchingTranscript(true);
+    setTranscriptError(null);
+    try {
+      const res = await fetchYoutubeTranscript(target);
+      // The fetch stored the transcript in the sidecar; re-read it to get the cues
+      // themselves (the endpoint returns only a count).
+      let cues = [];
+      try { cues = (await readFile(target)).metadata?.source?.transcript ?? []; } catch { /* keep summary */ }
+      if (pathRef.current === target) {
+        setTranscript({ cues: res.cues, lang: res.lang, kind: res.kind });
+        setTranscriptCues(Array.isArray(cues) ? cues : []);
+        setShowTranscript(true);
+      }
+    } catch (err) {
+      if (pathRef.current === target) {
+        setTranscriptError(err?.message || 'This video has no captions to transcribe.');
+      }
+    } finally {
+      if (pathRef.current === target) setFetchingTranscript(false);
+    }
   }, []);
 
   // Bridge to the embed proxy: parent → { cmd } out, iframe → { event } in.
@@ -299,7 +341,58 @@ export default function YoutubeRenderer({
           ✚ Mark this moment
         </button>
         <span className="yt-marker-count">{highlights.length} marker{highlights.length === 1 ? '' : 's'}</span>
+        {transcript ? (
+          <button
+            type="button"
+            className={`yt-transcript-btn${showTranscript ? ' yt-transcript-btn--active' : ''}`}
+            onClick={() => setShowTranscript(v => !v)}
+            aria-pressed={showTranscript}
+            title={transcript.lang ? `Language: ${transcript.lang}${transcript.kind === 'asr' ? ' (auto-generated)' : ''}` : undefined}
+          >
+            📄 {showTranscript ? 'Hide' : 'Show'} transcript{transcript.kind === 'asr' ? ' (auto)' : ''}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="yt-transcript-btn"
+            onClick={handleFetchTranscript}
+            disabled={fetchingTranscript}
+            title="Fetch the video's captions so its transcript is readable and can be turned into cards"
+          >
+            {fetchingTranscript ? 'Fetching transcript…' : '📄 Fetch transcript'}
+          </button>
+        )}
+        {transcriptError && <span className="yt-transcript-error">{transcriptError}</span>}
       </div>
+
+      {showTranscript && transcriptCues.length > 0 && (
+        <div className="yt-transcript-panel">
+          <ul className="yt-transcript-lines">
+            {transcriptCues.map((c, i) => (
+              <li key={`${c.start}-${i}`} className="yt-transcript-line">
+                <button
+                  type="button"
+                  className="yt-transcript-time"
+                  onClick={() => seekTo(c.start ?? 0)}
+                  title="Jump the player here"
+                >
+                  {formatTime(c.start ?? 0)}
+                </button>
+                <span className="yt-transcript-text">{c.text}</span>
+                <button
+                  type="button"
+                  className="yt-transcript-mark"
+                  onClick={() => addMomentAt(c.start ?? 0, c.text)}
+                  aria-label="Mark this moment"
+                  title="Mark this moment as a highlight (its text becomes the card source)"
+                >
+                  ✚
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {highlights.length > 0 && (
         <ul className="yt-markers">

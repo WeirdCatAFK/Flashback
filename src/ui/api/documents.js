@@ -36,3 +36,4 @@ export const clipYoutube = (url, parentPath = '') => request('POST', '/api/docum
 export const clipUrl     = (url, parentPath = '') => request('POST', '/api/documents/clip',    { url, parentPath });
 export const setYoutubeSource = (path, url) => request('PUT', '/api/documents/youtube', { path, url });
 export const setClipSource    = (path, url) => request('PUT', '/api/documents/clip',    { path, url });
+export const fetchYoutubeTranscript = (path, lang) => request('POST', '/api/documents/youtube/transcript', { path, lang });

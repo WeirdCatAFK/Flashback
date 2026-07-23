@@ -197,6 +197,16 @@ describe('Flashback API', () => {
             assert.equal(res.status, 200);
         });
 
+        it('POST /api/documents/youtube/transcript → 400 without a path', async () => {
+            const res = await post(`${baseUrl}/api/documents/youtube/transcript`, {});
+            assert.equal(res.status, 400);
+        });
+
+        it('POST /api/documents/youtube/transcript → 404 for a missing document', async () => {
+            const res = await post(`${baseUrl}/api/documents/youtube/transcript`, { path: `${ROOT}/nope.youtube` });
+            assert.equal(res.status, 404);
+        });
+
         it('GET /api/documents/read → returns content and metadata', async () => {
             const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/note.md`)}`);
             assert.equal(res.status, 200);

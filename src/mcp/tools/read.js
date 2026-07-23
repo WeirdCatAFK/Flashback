@@ -134,6 +134,36 @@ export function registerReadTools(server) {
           }],
         };
       }
+      // A .youtube stub's readable content is its transcript, which lives in the
+      // sidecar and can be large. Keep it out of read_document (which dumps the whole
+      // sidecar) and steer to read_document_text, mirroring the binary branch above.
+      if (typeof path === 'string' && path.toLowerCase().endsWith('.youtube')) {
+        const cues = data.metadata?.source?.transcript;
+        if (Array.isArray(cues)) {
+          const trimmed = {
+            ...data,
+            metadata: {
+              ...data.metadata,
+              source: {
+                ...data.metadata.source,
+                transcript: `<${cues.length} transcript cues — read them with read_document_text (path="${path}"), ` +
+                  `or pass at=<seconds> to jump to a timestamp highlight's moment>`,
+              },
+            },
+          };
+          return asText(trimmed);
+        }
+        return {
+          content: [{
+            type: 'text',
+            text:
+              `This YouTube reference has no transcript in the vault yet, so its spoken content isn't ` +
+              `readable and its timestamp highlights can't be resolved to text. Call fetch_youtube_transcript ` +
+              `with path="${path}" to pull the video's captions in, then read it with read_document_text.\n\n` +
+              JSON.stringify(data, null, 2),
+          }],
+        };
+      }
       return asText(data);
     }),
   );
@@ -143,29 +173,33 @@ export function registerReadTools(server) {
     {
       title: 'Read PDF / EPUB / long text (paginated)',
       description:
-        'Get the readable TEXT of a PDF, an EPUB, or a saved web clip — the formats read_document returns as ' +
-        '`content: null` — or a window of a long text file. THIS is how you read a PDF or EPUB; a null `content` ' +
-        'from read_document is not a dead end, it is the signal to call this. Extraction happens on the server; ' +
-        'you get plain UTF-8. ' +
+        'Get the readable TEXT of a PDF, an EPUB, a saved web clip, or a YouTube video\'s transcript — the ' +
+        'formats read_document returns as `content: null` (or as a bare stub) — or a window of a long text ' +
+        'file. THIS is how you read a PDF, EPUB, or video; a null `content` from read_document is not a dead ' +
+        'end, it is the signal to call this. Extraction happens on the server; you get plain UTF-8. ' +
         'ADDRESSING FOLLOWS THE FORMAT: a PDF is read by `index` = page number (1-based, `count` for a few ' +
-        'pages at once), an EPUB by `index` = spine section number or its href, Markdown/text/clips by ' +
+        'pages at once), an EPUB by `index` = spine section number or its href, a YouTube transcript by ' +
+        'timestamped `segment` (walk with `index`/`count`, or pass `at`=<seconds> to jump straight to the ' +
+        'passage around a moment — e.g. a video_timestamp highlight\'s `start`), Markdown/text/clips by ' +
         '`offset`/`limit` character window. Call it with only `path` to get the first unit, then follow ' +
         '`next` (and `nextCharOffset` if `truncated`) until `hasMore` is false. Each response reports ' +
-        '`total` (pages, sections, or characters) and a `label` such as "p. 37" — cite that label when a ' +
-        'card comes from a specific place. Scanned PDFs have no text layer and return nothing readable. ' +
+        '`total` (pages, sections, segments, or characters) and a `label` such as "p. 37" or a "m:ss" ' +
+        'timestamp — cite that label when a card comes from a specific place. Scanned PDFs have no text ' +
+        'layer and return nothing readable; a YouTube document with no transcript yet says how to fetch one. ' +
         'This is READ-ONLY and returns a FRAGMENT: never pass its output to update_document, which ' +
         'overwrites an entire body — and which refuses these formats anyway.',
       inputSchema: {
         path: z.string().describe('Relative path to the document from the workspace root.'),
-        index: z.union([z.number().int(), z.string()]).optional().describe('PDF: page number (1-based). EPUB: section number (1-based) or its spine href. Ignored for text formats. Default 1.'),
-        count: z.number().int().min(1).max(10).optional().describe('How many pages/sections to return in one call. Default 1.'),
-        offset: z.number().int().min(0).optional().describe('Text formats only: character offset to start at. Default 0.'),
-        limit: z.number().int().min(1).optional().describe('Text formats only: how many characters to return. Capped server-side.'),
+        index: z.union([z.number().int(), z.string()]).optional().describe('PDF: page number (1-based). EPUB: section number (1-based) or its spine href. YouTube transcript: segment number (1-based). Ignored for character-window text formats. Default 1.'),
+        count: z.number().int().min(1).max(10).optional().describe('How many pages/sections/segments to return in one call. Default 1.'),
+        offset: z.number().int().min(0).optional().describe('Character-window text formats only: character offset to start at. Default 0.'),
+        limit: z.number().int().min(1).optional().describe('Character-window text formats only: how many characters to return. Capped server-side.'),
         charOffset: z.number().int().min(0).optional().describe('Resume inside a single oversized page/section — pass the `nextCharOffset` from a truncated response.'),
+        at: z.number().min(0).optional().describe('YouTube transcript only: seconds to jump to. Lands on the transcript block covering that moment (e.g. a video_timestamp highlight\'s `start`); pass `count` for surrounding blocks.'),
       },
     },
-    safe(async ({ path, index, count, offset, limit, charOffset }) => {
-      const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset })}`);
+    safe(async ({ path, index, count, offset, limit, charOffset, at }) => {
+      const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset, at })}`);
       return asText(data);
     }),
   );

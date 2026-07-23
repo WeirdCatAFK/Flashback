@@ -276,6 +276,19 @@ Imports a Flashback `.zip` package (produced by `GET /api/documents/export`) int
 
 **Errors** `400` file required.
 
+### `POST /api/documents/youtube/transcript`
+
+Fetches a `.youtube` document's captions from YouTube and stores them in the sidecar's `source` block (`source.transcript` = cues, `source.transcriptMeta` = `{ lang, kind, fetchedAt }`), making the video's spoken content readable via [`/api/reader`](#reader-apireader) and resolvable from its `video_timestamp` highlights. Metadata-only (the body descriptor is untouched); the change is versioned by Seal. The fetch scrapes YouTube's caption track — there is no local speech-to-text fallback.
+
+| Field  | Type   | Required | Description                                                           |
+| ------ | ------ | -------- | --------------------------------------------------------------------- |
+| `path` | string | Yes      | Relative path to the `.youtube` document.                             |
+| `lang` | string | No       | Preferred caption language code (e.g. `en`). Falls back to available. |
+
+**Response** `200` — `{ path, cues, lang, kind }` (`kind` is `asr` for auto-generated captions, `manual` otherwise).
+
+**Errors** `400` path required / no video id · `404` no such document · `422` the video has no usable captions.
+
 ---
 
 ## Reader `/api/reader`
@@ -288,7 +301,10 @@ Addressing follows each format's **native unit**:
 | --- | --- | --- |
 | `.pdf` | `page` | `index` (1-based), `count` |
 | `.epub` | `section` | `index` (1-based) **or** the spine href, `count` |
-| `.md` `.markdown` `.txt` `.text` `.clip` `.youtube` | `chars` | `offset`, `limit` |
+| `.youtube` *(with a fetched transcript)* | `segment` | `index` (1-based), `count`, **or** `at`=seconds |
+| `.md` `.markdown` `.txt` `.text` `.clip` `.youtube` *(no transcript)* | `chars` | `offset`, `limit` |
+
+A `.youtube` document only yields `segment` units once its captions have been fetched into the sidecar (see [`POST /api/documents/youtube/transcript`](#post-apidocumentsyoutubetranscript)); until then it reads as a short `chars` stub explaining how to fetch one.
 
 ### `GET /api/reader/info`
 
@@ -314,6 +330,7 @@ One window of text.
 | `offset`     | query | number        | No       | `chars` unit: start position. Default 0.                           |
 | `limit`      | query | number        | No       | `chars` unit: characters to return, capped server-side.            |
 | `charOffset` | query | number        | No       | Resume inside a single oversized unit (see `nextCharOffset`).       |
+| `at`         | query | number        | No       | `segment` unit (YouTube transcript): seconds to jump to — lands on the block covering that moment (e.g. a `video_timestamp` highlight's `start`). |
 
 **Response** `200` — `{ path, format, unit, index, total, label, text, hasMore, next, nextCharOffset, truncated }`. Follow `next` (and `nextCharOffset` when `truncated`) until `hasMore` is false. Every response is capped at 20 000 characters.
 

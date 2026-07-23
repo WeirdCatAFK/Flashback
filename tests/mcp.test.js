@@ -94,6 +94,7 @@ describe('MCP tools', () => {
             // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard',
             'create_document', 'update_document', 'create_folder', 'update_tags',
+            'fetch_youtube_transcript',
             'create_deck', 'update_deck', 'delete_deck', 'add_to_deck', 'remove_from_deck',
             'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
             'create_category', 'update_category',
@@ -479,6 +480,8 @@ describe('MCP tools', () => {
         const scanRel = `${ROOT}/scan.pdf`;
         const bookRel = `${ROOT}/book.pdf`;
         const epubRel = `${ROOT}/book.epub`;
+        const ytRel = `${ROOT}/talk.youtube`;
+        const bareRel = `${ROOT}/bare.youtube`;
         // No text layer and unparseable — stands in for a scanned document.
         const scanBytes = Buffer.concat([
             Buffer.from('%PDF-1.4\n'),
@@ -496,6 +499,24 @@ describe('MCP tools', () => {
             await d.importFile('book.epub', ROOT, buildEpub([
                 { href: 'ch1.xhtml', title: 'Chapter One', body: '<p>The cell is the unit of life.</p>' },
             ]), {});
+            // Each cue's text exceeds the transcript block cap, so cue == block and the
+            // block starts (0:00, 1:30) are deterministic for `at` addressing.
+            const ytFiller = 'detail '.repeat(80);
+            await d.importFile('talk.youtube', ROOT, Buffer.from(JSON.stringify({
+                url: 'https://youtu.be/xyz', videoId: 'xyz', title: 'Cells Talk',
+            })), {
+                source: {
+                    videoId: 'xyz',
+                    transcript: [
+                        { start: 0, dur: 30, text: `ALPHA ${ytFiller}` },
+                        { start: 90, dur: 30, text: `CHARLIE ${ytFiller}` },
+                    ],
+                    transcriptMeta: { lang: 'en', kind: 'asr' },
+                },
+            });
+            await d.importFile('bare.youtube', ROOT, Buffer.from(JSON.stringify({
+                url: 'https://youtu.be/bare', videoId: 'bare', title: 'No Captions',
+            })), {});
         });
 
         it('read_document returns metadata and guidance instead of decoded bytes', async () => {
@@ -533,6 +554,28 @@ describe('MCP tools', () => {
             assert.equal(res.isError, false, res.text);
             assert.equal(res.data.unit, 'section');
             assert.match(res.data.text, /the unit of life/);
+        });
+
+        it('read_document_text resolves a YouTube transcript moment via `at`', async () => {
+            const res = await call('read_document_text', { path: ytRel, at: 100 });
+            assert.equal(res.isError, false, res.text);
+            assert.equal(res.data.unit, 'segment');
+            assert.equal(res.data.label, '1:30', 'the block covering 100s starts at 1:30');
+            assert.match(res.data.text, /CHARLIE/);
+        });
+
+        it('read_document steers a YouTube stub to read_document_text without dumping the transcript', async () => {
+            const res = await call('read_document', { path: ytRel });
+            assert.equal(res.isError, false, res.text);
+            assert.match(res.text, /read_document_text/);
+            assert.match(res.text, /transcript cues/);
+            assert.ok(!res.text.includes('ALPHA'), 'the raw cue text is not dumped into read_document');
+        });
+
+        it('read_document tells you to fetch a transcript when the video has none yet', async () => {
+            const res = await call('read_document', { path: bareRel });
+            assert.equal(res.isError, false, res.text);
+            assert.match(res.text, /fetch_youtube_transcript/);
         });
 
         it('read_document_text reports a scanned PDF as unreadable rather than returning noise', async () => {

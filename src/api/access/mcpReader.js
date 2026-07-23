@@ -40,6 +40,9 @@ import Files from "./files.js";
 export const MAX_CHARS = 20000;
 // Pages/sections per call, so walking a book doesn't cost one round trip per page.
 const MAX_UNITS = 10;
+// Transcript cues are tiny (a few words each); merge consecutive ones into readable
+// blocks of about this many characters, each keeping its start timestamp.
+const YT_BLOCK_CHARS = 500;
 // Extraction is expensive (a 300-page PDF is seconds); paginated reading hits the
 // same file repeatedly. Cache the extracted segments, never the raw file.
 const CACHE_ENTRIES = 4;
@@ -124,6 +127,36 @@ function blockText(el) {
         out += BLOCK_TAGS.has(tag) ? `\n${inner}\n` : inner;
     }
     return out;
+}
+
+/** Seconds → "m:ss" (or "h:mm:ss"), matching the YoutubeRenderer's marker labels. */
+function formatTimestamp(sec) {
+    const s = Math.max(0, Math.floor(sec || 0));
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
+    const pad = (n) => String(n).padStart(2, "0");
+    return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`;
+}
+
+/**
+ * Groups transcript cues `{ start, text }` into readable blocks of ~YT_BLOCK_CHARS,
+ * each labelled with its start timestamp and carrying `start` (seconds) so a block
+ * can be addressed by `at`.
+ */
+function groupCues(cues) {
+    const blocks = [];
+    let cur = null;
+    for (const c of cues) {
+        const text = String(c.text ?? "").trim();
+        if (!text) continue;
+        if (!cur) cur = { start: Number(c.start) || 0, parts: [] };
+        cur.parts.push(text);
+        if (cur.parts.join(" ").length >= YT_BLOCK_CHARS) {
+            blocks.push({ label: formatTimestamp(cur.start), start: cur.start, text: cur.parts.join(" ") });
+            cur = null;
+        }
+    }
+    if (cur) blocks.push({ label: formatTimestamp(cur.start), start: cur.start, text: cur.parts.join(" ") });
+    return blocks;
 }
 
 /** Collapses the whitespace soup that flattening markup produces. */
@@ -232,19 +265,31 @@ class McpReader {
         };
     }
 
-    // A .youtube body is a small JSON descriptor. There is no transcript to read —
-    // return what IS known about the video rather than a bare refusal.
+    // A .youtube body is a small JSON descriptor; the transcript, when fetched, lives
+    // in the sidecar's source block (documents.fetchYoutubeTranscript). With a
+    // transcript we return timestamped segments the caller can walk or address by
+    // `at`=seconds; without one, a note explaining how to make it readable.
     _extractYoutube(relPath) {
         const { content } = this.files.readFile(relPath);
         let d = {};
         try { d = JSON.parse(content ?? "{}"); } catch { /* hand-edited stub */ }
+
+        const source = this.files.getMetadata(relPath)?.source ?? {};
+        const cues = Array.isArray(source.transcript) ? source.transcript : null;
+        if (cues && cues.length) {
+            const segments = groupCues(cues);
+            if (segments.length) return { format: "youtube", unit: "segment", segments };
+        }
+
         const lines = [
             d.title ? `Title: ${d.title}` : null,
             d.author ? `Channel: ${d.author}` : null,
             d.url ? `URL: ${d.url}` : null,
             "",
-            "This is a YouTube reference document: it has no transcript in the vault, so the " +
-            "video's spoken content is not readable here. Its highlights anchor to timestamps.",
+            "This is a YouTube reference document with no transcript in the vault yet, so the " +
+            "video's spoken content is not readable here and its timestamp highlights can't be " +
+            "resolved to text. Run fetch_youtube_transcript (or the app's “Fetch transcript” " +
+            "button) to pull the video's captions in, then read this document again.",
         ].filter((l) => l !== null);
         return { format: "youtube", unit: "chars", segments: [{ label: null, text: lines.join("\n") }] };
     }
@@ -371,7 +416,9 @@ class McpReader {
             // letting the caller read empty page after empty page.
             note: total === 0
                 ? "No text layer — this document is probably scanned images, and would need OCR to read."
-                : undefined,
+                : (doc.format === "youtube" && doc.unit === "segment")
+                    ? "Transcript segments carry timestamp labels; pass at=<seconds> to jump to a moment (e.g. a video_timestamp highlight's start)."
+                    : undefined,
             sections: doc.unit === "section"
                 ? doc.segments.map((s, i) => ({ index: i + 1, label: s.label, href: s.href, chars: s.text.length }))
                 : undefined,
@@ -387,6 +434,7 @@ class McpReader {
      * @param {number} [opts.offset=0] `chars` unit: where to start.
      * @param {number} [opts.limit=MAX_CHARS] `chars` unit: how much to return.
      * @param {number} [opts.charOffset=0] continue *inside* a unit larger than MAX_CHARS.
+     * @param {number} [opts.at] segment units with timestamps (YouTube): seconds to jump to.
      */
     async read(relPath, opts = {}) {
         const doc = await this._extract(relPath);
@@ -411,13 +459,24 @@ class McpReader {
         };
     }
 
-    _readUnits(relPath, doc, { index = 1, count = 1, charOffset = 0 }) {
+    _readUnits(relPath, doc, { index = 1, count = 1, charOffset = 0, at }) {
         const total = doc.segments.length;
 
-        // EPUB sections can be addressed by spine href, so a caller can follow a
-        // table of contents it has already seen instead of counting.
+        // Timestamped segments (YouTube transcript): `at`=seconds lands on the block
+        // covering that moment, so a video_timestamp highlight resolves straight to
+        // its passage. Pass `count` for surrounding context.
         let start;
-        if (typeof index === "string" && !/^\d+$/.test(index)) {
+        const hasTimestamps = doc.segments.some((s) => typeof s.start === "number");
+        if (at != null && at !== "" && !Number.isNaN(Number(at)) && hasTimestamps) {
+            const sec = Number(at);
+            let covering = 0;
+            for (let i = 0; i < total; i++) {
+                if ((doc.segments[i].start ?? 0) <= sec) covering = i; else break;
+            }
+            start = covering + 1;   // 1-based block covering that timestamp
+        } else if (typeof index === "string" && !/^\d+$/.test(index)) {
+            // EPUB sections can be addressed by spine href, so a caller can follow a
+            // table of contents it has already seen instead of counting.
             const found = doc.segments.findIndex((s) => s.href === index || path.posix.basename(s.href ?? "") === index);
             if (found === -1) throw fail(`No section "${index}" in ${relPath}. Call info for the section list.`, 400);
             start = found + 1;

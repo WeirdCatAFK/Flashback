@@ -35,6 +35,48 @@ export function extractYoutubeId(url) {
 }
 
 /**
+ * Chooses one caption track from a playerResponse's captionTracks[], preferring a
+ * manually-authored track in the requested language, then any track in that
+ * language, then any manual track, then whatever exists. `kind: 'asr'` marks an
+ * auto-generated track. Returns null when the video carries no captions at all.
+ */
+export function pickCaptionTrack(playerResponse, lang) {
+    const tracks =
+        playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
+    if (!Array.isArray(tracks) || tracks.length === 0) return null;
+    const want = String(lang || "en").toLowerCase();
+    const inLang = tracks.filter((t) => (t.languageCode || "").toLowerCase().startsWith(want));
+    const manual = (arr) => arr.find((t) => t.kind !== "asr");
+    return manual(inLang) || inLang[0] || manual(tracks) || tracks[0];
+}
+
+/**
+ * Turns a YouTube timedtext json3 payload (object or raw string) into transcript
+ * cues `{ start, dur, text }` in seconds. Events with no `segs` are formatting
+ * markers, and blank cues are dropped, so the result is speakable prose only.
+ * Pure — the network fetch lives in Documents._fetchYoutubeTranscript.
+ */
+export function parseJson3Transcript(json) {
+    let data = json;
+    if (typeof data === "string") {
+        try { data = JSON.parse(data); } catch { return []; }
+    }
+    const events = Array.isArray(data?.events) ? data.events : [];
+    const cues = [];
+    for (const ev of events) {
+        if (!Array.isArray(ev.segs)) continue;
+        const text = ev.segs.map((s) => s.utf8 ?? "").join("").replace(/\s+/g, " ").trim();
+        if (!text) continue;
+        cues.push({
+            start: Math.round(((ev.tStartMs ?? 0) / 1000) * 100) / 100,
+            dur: Math.round(((ev.dDurationMs ?? 0) / 1000) * 100) / 100,
+            text,
+        });
+    }
+    return cues;
+}
+
+/**
  * Turns an arbitrary title into a filesystem-safe base name (no extension).
  * Strips characters illegal on Windows, collapses whitespace, caps length,
  * and falls back to "clip" when nothing usable remains.
@@ -632,6 +674,90 @@ export default class Documents {
         this.files.updateFile(relPath, body, { ...existing, source });
         await sealEmitter.edit(relPath + '.flashback', [relPath]);
         return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
+    }
+
+    // Fetches a video's caption track from YouTube and returns transcript cues.
+    // This is the fragile part — no official API exists for third-party captions.
+    // The watch page's own caption URLs now require a proof-of-origin token and come
+    // back empty, so we ask the innertube ANDROID player API (its caption URLs still
+    // serve content) and force the timedtext json3 format. Isolated here so it can be
+    // swapped for a library if the endpoint changes; the parsing steps are pure/exported.
+    async _fetchYoutubeTranscript(videoId, lang) {
+        const noCaptions = (msg) => Object.assign(new Error(msg), { status: 422 });
+
+        // Public innertube key for the ANDROID client (stable, ships in the app).
+        const ANDROID_KEY = 'AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w';
+        const player = await fetch(`https://www.youtube.com/youtubei/v1/player?key=${ANDROID_KEY}`, {
+            method: 'POST',
+            headers: {
+                'User-Agent': 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip',
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                context: { client: { clientName: 'ANDROID', clientVersion: '20.10.38', androidSdkVersion: 30, hl: lang || 'en', gl: 'US' } },
+                videoId,
+            }),
+        }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+
+        if (!player) throw noCaptions("Could not reach YouTube to read this video's captions.");
+        const status = player.playabilityStatus?.status;
+        if (status && status !== 'OK') {
+            const reason = player.playabilityStatus?.reason ? `: ${player.playabilityStatus.reason}` : '';
+            throw noCaptions(`YouTube won't serve this video (${status}${reason}), so its captions are unavailable.`);
+        }
+
+        const track = pickCaptionTrack(player, lang);
+        if (!track?.baseUrl) throw noCaptions("This video has no captions to transcribe.");
+
+        // The track URL defaults to srv3 XML and already carries fmt=srv3 — replace it
+        // (don't append) so we get json3 JSON that parseJson3Transcript understands.
+        let url;
+        try { url = new URL(track.baseUrl); } catch { throw noCaptions("This video's caption track URL was malformed."); }
+        url.searchParams.set('fmt', 'json3');
+        const resp = await fetch(url.href, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback transcript fetcher)' } });
+        if (!resp.ok) throw noCaptions(`Could not download the caption track (${resp.status}).`);
+        const cues = parseJson3Transcript(await resp.text());
+        if (cues.length === 0) throw noCaptions("The caption track came back empty.");
+
+        return { cues, lang: track.languageCode || (lang ?? 'und'), kind: track.kind === 'asr' ? 'asr' : 'manual' };
+    }
+
+    /**
+     * Fetches a `.youtube` document's caption transcript from YouTube and stores it
+     * in the sidecar's `source` block (`source.transcript` + `source.transcriptMeta`),
+     * making the video's spoken content readable via mcpReader / read_document_text
+     * and resolvable from its timestamp highlights. Metadata-only — the body descriptor
+     * is untouched — so it writes and seals the sidecar directly, like setYoutubeSource.
+     * @param {string} relPath existing `.youtube` file
+     * @param {object} [opts]
+     * @param {string} [opts.lang] preferred caption language code (e.g. "en", "es")
+     * @returns {Promise<{path: string, cues: number, lang: string, kind: string}>}
+     * @throws {Error & {status:422}} when the video has no usable captions
+     */
+    async fetchYoutubeTranscript(relPath, { lang } = {}) {
+        if (!this.files.exists(relPath)) throw Object.assign(new Error("File not found"), { status: 404 });
+        const existing = this.files.getMetadata(relPath) || newFileMetadata();
+
+        // videoId lives in the sidecar source, but fall back to the body descriptor
+        // (a hand-created stub may only have it there).
+        let videoId = existing.source?.videoId;
+        if (!videoId) {
+            try { videoId = JSON.parse(this.files.readFile(relPath).content ?? '{}').videoId; } catch { /* no body id */ }
+        }
+        if (!videoId) throw Object.assign(new Error("This document has no YouTube video id."), { status: 400 });
+
+        const { cues, lang: gotLang, kind } = await this._fetchYoutubeTranscript(videoId, lang);
+        const merged = {
+            ...existing,
+            source: {
+                ...existing.source,
+                transcript: cues,
+                transcriptMeta: { lang: gotLang, kind, fetchedAt: new Date().toISOString() },
+            },
+        };
+        this.files.writeMetadata(relPath, merged);
+        await sealEmitter.edit(relPath + '.flashback');
+        return { path: relPath, cues: cues.length, lang: gotLang, kind };
     }
 
     // Fetches a page, extracts its readable article, caches its images into
