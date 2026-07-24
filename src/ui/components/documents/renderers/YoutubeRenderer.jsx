@@ -359,7 +359,7 @@ export default function YoutubeRenderer({
             disabled={fetchingTranscript}
             title="Fetch the video's captions so its transcript is readable and can be turned into cards"
           >
-            {fetchingTranscript ? 'Fetching transcript…' : '📄 Fetch transcript'}
+            {fetchingTranscript ? 'Fetching transcript…' : ' Fetch transcript'}
           </button>
         )}
         {transcriptError && <span className="yt-transcript-error">{transcriptError}</span>}

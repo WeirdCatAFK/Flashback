@@ -5,7 +5,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
-import spawn from './api_process.js';
+import spawn, { killApi } from './api_process.js';
 import log, { getLogPath } from "./logger.js";
 import { initUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from "./updater.js";
 
@@ -277,6 +277,9 @@ ipcMain.handle('set-config', (_event, newConfig) => {
 
 // IPC: renderer requests a full app restart
 ipcMain.handle('restart-app', () => {
+  // app.exit() force-quits without firing before-quit, so kill the API child
+  // here to avoid leaving an orphaned server bound to the port across the relaunch.
+  killApi();
   app.relaunch();
   app.exit(0);
 });
@@ -391,7 +394,10 @@ if (!gotTheLock) {
   });
 }
 
-// Handle explicit quit request
+// Handle explicit quit request. Tear the API utility process down ourselves —
+// Electron won't reliably reap it while it holds a listening socket, so leaving
+// it to chance is what let the app "not fully close" after Quit.
 app.on('before-quit', () => {
   isQuitting = true;
+  killApi();
 });
