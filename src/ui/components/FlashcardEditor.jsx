@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { readFile, updateMetadata } from '../api/documents';
+import { getCategories } from '../api/categories';
 import Flashcard from './shared/Flashcard';
 import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './shared/flashcardFields';
 import './shared/FlashcardForm.css';
@@ -17,9 +18,22 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   const [customHtml, setCustomHtml]         = useState(card?.customData?.html ?? '');
   const [tags, setTags]                     = useState(card?.tags ?? []);
   const [tagInput, setTagInput]             = useState('');
+  const [category, setCategory]             = useState(card?.category ?? '');
+  const [categories, setCategories]         = useState([]);
   const [saving, setSaving]                 = useState(false);
   const [error, setError]                   = useState(null);
   const [previewFace, setPreviewFace]       = useState('front');
+
+  // Categories are vault data, edited in Manage — never a hardcoded list. Unlike
+  // the creator we don't default the selection: an existing card keeps whatever
+  // it already had, including a name whose category was since deleted.
+  useEffect(() => {
+    let alive = true;
+    getCategories()
+      .then((list) => { if (alive) setCategories(list); })
+      .catch(() => { if (alive) setCategories([]); });
+    return () => { alive = false; };
+  }, []);
 
   const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
   const previewCard = useMemo(
@@ -34,6 +48,12 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   };
   const removeTag = (tag) => setTags((p) => p.filter((t) => t !== tag));
   const onTagKey  = (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } };
+
+  const selectedCategory = categories.find((c) => c.name === category);
+  // The card's category isn't in the vault list — either it's still loading, or
+  // the category was renamed/deleted in Manage. Either way the select needs an
+  // option for it so the current value stays visible and survives a save.
+  const missingCategory = category && !selectedCategory ? category : null;
 
   const clozeReady = hasClozeBlank(clozeText);
   const canSave = !saving && isCardValid(cardType, fields);
@@ -51,9 +71,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       const ex = meta.flashcards[idx];
 
       const core = deriveCardCore(cardType, fields);
+      const cat = category || null;
       const updated = core.cardType === 'custom'
-        ? { ...ex, cardType: 'custom', name: core.name, tags, customData: { html: core.html } }
-        : { ...ex, cardType: core.cardType, name: core.name, tags,
+        ? { ...ex, cardType: 'custom', name: core.name, tags, category: cat,
+            customData: { html: core.html } }
+        : { ...ex, cardType: core.cardType, name: core.name, tags, category: cat,
             vanillaData: { ...ex.vanillaData, frontText: core.frontText, backText: core.backText } };
 
       meta.flashcards[idx] = updated;
@@ -148,6 +170,24 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={onTagKey} onBlur={addTag} />
       </div>
+
+      <select className="fc-form-select" aria-label="Pedagogical category" value={category}
+        onChange={(e) => setCategory(e.target.value)}>
+        <option value="">No category</option>
+        {categories.map((c) => (
+          <option key={c.id} value={c.name} title={c.description || undefined}>
+            {c.name} · priority {c.priority}
+          </option>
+        ))}
+        {missingCategory && (
+          <option value={missingCategory}>
+            {missingCategory}{categories.length > 0 ? ' · removed' : ''}
+          </option>
+        )}
+      </select>
+      {selectedCategory?.description && (
+        <p className="fc-form-hint">{selectedCategory.description}</p>
+      )}
 
       {error && <p className="fc-form-error">{error}</p>}
 
