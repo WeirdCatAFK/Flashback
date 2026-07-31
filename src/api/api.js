@@ -62,8 +62,13 @@ class api {
     // @ts-ignore — cors is a valid RequestHandler, TypeScript infers it too broadly
     this.app.use(cors);
     this.app.use(morgan(this.logFormat));
-    this.app.use(express.json());
-    this.app.use(express.urlencoded({ extended: true }));
+    // Bodies are whole documents and whole sidecars, not small form posts: a
+    // metadata write PUTs the entire sidecar (every highlight, card and tag of a
+    // book-length document), so body-parser's 100kb default cuts highlighting off
+    // once a document accumulates enough of them. 50mb is well above any realistic
+    // sidecar or markdown body while still bounding a runaway request.
+    this.app.use(express.json({ limit: '50mb' }));
+    this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
     // Readiness ping — stays open (unauthenticated) so the renderer can gate on it
     // before it has fetched the token, and health checks don't need credentials.
@@ -112,6 +117,11 @@ class api {
     // eslint-disable-next-line no-unused-vars
     this.app.use((err, req, res, next) => {
       console.error(err);
+      // Body-parser rejections carry a status; surfacing them as 500 hides what
+      // actually happened (e.g. an oversized sidecar) from the client.
+      if (err.type === 'entity.too.large') {
+        return res.status(413).json({ error: 'Request body too large' });
+      }
       res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }
