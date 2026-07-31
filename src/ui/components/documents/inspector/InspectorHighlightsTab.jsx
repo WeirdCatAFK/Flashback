@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 
 const EMPTY = [];
 
@@ -19,6 +19,11 @@ const TYPE_LABELS = {
 
 export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard, onDelete }) {
   const [expandedId, setExpandedId] = useState(null);
+
+  // Newest first, matching the Cards tab and the /api/highlights listing: the
+  // sidecar stores highlights in the order they were made, so the one you just
+  // marked would otherwise sit at the bottom of the panel.
+  const ordered = useMemo(() => [...highlights].reverse(), [highlights]);
 
   const cardsByHighlight = new Map();
   for (const card of flashcards) {
@@ -48,7 +53,7 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
         </span>
       </div>
 
-      {highlights.map((h) => {
+      {ordered.map((h) => {
         const cards   = cardsByHighlight.get(h.id) ?? [];
         const cssVar  = COLOR_VAR[h.color] ?? COLOR_VAR.amber;
         const isOpen  = expandedId === h.id;

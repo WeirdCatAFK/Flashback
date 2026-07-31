@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { readFile, updateMetadata } from '../../../api/documents';
 import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
@@ -113,6 +113,15 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
   // passed (its already-loaded sidecar state).
   const cards = postEditCards ?? flashcardsProp ?? [];
 
+  // Newest first. The sidecar appends new cards, so in raw order the card you
+  // just made lands at the bottom of the panel — off-screen on any document with
+  // a few cards. The #n badge keeps the creation-order index so a card's number
+  // never changes as the list grows.
+  const ordered = useMemo(
+    () => (postEditCards ?? flashcardsProp ?? []).map((card, i) => ({ card, i })).reverse(),
+    [postEditCards, flashcardsProp]
+  );
+
   if (editingCard) {
     return (
       <FlashcardEditor
@@ -137,7 +146,7 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
         <p className="inspector-placeholder">No flashcards yet.</p>
       )}
 
-      {cards.map((card, i) => (
+      {ordered.map(({ card, i }) => (
         <CardItem
           key={card.globalHash ?? i}
           card={card}
