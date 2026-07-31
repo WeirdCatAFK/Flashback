@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
+import { getCategories } from '../../api/categories';
 import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './flashcardFields';
 import './FlashcardForm.css';
 
-// Reusable flashcard creator. Supports all five card types. Owns no server state:
-// on save it hands { card, media } to `onSubmit` and the consumer makes the request.
-
-const CATEGORIES = ['Definition', 'Terminology', 'Symbol', 'Concept', 'Example', 'Exercise', 'Procedure'];
+// Reusable flashcard creator. Supports all five card types. On save it hands
+// { card, media } to `onSubmit` and the consumer makes the request; the only
+// server state it owns is the vault's pedagogical categories (editable in Manage).
 
 const MEDIA_SLOTS = [
   { key: 'front_img',   label: 'Front image', accept: 'image/*' },
@@ -43,9 +43,26 @@ export default function FlashcardForm({
   const [customHtml, setCustomHtml]     = useState('');
   const [tags, setTags]                 = useState([]);
   const [tagInput, setTagInput]         = useState('');
-  const [category, setCategory]         = useState('Concept');
+  const [category, setCategory]         = useState('');
+  const [categories, setCategories]     = useState([]);
   const [files, setFiles]               = useState(EMPTY_FILES);
   const [previewFace, setPreviewFace]   = useState('front');
+
+  // Categories are vault data, not a constant — they're created/renamed/reordered
+  // in Manage. The list arrives sorted by priority ascending (most foundational
+  // first), so the first entry is the sensible default. A failed load leaves the
+  // select empty and the card is simply saved uncategorised.
+  useEffect(() => {
+    let alive = true;
+    getCategories()
+      .then((list) => {
+        if (!alive) return;
+        setCategories(list);
+        setCategory((cur) => (list.some((c) => c.name === cur) ? cur : list[0]?.name ?? ''));
+      })
+      .catch(() => { if (alive) setCategories([]); });
+    return () => { alive = false; };
+  }, []);
 
   // Reset preview face inline when card type changes — no stale flash between renders.
   const [prevCardType, setPrevCardType] = useState(cardType);
@@ -99,7 +116,7 @@ export default function FlashcardForm({
     if (!canSave) return;
 
     const core = deriveCardCore(cardType, fields);
-    const base = { lastRecall: null, level: 0, presence: 0, tags, category };
+    const base = { lastRecall: null, level: 0, presence: 0, tags, category: category || null };
     const emptyMedia = { front_img: null, back_img: null, front_sound: null, back_sound: null };
 
     const card = {
@@ -115,6 +132,7 @@ export default function FlashcardForm({
     onSubmit?.({ card, media });
   };
 
+  const selectedCategory = categories.find((c) => c.name === category);
   const showMedia = cardType !== 'custom';
   const anchorVar = anchorColor ? HL_COLOR_VAR[anchorColor] ?? HL_COLOR_VAR.amber : null;
 
@@ -284,9 +302,26 @@ export default function FlashcardForm({
       </div>
 
       <label htmlFor="fc-category" className="fc-form-label">CATEGORY</label>
-      <select id="fc-category" className="fc-form-select" value={category} onChange={(e) => setCategory(e.target.value)}>
-        {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+      <select
+        id="fc-category"
+        className="fc-form-select"
+        value={category}
+        disabled={categories.length === 0}
+        onChange={(e) => setCategory(e.target.value)}
+      >
+        {categories.length === 0 ? (
+          <option value="">No categories — add one in Manage</option>
+        ) : (
+          categories.map((c) => (
+            <option key={c.id} value={c.name} title={c.description || undefined}>
+              {c.name} · priority {c.priority}
+            </option>
+          ))
+        )}
       </select>
+      {selectedCategory?.description && (
+        <p className="fc-form-hint">{selectedCategory.description}</p>
+      )}
 
       {error && <p className="fc-form-error">{error}</p>}
 
