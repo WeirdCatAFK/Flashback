@@ -99,3 +99,4 @@ migration aborts startup — fix the `up()` function and restart.
 | 3       | `003_system_deck.js`     | System deck: is_system column on Decks + Cards deck seed                 | Registered |
 | 4       | `004_fsrs.js`            | FSRS scheduler: card state columns, review snapshot, FsrsParameters      | Registered |
 | 5       | `005_card_origin.js`     | Flashcard provenance: ensure Flashcards.origin column exists             | Registered |
+| 6       | `006_review_algorithm.js`| ReviewLogs.algorithm: record the scheduler each review was graded with    | Registered |

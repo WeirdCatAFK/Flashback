@@ -30,7 +30,10 @@ export const createStandaloneCard = ({ frontText, backText, name, cardType, cate
 export const updateStandaloneCard = (hash, data) =>
     request('PUT', `/api/flashcards/${hash}`, data);
 
-export const deleteStandaloneCard = (hash) =>
+// Deletes any card by hash — standalone or document-anchored. The server resolves
+// which canonical file the card lives in (system deck JSON vs. document sidecar) and
+// unlinks it from any decks holding it, so callers never branch on that themselves.
+export const deleteCard = (hash) =>
     request('DELETE', `/api/flashcards/${hash}`);
 
 export const searchCards = ({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) => {

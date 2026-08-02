@@ -465,7 +465,43 @@ Scans the database for media entries whose files no longer exist on disk within 
 
 ---
 
+## Flashcards `/api/flashcards`
+
+Single-card operations addressed by `globalHash`. Document-anchored cards live in their source document's sidecar and standalone cards in the system deck's JSON, but a caller holding a hash does not have to know which — `GET` and `DELETE` resolve the card's home themselves. (Creating and editing still differ: see `POST /api/media/vanilla` for document-anchored cards.)
+
+### `GET /api/flashcards/:hash`
+
+Resolves any card to its content plus `documentPath` (`null` for a standalone card), so a client can route an edit correctly.
+
+**Response** `200` — `{ globalHash, name, cardType, level, origin, frontText, backText, customHtml, category, documentPath }`.
+
+**Errors** `404` card not found.
+
+### `POST /api/flashcards`
+
+Creates a **standalone** card in the system deck. Body: `{ frontText, backText, name, cardType, category, customHtml, origin }`. `origin: 'ai'` marks AI provenance and is set once at creation; anything else is dropped.
+
+**Response** `201` — `{ globalHash }`. **Errors** `400` unknown category.
+
+### `PUT /api/flashcards/:hash`
+
+Updates a **standalone** card's content. Partial — omitted fields keep their stored values.
+
+**Response** `200` — `{ ok: true }`. **Errors** `400` card is document-linked (edit it through its document) or unknown category; `404` card not found.
+
+### `DELETE /api/flashcards/:hash`
+
+Permanently deletes a card of **either** kind, along with its review history, and unlinks it from every deck holding it (canonical deck JSON and `DeckEntries` both — those key on `card_hash`, so nothing cascades on its own). For a document-anchored card the source document's body is untouched; only its sidecar's `flashcards[]` entry is removed. Both branches emit a Seal commit.
+
+**Response** `200` — `{ ok: true, documentPath, decksTouched }`. `documentPath` is `null` for a standalone card.
+
+**Errors** `404` card not found.
+
+---
+
 ## SRS `/api/srs`
+
+**The `algorithm` parameter.** Which scheduler (`leitner` | `sm2` | `fsrs`) the user reviews with is a browser preference (`localStorage` `fb-srs-algorithm`), so the app sends it explicitly on every request. It is **optional** on the read-only endpoints (`/due`, `/statistics`): when omitted, the server infers it from the vault's own review history — each `ReviewLogs` row records the scheduler that graded it (migration 006) — instead of falling back to a fixed default. Those responses echo the algorithm actually used in their `algorithm` field, so a caller with no browser (the MCP server) can trust what it reads back. A vault with no reviews yet has nothing to infer from and reports `leitner`.
 
 ### `POST /api/srs/review`
 

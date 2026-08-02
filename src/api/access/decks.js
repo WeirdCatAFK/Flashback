@@ -282,6 +282,29 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
+    /**
+     * Unlinks a card from every deck that holds it — canonical JSON, DeckEntries row,
+     * and deck connection alike.
+     *
+     * `DeckEntries` keys on `card_hash` instead of a `Flashcards` foreign key, so
+     * nothing cascades when a card row is deleted. Destroying a card without this left
+     * a dangling entry in every deck's file and in the DB, and the deck went on listing
+     * a card that no longer existed.
+     *
+     * **Must run before the card row is deleted** — `removeEntry` looks up the card's
+     * node to unlink the deck connection, and that node is gone afterwards.
+     *
+     * @param {string} cardHash - globalHash of the card being destroyed.
+     * @returns {Promise<number>} how many decks the card was removed from.
+     */
+    async removeCardEverywhere(cardHash) {
+        const holders = this.query.getDecksContainingCard(cardHash);
+        for (const deck of holders) {
+            await this.removeEntry(deck.global_hash, cardHash);
+        }
+        return holders.length;
+    }
+
     searchCards({ search, level = null, cardType = null, origin = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         return this.query.getAllFlashcards({ search, level, cardType, origin, sortBy, sortDir, limit, offset });
     }

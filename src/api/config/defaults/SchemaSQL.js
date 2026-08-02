@@ -127,6 +127,10 @@ addTable('ReviewLogs', (table) => {
     table.integer('outcome').index();
     table.float('ease_factor').index();
     table.integer('level').index();
+    // Which scheduler graded this review ('leitner' | 'sm2' | 'fsrs'). The active
+    // algorithm is a browser preference, so this is the only place the server can
+    // learn it — see access/srs.js detectAlgorithm(). NULL on pre-migration rows.
+    table.string('algorithm', 20);
     // FSRS: the real 1–4 grade + post-review state snapshot (for undo & fitting)
     table.integer('rating');
     table.float('fsrs_stability');

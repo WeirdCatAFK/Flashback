@@ -66,7 +66,11 @@ describe('Flashback API', () => {
             DELETE FROM Tags;
             DELETE FROM ReviewLogs;
             DELETE FROM Media;
-            DELETE FROM Decks;
+            -- The system deck is a singleton the schema assumes exists (migration 003
+            -- seeds exactly one): it is the home every standalone card is filed into,
+            -- so wiping it here made POST /api/flashcards fail with "System deck not
+            -- initialised" for the whole suite. Clear the user's decks, keep that one.
+            DELETE FROM Decks WHERE COALESCE(is_system, 0) = 0;
             DELETE FROM DeckEntries;
             DELETE FROM Subscriptions;
             PRAGMA foreign_keys = ON;
@@ -1277,6 +1281,95 @@ describe('Flashback API', () => {
             const decks = await (await fetch(`${baseUrl}/api/decks`)).json();
             assert.ok(!decks.some(d => d.global_hash === deckHash),
                 'Deleted deck must not appear in the listing');
+        });
+    });
+
+    // ── Flashcards ─────────────────────────────────────────────────────────
+    // DELETE /api/flashcards/:hash used to be standalone-only ("Card is linked to a
+    // document — delete from the document instead"), which left the Flashcards view —
+    // the one place cards can be filtered by name — unable to delete most of them.
+    // It now resolves the card's home itself and cleans up its deck links.
+
+    describe('Flashcards', () => {
+        const ROOT = 'FlashcardsApiTest';
+        const DOC = 'cards-doc.md';
+        const ANCHORED = 'fc-api-anchored-001';
+        const KEPT = 'fc-api-anchored-002';
+        let deckHash = null;
+        let standaloneHash = null;
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFile(DOC, ROOT);
+            await updateFile(`${ROOT}/${DOC}`, '# Cards Doc', {
+                flashcards: [
+                    { globalHash: ANCHORED, vanillaData: { frontText: 'Anchored Q', backText: 'A' } },
+                    { globalHash: KEPT, vanillaData: { frontText: 'Kept Q', backText: 'A' } },
+                ],
+            });
+
+            const deck = await post(`${baseUrl}/api/decks`, { name: 'Card Delete Deck' });
+            deckHash = (await deck.json()).globalHash;
+            await post(`${baseUrl}/api/decks/${deckHash}/entries`, {
+                cardHash: ANCHORED, documentPath: `${ROOT}/${DOC}`,
+            });
+
+            const standalone = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Standalone Q', backText: 'A', cardType: 'basic',
+            });
+            standaloneHash = (await standalone.json()).globalHash;
+        });
+
+        it('GET /api/flashcards/:hash → resolves a card to its source document', async () => {
+            const res = await fetch(`${baseUrl}/api/flashcards/${ANCHORED}`);
+            assert.equal(res.status, 200);
+            const card = await res.json();
+            assert.equal(card.documentPath.replace(/\\/g, '/'), `${ROOT}/${DOC}`);
+
+            const solo = await (await fetch(`${baseUrl}/api/flashcards/${standaloneHash}`)).json();
+            assert.equal(solo.documentPath, null, 'a standalone card reports no document');
+        });
+
+        it('DELETE /api/flashcards/:hash → 404 for an unknown hash', async () => {
+            const res = await del(`${baseUrl}/api/flashcards/no-such-card-hash`);
+            assert.equal(res.status, 404);
+        });
+
+        it('DELETE /api/flashcards/:hash → removes a document-anchored card from its sidecar', async () => {
+            const res = await del(`${baseUrl}/api/flashcards/${ANCHORED}`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.documentPath.replace(/\\/g, '/'), `${ROOT}/${DOC}`,
+                'response reports which document the card was resolved to');
+
+            const read = await (await fetch(
+                `${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/${DOC}`)}`)).json();
+            const hashes = (read.metadata?.flashcards ?? []).map(f => f.globalHash);
+            assert.ok(!hashes.includes(ANCHORED), 'card gone from the sidecar');
+            assert.ok(hashes.includes(KEPT), 'its sibling card is untouched');
+
+            const gone = await fetch(`${baseUrl}/api/flashcards/${ANCHORED}`);
+            assert.equal(gone.status, 404, 'card gone from the derived layer too');
+        });
+
+        it('deleting a card unlinks it from every deck holding it', async () => {
+            // DeckEntries key on card_hash, not a Flashcards FK — nothing cascades, so
+            // without explicit cleanup the deck goes on listing a card that is gone.
+            assert.ok(deckHash, 'Precondition: deck held the now-deleted card');
+            const deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.equal(deck.entry_count, 0, 'deck entry removed with the card');
+
+            const body = await (await fetch(
+                `${baseUrl}/api/srs/due?deck=${encodeURIComponent(deckHash)}`)).json();
+            assert.ok(![...body.due, ...body.new].some(c => c.global_hash === ANCHORED),
+                'deleted card must not surface in a deck-scoped session');
+        });
+
+        it('DELETE /api/flashcards/:hash → still deletes a standalone card', async () => {
+            const res = await del(`${baseUrl}/api/flashcards/${standaloneHash}`);
+            assert.equal(res.status, 200);
+            assert.equal((await res.json()).documentPath, null);
+            assert.equal((await fetch(`${baseUrl}/api/flashcards/${standaloneHash}`)).status, 404);
         });
     });
 

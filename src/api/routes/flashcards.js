@@ -1,8 +1,10 @@
 import { Router } from 'express';
 import Decks from '../access/decks.js';
+import Documents from '../access/documents.js';
 
 const router = Router();
 const decks = new Decks();
+const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
@@ -37,10 +39,24 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-// DELETE /api/flashcards/:hash — delete standalone card
+// DELETE /api/flashcards/:hash — delete any card, standalone or document-anchored.
+//
+// The two live in different canonical files (the system deck's JSON vs. the source
+// document's sidecar), but a client deleting a card shouldn't have to know or care
+// which — it has a hash, and the server can resolve the card's home itself. Decks are
+// unlinked first, while the card's node still exists for removeEntry to unhook.
 router.delete('/:hash', catchError(async (req, res) => {
-    await decks.deleteStandaloneCard(req.params.hash);
-    res.json({ ok: true });
+    const { hash } = req.params;
+    const card = decks.getCard(hash);   // throws "not found" → 404
+
+    if (!card.documentPath) {
+        await decks.deleteStandaloneCard(hash);   // handles its own system-deck cleanup
+        return res.json({ ok: true, documentPath: null });
+    }
+
+    const decksTouched = await decks.removeCardEverywhere(hash);
+    await docs.deleteFlashcard(card.documentPath, hash);
+    res.json({ ok: true, documentPath: card.documentPath, decksTouched });
 }));
 
 export default router;

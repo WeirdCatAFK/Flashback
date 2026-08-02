@@ -247,7 +247,7 @@ export function registerReadTools(server) {
         tags: z.array(z.string()).optional().describe('Restrict to cards carrying any of these tags.'),
         minPriority: z.number().int().optional().describe('Only include cards whose category priority >= this value.'),
         maxNew: z.number().int().optional().describe('Cap on how many never-reviewed cards to include.'),
-        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduling algorithm to compute dueness with. Should match the algorithm the user reviews with (a UI preference the server cannot see); the server default is used if omitted.'),
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduling algorithm to compute dueness with. Leave it out unless you have a reason to override: the server infers the user\'s actual scheduler from their review history, and the response echoes back the one it used.'),
       },
     },
     safe(async ({ folder, deck, tags, minPriority, maxNew, algorithm }) => {
@@ -269,7 +269,7 @@ export function registerReadTools(server) {
         'Retention counts only reviews past a card\'s learning phase (its first few reviews); the learning ' +
         'phase is reported separately in `acquisition` (new-card pass rate, first-recall rate, attempts to learn a card).',
       inputSchema: {
-        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Algorithm to compute schedule-dependent stats with. Should match the user\'s reviewing algorithm; server default if omitted.'),
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Algorithm to compute schedule-dependent stats with. Leave it out unless you have a reason to override: the server infers the user\'s actual scheduler from their review history, and the returned `algorithm` field is the one it used.'),
       },
     },
     safe(async ({ algorithm } = {}) => {

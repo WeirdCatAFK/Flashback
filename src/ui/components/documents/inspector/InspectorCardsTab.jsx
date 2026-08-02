@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { readFile, updateMetadata } from '../../../api/documents';
+import { readFile } from '../../../api/documents';
+import { deleteCard as deleteCardRequest } from '../../../api/decks';
 import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
 
@@ -76,9 +77,11 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
       .finally(() => setLoading(false));
   }, [path]);
 
-  // Delete a document-linked card: drop it from the sidecar's flashcards[] and
-  // save. updateMetadata re-syncs the derived layer, removing the card whose
-  // hash is no longer present (documents.js), so no dedicated endpoint is needed.
+  // Delete a card. This used to fetch the sidecar, filter flashcards[], and save it
+  // back from here — a read-modify-write that reverted any other change landing on
+  // the sidecar in between, and that left the card's DeckEntries dangling. The server
+  // now owns the whole operation (DELETE /api/flashcards/:hash), which is the same
+  // call the Flashcards view makes.
   const deleteCard = useCallback(async (card) => {
     if (!path) return;
     const ok = await confirm({
@@ -89,11 +92,7 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
     });
     if (!ok) return;
     try {
-      const data = await readFile(path);
-      const meta = data.metadata ?? {};
-      if (!Array.isArray(meta.flashcards)) return;
-      meta.flashcards = meta.flashcards.filter((f) => f.globalHash !== card.globalHash);
-      await updateMetadata(path, meta, false);
+      await deleteCardRequest(card.globalHash);
     } finally {
       loadCards();
     }

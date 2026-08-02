@@ -14,7 +14,10 @@
  *  - Summaries are DERIVED data: fully regenerable from ReviewLogs. generateSummary() is
  *    idempotent and cumulative — re-running it for a past date reproduces the same file
  *    (modulo `generatedAt`), which is what makes "rebuild diary" safe.
- *  - Day boundary is UTC (date(timestamp) in SQLite), matching the Stats view.
+ *  - Day boundary is the user's LOCAL calendar day (date(timestamp, 'localtime') in
+ *    SQLite), matching the Stats view. The API runs on the user's own machine, so its
+ *    local time is the clock they were studying by; bucketing in UTC filed evening
+ *    sessions west of Greenwich under the next day's summary.
  *
  * Opt-in is a client preference (localStorage), so the server never auto-creates diary/:
  * every write lazily inits the repo, and reads no-op cleanly when the folder is absent.
@@ -45,7 +48,14 @@ function entryAbs(date) { return path.join(entriesDir(), `entry-${date}.md`); }
 function summaryRel(date) { return `summaries/summary-${date}.json`; }
 function entryRel(date) { return `entries/entry-${date}.md`; }
 
-function todayUtc() { return new Date().toISOString().slice(0, 10); }
+// The date key for "now" — the user's local calendar day, matching
+// date(timestamp, 'localtime') in query.js. Not toISOString(), which would file an
+// evening session west of Greenwich under tomorrow.
+function todayLocal() {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
 
 function assertDate(date) {
     if (!DATE_RE.test(date)) throw new Error(`Diary date must be YYYY-MM-DD, got: ${date}`);
@@ -169,7 +179,7 @@ class Diary {
     // idempotent: a later session on the same day just regenerates the whole file
     // from the now-larger log set. Returns the summary, or null if the day had no
     // reviews (nothing written).
-    async generateSummary(date = todayUtc()) {
+    async generateSummary(date = todayLocal()) {
         assertDate(date);
         const summary = this.buildSummary(date);
         if (!summary) return null;

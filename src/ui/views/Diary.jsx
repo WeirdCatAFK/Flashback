@@ -17,7 +17,14 @@ import IconDiary from "../components/icons/IconDiary";
  * auto-written, but any existing days remain browsable/editable here.
  */
 
-const todayIso = () => new Date().toISOString().slice(0, 10);
+// Date keys are the user's LOCAL calendar day, matching the server's
+// date(timestamp, 'localtime') bucketing — toISOString() would open tomorrow's
+// (empty) diary page for anyone studying in the evening west of Greenwich.
+const todayIso = () => {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 const pct = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
 const num = (n) => (n ?? 0).toLocaleString();

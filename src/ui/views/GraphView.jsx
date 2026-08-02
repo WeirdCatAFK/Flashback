@@ -145,8 +145,12 @@ function lerp(a, b, t) {
   return a + (b - a) * t;
 }
 
+// Local calendar day, not the UTC one — an export made in the evening should carry
+// the date the user sees on their own clock.
 function datestamp() {
-  return new Date().toISOString().slice(0, 10);
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function downloadBlob(blob, filename) {

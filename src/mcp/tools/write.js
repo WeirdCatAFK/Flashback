@@ -213,27 +213,21 @@ export function registerWriteTools(server) {
       title: 'Delete flashcard',
       description:
         'Permanently delete a flashcard, including its review history — this cannot be undone. Works on ' +
-        'standalone and document-anchored cards alike (the source document itself is untouched).',
+        'standalone and document-anchored cards alike (the source document itself is untouched), and ' +
+        'unlinks the card from any decks holding it.',
       inputSchema: {
         globalHash: z.string().describe('The card\'s globalHash.'),
-        documentPath: z.string().optional().describe('Relative path of the card\'s source document, if you already know it — saves a lookup. Resolved automatically when omitted.'),
+        documentPath: z.string().optional().describe('Ignored — the server resolves the card\'s source document itself. Accepted only so existing calls keep working.'),
       },
     },
-    async ({ globalHash, documentPath }) => {
+    // One server-side call: the API resolves whether the card lives in a document's
+    // sidecar or the system deck, unlinks it from every deck, and deletes it. This
+    // used to be a sidecar read-modify-write from here, which raced any concurrent
+    // write to the same sidecar and left the card's deck entries dangling.
+    async ({ globalHash }) => {
       try {
-        documentPath = await resolveDocumentPath(globalHash, documentPath);
-        if (!documentPath) {
-          const data = await request('DELETE', `/api/flashcards/${encodeURIComponent(globalHash)}`);
-          return asText(data);
-        }
-        const meta = await readDocMeta(documentPath);
-        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
-        if (!cards.some((f) => f.globalHash === globalHash)) {
-          return asToolError(`Card ${globalHash} is not in ${documentPath}'s sidecar. Use read_document to list that document's cards.`);
-        }
-        meta.flashcards = cards.filter((f) => f.globalHash !== globalHash);
-        await saveDocMeta(documentPath, meta);
-        return asText({ ok: true, deleted: globalHash, documentPath });
+        const data = await request('DELETE', `/api/flashcards/${encodeURIComponent(globalHash)}`);
+        return asText({ ok: true, deleted: globalHash, documentPath: data?.documentPath ?? null });
       } catch (err) {
         return asError(err);
       }

@@ -159,6 +159,166 @@ describe('Tag propagation — correctness', () => {
         console.log('  Document-level tags propagated to all 4 flashcards');
     });
 
+    // ── Propagation at CREATION time ─────────────────────────────────────────
+    // Regression: propagation only ever ran from updateMetadata, i.e. when a tag was
+    // written. Anything created afterwards under an already-tagged parent got an
+    // inheritance edge with no tags on it, and stayed untagged until someone happened
+    // to re-save the parent. These cover the create-then-tag order the old tests all
+    // used, reversed.
+
+    it('a flashcard created after its document was tagged inherits at creation', async () => {
+        await docs.createFolder('LateCards', ROOT);
+        const base = path.join(ROOT, 'LateCards');
+
+        await docs.importFile('late.md', base, Buffer.from('# Late'), {
+            globalHash: crypto.randomUUID(),
+        });
+        const docRel = path.join(base, 'late.md');
+
+        // Tag FIRST, add the card SECOND.
+        await docs.updateMetadata(docRel, { tags: ['chemistry'] }, false);
+        const saved = await docs.createFlashcard(docRel, {
+            cardType: 'basic',
+            vanillaData: { frontText: 'Q-late', backText: 'A-late' },
+        });
+
+        const docEntity = query.getDocumentByPath(docRel);
+        const fc = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ? AND global_hash = ?')
+            .get(docEntity.id, saved.globalHash);
+        assert.ok(fc, 'card should be registered in the derived layer');
+        assert.ok(query.getInheritedTagNames(fc.node_id).includes('chemistry'),
+            'card created after tagging should inherit "chemistry" immediately');
+        console.log('  Late-created card inherited "chemistry"');
+    });
+
+    it('a flashcard created after a FOLDER was tagged inherits through the document', async () => {
+        await docs.createFolder('LateFolderCards', ROOT);
+        const folderRel = path.join(ROOT, 'LateFolderCards');
+
+        await docs.importFile('host.md', folderRel, Buffer.from('# Host'), {
+            globalHash: crypto.randomUUID(),
+        });
+        const docRel = path.join(folderRel, 'host.md');
+
+        await docs.updateMetadata(folderRel, { tags: ['geology'] }, true);
+        const saved = await docs.createFlashcard(docRel, {
+            cardType: 'basic',
+            vanillaData: { frontText: 'Q-geo', backText: 'A-geo' },
+        });
+
+        const docEntity = query.getDocumentByPath(docRel);
+        const fc = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ? AND global_hash = ?')
+            .get(docEntity.id, saved.globalHash);
+        assert.ok(query.getInheritedTagNames(fc.node_id).includes('geology'),
+            'card should inherit the folder tag through its document at creation');
+        console.log('  Late-created card inherited folder tag "geology"');
+    });
+
+    it('a document imported into an already-tagged folder inherits at creation', async () => {
+        await docs.createFolder('PreTagged', ROOT);
+        const folderRel = path.join(ROOT, 'PreTagged');
+
+        // Tag the empty folder FIRST.
+        await docs.updateMetadata(folderRel, { tags: ['astronomy'] }, true);
+
+        await docs.importFile('stars.md', folderRel, Buffer.from('# Stars'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(2),
+        });
+        const docRel = path.join(folderRel, 'stars.md');
+
+        const docEntity = query.getDocumentByPath(docRel);
+        assert.ok(query.getInheritedTagNames(docEntity.node_id).includes('astronomy'),
+            'document imported into a tagged folder should inherit at creation');
+
+        const flashcards = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
+        assert.equal(flashcards.length, 2);
+        for (const fc of flashcards) {
+            assert.ok(query.getInheritedTagNames(fc.node_id).includes('astronomy'),
+                'its sidecar cards should inherit too');
+        }
+        console.log('  Document + cards imported into tagged folder inherited "astronomy"');
+    });
+
+    it('a folder created inside an already-tagged folder inherits, and passes it on', async () => {
+        await docs.createFolder('PreTaggedParent', ROOT);
+        const parentRel = path.join(ROOT, 'PreTaggedParent');
+        await docs.updateMetadata(parentRel, { tags: ['literature'] }, true);
+
+        await docs.createFolder('Child', parentRel);
+        const childRel = path.join(parentRel, 'Child');
+
+        const childFolder = query.getFolderByPath(childRel);
+        assert.ok(query.getInheritedTagNames(childFolder.node_id).includes('literature'),
+            'subfolder created under a tagged folder should inherit at creation');
+
+        // And the tag must keep flowing to what's created inside the new subfolder.
+        await docs.importFile('poems.md', childRel, Buffer.from('# Poems'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(1),
+        });
+        const grandchild = query.getDocumentByPath(path.join(childRel, 'poems.md'));
+        assert.ok(query.getInheritedTagNames(grandchild.node_id).includes('literature'),
+            'a document under the new subfolder should inherit too');
+        console.log('  Subfolder and its contents inherited "literature"');
+    });
+
+    it('an exclusion on the parent still blocks a newly created child', async () => {
+        await docs.createFolder('ExcludeParent', ROOT);
+        const parentRel = path.join(ROOT, 'ExcludeParent');
+        await docs.updateMetadata(parentRel, { tags: ['blocked-tag'] }, true);
+
+        await docs.createFolder('Shielded', parentRel);
+        const shieldedRel = path.join(parentRel, 'Shielded');
+        await docs.updateMetadata(shieldedRel, { tags: [], excludedTags: ['blocked-tag'] }, true);
+
+        // Created AFTER the exclusion was set — must not pick the tag up.
+        await docs.importFile('quiet.md', shieldedRel, Buffer.from('# Quiet'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(1),
+        });
+        const docEntity = query.getDocumentByPath(path.join(shieldedRel, 'quiet.md'));
+        assert.ok(!query.getInheritedTagNames(docEntity.node_id).includes('blocked-tag'),
+            'exclusion must apply to documents created after it, not just existing ones');
+
+        const [fc] = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
+        assert.ok(!query.getInheritedTagNames(fc.node_id).includes('blocked-tag'),
+            'and to their cards');
+        console.log('  Exclusion held against a newly created document');
+    });
+
+    it('moving a document into a tagged folder re-inherits for it and its cards', async () => {
+        await docs.createFolder('MoveSource', ROOT);
+        await docs.createFolder('MoveTarget', ROOT);
+        const sourceRel = path.join(ROOT, 'MoveSource');
+        const targetRel = path.join(ROOT, 'MoveTarget');
+        await docs.updateMetadata(targetRel, { tags: ['archived'] }, true);
+
+        await docs.importFile('wanderer.md', sourceRel, Buffer.from('# Wanderer'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: makeCards(2),
+        });
+        const fromRel = path.join(sourceRel, 'wanderer.md');
+        const toRel = path.join(targetRel, 'wanderer.md');
+
+        const before = query.getDocumentByPath(fromRel);
+        assert.ok(!query.getInheritedTagNames(before.node_id).includes('archived'),
+            'precondition: not tagged before the move');
+
+        await docs.move(fromRel, toRel, false);
+
+        const after = query.getDocumentByPath(toRel);
+        assert.ok(query.getInheritedTagNames(after.node_id).includes('archived'),
+            'moved document should inherit its new parent\'s tags');
+        const flashcards = db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(after.id);
+        assert.equal(flashcards.length, 2);
+        for (const fc of flashcards) {
+            assert.ok(query.getInheritedTagNames(fc.node_id).includes('archived'),
+                'and so should its cards');
+        }
+        console.log('  Moved document + cards picked up "archived"');
+    });
+
     it('tag with no remaining references disappears from getAllTags', async () => {
         await docs.createFolder('Orphans', ROOT);
         const orphPath = path.join(ROOT, 'Orphans');

@@ -15,7 +15,6 @@ import { LoadingState, ErrorState } from "../components/shared/StateView";
  * never colour-alone.
  */
 
-const DAY = 86400000;
 const WEEKS = 26; // half-year activity window shown in the heatmap
 
 // A sequential accent ramp step: mixes the accent over the surface so it reads
@@ -175,18 +174,24 @@ function ForecastChart({ forecast, overdue }) {
 function ActivityHeatmap({ activity }) {
   const { cells, max } = useMemo(() => {
     const byDay = new Map(activity.map((a) => [a.day, a.total]));
+    // `activity[].day` keys are local calendar days (the server buckets with
+    // date(timestamp, 'localtime')), so the grid has to be walked in local days too —
+    // stepping in fixed 24h increments from a UTC midnight would offset every key by
+    // one cell for anyone not on UTC.
     const now = new Date();
-    const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-    // Start on the Monday on/before the first day of the window.
-    let startMs = todayMs - (WEEKS * 7 - 1) * DAY;
-    const startDow = (new Date(startMs).getUTCDay() + 6) % 7; // 0 = Mon
-    startMs -= startDow * DAY;
+    const dayAt = (offset) =>
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + offset);
+    const pad = (n) => String(n).padStart(2, "0");
+    const dayStr = (d) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 
-    const dayStr = (ms) => new Date(ms).toISOString().slice(0, 10);
+    // Start on the Monday on/before the first day of the window.
+    let startOffset = -(WEEKS * 7 - 1);
+    startOffset -= (dayAt(startOffset).getDay() + 6) % 7; // 0 = Mon
+
     const grid = [];
     let peak = 0;
-    for (let ms = startMs; ms <= todayMs; ms += DAY) {
-      const key = dayStr(ms);
+    for (let offset = startOffset; offset <= 0; offset++) {
+      const key = dayStr(dayAt(offset));
       const total = byDay.get(key) ?? 0;
       if (total > peak) peak = total;
       grid.push({ key, total, future: false });

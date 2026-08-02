@@ -14,6 +14,11 @@ import * as fsrs from './fsrs.js';
 // measured on; the acquisition phase gets its own measures. Shared with diary.js.
 export const LEARNING_REVIEWS = 3;
 
+// Last-resort scheduler when the vault has no review history to infer one from
+// (see SRSService.detectAlgorithm). Not a claim about the user's preference —
+// just the arithmetic the read-only views fall back to on an empty vault.
+const DEFAULT_ALGORITHM = 'leitner';
+
 // Interval helpers (mirror the SQL expressions in getDueFlashcards).
 function sm2Interval(reps, ef) {
     if (reps <= 1) return 1;
@@ -73,6 +78,30 @@ function intervalToSm2Reps(interval) {
 }
 
 class SRSService {
+    /**
+     * The scheduler this vault is actually being reviewed with.
+     *
+     * The active algorithm is a browser preference (`fb-srs-algorithm` in localStorage),
+     * so callers that have a browser send it explicitly. Callers that don't — the MCP
+     * server, scripts, any direct API consumer — used to fall through to a hardcoded
+     * 'leitner', which was then echoed back in the response's `algorithm` field as
+     * though the server knew it. It didn't, and it was wrong for every FSRS user.
+     *
+     * The vault does record the truth: since migration 006 each ReviewLog carries the
+     * algorithm it was graded with. Older rows don't, but FSRS is still identifiable
+     * there because it's the only scheduler that writes a 1–4 `rating` (Leitner and
+     * SM-2 both post an ease_factor, so those two are genuinely indistinguishable on
+     * pre-006 rows and we say 'leitner').
+     *
+     * A vault with no reviews yet has no answer to give; DEFAULT_ALGORITHM stands in.
+     */
+    detectAlgorithm() {
+        const last = query.getLatestReviewAlgorithm();
+        if (!last) return DEFAULT_ALGORITHM;
+        if (last.algorithm) return last.algorithm;
+        return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
+    }
+
     // The vault's active FSRS weight vector, falling back to published defaults
     // until the optimizer has run (Phase B seeds FsrsParameters).
     getWeights() {
@@ -95,6 +124,7 @@ class SRSService {
             outcome: rating > 1 ? 1 : 0,   // keep the binary flag for legacy stats
             easeFactor: null,
             level: next.level,             // snapshot so undo can restore the level too
+            algorithm: 'fsrs',
             rating,
             fsrsStability: next.stability,
             fsrsDifficulty: next.difficulty,
@@ -124,7 +154,8 @@ class SRSService {
                 timestamp,
                 outcome,
                 easeFactor,
-                level: newLevel
+                level: newLevel,
+                algorithm,
             });
 
             return { documentId: fc.document_id, fsrs: null };
@@ -221,12 +252,15 @@ class SRSService {
 
     // Vault-wide analytics for the Stats view. Algorithm-aware because a card's
     // interval/maturity/next-due are derived differently per scheduler; the active
-    // algorithm is passed from the client (like getDue). All read-only.
+    // algorithm is passed from the client (like getDue), and inferred from review
+    // history when the caller has no browser to read it from. All read-only.
     //
     // Returns { algorithm, totals, acquisition, maturity, forecast, overdue, activity,
     // streak }. `totals.retention*` covers the review phase only; `acquisition` reports
-    // the learning phase separately (see LEARNING_REVIEWS).
-    getStatistics({ algorithm = 'leitner' } = {}) {
+    // the learning phase separately (see LEARNING_REVIEWS). The returned `algorithm` is
+    // the one actually used, so an MCP client can trust what it reads back.
+    getStatistics({ algorithm: requested = null } = {}) {
+        const algorithm = requested ?? this.detectAlgorithm();
         const DAY = 86400000;
         const MATURE_DAYS = 21;      // Anki's convention: interval ≥ 21d ⇒ "mature"
         const FORECAST_DAYS = 14;
@@ -250,9 +284,19 @@ class SRSService {
         };
 
         const now = new Date();
-        // Work in UTC days so bucketing matches SQLite's date(timestamp).
-        const todayMs = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
-        const dayStr = (ms) => new Date(ms).toISOString().slice(0, 10);
+        // Day keys are the user's LOCAL calendar days, matching SQLite's
+        // date(timestamp, 'localtime') in query.js — a session at 21:00 belongs to the
+        // day the user just spent, not to tomorrow in Greenwich. dayStr() is indexed in
+        // whole days from today and builds each key from local calendar components
+        // (rather than adding 86400000ms), so a DST shift can't duplicate or skip a day.
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const todayMs = startOfToday.getTime();
+        const pad = (n) => String(n).padStart(2, '0');
+        const dayStr = (offsetDays) => {
+            const d = new Date(startOfToday.getFullYear(), startOfToday.getMonth(),
+                startOfToday.getDate() + offsetDays);
+            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        };
 
         let neu = 0, young = 0, mature = 0, overdue = 0;
         const forecast = new Array(FORECAST_DAYS).fill(0);
@@ -267,8 +311,8 @@ class SRSService {
             else if (offset < FORECAST_DAYS) forecast[offset]++;
         }
 
-        const since30 = dayStr(todayMs - 30 * DAY);
-        const since365 = dayStr(todayMs - 364 * DAY);
+        const since30 = dayStr(-30);
+        const since365 = dayStr(-364);
         const allTotals = query.getReviewTotals();
         const activity = query.getReviewActivity(since365);
         const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
@@ -294,11 +338,13 @@ class SRSService {
             cards: attempts.length,
         };
 
-        // Study streaks from the activity days (ordered ASC, UTC 'YYYY-MM-DD').
+        // Study streaks from the activity days (ordered ASC, local 'YYYY-MM-DD').
         const daySet = new Set(activity.filter(a => a.total > 0).map(a => a.day));
         let current = 0;
-        let cursor = daySet.has(dayStr(todayMs)) ? todayMs : todayMs - DAY;
-        while (daySet.has(dayStr(cursor))) { current++; cursor -= DAY; }
+        // Walk backwards in whole days. A streak that ran up to yesterday still counts
+        // today (the day isn't over), so start at -1 when today has no reviews yet.
+        let cursor = daySet.has(dayStr(0)) ? 0 : -1;
+        while (daySet.has(dayStr(cursor))) { current++; cursor -= 1; }
         let longest = 0, run = 0, prev = null;
         for (const a of activity) {
             if (a.total <= 0) continue;
@@ -313,7 +359,7 @@ class SRSService {
             totals: {
                 cards: cards.length,
                 reviews: allTotals.total ?? 0,
-                reviewsToday: activity.find(a => a.day === dayStr(todayMs))?.total ?? 0,
+                reviewsToday: activity.find(a => a.day === dayStr(0))?.total ?? 0,
                 retentionAll: retention(phaseAll.review),
                 retention30: retention(phase30.review),
                 retentionReviews: phaseAll.review.total,
@@ -330,7 +376,7 @@ class SRSService {
                 reviewsToRecall,
             },
             maturity: { new: neu, young, mature },
-            forecast: forecast.map((due, i) => ({ date: dayStr(todayMs + i * DAY), due })),
+            forecast: forecast.map((due, i) => ({ date: dayStr(i), due })),
             overdue,
             activity,
             streak: { current, longest },
@@ -415,7 +461,11 @@ class SRSService {
         return 0;
     }
 
-    getDue({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
+    // `algorithm` decides how dueness is computed; when the caller can't supply it
+    // (no browser, so no localStorage) it's inferred from review history rather than
+    // assumed — see detectAlgorithm. The echoed `algorithm` is the one actually used.
+    getDue({ algorithm: requested = null, folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
+        const algorithm = requested ?? this.detectAlgorithm();
         const result = query.getDueFlashcards({ algorithm, folder, deck, tags, maxNew, minPriority });
         return {
             algorithm,

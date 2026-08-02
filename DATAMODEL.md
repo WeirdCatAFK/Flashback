@@ -431,7 +431,7 @@ Summary and entry are **independent files joined only by their date key** — ne
 
 ### Summary schema (v2)
 
-Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is **UTC** (`date(timestamp)` in SQLite), matching the Stats view.
+Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is the user's **local calendar day** (`date(timestamp, 'localtime')` in SQLite), matching the Stats view. It is local rather than UTC because the API runs on the user's own machine, so its clock is the one they were studying by — bucketing in UTC filed an evening session west of Greenwich under the next day's summary. Every day-keyed reader (diary aggregates, the Stats heatmap/streak, the client's "today") must use the same boundary or they disagree with each other.
 
 ```json
 {
@@ -515,6 +515,7 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
   - Tracks spaced repetition history per flashcard.
   - Includes `timestamp`, `outcome`, `ease_factor`, and `level` for performance analysis.
+  - `algorithm` records which scheduler graded each review. The active algorithm is a browser preference, so this row is the only way the API — and through it the MCP server, which has no browser — can know which scheduler a vault is actually on (`srs.detectAlgorithm()`). NULL on rows written before migration 006.
 - **Decks** and **DeckEntries**
 
   - A deck is a user-curated, named collection of flashcard references (linked by hash, not copied). Canonical storage is a JSON file per deck under `workspace/_decks/`; the DB tables are a queryable mirror kept in sync on every write.
@@ -777,6 +778,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | outcome      | integer      | Result of recall (e.g., success, failure).       |
 | ease_factor  | float        | Spaced repetition ease factor.                   |
 | level        | integer      | Current level/stage in SRS algorithm.            |
+| algorithm    | varchar(20)  | Scheduler that graded this review (`leitner`/`sm2`/`fsrs`). NULL pre-migration 006. |
 
 ---
 

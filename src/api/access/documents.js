@@ -196,7 +196,10 @@ export default class Documents {
                     encoding: 'UTF-8'
                 });
                 const parentFolder = this.query.getFolderById(folderId);
-                if (parentFolder?.node_id) this.query.insertInheritance(parentFolder.node_id, nodeId);
+                if (parentFolder?.node_id) {
+                    this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    this._seedFromParentFolder(parentFolder, nodeId);
+                }
             })();
         } catch (err) {
             this.files.delete(fileRelPath, false);
@@ -218,7 +221,10 @@ export default class Documents {
                     nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
                 const parentFolder = this.query.getFolderById(parentId);
-                if (parentFolder?.node_id) this.query.insertInheritance(parentFolder.node_id, nodeId);
+                if (parentFolder?.node_id) {
+                    this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    this._seedFromParentFolder(parentFolder, nodeId);
+                }
             })();
         } catch (err) {
             this.files.delete(folderRelPath, true);
@@ -273,24 +279,37 @@ export default class Documents {
                 if (!isFolder) {
                     const newFolderId = this._getParentFolderId(newAbsPath);
                     this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
-                    const childNodeId = this.query.getNodeIdByDocumentAbsPath(newAbsPath);
-                    if (childNodeId) {
+                    const moved = this.query.getDocumentByAbsolutePath(newAbsPath);
+                    if (moved?.node_id) {
                         const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentNodeId = this.query.getNodeIdByFolderAbsPath(newParentAbsPath);
-                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, childNodeId);
-                        if (newParentNodeId) this.query.insertInheritance(newParentNodeId, childNodeId);
+                        const newParentFolder = this.query.getFolderByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, moved.node_id);
+                        if (newParentFolder?.node_id) {
+                            this.query.insertInheritance(newParentFolder.node_id, moved.node_id);
+                            this._seedFromParentFolder(newParentFolder, moved.node_id);
+                        }
+                        // The document's cards inherit through it, so they follow the move too.
+                        this._propagateTagsToFlashcards(
+                            moved.id, moved.node_id, this._tagsPassedDownByDocument(moved.node_id));
                     }
                 } else {
                     const newParentId = this._getParentFolderId(newAbsPath);
                     this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
                     this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                     this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    const childNodeId = this.query.getNodeIdByFolderAbsPath(newAbsPath);
-                    if (childNodeId) {
+                    const movedFolder = this.query.getFolderByAbsolutePath(newAbsPath);
+                    if (movedFolder?.node_id) {
                         const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentNodeId = this.query.getNodeIdByFolderAbsPath(newParentAbsPath);
-                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, childNodeId);
-                        if (newParentNodeId) this.query.insertInheritance(newParentNodeId, childNodeId);
+                        const newParentFolder = this.query.getFolderByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, movedFolder.node_id);
+                        if (newParentFolder?.node_id) {
+                            this.query.insertInheritance(newParentFolder.node_id, movedFolder.node_id);
+                            this._seedFromParentFolder(newParentFolder, movedFolder.node_id);
+                        }
+                        // Re-push the whole subtree: everything under the moved folder now
+                        // inherits from a different branch of the tree.
+                        const movedMeta = this.files.getMetadata(newRelativePath, true) || {};
+                        this._propagateFolderTags(movedFolder.id, movedFolder.node_id, movedMeta);
                     }
                 }
             })();
@@ -318,7 +337,7 @@ export default class Documents {
 
             db.transaction(() => {
                 if (metadata.tags) this._syncTags(doc.node_id, metadata.tags);
-                if (metadata.flashcards) this._syncDocumentFlashcards(doc.id, metadata.flashcards);
+                if (metadata.flashcards) this._syncDocumentFlashcards(doc.id, metadata.flashcards, doc.node_id);
                 if (metadata.highlights) highlightsService.syncFromSidecar(doc.id, metadata.highlights);
 
                 const folderId = doc.folder_id;
@@ -501,7 +520,7 @@ export default class Documents {
                         name: item.name,
                     });
                     if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
-                    if (sidecar?.flashcards) this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards);
+                    if (sidecar?.flashcards) this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards, nodeId);
                     if (sidecar?.highlights) highlightsService.syncFromSidecar(info.lastInsertRowid, sidecar.highlights);
                 }
             }
@@ -531,7 +550,7 @@ export default class Documents {
             else this.query.updateDocumentMetadata(entity.id, metadata);
 
             if (metadata.tags) this._syncTags(entity.node_id, metadata.tags);
-            if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards);
+            if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards, entity.node_id);
             if (!isFolder && metadata.highlights) highlightsService.syncFromSidecar(entity.id, metadata.highlights);
 
             if (!isFolder && metadata.tags !== undefined) {
@@ -603,11 +622,14 @@ export default class Documents {
             });
             const docId = info.lastInsertRowid;
 
-            const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbsPath);
-            if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+            const parentFolder = this.query.getFolderByAbsolutePath(parentAbsPath);
+            if (parentFolder?.node_id) {
+                this.query.insertInheritance(parentFolder.node_id, nodeId);
+                this._seedFromParentFolder(parentFolder, nodeId);
+            }
 
             if (metadata.tags) this._syncTags(nodeId, metadata.tags);
-            if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards);
+            if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards, nodeId);
             if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
             return docId;
         })();
@@ -932,7 +954,7 @@ export default class Documents {
                 this.query.updateDocumentMetadata(doc.id, { globalHash: metadata.globalHash });
             }
             this._syncTags(doc.node_id, metadata.tags ?? []);
-            this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? []);
+            this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? [], doc.node_id);
             // query-level sync (not highlightsService.syncFromSidecar, which
             // no-ops on an empty array): out-of-band highlight deletions must
             // clear the derived rows as well.
@@ -1183,7 +1205,7 @@ export default class Documents {
         const savedCard = finalMeta.flashcards[cardIndex];
         db.transaction(() => {
             if (finalMeta.tags) this._syncTags(doc.node_id, finalMeta.tags);
-            this._syncDocumentFlashcards(doc.id, finalMeta.flashcards);
+            this._syncDocumentFlashcards(doc.id, finalMeta.flashcards, doc.node_id);
             for (const r of registered) {
                 this.query.insertMedia({
                     hash: r.hash, name: r.name,
@@ -1195,6 +1217,44 @@ export default class Documents {
         // 4. One Seal commit covering the sidecar and every new media file.
         await sealEmitter.edit(relativePath + '.flashback', mediaRels);
         return savedCard;
+    }
+
+    /**
+     * Permanently deletes a document-anchored flashcard: drops it from the sidecar's
+     * `flashcards[]` and lets the derived-layer sync remove the row (and, by trigger,
+     * its content, reference and review history).
+     *
+     * The sidecar is the canonical home of a document's cards, so this is a
+     * read-modify-write of that file rather than a DB delete. It lives here — instead
+     * of being done by each caller — so the read and the write happen inside one server
+     * operation: a client doing its own fetch-filter-save races every other write to
+     * the same sidecar and silently reverts whatever landed in between.
+     *
+     * Deck cleanup is NOT done here (`decks.removeCardEverywhere` owns the deck files);
+     * the caller must run it first, while the card's node still exists.
+     *
+     * @param {string} relativePath - document the card is anchored to.
+     * @param {string} flashcardHash - globalHash of the card to delete.
+     */
+    async deleteFlashcard(relativePath, flashcardHash) {
+        const doc = this.query.getDocumentByPath(relativePath);
+        if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
+
+        const meta = this.files.getMetadata(relativePath) || {};
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        if (!cards.some(f => f.globalHash === flashcardHash)) {
+            throw new Error(`Flashcard ${flashcardHash} not found in ${relativePath}`);
+        }
+
+        meta.flashcards = cards.filter(f => f.globalHash !== flashcardHash);
+        this.files.writeMetadata(relativePath, meta, false);
+
+        db.transaction(() => {
+            // Any card whose hash is no longer in the incoming array is deleted.
+            this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
+        })();
+
+        await sealEmitter.edit(relativePath + '.flashback');
     }
 
     // --- Media ---
@@ -1336,8 +1396,11 @@ export default class Documents {
                 const info = this.query.insertFolder({
                     nodeId, globalHash, parentId, relativePath: builtRel, absolutePath: absPath, name: seg,
                 });
-                const parentNodeId = this.query.getNodeIdByFolderAbsPath(parentAbs);
-                if (parentNodeId) this.query.insertInheritance(parentNodeId, nodeId);
+                const parentFolder = this.query.getFolderByAbsolutePath(parentAbs);
+                if (parentFolder?.node_id) {
+                    this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    this._seedFromParentFolder(parentFolder, nodeId);
+                }
                 folder = { id: info.lastInsertRowid };
             }
             parentId = folder.id;
@@ -1378,7 +1441,16 @@ export default class Documents {
         this.query.syncNodeTags(nodeId, tagNodeIds);
     }
 
-    _syncDocumentFlashcards(documentId, flashcardsData) {
+    /**
+     * Mirrors a sidecar's flashcards[] into the derived layer.
+     *
+     * `docNodeId` is what lets a card created *after* its document was tagged inherit
+     * those tags at creation instead of only on the next tag write — the document's
+     * effective tags are re-pushed to every card once the set has been synced. Callers
+     * that genuinely have no node id (legacy paths) may omit it and get the old
+     * cards-only behaviour.
+     */
+    _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
         const existing = this.query.getFlashcardsByDocument(documentId);
         const existingMap = new Map(existing.map(f => [f.global_hash, f]));
         const incomingHashes = new Set();
@@ -1431,6 +1503,62 @@ export default class Documents {
         for (const [hash, fc] of existingMap) {
             if (!incomingHashes.has(hash)) this.query.deleteFlashcard(fc.id);
         }
+
+        if (docNodeId) {
+            this._propagateTagsToFlashcards(documentId, docNodeId, this._tagsPassedDownByDocument(docNodeId));
+        }
+    }
+
+    /**
+     * The tag set a folder hands down to its children: whatever it inherits on its own
+     * incoming edge (minus its own exclusions) plus its direct tags. This is the same
+     * `effectiveToChildren` set _propagateFolderTags computes, factored out so a *newly
+     * created* child can be given it immediately instead of waiting for someone to
+     * re-save the parent's tags.
+     */
+    _tagsPassedDownByFolder(folderNodeId, folderRelPath) {
+        const meta = this.files.getMetadata(folderRelPath, true) || {};
+        const excluded = new Set(meta.excludedTags || []);
+        const inherited = this.query.getInheritedTagNames(folderNodeId).filter(t => !excluded.has(t));
+        const direct = this.query.getDirectTagNames(folderNodeId);
+        return [...new Set([...inherited, ...direct])];
+    }
+
+    /**
+     * Fills a parent→child inheritance edge with the parent's effective tags.
+     *
+     * insertInheritance() only creates the Connections row — it copies no InheritedTags.
+     * Without this, anything created under an already-tagged parent (a document imported
+     * into a tagged folder, a folder created inside one, a card added to a tagged
+     * document) inherits nothing, and the tag only "arrives" the next time the parent's
+     * own tags are written. Idempotent: clears the edge before refilling it.
+     */
+    _seedInheritedTags(parentNodeId, childNodeId, tagNames) {
+        if (!parentNodeId || !childNodeId) return;
+        const hierarchyType = this.query.getHierarchyTypeId();
+        const conn = this.query.getOrCreateConnection(parentNodeId, childNodeId, hierarchyType.id);
+        this.query.clearInheritedTags(conn.id);
+        for (const tagName of tagNames) {
+            const tag = this.query.getTagByName(tagName);
+            if (tag) this.query.insertInheritedTag(conn.id, tag.id);
+        }
+    }
+
+    // Seeds a new child edge from its parent folder, looked up by folder row.
+    _seedFromParentFolder(parentFolder, childNodeId) {
+        if (!parentFolder?.node_id) return;
+        this._seedInheritedTags(
+            parentFolder.node_id,
+            childNodeId,
+            this._tagsPassedDownByFolder(parentFolder.node_id, parentFolder.relative_path),
+        );
+    }
+
+    // A document's effective tags — what it hands down to its own flashcards.
+    _tagsPassedDownByDocument(docNodeId) {
+        const inherited = this.query.getInheritedTagNames(docNodeId);
+        const direct = this.query.getDirectTagNames(docNodeId);
+        return [...new Set([...inherited, ...direct])];
     }
 
     _propagateFolderTags(folderId, parentNodeId, metadata) {

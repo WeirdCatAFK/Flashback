@@ -32,7 +32,14 @@ const rmWorkspace = () => {
 };
 
 const scheduledTotal = (s) => s.overdue + s.forecast.reduce((a, f) => a + f.due, 0);
-const todayUTC = () => new Date().toISOString().slice(0, 10);
+// Activity days are the user's LOCAL calendar days (SQLite date(…, 'localtime')),
+// so the fixture's "today" has to be the local one too — toISOString() would look up
+// tomorrow's bucket for a run started in the evening west of Greenwich.
+const todayLocal = () => {
+    const d = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
 
 describe('SRS statistics', () => {
     const docRel = path.join(ROOT, 'deck.md');
@@ -92,7 +99,7 @@ describe('SRS statistics', () => {
         assert.equal(after.totals.retentionReviews - before.totals.retentionReviews, 0);
         assert.equal(after.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
 
-        const today = after.activity.find(a => a.day === todayUTC());
+        const today = after.activity.find(a => a.day === todayLocal());
         assert.ok(today && today.total >= 1, 'today appears in the activity heatmap data');
         assert.ok(after.streak.current >= 1, 'a review today gives at least a 1-day streak');
     });
@@ -143,5 +150,70 @@ describe('SRS statistics', () => {
         assert.equal(after.acquisition.reviewsToRecall.cards - failing.acquisition.reviewsToRecall.cards, 1);
         assert.equal(Math.round(attemptSum(after) - attemptSum(failing)), 3,
             'the card took three attempts before it was first recalled');
+    });
+});
+
+// ── Which scheduler is this vault on? ─────────────────────────────────────────
+// Regression: the active algorithm is a localStorage preference, so a caller with no
+// browser (the MCP server) sent none — and the server answered 'leitner' and echoed it
+// back in `algorithm` as though it knew. Users on FSRS were told they use Leitner.
+
+describe('SRS algorithm detection', () => {
+    const ROOT2 = 'AlgoDetectWorkspace';
+    const docRel = path.join(ROOT2, 'deck.md');
+    const hashL = crypto.randomUUID();
+    const hashF = crypto.randomUUID();
+
+    const rm2 = () => {
+        try {
+            const abs = path.join(getWorkspacePath(), ROOT2);
+            if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+        } catch { /* ignore */ }
+    };
+
+    before(async () => {
+        rm2();
+        await sealTools.init();
+        await docs.createFolder(ROOT2);
+        await docs.importFile('deck.md', ROOT2, Buffer.from('# Deck'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: [
+                { globalHash: hashL, level: 0, vanillaData: { frontText: 'Ql', backText: 'Al' } },
+                { globalHash: hashF, level: 0, vanillaData: { frontText: 'Qf', backText: 'Af' } },
+            ],
+        });
+    });
+
+    after(() => rm2());
+
+    it('reports the algorithm of the most recent review', async () => {
+        await docs.submitReview(docRel, hashL, 1, 2.5, 1, 'leitner');
+        assert.equal(SRS.detectAlgorithm(), 'leitner');
+
+        await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
+        assert.equal(SRS.detectAlgorithm(), 'fsrs',
+            'switching to FSRS must be visible to the server without being told');
+
+        await docs.submitReview(docRel, hashL, 1, 2.6, 2, 'sm2');
+        assert.equal(SRS.detectAlgorithm(), 'sm2',
+            'sm2 is distinguishable from leitner now that the log records it');
+    });
+
+    it('getStatistics with no algorithm uses the detected one, not a hardcoded default', async () => {
+        await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
+        assert.equal(SRS.detectAlgorithm(), 'fsrs');
+
+        const inferred = SRS.getStatistics();
+        assert.equal(inferred.algorithm, 'fsrs',
+            'an MCP client reading `algorithm` back must not be told "leitner"');
+
+        // An explicit request still wins — the caller that does know overrides.
+        assert.equal(SRS.getStatistics({ algorithm: 'sm2' }).algorithm, 'sm2');
+    });
+
+    it('getDue with no algorithm uses the detected one', () => {
+        assert.equal(SRS.detectAlgorithm(), 'fsrs');
+        assert.equal(SRS.getDue({ folder: ROOT2 }).algorithm, 'fsrs');
+        assert.equal(SRS.getDue({ folder: ROOT2, algorithm: 'leitner' }).algorithm, 'leitner');
     });
 });

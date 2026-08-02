@@ -384,17 +384,32 @@ class DocumentQuery {
         // existing Leitner/SM-2 callers keep working unchanged.
         this.db.prepare(`
             INSERT INTO ReviewLogs
-                (flashcard_id, timestamp, outcome, ease_factor, level,
+                (flashcard_id, timestamp, outcome, ease_factor, level, algorithm,
                  rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level,
+            data.algorithm ?? null,
             data.rating ?? null,
             data.fsrsStability ?? null,
             data.fsrsDifficulty ?? null,
             data.fsrsDue ?? null,
             data.fsrsState ?? null,
         );
+    }
+
+    // The most recent real review's algorithm marker plus the fields that betray a
+    // scheduler on rows written before ReviewLogs.algorithm existed. Feeds
+    // srs.detectAlgorithm(), which is how the server answers "which scheduler does
+    // this vault use?" without a browser to ask.
+    getLatestReviewAlgorithm() {
+        return this.db.prepare(`
+            SELECT algorithm, rating
+            FROM ReviewLogs
+            WHERE outcome IS NOT NULL
+            ORDER BY timestamp DESC, id DESC
+            LIMIT 1
+        `).get() ?? null;
     }
 
     // --- FSRS per-card state ---
@@ -505,14 +520,16 @@ class DocumentQuery {
 
     // Per-day review counts for the Stats activity heatmap and retention. Real
     // reviews only — synthetic rebuild logs carry a NULL outcome and are excluded.
-    // `sinceIso` optionally bounds the window (null = all time). Days are UTC
-    // (SQLite date()), matching the ISO timestamps written on review.
+    // `sinceIso` optionally bounds the window (null = all time), as an inclusive
+    // 'YYYY-MM-DD' local day. Days are the user's local calendar days, not UTC ones —
+    // see the note above the diary aggregates for why, and keep every day-keyed query
+    // on the same boundary.
     getReviewActivity(sinceIso = null) {
         const clause = sinceIso
-            ? 'WHERE outcome IS NOT NULL AND timestamp >= ?'
+            ? "WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') >= ?"
             : 'WHERE outcome IS NOT NULL';
         const stmt = this.db.prepare(`
-            SELECT date(timestamp) AS day,
+            SELECT date(timestamp, 'localtime') AS day,
                    COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
             FROM ReviewLogs
@@ -527,7 +544,7 @@ class DocumentQuery {
     // the window (null = all time). Excludes synthetic (NULL-outcome) logs.
     getReviewTotals(sinceIso = null) {
         const clause = sinceIso
-            ? 'WHERE outcome IS NOT NULL AND timestamp >= ?'
+            ? "WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') >= ?"
             : 'WHERE outcome IS NOT NULL';
         const stmt = this.db.prepare(`
             SELECT COUNT(*) AS total,
@@ -570,7 +587,7 @@ class DocumentQuery {
                    COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
             FROM ordered
-            ${sinceIso ? 'WHERE timestamp >= ?' : ''}
+            ${sinceIso ? "WHERE date(timestamp, 'localtime') >= ?" : ''}
             GROUP BY phase
         `);
         const rows = sinceIso ? stmt.all(learningReviews, sinceIso) : stmt.all(learningReviews);
@@ -587,7 +604,7 @@ class DocumentQuery {
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
             FROM ordered
-            WHERE rep = 1 ${sinceIso ? 'AND timestamp >= ?' : ''}
+            WHERE rep = 1 ${sinceIso ? "AND date(timestamp, 'localtime') >= ?" : ''}
         `);
         const row = sinceIso ? stmt.get(sinceIso) : stmt.get();
         return { total: row?.total ?? 0, correct: row?.correct ?? 0 };
@@ -607,11 +624,17 @@ class DocumentQuery {
         `).all();
     }
 
-    // ---------- Diary: per-UTC-day review aggregates ----------
-    // All of these bucket by date(timestamp) (UTC, matching the ISO timestamps
-    // written on review and the Stats view) and count real reviews only —
+    // ---------- Diary: per-day review aggregates ----------
+    // All of these bucket by date(timestamp, 'localtime') and count real reviews only —
     // synthetic rebuild logs (NULL outcome) are excluded. `dayIso` is 'YYYY-MM-DD'.
     // Used by diary.js to derive an idempotent daily summary from ReviewLogs.
+    //
+    // Timestamps are stored as UTC ISO strings, but a "study day" is the user's own
+    // calendar day: bucketing in UTC filed an evening session west of Greenwich under
+    // tomorrow's date, which never matched the clock the user was looking at. The API
+    // runs on the user's machine, so SQLite's 'localtime' modifier is that clock. Every
+    // day-keyed reader here and in srs.js/diary.js must use the same boundary or the
+    // Stats heatmap, the streak, and the diary date will disagree with each other.
 
     getDayReviewTotals(dayIso) {
         return this.db.prepare(`
@@ -619,7 +642,7 @@ class DocumentQuery {
                    COUNT(DISTINCT flashcard_id) AS uniqueCards,
                    SUM(CASE WHEN outcome = 0 THEN 1 ELSE 0 END) AS failed
             FROM ReviewLogs
-            WHERE outcome IS NOT NULL AND date(timestamp) = ?
+            WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') = ?
         `).get(dayIso);
     }
 
@@ -633,7 +656,7 @@ class DocumentQuery {
                    COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
             FROM ordered
-            WHERE date(timestamp) = ?
+            WHERE date(timestamp, 'localtime') = ?
             GROUP BY phase
         `).all(learningReviews, dayIso);
         const out = { learning: { total: 0, correct: 0 }, review: { total: 0, correct: 0 } };
@@ -646,7 +669,7 @@ class DocumentQuery {
     getDayNewCards(dayIso) {
         return this.db.prepare(`
             SELECT COUNT(*) AS newCards FROM (
-                SELECT flashcard_id, MIN(date(timestamp)) AS firstDay
+                SELECT flashcard_id, MIN(date(timestamp, 'localtime')) AS firstDay
                 FROM ReviewLogs
                 WHERE outcome IS NOT NULL
                 GROUP BY flashcard_id
@@ -657,6 +680,12 @@ class DocumentQuery {
 
     // Reviews grouped by deck for the day. A card in multiple decks (rare) counts
     // once per deck — this is a per-deck view, not a partition of the day's reviews.
+    //
+    // The system deck is excluded: it isn't a deck the user built, it's the automatic
+    // home every card without a source document falls into, so as a bar in a "By deck"
+    // breakdown it reads as a real grouping when it carries no intent. Its reviews are
+    // still in the day's totals, exactly as standalone cards are absent from
+    // getDayByDocument but counted there too.
     getDayByDeck(dayIso) {
         return this.db.prepare(`
             SELECT d.name AS deck,
@@ -666,7 +695,9 @@ class DocumentQuery {
             JOIN Flashcards f ON f.id = rl.flashcard_id
             JOIN DeckEntries de ON de.card_hash = f.global_hash
             JOIN Decks d ON d.id = de.deck_id
-            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            WHERE rl.outcome IS NOT NULL
+              AND date(rl.timestamp, 'localtime') = ?
+              AND COALESCE(d.is_system, 0) = 0
             GROUP BY d.id
             ORDER BY reviews DESC, d.name ASC
         `).all(dayIso);
@@ -682,7 +713,7 @@ class DocumentQuery {
             FROM ReviewLogs rl
             JOIN Flashcards f ON f.id = rl.flashcard_id
             JOIN Documents doc ON doc.id = f.document_id
-            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp, 'localtime') = ?
             GROUP BY doc.id
             ORDER BY reviews DESC, doc.relative_path ASC
         `).all(dayIso);
@@ -698,7 +729,7 @@ class DocumentQuery {
             FROM ReviewLogs rl
             JOIN Flashcards f ON f.id = rl.flashcard_id
             LEFT JOIN FlashcardContent fc ON fc.id = f.content_id
-            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp) = ?
+            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp, 'localtime') = ?
             GROUP BY f.id
             HAVING failCount > 0
             ORDER BY failCount DESC, f.id ASC
@@ -706,11 +737,11 @@ class DocumentQuery {
         `).all(dayIso, limit);
     }
 
-    // Distinct UTC days that carry at least one real review, ascending. Drives the
-    // diary "rebuild all summaries" command and streak computation.
+    // Distinct local-calendar days that carry at least one real review, ascending.
+    // Drives the diary "rebuild all summaries" command and streak computation.
     getReviewActivityDays() {
         return this.db.prepare(`
-            SELECT date(timestamp) AS day
+            SELECT date(timestamp, 'localtime') AS day
             FROM ReviewLogs
             WHERE outcome IS NOT NULL
             GROUP BY day
@@ -1081,6 +1112,10 @@ class DocumentQuery {
     getNodeIdByFolderAbsPath(absPath) {
         const row = this.db.prepare('SELECT node_id FROM Folders WHERE absolute_path = ?').get(absPath);
         return row ? row.node_id : null;
+    }
+
+    getDocumentByAbsolutePath(absPath) {
+        return this.db.prepare('SELECT * FROM Documents WHERE absolute_path = ?').get(absPath);
     }
 
     getNodeIdByDocumentAbsPath(absPath) {
@@ -1613,6 +1648,19 @@ class DocumentQuery {
 
     deleteFlashcardDeckEntries(cardHash) {
         return this.db.prepare('DELETE FROM DeckEntries WHERE card_hash = ?').run(cardHash);
+    }
+
+    // Every deck holding this card. DeckEntries key on card_hash rather than a
+    // Flashcards foreign key, so deleting a card cascades nothing here — callers
+    // that destroy a card must walk this list and unlink it deck by deck (each deck
+    // also has a canonical JSON file to rewrite). See decks.removeCardEverywhere.
+    getDecksContainingCard(cardHash) {
+        return this.db.prepare(`
+            SELECT d.id, d.global_hash, d.name
+            FROM DeckEntries e
+            JOIN Decks d ON d.id = e.deck_id
+            WHERE e.card_hash = ?
+        `).all(cardHash);
     }
 
     // --- Doctor / Reconciliation ---

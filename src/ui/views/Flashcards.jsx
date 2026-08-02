@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStats } from '../api/srs';
-import { searchCards, deleteStandaloneCard } from '../api/decks';
+import { searchCards, deleteCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
@@ -104,16 +104,22 @@ export default function FlashcardsView() {
         resetToPage0();
     };
 
-    const handleDeleteCard = async (hash) => {
+    // Deletes standalone and document-anchored cards alike. This view is the only
+    // place cards can be filtered by name, which makes it the practical place to hunt
+    // one down and remove it — so the confirmation names the source document rather
+    // than sending the user off to open it and delete from the Inspector.
+    const handleDeleteCard = async (card) => {
         const ok = await confirm({
             title: 'Delete this card?',
-            message: 'This permanently removes the standalone card. This cannot be undone.',
+            message: card.document_name
+                ? `This permanently removes the card from ${card.document_name}, including its review history. The document itself is untouched. This cannot be undone.`
+                : 'This permanently removes the standalone card, including its review history. This cannot be undone.',
             confirmLabel: 'Delete card',
             tone: 'danger',
         });
         if (!ok) return;
         try {
-            await deleteStandaloneCard(hash);
+            await deleteCard(card.global_hash);
             loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
         } catch (err) {
             setError(err);
@@ -251,15 +257,13 @@ export default function FlashcardsView() {
                                     <span className="fc-card-standalone" title="Standalone card">standalone</span>
                                 )}
                                 <RelativeTime iso={card.last_recall} />
-                                {!card.document_name && (
-                                    <button
-                                        className="fc-card-delete"
-                                        title="Delete card"
-                                        onClick={() => handleDeleteCard(card.global_hash)}
-                                    >
-                                        ✕
-                                    </button>
-                                )}
+                                <button
+                                    className="fc-card-delete"
+                                    title={card.document_name ? `Delete card from ${card.document_name}` : 'Delete card'}
+                                    onClick={() => handleDeleteCard(card)}
+                                >
+                                    ✕
+                                </button>
                             </div>
                         </div>
                     ))}

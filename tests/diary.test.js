@@ -11,6 +11,7 @@ import process from 'process';
 import git from 'isomorphic-git';
 import validate from '../src/api/config/validate.js';
 import Documents from '../src/api/access/documents.js';
+import Decks from '../src/api/access/decks.js';
 import Files from '../src/api/access/files.js';
 import db from '../src/api/access/database.js';
 import query from '../src/api/access/query.js';
@@ -26,6 +27,7 @@ if (!validate()) {
 }
 
 const docs = new Documents();
+const decks = new Decks();
 const files = new Files();
 // Fixture folder name deliberately avoids the substrings 'diary'/'summary' so the
 // exclusion assertions below test the real invariant, not the fixture's own name.
@@ -45,14 +47,25 @@ const cleanup = () => {
         if (fs.existsSync(diaryRoot())) fs.rmSync(diaryRoot(), { recursive: true, force: true });
     } catch { /* ignore */ }
     // Drop the review logs this suite inserts so counts stay deterministic across runs.
-    try { db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp) IN (?, ?)").run(DAY, NEXT); } catch { /* ignore */ }
+    try {
+        db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') IN (?, ?)").run(DAY, NEXT);
+    } catch { /* ignore */ }
 };
 
 const fcId = (hash) => db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(hash).id;
+
+// Timestamps are stored as UTC ISO strings but bucketed by LOCAL calendar day, so a
+// fixture that wants a review "on DAY at 10:00" has to say so in local wall-clock
+// terms and let the Date convert. Hardcoding `${DAY}T10:00:00.000Z` would land on the
+// wrong day — and pass or fail depending on the machine's timezone.
+const localIso = (dayIso, hh) => {
+    const [y, m, d] = dayIso.split('-').map(Number);
+    return new Date(y, m - 1, d, hh, 0, 0, 0).toISOString();
+};
 const insertLog = (fid, outcome, dayIso, hh) =>
     db.prepare(
         'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
-    ).run(fid, `${dayIso}T${hh}:00:00.000Z`, outcome, 2.5, 0);
+    ).run(fid, localIso(dayIso, hh), outcome, 2.5, 0);
 
 describe('Diary storage layer', () => {
     before(async () => {
@@ -171,5 +184,96 @@ describe('Diary storage layer', () => {
         assert.ok(day && day.hasSummary && day.hasEntry);
         // Descending order.
         for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date);
+    });
+
+    // Regression: the day key came from date(timestamp) — the UTC calendar day. West
+    // of Greenwich an evening session was filed under tomorrow, so the diary opened on
+    // a date the user had not yet lived and today's page looked empty.
+    it('buckets a late-evening review into the LOCAL day, not the UTC one', async () => {
+        const fid = fcId(hashes[0]);
+        // 23:00 local on DAY. In any timezone behind UTC this instant is already the
+        // next UTC day, which is exactly the case that used to be misfiled.
+        db.prepare(
+            'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
+        ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
+
+        try {
+            const totals = query.getDayReviewTotals(DAY);
+            assert.equal(totals.reviews, 5, 'the 23:00 review belongs to the day the user was studying');
+
+            const utcDay = new Date(localIso(DAY, 23)).toISOString().slice(0, 10);
+            if (utcDay !== DAY) {
+                assert.equal(query.getDayReviewTotals(utcDay).reviews, 0,
+                    'and must not leak into the adjacent UTC day');
+            }
+            assert.ok(query.getReviewActivityDays().includes(DAY));
+        } finally {
+            db.prepare('DELETE FROM ReviewLogs WHERE flashcard_id = ? AND timestamp = ?')
+                .run(fid, localIso(DAY, 23));
+        }
+    });
+});
+
+// ── By-deck breakdown ─────────────────────────────────────────────────────────
+
+describe('Diary by-deck breakdown', () => {
+    const ROOT2 = 'DiaryDeckTestWs';
+    const D = '2026-06-05';
+    let deckHash;
+    let standaloneHash;
+    let docCardHash;
+
+    const cleanup2 = () => {
+        try {
+            const abs = path.join(getWorkspacePath(), ROOT2);
+            if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+        } catch { /* ignore */ }
+        try {
+            db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') = ?").run(D);
+        } catch { /* ignore */ }
+    };
+
+    before(async () => {
+        cleanup2();
+        await sealTools.init();
+        await docs.createFolder(ROOT2);
+
+        docCardHash = crypto.randomUUID();
+        await docs.importFile('cards.md', ROOT2, Buffer.from('# Cards'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: [{ globalHash: docCardHash, level: 0, vanillaData: { frontText: 'Qd', backText: 'Ad' } }],
+        });
+
+        // A card with no source document lands in the system deck on its own.
+        standaloneHash = await decks.createStandaloneCard({
+            frontText: 'Q-standalone', backText: 'A-standalone', cardType: 'basic',
+        });
+
+        // A real, user-built deck holding the document-anchored card.
+        deckHash = await decks.createDeck('Real Deck');
+        await decks.addEntry(deckHash, { cardHash: docCardHash, documentPath: path.join(ROOT2, 'cards.md') });
+
+        insertLog(fcId(standaloneHash), 1, D, 9);
+        insertLog(fcId(docCardHash), 1, D, 9);
+    });
+
+    after(() => cleanup2());
+
+    it('omits the system deck, which is a fallback bucket and not a deck the user built', () => {
+        const rows = query.getDayByDeck(D);
+        const systemDeck = query.getSystemDeck();
+        assert.ok(systemDeck, 'precondition: the vault has a system deck');
+        assert.ok(rows.every(r => r.deck !== systemDeck.name),
+            `system deck "${systemDeck.name}" must not appear as a by-deck bar`);
+    });
+
+    it('still lists real decks, and still counts the standalone review in the totals', () => {
+        const rows = query.getDayByDeck(D);
+        const real = rows.find(r => r.deck === 'Real Deck');
+        assert.ok(real, 'a user-created deck is still reported');
+        assert.equal(real.reviews, 1);
+
+        // The excluded reviews are hidden from the breakdown, not from the day.
+        assert.equal(query.getDayReviewTotals(D).reviews, 2);
     });
 });
