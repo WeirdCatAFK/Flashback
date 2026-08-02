@@ -115,6 +115,58 @@ describe('Seal Integration Tests', () => {
             assert.ok(commits.length <= 2, 'Should return at most 2 commits');
         });
 
+        it('pages backwards with a cursor without repeating the boundary commit', async () => {
+            const straight = await sealTools.log(6);
+            if (straight.length < 4) return; // not enough history in this run
+
+            const firstPage = await sealTools.log(2);
+            const secondPage = await sealTools.log(2, firstPage[firstPage.length - 1].oid);
+
+            assert.equal(secondPage.length, 2, 'Second page should be full');
+            const seen = new Set(firstPage.map(c => c.oid));
+            for (const c of secondPage) {
+                assert.ok(!seen.has(c.oid), 'Cursor page must not repeat a commit already returned');
+            }
+            assert.deepEqual(
+                [...firstPage, ...secondPage].map(c => c.oid),
+                straight.slice(0, 4).map(c => c.oid),
+                'Two cursor pages should equal the same slice of an unpaged log'
+            );
+        });
+
+        it('returns an empty page once history runs out', async () => {
+            const all = await sealTools.log(200);
+            const oldest = all[all.length - 1];
+            const page = await sealTools.log(5, oldest.oid);
+            assert.equal(page.length, 0, 'There is nothing older than the root commit');
+        });
+
+        it('stats.content separates metadata-only commits from content edits', async () => {
+            const name = 'Stats.md';
+            const rel = path.join(TEST_ROOT, name);
+            const cardHash = crypto.randomUUID();
+
+            await docs.createFile(name, TEST_ROOT);
+            await docs.updateFile(rel, '# Body', {
+                globalHash: crypto.randomUUID(),
+                flashcards: [{ globalHash: cardHash, vanillaData: { frontText: 'Q', backText: 'A' } }],
+            });
+            await sealEmitter.flushEdits();
+
+            const contentCommit = (await sealTools.log(1))[0];
+            assert.ok(contentCommit.stats.content > 0, 'Writing the document body should count as content');
+
+            // A review rewrites SRS state in the sidecar and nothing else — this is the
+            // shape every highlight/card/tag change takes, and what the UI labels "metadata".
+            await docs.submitReview(rel, cardHash, 5, 2.5, 3);
+            await sealEmitter.flushEdits();
+
+            const metaCommit = (await sealTools.log(1))[0];
+            const touched = metaCommit.stats.added + metaCommit.stats.modified + metaCommit.stats.deleted;
+            assert.ok(touched > 0, 'The commit should still report changed paths');
+            assert.equal(metaCommit.stats.content, 0, 'A review touches only the sidecar');
+        });
+
         it('create and edit commits reference a .flashback sidecar path', async () => {
             const commits = await sealTools.log();
             const nonMoveCommits = commits.filter(c => !c.commit.message.startsWith('move:'));

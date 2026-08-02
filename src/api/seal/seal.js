@@ -31,9 +31,22 @@ function normPath(p) {
     return p ? p.replace(/\\/g, "/") : p;
 }
 
+const SIDECAR_SUFFIX = ".flashback";
+
+function isSidecar(p) {
+    return p.endsWith(SIDECAR_SUFFIX);
+}
+
 /**
  * Diffs a commit's tree against its first parent (or, for a root commit, against nothing)
- * and returns the .flashback sidecar paths that were added/modified/deleted.
+ * and returns every path added/modified/deleted — sidecars and the documents/media beside
+ * them alike.
+ *
+ * This deliberately does NOT filter to .flashback paths: the UI has to be able to tell a
+ * metadata-only commit (a highlight, a card, a tag — sidecar touched, document untouched)
+ * from one that rewrote the document itself, and that distinction only exists if the
+ * non-sidecar paths are visible here. inspect() still filters, because drift reconciliation
+ * genuinely is a sidecar-only concern.
  * @param {string} oid - Commit hash to diff.
  * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
  */
@@ -54,7 +67,7 @@ async function commitDiff(oid) {
             map: async (filepath, [entry]) => {
                 if (filepath === "." || !entry) return;
                 if ((await entry.type()) !== "blob") return;
-                if (filepath.endsWith(".flashback")) added.push(filepath);
+                added.push(filepath);
             },
         });
         return { added, modified, deleted };
@@ -65,7 +78,7 @@ async function commitDiff(oid) {
         dir: workspace,
         trees: [TREE({ ref: parentOid }), TREE({ ref: oid })],
         map: async (filepath, [before, after]) => {
-            if (filepath === "." || !filepath.endsWith(".flashback")) return;
+            if (filepath === ".") return;
             const beforeType = before ? await before.type() : null;
             const afterType = after ? await after.type() : null;
             if (beforeType === "tree" || afterType === "tree") return;
@@ -233,30 +246,55 @@ export class SealTools {
     }
 
     /**
-     * Returns the most recent seal commits in reverse chronological order. Each entry carries
-     * a `stats` field ({added, modified, deleted} counts) diffed against its parent, so the UI
-     * can show change volume without fetching every file path up front.
+     * Returns seal commits in reverse chronological order, one page at a time.
+     *
+     * Each entry carries a `stats` field diffed against its parent — {added, modified,
+     * deleted} path counts plus `content`, the number of those paths that are NOT sidecars.
+     * `content === 0` on an edit means nothing but metadata moved (a highlight, a card, a
+     * tag), which is what lets the UI say so instead of showing a bare `.flashback` path.
+     *
+     * Paging is cursor-based rather than offset-based because git history is a linked list:
+     * `cursor` is the oid of the last commit the caller already has, and the page starts at
+     * its parent. A page shorter than `limit` means history ended.
      * @param {number} [limit=20] - Maximum number of commits to return.
-     * @returns {Promise<Array<import('isomorphic-git').ReadCommitResult & { stats: { added: number, modified: number, deleted: number } }>>}
+     * @param {string|null} [cursor=null] - Oid of the last commit already seen; the page resumes after it.
+     * @returns {Promise<Array<import('isomorphic-git').ReadCommitResult & { stats: { added: number, modified: number, deleted: number, content: number } }>>}
      */
-    async log(limit = 20) {
-        const commits = await git.log({ fs, dir: dir(), depth: limit }).catch(err => {
+    async log(limit = 20, cursor = null) {
+        // git.log is inclusive of `ref`, so when resuming we fetch one extra and drop the
+        // cursor commit itself rather than handing the caller a duplicate row.
+        const commits = await git.log({
+            fs,
+            dir: dir(),
+            ref: cursor ?? "HEAD",
+            depth: cursor ? limit + 1 : limit,
+        }).catch(err => {
             if (err.code === "NotFoundError") return [];
             throw err;
         });
-        return Promise.all(commits.map(async commit => {
+
+        const page = cursor ? commits.slice(1) : commits;
+
+        return Promise.all(page.map(async commit => {
             const diff = await commitDiff(commit.oid);
+            const changed = [...diff.added, ...diff.modified, ...diff.deleted];
             return {
                 ...commit,
-                stats: { added: diff.added.length, modified: diff.modified.length, deleted: diff.deleted.length },
+                stats: {
+                    added: diff.added.length,
+                    modified: diff.modified.length,
+                    deleted: diff.deleted.length,
+                    content: changed.filter(p => !isSidecar(p)).length,
+                },
             };
         }));
     }
 
     /**
-     * Returns the full .flashback sidecar paths changed by a single commit, categorized as
-     * added/modified/deleted against its parent. Fetched lazily per-commit (rather than bundled
-     * into log()) since a single commit — e.g. a large import — can touch hundreds of paths.
+     * Returns the full paths changed by a single commit — documents, sidecars and media —
+     * categorized as added/modified/deleted against its parent. Fetched lazily per-commit
+     * (rather than bundled into log()) since a single commit — e.g. a large import — can
+     * touch hundreds of paths.
      * @param {string} oid - Commit hash to inspect.
      * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
      */
@@ -342,7 +380,7 @@ export class SealTools {
         const deleted = [];
 
         for (const [filepath, head, workdir] of matrix) {
-            if (!filepath.endsWith(".flashback")) continue;
+            if (!isSidecar(filepath)) continue;
             if (head === ABSENT    && workdir === MODIFIED)   added.push(filepath);
             else if (head === UNCHANGED && workdir === MODIFIED)   modified.push(filepath);
             else if (head === UNCHANGED && workdir === ABSENT)     deleted.push(filepath);

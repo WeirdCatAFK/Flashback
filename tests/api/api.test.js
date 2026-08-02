@@ -1291,6 +1291,22 @@ describe('Flashback API', () => {
             assert.ok(log.length > 0, 'Should have commits from the preceding test suites');
             assert.ok(log[0].oid, 'Each entry should have an oid');
             assert.ok(log[0].commit?.message, 'Each entry should have a commit message');
+            assert.equal(typeof log[0].stats?.content, 'number', 'Each entry should carry a content-path count');
+        });
+
+        it('GET /api/seal/log?cursor= → resumes after the cursor commit', async () => {
+            const firstRes = await fetch(`${baseUrl}/api/seal/log?limit=2`);
+            const first = await firstRes.json();
+            if (first.length < 2) return; // not enough history in this run
+
+            const res = await fetch(`${baseUrl}/api/seal/log?limit=2&cursor=${first[1].oid}`);
+            assert.equal(res.status, 200);
+            const page = await res.json();
+            assert.ok(Array.isArray(page));
+            const seen = new Set(first.map(c => c.oid));
+            for (const c of page) {
+                assert.ok(!seen.has(c.oid), 'A cursor page must not repeat commits already returned');
+            }
         });
 
         it('GET /api/seal/inspect → returns workspace diff object', async () => {

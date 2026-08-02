@@ -144,6 +144,7 @@
 
 .seal-overview-dot--create { --wax: var(--color-accent); }
 .seal-overview-dot--edit   { --wax: var(--color-accent); }
+.seal-overview-dot--metadata { --wax: var(--color-fg-secondary); }
 .seal-overview-dot--move   { --wax: var(--color-hl-3); }
 .seal-overview-dot--delete { --wax: var(--color-danger); }
 
@@ -257,6 +258,11 @@
 .seal-stamp--delete { --wax: var(--color-danger); }
 .seal-stamp--unknown { --wax: var(--color-fg-secondary); }
 
+/* Metadata edits are the most numerous entry by far (every highlight, every card).
+   Muted on purpose: present and scannable, but not competing with the commits that
+   changed a document's actual content. */
+.seal-stamp--metadata { --wax: var(--color-fg-secondary); }
+
 .seal-stamp--sm {
   width: 16px;
   height: 16px;
@@ -318,7 +324,9 @@
   text-transform: uppercase;
   color: var(--color-fg-secondary);
   opacity: 0.75;
-  flex: 0 0 50px;
+  /* wide enough for the longest label ("METADATA") so the detail column stays
+     aligned down the whole timeline */
+  flex: 0 0 66px;
 }
 
 .seal-entry-detail {
@@ -330,6 +338,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Containing folder, trailing the file name. Dim and inside the ellipsised
+   detail span, so it's the first thing to get clipped when space runs out. */
+.seal-entry-dir {
+  color: var(--color-fg-secondary);
+  font-weight: 400;
 }
 
 .seal-entry-current {
@@ -432,6 +447,65 @@
 .seal-files-item--added::before    { content: '+ '; color: var(--color-review-good); }
 .seal-files-item--modified::before { content: '~ '; color: var(--color-accent); }
 .seal-files-item--deleted::before  { content: '\2212 '; color: var(--color-danger); }
+
+.seal-files-group + .seal-files-group {
+  margin-top: 8px;
+}
+
+.seal-files-group-label {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+}
+
+.seal-files-showall {
+  margin-top: 8px;
+  font-size: 11.5px;
+  color: var(--color-fg-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.seal-files-showall:hover {
+  color: var(--color-fg-primary);
+}
+
+/* ── Seal log: explainer + paging foot ─────────────────────────────────── */
+
+.seal-log-note {
+  margin-bottom: 10px;
+  max-width: 68ch;
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.seal-log-foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.seal-log-count,
+.seal-log-end {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+}
+
+.seal-log-end {
+  opacity: 0.7;
+  font-style: italic;
+}
 
 /* ── Actions: hidden until the row is hovered, like a graph extension's
    inline row actions — keeps the log dense when just scanning history. ── */

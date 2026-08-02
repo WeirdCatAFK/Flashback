@@ -531,13 +531,22 @@ The Seal subsystem provides git-backed versioning of the canonical sidecar layer
 
 ### `GET /api/seal/log`
 
-Returns recent Seal commits in reverse chronological order.
+Returns a page of Seal commits in reverse chronological order.
 
-| Param     | In    | Type   | Required | Description                                         |
-| --------- | ----- | ------ | -------- | --------------------------------------------------- |
-| `limit` | query | number | No       | Maximum number of commits to return. Default`20`. |
+| Param      | In    | Type   | Required | Description                                                                                     |
+| ---------- | ----- | ------ | -------- | ------------------------------------------------------------------------------------------------- |
+| `limit`  | query | number | No       | Commits per page. Default`20`, clamped to`200` (each commit costs a tree diff).              |
+| `cursor` | query | string | No       | Oid of the last commit already held; the page resumes**after** it. Omit for the newest page. |
 
-**Response** `200` — array of `{ oid, commit: { message, author, ... } }` objects.
+**Response** `200` — array of `{ oid, commit: { message, author, ... }, stats }` objects.
+
+`stats` is `{ added, modified, deleted, content }`: path counts for the commit's diff against
+its parent, where `content` is how many of those paths are **not** `.flashback` sidecars. An
+`edit` commit with `content: 0` changed metadata only — a highlight, a flashcard, a tag — which
+is what lets the client say so instead of showing a raw sidecar path.
+
+Paging is cursor-based because git history is a linked list, not an indexable array. A page
+shorter than `limit` means history ended.
 
 ---
 

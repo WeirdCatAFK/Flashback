@@ -9,10 +9,13 @@ import './Seal.css';
 const ACTION_LABELS = {
     create: 'Created',
     edit: 'Edited',
+    metadata: 'Metadata',
     move: 'Moved',
     delete: 'Deleted',
     reconcile: 'Reconciled',
 };
+
+const SIDECAR_SUFFIX = '.flashback';
 
 function parseCommitMessage(message) {
     const idx = message.indexOf(': ');
@@ -24,6 +27,67 @@ function parseCommitMessage(message) {
         return { action, detail: to ? `${from} → ${to}` : rest };
     }
     return { action, detail: rest };
+}
+
+const baseName = p => (p.includes('/') ? p.slice(p.lastIndexOf('/') + 1) : p);
+const dirName = p => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+const isSidecar = p => p.endsWith(SIDECAR_SUFFIX);
+const documentPath = p => (isSidecar(p) ? p.slice(0, -SIDECAR_SUFFIX.length) : p);
+
+// Seal labels commits with the raw path it staged: `notes/Chapter 1.md.flashback` for a
+// document, `notes/.flashback` for a folder, `_decks/<uuid>.json` for a deck. None of that
+// is meaningful to someone who has never opened a sidecar, so every label is translated
+// back into the thing the user actually touched. Returns null when the label isn't a path
+// (batch commits say "3 sidecars" / "12 files").
+function describeTarget(raw) {
+    if (!raw) return null;
+    const p = raw.replace(/\\/g, '/');
+
+    if (/^\d+ sidecars$/.test(p)) return { name: `${parseInt(p, 10)} documents`, dir: '' };
+    if (/^\d+ files$/.test(p)) return { name: p, dir: '' };
+    if (p.startsWith('_decks/')) return { name: 'a deck', dir: '' };
+
+    if (p === SIDECAR_SUFFIX) return { name: 'the workspace', dir: '' };
+    if (p.endsWith(`/${SIDECAR_SUFFIX}`)) {
+        const folder = p.slice(0, -(SIDECAR_SUFFIX.length + 1));
+        return { name: `${baseName(folder)}/`, dir: dirName(folder) };
+    }
+
+    const doc = documentPath(p);
+    return { name: baseName(doc), dir: dirName(doc) };
+}
+
+/**
+ * Turns a commit into the row the timeline actually renders.
+ *
+ * The important case is `variant: 'metadata'` — an edit whose diff touched sidecars only.
+ * That's what a highlight, a new flashcard, or a tag change looks like from git's side, and
+ * it's the bulk of a normal session's history. Without this it reads as "Edited
+ * chapter.md.flashback", which tells the user neither what changed nor why a file they
+ * never opened is in their history. stats.content is the server-computed count of changed
+ * non-sidecar paths, so this is measured, not inferred from the message.
+ */
+function describeCommit(commit) {
+    const { action, detail } = parseCommitMessage(commit.commit.message);
+    const stats = commit.stats;
+    const touched = stats ? stats.added + stats.modified + stats.deleted : 0;
+    const metadataOnly = action === 'edit' && stats && touched > 0 && stats.content === 0;
+    const target = action === 'move' ? null : describeTarget(detail);
+
+    if (metadataOnly) {
+        return {
+            variant: 'metadata',
+            detail: `Metadata updated for ${target?.name ?? detail}`,
+            dir: target?.dir ?? '',
+            raw: detail,
+        };
+    }
+    return {
+        variant: action,
+        detail: target?.name ?? detail,
+        dir: target?.dir ?? '',
+        raw: detail,
+    };
 }
 
 function formatOid(oid) {
@@ -44,6 +108,8 @@ function ActionGlyph({ action }) {
     switch (action) {
         case 'create': return <svg {...p}><line x1="12" y1="4" x2="12" y2="20" /><line x1="4" y1="12" x2="20" y2="12" /></svg>;
         case 'edit':   return <svg {...p}><path d="M4 20l4-1 11-11-3-3L5 16l-1 4z" /></svg>;
+        // A tag: metadata hangs off a document rather than being its content.
+        case 'metadata': return <svg {...p}><path d="M4 4h7l9 9-7 7-9-9V4z" /><circle cx="8.5" cy="8.5" r="1" /></svg>;
         case 'move':   return <svg {...p}><line x1="4" y1="12" x2="19" y2="12" /><polyline points="13 6 19 12 13 18" /></svg>;
         case 'delete': return <svg {...p}><line x1="6" y1="6" x2="18" y2="18" /><line x1="18" y1="6" x2="6" y2="18" /></svg>;
         case 'reconcile': return <svg {...p}><path d="M4 12a8 8 0 0 1 14-5" /><polyline points="18 3 18 7 14 7" /><path d="M20 12a8 8 0 0 1-14 5" /><polyline points="6 21 6 17 10 17" /></svg>;
@@ -51,29 +117,71 @@ function ActionGlyph({ action }) {
     }
 }
 
+const PAGE_SIZE = 25;
+// Matches the server's own cap (routes/seal.js MAX_LOG_LIMIT) — every commit in a page
+// costs a tree diff, so a restore-depth reload is clamped to the same ceiling.
+const MAX_PAGE = 200;
+
 // Views in this app stay mounted after their first visit (see App.jsx's view-slot
 // keep-alive) — an effect with no isActive dependency would only ever fetch once,
 // then go stale on every later tab switch. Refetch each time the tab becomes active,
 // matching the convention already used by GraphView/Trainer's isActive-driven hooks.
-function useSealLog(limit, isActive) {
+//
+// History is paged rather than capped: a session that produces a lot of metadata commits
+// (highlighting a PDF, say) used to push everything else past a hard 20-entry limit with
+// no way to reach it. Pages are cursor-based, so "load older" walks back arbitrarily far.
+function useSealLog(isActive) {
     const [log, setLog] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadingMore, setLoadingMore] = useState(false);
+    const [hasMore, setHasMore] = useState(false);
     const [error, setError] = useState(null);
     const [refreshToken, setRefreshToken] = useState(0);
 
+    // A plain reload on tab re-activation would collapse the timeline back to one page,
+    // silently throwing away however far the user had paged back. Reload the depth they
+    // had instead.
+    const depthRef = useRef(PAGE_SIZE);
+    const logRef = useRef([]);
+    useEffect(() => { logRef.current = log; }, [log]);
+
     useEffect(() => {
         if (!isActive) return;
+        let cancelled = false;
+        const size = Math.min(depthRef.current, MAX_PAGE);
         setLoading(true);
         setError(null);
-        getLog(limit)
-            .then(setLog)
-            .catch(err => setError(err.message ?? 'Failed to load history'))
-            .finally(() => setLoading(false));
-    }, [isActive, limit, refreshToken]);
+        getLog({ limit: size })
+            .then(page => {
+                if (cancelled) return;
+                setLog(page);
+                setHasMore(page.length >= size);
+                depthRef.current = Math.max(page.length, PAGE_SIZE);
+            })
+            .catch(err => { if (!cancelled) setError(err.message ?? 'Failed to load history'); })
+            .finally(() => { if (!cancelled) setLoading(false); });
+        return () => { cancelled = true; };
+    }, [isActive, refreshToken]);
+
+    const loadMore = useCallback(() => {
+        const current = logRef.current;
+        const last = current[current.length - 1];
+        if (!last) return;
+        setLoadingMore(true);
+        setError(null);
+        getLog({ limit: PAGE_SIZE, cursor: last.oid })
+            .then(page => {
+                setLog(prev => [...prev, ...page]);
+                setHasMore(page.length === PAGE_SIZE);
+                depthRef.current += page.length;
+            })
+            .catch(err => setError(err.message ?? 'Failed to load older entries'))
+            .finally(() => setLoadingMore(false));
+    }, []);
 
     const refresh = useCallback(() => setRefreshToken(t => t + 1), []);
 
-    return { log, loading, error, refresh };
+    return { log, loading, loadingMore, hasMore, error, refresh, loadMore };
 }
 
 function useDrift(isActive) {
@@ -146,21 +254,25 @@ function LoosePagesPanel({ drift, loading, error, onRefresh }) {
 // (the backend has no branch concept yet), but this is deliberately structured as a single
 // lane rather than a bespoke one-off, so a future multi-user branch model can add lanes here
 // without a rewrite. Clicking a stamp scrolls the matching entry into view below.
+// Capped at the most recent slice: the timeline below pages back indefinitely, but a
+// ribbon of 200 dots stops being something you can take in at a glance.
+const RIBBON_MAX = 60;
+
 function SealOverviewRibbon({ log, onSelect }) {
     if (log.length === 0) return null;
-    const chronological = [...log].reverse();
+    const chronological = [...log].slice(0, RIBBON_MAX).reverse();
     return (
         <div className="seal-overview">
             <span className="seal-overview-lane-label">Main</span>
             <div className="seal-overview-track">
                 {chronological.map((commit, i) => {
                     const isCurrent = i === chronological.length - 1;
-                    const { action, detail } = parseCommitMessage(commit.commit.message);
+                    const { variant, detail } = describeCommit(commit);
                     return (
                         <button
                             type="button"
                             key={commit.oid}
-                            className={`seal-overview-dot seal-overview-dot--${action}${isCurrent ? ' seal-overview-dot--current' : ''}`}
+                            className={`seal-overview-dot seal-overview-dot--${variant}${isCurrent ? ' seal-overview-dot--current' : ''}`}
                             title={detail}
                             onClick={() => onSelect(commit.oid)}
                         />
@@ -188,6 +300,7 @@ function ChangedFiles({ oid, stats }) {
     const [files, setFiles] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [showAll, setShowAll] = useState(false);
 
     const total = stats ? stats.added + stats.modified + stats.deleted : 0;
     if (total === 0) return null;
@@ -212,7 +325,11 @@ function ChangedFiles({ oid, stats }) {
             ...files.deleted.map(p => ({ p, cls: 'deleted' })),
         ]
         : [];
-    const overflow = rows.length - LIST_VISIBLE_CAP;
+    // Split rather than interleaved: seeing "chapter.md" and "chapter.md.flashback" as two
+    // opaque siblings is exactly the confusion this view had. Grouped and labelled, the
+    // second one explains itself.
+    const contentRows = rows.filter(r => !isSidecar(r.p));
+    const metaRows = rows.filter(r => isSidecar(r.p));
 
     return (
         <div className="seal-files">
@@ -225,12 +342,15 @@ function ChangedFiles({ oid, stats }) {
                     {loading && <p className="seal-loading">Loading…</p>}
                     {error && <div className="seal-error">{error}</div>}
                     {files && (
-                        <ul className="seal-files-list">
-                            {rows.slice(0, LIST_VISIBLE_CAP).map(({ p, cls }) => (
-                                <li key={p} className={`seal-files-item seal-files-item--${cls}`}>{p}</li>
-                            ))}
-                            {overflow > 0 && <li className="seal-loose-more">+{overflow} more</li>}
-                        </ul>
+                        <>
+                            <FileGroup label="Documents" rows={contentRows} showAll={showAll} />
+                            <FileGroup label="Metadata — highlights, cards, tags" rows={metaRows} showAll={showAll} transform={documentPath} />
+                            {!showAll && rows.length > LIST_VISIBLE_CAP && (
+                                <button type="button" className="seal-files-showall" onClick={() => setShowAll(true)}>
+                                    Show all {rows.length} files
+                                </button>
+                            )}
+                        </>
                     )}
                 </div>
             )}
@@ -238,8 +358,25 @@ function ChangedFiles({ oid, stats }) {
     );
 }
 
+function FileGroup({ label, rows, showAll, transform }) {
+    if (rows.length === 0) return null;
+    const visible = showAll ? rows : rows.slice(0, LIST_VISIBLE_CAP);
+    return (
+        <div className="seal-files-group">
+            <span className="seal-files-group-label">{label} · {rows.length}</span>
+            <ul className="seal-files-list">
+                {visible.map(({ p, cls }) => (
+                    <li key={p} className={`seal-files-item seal-files-item--${cls}`} title={p}>
+                        {transform ? transform(p) : p}
+                    </li>
+                ))}
+            </ul>
+        </div>
+    );
+}
+
 function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
-    const { action, detail } = parseCommitMessage(commit.commit.message);
+    const { variant, detail, dir, raw } = describeCommit(commit);
     const { relative, absolute } = formatCommitTime(commit.commit.author?.timestamp);
     return (
         <div
@@ -247,15 +384,20 @@ function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
             className={`seal-entry${isCurrent ? ' seal-entry--current' : ''}${isHighlighted ? ' seal-entry--highlight' : ''}`}
         >
             <div className="seal-entry-rail">
-                <span className={`seal-stamp seal-stamp--${action}`} title={ACTION_LABELS[action] ?? action} aria-hidden="true">
-                    <ActionGlyph action={action} />
+                <span className={`seal-stamp seal-stamp--${variant}`} title={ACTION_LABELS[variant] ?? variant} aria-hidden="true">
+                    <ActionGlyph action={variant} />
                 </span>
                 {!isLast && <span className="seal-rail-line" aria-hidden="true" />}
             </div>
             <div className="seal-card">
                 <div className="seal-card-head">
-                    <span className="seal-entry-action">{ACTION_LABELS[action] ?? action}</span>
-                    <span className="seal-entry-detail" title={detail}>{detail}</span>
+                    <span className="seal-entry-action">{ACTION_LABELS[variant] ?? variant}</span>
+                    {/* title keeps the exact sealed path reachable — the visible text is the
+                        translated version, but power users still need the real thing. */}
+                    <span className="seal-entry-detail" title={raw}>
+                        {detail}
+                        {dir && <span className="seal-entry-dir"> in {dir}</span>}
+                    </span>
                     {isCurrent && <span className="seal-entry-current">current</span>}
                 </div>
                 <div className="seal-card-meta">
@@ -276,23 +418,36 @@ function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
     );
 }
 
-function SealTimeline({ log, loading, error, highlightOid, onRollback }) {
+function SealTimeline({ log, loading, loadingMore, hasMore, error, highlightOid, onRollback, onLoadMore }) {
     if (loading) return <p className="seal-loading">Loading…</p>;
-    if (error) return <div className="seal-error">{error}</div>;
+    if (error && log.length === 0) return <div className="seal-error">{error}</div>;
     if (log.length === 0) return <p className="seal-empty">Nothing sealed yet — changes you make will appear here.</p>;
     return (
-        <div className="seal-rail">
-            {log.map((commit, i) => (
-                <SealEntry
-                    key={commit.oid}
-                    commit={commit}
-                    isCurrent={i === 0}
-                    isLast={i === log.length - 1}
-                    isHighlighted={commit.oid === highlightOid}
-                    onRollback={onRollback}
-                />
-            ))}
-        </div>
+        <>
+            <div className="seal-rail">
+                {log.map((commit, i) => (
+                    <SealEntry
+                        key={commit.oid}
+                        commit={commit}
+                        isCurrent={i === 0}
+                        isLast={i === log.length - 1 && !hasMore}
+                        isHighlighted={commit.oid === highlightOid}
+                        onRollback={onRollback}
+                    />
+                ))}
+            </div>
+            {error && <div className="seal-error">{error}</div>}
+            <div className="seal-log-foot">
+                <span className="seal-log-count">{log.length} entries</span>
+                {hasMore ? (
+                    <button type="button" className="seal-btn" onClick={onLoadMore} disabled={loadingMore}>
+                        {loadingMore ? 'Loading…' : 'Load older entries'}
+                    </button>
+                ) : (
+                    <span className="seal-log-end">Beginning of history</span>
+                )}
+            </div>
+        </>
     );
 }
 
@@ -301,7 +456,7 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
 
-    const { action, detail } = parseCommitMessage(commit.commit.message);
+    const { variant, detail } = describeCommit(commit);
     const { absolute } = formatCommitTime(commit.commit.author?.timestamp);
 
     const handleConfirm = async () => {
@@ -333,8 +488,8 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
             }
         >
             <div className="seal-modal-target">
-                <span className={`seal-stamp seal-stamp--${action} seal-stamp--sm`} aria-hidden="true">
-                    <ActionGlyph action={action} />
+                <span className={`seal-stamp seal-stamp--${variant} seal-stamp--sm`} aria-hidden="true">
+                    <ActionGlyph action={variant} />
                 </span>
                 <span>{detail}</span>
                 <span className="seal-entry-oid" title={commit.oid}>{formatOid(commit.oid)}</span>
@@ -732,7 +887,15 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
 }
 
 export default function SealView({ isActive = false }) {
-    const { log, loading: logLoading, error: logError, refresh: refreshLog } = useSealLog(20, isActive);
+    const {
+        log,
+        loading: logLoading,
+        loadingMore,
+        hasMore,
+        error: logError,
+        refresh: refreshLog,
+        loadMore,
+    } = useSealLog(isActive);
     const { drift, loading: driftLoading, error: driftError, refresh: refreshDrift } = useDrift(isActive);
     const { report: doctorReport, loading: doctorLoading, error: doctorError, run: runDoctorCheck } = useDoctorCheck();
 
@@ -829,12 +992,24 @@ export default function SealView({ isActive = false }) {
 
             <section className="seal-section">
                 <h2 className="seal-eyebrow">Seal log</h2>
+                {/* Said once, at the top, instead of on every row: metadata entries are the
+                    bulk of a normal session's history, and without this the user has no way
+                    to know why highlighting a page shows up as a change to a file they never
+                    opened. */}
+                <p className="seal-log-note">
+                    Highlights, flashcards and tags are stored beside each document in its
+                    own metadata file, so changing them is recorded here as a metadata update —
+                    the document&apos;s own text is untouched.
+                </p>
                 <SealTimeline
                     log={log}
                     loading={logLoading}
+                    loadingMore={loadingMore}
+                    hasMore={hasMore}
                     error={logError}
                     highlightOid={highlightOid}
                     onRollback={setConfirmTarget}
+                    onLoadMore={loadMore}
                 />
             </section>
 

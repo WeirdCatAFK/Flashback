@@ -4,10 +4,16 @@ import { sealTools } from '../seal/seal.js';
 const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// GET /api/seal/log?limit=20
+// GET /api/seal/log?limit=20&cursor=<oid>
+// Returns a page of commits, newest first. `cursor` is the oid of the last commit the
+// caller already has; the page resumes after it. A page shorter than `limit` means the
+// history ended. Capped because every commit in a page costs a tree diff.
+const MAX_LOG_LIMIT = 200;
 router.get('/log', catchError(async (req, res) => {
-    const limit = parseInt(req.query.limit, 10) || 20;
-    const log = await sealTools.log(limit);
+    const requested = parseInt(req.query.limit, 10) || 20;
+    const limit = Math.min(Math.max(requested, 1), MAX_LOG_LIMIT);
+    const cursor = req.query.cursor || null;
+    const log = await sealTools.log(limit, cursor);
     res.json(log);
 }));
 
