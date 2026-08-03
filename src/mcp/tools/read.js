@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { request } from '../client.js';
+import cardGuide from '../skills/flashbackCards.js';
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+// The guide is Markdown meant to be read as prose. JSON-stringifying it would bury it in
+// escapes for no gain, so it goes back verbatim.
+const asMarkdown = (text) => ({ content: [{ type: 'text', text }] });
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
   isError: true,
@@ -30,7 +34,52 @@ function qs(params) {
   return parts.length ? `?${parts.join('&')}` : '';
 }
 
+const GUIDE_SECTIONS = Object.keys(cardGuide.references);
+
 export function registerReadTools(server) {
+  // Registered first because it is the tool that should be called first. Everything else
+  // here reads the vault; this one explains what to do with what you read.
+  server.registerTool(
+    'get_card_guide',
+    {
+      title: 'Get the card-authoring guide',
+      description:
+        `${cardGuide.description}\n\n` +
+        'Returns the guide as Markdown — the vault\'s house style, card-type selection, the ' +
+        'properties every card is checked against, and the syntax/code-card rules that are where ' +
+        'cards most often fail. Call it BEFORE drafting cards, not after: it changes what you write, ' +
+        'and it is cheap compared to a deck the user has to live with for years. It reads no vault ' +
+        'data and takes no lock, so calling it speculatively costs nothing.\n\n' +
+        'Deeper material is split into sections fetched on demand: ' +
+        GUIDE_SECTIONS.map(s => `"${s}" — ${cardGuide.references[s].summary}`).join(' ') +
+        ' Fetch a section when the guide points you at it or the material calls for it.',
+      inputSchema: {
+        section: z.enum(GUIDE_SECTIONS).optional()
+          .describe('A reference section to fetch instead of the main guide. Omit for the main guide, which lists what is available.'),
+      },
+    },
+    async ({ section } = {}) => {
+      if (!section) {
+        return asMarkdown(
+          `${cardGuide.body}\n\n---\n\n` +
+          `## Reference sections\n\n` +
+          `Fetch with get_card_guide({ section }):\n\n` +
+          GUIDE_SECTIONS.map(s => `- \`${s}\` — ${cardGuide.references[s].summary}`).join('\n'),
+        );
+      }
+      const ref = cardGuide.references[section];
+      // Reachable when a caller bypasses the schema (the tests do). Naming the valid
+      // sections beats an undefined body that reads like an empty guide.
+      if (!ref) {
+        return {
+          content: [{ type: 'text', text: `No such guide section: "${section}". Available: ${GUIDE_SECTIONS.join(', ')}.` }],
+          isError: true,
+        };
+      }
+      return asMarkdown(ref.body);
+    },
+  );
+
   server.registerTool(
     'search_flashback',
     {

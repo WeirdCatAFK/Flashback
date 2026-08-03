@@ -57,6 +57,10 @@ individual tool schemas alone:
   cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
   cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
   the vault has no handmade cards.
+- Writing a good card is a craft with real rules, and get_card_guide is where they are written
+  down: decomposition, card-type selection, the house conventions this vault already follows,
+  and the failure modes that make a card lapse for years. Read it before drafting cards or
+  diagnosing ones that keep failing — not after.
 - Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
   what already exists rather than guessing or duplicating.
 - The diary tools (diary_list/diary_get_summary/diary_get_entry) read a personal, per-day study

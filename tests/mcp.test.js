@@ -87,6 +87,7 @@ describe('MCP tools', () => {
     it('registers the full tool set', () => {
         const expected = [
             // read
+            'get_card_guide',
             'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
@@ -100,6 +101,49 @@ describe('MCP tools', () => {
             'create_category', 'update_category',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
+    });
+
+    describe('get_card_guide', () => {
+        it('serves the main guide as Markdown and advertises its reference sections', async () => {
+            const res = await call('get_card_guide');
+            assert.equal(res.isError, false, res.text);
+            assert.equal(res.data, null, 'Markdown, not a JSON payload');
+            assert.match(res.text, /^# Authoring Flashback cards/);
+            assert.match(res.text, /One card, one retrieval/);
+            // Progressive disclosure only works if the model is told the sections exist.
+            assert.match(res.text, /## Reference sections/);
+            assert.match(res.text, /`knowledge-types`/);
+        });
+
+        it('serves a reference section on request, and only that section', async () => {
+            const res = await call('get_card_guide', { section: 'knowledge-types' });
+            assert.equal(res.isError, false, res.text);
+            assert.match(res.text, /^# Prompt patterns by knowledge type/);
+            assert.ok(!res.text.includes('# Authoring Flashback cards'), 'the main guide is not repeated');
+        });
+
+        it('names the valid sections when asked for one that does not exist', async () => {
+            const res = await call('get_card_guide', { section: 'no-such-section' });
+            assert.equal(res.isError, true);
+            assert.match(res.text, /knowledge-types/);
+        });
+
+        // The guide tells the model which tools to call. If a tool is ever renamed or
+        // dropped, the guide silently starts teaching a dead API — so pin it here rather
+        // than discovering it when an assistant follows the instructions and fails.
+        it('every MCP tool the guide names is actually registered', async () => {
+            const guide = await call('get_card_guide');
+            const refs = await call('get_card_guide', { section: 'knowledge-types' });
+            const named = new Set(
+                `${guide.text}\n${refs.text}`.match(
+                    /\b(?:get|list|read|create|update|delete|search|add|remove|attach|fetch)_[a-z_]+\b/g,
+                ) ?? [],
+            );
+            assert.ok(named.size >= 10, `expected the guide to name real tools, found ${named.size}`);
+            for (const name of named) {
+                assert.ok(tools.has(name), `the guide tells the model to call ${name}, which is not registered`);
+            }
+        });
     });
 
     it('create_document writes content readable via read_document', async () => {
