@@ -1,8 +1,8 @@
 /**
  * Shared flashcard-field logic used by both the creator (FlashcardForm) and the
  * editor (FlashcardEditor). The two components keep their own layout and their own
- * persistence (the creator delegates via onSubmit; the editor writes the sidecar
- * itself), but the type list, validation, preview shape, and card-core derivation
+ * persistence (the creator delegates via onSubmit; the editor calls the API itself),
+ * but the type list, validation, preview shape, and card-core derivation
  * are identical and were duplicated — a divergence here would silently corrupt cards,
  * so it lives in one place.
  *
@@ -34,8 +34,9 @@ export function isCardValid(cardType, f) {
   }
 }
 
-// The shape the live <Flashcard> preview renders. `media` is the resolved media obj
-// (object URLs during creation, {} when editing).
+// The shape the live <Flashcard> preview renders. `media` holds ready-to-load URLs,
+// not stored references: object URLs for files being uploaded, /api/media URLs for
+// media the card already has.
 export function previewCardFor(cardType, f, media = {}) {
   if (cardType === 'custom')      return { cardType: 'custom', customData: { html: f.customHtml } };
   if (cardType === 'cloze')       return { cardType: 'cloze',       vanillaData: { frontText: f.clozeText, backText: f.clozeText,      media } };

@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import Decks from '../access/decks.js';
 import Documents from '../access/documents.js';
+import srs from '../access/srs.js';
 
 const router = Router();
 const decks = new Decks();
@@ -31,12 +32,38 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-// PUT /api/flashcards/:hash — update standalone card content (partial: omitted
-// fields keep their stored values)
+// GET /api/flashcards/:hash/detail — everything the card detail view needs in one
+// request: content, current schedule, full review ledger and a sampled retention
+// curve. `algorithm` is the browser's preference when the caller has one; omit it
+// and the server detects the vault's from its review history and echoes back the
+// one it used. `flags` is reserved for card-health warnings (Backlog item 10).
+router.get('/:hash/detail', catchError((req, res) => {
+    const card = decks.getCard(req.params.hash);     // throws "not found" → 404
+    const insights = srs.getCardInsights(req.params.hash, { algorithm: req.query.algorithm || null });
+    res.json({ card, ...insights, flags: [] });
+}));
+
+// PUT /api/flashcards/:hash — update any card, standalone or document-anchored
+// (partial: omitted fields keep their stored values).
+//
+// The two live in different canonical files, but as with DELETE below a client
+// holding a hash shouldn't have to know which — the server resolves the card's home
+// and dispatches. Editing an anchored card used to be refused here outright.
 router.put('/:hash', catchError(async (req, res) => {
-    const { frontText, backText, name, cardType, category, customHtml } = req.body;
-    await decks.updateStandaloneCard(req.params.hash, { frontText, backText, name, cardType, category, customHtml });
-    res.json({ ok: true });
+    const { hash } = req.params;
+    const { frontText, backText, name, cardType, category, customHtml, tags } = req.body;
+    const card = decks.getCard(hash);   // throws "not found" → 404
+
+    if (!card.documentPath) {
+        await decks.updateStandaloneCard(hash, { frontText, backText, name, cardType, category, customHtml });
+        return res.json({ ok: true, documentPath: null });
+    }
+
+    // tags are a sidecar concept — standalone cards inherit theirs from their deck.
+    await docs.updateFlashcard(card.documentPath, hash, {
+        frontText, backText, name, cardType, category, customHtml, tags,
+    });
+    res.json({ ok: true, documentPath: card.documentPath });
 }));
 
 // DELETE /api/flashcards/:hash — delete any card, standalone or document-anchored.

@@ -13,6 +13,7 @@ import Documents from '../src/api/access/documents.js';
 import db from '../src/api/access/database.js';
 import query from '../src/api/access/query.js';
 import SRS from '../src/api/access/srs.js';
+import * as fsrs from '../src/api/access/fsrs.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/config.js';
 
@@ -118,6 +119,24 @@ describe('FSRS review loop', () => {
         // Nothing was written, so the vault is still on default (unfitted) weights.
         assert.equal(query.getFsrsWeights(), null, 'no FsrsParameters row persisted');
         assert.equal(info.optimized, false);
+    });
+
+    it('the card curve is the same model that scheduled the card', () => {
+        // The claim the card detail view makes about an FSRS card is that its curve
+        // is not an illustration: it's retrievability() on the card's own stability
+        // with the vault's weights. So the curve must cross the request retention
+        // exactly where FSRS put the due date.
+        const insights = SRS.getCardInsights(hash, { algorithm: 'fsrs' });
+        assert.equal(insights.curve.model, 'fsrs');
+        assert.equal(insights.curve.stabilityDays, cardRow().fsrs_stability);
+
+        const target = insights.curve.requestRetention;
+        const dueT = fsrs.intervalFromStability(insights.curve.stabilityDays, target, SRS.getWeights());
+        const r = fsrs.retrievability(dueT, insights.curve.stabilityDays, SRS.getWeights());
+        assert.ok(Math.abs(r - target) < 0.02, `retention at the due date should be ~${target}, got ${r}`);
+        assert.ok(Math.abs(insights.curve.intervalDays - dueT) < 0.51,
+            'the drawn due marker is the interval FSRS actually scheduled');
+        assert.equal(insights.curve.points.at(-1).t, insights.curve.horizonDays);
     });
 
     it('undo restores the prior FSRS state (back to new after the only review)', async () => {

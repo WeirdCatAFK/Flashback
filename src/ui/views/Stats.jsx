@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import "./Stats.css";
 import { getStatistics } from "../api/srs";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
+import { ramp } from "../utils/chartRamp";
 
 /**
  * Stats — read-only, vault-wide study analytics. Everything here is derived from
@@ -16,11 +17,6 @@ import { LoadingState, ErrorState } from "../components/shared/StateView";
  */
 
 const WEEKS = 26; // half-year activity window shown in the heatmap
-
-// A sequential accent ramp step: mixes the accent over the surface so it reads
-// light→dark in both light and dark themes without hardcoding a colour.
-const ramp = (pct) =>
-  `color-mix(in srgb, var(--color-accent) ${pct}%, var(--color-bg-surface))`;
 
 const pctText = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
 const num = (n) => (n ?? 0).toLocaleString();

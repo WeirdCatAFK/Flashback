@@ -252,6 +252,19 @@
   border: 1px solid var(--color-border);
   background: var(--color-bg-surface);
   margin-bottom: 5px;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.fc-card-row:hover {
+  background: var(--color-bg-hover);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+}
+
+.fc-card-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .fc-level-dot {
@@ -306,6 +319,19 @@
   background: color-mix(in srgb, var(--color-accent) 15%, transparent);
   color: var(--color-accent);
   border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  white-space: nowrap;
+}
+
+/* FSRS difficulty. Deliberately quieter than the category chip: it's a diagnostic
+   number, not a label the user chose. */
+.fc-card-difficulty {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 

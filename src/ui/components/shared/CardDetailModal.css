@@ -1,0 +1,208 @@
+/* Card detail — see CardDetailModal.jsx. Tokenized throughout; the charts get
+   their fill from utils/chartRamp so they follow the active theme. */
+
+.cd-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+
+/* ── Card preview + schedule ────────────────────────────────────────────────── */
+
+.cd-top {
+  display: flex;
+  gap: var(--space-5);
+  align-items: flex-start;
+}
+
+.cd-preview {
+  flex: 1 1 380px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.cd-preview .fc-card,
+.cd-preview > :first-child {
+  width: 100%;
+}
+
+.cd-flip-hint {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.cd-side {
+  flex: 1 1 300px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.cd-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.cd-badge {
+  padding: 2px 8px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
+.cd-badge--muted {
+  background: var(--color-bg-subtle, transparent);
+}
+
+.cd-stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.cd-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.cd-stat-value {
+  font-size: var(--text-md);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-stat-label {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.cd-facts {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.cd-facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.cd-facts dt { color: var(--color-fg-secondary); }
+.cd-facts dd { text-align: right; }
+
+.cd-overdue { color: var(--color-review-again); }
+
+.cd-edit-btn {
+  align-self: flex-start;
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.cd-edit-btn:hover { background: var(--color-bg-hover); }
+
+/* ── Sections ───────────────────────────────────────────────────────────────── */
+
+.cd-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
+}
+
+.cd-section-title {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.cd-empty,
+.cd-note {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.cd-note { font-size: var(--text-xs); }
+
+/* ── Retention curve ────────────────────────────────────────────────────────── */
+
+.cd-curve {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cd-curve svg { display: block; }
+
+.cd-curve-caption {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  line-height: 1.5;
+}
+
+/* ── Review strip ───────────────────────────────────────────────────────────── */
+
+.cd-strip-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cd-strip {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 44px;
+  padding: 2px;
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+}
+
+.cd-strip-bar {
+  flex: 1 1 auto;
+  min-width: 3px;
+  border-radius: 1px 1px 0 0;
+}
+
+/* ── Flags (reserved — Backlog item 10) ─────────────────────────────────────── */
+
+.cd-flags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.cd-flag {
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-review-hard);
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 720px) {
+  .cd-top { flex-direction: column; }
+  .cd-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

@@ -467,13 +467,15 @@ Scans the database for media entries whose files no longer exist on disk within 
 
 ## Flashcards `/api/flashcards`
 
-Single-card operations addressed by `globalHash`. Document-anchored cards live in their source document's sidecar and standalone cards in the system deck's JSON, but a caller holding a hash does not have to know which — `GET` and `DELETE` resolve the card's home themselves. (Creating and editing still differ: see `POST /api/media/vanilla` for document-anchored cards.)
+Single-card operations addressed by `globalHash`. Document-anchored cards live in their source document's sidecar and standalone cards in the system deck's JSON, but a caller holding a hash does not have to know which — `GET`, `PUT` and `DELETE` all resolve the card's home themselves. (Creation still differs: see `POST /api/media/vanilla` for document-anchored cards.)
 
 ### `GET /api/flashcards/:hash`
 
 Resolves any card to its content plus `documentPath` (`null` for a standalone card), so a client can route an edit correctly.
 
-**Response** `200` — `{ globalHash, name, cardType, level, origin, frontText, backText, customHtml, category, documentPath }`.
+**Response** `200` — `{ globalHash, name, cardType, level, origin, frontText, backText, customHtml, category, documentPath, media }`.
+
+`media` is `{ front_img, back_img, front_sound, back_sound }` holding the card's **stored references** (e.g. `"./media/front-1a2b.png"`), not URLs — resolve them through `GET /api/media/file?docPath=…&name=…` before rendering.
 
 **Errors** `404` card not found.
 
@@ -483,11 +485,52 @@ Creates a **standalone** card in the system deck. Body: `{ frontText, backText, 
 
 **Response** `201` — `{ globalHash }`. **Errors** `400` unknown category.
 
+### `GET /api/flashcards/:hash/detail`
+
+Everything the card detail view needs in one request: content, current schedule, the card's full review ledger and a sampled retention curve. Read-only.
+
+**Query** `algorithm` (optional) — see the SRS section's note; omit it and the server infers the vault's scheduler and echoes back the one it used.
+
+**Response** `200` —
+
+```jsonc
+{
+  "card": { /* as GET /api/flashcards/:hash */ },
+  "algorithm": "fsrs",
+  "srs": {
+    "state": "new" | "review",
+    "level": 5, "sm2Reps": 4, "easeFactor": 2.5,
+    "lastRecall": "…", "dueAt": "…", "intervalDays": 8, "overdueDays": 0,
+    "fsrs": { "stability": 8.4, "difficulty": 5.1, "state": 2, "reps": 6, "lapses": 1 },
+    "reviews": 6, "correct": 5, "lapses": 1, "retention": 0.83, "syntheticEntries": 0
+  },
+  "history": [ { "id": 1, "at": "…", "algorithm": "fsrs", "outcome": 1, "rating": 3,
+                 "easeFactor": null, "level": 5, "stability": 8.4, "difficulty": 5.1,
+                 "due": "…", "state": 2, "synthetic": false } ],
+  "curve": { "model": "fsrs" | "approximated", "requestRetention": 0.9,
+             "stabilityDays": 8.4, "originAt": "…", "dueAt": "…", "intervalDays": 8,
+             "horizonDays": 16, "nowT": 5.2, "nowR": 0.94,
+             "points": [ { "t": 0, "r": 1 }, "… 64 samples" ] },
+  "flags": []
+}
+```
+
+Notes:
+
+- `curve` is `null` for a card that has never been reviewed, and its `points` span the **last review → horizon** — it describes the card's present memory state, not a reconstruction of its history (that's what `history` is for).
+- `model: "fsrs"` means the curve is `retrievability()` on the card's own stability with the vault's fitted weights — the same function that scheduled it. `model: "approximated"` means Leitner/SM-2, which have no memory model: the curve is drawn from `stability := the scheduled interval`, i.e. the scheduler's own premise that the interval is where recall has fallen to `requestRetention`. Clients must label the two differently.
+- `history` includes the synthetic rows a vault rebuild writes (`synthetic: true`, no outcome); they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows written before migration 006 report `algorithm: null` rather than a guess.
+- `flags` is reserved for card-health warnings and is always `[]` today.
+
+**Errors** `404` card not found.
+
 ### `PUT /api/flashcards/:hash`
 
-Updates a **standalone** card's content. Partial — omitted fields keep their stored values.
+Updates a card of **either** kind. Partial — omitted fields keep their stored values. Body: `{ frontText, backText, name, cardType, category, customHtml, tags }`. For a document-anchored card the edit is applied to its sidecar entry server-side, preserving the card's SRS progress, media and highlight anchor, and emits a Seal commit; `tags` is ignored for standalone cards (they inherit theirs from their deck).
 
-**Response** `200` — `{ ok: true }`. **Errors** `400` card is document-linked (edit it through its document) or unknown category; `404` card not found.
+**Response** `200` — `{ ok: true, documentPath }`. `documentPath` is `null` for a standalone card.
+
+**Errors** `400` unknown category; `404` card not found.
 
 ### `DELETE /api/flashcards/:hash`
 

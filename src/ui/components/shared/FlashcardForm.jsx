@@ -4,9 +4,15 @@ import { getCategories } from '../../api/categories';
 import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './flashcardFields';
 import './FlashcardForm.css';
 
-// Reusable flashcard creator. Supports all five card types. On save it hands
+// Reusable flashcard form. Supports all five card types. On save it hands
 // { card, media } to `onSubmit` and the consumer makes the request; the only
 // server state it owns is the vault's pedagogical categories (editable in Manage).
+//
+// Pass `initial` to edit an existing card instead of creating one. Editing is
+// text-only — the card's media is preserved server-side, so the upload slots are
+// hidden rather than being able to clear what they can't show. The preview still
+// shows that media (via `initial.media` + `resolveMedia`), so what you see while
+// editing is the card as the Trainer will show it.
 
 const MEDIA_SLOTS = [
   { key: 'front_img',   label: 'Front image', accept: 'image/*' },
@@ -29,40 +35,48 @@ export default function FlashcardForm({
   sourceLabel,
   anchorColor = null, // highlight color key when the card is anchored to a highlight
   location = null,
+  initial = null,     // existing card's fields → edit mode
+  resolveMedia = null, // (storedRef) => url — needed to preview `initial.media`
+  submitLabel,
+  showTags = true,
   saving = false,
   error = null,
   onSubmit,
   onCancel,
 }) {
-  const [cardType, setCardType] = useState('basic');
-  const [front, setFront]               = useState(selection?.text ?? '');
-  const [back, setBack]                 = useState('');
-  const [clozeText, setClozeText]       = useState(selection?.text ?? '');
-  const [question, setQuestion]         = useState(selection?.text ?? '');
-  const [expectedAnswer, setExpectedAnswer] = useState('');
-  const [customHtml, setCustomHtml]     = useState('');
-  const [tags, setTags]                 = useState([]);
+  const editing = !!initial;
+  const [cardType, setCardType] = useState(initial?.cardType ?? 'basic');
+  const [front, setFront]               = useState(initial?.frontText ?? selection?.text ?? '');
+  const [back, setBack]                 = useState(initial?.backText ?? '');
+  const [clozeText, setClozeText]       = useState(initial?.frontText ?? selection?.text ?? '');
+  const [question, setQuestion]         = useState(initial?.frontText ?? selection?.text ?? '');
+  const [expectedAnswer, setExpectedAnswer] = useState(initial?.backText ?? '');
+  const [customHtml, setCustomHtml]     = useState(initial?.customHtml ?? '');
+  const [tags, setTags]                 = useState(initial?.tags ?? []);
   const [tagInput, setTagInput]         = useState('');
-  const [category, setCategory]         = useState('');
+  const [category, setCategory]         = useState(initial?.category ?? '');
   const [categories, setCategories]     = useState([]);
   const [files, setFiles]               = useState(EMPTY_FILES);
   const [previewFace, setPreviewFace]   = useState('front');
 
   // Categories are vault data, not a constant — they're created/renamed/reordered
   // in Manage. The list arrives sorted by priority ascending (most foundational
-  // first), so the first entry is the sensible default. A failed load leaves the
-  // select empty and the card is simply saved uncategorised.
+  // first), so the first entry is the sensible default for a NEW card. An existing
+  // card keeps whatever it already had, including a category since deleted.
+  // A failed load leaves the select empty and the card is saved uncategorised.
   useEffect(() => {
     let alive = true;
     getCategories()
       .then((list) => {
         if (!alive) return;
         setCategories(list);
-        setCategory((cur) => (list.some((c) => c.name === cur) ? cur : list[0]?.name ?? ''));
+        if (!editing) {
+          setCategory((cur) => (list.some((c) => c.name === cur) ? cur : list[0]?.name ?? ''));
+        }
       })
       .catch(() => { if (alive) setCategories([]); });
     return () => { alive = false; };
-  }, []);
+  }, [editing]);
 
   // Reset preview face inline when card type changes — no stale flash between renders.
   const [prevCardType, setPrevCardType] = useState(cardType);
@@ -87,10 +101,23 @@ export default function FlashcardForm({
     return () => { for (const u of Object.values(next)) if (u) URL.revokeObjectURL(u); };
   }, [front_img, back_img, front_sound, back_sound]);
 
-  const mediaObj = useMemo(() => ({
-    front_img: urls.front_img, back_img: urls.back_img,
-    front_sound: urls.front_sound, back_sound: urls.back_sound,
-  }), [urls]);
+  // Preview media: a freshly picked file wins (object URL), otherwise fall back to
+  // whatever the card already has on disk. Everything here is already a URL, so the
+  // <Flashcard> below needs no resolveMedia of its own.
+  // Depend on the refs themselves, not on `initial` — callers build that object
+  // inline, so it is a new identity on every render.
+  const stored = initial?.media ?? {};
+  const { front_img: sFrontImg, back_img: sBackImg,
+          front_sound: sFrontSnd, back_sound: sBackSnd } = stored;
+  const mediaObj = useMemo(() => {
+    const at = (ref) => (ref && resolveMedia ? resolveMedia(ref) : null);
+    return {
+      front_img:   urls.front_img   ?? at(sFrontImg),
+      back_img:    urls.back_img    ?? at(sBackImg),
+      front_sound: urls.front_sound ?? at(sFrontSnd),
+      back_sound:  urls.back_sound  ?? at(sBackSnd),
+    };
+  }, [urls, sFrontImg, sBackImg, sFrontSnd, sBackSnd, resolveMedia]);
 
   const previewCard = useMemo(
     () => previewCardFor(cardType, { front, back, clozeText, question, expectedAnswer, customHtml }, mediaObj),
@@ -133,7 +160,11 @@ export default function FlashcardForm({
   };
 
   const selectedCategory = categories.find((c) => c.name === category);
-  const showMedia = cardType !== 'custom';
+  // The card's category isn't in the vault list — either it's still loading, or it
+  // was renamed/deleted in Manage. Either way the select needs an option for it so
+  // the current value stays visible and survives a save.
+  const missingCategory = category && !selectedCategory ? category : null;
+  const showMedia = cardType !== 'custom' && !editing;
   const anchorVar = anchorColor ? HL_COLOR_VAR[anchorColor] ?? HL_COLOR_VAR.amber : null;
 
   return (
@@ -165,16 +196,22 @@ export default function FlashcardForm({
 
       <div className="fc-form-preview">
         <div className="fc-card-stage">
+          {/* The preview behaves like the real thing, including type_answer: its
+              front deliberately ignores clicks (the Check button is the only reveal),
+              so without onTypeCheck the back would be unreachable here. */}
           <Flashcard
             card={previewCard}
             face={previewFace}
-            onFlip={cardType !== 'type_answer' ? setPreviewFace : undefined}
+            onFlip={setPreviewFace}
+            onTypeCheck={() => setPreviewFace('back')}
             variant="full"
           />
         </div>
-        {cardType !== 'type_answer' && (
-          <span className="fc-form-preview-hint">Click the card to flip</span>
-        )}
+        <span className="fc-form-preview-hint">
+          {cardType === 'type_answer'
+            ? 'Check an answer to reveal the back'
+            : 'Click the card to flip'}
+        </span>
       </div>
 
       {(cardType === 'basic' || cardType === 'reversible') && (
@@ -282,34 +319,38 @@ export default function FlashcardForm({
         </>
       )}
 
-      <label htmlFor="fc-tag-input" className="fc-form-label">TAGS</label>
-      <div className="fc-form-tags">
-        {tags.map((tag) => (
-          <span key={tag} className="fc-tag fc-tag--removable">
-            {tag}
-            <button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
-          </span>
-        ))}
-        <input
-          id="fc-tag-input"
-          className="fc-form-tag-input"
-          value={tagInput}
-          onChange={(e) => setTagInput(e.target.value)}
-          onKeyDown={handleTagKeyDown}
-          onBlur={addTag}
-          placeholder="+ tag"
-        />
-      </div>
+      {showTags && (
+        <>
+          <label htmlFor="fc-tag-input" className="fc-form-label">TAGS</label>
+          <div className="fc-form-tags">
+            {tags.map((tag) => (
+              <span key={tag} className="fc-tag fc-tag--removable">
+                {tag}
+                <button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
+              </span>
+            ))}
+            <input
+              id="fc-tag-input"
+              className="fc-form-tag-input"
+              value={tagInput}
+              onChange={(e) => setTagInput(e.target.value)}
+              onKeyDown={handleTagKeyDown}
+              onBlur={addTag}
+              placeholder="+ tag"
+            />
+          </div>
+        </>
+      )}
 
       <label htmlFor="fc-category" className="fc-form-label">CATEGORY</label>
       <select
         id="fc-category"
         className="fc-form-select"
         value={category}
-        disabled={categories.length === 0}
+        disabled={categories.length === 0 && !missingCategory}
         onChange={(e) => setCategory(e.target.value)}
       >
-        {categories.length === 0 ? (
+        {categories.length === 0 && !missingCategory ? (
           <option value="">No categories — add one in Manage</option>
         ) : (
           categories.map((c) => (
@@ -317,6 +358,11 @@ export default function FlashcardForm({
               {c.name} · priority {c.priority}
             </option>
           ))
+        )}
+        {missingCategory && (
+          <option value={missingCategory}>
+            {missingCategory}{categories.length > 0 ? ' · removed' : ''}
+          </option>
         )}
       </select>
       {selectedCategory?.description && (
@@ -327,7 +373,7 @@ export default function FlashcardForm({
 
       <div className="fc-form-actions">
         <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
-          {saving ? 'Saving…' : 'Save card'}
+          {saving ? 'Saving…' : (submitLabel ?? 'Save card')}
         </button>
         <button type="button" className="fc-form-cancel" onClick={onCancel}>Cancel</button>
       </div>

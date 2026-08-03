@@ -12,39 +12,6 @@ const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: tru
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
 
-// Document-anchored cards live in their document's sidecar, not behind a
-// per-card endpoint. Editing one is a read-modify-write of the sidecar via
-// PUT /api/documents/metadata — the exact pattern the app's own card editor
-// uses — so these two helpers are shared by update/delete below.
-const readDocMeta = async (docPath) => {
-  const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(docPath)}`);
-  return doc.metadata ?? {};
-};
-const saveDocMeta = (docPath, metadata) =>
-  request('PUT', '/api/documents/metadata', { path: docPath, metadata, isFolder: false });
-
-// PUT /api/documents/metadata does not validate category names (unknown ones
-// silently link to no category in the DB), so the sidecar edit path validates
-// here to match the standalone endpoint's explicit rejection.
-const assertKnownCategory = async (category) => {
-  const cats = await request('GET', '/api/categories');
-  if (!cats.some((c) => c.name === category)) {
-    throw Object.assign(
-      new Error(`Unknown category: "${category}". Call list_categories for valid values.`),
-      { status: 400 },
-    );
-  }
-};
-
-// A card's home (standalone vs. document-anchored) decides which write path an
-// edit takes. When the caller doesn't say, ask the API — GET /api/flashcards/:hash
-// resolves any hash to its documentPath (null = standalone). A 404 propagates.
-const resolveDocumentPath = async (globalHash, documentPath) => {
-  if (documentPath) return documentPath;
-  const card = await request('GET', `/api/flashcards/${encodeURIComponent(globalHash)}`);
-  return card.documentPath;
-};
-
 export function registerWriteTools(server) {
   server.registerTool(
     'create_flashcard',
@@ -157,7 +124,7 @@ export function registerWriteTools(server) {
         'media) is preserved.',
       inputSchema: {
         globalHash: z.string().describe('The card\'s globalHash.'),
-        documentPath: z.string().optional().describe('Relative path of the card\'s source document, if you already know it (from search_flashback/list_cards `document_path`) — saves a lookup. Resolved automatically when omitted.'),
+        documentPath: z.string().optional().describe('Accepted for compatibility and ignored — the server resolves the card\'s source document from its hash.'),
         frontText: z.string().optional(),
         backText: z.string().optional(),
         name: z.string().optional(),
@@ -167,40 +134,16 @@ export function registerWriteTools(server) {
         tags: z.array(z.string()).optional().describe('Replaces the card\'s tags. Document-anchored cards only.'),
       },
     },
-    async ({ globalHash, documentPath, frontText, backText, name, cardType, category, customHtml, tags }) => {
+    // One call: PUT /api/flashcards/:hash resolves whether the card lives in a
+    // document's sidecar or the system deck and merges the patch server-side. This
+    // used to fetch the sidecar, splice the card and save the whole file back, which
+    // silently reverted anything else written to that sidecar in between — the same
+    // race delete_flashcard was moved off.
+    async ({ globalHash, frontText, backText, name, cardType, category, customHtml, tags }) => {
       try {
-        documentPath = await resolveDocumentPath(globalHash, documentPath);
-        if (!documentPath) {
-          const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`, { frontText, backText, name, cardType, category, customHtml });
-          return asText(data);
-        }
-
-        if (category !== undefined && category !== null) await assertKnownCategory(category);
-
-        const meta = await readDocMeta(documentPath);
-        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
-        const idx = cards.findIndex((f) => f.globalHash === globalHash);
-        if (idx === -1) {
-          return asToolError(`Card ${globalHash} is not in ${documentPath}'s sidecar. Use read_document to list that document's cards, or search_flashback to find the card's document_path.`);
-        }
-        const ex = cards[idx];
-        const nextType = cardType ?? ex.cardType ?? 'basic';
-        const updated = { ...ex, cardType: nextType };
-        if (name !== undefined) updated.name = name;
-        if (tags !== undefined) updated.tags = tags;
-        if (category !== undefined) updated.category = category;
-        if (nextType === 'custom') {
-          updated.customData = { ...(ex.customData || {}), html: customHtml !== undefined ? customHtml : (ex.customData?.html ?? '') };
-        } else {
-          updated.vanillaData = {
-            ...(ex.vanillaData || {}),
-            frontText: frontText !== undefined ? frontText : (ex.vanillaData?.frontText ?? ''),
-            backText: backText !== undefined ? backText : (ex.vanillaData?.backText ?? ''),
-          };
-        }
-        meta.flashcards[idx] = updated;
-        await saveDocMeta(documentPath, meta);
-        return asText({ ok: true, globalHash, documentPath, card: updated });
+        const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`,
+          { frontText, backText, name, cardType, category, customHtml, tags });
+        return asText({ ok: true, globalHash, ...data });
       } catch (err) {
         return asError(err);
       }

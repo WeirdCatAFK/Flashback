@@ -294,7 +294,7 @@ export function registerReadTools(server) {
         level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
         cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
         origin: z.enum(['ai', 'human']).optional().describe('Filter by provenance: "human" = handmade cards only — use these as style examples when drafting new cards; "ai" = AI-created cards only.'),
-        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — usually a sign the card is badly written and worth rewriting.'),
+        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses', 'difficulty']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — usually a sign the card is badly written and worth rewriting. "difficulty" (descending) is the FSRS estimate of how much effort a card costs; it is null for cards never rated under FSRS, and those always sort last.'),
         sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Default "desc".'),
         limit: z.number().int().min(1).max(200).optional().describe('Page size. Default 50, max 200.'),
         offset: z.number().int().min(0).optional().describe('Pagination offset.'),

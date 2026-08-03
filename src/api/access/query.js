@@ -483,6 +483,42 @@ class DocumentQuery {
         return true;
     }
 
+    // One card's complete review ledger, oldest first — the card detail view.
+    //
+    // Unlike every aggregate in this file, this one does NOT filter out the synthetic
+    // rows a vault rebuild writes (insertSyntheticReviewLog leaves outcome NULL): a
+    // per-card ledger should show what is actually stored, and srs.js flags those rows
+    // so the UI can label them and keep them out of the retention numbers.
+    // Ordered by id, not timestamp: reviews are written in the order they happen, and
+    // the two writers don't agree on a format — reviews store an ISO string while
+    // insertSyntheticReviewLog uses SQLite's datetime('now'), which sorts before every
+    // ISO stamp of the same day (' ' < 'T'). id is the same ordering undo relies on.
+    getFlashcardReviewHistory(flashcardId) {
+        return this.db.prepare(`
+            SELECT id, timestamp, outcome, ease_factor, level, algorithm, rating,
+                   fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
+            FROM ReviewLogs
+            WHERE flashcard_id = ?
+            ORDER BY id ASC
+        `).all(flashcardId);
+    }
+
+    // Everything the schedulers need to place one card on its curve. The ease-factor
+    // subselect deliberately does NOT skip synthetic rows: after a Doctor rebuild that
+    // row is the only carrier of the card's SM-2 ease (see getLatestEaseFactors and the
+    // latest_ef CTE in getDueFlashcards, which both read it the same way).
+    getFlashcardSrsStateByHash(hash) {
+        return this.db.prepare(`
+            SELECT f.id, f.global_hash, f.level, f.sm2_reps, f.last_recall,
+                   f.fsrs_stability, f.fsrs_difficulty, f.fsrs_state, f.fsrs_due,
+                   f.fsrs_reps, f.fsrs_lapses,
+                   (SELECT rl.ease_factor FROM ReviewLogs rl
+                     WHERE rl.flashcard_id = f.id ORDER BY rl.id DESC LIMIT 1) AS ease_factor
+            FROM Flashcards f
+            WHERE f.global_hash = ?
+        `).get(hash);
+    }
+
     // The card's now-latest review after an undo — the state to restore it to.
     // Null when no reviews remain (the card is new again).
     getLatestReviewLog(flashcardId) {
@@ -1582,15 +1618,23 @@ class DocumentQuery {
         this._flashcardOriginCondition(origin, conditions);
 
         const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-        const sortCols = { level: 'f.level', name: 'f.name', last_recall: 'f.last_recall', lapses: 'f.fsrs_lapses' };
+        const sortCols = {
+            level: 'f.level', name: 'f.name', last_recall: 'f.last_recall',
+            lapses: 'f.fsrs_lapses', difficulty: 'f.fsrs_difficulty',
+        };
         const sortCol = sortCols[sortBy] ?? 'f.level';
         const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
+        // fsrs_difficulty is only set once a card has been rated under FSRS, so
+        // sorting by it must sink the unrated cards to the bottom in BOTH
+        // directions — SQLite would otherwise float every NULL to the top of the
+        // ascending ("easiest first") page and bury the real answer.
+        const nullsLast = sortCol === 'f.fsrs_difficulty' ? `${sortCol} IS NULL, ` : '';
 
         params.push(limit, offset);
 
         return this.db.prepare(`
             SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
-                   f.fsrs_lapses as lapses, f.origin,
+                   f.fsrs_lapses as lapses, f.fsrs_difficulty as difficulty, f.origin,
                    c.frontText, c.backText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
                    pc.name as category
@@ -1599,7 +1643,7 @@ class DocumentQuery {
             LEFT JOIN Documents d ON f.document_id = d.id
             LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
             ${where}
-            ORDER BY ${sortCol} ${dir}, f.name ASC
+            ORDER BY ${nullsLast}${sortCol} ${dir}, f.name ASC
             LIMIT ? OFFSET ?
         `).all(...params);
     }

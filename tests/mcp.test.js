@@ -196,12 +196,15 @@ describe('MCP tools', () => {
         assert.match(res.text, /Unknown category/);
     });
 
-    it('update_flashcard errors clearly when the card is not in the given document', async () => {
+    // The tool no longer resolves the card itself (it used to fetch the sidecar and
+    // splice the card in the client, which raced every other write to that file) —
+    // the API resolves the hash to its home, so an unknown hash is its 404.
+    it('update_flashcard errors clearly when the card does not exist', async () => {
         const res = await call('update_flashcard', {
             globalHash: 'no-such-card-hash', documentPath: docRel, frontText: 'x',
         });
         assert.equal(res.isError, true);
-        assert.match(res.text, /read_document/);
+        assert.match(res.text, /404.*not found/i);
     });
 
     it('create_highlight + highlight-anchored create_flashcard', async () => {

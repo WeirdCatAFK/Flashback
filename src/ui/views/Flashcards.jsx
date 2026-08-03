@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { getStats } from '../api/srs';
 import { searchCards, deleteCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
+import CardDetailModal from '../components/shared/CardDetailModal';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { relativeFromIso } from '../utils/relativeTime';
@@ -16,6 +17,10 @@ const SORT_OPTIONS = [
     { value: 'name:desc',  label: 'Name Z–A' },
     { value: 'last_recall:desc', label: 'Recently reviewed' },
     { value: 'last_recall:asc',  label: 'Least recently reviewed' },
+    // FSRS-derived, so cards never rated under FSRS have no difficulty at all —
+    // the query sinks them below the rated ones either way round.
+    { value: 'difficulty:desc', label: 'Hardest first' },
+    { value: 'difficulty:asc',  label: 'Easiest first' },
 ];
 const PAGE_SIZE = 50;
 
@@ -55,6 +60,9 @@ export default function FlashcardsView() {
     const [loading, setLoading] = useState(false);
     const [error, setError]   = useState(null);
     const [showNewCard, setShowNewCard] = useState(false);
+    // Plain view state, not a route — a future Inbox alert (Backlog item 12) can
+    // open a card here by setting it.
+    const [detailHash, setDetailHash] = useState(null);
 
     const debounceRef = useRef(null);
     const confirm = useConfirm();
@@ -236,13 +244,36 @@ export default function FlashcardsView() {
                 {/* Card list */}
                 <div className="fc-card-list">
                     {cards.map(card => (
-                        <div key={card.global_hash} className={`fc-card-row${!card.document_name ? ' fc-card-row--standalone' : ''}`}>
+                        // The row holds its own delete button, so it can't be a <button>;
+                        // it carries the button role and key handling instead.
+                        <div
+                            key={card.global_hash}
+                            className={`fc-card-row${!card.document_name ? ' fc-card-row--standalone' : ''}`}
+                            role="button"
+                            tabIndex={0}
+                            title="Open card details"
+                            onClick={() => setDetailHash(card.global_hash)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault();
+                                    setDetailHash(card.global_hash);
+                                }
+                            }}
+                        >
                             <LevelDot level={card.level ?? 0} />
                             <div className="fc-card-body">
                                 <div className="fc-card-front">{card.frontText || card.name || '(untitled)'}</div>
                                 {card.backText && <div className="fc-card-back">{card.backText}</div>}
                             </div>
                             <div className="fc-card-meta">
+                                {card.difficulty != null && (
+                                    <span
+                                        className="fc-card-difficulty"
+                                        title={`FSRS difficulty ${card.difficulty.toFixed(1)} of 10 — how much effort this card costs to keep remembered`}
+                                    >
+                                        D {card.difficulty.toFixed(1)}
+                                    </span>
+                                )}
                                 {card.category && (
                                     <span className="fc-card-category">{card.category}</span>
                                 )}
@@ -260,7 +291,7 @@ export default function FlashcardsView() {
                                 <button
                                     className="fc-card-delete"
                                     title={card.document_name ? `Delete card from ${card.document_name}` : 'Delete card'}
-                                    onClick={() => handleDeleteCard(card)}
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteCard(card); }}
                                 >
                                     ✕
                                 </button>
@@ -303,6 +334,13 @@ export default function FlashcardsView() {
                 )}
             </div>
         </div>
+        {detailHash && (
+            <CardDetailModal
+                hash={detailHash}
+                onClose={() => setDetailHash(null)}
+                onSaved={() => { loadCards(query, levelFilter, cardType, sortBy, sortDir, page); refreshStats(); }}
+            />
+        )}
         {showNewCard && (
             <StandaloneCardModal
                 onClose={() => setShowNewCard(false)}

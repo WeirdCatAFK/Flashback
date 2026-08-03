@@ -1,10 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
-import { readFile, updateMetadata } from '../api/documents';
+import { updateCard } from '../api/decks';
 import { getCategories } from '../api/categories';
+import { mediaFileSrc } from '../api/media';
 import Flashcard from './shared/Flashcard';
 import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './shared/flashcardFields';
 import './shared/FlashcardForm.css';
 
+// Saving no longer needs `documentPath` — the server resolves the card's home from
+// its hash — but the preview does, to turn the card's stored media references into
+// streamable URLs.
 export default function FlashcardEditor({ card, documentPath, onSaved, onCancel }) {
   const originalType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
   const vd = card?.vanillaData ?? {};
@@ -36,9 +40,18 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   }, []);
 
   const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
+  // Editing is text-only, so the card's images/audio can't change here — but the
+  // preview still has to show them, or it isn't a preview of this card.
+  const media = card?.vanillaData?.media ?? {};
+  const previewMedia = useMemo(() => ({
+    front_img:   mediaFileSrc(documentPath, media.front_img),
+    back_img:    mediaFileSrc(documentPath, media.back_img),
+    front_sound: mediaFileSrc(documentPath, media.front_sound),
+    back_sound:  mediaFileSrc(documentPath, media.back_sound),
+  }), [documentPath, media.front_img, media.back_img, media.front_sound, media.back_sound]);
   const previewCard = useMemo(
-    () => previewCardFor(cardType, fields),
-    [cardType, front, back, clozeText, question, expectedAnswer, customHtml] // eslint-disable-line react-hooks/exhaustive-deps
+    () => previewCardFor(cardType, fields, previewMedia),
+    [cardType, front, back, clozeText, question, expectedAnswer, customHtml, previewMedia] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const addTag = () => {
@@ -63,23 +76,19 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
     setSaving(true);
     setError(null);
     try {
-      const data = await readFile(documentPath);
-      const meta = data.metadata ?? {};
-      if (!Array.isArray(meta.flashcards)) throw new Error('No flashcards in document');
-      const idx = meta.flashcards.findIndex((f) => f.globalHash === card.globalHash);
-      if (idx === -1) throw new Error('Card not found');
-      const ex = meta.flashcards[idx];
-
+      // One server call rather than fetch-sidecar → mutate → save-sidecar: that
+      // round trip reverted anything else written to the same sidecar in between
+      // (a highlight, another card) — the race the delete path already closed.
       const core = deriveCardCore(cardType, fields);
-      const cat = category || null;
-      const updated = core.cardType === 'custom'
-        ? { ...ex, cardType: 'custom', name: core.name, tags, category: cat,
-            customData: { html: core.html } }
-        : { ...ex, cardType: core.cardType, name: core.name, tags, category: cat,
-            vanillaData: { ...ex.vanillaData, frontText: core.frontText, backText: core.backText } };
-
-      meta.flashcards[idx] = updated;
-      await updateMetadata(documentPath, meta, false);
+      await updateCard(card.globalHash, {
+        name: core.name,
+        cardType: core.cardType,
+        frontText: core.frontText,
+        backText: core.backText,
+        customHtml: core.html,
+        category: category || null,
+        tags,
+      });
       onSaved?.();
     } catch (err) {
       setError(err.message ?? 'Failed to save');
@@ -97,13 +106,14 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
           <Flashcard
             card={previewCard}
             face={previewFace}
-            onFlip={cardType !== 'type_answer' ? setPreviewFace : undefined}
+            onFlip={setPreviewFace}
+            onTypeCheck={() => setPreviewFace('back')}
             variant="full"
           />
         </div>
-        {cardType !== 'type_answer' && (
-          <span className="fc-editor-flip-hint">click to flip</span>
-        )}
+        <span className="fc-editor-flip-hint">
+          {cardType === 'type_answer' ? 'check to reveal the back' : 'click to flip'}
+        </span>
       </div>
 
       <select className="fc-form-select fc-type-select" aria-label="Card type" value={cardType}

@@ -11,6 +11,7 @@ import process from 'process';
 import validate from '../src/api/config/validate.js';
 import Documents from '../src/api/access/documents.js';
 import SRS from '../src/api/access/srs.js';
+import query from '../src/api/access/query.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/config.js';
 
@@ -215,5 +216,59 @@ describe('SRS algorithm detection', () => {
         assert.equal(SRS.detectAlgorithm(), 'fsrs');
         assert.equal(SRS.getDue({ folder: ROOT2 }).algorithm, 'fsrs');
         assert.equal(SRS.getDue({ folder: ROOT2, algorithm: 'leitner' }).algorithm, 'leitner');
+    });
+});
+
+// ── One card's own history ────────────────────────────────────────────────────
+// A vault rebuild re-seeds one synthetic ReviewLog per card (outcome NULL) purely to
+// carry its ease factor. Those rows are not reviews: the card detail view has to show
+// them without letting them into the card's retention.
+
+describe('Card insights', () => {
+    const ROOT3 = 'CardInsightsWorkspace';
+    const docRel = path.join(ROOT3, 'deck.md');
+    const hashC = crypto.randomUUID();
+
+    const rm3 = () => {
+        try {
+            const abs = path.join(getWorkspacePath(), ROOT3);
+            if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+        } catch { /* ignore */ }
+    };
+
+    before(async () => {
+        rm3();
+        await sealTools.init();
+        await docs.createFolder(ROOT3);
+        await docs.importFile('deck.md', ROOT3, Buffer.from('# Deck'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: [
+                { globalHash: hashC, level: 0, vanillaData: { frontText: 'Qc', backText: 'Ac' } },
+            ],
+        });
+    });
+
+    after(() => rm3());
+
+    it('separates real reviews from rows a vault rebuild synthesised', async () => {
+        await docs.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
+        await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
+
+        const cardId = query.getFlashcardByHash(hashC).id;
+        query.insertSyntheticReviewLog(cardId, 2.5, 1);
+
+        const insights = SRS.getCardInsights(hashC, { algorithm: 'leitner' });
+        assert.equal(insights.history.length, 3, 'the ledger shows every stored row');
+        assert.equal(insights.history.filter(h => h.synthetic).length, 1);
+        assert.equal(insights.srs.syntheticEntries, 1);
+        assert.equal(insights.srs.reviews, 2, 'a synthetic row is not a review');
+        assert.equal(insights.srs.correct, 1);
+        assert.equal(insights.srs.retention, 0.5, 'and must not dilute retention');
+        assert.deepEqual(insights.history.map(h => h.algorithm), ['leitner', 'leitner', null],
+            'rows keep insertion order, and one with neither an algorithm nor a rating is not guessed at');
+    });
+
+    it('throws for an unknown card', () => {
+        assert.throws(() => SRS.getCardInsights('no-such-card'), /not found/);
     });
 });

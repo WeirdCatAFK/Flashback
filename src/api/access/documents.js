@@ -1220,6 +1220,71 @@ export default class Documents {
     }
 
     /**
+     * Edits a document-anchored flashcard's content in place.
+     *
+     * Like deleteFlashcard, this exists so the read and the write happen inside one
+     * server operation. Every client that did its own fetch-filter-save on the sidecar
+     * silently reverted whatever else landed on that file in between — the same race
+     * deleteFlashcard was created to close.
+     *
+     * Partial: fields the caller omits keep their stored values. The card object is
+     * spread rather than rebuilt, which is what preserves its globalHash, SRS progress
+     * (`level`, `lastRecall`, every `fsrs*` field), its media, and its `location`
+     * anchor back into the document.
+     *
+     * @param {string} relativePath - document the card is anchored to.
+     * @param {string} flashcardHash - globalHash of the card to edit.
+     * @param {object} patch - any of { frontText, backText, name, cardType, category, customHtml, tags }.
+     * @returns {object} the updated card as written to the sidecar.
+     */
+    async updateFlashcard(relativePath, flashcardHash, patch = {}) {
+        const doc = this.query.getDocumentByPath(relativePath);
+        if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
+
+        // Same up-front rejection as createFlashcard: an unrecognized category would
+        // otherwise persist in the sidecar with no matching category_id in the DB.
+        if (patch.category && !this.query.getCategoryByName(patch.category)) {
+            throw new Error(`Unknown category: "${patch.category}". Call GET /api/categories for valid values.`);
+        }
+
+        const meta = this.files.getMetadata(relativePath) || {};
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        const idx = cards.findIndex(f => f.globalHash === flashcardHash);
+        if (idx === -1) throw new Error(`Flashcard ${flashcardHash} not found in ${relativePath}`);
+
+        const ex = cards[idx];
+        const nextType = patch.cardType ?? ex.cardType ?? 'basic';
+        const updated = { ...ex, cardType: nextType };
+        if (patch.name !== undefined) updated.name = patch.name;
+        if (patch.tags !== undefined) updated.tags = patch.tags;
+        if (patch.category !== undefined) updated.category = patch.category;
+        if (nextType === 'custom') {
+            updated.customData = {
+                ...(ex.customData || {}),
+                html: patch.customHtml !== undefined ? patch.customHtml : (ex.customData?.html ?? ''),
+            };
+        } else {
+            updated.vanillaData = {
+                ...(ex.vanillaData || {}),   // keeps media + location
+                frontText: patch.frontText !== undefined ? patch.frontText : (ex.vanillaData?.frontText ?? ''),
+                backText: patch.backText !== undefined ? patch.backText : (ex.vanillaData?.backText ?? ''),
+            };
+        }
+
+        meta.flashcards[idx] = updated;
+        this.files.writeMetadata(relativePath, meta, false);
+
+        db.transaction(() => {
+            // Re-syncs content, tags and category; SRS columns are max-merged there,
+            // so editing a card can never roll its progress back.
+            this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
+        })();
+
+        await sealEmitter.edit(relativePath + '.flashback');
+        return updated;
+    }
+
+    /**
      * Permanently deletes a document-anchored flashcard: drops it from the sidecar's
      * `flashcards[]` and lets the derived-layer sync remove the row (and, by trigger,
      * its content, reference and review history).

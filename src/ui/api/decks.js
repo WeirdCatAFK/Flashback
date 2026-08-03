@@ -27,8 +27,18 @@ export const removeEntry = (deckHash, cardHash) =>
 export const createStandaloneCard = ({ frontText, backText, name, cardType, category, customHtml } = {}) =>
     request('POST', '/api/flashcards', { frontText, backText, name, cardType, category, customHtml });
 
-export const updateStandaloneCard = (hash, data) =>
+// Edits any card by hash — standalone or document-anchored. As with deleteCard the
+// server resolves which canonical file the card lives in, so callers don't branch.
+export const updateCard = (hash, data) =>
     request('PUT', `/api/flashcards/${hash}`, data);
+
+// Card content + current schedule + full review ledger + a sampled retention curve,
+// in one request. `algorithm` is the local SRS preference; omit it and the server
+// detects the vault's and echoes back the one it used.
+export const getCardDetail = (hash, algorithm = null) => {
+    const qs = algorithm ? `?algorithm=${encodeURIComponent(algorithm)}` : '';
+    return request('GET', `/api/flashcards/${hash}/detail${qs}`);
+};
 
 // Deletes any card by hash — standalone or document-anchored. The server resolves
 // which canonical file the card lives in (system deck JSON vs. document sidecar) and

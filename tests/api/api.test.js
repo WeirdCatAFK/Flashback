@@ -1373,6 +1373,205 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Card editing + detail ─────────────────────────────────────────────
+    //
+    // Editing an anchored card used to be refused outright ("edit from the document
+    // instead"); the detail endpoint is what the Flashcards view's card modal reads.
+
+    describe('Flashcard edit + detail', () => {
+        const ROOT = 'CardDetailApiTest';
+        const DOC = 'detail-doc.md';
+        const EDITABLE = 'fc-detail-anchored-001';
+        const SIBLING = 'fc-detail-anchored-002';
+        const REVIEWED = 'fc-detail-anchored-003';
+        const docPath = () => `${ROOT}/${DOC}`;
+        let soloHash = null;
+
+        const readSidecar = async () => {
+            const res = await fetch(
+                `${baseUrl}/api/documents/read?path=${encodeURIComponent(docPath())}`);
+            return (await res.json()).metadata ?? {};
+        };
+        const cardIn = (meta, hash) => (meta.flashcards ?? []).find(f => f.globalHash === hash);
+        const detail = async (hash, qs = '') =>
+            fetch(`${baseUrl}/api/flashcards/${hash}/detail${qs}`);
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFile(DOC, ROOT);
+            await updateFile(docPath(), '# Detail Doc', {
+                flashcards: [
+                    {
+                        globalHash: EDITABLE, level: 4, lastRecall: '2026-07-01T10:00:00.000Z',
+                        vanillaData: {
+                            frontText: 'Original front', backText: 'Original back',
+                            media: { front_img: 'keep-me.png', back_img: null, front_sound: null, back_sound: null },
+                            location: { type: 'highlight', highlightHash: 'hl-detail-001' },
+                        },
+                    },
+                    { globalHash: SIBLING, vanillaData: { frontText: 'Sibling front', backText: 'B' } },
+                    { globalHash: REVIEWED, vanillaData: { frontText: 'Reviewed front', backText: 'B' } },
+                ],
+            });
+
+            const solo = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Solo front', backText: 'Solo back', cardType: 'basic',
+            });
+            soloHash = (await solo.json()).globalHash;
+        });
+
+        it('PUT /api/flashcards/:hash → edits a document-anchored card in its sidecar', async () => {
+            const res = await put(`${baseUrl}/api/flashcards/${EDITABLE}`, {
+                frontText: 'Edited front', name: 'Edited front',
+            });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.documentPath.replace(/\\/g, '/'), docPath(),
+                'response reports which document the card was resolved to');
+
+            const meta = await readSidecar();
+            const card = cardIn(meta, EDITABLE);
+            assert.equal(card.vanillaData.frontText, 'Edited front');
+            assert.equal(card.vanillaData.backText, 'Original back', 'omitted fields keep their value');
+            assert.equal(cardIn(meta, SIBLING).vanillaData.frontText, 'Sibling front',
+                'sibling cards are untouched');
+        });
+
+        it('editing an anchored card preserves its SRS progress, media and anchor', async () => {
+            const card = cardIn(await readSidecar(), EDITABLE);
+            assert.equal(card.level, 4, 'level survives an edit');
+            assert.equal(card.lastRecall, '2026-07-01T10:00:00.000Z');
+            assert.equal(card.vanillaData.media.front_img, 'keep-me.png');
+            assert.equal(card.vanillaData.location?.highlightHash, 'hl-detail-001',
+                'the highlight anchor back into the document survives');
+        });
+
+        it('GET /api/flashcards/:hash → carries the card\'s stored media references', async () => {
+            // The detail view previews the real card, media included, so the references
+            // have to survive the derived layer. They are stored refs, not URLs — the
+            // client resolves them against the document via /api/media/file.
+            const card = await (await fetch(`${baseUrl}/api/flashcards/${EDITABLE}`)).json();
+            assert.equal(card.media.front_img, 'keep-me.png');
+            assert.equal(card.media.back_img, null, 'empty slots are null, not absent');
+            const body = await (await detail(EDITABLE)).json();
+            assert.equal(body.card.media.front_img, 'keep-me.png');
+        });
+
+        it('PUT /api/flashcards/:hash → still edits a standalone card', async () => {
+            const res = await put(`${baseUrl}/api/flashcards/${soloHash}`, { backText: 'Solo edited' });
+            assert.equal(res.status, 200);
+            assert.equal((await res.json()).documentPath, null);
+
+            const card = await (await fetch(`${baseUrl}/api/flashcards/${soloHash}`)).json();
+            assert.equal(card.backText, 'Solo edited');
+            assert.equal(card.frontText, 'Solo front', 'omitted fields keep their value');
+        });
+
+        it('PUT /api/flashcards/:hash → 404 unknown hash, 400 unknown category (both homes)', async () => {
+            assert.equal((await put(`${baseUrl}/api/flashcards/no-such-card`, { frontText: 'x' })).status, 404);
+            assert.equal((await put(`${baseUrl}/api/flashcards/${EDITABLE}`, { category: 'Nope' })).status, 400);
+            assert.equal((await put(`${baseUrl}/api/flashcards/${soloHash}`, { category: 'Nope' })).status, 400);
+        });
+
+        it('GET /api/flashcards/:hash/detail → a never-reviewed card has no curve', async () => {
+            const res = await detail(SIBLING);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.card.globalHash, SIBLING);
+            assert.equal(body.srs.state, 'new');
+            assert.equal(body.curve, null, 'nothing to model until the card has been reviewed');
+            assert.deepEqual(body.history, []);
+            assert.deepEqual(body.flags, [], 'reserved for card-health warnings');
+        });
+
+        it('GET /api/flashcards/:hash/detail → a reviewed card gets an approximated curve', async () => {
+            const review = await post(`${baseUrl}/api/srs/review`, {
+                path: docPath(), flashcardHash: REVIEWED, algorithm: 'leitner',
+                outcome: 1, easeFactor: 2.5, newLevel: 3,
+            });
+            assert.equal(review.status, 200);
+
+            const body = await (await detail(REVIEWED, '?algorithm=leitner')).json();
+            assert.equal(body.algorithm, 'leitner', 'echoes back the algorithm actually used');
+            assert.equal(body.srs.state, 'review');
+            assert.equal(body.history.length, 1);
+            assert.equal(body.history[0].algorithm, 'leitner');
+            assert.equal(body.srs.reviews, 1);
+            assert.equal(body.srs.retention, 1);
+
+            // Leitner has no memory model — the curve is drawn from its interval and
+            // must say so rather than passing for a fitted one.
+            assert.equal(body.curve.model, 'approximated');
+            assert.equal(body.curve.points[0].t, 0);
+            assert.equal(body.curve.points[0].r, 1, 'recall is certain at the moment of review');
+            for (let i = 1; i < body.curve.points.length; i++) {
+                assert.ok(body.curve.points[i].r <= body.curve.points[i - 1].r,
+                    'retention may only decay as time passes');
+            }
+            // The premise the approximation rests on: the interval is where recall
+            // has fallen to the request retention.
+            const atDue = body.curve.points.reduce((best, p) =>
+                Math.abs(p.t - body.curve.intervalDays) < Math.abs(best.t - body.curve.intervalDays) ? p : best);
+            assert.ok(Math.abs(atDue.r - body.curve.requestRetention) < 0.03,
+                `retention at the due date should be ~${body.curve.requestRetention}, got ${atDue.r}`);
+
+            const dueDelta = Date.parse(body.srs.dueAt) - Date.parse(body.srs.lastRecall);
+            assert.ok(Math.abs(dueDelta - body.srs.intervalDays * 86400000) < 1000,
+                'due date is the last review plus the scheduled interval');
+        });
+
+        it('GET /api/flashcards/:hash/detail?algorithm=fsrs → models from the card\'s real stability', async () => {
+            const review = await post(`${baseUrl}/api/srs/review`, {
+                path: docPath(), flashcardHash: EDITABLE, algorithm: 'fsrs', rating: 3,
+            });
+            assert.equal(review.status, 200);
+
+            const body = await (await detail(EDITABLE, '?algorithm=fsrs')).json();
+            assert.equal(body.algorithm, 'fsrs');
+            assert.equal(body.curve.model, 'fsrs');
+            assert.ok(body.srs.fsrs.stability > 0);
+            assert.equal(body.curve.stabilityDays, body.srs.fsrs.stability,
+                'the curve is drawn from the card\'s own stability, not a re-derived one');
+            assert.equal(body.history.at(-1).rating, 3);
+        });
+
+        it('GET /api/flashcards/:hash/detail → 404 for an unknown hash', async () => {
+            assert.equal((await detail('no-such-card')).status, 404);
+        });
+
+        it('GET /api/decks/cards?sortBy=difficulty → rated cards rank, unrated always sink', async () => {
+            // Difficulty only exists once a card has been rated under FSRS (EDITABLE was,
+            // in the test above). Cards without one carry no information about how hard
+            // they are, so they must sit at the bottom in BOTH directions — otherwise the
+            // "easiest first" page is entirely cards nobody has ever rated.
+            const page = async (dir) => {
+                const res = await fetch(`${baseUrl}/api/decks/cards?sortBy=difficulty&sortDir=${dir}&limit=200`);
+                assert.equal(res.status, 200);
+                return (await res.json()).cards;
+            };
+
+            // The rated cards form an unbroken run at the head of the page.
+            const ratedRunOf = (cards) => {
+                const n = cards.filter(c => c.difficulty != null).length;
+                assert.ok(cards.slice(0, n).every(c => c.difficulty != null),
+                    'every unrated card comes after every rated one');
+                return cards.slice(0, n);
+            };
+
+            const desc = ratedRunOf(await page('desc'));
+            assert.ok(desc.some(c => c.global_hash === EDITABLE),
+                'the FSRS-rated card reports a difficulty');
+            for (let i = 1; i < desc.length; i++) {
+                assert.ok(desc[i].difficulty <= desc[i - 1].difficulty, 'hardest first');
+            }
+
+            const asc = ratedRunOf(await page('asc'));
+            for (let i = 1; i < asc.length; i++) {
+                assert.ok(asc[i].difficulty >= asc[i - 1].difficulty, 'easiest first');
+            }
+        });
+    });
+
     // ── Seal ──────────────────────────────────────────────────────────────
 
     describe('Seal', () => {

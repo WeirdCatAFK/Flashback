@@ -19,6 +19,12 @@ export const LEARNING_REVIEWS = 3;
 // just the arithmetic the read-only views fall back to on an empty vault.
 const DEFAULT_ALGORITHM = 'leitner';
 
+// The retention a scheduled review is aimed at. FSRS targets it explicitly; Leitner
+// and SM-2 only assert "revisit at interval I", which is the same claim read the other
+// way round — I is where recall has decayed to about this. migrateProgress already
+// seeds FSRS stability from an interval on exactly that basis.
+const DEFAULT_REQUEST_RETENTION = 0.9;
+
 // Interval helpers (mirror the SQL expressions in getDueFlashcards).
 function sm2Interval(reps, ef) {
     if (reps <= 1) return 1;
@@ -75,6 +81,39 @@ function intervalToSm2Reps(interval) {
         if (sm2Interval(r, 2.5) > interval * 4) break;
     }
     return best;
+}
+
+// --- Per-card schedule reads -------------------------------------------------
+// These three describe where a card sits under a given algorithm. They live at
+// module scope because both getStatistics (vault-wide) and getCardInsights (one
+// card) need them; the arithmetic itself already exists once more as SQL in
+// query.getDueFlashcards, and a third copy is exactly what we're avoiding.
+
+const DAY_MS = 86400000;
+
+// Scheduled interval in days. `easeFactor` is only read for SM-2.
+function intervalOfCard(card, algorithm, easeFactor = 2.5) {
+    if (algorithm === 'fsrs') {
+        return card.fsrs_stability != null
+            ? fsrs.intervalFromStability(card.fsrs_stability, DEFAULT_REQUEST_RETENTION)
+            : 0;
+    }
+    if (algorithm === 'sm2') return sm2Interval(card.sm2_reps ?? 0, easeFactor ?? 2.5);
+    return leitnerInterval(card.level ?? 0);
+}
+
+// Has this card left the "new" pile under this algorithm?
+function isReviewedCard(card, algorithm) {
+    return algorithm === 'fsrs'
+        ? (card.fsrs_state ?? 0) !== 0 && card.fsrs_stability != null
+        : !!card.last_recall;
+}
+
+function dueDateOfCard(card, algorithm, easeFactor = 2.5) {
+    if (algorithm === 'fsrs') return card.fsrs_due ? new Date(card.fsrs_due) : null;
+    if (!card.last_recall) return null;
+    return new Date(new Date(card.last_recall).getTime()
+        + intervalOfCard(card, algorithm, easeFactor) * DAY_MS);
 }
 
 class SRSService {
@@ -268,20 +307,12 @@ class SRSService {
         const cards = query.getAllFlashcardSrsState();
         const efMap = algorithm === 'sm2' ? query.getLatestEaseFactors() : null;
 
-        // Scheduled interval (days) for a card under the active algorithm.
-        const intervalOf = (c) => {
-            if (algorithm === 'fsrs') return c.fsrs_stability != null ? fsrs.intervalFromStability(c.fsrs_stability, 0.9) : 0;
-            if (algorithm === 'sm2') return sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5);
-            return leitnerInterval(c.level ?? 0);
-        };
-        const isReviewed = (c) => (algorithm === 'fsrs'
-            ? (c.fsrs_state ?? 0) !== 0 && c.fsrs_stability != null
-            : !!c.last_recall);
-        const dueDateOf = (c) => {
-            if (algorithm === 'fsrs') return c.fsrs_due ? new Date(c.fsrs_due) : null;
-            if (!c.last_recall) return null;
-            return new Date(new Date(c.last_recall).getTime() + intervalOf(c) * DAY);
-        };
+        // Scheduled interval / due date for a card under the active algorithm
+        // (shared with getCardInsights — see the module-scope helpers).
+        const efOf = (c) => efMap?.get(c.global_hash) ?? 2.5;
+        const intervalOf = (c) => intervalOfCard(c, algorithm, efOf(c));
+        const isReviewed = (c) => isReviewedCard(c, algorithm);
+        const dueDateOf = (c) => dueDateOfCard(c, algorithm, efOf(c));
 
         const now = new Date();
         // Day keys are the user's LOCAL calendar days, matching SQLite's
@@ -380,6 +411,136 @@ class SRSService {
             overdue,
             activity,
             streak: { current, longest },
+        };
+    }
+
+    /**
+     * Everything the card detail view shows about ONE card: its current schedule,
+     * its full review ledger, and a retention curve.
+     *
+     * `algorithm` follows the same contract as getStatistics/getDue — the caller
+     * sends the browser's preference when it has one, we detect it otherwise, and
+     * the value actually used is echoed back so a client without a browser can
+     * trust what it reads.
+     *
+     * Returns { algorithm, srs, history, curve }; `curve` is null for a card that
+     * has never been reviewed (there is no memory state to model yet).
+     */
+    getCardInsights(hash, { algorithm: requested = null } = {}) {
+        const algorithm = requested ?? this.detectAlgorithm();
+        const state = query.getFlashcardSrsStateByHash(hash);
+        if (!state) throw new Error(`Card not found: ${hash}`);
+
+        // Same guard as the SQL: a missing or degenerate ease factor means 2.5.
+        const easeFactor = state.ease_factor != null && state.ease_factor >= 1.3
+            ? state.ease_factor : 2.5;
+
+        const history = query.getFlashcardReviewHistory(state.id).map(r => ({
+            id: r.id,
+            at: r.timestamp,
+            // Pre-migration-006 rows carry no algorithm. FSRS is still identifiable
+            // (it's the only scheduler that writes a rating), but Leitner and SM-2
+            // are genuinely indistinguishable there — so we say null, not a guess.
+            algorithm: r.algorithm ?? (r.rating != null ? 'fsrs' : null),
+            outcome: r.outcome,
+            rating: r.rating,
+            easeFactor: r.ease_factor,
+            level: r.level,
+            stability: r.fsrs_stability,
+            difficulty: r.fsrs_difficulty,
+            due: r.fsrs_due,
+            state: r.fsrs_state,
+            synthetic: r.outcome === null,
+        }));
+
+        const real = history.filter(h => !h.synthetic);
+        const correct = real.filter(h => h.outcome === 1).length;
+        const reviewed = isReviewedCard(state, algorithm);
+        const dueAt = dueDateOfCard(state, algorithm, easeFactor);
+        const intervalDays = intervalOfCard(state, algorithm, easeFactor);
+        const overdueMs = dueAt ? Date.now() - dueAt.getTime() : 0;
+
+        return {
+            algorithm,
+            srs: {
+                state: reviewed ? 'review' : 'new',
+                level: state.level ?? 0,
+                sm2Reps: state.sm2_reps ?? 0,
+                easeFactor,
+                lastRecall: state.last_recall ?? null,
+                dueAt: dueAt ? dueAt.toISOString() : null,
+                intervalDays,
+                overdueDays: overdueMs > 0 ? overdueMs / DAY_MS : 0,
+                fsrs: state.fsrs_stability != null ? {
+                    stability: state.fsrs_stability,
+                    difficulty: state.fsrs_difficulty,
+                    state: state.fsrs_state ?? 0,
+                    reps: state.fsrs_reps ?? 0,
+                    lapses: state.fsrs_lapses ?? 0,
+                } : null,
+                reviews: real.length,
+                correct,
+                lapses: real.length - correct,
+                retention: real.length ? correct / real.length : null,
+                syntheticEntries: history.length - real.length,
+            },
+            history,
+            curve: this._buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt),
+        };
+    }
+
+    /**
+     * Samples the card's predicted retention from its last review out past its due
+     * date. Server-side so the client needs no scheduler knowledge — it receives
+     * {t, r} points and draws them.
+     *
+     * Under FSRS this is honest: the same retrievability() that produced the card's
+     * schedule, with the vault's own fitted weights. Leitner and SM-2 have no memory
+     * model, so we draw their own premise instead — the scheduled interval is the
+     * point where recall has fallen to DEFAULT_REQUEST_RETENTION, which is exactly
+     * `stability := interval` (retrievability(I, I) ≡ 0.9). That's the same
+     * equivalence migrateProgress uses to seed FSRS stability, so a card migrated
+     * into FSRS keeps the curve it had. `model` tells the UI to say so.
+     */
+    _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt) {
+        if (!reviewed) return null;
+
+        const originAt = state.last_recall
+            ?? (dueAt ? new Date(dueAt.getTime() - intervalDays * DAY_MS).toISOString() : null);
+        if (!originAt) return null;
+
+        // A lapsed Leitner card sits in box 0 (interval 0) — floor stability at a day
+        // rather than dividing by zero.
+        const stabilityDays = algorithm === 'fsrs'
+            ? state.fsrs_stability
+            : Math.max(intervalDays, 1);
+        if (!(stabilityDays > 0)) return null;
+
+        const weights = this.getWeights();
+        const elapsedNow = Math.max(0, (Date.now() - new Date(originAt).getTime()) / DAY_MS);
+        const horizonDays = Math.max(intervalDays * 2, elapsedNow * 1.15, 1);
+
+        const SAMPLES = 64;
+        const points = [];
+        for (let i = 0; i < SAMPLES; i++) {
+            const t = (horizonDays * i) / (SAMPLES - 1);
+            points.push({
+                t: Math.round(t * 1000) / 1000,
+                r: Math.round(fsrs.retrievability(t, stabilityDays, weights) * 10000) / 10000,
+            });
+        }
+
+        return {
+            model: algorithm === 'fsrs' ? 'fsrs' : 'approximated',
+            requestRetention: DEFAULT_REQUEST_RETENTION,
+            stabilityDays,
+            originAt,
+            dueAt: dueAt ? dueAt.toISOString() : null,
+            intervalDays,
+            horizonDays,
+            nowT: Math.round(elapsedNow * 1000) / 1000,
+            nowR: Math.round(fsrs.retrievability(elapsedNow, stabilityDays, weights) * 10000) / 10000,
+            points,
         };
     }
 

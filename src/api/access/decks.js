@@ -395,6 +395,14 @@ export default class Decks {
             customHtml: card.custom_html,
             category: card.category,
             documentPath: card.document_path ?? null,
+            // Stored references, not URLs — resolve them against `documentPath`
+            // (GET /api/media/file) before handing them to a renderer.
+            media: {
+                front_img: card.front_img ?? null,
+                back_img: card.back_img ?? null,
+                front_sound: card.front_sound ?? null,
+                back_sound: card.back_sound ?? null,
+            },
         };
     }
 
