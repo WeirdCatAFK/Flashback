@@ -1598,7 +1598,13 @@ class DocumentQuery {
         else if (origin === 'human') conditions.push("(f.origin IS NULL OR f.origin <> 'ai')");
     }
 
-    getAllFlashcards({ search = null, level = null, cardType = null, origin = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+    // Shared WHERE builder for the card browser's list and count queries — the two
+    // must filter identically or the pager's `total` disagrees with its rows.
+    //
+    // The card-health filter is an EXISTS subquery rather than a join, so a card
+    // carrying two flags still counts once. Dismissed flags are excluded everywhere:
+    // a flag the user has already ruled on is suppressed, not deleted.
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind }) {
         const params = [];
         const conditions = [];
 
@@ -1607,7 +1613,7 @@ class DocumentQuery {
             conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
             params.push(term, term, term);
         }
-        if (level !== null) {
+        if (level !== null && level !== undefined) {
             conditions.push('f.level = ?');
             params.push(level);
         }
@@ -1617,7 +1623,18 @@ class DocumentQuery {
         }
         this._flashcardOriginCondition(origin, conditions);
 
-        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+        if (flagged || flagKind) {
+            const kindClause = flagKind ? ' AND cf.kind = ?' : '';
+            conditions.push(`EXISTS (SELECT 1 FROM CardFlags cf
+                WHERE cf.flashcard_id = f.id AND cf.dismissed_at IS NULL${kindClause})`);
+            if (flagKind) params.push(flagKind);
+        }
+
+        return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
+    }
+
+    getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind });
         const sortCols = {
             level: 'f.level', name: 'f.name', last_recall: 'f.last_recall',
             lapses: 'f.fsrs_lapses', difficulty: 'f.fsrs_difficulty',
@@ -1637,7 +1654,11 @@ class DocumentQuery {
                    f.fsrs_lapses as lapses, f.fsrs_difficulty as difficulty, f.origin,
                    c.frontText, c.backText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
-                   pc.name as category
+                   pc.name as category,
+                   -- Scalar subquery, not a join: the browser renders a flag chip per
+                   -- row without an N+1, and a twice-flagged card stays one row.
+                   (SELECT GROUP_CONCAT(cf.kind) FROM CardFlags cf
+                     WHERE cf.flashcard_id = f.id AND cf.dismissed_at IS NULL) AS flags
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
             LEFT JOIN Documents d ON f.document_id = d.id
@@ -1648,26 +1669,8 @@ class DocumentQuery {
         `).all(...params);
     }
 
-    getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null } = {}) {
-        const params = [];
-        const conditions = [];
-
-        if (search) {
-            const term = `%${search}%`;
-            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
-            params.push(term, term, term);
-        }
-        if (level !== null) {
-            conditions.push('f.level = ?');
-            params.push(level);
-        }
-        if (cardType) {
-            conditions.push('f.card_type = ?');
-            params.push(cardType);
-        }
-        this._flashcardOriginCondition(origin, conditions);
-
-        const where = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
+    getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind });
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
         return this.db.prepare(`
@@ -1705,6 +1708,115 @@ class DocumentQuery {
             JOIN Decks d ON d.id = e.deck_id
             WHERE e.card_hash = ?
         `).all(cardHash);
+    }
+
+    // --- Card Health (see access/cardHealth.js, DATAMODEL.md § Card Health) ---
+
+    // The classifier reads a card's content through the existing
+    // getFlashcardContentByHash (above) — it already returns f.id, card_type and the
+    // three content fields, so there is no second query here. A near-duplicate defined
+    // in this section would silently SHADOW that one (same class, later definition wins)
+    // and strip document_path and the media refs from every caller of decks.getCard.
+
+    // Answer bodies to calibrate "long" against. The classifier tokenizes these with the
+    // same function it applies to the card under test, so the comparison is like-for-like;
+    // that matters more than scanning every row, hence the cap. An absolute character
+    // threshold would be meaningless across a kana vault and a case-law vault.
+    getFlashcardAnswerSamples(limit = 2000) {
+        return this.db.prepare(`
+            SELECT f.card_type, c.backText, c.custom_html
+            FROM Flashcards f
+            JOIN FlashcardContent c ON f.content_id = c.id
+            WHERE c.backText IS NOT NULL OR c.custom_html IS NOT NULL
+            LIMIT ?
+        `).all(limit);
+    }
+
+    // Vault-wide review stream for session segmentation (clustered on time gaps —
+    // ReviewLogs has no session id). Synthetic rebuild rows are excluded: the Doctor
+    // writes one per card at a single instant, which would otherwise read as one
+    // enormous session and poison every session-position measure.
+    getRecentReviewSessionRows(since) {
+        return this.db.prepare(`
+            SELECT id, flashcard_id, timestamp, outcome
+            FROM ReviewLogs
+            WHERE outcome IS NOT NULL AND timestamp >= ?
+            ORDER BY timestamp ASC, id ASC
+        `).all(since);
+    }
+
+    getCardHealth(flashcardId) {
+        return this.db.prepare(
+            'SELECT * FROM CardHealth WHERE flashcard_id = ?'
+        ).get(flashcardId) ?? null;
+    }
+
+    upsertCardHealth(flashcardId, { epochAt = null, epochReason = null, contentFingerprint = null }) {
+        return this.db.prepare(`
+            INSERT INTO CardHealth (flashcard_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(flashcard_id) DO UPDATE SET
+                epoch_at            = excluded.epoch_at,
+                epoch_reason        = excluded.epoch_reason,
+                content_fingerprint = excluded.content_fingerprint,
+                updated_at          = excluded.updated_at
+        `).run(flashcardId, epochAt, epochReason, contentFingerprint, new Date().toISOString());
+    }
+
+    // Only the fingerprint changed (the card was re-evaluated without being addressed).
+    setCardHealthFingerprint(flashcardId, contentFingerprint) {
+        return this.db.prepare(
+            'UPDATE CardHealth SET content_fingerprint = ?, updated_at = ? WHERE flashcard_id = ?'
+        ).run(contentFingerprint, new Date().toISOString(), flashcardId);
+    }
+
+    getCardFlags(flashcardId, { includeDismissed = false } = {}) {
+        const filter = includeDismissed ? '' : ' AND dismissed_at IS NULL';
+        return this.db.prepare(
+            `SELECT * FROM CardFlags WHERE flashcard_id = ?${filter} ORDER BY detected_at DESC`
+        ).all(flashcardId);
+    }
+
+    // Re-raising refreshes a flag's evidence in place rather than stacking duplicates
+    // (UNIQUE(flashcard_id, kind)). `dismissed_at` is deliberately NOT overwritten: a
+    // flag the user has already ruled on stays suppressed while its numbers stay current.
+    upsertCardFlag({ flashcardId, kind, confidence, score, evidence, levelAtDetection, reviewLogId }) {
+        return this.db.prepare(`
+            INSERT INTO CardFlags
+                (flashcard_id, kind, confidence, score, evidence_json,
+                 level_at_detection, detected_at, review_log_id, dismissed_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(flashcard_id, kind) DO UPDATE SET
+                confidence         = excluded.confidence,
+                score              = excluded.score,
+                evidence_json      = excluded.evidence_json,
+                level_at_detection = excluded.level_at_detection,
+                detected_at        = excluded.detected_at,
+                review_log_id      = excluded.review_log_id
+        `).run(
+            flashcardId, kind, confidence, score ?? null,
+            evidence ? JSON.stringify(evidence) : null,
+            levelAtDetection ?? null, new Date().toISOString(), reviewLogId ?? null,
+        );
+    }
+
+    // `kinds` limits the delete to specific signatures (used when a guard fires and the
+    // now-unsupported mouthful/probe verdicts must be withdrawn). Omit it to clear all.
+    deleteCardFlags(flashcardId, { kinds = null, includeDismissed = false } = {}) {
+        const params = [flashcardId];
+        let sql = 'DELETE FROM CardFlags WHERE flashcard_id = ?';
+        if (!includeDismissed) sql += ' AND dismissed_at IS NULL';
+        if (kinds?.length) {
+            sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
+            params.push(...kinds);
+        }
+        return this.db.prepare(sql).run(...params).changes;
+    }
+
+    dismissCardFlag(flashcardId, kind) {
+        return this.db.prepare(
+            'UPDATE CardFlags SET dismissed_at = ? WHERE flashcard_id = ? AND kind = ?'
+        ).run(new Date().toISOString(), flashcardId, kind).changes;
     }
 
     // --- Doctor / Reconciliation ---
@@ -1757,6 +1869,12 @@ class DocumentQuery {
         this.db.transaction(() => {
             this.db.prepare('DELETE FROM DeckEntries').run();
             this.db.prepare('DELETE FROM InheritedTags').run();
+            // Card health is derived from ReviewLogs, which this wipe destroys — so the
+            // flags must go with it rather than outlive the evidence that earned them.
+            // Cards re-earn them from new review behaviour. (The FK would cascade from
+            // Flashcards anyway; explicit here so the ordering is intentional.)
+            this.db.prepare('DELETE FROM CardFlags').run();
+            this.db.prepare('DELETE FROM CardHealth').run();
             this.db.prepare('DELETE FROM ReviewLogs').run();
             this.db.prepare('DELETE FROM DocumentLinks').run();
             this.db.prepare('DELETE FROM Highlights').run();

@@ -11,7 +11,7 @@ The Access layer is the core of the Flashback system, responsible for maintainin
 Modules are organized in three strict tiers. A module may only import from tiers below it.
 
 ```
-Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor · diary · mcpReader
+Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor · diary · mcpReader · cardHealth
 Tier 3 — Package import  ankiImport · obsidianImport   (built on top of the orchestration tier)
 Tier 2 — Single-resource  query · files
 Tier 1 — Primitives       config · database
@@ -25,6 +25,7 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 - `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
 - `doctor.js` is read-only toward the canonical layer: it re-derives the SQLite index from the on-disk files and sidecars but never writes document content or regenerates a `globalHash`. It imports `documents.js`, `decks.js`, `files.js`, `query.js`, and Seal.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
+- `cardHealth.js` imports `query.js` and the pure `fsrs.js` helpers only — never `srs.js`, never `documents.js`. It is composed at the route layer (`routes/srs.js`, `routes/flashcards.js`) the same way `/detail` already composes `decks` + `srs`, which keeps the scheduler ignorant of the classifier.
 - `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
 - Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
 
@@ -97,6 +98,20 @@ Read-only **text extraction** for documents the app renders but cannot decode as
 - Extraction results are cached in memory, keyed by `relPath + mtimeMs + size` so an edited file invalidates itself, capped by entry count and total characters. **Nothing is cached to disk** — a cache file inside `workspace/` would surface as a stray item in the Vault Doctor and in Seal.
 
 **What it deliberately does not do:** produce highlight anchors. A highlight has to land in the coordinate system its renderer paints from (PDF text-layer bboxes, an epub.js CFI generated from the live iframe DOM), and neither is faithfully computable server-side. Cards don't need one — `create_flashcard`'s `highlightHash` is optional — so an assistant can read a book and draft cards from it while anchoring stays a reading gesture the user makes in the app.
+
+### `cardHealth.js`
+**Failure-signature classification** — decides which failing cards are worth acting on, and says why. Singleton export (like `diary.js`/`mcpReader.js`) so its baseline and session caches are shared. Full data model in `DATAMODEL.md` § Card Health.
+
+The problem it solves: two cards can have an identical pass rate and need opposite treatment. A **mouthful** is badly built (too much to hold at once → split it); a **probe** is hard because it forces the reviewer to confront a wrong assumption (failures are the mechanism → keep it, optionally add a companion card naming the misconception). Discriminating them needs the **derivative, not the level** — a probe's relearn cycles each end at a longer interval and its FSRS difficulty plateaus or falls, while a mouthful oscillates around a floor with difficulty ratcheting up.
+
+Two further detectors ship as **guards**, and they are not extras — they are what stops `mouthful` from being wrong. `overdue_drift` (the card failed because it surfaced weeks past due) and `session_fatigue` (it only fails in the last third of long sessions, and passes when it comes up early) each mean the trajectory evidence is contaminated; when either fires it **suppresses** the mouthful/probe verdict. The guard is the diagnosis.
+
+- **Structure.** The impure work happens once in `buildContext(hash)` → `{ card, structure, reviews, epoch, trajectory, repeatFailure }`; every detector in the `DETECTORS` registry is a pure `(ctx) => flag | null`. Adding a detector is one array entry plus a test — which is why the evidence gathering deliberately does not live inside the detectors. `tests/cardHealth.test.js` drives them from hand-built contexts with no database at all.
+- **Runs on failure only.** `onReview(hash, {outcome, rating})` classifies when a card has just failed; there is no reason to guess at why a card is failing when it isn't. A **passing** review clears its flags only once the card reaches `RECOVERY_LEVEL` (3) — a single pass is not recovery, because a mouthful passes constantly at a one-day interval, which is the behaviour being flagged.
+- **Addressing restarts the analysis.** `CardHealth.epoch_at` is a watermark: after an edit, a recovery or a dismiss, reviews at or before it stop being evidence. History from before a fix is never held against the card that replaced it. Edits are detected by **content fingerprint** inside `buildContext`, not by a hook, so an edit through *any* path — the PUT route, MCP, a Seal rollback, a Doctor reindex — resets the window; `onCardEdited()` exists only so the flag disappears the instant the user saves.
+- **Honest about its own limits.** Leitner and SM-2 record no difficulty signal, so a verdict reached without one is capped one confidence step lower and reports `memoryModel: 'approximated'` in its evidence — the same honesty the retention curve applies. Every flag carries the numbers behind it (peak-interval series, difficulty slope, answer tokens vs. vault median, overdue ratios) so the user can disagree with it rather than being handed an oracle.
+- **Never auto-splits, never auto-buries.** A flag ends in a named recommendation, never an applied change.
+- **Derived, never canonical.** Flags live only in SQLite and are absent from `.flashback` sidecars — they are recomputable, and sealing one would mean a git commit on every failed review. `query.wipeDerivedContent()` clears them with `ReviewLogs`, so a **Vault Doctor `rebuildIndex` destroys card health along with the review history it rests on**; cards re-earn their flags from new review behaviour. That is a real limitation, not an oversight.
 
 ### `media.js`
 Orchestrator for media asset lifecycle:

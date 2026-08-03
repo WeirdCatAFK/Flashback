@@ -89,7 +89,7 @@ describe('MCP tools', () => {
             // read
             'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
-            'get_statistics', 'list_cards', 'search_content', 'get_links', 'get_recent_changes',
+            'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
             // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard',
@@ -601,6 +601,27 @@ describe('MCP tools', () => {
             assert.equal(res.isError, true);
             assert.match(res.text, /binary document/i);
         });
+    });
+
+    // list_cards reports *that* a card is flagged; get_card_health reports why, so an
+    // assistant can disagree with the verdict instead of acting on a bare kind string.
+    // The classifier itself is exercised in tests/cardHealth.test.js and over HTTP in
+    // tests/api/api.test.js — here we only prove the tool reaches it and shapes the reply.
+    it('get_card_health returns no flags for a healthy card', async () => {
+        const created = await call('create_flashcard', { frontText: 'health probe Q', backText: 'A' });
+        assert.equal(created.isError, false, created.text);
+
+        const res = await call('get_card_health', { cardHash: created.data.globalHash });
+        assert.equal(res.isError, false, res.text);
+        assert.deepEqual(res.data.flags, [], 'a card that has never failed is never accused');
+
+        await call('delete_flashcard', { globalHash: created.data.globalHash });
+    });
+
+    it('get_card_health 404s on an unknown card rather than reporting it healthy', async () => {
+        const res = await call('get_card_health', { cardHash: 'no-such-card-hash' });
+        assert.equal(res.isError, true);
+        assert.match(res.text, /404|not found/i);
     });
 
     it('list_cards can sort by lapses to surface problem cards', async () => {

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import path from 'path';
 import Documents from '../access/documents.js';
 import SRS from '../access/srs.js';
+import cardHealth from '../access/cardHealth.js';
 
 const router = Router();
 const docs = new Documents();
@@ -31,7 +32,21 @@ router.post('/review', catchError(async (req, res) => {
     } else {
         SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     }
-    res.json({ ok: true });
+
+    // Card health is composed here rather than inside srs.js, the way /detail already
+    // composes decks + srs — it keeps the scheduler ignorant of the classifier and works
+    // identically for both branches above. Failures classify; passes only clear a flag
+    // once the card is genuinely back up to strength (see cardHealth.onReview).
+    //
+    // Returned so the Trainer can report at the end of the session. Never fatal: a
+    // classifier bug must not cost the user a graded review that is already persisted.
+    let flags = [];
+    try {
+        flags = cardHealth.onReview(flashcardHash, { outcome, rating });
+    } catch (err) {
+        console.error('card health evaluation failed:', err);
+    }
+    res.json({ ok: true, flags });
 }));
 
 // POST /api/srs/undo
@@ -50,6 +65,14 @@ router.post('/undo', catchError(async (req, res) => {
         restored = await docs.undoReview(relPath, flashcardHash, algorithm);
     } else {
         ({ restored } = SRS.undoReview(flashcardHash, algorithm));
+    }
+
+    // The retracted grade may be the one that raised a flag. Re-classify against what's
+    // left of the ledger so an undone review doesn't leave behind a verdict it earned.
+    try {
+        cardHealth.evaluate(flashcardHash);
+    } catch (err) {
+        console.error('card health re-evaluation failed:', err);
     }
     res.json({ ok: true, restored });
 }));

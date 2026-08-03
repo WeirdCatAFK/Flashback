@@ -6,6 +6,7 @@ import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
+import CardDetailModal from '../components/shared/CardDetailModal';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
@@ -455,7 +456,7 @@ function DeckPicker({ onPick }) {
   );
 }
 
-function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError, onUndo, canUndo }) {
+function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError, onFlagged, onUndo, canUndo }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -492,6 +493,21 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   onViewSourceRef.current = onViewSource;
   const onSaveErrorRef = useRef(onSaveError);
   onSaveErrorRef.current = onSaveError;
+  const onFlaggedRef = useRef(onFlagged);
+  onFlaggedRef.current = onFlagged;
+
+  // A failing grade can make the server raise a card-health flag. It is reported at the
+  // END of the session, never mid-card: interrupting a review to tell someone their card
+  // is badly built is exactly the wrong moment, and the point of the feature is to make
+  // the failure useful afterwards rather than to editorialise during it.
+  const collectFlags = (promise) => promise
+    .then((res) => {
+      if (res?.flags?.length) onFlaggedRef.current?.(card, res.flags);
+    })
+    .catch((err) => {
+      console.error(err);
+      onSaveErrorRef.current?.(err);
+    });
 
   const handleGrade = (key) => {
     if (busyRef.current) return;
@@ -503,11 +519,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
       const requestRetention = Number(localStorage.getItem('fb-fsrs-retention')) || 0.9;
       // FSRS grading is computed server-side; we only send the rating. Optimistic
       // UI advance; a failed write is surfaced, never silent.
-      submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention })
-        .catch((err) => {
-          console.error(err);
-          onSaveErrorRef.current?.(err);
-        });
+      collectFlags(submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention }));
       onResult({ key, success: g.rating > 1, toLevel: card.level ?? 0, easeFactor: card.easeFactor ?? 2.5 });
       return;
     }
@@ -521,11 +533,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
     const toLevel = (key === 'again' && algorithm !== 'sm2') ? Math.max(1, rawLevel) : rawLevel;
     // We advance the UI optimistically for a fluid review flow, but a failed write
     // must never be silent — surface it so the user knows this grade wasn't saved.
-    submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm)
-      .catch((err) => {
-        console.error(err);
-        onSaveErrorRef.current?.(err);
-      });
+    collectFlags(submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm));
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
@@ -698,7 +706,22 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // misdiagnosed result can be taken back and the card re-graded. Null when
   // there's nothing to undo (session start, or the last action was itself an undo).
   const [lastAction, setLastAction] = useState(null);
+  // Cards the classifier flagged during this session, shown once at the end. Keyed by
+  // hash so a card that fails, gets re-queued and fails again is named once, not twice.
+  const [flagged, setFlagged] = useState([]);
+  // Hash of the flagged card the user opened from the summary, if any.
+  const [inspecting, setInspecting] = useState(null);
   const keymap = useKeybindings();
+
+  const handleFlagged = useCallback((card, flags) => {
+    setFlagged((prev) => prev.some((f) => f.hash === card.globalHash)
+      ? prev
+      : [...prev, {
+          hash: card.globalHash,
+          label: card.name || card.frontText || 'Untitled card',
+          flags,
+        }]);
+  }, []);
 
   // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
   const applyMaxNew = (display) => {
@@ -798,6 +821,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setPop(null);
     setSessionDone(false);
     setLastSession(null);
+    setFlagged([]);
   };
 
   // When a session completes, record the day's summary to the diary — only if the
@@ -1016,7 +1040,36 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
                 : 'All caught up!'}
             </p>
           )}
+
+          {/* Cards that failed in a way worth acting on. Reported here rather than
+              mid-session: the review is not the moment to argue with someone about how
+              their card is built. Only failures reach this list — a card that is
+              working is never mentioned. */}
+          {flagged.length > 0 && (
+            <div className="trainer-flagged">
+              <h4 className="trainer-flagged-title">
+                {flagged.length === 1 ? '1 card worth a look' : `${flagged.length} cards worth a look`}
+              </h4>
+              <ul className="trainer-flagged-list">
+                {flagged.map((f) => (
+                  <li key={f.hash} className="trainer-flagged-item">
+                    <button type="button" className="trainer-flagged-btn"
+                      onClick={() => setInspecting(f.hash)}>
+                      {f.label}
+                    </button>
+                    <span className="trainer-flagged-why">
+                      {f.flags.map((x) => x.title).join(' · ')}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
+      )}
+
+      {inspecting && (
+        <CardDetailModal hash={inspecting} onClose={() => setInspecting(null)} />
       )}
 
       {!sessionDone && currentCard && (
@@ -1030,6 +1083,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onResult={handleResult}
             onViewSource={handleViewSource}
             onSaveError={setSaveError}
+            onFlagged={handleFlagged}
             onUndo={handleUndo}
             canUndo={!!lastAction}
           />

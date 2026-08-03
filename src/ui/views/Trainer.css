@@ -453,6 +453,65 @@
   margin-top: 6px;
 }
 
+/* ── Cards flagged during the session ───────────────────────────────────────── */
+/* Sits below the score, quiet by design: this is an offer to look at something, not
+   a verdict demanding attention before the user can move on. */
+
+.trainer-flagged {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+  max-width: 420px;
+  width: 100%;
+  text-align: left;
+}
+
+.trainer-flagged-title {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-fg-secondary);
+  margin-bottom: 8px;
+}
+
+.trainer-flagged-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.trainer-flagged-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.trainer-flagged-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--color-accent);
+  cursor: pointer;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 55%;
+}
+
+.trainer-flagged-btn:hover { text-decoration: underline; }
+
+.trainer-flagged-why {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
 .sum {
   font-size: 12px;
   padding: 8px 14px;

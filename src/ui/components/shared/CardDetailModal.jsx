@@ -5,7 +5,7 @@ import FlashcardForm from './FlashcardForm';
 import RetentionCurve from './RetentionCurve';
 import ReviewStrip from './ReviewStrip';
 import { LoadingState, ErrorState } from './StateView';
-import { getCardDetail, updateCard } from '../../api/decks';
+import { getCardDetail, updateCard, dismissCardFlag } from '../../api/decks';
 import { mediaFileSrc } from '../../api/media';
 import { relativeFromIso } from '../../utils/relativeTime';
 import './CardDetailModal.css';
@@ -33,6 +33,71 @@ function Stat({ label, value, title }) {
       <span className="cd-stat-value">{value}</span>
       <span className="cd-stat-label">{label}</span>
     </div>
+  );
+}
+
+/**
+ * One card-health flag: what the classifier concluded, what it concluded it from, and
+ * what the user might do about it.
+ *
+ * The evidence row is the point. A flag that only asserted "this card is overloaded"
+ * would be an oracle; showing the peak intervals it walked and the answer length it
+ * compared against lets the reader disagree with it. Nothing here applies a change —
+ * the action is a sentence, not a button that splits the card.
+ */
+function evidenceBits(f) {
+  const e = f.evidence ?? {};
+  const bits = [];
+  if (e.lapses != null) bits.push(`${e.lapses} lapse${e.lapses === 1 ? '' : 's'}`);
+  if (e.windowDays) bits.push(`over ${days(e.windowDays)}`);
+  if (e.peaks?.length) bits.push(`intervals reached ${e.peaks.map((p) => days(p)).join(' → ')}`);
+  if (e.answerTokens != null && e.medianAnswerTokens) {
+    bits.push(`answer ${e.answerTokens} words vs. ${Math.round(e.medianAnswerTokens)} typical`);
+  }
+  if (e.chunks > 1) bits.push(`${e.chunks} separate parts`);
+  if (e.worstOverdueRatio) bits.push(`up to ${e.worstOverdueRatio}× past due`);
+  if (e.medianFailurePosition != null) {
+    bits.push(`fails ${Math.round(e.medianFailurePosition * 100)}% into a session`);
+  }
+  return bits;
+}
+
+function CardFlag({ flag, hash, onDismissed }) {
+  const [busy, setBusy] = useState(false);
+  const bits = evidenceBits(flag);
+
+  const dismiss = async () => {
+    setBusy(true);
+    try {
+      await dismissCardFlag(hash, flag.kind);
+      onDismissed?.();
+    } catch {
+      setBusy(false);   // stays visible; the user can try again
+    }
+  };
+
+  return (
+    <li className={`cd-flag cd-flag--${flag.kind}`}>
+      <div className="cd-flag-head">
+        <strong className="cd-flag-title">{flag.title}</strong>
+        <span className="cd-flag-confidence" title="How much history this rests on">
+          {flag.confidence}
+        </span>
+        <button type="button" className="cd-flag-dismiss" onClick={dismiss} disabled={busy}
+          title="Stop showing this flag for this card">
+          Dismiss
+        </button>
+      </div>
+      <p className="cd-flag-detail">{flag.detail}</p>
+      <p className="cd-flag-action">{flag.action}</p>
+      {bits.length > 0 && <p className="cd-flag-evidence">{bits.join(' · ')}</p>}
+      {flag.evidence?.memoryModel === 'approximated' && (
+        <p className="cd-flag-evidence">
+          Your scheduler records no difficulty signal, so this reads the card&rsquo;s
+          intervals alone — it&rsquo;s a weaker call than it would be under FSRS.
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -194,15 +259,15 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
             </div>
           </div>
 
-          {/* Reserved for card-health warnings (Backlog item 10). */}
           {data.flags?.length > 0 && (
-            <ul className="cd-flags">
-              {data.flags.map((f) => (
-                <li key={f.id} className="cd-flag">
-                  <strong>{f.title}</strong> {f.detail}
-                </li>
-              ))}
-            </ul>
+            <section className="cd-section">
+              <h3 className="cd-section-title">Card health</h3>
+              <ul className="cd-flags">
+                {data.flags.map((f) => (
+                  <CardFlag key={f.id} flag={f} hash={hash} onDismissed={load} />
+                ))}
+              </ul>
+            </section>
           )}
 
           <section className="cd-section">

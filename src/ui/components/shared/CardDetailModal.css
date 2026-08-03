@@ -186,20 +186,90 @@
   border-radius: 1px 1px 0 0;
 }
 
-/* ── Flags (reserved — Backlog item 10) ─────────────────────────────────────── */
+/* ── Card health flags ──────────────────────────────────────────────────────── */
 
 .cd-flags {
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
   font-size: var(--text-sm);
+  list-style: none;
+  margin: 0;
+  padding: 0;
 }
 
 .cd-flag {
-  padding: var(--space-2) var(--space-3);
+  padding: var(--space-3);
+  /* The rail carries the verdict: a signature about the card itself reads as a
+     warning, a guard (which explicitly declines to judge the card) stays neutral. */
   border-left: 3px solid var(--color-review-hard);
   background: var(--color-bg-hover);
   border-radius: var(--radius-sm);
+}
+
+.cd-flag--probe { border-left-color: var(--color-accent); }
+.cd-flag--overdue_drift,
+.cd-flag--session_fatigue { border-left-color: var(--color-border-strong); }
+
+.cd-flag-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.cd-flag-title {
+  font-size: var(--text-md);
+  color: var(--color-fg-primary);
+}
+
+.cd-flag-confidence {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-fg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--space-2);
+}
+
+.cd-flag-dismiss {
+  margin-left: auto;
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--space-2);
+  cursor: pointer;
+}
+
+.cd-flag-dismiss:hover:not(:disabled) {
+  color: var(--color-fg-primary);
+  border-color: var(--color-border-strong);
+}
+
+.cd-flag-dismiss:disabled { opacity: 0.5; cursor: default; }
+
+.cd-flag-detail {
+  margin: 0 0 var(--space-2);
+  color: var(--color-fg-secondary);
+  line-height: 1.5;
+}
+
+/* The recommendation. Deliberately a sentence and not a button — the app never
+   splits, rewrites or buries a card on the user's behalf. */
+.cd-flag-action {
+  margin: 0;
+  color: var(--color-fg-primary);
+}
+
+.cd-flag-evidence {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  line-height: 1.6;
 }
 
 @media (max-width: 720px) {

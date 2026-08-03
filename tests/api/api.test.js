@@ -7,6 +7,7 @@ import AdmZip from 'adm-zip';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import db from '../../src/api/access/database.js';
+import cardHealth from '../../src/api/access/cardHealth.js';
 import Api from '../../src/api/api.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
@@ -65,6 +66,8 @@ describe('Flashback API', () => {
             DELETE FROM InheritedTags;
             DELETE FROM Tags;
             DELETE FROM ReviewLogs;
+            DELETE FROM CardFlags;
+            DELETE FROM CardHealth;
             DELETE FROM Media;
             -- The system deck is a singleton the schema assumes exists (migration 003
             -- seeds exactly one): it is the home every standalone card is filed into,
@@ -1734,6 +1737,257 @@ describe('Flashback API', () => {
                 setAccess(false);
                 assert.equal((await fetch(`${baseUrl}/api/diary`)).status, 200);
             });
+        });
+    });
+
+    // ── Card health ───────────────────────────────────────────────────────
+    //
+    // The classifier's verdict logic is pinned by pure unit tests in
+    // tests/cardHealth.test.js. What is exercised here is the part that only exists at
+    // the HTTP layer: WHEN classification runs, and what addressing a card does to it.
+    //
+    // A card cannot accumulate a trajectory in a test run, so the ledger is seeded with
+    // SQL — you cannot post forty days of review history through an endpoint that
+    // timestamps everything `now`. Every transition after that goes through the real API.
+
+    describe('Card health', () => {
+        // A "long" answer in absolute terms (≥40 tokens), so the structural prior reads
+        // as overloaded regardless of what the rest of the suite left in the vault.
+        const LONG_ANSWER = Array.from({ length: 60 }, (_, i) => `term${i}`).join(' ');
+        const DAY = 86400000;
+
+        let hash;
+
+        // Four lapse cycles across 44 days, each climbing back to a 4-day interval and
+        // falling over again — the mouthful shape: an oscillating floor that never
+        // leaves the learning band. Reviews land ON schedule so `overdue_drift` (which
+        // would rightly suppress the verdict) has nothing to fire on.
+        const seedOscillatingHistory = (cardHash) => {
+            const id = db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash).id;
+            const insert = db.prepare(`
+                INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level, algorithm)
+                VALUES (?, ?, ?, 2.5, ?, 'leitner')
+            `);
+            const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
+            for (let c = 0; c < 4; c++) {
+                const base = 44 - c * 11;
+                insert.run(id, ago(base), 0, 1);        // lapse → box 1
+                insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
+                insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
+                insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
+            }
+            db.prepare('UPDATE Flashcards SET level = 3, last_recall = ? WHERE id = ?')
+                .run(ago(4), id);
+            // Baselines and session segmentation are cached for a minute; the rows above
+            // appeared behind the cache's back.
+            cardHealth.resetCaches();
+        };
+
+        const fail = () => post(`${baseUrl}/api/srs/review`, {
+            flashcardHash: hash, outcome: 0, easeFactor: 2.5, newLevel: 1, algorithm: 'leitner',
+        });
+        const pass = (newLevel) => post(`${baseUrl}/api/srs/review`, {
+            flashcardHash: hash, outcome: 1, easeFactor: 2.5, newLevel, algorithm: 'leitner',
+        });
+        const flagsOf = async () =>
+            (await (await fetch(`${baseUrl}/api/flashcards/${hash}/detail`)).json()).flags;
+        const healthRow = () => db.prepare(`
+            SELECT ch.* FROM CardHealth ch
+            JOIN Flashcards f ON f.id = ch.flashcard_id WHERE f.global_hash = ?
+        `).get(hash);
+
+        // Each test starts from a card with the same seeded history and no flags.
+        const freshCard = async () => {
+            const res = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'What are the sixty terms?', backText: LONG_ANSWER, cardType: 'basic',
+            });
+            hash = (await res.json()).globalHash;
+            seedOscillatingHistory(hash);
+        };
+
+        it('raises a flag on a failing review and reports it in the same response', async () => {
+            await freshCard();
+            const body = await (await fail()).json();
+            assert.equal(body.ok, true);
+            assert.ok(Array.isArray(body.flags), 'the review response carries flags');
+            assert.deepEqual(body.flags.map(f => f.kind), ['mouthful']);
+
+            const flag = body.flags[0];
+            assert.equal(flag.evidence.trajectory, 'oscillating');
+            assert.equal(flag.evidence.prior, 'overloaded');
+            // Leitner has no difficulty signal, so the verdict is capped and says so.
+            assert.equal(flag.evidence.memoryModel, 'approximated');
+            assert.equal(flag.confidence, 'moderate');
+            assert.ok(flag.title && flag.action, 'a flag always names what to do about it');
+        });
+
+        it('serves the same flag from the card detail payload', async () => {
+            const flags = await flagsOf();
+            assert.deepEqual(flags.map(f => f.kind), ['mouthful']);
+        });
+
+        // The lightweight read the MCP server uses: same flags, none of the ledger and
+        // retention curve that `/detail` wraps around them.
+        it('serves the same flag from /flags, without the rest of the detail payload', async () => {
+            const res = await fetch(`${baseUrl}/api/flashcards/${hash}/flags`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.deepEqual(Object.keys(body), ['flags'], 'nothing but the flags');
+            assert.deepEqual(body.flags, await flagsOf(), 'byte-identical to what /detail reports');
+            assert.ok(body.flags[0].evidence.peaks.length, 'the evidence travels with it');
+        });
+
+        it('GET /flags 404s on an unknown card instead of calling it healthy', async () => {
+            const res = await fetch(`${baseUrl}/api/flashcards/no-such-card/flags`);
+            assert.equal(res.status, 404);
+        });
+
+        it('a passing review below the recovery level does NOT clear it', async () => {
+            // The whole point: a mouthful passes constantly at a short interval. Treating
+            // any pass as success would make the flag unreachable.
+            await pass(2);
+            assert.deepEqual((await flagsOf()).map(f => f.kind), ['mouthful']);
+        });
+
+        it('a passing review that reaches the recovery level clears it and restarts the window', async () => {
+            await pass(3);
+            assert.deepEqual(await flagsOf(), []);
+            assert.equal(healthRow().epoch_reason, 'recovered');
+            assert.ok(healthRow().epoch_at, 'the analysis window is stamped, not just cleared');
+        });
+
+        it('does not re-raise from history that predates the recovery', async () => {
+            // Everything before the epoch stops being evidence, so one new failure is
+            // nowhere near the gates.
+            const body = await (await fail()).json();
+            assert.deepEqual(body.flags, []);
+        });
+
+        it('editing a card clears its flags and restarts the window', async () => {
+            await freshCard();
+            await fail();
+            assert.equal((await flagsOf()).length, 1);
+
+            const res = await put(`${baseUrl}/api/flashcards/${hash}`, { backText: 'short' });
+            assert.equal(res.status, 200);
+            assert.deepEqual(await flagsOf(), []);
+            assert.equal(healthRow().epoch_reason, 'edit');
+        });
+
+        it('undoing a review re-classifies against what is left of the ledger', async () => {
+            await freshCard();
+            await fail();
+            const raisedBy = db.prepare(`
+                SELECT cf.review_log_id FROM CardFlags cf
+                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+            `).get(hash).review_log_id;
+
+            await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
+
+            // The flag SURVIVES, and that is the honest answer: forty-four days of
+            // oscillating history say what they say whether or not today's failure is
+            // retracted. What must not survive is the flag pointing at a review that no
+            // longer exists.
+            const [flag] = await flagsOf();
+            assert.equal(flag.kind, 'mouthful');
+            const now = db.prepare(`
+                SELECT cf.review_log_id FROM CardFlags cf
+                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+            `).get(hash).review_log_id;
+            assert.notEqual(now, raisedBy, 're-evaluated rather than left stale');
+            assert.ok(db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
+                'the flag cites a review that still exists');
+        });
+
+        it('undo withdraws a flag that rested only on the undone review', async () => {
+            // No seeded history: this card's flag exists solely because it failed twice
+            // inside one session with an overloaded answer. Take one failure away and it
+            // drops below the gates.
+            const res = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Twice in a row', backText: LONG_ANSWER, cardType: 'basic',
+            });
+            hash = (await res.json()).globalHash;
+
+            await fail();
+            // Sessions are derived from review timestamps and cached for a minute; the
+            // first failure landed behind that cache.
+            cardHealth.resetCaches();
+            assert.deepEqual((await (await fail()).json()).flags.map(f => f.kind), ['mouthful']);
+
+            cardHealth.resetCaches();
+            await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
+            assert.deepEqual(await flagsOf(), [], 'one failure is not a diagnosis');
+        });
+
+        it('dismissing a flag suppresses it without silencing the classifier', async () => {
+            await freshCard();
+            await fail();
+
+            const res = await post(`${baseUrl}/api/flashcards/${hash}/flags/mouthful/dismiss`, {});
+            assert.equal(res.status, 200);
+            assert.deepEqual((await res.json()).flags, []);
+
+            // Still suppressed after the card fails again — that is what "sticky" means.
+            const again = await (await fail()).json();
+            assert.deepEqual(again.flags, []);
+            const row = db.prepare(`
+                SELECT cf.dismissed_at FROM CardFlags cf
+                JOIN Flashcards f ON f.id = cf.flashcard_id
+                WHERE f.global_hash = ? AND cf.kind = 'mouthful'
+            `).get(hash);
+            assert.ok(row?.dismissed_at, 'the row is suppressed, not deleted');
+        });
+
+        it('editing a dismissed card un-suppresses it — a rewrite gets judged fresh', async () => {
+            await put(`${baseUrl}/api/flashcards/${hash}`, { backText: `${LONG_ANSWER} extra` });
+            const row = db.prepare(`
+                SELECT COUNT(*) AS c FROM CardFlags cf
+                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+            `).get(hash);
+            assert.equal(row.c, 0, 'the dismissed row is gone, not merely hidden');
+        });
+
+        it('400s an unknown flag kind, 404s a flag the card does not carry', async () => {
+            await freshCard();
+            assert.equal((await post(`${baseUrl}/api/flashcards/${hash}/flags/nonsense/dismiss`, {})).status, 400);
+            assert.equal((await post(`${baseUrl}/api/flashcards/${hash}/flags/probe/dismiss`, {})).status, 404);
+        });
+
+        it('never flags a card that is passing — classification runs on failure only', async () => {
+            const res = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Healthy card', backText: LONG_ANSWER, cardType: 'basic',
+            });
+            const healthy = (await res.json()).globalHash;
+            seedOscillatingHistory(healthy);   // an identically ugly history…
+            // …but the card passes, so nothing is computed and nothing is said.
+            const body = await (await post(`${baseUrl}/api/srs/review`, {
+                flashcardHash: healthy, outcome: 1, easeFactor: 2.5, newLevel: 2, algorithm: 'leitner',
+            })).json();
+            assert.deepEqual(body.flags, []);
+            const detail = await (await fetch(`${baseUrl}/api/flashcards/${healthy}/detail`)).json();
+            assert.deepEqual(detail.flags, []);
+        });
+
+        it('GET /api/decks/cards?flagged=1 lists flagged cards, with a matching total', async () => {
+            await freshCard();
+            await fail();
+
+            const all = await (await fetch(`${baseUrl}/api/decks/cards?limit=200`)).json();
+            const res = await (await fetch(`${baseUrl}/api/decks/cards?flagged=1&limit=200`)).json();
+
+            assert.ok(res.cards.length >= 1);
+            assert.ok(res.cards.length < all.total, 'the filter actually excludes something');
+            assert.equal(res.total, res.cards.length, 'total agrees with the rows');
+            assert.ok(res.cards.every(c => c.flags), 'every row carries its flag kinds');
+            assert.ok(res.cards.some(c => c.global_hash === hash));
+        });
+
+        it('filters by flag kind, and a kind nothing carries returns nothing', async () => {
+            const mouthfuls = await (await fetch(`${baseUrl}/api/decks/cards?flagKind=mouthful&limit=200`)).json();
+            assert.ok(mouthfuls.cards.some(c => c.global_hash === hash));
+
+            const probes = await (await fetch(`${baseUrl}/api/decks/cards?flagKind=probe&limit=200`)).json();
+            assert.equal(probes.total, 0);
         });
     });
 

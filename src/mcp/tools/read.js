@@ -288,23 +288,66 @@ export function registerReadTools(server) {
         'never-reviewed cards (level 0), or the strongest cards first. Returns `total` so you know when to ' +
         'paginate with offset. Each card includes its `document_path` (null for standalone cards) — the ' +
         'value update_flashcard/delete_flashcard need as `documentPath` — and its `origin` (\'ai\' = created ' +
-        'by an AI assistant, null = handmade).',
+        'by an AI assistant, null = handmade). Each card also carries `flags`: a comma-joined list of ' +
+        'card-health signatures the app raised from the user\'s own review behaviour, or null. ' +
+        'IMPORTANT: "mouthful" means the card keeps resetting to a short interval and its answer is long ' +
+        'for this vault — a genuine candidate for splitting. "probe" means the card fails often but ' +
+        'recovers to LONGER intervals each time: that is the card working, and rewriting or splitting it ' +
+        'would destroy the useful difficulty. "overdue_drift" and "session_fatigue" say the failures are ' +
+        'about when the card was reviewed, not how it is built — do not propose card changes for those. ' +
+        'The kind alone is not enough to act on: call get_card_health for the numbers behind it, which will ' +
+        'sometimes show the flag is weak and should be argued with. ' +
+        'Never rewrite a card on flags alone; show the user what you would change and why.',
       inputSchema: {
         search: z.string().optional().describe('Substring filter on front/back text and card name.'),
         level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
         cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
         origin: z.enum(['ai', 'human']).optional().describe('Filter by provenance: "human" = handmade cards only — use these as style examples when drafting new cards; "ai" = AI-created cards only.'),
-        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses', 'difficulty']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — usually a sign the card is badly written and worth rewriting. "difficulty" (descending) is the FSRS estimate of how much effort a card costs; it is null for cards never rated under FSRS, and those always sort last.'),
+        flagged: z.boolean().optional().describe('Only cards carrying a live card-health flag of any kind.'),
+        flagKind: z.enum(['mouthful', 'probe', 'overdue_drift', 'session_fatigue']).optional().describe('Only cards carrying this specific signature. Use "mouthful" to find cards actually worth rewriting — it is far more selective than sorting by lapses, which cannot tell a badly-built card from a productively hard one.'),
+        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses', 'difficulty']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — but note that a high lapse count alone does NOT mean a card is badly written; prefer flagKind "mouthful" for that. "difficulty" (descending) is the FSRS estimate of how much effort a card costs; it is null for cards never rated under FSRS, and those always sort last.'),
         sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Default "desc".'),
         limit: z.number().int().min(1).max(200).optional().describe('Page size. Default 50, max 200.'),
         offset: z.number().int().min(0).optional().describe('Pagination offset.'),
       },
     },
-    safe(async ({ search, level, cardType, origin, sortBy, sortDir, limit, offset } = {}) => {
+    safe(async ({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset } = {}) => {
       const data = await request(
         'GET',
-        `/api/decks/cards${qs({ search, level, cardType, origin, sortBy, sortDir, limit, offset })}`,
+        `/api/decks/cards${qs({ search, level, cardType, origin, flagged: flagged ? '1' : undefined, flagKind, sortBy, sortDir, limit, offset })}`,
       );
+      return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'get_card_health',
+    {
+      title: 'Get card health',
+      description:
+        'Explain why one card was flagged. list_cards tells you a card is a "mouthful"; this tells you what ' +
+        'the app actually observed, so you can judge whether you agree. Returns each live flag with its ' +
+        '`confidence` ("moderate" or "high"), a human-readable `title`/`detail`/`action`, and an `evidence` ' +
+        'object holding the numbers behind the verdict. For "mouthful"/"probe" that is `peaks` (the longest ' +
+        'interval, in days, the card reached in each relearn cycle — the whole classification rests on whether ' +
+        'this series climbs), `peakSlope`, `difficultySlope`, `answerTokens` vs the vault\'s ' +
+        '`medianAnswerTokens`, `lapses`, and `windowDays`. The two guards report timing instead: how many ' +
+        'failures came in overdue and by how much, or how late in a session they happened. Returns an empty ' +
+        'array for a card that is fine — which is most cards.\n\n' +
+        'READ THE EVIDENCE BEFORE PROPOSING ANYTHING. A flag is a hypothesis from grades and timing, not a ' +
+        'verdict on the writing: the app never sees what the user actually typed or thought. Cases where the ' +
+        'flag is likely wrong and you should say so: `peaks` is short (2-3 cycles) or its values barely ' +
+        'differ, so the trend is noise; `memoryModel` is "approximated", meaning the user is on Leitner or ' +
+        'SM-2 and there is no difficulty signal at all; or `answerTokens` is only just above the vault ' +
+        'median, making "overloaded" a weak call. Disagreeing with a flag and explaining why is a correct, ' +
+        'useful answer — the user can dismiss it in the app. ' +
+        'Never rewrite or split a card on a flag alone; propose the change and let the user decide.',
+      inputSchema: {
+        cardHash: z.string().describe('globalHash of the card (from list_cards, search_flashback, or a document listing).'),
+      },
+    },
+    safe(async ({ cardHash }) => {
+      const data = await request('GET', `/api/flashcards/${encodeURIComponent(cardHash)}/flags`);
       return asText(data);
     }),
   );

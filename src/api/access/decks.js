@@ -305,12 +305,16 @@ export default class Decks {
         return holders.length;
     }
 
-    searchCards({ search, level = null, cardType = null, origin = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        return this.query.getAllFlashcards({ search, level, cardType, origin, sortBy, sortDir, limit, offset });
+    // `flagged`/`flagKind` filter to cards carrying a live card-health flag. Pure
+    // pass-through: the join lives in query.js, so this needs no cardHealth import and
+    // the card browser and the MCP's list_cards get the filter through the one path they
+    // already share.
+    searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+        return this.query.getAllFlashcards({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset });
     }
 
-    getCardCount({ search, level = null, cardType = null, origin = null } = {}) {
-        return this.query.getFlashcardCountFiltered({ search, level, cardType, origin });
+    getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
+        return this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind });
     }
 
     // Builds the canonical content snapshot stored alongside a standalone card's

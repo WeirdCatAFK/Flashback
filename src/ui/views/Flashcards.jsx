@@ -24,6 +24,24 @@ const SORT_OPTIONS = [
 ];
 const PAGE_SIZE = 50;
 
+// Card-health filters. The two guards are grouped under one pill because from the
+// browser's point of view they say the same thing — "the failures here are about your
+// routine, not this card" — and splitting them would imply a distinction the user
+// cannot act on differently.
+const FLAG_FILTERS = [
+    { value: 'any', label: 'flagged', title: 'Cards the review classifier has flagged' },
+    { value: 'mouthful', label: 'overloaded', title: 'Cards that keep resetting to a short interval and look like too much at once' },
+    { value: 'probe', label: 'productive', title: 'Hard cards that are converging — worth keeping as they are' },
+];
+
+// Short labels for the `flags` column (a comma-joined list of kinds).
+const FLAG_LABELS = {
+    mouthful: 'overloaded',
+    probe: 'productive',
+    overdue_drift: 'reviewed late',
+    session_fatigue: 'late in session',
+};
+
 function useStats() {
     const [stats, setStats] = useState(null);
     const [token, setToken] = useState(0);
@@ -52,6 +70,10 @@ export default function FlashcardsView() {
     const [query, setQuery]         = useState('');
     const [levelFilter, setLevel]   = useState(null);
     const [cardType, setCardType]   = useState(null);
+    // Card-health filter: null = off, 'any' = carries a flag of any kind, otherwise a
+    // specific signature. This is the vault-wide view of what the classifier has raised
+    // — a filter on the list where cards are already hunted down, not a separate inbox.
+    const [flagFilter, setFlagFilter] = useState(null);
     const [sort, setSort]           = useState('level:desc');
     const [page, setPage]           = useState(0);
 
@@ -69,29 +91,42 @@ export default function FlashcardsView() {
 
     const [sortBy, sortDir] = sort.split(':');
 
-    const loadCards = useCallback((q, lv, ct, sb, sd, pg) => {
+    // One object rather than a positional argument list: this grew to six parameters —
+    // two of them same-typed strings from a split — before the flag filter arrived, and
+    // every caller below repeated the order by hand.
+    const searchArgs = {
+        search: query || null,
+        level: levelFilter,
+        cardType,
+        flagged: flagFilter !== null,
+        flagKind: flagFilter === 'any' ? null : flagFilter,
+        sortBy, sortDir,
+    };
+
+    const loadCards = useCallback((args, pg) => {
         setLoading(true);
         setError(null);
-        const offset = pg * PAGE_SIZE;
-        searchCards({ search: q || null, level: lv, cardType: ct, sortBy: sb, sortDir: sd, limit: PAGE_SIZE, offset })
+        searchCards({ ...args, limit: PAGE_SIZE, offset: pg * PAGE_SIZE })
             .then(res => { setCards(res.cards); setTotal(res.total); })
             .catch(setError)
             .finally(() => setLoading(false));
     }, []);
 
-    // Re-fetch whenever any filter/sort/page changes (debounce only on text query)
+    // Re-fetch whenever any filter/sort/page changes (debounce only on text query).
+    // searchArgs is rebuilt every render, so the effect keys off its contents.
+    const searchKey = JSON.stringify(searchArgs);
     useEffect(() => {
         clearTimeout(debounceRef.current);
         debounceRef.current = setTimeout(
-            () => loadCards(query, levelFilter, cardType, sortBy, sortDir, page),
+            () => loadCards(JSON.parse(searchKey), page),
             query ? 250 : 0
         );
-    }, [query, levelFilter, cardType, sortBy, sortDir, page, loadCards]);
+    }, [searchKey, page, query, loadCards]);
 
     // A Seal rollback / Vault Doctor sync rewrote the card index — reload the
     // current page and the level histogram so the list reflects the restore.
     useDataInvalidation(() => {
-        loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+        loadCards(searchArgs, page);
         refreshStats();
     });
 
@@ -104,6 +139,11 @@ export default function FlashcardsView() {
 
     const handleCardType = (ct) => {
         setCardType(prev => prev === ct ? null : ct);
+        resetToPage0();
+    };
+
+    const handleFlagFilter = (value) => {
+        setFlagFilter(prev => prev === value ? null : value);
         resetToPage0();
     };
 
@@ -128,7 +168,7 @@ export default function FlashcardsView() {
         if (!ok) return;
         try {
             await deleteCard(card.global_hash);
-            loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+            loadCards(searchArgs, page);
         } catch (err) {
             setError(err);
         }
@@ -143,7 +183,7 @@ export default function FlashcardsView() {
     const totalCards = stats?.total ?? 0;
     const boxes = stats?.boxes ?? [];
 
-    const hasFilters = query || levelFilter !== null || cardType;
+    const hasFilters = query || levelFilter !== null || cardType || flagFilter !== null;
 
     return (
         <>
@@ -227,6 +267,19 @@ export default function FlashcardsView() {
                             {ct.replace('_', ' ')}
                         </button>
                     ))}
+                    {/* Card health. Separated from the type pills because it filters on
+                        behaviour rather than on what a card is. */}
+                    <span className="fc-filter-divider" aria-hidden="true" />
+                    {FLAG_FILTERS.map(f => (
+                        <button
+                            key={f.value}
+                            className={`fc-type-pill fc-flag-pill${flagFilter === f.value ? ' fc-type-pill--active' : ''}`}
+                            onClick={() => handleFlagFilter(f.value)}
+                            title={f.title}
+                        >
+                            {f.label}
+                        </button>
+                    ))}
                     <span className="fc-filter-count">
                         {loading ? '…' : `${total} card${total !== 1 ? 's' : ''}`}
                         {hasFilters && !loading && ' (filtered)'}
@@ -234,7 +287,10 @@ export default function FlashcardsView() {
                     {hasFilters && (
                         <button
                             className="fc-clear-all"
-                            onClick={() => { setQuery(''); setLevel(null); setCardType(null); setPage(0); }}
+                            onClick={() => {
+                                setQuery(''); setLevel(null); setCardType(null);
+                                setFlagFilter(null); setPage(0);
+                            }}
                         >
                             Clear filters
                         </button>
@@ -266,6 +322,12 @@ export default function FlashcardsView() {
                                 {card.backText && <div className="fc-card-back">{card.backText}</div>}
                             </div>
                             <div className="fc-card-meta">
+                                {card.flags && card.flags.split(',').map(kind => (
+                                    <span key={kind} className={`fc-card-flag fc-card-flag--${kind}`}
+                                        title="Open the card to see what this rests on">
+                                        {FLAG_LABELS[kind] ?? kind}
+                                    </span>
+                                ))}
                                 {card.difficulty != null && (
                                     <span
                                         className="fc-card-difficulty"
@@ -302,7 +364,7 @@ export default function FlashcardsView() {
                         <ErrorState
                             error={error}
                             title="Couldn't load your cards"
-                            onRetry={() => loadCards(query, levelFilter, cardType, sortBy, sortDir, page)}
+                            onRetry={() => loadCards(searchArgs, page)}
                         />
                     )}
                     {!loading && !error && cards.length === 0 && (
@@ -338,7 +400,7 @@ export default function FlashcardsView() {
             <CardDetailModal
                 hash={detailHash}
                 onClose={() => setDetailHash(null)}
-                onSaved={() => { loadCards(query, levelFilter, cardType, sortBy, sortDir, page); refreshStats(); }}
+                onSaved={() => { loadCards(searchArgs, page); refreshStats(); }}
             />
         )}
         {showNewCard && (
@@ -346,7 +408,7 @@ export default function FlashcardsView() {
                 onClose={() => setShowNewCard(false)}
                 onCreated={() => {
                     setShowNewCard(false);
-                    loadCards(query, levelFilter, cardType, sortBy, sortDir, page);
+                    loadCards(searchArgs, page);
                 }}
             />
         )}

@@ -213,6 +213,17 @@
   color: var(--color-on-accent);
 }
 
+/* Separates "what kind of card is this" from "how is it behaving" — two different
+   questions that happen to share a row. */
+.fc-filter-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0 4px;
+  background: var(--color-border);
+}
+
+.fc-flag-pill { font-style: italic; }
+
 .fc-filter-count {
   font-size: 11px;
   color: var(--color-fg-secondary);
@@ -333,6 +344,29 @@
   color: var(--color-fg-secondary);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+
+/* Card-health flag. Sits with the diagnostics rather than the labels, and stays a chip
+   rather than an icon: "overloaded" is a claim the user should be able to read and
+   disagree with, not a warning triangle. */
+.fc-card-flag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+
+.fc-card-flag--mouthful {
+  border-color: var(--color-review-hard);
+  color: var(--color-review-hard);
+}
+
+.fc-card-flag--probe {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
 }
 
 .fc-card-type {

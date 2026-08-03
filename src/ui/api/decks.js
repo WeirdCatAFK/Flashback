@@ -46,14 +46,23 @@ export const getCardDetail = (hash, algorithm = null) => {
 export const deleteCard = (hash) =>
     request('DELETE', `/api/flashcards/${hash}`);
 
-export const searchCards = ({ search, level = null, cardType = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) => {
+// `flagged` restricts to cards carrying a live card-health flag; `flagKind` to one
+// signature. Each returned row's `flags` is a comma-joined list of kinds (or null).
+export const searchCards = ({ search, level = null, cardType = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) => {
     const qs = new URLSearchParams();
     if (search) qs.set('search', search);
     if (level !== null) qs.set('level', String(level));
     if (cardType) qs.set('cardType', cardType);
+    if (flagKind) qs.set('flagKind', flagKind);
+    else if (flagged) qs.set('flagged', '1');
     if (sortBy !== 'level') qs.set('sortBy', sortBy);
     if (sortDir !== 'desc') qs.set('sortDir', sortDir);
     qs.set('limit', String(limit));
     qs.set('offset', String(offset));
     return request('GET', `/api/decks/cards?${qs}`);
 };
+
+// The user has ruled on a card-health flag: suppress it so it stops re-announcing
+// itself on every later failure. Returns the card's remaining flags.
+export const dismissCardFlag = (hash, kind) =>
+    request('POST', `/api/flashcards/${hash}/flags/${kind}/dismiss`, {});

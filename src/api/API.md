@@ -511,7 +511,17 @@ Everything the card detail view needs in one request: content, current schedule,
              "stabilityDays": 8.4, "originAt": "…", "dueAt": "…", "intervalDays": 8,
              "horizonDays": 16, "nowT": 5.2, "nowR": 0.94,
              "points": [ { "t": 0, "r": 1 }, "… 64 samples" ] },
-  "flags": []
+  "flags": [
+    { "id": "mouthful:42", "kind": "mouthful", "confidence": "high", "score": 0.9,
+      "detectedAt": "…", "levelAtDetection": 1,
+      "title": "Looks overloaded", "detail": "…",
+      "action": "Split it into smaller cards", "actionKind": "split",
+      "evidence": { "trajectory": "oscillating", "peaks": [4, 4, 2, 4], "peakSlope": -0.04,
+                    "difficultySlope": 0.22, "memoryModel": "fsrs", "prior": "overloaded",
+                    "answerTokens": 61, "medianAnswerTokens": 9, "lengthRatio": 6.78,
+                    "chunks": 5, "lapses": 5, "windowDays": 44,
+                    "repeatFailureInSession": false, "basis": "…" } }
+  ]
 }
 ```
 
@@ -520,9 +530,29 @@ Notes:
 - `curve` is `null` for a card that has never been reviewed, and its `points` span the **last review → horizon** — it describes the card's present memory state, not a reconstruction of its history (that's what `history` is for).
 - `model: "fsrs"` means the curve is `retrievability()` on the card's own stability with the vault's fitted weights — the same function that scheduled it. `model: "approximated"` means Leitner/SM-2, which have no memory model: the curve is drawn from `stability := the scheduled interval`, i.e. the scheduler's own premise that the interval is where recall has fallen to `requestRetention`. Clients must label the two differently.
 - `history` includes the synthetic rows a vault rebuild writes (`synthetic: true`, no outcome); they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows written before migration 006 report `algorithm: null` rather than a guess.
-- `flags` is reserved for card-health warnings and is always `[]` today.
+- `flags` is a **read**, never a computation: classification runs at review time and only on a card that has just failed (see `POST /api/srs/review`). Opening a card's detail view can never cause it to be accused of anything. `kind` is one of `mouthful`, `probe`, `overdue_drift`, `session_fatigue`; `evidence.memoryModel: "approximated"` means the vault's scheduler records no difficulty signal, so the verdict rests on intervals alone and its confidence is capped one step lower. Full semantics in `DATAMODEL.md` § Card Health.
 
 **Errors** `404` card not found.
+
+### `GET /api/flashcards/:hash/flags`
+
+The card's live card-health flags and nothing else — the same array `/detail` returns under `flags`, without the review ledger and retention curve around it. Read-only; like `/detail`, it never runs the classifier.
+
+Exists for callers that want to know *why* a card was flagged but have no use for its history — chiefly the MCP server, where the ledger would be a large payload spent to reach a four-element array.
+
+**Response** `200` — `{ "flags": [ /* as in /detail */ ] }`. An unflagged card returns `{ "flags": [] }`.
+
+**Errors** `404` card not found — deliberately distinguished from a card with no flags.
+
+### `POST /api/flashcards/:hash/flags/:kind/dismiss`
+
+The user has ruled on a card-health flag. Suppresses it (sets `dismissed_at`) rather than deleting it, so it stops re-announcing itself on every later failure while its evidence stays current. Only the named kind is affected — a card can carry both guards at once. Editing the card clears the suppression entirely.
+
+**Response** `200` — `{ ok: true, flags }`, the card's remaining live flags.
+
+**Errors** `400` unknown flag kind; `404` card not found, or the card carries no flag of that kind.
+
+**Finding flagged cards vault-wide.** There is no separate inbox endpoint — the card browser carries the filter. `GET /api/decks/cards` accepts `flagged=1` (any live flag) and `flagKind=<kind>` (one signature, and it implies `flagged`), and every row in that listing returns a `flags` field: a comma-joined list of the card's live flag kinds, or `null`. `total` honours the filter, so the pager stays correct.
 
 ### `PUT /api/flashcards/:hash`
 
@@ -558,7 +588,14 @@ Submits a spaced-repetition review result for a flashcard. Updates the card's le
 | `easeFactor`    | number | Yes      | Updated ease factor computed by the client.             |
 | `newLevel`      | number | Yes      | New Leitner box level.                                  |
 
-**Response** `200` — `{ ok: true }`.
+**Response** `200` — `{ ok: true, flags }`.
+
+`flags` is the **card-health** result for this review, and it is the only place classification is triggered:
+
+- A **failing** grade (`outcome: 0`, or FSRS `rating: 1`) classifies the card and returns any flags raised. There is no reason to guess at why a card is failing when it isn't, so a card that is passing is never analysed and never flagged.
+- A **passing** grade returns `[]` always. If it carried the card to level ≥ 3 the card counts as recovered and its flags are cleared; below that nothing happens, because a badly-built card passes constantly at a one-day interval and treating any pass as success would make the flag unreachable.
+
+The Trainer collects these and reports them once at the **end** of the session — a review is not the moment to argue with someone about how their card is built. Classification failures are logged and swallowed: a classifier bug must never cost the user a graded review that is already persisted.
 
 **Errors** `400` all fields required.
 

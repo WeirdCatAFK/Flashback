@@ -148,6 +148,44 @@ addTable('FsrsParameters', (table) => {
     table.integer('review_count');
 });
 
+// Card health — derived failure-signature classification (see migration 007 and
+// DATAMODEL.md § Card Health). Deliberately absent from the `.flashback` sidecars:
+// a flag is recomputable from ReviewLogs + the card's content, and sealing one would
+// mean a git commit on every failed review.
+//
+// CardHealth is the *analysis watermark*, one row per evaluated card. A flag is a live
+// judgement, not a permanent scar — once the user addresses a card (edits it, or reviews
+// it back up to strength) analysis restarts from `epoch_at`, so history from before the
+// fix is never held against the card that replaced it.
+addTable('CardHealth', (table) => {
+    table.increments('id').primary();
+    table.integer('flashcard_id').notNullable().unique()
+        .references('id').inTable('Flashcards').onDelete('CASCADE');
+    table.timestamp('epoch_at');
+    table.string('epoch_reason', 20);      // 'edit' | 'recovered' | 'dismissed'
+    table.string('content_fingerprint', 64);
+    table.timestamp('updated_at');
+});
+
+// One row per currently-raised flag. UNIQUE(flashcard_id, kind) because a card either
+// currently reads as a mouthful or it doesn't — re-raising refreshes the evidence rather
+// than stacking duplicates. `dismissed_at` suppresses a flag the user has already ruled
+// on instead of deleting it, so it stops re-announcing itself on every later failure.
+addTable('CardFlags', (table) => {
+    table.increments('id').primary();
+    table.integer('flashcard_id').notNullable()
+        .references('id').inTable('Flashcards').onDelete('CASCADE');
+    table.string('kind', 40).notNullable().index();
+    table.string('confidence', 20).notNullable();
+    table.float('score');
+    table.text('evidence_json');
+    table.integer('level_at_detection');
+    table.timestamp('detected_at');
+    table.integer('review_log_id');
+    table.timestamp('dismissed_at');
+    table.unique(['flashcard_id', 'kind']);
+});
+
 addTable('Tags', (table) => {
     table.increments('id').primary();
     table.string('name', 500).index();
@@ -281,6 +319,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(globa
 CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id);
 CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash);
 CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash);
+CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id);
+CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id);
 `;
 
 const schemaSQL = tables.join(';\n')

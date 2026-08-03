@@ -780,6 +780,63 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | level        | integer      | Current level/stage in SRS algorithm.            |
 | algorithm    | varchar(20)  | Scheduler that graded this review (`leitner`/`sm2`/`fsrs`). NULL pre-migration 006. |
 
+**Only the grade is stored, never the typed answer.** That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
+
+---
+
+### Table: CardHealth
+
+The **analysis watermark**, one row per evaluated card. A card-health flag is a live judgement, not a permanent scar: once the user *addresses* a card, analysis restarts from that moment, so review history from before the fix is never held against the card that replaced it.
+
+| Column              | Type         | Description                                             |
+| ------------------- | ------------ | ------------------------------------------------------- |
+| id                  | integer (PK) | Unique identifier.                                      |
+| flashcard_id        | integer (FK) | The card. UNIQUE. **(ON DELETE CASCADE)**               |
+| epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
+| epoch_reason        | varchar(20)  | What moved the watermark: `edit`, `recovered`, `dismissed`. |
+| content_fingerprint | varchar(64)  | Hash of front + back + custom HTML + card type at last evaluation. |
+| updated_at          | timestamp    | Last write.                                             |
+
+`content_fingerprint` is how an edit is detected **without an edit hook**. `cardHealth.buildContext()` compares the card's current fingerprint against the stored one and resets the epoch on a mismatch, so an edit arriving through *any* path — the PUT route, the MCP server, a Seal rollback, a Vault Doctor reindex — invalidates the card's flags without those paths knowing the classifier exists.
+
+---
+
+### Table: CardFlags
+
+One row per **currently-raised** flag. `UNIQUE(flashcard_id, kind)`: a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
+
+| Column             | Type         | Description                                              |
+| ------------------ | ------------ | -------------------------------------------------------- |
+| id                 | integer (PK) | Unique identifier.                                       |
+| flashcard_id       | integer (FK) | The flagged card. **(ON DELETE CASCADE)**                |
+| kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`. |
+| confidence         | varchar(20)  | `moderate` or `high`.                                    |
+| score              | float        | How strongly the detector fired (0–1).                   |
+| evidence_json      | text         | The numbers behind the verdict — see below.              |
+| level_at_detection | integer      | The card's SRS level when the flag was raised.           |
+| detected_at        | timestamp    | When it was last raised or refreshed.                    |
+| review_log_id      | integer      | The failing review that raised it. Not an FK — the row can be undone. |
+| dismissed_at       | timestamp    | Set when the user rules on it. Suppressed, not deleted.  |
+
+`evidence_json` is what makes a flag arguable rather than an oracle: the peak-interval series across relearn cycles, the FSRS difficulty slope, the answer's token count against the vault median, overdue ratios, lapse count and window age, plus `memoryModel` (`fsrs` or `approximated`). The UI renders it; the user can disagree with it.
+
+### Card Health — lifecycle
+
+Classification runs **only when a card has just failed**. There is no reason to guess at why a card is failing when it isn't, and criticising a card that is working is the failure mode the design exists to avoid.
+
+| Trigger | Effect |
+| --- | --- |
+| Failing review (`outcome = 0`, or FSRS `rating = 1`) | Classify over the epoch window; upsert flags. A dismissed row is refreshed but stays suppressed. |
+| Passing review reaching **level ≥ 3** | Recovery: delete live flags, stamp `epoch_reason = 'recovered'`. |
+| Passing review below level 3 | Nothing. A mouthful passes constantly at a one-day interval — treating any pass as success would make the flag unreachable. |
+| Content edit | Delete **all** flags including dismissed ones; stamp `epoch_reason = 'edit'`. A rewritten card is judged fresh. |
+| Dismiss | Set `dismissed_at` on that one kind (a card can carry both guards); move the watermark. |
+| Undo review | Re-classify against the shortened ledger, so a flag never cites a review that no longer exists. |
+
+Both tables are **derived**: absent from `.flashback` sidecars, recomputable from `ReviewLogs` plus card content, and never sealed — a flag written canonically would mean a git commit on every failed review. They are cleared by `query.wipeDerivedContent()`, so a Vault Doctor `rebuildIndex` (which destroys `ReviewLogs` history) takes card health with it and cards re-earn their flags from new review behaviour.
+
+Detector semantics, the mouthful/probe discriminator and the guard-precedence rule are documented in `src/api/access/ACCESS.md` § `cardHealth.js`.
+
 ---
 
 ### Table: Subscriptions

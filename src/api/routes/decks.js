@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import Decks from '../access/decks.js';
+import { FLAG_KINDS } from '../access/cardHealth.js';
 
 const router = Router();
 const decks = new Decks();
@@ -32,19 +33,27 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-// GET /api/decks/cards?search=&level=&cardType=&origin=&sortBy=&sortDir=&limit=&offset=
+// GET /api/decks/cards?search=&level=&cardType=&origin=&flagged=&flagKind=&sortBy=&sortDir=&limit=&offset=
+//
+// `flagged=1` restricts to cards carrying a live card-health flag, `flagKind` to one
+// signature. This is the vault-wide view of what the classifier has raised — a filter on
+// the card browser rather than a separate inbox, so flagged cards stay in the one place
+// cards are already hunted down. Each row's `flags` is a comma-joined kind list.
 router.get('/cards', catchError((req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
     const cardType = req.query.cardType || null;
     // 'ai' → only AI-created cards, 'human' → only cards not created by an AI assistant
     const origin = ['ai', 'human'].includes(req.query.origin) ? req.query.origin : null;
+    const flagKind = FLAG_KINDS.includes(req.query.flagKind) ? req.query.flagKind : null;
+    const flagged = flagKind !== null || req.query.flagged === '1' || req.query.flagged === 'true';
     const sortBy = req.query.sortBy || 'level';
     const sortDir = req.query.sortDir || 'desc';
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
-    const cards = decks.searchCards({ search, level, cardType, origin, sortBy, sortDir, limit, offset });
-    const total = decks.getCardCount({ search, level, cardType, origin });
+    const filters = { search, level, cardType, origin, flagged, flagKind };
+    const cards = decks.searchCards({ ...filters, sortBy, sortDir, limit, offset });
+    const total = decks.getCardCount(filters);
     res.json({ cards, total, limit, offset });
 }));
 
