@@ -325,7 +325,9 @@
   padding: 10px 12px 8px;
   border-radius: 10px;
   border: 1px solid transparent;
-  color: var(--color-fg-primary);
+  /* Reads against the grade fill, not against the page — see the token note in
+     index.css. fg-primary here is unreadable on every dark theme. */
+  color: var(--color-on-review);
   cursor: pointer;
   transition: filter 80ms ease, border-color 80ms ease, color 80ms ease;
 }
@@ -575,13 +577,13 @@
 
 .type-answer-verdict--correct {
   color: var(--color-review-easy);
-  background: color-mix(in srgb, var(--color-review-easy) 12%, transparent);
+  background: color-mix(in srgb, var(--color-review-easy) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-review-easy) 30%, transparent);
 }
 
 .type-answer-verdict--wrong {
   color: var(--color-review-again);
-  background: color-mix(in srgb, var(--color-review-again) 12%, transparent);
+  background: color-mix(in srgb, var(--color-review-again) 8%, transparent);
   border: 1px solid color-mix(in srgb, var(--color-review-again) 30%, transparent);
 }
 

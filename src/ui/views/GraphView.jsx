@@ -240,9 +240,15 @@ function redraw() {
     .force('center', d3.forceCenter(W / 2, H / 2))
     .force('collide', d3.forceCollide(10));
 
+  // Same rule as the in-app graph: links rest in one neutral so they read as
+  // structure rather than competing with the node colours, and the resting
+  // alpha thins out as the graph gets denser. Severed links keep a dash.
+  var restAlpha = Math.max(0.07, Math.min(0.30, 6 / Math.sqrt(Math.max(links.length, 1))));
   var linkSel = g.append('g').selectAll('line').data(links).join('line')
-    .attr('stroke', function(d) { return COLORS.links[d.relation] || '#777'; })
-    .attr('stroke-opacity', 0.45).attr('stroke-width', 1.5);
+    .attr('stroke', COLORS.edge || '#777')
+    .attr('stroke-dasharray', function(d) { return d.relation === 'disconnection' ? '2,3' : null; })
+    .attr('stroke-opacity', restAlpha)
+    .attr('stroke-width', links.length > 1200 ? 0.7 : 1.1);
 
   var nodeSel = g.append('g').selectAll('g').data(nodes).join('g').attr('cursor', 'pointer')
     .call(d3.drag()
@@ -390,6 +396,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
       deck:          getCSSVar('--color-graph-deck'),
       link:          getCSSVar('--color-graph-link'),
     },
+    edge:  getCSSVar('--color-graph-edge'),
     bg:    getCSSVar('--color-bg-base'),
     label: getCSSVar('--color-fg-secondary'),
   }), [themeVer]);
@@ -633,17 +640,27 @@ export default function GraphView({ isActive = false, onNavigate }) {
   // Precompute the three alpha variants per relation once per theme change so
   // the per-frame link color accessor returns cached strings instead of
   // rebuilding rgba() strings for every link on every repaint.
+  // A dense vault draws far more link pixels than node pixels, so relation
+  // colour at rest stops being information and just blends into patches that
+  // drown the nodes. Links rest in one neutral and only regain their relation
+  // colour once a hover/selection isolates a subgraph small enough to trace.
+  // The resting alpha falls as the graph gets denser, for the same reason.
+  const restAlpha = useMemo(() => {
+    const n = visibleData?.links?.length ?? 0;
+    return Math.max(0.07, Math.min(0.30, 6 / Math.sqrt(Math.max(n, 1))));
+  }, [visibleData]);
+
   const linkColors = useMemo(() => {
     const out = {};
     for (const [relation, base] of Object.entries(colors.links)) {
       out[relation] = {
-        normal:  withAlpha(base, 0.45),
-        focused: withAlpha(base, 0.7),
-        dim:     withAlpha(base, 0.1),
+        normal:  withAlpha(colors.edge, restAlpha),
+        focused: withAlpha(base, 0.75),
+        dim:     withAlpha(colors.edge, restAlpha * 0.3),
       };
     }
     return out;
-  }, [colors]);
+  }, [colors, restAlpha]);
 
   const getLinkColor = useCallback(link => {
     const c = linkColors[link.relation] ?? linkColors.connection;
@@ -651,6 +668,19 @@ export default function GraphView({ isActive = false, onNavigate }) {
     const focused = focusedIds.has(nodeId(link.source)) || focusedIds.has(nodeId(link.target));
     return focused ? c.focused : c.dim;
   }, [linkColors, focusedIds]);
+
+  // A severed connection still has to be distinguishable at rest, but spending
+  // colour on it would reintroduce the patches — so it gets a dash instead.
+  const getLinkDash = useCallback(
+    link => (link.relation === 'disconnection' ? [2, 3] : null),
+    [],
+  );
+
+  // Hairlines in a dense graph, a little more presence in a sparse one.
+  const linkWidth = useMemo(
+    () => ((visibleData?.links?.length ?? 0) > 1200 ? 0.7 : 1.1),
+    [visibleData],
+  );
 
   const handleNodeHover = useCallback(node => {
     setHovered(node ?? null);
@@ -739,7 +769,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
             autoPauseRedraw={!animating}
             cooldownTime={visibleData.nodes.length > 800 ? 8000 : 15000}
             linkColor={getLinkColor}
-            linkWidth={1.5}
+            linkLineDash={getLinkDash}
+            linkWidth={linkWidth}
             d3AlphaDecay={visibleData.nodes.length > 800 ? 0.05 : 0.0228}
 
             onNodeClick={handleNodeClick}

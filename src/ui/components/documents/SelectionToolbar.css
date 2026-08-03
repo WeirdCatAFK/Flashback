@@ -34,13 +34,17 @@
   inset: 5px;
   border-radius: 50%;
   background: var(--dot-color);
+  /* Highlight swatches are tuned to carry document text, which leaves some of
+     them close to the toolbar surface. The ring keeps the dot a legible shape. */
+  box-shadow: inset 0 0 0 1px var(--color-border-strong);
   transition: transform 100ms, box-shadow 100ms;
 }
 
 .sel-color-dot:hover::after,
 .sel-color-dot:focus-visible::after {
   transform: scale(1.3);
-  box-shadow: 0 0 0 1px var(--color-border);
+  box-shadow: inset 0 0 0 1px var(--color-border-strong),
+              0 0 0 1px var(--color-border);
 }
 
 .sel-color-dot:focus-visible {

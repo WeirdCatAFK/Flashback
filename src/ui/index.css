@@ -39,7 +39,37 @@
   --dur-base: 200ms;
 }
 
-/* ── Theme variables ─────────────────────────────────────────────────────── */
+/* ── Theme variables ─────────────────────────────────────────────────────────
+   Every colour token below has exactly ONE job, because a token asked to do two
+   jobs at opposite ends of the theme cannot satisfy both. Two pairs are easy to
+   get wrong, so they are spelled out here:
+
+   • --color-review-* is a BUTTON FILL (Trainer grade buttons) *and* a TEXT
+     colour on a panel (the session summary, the type-answer verdict). Those two
+     roles only agree when the label painted on the fill is --color-on-review,
+     set to the theme's panel colour — then "label on fill" and "swatch as text
+     on panel" are the same contrast pair, and one value satisfies both. Never
+     label a grade button with --color-fg-primary.
+   • --color-hl-* is painted BEHIND document text, so --color-fg-primary has to
+     stay readable on top of it: pale swatches in a light theme, deep swatches
+     in a dark one. The highlight-picker dots are derived from these, not the
+     other way round.
+   • --color-border is a hairline for dividers and card edges; a control whose
+     boundary is the only thing identifying it (inputs, selects) uses
+     --color-border-strong, which clears 3:1 against the surface behind it.
+   • --color-graph-* is a CATEGORICAL palette, not a set of aliases. Five node
+     types are bare dots on --color-bg-base, so colour is the only thing telling
+     them apart: each theme's five hues sit at one shared chroma and are spread
+     around the wheel, which is what makes them read as one set while staying
+     separable. Slot 1 (Document) sits on the theme's accent hue, and Tag stays
+     green / Flashcard warm so the graph reads the same way whichever theme is
+     on — dark-cherry is the deliberate exception (a narrow blossom palette that
+     separates by lightness instead; see its own note). Aliasing these back to --color-hl-* or
+     --color-review-* re-breaks them: those are tuned against *text*, not against
+     the canvas. Values must be literal hex — GraphView reads them through
+     getComputedStyle and parses hex/rgb only, so color-mix() will not work.
+
+   `node scripts/check-contrast.js` verifies all of the above and fails loudly. */
 
 :root,
 [data-theme="light-workbench"] {
@@ -48,42 +78,46 @@
   --color-bg-surface:     #FFFFFF;
   --color-bg-hover:       #E2DFDC;
   --color-bg-reader:      #FFFEF9;
-  --color-bg-editor:      light;  
+  --color-bg-editor:      light;
   --color-fg-primary:     #1C1917;
-  --color-fg-secondary:   #78716C;
+  --color-fg-secondary:   #6B6560;
   --color-fg-icon:        #57534E;
-  --color-accent:         #D97706;
-  --color-on-accent:      #1C1917;
+  --color-accent:         #B45309;
+  --color-on-accent:      #FFFFFF;
   --color-border:         #D6D3D1;
+  --color-border-strong:  #8C8681;
   --color-title-bar:      #E8E4E0;
   /* extended */
   --color-accent-subtle:  #FEF3C7;
   --color-tree-indent:    #D6D3D1;
   --color-sidebar-header: #E2DFDC;
-  /* highlight swatches */
+  /* highlight swatches — these sit BEHIND document text, so fg-primary must
+     stay legible on top of them. Keep them pale in a light theme. */
   --color-hl-1:       #FDE68A;
   --color-hl-2:       #D9F99D;
   --color-hl-3:        #BFDBFE;
   --color-hl-4:        #FBCFE8;
-  /* review grade swatches */
-  --color-review-again:   #FCA5A5;
-  --color-review-hard:    #FCD34D;
-  --color-review-good:    #86EFAC;
-  --color-review-easy:    #93C5FD;
-  /* graph node & link colors (override individually per theme if desired) */
-  --color-graph-document:   var(--color-accent);
-  --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-1);
-  --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #2dd4bf;
-  --color-graph-disconnect: var(--color-review-again);
-  --color-graph-inherit:    var(--color-review-easy);
+  /* review grade swatches — see the role note above --color-on-review */
+  --color-on-review:      #FFFFFF;
+  --color-review-again:   #A82323;
+  --color-review-hard:    #8F5606;
+  --color-review-good:    #196B39;
+  --color-review-easy:    #1E4E8C;
+  /* graph node & link colours — muted oxides and inks, one chroma (~0.10) */
+  --color-graph-edge:       #9A938C;   /* resting links: structure, not identity */
+  --color-graph-document:   #B0694D;
+  --color-graph-folder:     #5580B9;
+  --color-graph-flashcard:  #814774;
+  --color-graph-tag:        #385B1C;
+  --color-graph-deck:       #422862;
+  --color-graph-link:       #B0694D;
+  --color-graph-disconnect: #B91C1C;
+  --color-graph-inherit:    #637558;
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.08);
   --shadow-float:       0 4px 16px -2px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
-  --color-danger:       #DC2626;
-  --color-danger-bg:    rgba(220, 38, 38, 0.08);
+  --color-danger:       #B91C1C;
+  --color-danger-bg:    rgba(185, 28, 28, 0.08);
 }
 
 [data-theme="dark-workbench"] {
@@ -99,6 +133,7 @@
   --color-accent:         #F59E0B;
   --color-on-accent:      #1C1917;
   --color-border:         #3C3530;
+  --color-border-strong:  #7A6E65;
   --color-title-bar:      #0C0A09;
   /* extended */
   --color-accent-subtle:  #292012;
@@ -110,19 +145,21 @@
   --color-hl-3:        #1D4ED8;
   --color-hl-4:        #9D174D;
   /* review grade swatches */
-  --color-review-again:   #EF4444;
+  --color-on-review:      #1C1917;
+  --color-review-again:   #F37373;
   --color-review-hard:    #F59E0B;
   --color-review-good:    #22C55E;
-  --color-review-easy:    #3B82F6;
-  /* graph node & link colors */
-  --color-graph-document:   var(--color-accent);
-  --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-1);
-  --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #2dd4bf;
-  --color-graph-disconnect: var(--color-review-again);
-  --color-graph-inherit:    var(--color-review-easy);
+  --color-review-easy:    #629BF8;
+  /* graph node & link colours — see the graph note above */
+  --color-graph-edge:       #6E635B;   /* resting links: structure, not identity */
+  --color-graph-document:   #C87F00;
+  --color-graph-folder:     #2A70C0;
+  --color-graph-flashcard:  #B35189;
+  --color-graph-tag:        #38AD6B;
+  --color-graph-deck:       #9881E3;
+  --color-graph-link:       #C87F00;
+  --color-graph-disconnect: #F87171;
+  --color-graph-inherit:    #7BA688;
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.35);
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22);
@@ -134,7 +171,7 @@
   --color-bg-base:        #0F0F10;
   --color-bg-sidebar:     #151516;
   --color-bg-surface:     #1C1C1E;
-  --color-bg-hover:       #24161C;
+  --color-bg-hover:       #33222A;
   --color-bg-reader:      #161618;
   --color-bg-editor:      dark;
 
@@ -142,10 +179,11 @@
   --color-fg-secondary:   #A8A8AD;
   --color-fg-icon:        #D0D0D4;
 
-  --color-accent:         #FF1744;
-  --color-on-accent:      #FFFFFF;
+  --color-accent:         #FF4569;
+  --color-on-accent:      #0F0F10;
 
   --color-border:         #2B2B2E;
+  --color-border-strong:  #686872;
   --color-title-bar:      #0A0A0B;
 
   /* extended */
@@ -153,27 +191,33 @@
   --color-tree-indent:    rgba(255, 23, 68, 0.18);
   --color-sidebar-header: #0A0A0B;
 
-  /* highlight swatches */
-  --color-hl-1:           #FF8A65; /* coral */
-  --color-hl-2:           #F06292; /* rose */
-  --color-hl-3:           #9575CD; /* soft violet */
-  --color-hl-4:           #4FC3F7; /* soft cyan */
+  /* highlight swatches — deepened so light document text survives on top */
+  --color-hl-1:           #B84427; /* coral */
+  --color-hl-2:           #B02A55; /* rose */
+  --color-hl-3:           #6D4CAF; /* violet */
+  --color-hl-4:           #0F6C91; /* cyan */
 
   /* review grade swatches */
+  --color-on-review:      #0F0F10;
   --color-review-again:   #FF5252;
   --color-review-hard:    #FFA726;
   --color-review-good:    #66BB6A;
   --color-review-easy:    #42A5F5;
 
-  /* graph node & link colors */
-  --color-graph-document:   var(--color-accent);
-  --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-1);
-  --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #B388FF;
-  --color-graph-link:       #CE93D8;
-  --color-graph-disconnect: var(--color-review-again);
-  --color-graph-inherit:    var(--color-review-easy);
+  /* graph node & link colours — a cherry tree: cards take the characteristic
+     cherry red, documents the blossom pink, folders the bark (containment is
+     the wood). This theme deliberately trades the even hue spread the other
+     themes use for a narrow cherry palette, so red and pink — neighbours on the
+     wheel — are held apart by lightness and chroma instead of hue. */
+  --color-graph-edge:       #615563;   /* resting links: structure, not identity */
+  --color-graph-document:   #F99BBF;
+  --color-graph-folder:     #92521D;
+  --color-graph-flashcard:  #F73060;
+  --color-graph-tag:        #A882D7;
+  --color-graph-deck:       #794FA0;
+  --color-graph-link:       #F99BBF;
+  --color-graph-disconnect: #FF5252;
+  --color-graph-inherit:    #A595BB;
 
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.45);
@@ -186,11 +230,11 @@
 
 [data-theme="raven-indigo"] {
   --color-bg-base:        #17151F;
-  --color-bg-sidebar:     #211C3A;
-  --color-bg-surface:     #3E3A7D;
-  --color-bg-hover:       #4A4293;
-  --color-bg-reader:      #E6E6EB;
-  --color-bg-editor:      light;
+  --color-bg-sidebar:     #1E1A33;
+  --color-bg-surface:     #2A2550;
+  --color-bg-hover:       #37306B;
+  --color-bg-reader:      #1B1830;
+  --color-bg-editor:      dark;
 
   --color-fg-primary:     #F5F2FF;
   --color-fg-secondary:   #C3B8E6;
@@ -199,7 +243,8 @@
   --color-accent:         #B77AD9;
   --color-on-accent:      #17151F;
 
-  --color-border:         #5A52A8;
+  --color-border:         #4A4287;
+  --color-border-strong:  #8F86D6;
   --color-title-bar:      #2B2450;
 
   /* extended */
@@ -207,27 +252,29 @@
   --color-tree-indent:    rgba(183, 122, 217, 0.28);
   --color-sidebar-header: #17132E;
 
-  /* highlight swatches */
-  --color-hl-1:           #D8B4FE; /* lavender */
-  --color-hl-2:           #67E8F9; /* cyan */
-  --color-hl-3:           #A5B4FC; /* periwinkle */
-  --color-hl-4:           #F9A8D4; /* pink */
+  /* highlight swatches — deepened so light document text survives on top */
+  --color-hl-1:           #7E3BC4; /* lavender */
+  --color-hl-2:           #0F6E7C; /* cyan */
+  --color-hl-3:           #3D51C9; /* periwinkle */
+  --color-hl-4:           #B5236E; /* pink */
 
   /* review grade swatches */
+  --color-on-review:      #17151F;
   --color-review-again:   #FB7185;
   --color-review-hard:    #FBBF24;
   --color-review-good:    #4ADE80;
   --color-review-easy:    #60A5FA;
 
-  /* graph node & link colors */
-  --color-graph-document:   var(--color-accent);
-  --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-1);
-  --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #818CF8;
-  --color-graph-disconnect: var(--color-review-again);
-  --color-graph-inherit:    var(--color-review-easy);
+  /* graph node & link colours — see the graph note above */
+  --color-graph-edge:       #6A5F93;   /* resting links: structure, not identity */
+  --color-graph-document:   #965CB5;
+  --color-graph-folder:     #2F9BE5;
+  --color-graph-flashcard:  #B65513;
+  --color-graph-tag:        #76A53C;
+  --color-graph-deck:       #DA6A8C;
+  --color-graph-link:       #965CB5;
+  --color-graph-disconnect: #FB7185;
+  --color-graph-inherit:    #8DA378;
 
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
@@ -242,39 +289,42 @@
   --color-bg-base:        #18181B;
   --color-bg-sidebar:     #09090B;
   --color-bg-surface:     #27272A;
-  --color-bg-hover:       #2E2B50;
+  --color-bg-hover:       #37345F;
   --color-bg-reader:      #212123;
-  --color-bg-editor:      dark;  
+  --color-bg-editor:      dark;
   --color-fg-primary:     #F4F4F5;
   --color-fg-secondary:   #A1A1AA;
   --color-fg-icon:        #D4D4D8;
   --color-accent:         #818CF8;
   --color-on-accent:      #18181B;
   --color-border:         #3F3F46;
+  --color-border-strong:  #71717F;
   --color-title-bar:      #07070A;
   /* extended */
   --color-accent-subtle:  #1E1B4B;
   --color-tree-indent:    rgba(129, 140, 248, 0.25);
   --color-sidebar-header: #050507;
-  /* highlight swatches */
-  --color-hl-1:       #818CF8;
-  --color-hl-2:       #34D399;
-  --color-hl-3:        #22D3EE;
-  --color-hl-4:        #FB7185;
+  /* highlight swatches — deepened so light document text survives on top */
+  --color-hl-1:       #4C5BF5;
+  --color-hl-2:       #1B7C59;
+  --color-hl-3:        #0B7A8B;
+  --color-hl-4:        #C21D3C;
   /* review grade swatches */
+  --color-on-review:      #18181B;
   --color-review-again:   #FB7185;
   --color-review-hard:    #FBBF24;
   --color-review-good:    #34D399;
   --color-review-easy:    #22D3EE;
-  /* graph node & link colors */
-  --color-graph-document:   var(--color-accent);
-  --color-graph-folder:     var(--color-fg-secondary);
-  --color-graph-flashcard:  var(--color-hl-1);
-  --color-graph-tag:        var(--color-hl-2);
-  --color-graph-deck:       #8B5CF6;
-  --color-graph-link:       #2dd4bf;
-  --color-graph-disconnect: var(--color-review-again);
-  --color-graph-inherit:    var(--color-review-easy);
+  /* graph node & link colours — see the graph note above */
+  --color-graph-edge:       #5A5A66;   /* resting links: structure, not identity */
+  --color-graph-document:   #5C64C2;
+  --color-graph-folder:     #039FE1;
+  --color-graph-flashcard:  #BD552B;
+  --color-graph-tag:        #7FA230;
+  --color-graph-deck:       #CA6EB5;
+  --color-graph-link:       #5C64C2;
+  --color-graph-disconnect: #FB7185;
+  --color-graph-inherit:    #90A175;
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
   --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
@@ -329,7 +379,9 @@ select {
   font-size: inherit;
   color: var(--color-fg-primary);
   background: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
+  /* The border is the only thing that identifies these controls against the
+     surface behind them, so it uses the 3:1 token, not the hairline one. */
+  border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-sm);
   padding: var(--space-1) var(--space-2);
 }

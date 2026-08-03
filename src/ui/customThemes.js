@@ -22,6 +22,7 @@ export const THEME_VARS = [
   { key: '--color-on-accent',      label: 'Text on accent' },
   // Borders
   { key: '--color-border',         label: 'Borders' },
+  { key: '--color-border-strong',  label: 'Input & control borders' },
   { key: '--color-tree-indent',    label: 'Tree indent line' },
   // Highlight swatches
   { key: '--color-hl-1',       label: 'Highlight 1' },
@@ -29,10 +30,13 @@ export const THEME_VARS = [
   { key: '--color-hl-3',        label: 'Highlight 3' },
   { key: '--color-hl-4',        label: 'Highlight 4' },
   // Review grade swatches
+  { key: '--color-on-review',      label: 'Review · Button label' },
   { key: '--color-review-again',   label: 'Review · Again' },
+  { key: '--color-review-hard',    label: 'Review · Hard' },
   { key: '--color-review-good',    label: 'Review · Good' },
   { key: '--color-review-easy',    label: 'Review · Easy' },
   // Graph node & link colors
+  { key: '--color-graph-edge',      label: 'Graph · Resting links' },
   { key: '--color-graph-document',  label: 'Graph · Document' },
   { key: '--color-graph-folder',    label: 'Graph · Folder' },
   { key: '--color-graph-flashcard', label: 'Graph · Flashcard' },
@@ -45,6 +49,7 @@ export const THEME_VARS = [
   { key: '--color-danger',          label: 'Danger / error' },
   { key: '--color-danger-bg',       label: 'Danger background', type: 'text' },
   // Elevation
+  { key: '--shadow-sm',             label: 'Resting shadow',    type: 'text' },
   { key: '--shadow-float',          label: 'Float shadow',      type: 'text' },
 ];
 

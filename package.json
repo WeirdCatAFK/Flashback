@@ -25,6 +25,7 @@
     "test": "node scripts/run-tests.js",
     "tests": "node scripts/run-tests.js",
     "lint": "eslint .",
+    "check:contrast": "node scripts/check-contrast.js",
     "test:docs": "node --test tests/docs.test.js",
     "test:performance": "node --test tests/performance.test.js",
     "test:media": "node --test tests/media.test.js",
