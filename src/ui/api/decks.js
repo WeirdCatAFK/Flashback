@@ -12,8 +12,18 @@ export const getDeck = (hash) =>
 export const updateDeck = (hash, data) =>
     request('PUT', `/api/decks/${hash}`, data);
 
+// Removes the deck only — its cards survive as standalone cards.
 export const deleteDeck = (hash) =>
     request('DELETE', `/api/decks/${hash}`);
+
+// What erasing the deck *and its cards* would destroy, for the confirm dialog.
+export const getDeckContents = (hash) =>
+    request('GET', `/api/decks/${hash}/contents`);
+
+// Deletes the deck AND its cards. `includeShared` also destroys cards that another
+// deck holds; left false they survive and are merely unlinked.
+export const purgeDeck = (hash, includeShared = false) =>
+    request('POST', `/api/decks/${hash}/purge`, { includeShared });
 
 export const setDeckTags = (hash, tags) =>
     request('PUT', `/api/decks/${hash}/tags`, { tags });

@@ -1285,6 +1285,147 @@ describe('Flashback API', () => {
             assert.ok(!decks.some(d => d.global_hash === deckHash),
                 'Deleted deck must not appear in the listing');
         });
+
+        // ── Purge: delete the deck AND its cards ──────────────────────────────
+        //
+        // Deliberately separate from DELETE /:hash, which keeps the cards. These
+        // pin the distinction and the two judgement calls the purge makes: cards
+        // another *non-system* deck holds survive unless asked for, and
+        // document-anchored cards really leave their sidecar.
+        describe('POST /api/decks/:hash/purge', () => {
+            // Each case gets its own document and cards. Sharing them across cases made
+            // an earlier version of this suite lie: a card left in a *previous* case's
+            // surviving deck is legitimately "shared", so the purge correctly spared it
+            // and the failure looked like a bug in the purge rather than in the fixture.
+            async function buildPurgeFixture(prefix) {
+                const doc = `purge-${prefix}.md`;
+                const docCard = `decks-purge-fc-${prefix}`;
+                await createFile(doc, ROOT);
+                await updateFile(`${ROOT}/${doc}`, '# Purge Doc', {
+                    flashcards: [
+                        { globalHash: docCard, vanillaData: { frontText: 'Purge Q', backText: 'Purge A' } },
+                    ]
+                });
+
+                const deck = await (await post(`${baseUrl}/api/decks`, { name: `${prefix} target` })).json();
+                const other = await (await post(`${baseUrl}/api/decks`, { name: `${prefix} other` })).json();
+
+                const solo = await (await post(`${baseUrl}/api/flashcards`,
+                    { frontText: 'solo Q', backText: 'solo A', name: 'solo' })).json();
+                const shared = await (await post(`${baseUrl}/api/flashcards`,
+                    { frontText: 'shared Q', backText: 'shared A', name: 'shared' })).json();
+
+                await post(`${baseUrl}/api/decks/${deck.globalHash}/entries`, { cardHash: solo.globalHash });
+                await post(`${baseUrl}/api/decks/${deck.globalHash}/entries`, { cardHash: shared.globalHash });
+                await post(`${baseUrl}/api/decks/${other.globalHash}/entries`, { cardHash: shared.globalHash });
+                await post(`${baseUrl}/api/decks/${deck.globalHash}/entries`,
+                    { cardHash: docCard, documentPath: `${ROOT}/${doc}` });
+
+                return {
+                    deck: deck.globalHash, other: other.globalHash,
+                    solo: solo.globalHash, shared: shared.globalHash,
+                    docCard, docPath: `${ROOT}/${doc}`,
+                };
+            }
+
+            it('GET /:hash/contents → splits standalone, document and shared counts', async () => {
+                const f = await buildPurgeFixture('contents');
+                const summary = await (await fetch(`${baseUrl}/api/decks/${f.deck}/contents`)).json();
+
+                assert.equal(summary.total, 3);
+                assert.equal(summary.standalone, 2);
+                assert.equal(summary.documentAnchored, 1);
+                assert.ok(summary.documents.some(d => d.includes('purge-contents.md')),
+                    'names the document the anchored card comes from');
+                // The system deck holds every standalone card and must not count as
+                // a second owner, or nothing would ever be erasable.
+                assert.equal(summary.shared, 1, 'only the card in the other real deck is shared');
+                assert.ok(summary.otherDecks.some(n => n.includes('other')));
+            });
+
+            it('purges standalone + document cards, sparing shared ones by default', async () => {
+                const f = await buildPurgeFixture('spare');
+                // Precondition: the fixture really did produce a shared card. Without
+                // this an assertion further down fails for a fixture reason and reads
+                // like a bug in the purge.
+                const pre = await (await fetch(`${baseUrl}/api/decks/${f.deck}/contents`)).json();
+                assert.deepEqual(
+                    { total: pre.total, standalone: pre.standalone, doc: pre.documentAnchored, shared: pre.shared },
+                    { total: 3, standalone: 2, doc: 1, shared: 1 },
+                );
+
+                const res = await post(`${baseUrl}/api/decks/${f.deck}/purge`, {});
+                const body = await res.json();
+                assert.equal(res.status, 200, `purge failed: ${JSON.stringify(body)}`);
+                assert.equal(body.deleted, 2, 'solo + document-anchored');
+                assert.equal(body.kept, 1, 'the shared card is spared');
+
+                const decks = await (await fetch(`${baseUrl}/api/decks`)).json();
+                assert.ok(!decks.some(d => d.global_hash === f.deck), 'deck itself is gone');
+
+                assert.equal((await fetch(`${baseUrl}/api/flashcards/${f.solo}`)).status, 404,
+                    'unshared standalone card destroyed');
+                assert.equal((await fetch(`${baseUrl}/api/flashcards/${f.shared}`)).status, 200,
+                    'shared card survives');
+                assert.equal((await fetch(`${baseUrl}/api/flashcards/${f.docCard}`)).status, 404,
+                    'document-anchored card destroyed');
+
+                // ...and it really left the sidecar, not just the index.
+                const sidecar = await (await fetch(
+                    `${baseUrl}/api/documents/sidecar?path=${encodeURIComponent(f.docPath)}`)).json();
+                assert.ok(!(sidecar.flashcards ?? []).some(c => c.globalHash === f.docCard),
+                    'card removed from the document sidecar, not only from the DB');
+
+                // The spared card must still be usable in the deck that kept it.
+                const other = await (await fetch(`${baseUrl}/api/decks/${f.other}`)).json();
+                assert.ok(other.entries.some(e => e.card_hash === f.shared));
+            });
+
+            it('purges shared cards too when includeShared is set', async () => {
+                const f = await buildPurgeFixture('include');
+                const body = await (await post(`${baseUrl}/api/decks/${f.deck}/purge`,
+                    { includeShared: true })).json();
+                assert.equal(body.kept, 0);
+
+                assert.equal((await fetch(`${baseUrl}/api/flashcards/${f.shared}`)).status, 404,
+                    'shared card destroyed everywhere when opted in');
+                const other = await (await fetch(`${baseUrl}/api/decks/${f.other}`)).json();
+                assert.ok(!other.entries.some(e => e.card_hash === f.shared),
+                    'and is unlinked from the deck that held it');
+            });
+
+            it('leaves no orphan entries in the system deck', async () => {
+                const f = await buildPurgeFixture('orphan');
+                await post(`${baseUrl}/api/decks/${f.deck}/purge`, { includeShared: true });
+
+                const decks = await (await fetch(`${baseUrl}/api/decks`)).json();
+                const system = decks.find(d => d.is_system);
+                const detail = await (await fetch(`${baseUrl}/api/decks/${system.global_hash}`)).json();
+                for (const hash of [f.solo, f.shared]) {
+                    assert.ok(!detail.entries.some(e => e.card_hash === hash),
+                        `destroyed card ${hash} must not linger in the system deck`);
+                }
+            });
+
+            it('reports the shared split so a spared-card breakdown adds up', async () => {
+                // The dialog subtracts spared cards from the standalone/document counts.
+                // Without this split it showed "0 cards will be deleted" above a list
+                // reading "1 standalone" — the totals and the headline disagreeing.
+                const f = await buildPurgeFixture('split');
+                const s = await (await fetch(`${baseUrl}/api/decks/${f.deck}/contents`)).json();
+
+                assert.equal(s.sharedStandalone, 1, 'the shared card is the standalone one');
+                assert.equal(s.sharedDocumentAnchored, 0);
+                assert.equal(s.standalone - s.sharedStandalone + (s.documentAnchored - s.sharedDocumentAnchored),
+                    s.total - s.shared,
+                    'breakdown minus spared must equal the doomed total');
+            });
+
+            it('404s for an unknown deck', async () => {
+                const res = await post(`${baseUrl}/api/decks/no-such-deck/purge`, {});
+                assert.equal(res.status, 404);
+            });
+        });
     });
 
     // ── Flashcards ─────────────────────────────────────────────────────────

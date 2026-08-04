@@ -283,6 +283,107 @@ export default class Decks {
     }
 
     /**
+     * Describes what erasing a deck *and its cards* would destroy, so the caller can
+     * say so before doing it. Read-only.
+     *
+     * Two distinctions the caller can't make on its own:
+     *  - standalone vs document-anchored, because deleting the latter takes cards out
+     *    of the user's notes, which is a different kind of loss
+     *  - "shared" cards, meaning cards another **non-system** deck also holds. The
+     *    system deck is every standalone card's automatic home, so counting it would
+     *    mark all of them shared and nothing would ever be deletable.
+     *
+     * @returns {{ total, standalone, documentAnchored, documents: string[],
+     *             shared: number, otherDecks: string[] }}
+     */
+    getContentsSummary(globalHash) {
+        const deck = this.query.getDeckByHash(globalHash);
+        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+
+        const entries = this.query.getDeckEntries(deck.id);
+        const documents = new Set();
+        const otherDecks = new Set();
+        let standalone = 0;
+        let documentAnchored = 0;
+        let shared = 0;
+        // Split the shared cards the same way, so a caller that spares them can still
+        // report an accurate breakdown of what remains doomed rather than subtracting
+        // a total it can't attribute.
+        let sharedStandalone = 0;
+        let sharedDocumentAnchored = 0;
+
+        for (const entry of entries) {
+            // Where a card lives comes from the Flashcards→Documents join, not from
+            // DeckEntries.document_path: the latter is whatever the client sent when the
+            // entry was added — possibly with foreign path separators — while the join is
+            // the canonical path the deletion path can actually resolve.
+            const documentPath = this._cardDocumentPath(entry.card_hash);
+            if (documentPath) {
+                documentAnchored++;
+                documents.add(documentPath);
+            } else {
+                standalone++;
+            }
+
+            const others = this.query.getDecksContainingCard(entry.card_hash)
+                .filter(d => !d.is_system && d.id !== deck.id);
+            if (others.length) {
+                shared++;
+                if (documentPath) sharedDocumentAnchored++; else sharedStandalone++;
+                for (const d of others) otherDecks.add(d.name);
+            }
+        }
+
+        return {
+            deckName: deck.name,
+            total: entries.length,
+            standalone,
+            documentAnchored,
+            documents: [...documents],
+            shared,
+            sharedStandalone,
+            sharedDocumentAnchored,
+            otherDecks: [...otherDecks],
+        };
+    }
+
+    /**
+     * Card hashes an erase would actually destroy, split by where they live so the
+     * caller can route each to the right deletion path.
+     *
+     * `includeShared` decides the fate of cards another non-system deck also holds:
+     * false (default) leaves them alone — the deck row's removal unlinks them anyway.
+     */
+    getPurgeTargets(globalHash, { includeShared = false } = {}) {
+        const deck = this.query.getDeckByHash(globalHash);
+        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+
+        const standalone = [];
+        const anchored = [];
+        let kept = 0;
+
+        for (const entry of this.query.getDeckEntries(deck.id)) {
+            const isShared = this.query.getDecksContainingCard(entry.card_hash)
+                .some(d => !d.is_system && d.id !== deck.id);
+            if (isShared && !includeShared) { kept++; continue; }
+
+            // Canonical path from the join — see getContentsSummary. Passing
+            // DeckEntries.document_path straight to documents.deleteFlashcard fails with
+            // "not found in DB" whenever the client wrote it with '/' on Windows.
+            const documentPath = this._cardDocumentPath(entry.card_hash);
+            if (documentPath) anchored.push({ hash: entry.card_hash, documentPath });
+            else standalone.push(entry.card_hash);
+        }
+
+        return { standalone, anchored, kept };
+    }
+
+    /** A card's source document path, or null when it is standalone. */
+    _cardDocumentPath(cardHash) {
+        return this.query.getFlashcardContentByHash(cardHash)?.document_path ?? null;
+    }
+
+    /**
      * Unlinks a card from every deck that holds it — canonical JSON, DeckEntries row,
      * and deck connection alike.
      *

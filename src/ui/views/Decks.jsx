@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards, setDeckTags } from '../api/decks';
+import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, purgeDeck, addEntry, removeEntry, searchCards, setDeckTags } from '../api/decks';
 import { importZipWithProgress, applyAnkiMapping, getTags } from '../api/documents';
 import TagChipInput from '../components/shared/TagChipInput';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import AnkiMappingModal from '../components/shared/AnkiMappingModal';
+import DeckPurgeDialog from '../components/shared/DeckPurgeDialog';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
@@ -220,6 +221,9 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     const [error, setError] = useState(null);
     const [showAddPanel, setShowAddPanel] = useState(false);
     const [showNewCard, setShowNewCard] = useState(false);
+    const [purging, setPurging] = useState(false);
+    const [purgeBusy, setPurgeBusy] = useState(false);
+    const [purgeError, setPurgeError] = useState(null);
     const [renaming, setRenaming] = useState(false);
     const [renameVal, setRenameVal] = useState('');
 
@@ -252,6 +256,22 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
         if (!ok) return;
         try { await deleteDeck(deckHash); onDeleted(); }
         catch (err) { setError(err); }
+    };
+
+    // Erases the deck and its cards. The dialog reads the contents summary itself and
+    // returns whether cards shared with other decks should go too.
+    const handlePurge = async (includeShared) => {
+        setPurgeBusy(true);
+        setPurgeError(null);
+        try {
+            await purgeDeck(deckHash, includeShared);
+            setPurging(false);
+            onDeleted();
+        } catch (err) {
+            setPurgeError(err.message || 'Could not erase the deck.');
+        } finally {
+            setPurgeBusy(false);
+        }
     };
 
     const startRename = () => { setRenameVal(deck.name); setRenaming(true); };
@@ -307,7 +327,14 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     )}
                     <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
                     {!deck.is_system && (
-                        <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                        <>
+                            <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                            {/* Separate action, not a variant of Delete: this one destroys
+                                the cards too, and a mis-click must not be able to do that. */}
+                            <button type="button" className="deck-btn danger" onClick={() => setPurging(true)}>
+                                Erase
+                            </button>
+                        </>
                     )}
                 </div>
             </div>
@@ -336,6 +363,16 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
             <StandaloneCardModal
                 onClose={() => setShowNewCard(false)}
                 onCreated={() => { setShowNewCard(false); load(); onRefreshList(); }}
+            />
+        )}
+        {purging && (
+            <DeckPurgeDialog
+                deckHash={deckHash}
+                deckName={deck.name}
+                busy={purgeBusy}
+                error={purgeError}
+                onCancel={() => { setPurging(false); setPurgeError(null); }}
+                onConfirm={handlePurge}
             />
         )}
         </>

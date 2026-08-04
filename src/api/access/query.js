@@ -1701,9 +1701,12 @@ class DocumentQuery {
     // Flashcards foreign key, so deleting a card cascades nothing here — callers
     // that destroy a card must walk this list and unlink it deck by deck (each deck
     // also has a canonical JSON file to rewrite). See decks.removeCardEverywhere.
+    // `is_system` matters to callers deciding whether a card is "shared": every
+    // standalone card lives in the system deck by definition, so counting it as a
+    // second owner would make every imported card look shared.
     getDecksContainingCard(cardHash) {
         return this.db.prepare(`
-            SELECT d.id, d.global_hash, d.name
+            SELECT d.id, d.global_hash, d.name, d.is_system
             FROM DeckEntries e
             JOIN Decks d ON d.id = e.deck_id
             WHERE e.card_hash = ?

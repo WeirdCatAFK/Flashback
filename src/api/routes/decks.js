@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import Decks from '../access/decks.js';
+import Documents from '../access/documents.js';
 import { FLAG_KINDS } from '../access/cardHealth.js';
 
 const router = Router();
 const decks = new Decks();
+// Needed only by /:hash/purge, to delete document-anchored cards out of their source
+// sidecar. Composed here rather than inside decks.js, which never imports documents.js
+// — the same arrangement routes/flashcards.js uses to delete a single card.
+const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
@@ -70,10 +75,48 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-// DELETE /api/decks/:hash
+// DELETE /api/decks/:hash — removes the deck only. The cards survive as standalone
+// cards in the system deck. To destroy them too, use POST /:hash/purge below.
 router.delete('/:hash', catchError(async (req, res) => {
     await decks.deleteDeck(req.params.hash);
     res.json({ ok: true });
+}));
+
+// GET /api/decks/:hash/contents
+// What erasing this deck *and its cards* would destroy — counts split by standalone
+// vs document-anchored, plus how many cards another (non-system) deck also holds.
+// Read-only; exists so a client can say exactly what it is about to delete.
+router.get('/:hash/contents', catchError((req, res) => {
+    res.json(decks.getContentsSummary(req.params.hash));
+}));
+
+// POST /api/decks/:hash/purge
+// Body: { includeShared?: boolean }
+//
+// Deletes the deck AND its cards. Deliberately a separate route rather than a flag on
+// DELETE /:hash, so the non-destructive delete can never become destructive by accident.
+//
+// Cards are deleted before the deck: card deletions go through sealEmitter.edit(), which
+// is debounced, and deleteDeck()'s sealEmitter.delete() then flushes them — so the whole
+// erase lands in one commit instead of one per card.
+router.post('/:hash/purge', catchError(async (req, res) => {
+    const includeShared = req.body?.includeShared === true;
+    const { hash } = req.params;
+
+    const { standalone, anchored, kept } = decks.getPurgeTargets(hash, { includeShared });
+
+    for (const cardHash of standalone) {
+        await decks.deleteStandaloneCard(cardHash);
+    }
+    // Document-anchored cards live in their source sidecar, so they need the same
+    // unlink-then-delete pair routes/flashcards.js uses for a single card.
+    for (const { hash: cardHash, documentPath } of anchored) {
+        await decks.removeCardEverywhere(cardHash);
+        await docs.deleteFlashcard(documentPath, cardHash);
+    }
+
+    await decks.deleteDeck(hash);
+    res.json({ ok: true, deleted: standalone.length + anchored.length, kept });
 }));
 
 // PUT /api/decks/:hash/tags

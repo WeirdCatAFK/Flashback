@@ -40,13 +40,21 @@
   border-bottom: 1px solid var(--color-border);
 }
 
+/* Titles quote user-supplied names (decks, files, folders), so they can be long and
+   have nothing to wrap at — "Japanese_Core_Vocabulary_2000" is one unbreakable word.
+   min-width:0 opts out of the flex default that refuses to shrink a item below its
+   content, and overflow-wrap breaks the word itself; without both, the title pushes
+   the close button outside the panel, where overflow:hidden clips it out of reach. */
 .modal__title {
+  min-width: 0;
   font-size: var(--text-md);
   font-weight: 600;
+  overflow-wrap: anywhere;
 }
 
 .modal__close {
   display: flex;
+  flex-shrink: 0;
   align-items: center;
   justify-content: center;
   width: 28px;

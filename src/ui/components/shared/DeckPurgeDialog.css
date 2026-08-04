@@ -1,0 +1,118 @@
+/* Deck purge confirm — see DeckPurgeDialog.jsx. Buttons live in the modal footer.
+   Mirrors ConfirmDialog.css so a destructive deck erase looks like every other
+   danger confirm in the app, rather than announcing itself as a new pattern. */
+
+.deck-purge {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.deck-purge__lead {
+  margin: 0;
+  color: var(--color-fg-primary);
+}
+
+.deck-purge__breakdown {
+  margin: 0;
+  padding-inline-start: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Document paths and deck names are user-supplied and often unbreakable, so they
+   have to be allowed to break mid-word — otherwise they widen the dialog body and
+   push it into a horizontal scroll. */
+.deck-purge__docs {
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.deck-purge__muted {
+  color: var(--color-fg-secondary);
+}
+
+.deck-purge__seal {
+  margin: 0;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.deck-purge__error {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+/* Opting in to destroying cards other decks also hold — off by default, and
+   visually set apart because it widens the blast radius beyond this deck. */
+.deck-purge__shared {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+  cursor: pointer;
+}
+
+.deck-purge__shared input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
+/* The label's text is a flex item beside the checkbox; same shrink/break pair as
+   the modal title, since it names the other decks holding these cards. */
+.deck-purge__shared > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deck-purge__shared strong {
+  color: var(--color-fg-primary);
+}
+
+.deck-purge__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.deck-purge__btn {
+  padding: var(--space-1) var(--space-4);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), filter var(--dur-fast) var(--ease-out);
+}
+
+.deck-purge__btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.deck-purge__btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.deck-purge__btn--danger {
+  background: var(--color-danger);
+  border-color: var(--color-danger);
+  color: #fff;
+}
+
+.deck-purge__btn--danger:hover:not(:disabled) {
+  background: var(--color-danger);
+  filter: brightness(1.08);
+}
