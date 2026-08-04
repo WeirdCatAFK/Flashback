@@ -1,4 +1,4 @@
-import { request, uploadWithProgress, getBaseUrl, getToken } from './client.js';
+import { request, uploadWithProgress, getBaseUrl, getToken, appendToken } from './client.js';
 
 export const listFolder    = (path = '')          => request('GET', `/api/documents/list?path=${encodeURIComponent(path)}`);
 export const getTags          = ()                      => request('GET', '/api/documents/tags');
@@ -17,6 +17,27 @@ export const renameItem    = (path, newName, isFolder)      => request('POST', '
 
 export const importFileWithProgress = (formData, onProgress)    => uploadWithProgress('/api/documents/import', formData, onProgress);
 export const importZipWithProgress = (formData, onProgress)     => uploadWithProgress('/api/documents/import/zip', formData, onProgress);
+
+// Anki packages import in two phases: analyze reports each notetype's fields,
+// sample notes and a suggested field→slot mapping (and keeps the extraction alive
+// under a sessionId), then applyAnkiMapping imports with the user's mapping.
+export const analyzeAnkiWithProgress = (formData, onProgress)   => uploadWithProgress('/api/documents/import/anki/analyze', formData, onProgress);
+// Streamable URL for one asset still inside an analyze() session, so the mapping
+// modal can show images and play sounds before the import happens. Loaded by
+// <img>/<audio>, which can't send an Authorization header — the token rides along
+// as a query param, same as the other media URLs.
+export const ankiSessionMediaSrc = (sessionId, name) =>
+    (sessionId && name)
+        ? appendToken(`${getBaseUrl()}/api/documents/import/anki/media?sessionId=${encodeURIComponent(sessionId)}&name=${encodeURIComponent(name)}`)
+        : null;
+
+export const applyAnkiMapping = (sessionId, mapping, targetPath = '') => {
+    const fd = new FormData();
+    fd.append('sessionId', sessionId);
+    fd.append('mapping', JSON.stringify(mapping));
+    fd.append('targetPath', targetPath);
+    return uploadWithProgress('/api/documents/import/anki', fd, () => {});
+};
 
 export const getDocumentByHash = (hash) => request('GET', `/api/documents/by-hash/${encodeURIComponent(hash)}`);
 

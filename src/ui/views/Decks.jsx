@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, addEntry, removeEntry, searchCards, setDeckTags } from '../api/decks';
-import { importZipWithProgress, getTags } from '../api/documents';
+import { importZipWithProgress, applyAnkiMapping, getTags } from '../api/documents';
 import TagChipInput from '../components/shared/TagChipInput';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
+import AnkiMappingModal from '../components/shared/AnkiMappingModal';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
@@ -357,6 +358,9 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
     const [creating, setCreating] = useState(false);
     const [importing, setImporting] = useState(null); // null | { pct, processing, filename }
     const [importError, setImportError] = useState(null);
+    const [mapping, setMapping] = useState(null);      // null | { report, filename } — Anki field mapper
+    const [mappingBusy, setMappingBusy] = useState(false);
+    const [mappingError, setMappingError] = useState(null);
     const [importVersion, setImportVersion] = useState(0); // bumped after each import to force DeckDetail to reload
     const importInputRef = useRef(null);
 
@@ -379,9 +383,16 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
         setImporting({ pct: 0, processing: false, filename: file.name });
         setImportError(null);
         try {
-            await importZipWithProgress(fd, (pct) =>
+            const result = await importZipWithProgress(fd, (pct) =>
                 setImporting({ pct, processing: pct >= 100, filename: file.name })
             );
+            // An Anki package imports nothing on this call: its note types have
+            // arbitrary named fields, so the server hands back an inventory and we
+            // ask the user where each field should land before applying it.
+            if (result?.needsMapping) {
+                setMapping({ report: result, filename: file.name });
+                return;
+            }
             // Broadcast so every DB-backed view (this deck list, Flashcards, the
             // file tree, the graph) reloads — not just this one. Our own
             // useDataInvalidation subscriber handles refresh() + importVersion bump.
@@ -391,6 +402,21 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
             setImportError(`Couldn't import "${file.name}". ${err.message || 'The file may be unsupported or corrupt.'}`);
         } finally {
             setImporting(null);
+        }
+    };
+
+    const handleApplyMapping = async (mappings) => {
+        setMappingBusy(true);
+        setMappingError(null);
+        try {
+            await applyAnkiMapping(mapping.report.sessionId, mappings);
+            setMapping(null);
+            invalidateData();
+        } catch (err) {
+            console.error('Anki import failed', err);
+            setMappingError(err.message || 'The import failed. Pick the file again to retry.');
+        } finally {
+            setMappingBusy(false);
         }
     };
 
@@ -481,6 +507,16 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                     <span>{importError}</span>
                     <button type="button" onClick={() => setImportError(null)} aria-label="Dismiss">×</button>
                 </div>
+            )}
+            {mapping && (
+                <AnkiMappingModal
+                    report={mapping.report}
+                    filename={mapping.filename}
+                    importing={mappingBusy}
+                    error={mappingError}
+                    onCancel={() => { setMapping(null); setMappingError(null); }}
+                    onConfirm={handleApplyMapping}
+                />
             )}
         </div>
     );

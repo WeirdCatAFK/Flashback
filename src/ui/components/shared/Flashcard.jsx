@@ -117,9 +117,26 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
   );
 }
 
-function ClozeFace({ side, parts }) {
+// Cloze faces carry media like any other face. They used to render text only, which
+// silently discarded the front_img/front_sound the Anki importer has always written
+// for cloze notes — an audio-prompted cloze is an ordinary language-deck card.
+function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
+  const imgSrc = img ? resolve(img) : null;
+  const soundSrc = sound ? resolve(sound) : null;
+
+  const replay = (e) => {
+    e.stopPropagation();
+    const a = audioRef?.current;
+    if (a) { try { a.currentTime = 0; } catch { } a.play().catch(() => {}); }
+  };
+
   return (
     <div className={`flashcard-face flashcard-face--${side}`}>
+      {imgSrc && (
+        <div className="flashcard-media">
+          <img src={imgSrc} alt={`${side} side image`} draggable={false} />
+        </div>
+      )}
       <div className="flashcard-text flashcard-cloze">
         {parts.map((p, i) =>
           p.type === 'blank'
@@ -129,6 +146,22 @@ function ClozeFace({ side, parts }) {
             : <span key={`text-${i}`}><CardMarkdown inline>{p.content}</CardMarkdown></span>
         )}
       </div>
+      {soundSrc && (
+        <>
+          <audio ref={audioRef} src={soundSrc} preload="auto" aria-hidden="true" />
+          <button
+            type="button"
+            className="flashcard-audio-btn"
+            onClick={replay}
+            onPointerDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+            aria-label="Replay audio"
+            title="Replay audio"
+          >
+            <AudioIcon />
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -141,6 +174,7 @@ const Flashcard = forwardRef(function Flashcard({
   onTypeCheck,           // (typedAnswer: string) => void — type_answer only
   variant = 'full',      // 'full' (flip canvas) | 'static' (no flip, single face)
   resolveMedia,
+  autoplayAudio,         // override the per-variant default (static: off, full: on)
   className = '',
 }, ref) {
   const rootRef = useRef(null);
@@ -210,13 +244,16 @@ const Flashcard = forwardRef(function Flashcard({
   useImperativeHandle(ref, () => ({ flyOut, check: doCheck }), [flyOut, doCheck]);
 
   // Auto-play the audio of the active face; pause/reset the other.
+  // Static cards don't autoplay by default (a preview shouldn't make noise on
+  // mount), but a caller can opt in — the Anki mapper does, so flipping its
+  // preview between question and answer sounds like a real review would.
   useEffect(() => {
-    if (isStatic || cardType === 'custom') return;
+    if (!(autoplayAudio ?? !isStatic) || cardType === 'custom') return;
     const active = face === 'back' ? backAudioRef.current : frontAudioRef.current;
     const other  = face === 'back' ? frontAudioRef.current : backAudioRef.current;
     if (other)  { other.pause(); try { other.currentTime = 0; } catch { } }
     if (active) { try { active.currentTime = 0; } catch { } active.play().catch(() => {}); }
-  }, [face, isStatic, cardType]);
+  }, [face, isStatic, cardType, autoplayAudio]);
 
   // Auto-focus the answer input when a type_answer card appears on the front face.
   useEffect(() => {
@@ -274,8 +311,10 @@ const Flashcard = forwardRef(function Flashcard({
 
   if (cardType === 'cloze') {
     const clozeParts = parseCloze(frontText ?? '');
-    frontFace = <ClozeFace side="front" parts={clozeParts} />;
-    backFace  = <ClozeFace side="back"  parts={clozeParts} />;
+    frontFace = <ClozeFace side="front" parts={clozeParts}
+      img={frontImg} sound={frontSound} resolve={resolve} audioRef={frontAudioRef} />;
+    backFace  = <ClozeFace side="back"  parts={clozeParts}
+      img={backImg} sound={backSound} resolve={resolve} audioRef={backAudioRef} />;
   } else if (cardType === 'type_answer') {
     const frontImgSrc  = frontImg   ? resolve(frontImg)   : null;
     const frontSndSrc  = frontSound ? resolve(frontSound) : null;

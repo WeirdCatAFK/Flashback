@@ -276,6 +276,82 @@ Imports a Flashback `.zip` package (produced by `GET /api/documents/export`) int
 
 **Errors** `400` file required.
 
+**Anki packages are the exception**: an `.apkg` is *not* imported by this route. Anki notetypes have arbitrary named fields, so the route detects the package, runs `analyze` instead, and replies `200` with the analyze payload plus `needsMapping: true`. Follow up with `POST /api/documents/import/anki` carrying the returned `sessionId` and a mapping.
+
+---
+
+### `POST /api/documents/import/anki/analyze`
+
+Reads an Anki `.apkg` **without importing anything** and reports what is inside it, so a client can ask the user which Anki field should fill which part of a Flashback card. **Multipart form data.**
+
+| Field  | Type | Required | Description        |
+| ------ | ---- | -------- | ------------------ |
+| `file` | file | Yes      | The `.apkg` file. |
+
+Handles all three package generations, including the zstd + protobuf format Anki has exported by default since 2.1.50.
+
+**Response** `200`:
+
+```json
+{
+  "sessionId": "…",
+  "version": 3,
+  "totalNotes": 142,
+  "decks": [{ "id": "500", "name": "Japanese::Vocabulary", "noteCount": 142 }],
+  "notetypes": [{
+    "id": "1000",
+    "name": "Japanese Recognition",
+    "noteCount": 142,
+    "fields": [{ "ord": 0, "name": "Expression", "description": "" }],
+    "templates": [{ "ord": 0, "name": "Card 1" }],
+    "suggested": { "cardType": "basic", "slots": { "front": ["Expression"], "back": ["Meaning"] } },
+    "samples": [["食べる", "to eat"]]
+  }]
+}
+```
+
+`suggested` is read out of the notetype's own templates, so a well-formed deck needs no edits. `sessionId` keeps the extracted package on disk for an hour so the apply call needs no second upload.
+
+**Errors** `400` file required.
+
+---
+
+### `GET /api/documents/import/anki/media`
+
+Streams one asset out of a live `analyze` session, decompressed, so the mapping UI can show images and **play sounds before importing** — which is how the user decides whether a sound belongs with the question or with the answer. Read-only: nothing is written to the vault.
+
+| Param       | Type   | Required | Description                                      |
+| ----------- | ------ | -------- | ------------------------------------------------ |
+| `sessionId` | string | Yes      | From `POST /import/anki/analyze`.                |
+| `name`      | string | Yes      | The asset's **original Anki filename**, e.g. `taberu.mp3`. |
+
+Loaded by `<img>`/`<audio>`, so it authenticates via `?token=` like the other media routes. `name` is matched against the session's media map and only the map's numeric zip key is ever joined to a path, so it can't address arbitrary files.
+
+**Response** `200` — the raw asset bytes, `Content-Type` derived from the filename extension.
+
+**Errors** `400` sessionId and name required; `404` asset not found in import session (also returned for an expired or malformed session).
+
+---
+
+### `POST /api/documents/import/anki`
+
+Imports an Anki `.apkg` into decks as standalone cards. **Multipart form data.**
+
+| Field        | Type   | Required | Description                                                                 |
+| ------------ | ------ | -------- | --------------------------------------------------------------------------- |
+| `file`       | file   | No\*     | The `.apkg` file.                                                           |
+| `sessionId`  | string | No\*     | Reuse an `analyze` extraction instead of re-uploading.                       |
+| `mapping`    | string | No       | JSON `{ [notetypeId]: { cardType, slots } }`.                                |
+| `targetPath` | string | No       | Ignored — Anki notes become standalone cards, which have no workspace path. |
+
+\* One of `file` or `sessionId` is required.
+
+`slots` keys are `front`, `back`, `front_img`, `front_sound`, `back_img`, `back_sound`, each holding an array of Anki field names. Several fields may share a slot and concatenate in order; a field in a text slot keeps its text while media inside it still fills the matching media slot; a field in a media slot contributes only its first asset; a field in no slot is dropped. Notetypes the mapping omits fall back to the same suggestion `analyze` reported, so omitting `mapping` entirely is valid.
+
+**Response** `201` — `{ ok: true, path: "Anki_Import_…", imported: 142 }`.
+
+**Errors** `400` file or sessionId required; `400` mapping must be valid JSON.
+
 ### `POST /api/documents/youtube/transcript`
 
 Fetches a `.youtube` document's captions from YouTube and stores them in the sidecar's `source` block (`source.transcript` = cues, `source.transcriptMeta` = `{ lang, kind, fetchedAt }`), making the video's spoken content readable via [`/api/reader`](#reader-apireader) and resolvable from its `video_timestamp` highlights. Metadata-only (the body descriptor is untouched); the change is versioned by Seal. The fetch scrapes YouTube's caption track — there is no local speech-to-text fallback.

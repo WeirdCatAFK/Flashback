@@ -13,6 +13,7 @@ Modules are organized in three strict tiers. A module may only import from tiers
 ```
 Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor · diary · mcpReader · cardHealth
 Tier 3 — Package import  ankiImport · obsidianImport   (built on top of the orchestration tier)
+Pure helpers          fsrs · ankiPackage              (no DB, no IO into the vault)
 Tier 2 — Single-resource  query · files
 Tier 1 — Primitives       config · database
 ```
@@ -27,6 +28,7 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
 - `cardHealth.js` imports `query.js` and the pure `fsrs.js` helpers only — never `srs.js`, never `documents.js`. It is composed at the route layer (`routes/srs.js`, `routes/flashcards.js`) the same way `/detail` already composes `decks` + `srs`, which keeps the scheduler ignorant of the classifier.
 - `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
+- `ankiPackage.js` imports nothing from `access/` at all. It only parses the `.apkg` container into plain objects, so `ankiImport.js` is the only module that knows a package became cards, and `ankiPackage.js` is the only one that knows about zstd, protobuf, or which schema generation the collection uses.
 - Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
 
 ---
@@ -148,8 +150,31 @@ Keeps the derived SQLite index consistent with the canonical `.flashback` layer.
 
 These two modules parse a third-party archive format and populate decks/documents/media from it. They're dynamically `import()`-ed by `routes/documents.js` only when an import request actually needs them (avoids loading `better-sqlite3`'s Anki-DB-reading path and `adm-zip` parsing on every server start).
 
+### `ankiPackage.js`
+Pure reader for the `.apkg` container — no DB, no sidecars, no imports from `access/`. It exists so `ankiImport.js` never has to know which of the three package generations it was handed:
+
+| Generation | Zip contents | Media map | zstd |
+|---|---|---|---|
+| Legacy1 (Anki 2.0) | `collection.anki2` + numbered files | `media` = JSON | no |
+| Legacy2 (2.1.0–2.1.49) | `collection.anki21` | same JSON | no |
+| Latest (2.1.50+, today's default) | `meta` + `collection.anki21b` | `media` = protobuf `MediaEntries` | yes — collection, media map and every asset |
+
+`openPackage(buffer, tempRoot)` extracts and returns `{ version, zstd, collectionPath, mediaMap, tempRoot }`; `readCollection(ankiDb)` returns `{ decks, models }`; `readMediaFile(tempRoot, entry)` returns an asset's **decompressed** bytes.
+
+Two format details drive the whole module. First, schema 15+ replaced the `col` JSON blob with `notetypes`/`fields`/`templates`/`decks` tables and moved the interesting settings into protobuf BLOBs in a `config` column — `templates.config` holds `q_format = 1` / `a_format = 2`, `notetypes.config` holds `kind = 1` (0 normal, 1 cloze) / `sort_field_idx = 2` / `css = 3`, `fields.config` holds `description = 5`. There is no `kind` *column*, so without decoding that BLOB every modern notetype degrades to a positional basic card. A ~60-line varint reader handles it (skipping unknown fields by wire type, so a future Anki schema bump doesn't break it) rather than pulling in a protobuf runtime for five scalars. Second, zstd comes from `node:zlib` — present in both Electron's Node and system Node — so this needs no dependency.
+
+Everything normalizes onto the *legacy* JSON shape, including deck names, which schema 15+ nests with `\x1f` instead of `::`. `readCollection` is also where zstd assets get decompressed before hashing, so the same asset imported from a legacy and a modern package dedupes to one `Media` row.
+
 ### `ankiImport.js`
-Parses an Anki `.apkg` (opens `collection.anki21b`/`.anki21`/`.anki2` with a standalone `better-sqlite3` connection, independent of Flashback's own DB connection). Anki notes become Flashback cards 1:1 (not raw generated "cards", so multi-template notes collapse to one card); card type is inferred from the notetype (cloze/type-answer/image-occlusion/reversible/basic). Talks to `files.js` (media directory resolution), `query.js` (media dedup lookups, direct card/media inserts), and `decks.js` (deck lookup-or-create, `addEntry`/`createStandaloneCard`) — it never imports `documents.js`, because Anki cards have no source document.
+Projects Anki notes onto Flashback cards. Anki notetypes declare arbitrary named fields and let their templates decide where each renders; Flashback has five card types with fixed slots, so the projection is lossy and the user gets to steer it. Two phases:
+
+- `analyze(buffer)` reads the package without importing, and returns each notetype's fields, sample notes, and a **suggested** field→slot mapping derived by reading the notetype's own `qfmt`/`afmt` backwards. It leaves the extraction on disk under a `sessionId` (in `os.tmpdir()/flashback_anki_imports/`, swept after an hour) so the apply phase needs no second upload.
+- `importApkg(buffer|null, targetRelPath, mapping, sessionId)` applies `{ [notetypeId]: { cardType, slots } }`. Omitting `mapping` falls back to the same suggestion, so there is one code path and every existing caller keeps working.
+- `readSessionMedia(sessionId, name)` returns one asset out of a live session, decompressed, by its original Anki filename. It exists so the mapping UI can *preview* media — the front/back sound decision can't be made without hearing it. Read-only: nothing reaches the vault until the apply phase.
+
+Slot rules: several fields may share a slot and concatenate in order; a field in a text slot keeps its text while media found inside it still fills the matching media slot; a field in a media slot contributes only its first asset; a field in no slot is dropped. Anki notes still become Flashback cards 1:1, so multi-template and multi-cloze notes collapse to one card.
+
+Talks to `ankiPackage.js` (all format reading), `files.js` (media directory resolution), `query.js` (media dedup lookups, direct card/media inserts), and `decks.js` (deck lookup-or-create, `addEntry`/`createStandaloneCard`) — it never imports `documents.js`, because Anki cards have no source document. `targetRelPath` is accepted for signature parity with the other importers and deliberately ignored.
 
 ### `obsidianImport.js`
 Parses an Obsidian vault `.zip` into a mirrored folder tree of real documents. Talks to `documents.js` (`createFolder`/`importFile` — this is the actual document creation path) plus `files.js`/`query.js` directly for extras that don't fit the single-document `importFile` call: per-folder `media/` copying and DB registration, and frontmatter/wikilink/tag extraction ahead of each file's import.

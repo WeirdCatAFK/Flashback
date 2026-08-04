@@ -410,10 +410,13 @@ router.post(
       }
 
       if (isAnki) {
+        // An Anki package is not imported here. Its notetypes have arbitrary named
+        // fields, so the caller is handed the inventory to map onto card slots and
+        // comes back to POST /import/anki with a mapping and this session id.
         const { default: AnkiImport } = await import("../access/ankiImport.js");
         const importer = new AnkiImport();
-        const result = await importer.importApkg(req.file.buffer, targetPath);
-        return res.status(201).json(result);
+        const report = await importer.analyze(req.file.buffer);
+        return res.status(200).json({ ...report, needsMapping: true });
       }
 
       if (!isFlashback) {
@@ -439,17 +442,66 @@ router.post(
   }),
 );
 
+// POST /api/documents/import/anki/analyze
+// Multipart: file field
+// Reads the package without importing it and returns the notetype inventory —
+// fields, sample notes and a suggested field→slot mapping — plus a sessionId that
+// keeps the extraction on disk so the apply call needs no second upload.
+router.post(
+  "/import/anki/analyze",
+  upload.single("file"),
+  catchError(async (req, res) => {
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const importer = new AnkiImport();
+    res.status(200).json(await importer.analyze(req.file.buffer));
+  }),
+);
+
+// GET /api/documents/import/anki/media?sessionId=…&name=…
+// Streams one asset out of a live analyze() session so the mapping UI can preview
+// images and play sounds before anything is imported. Read-only; nothing is written
+// to the vault. Loaded by <img>/<audio>, so it authenticates by `?token=` like the
+// other media routes rather than an Authorization header.
+router.get(
+  "/import/anki/media",
+  catchError(async (req, res) => {
+    const { sessionId, name } = req.query;
+    if (!sessionId || !name) return res.status(400).json({ error: "sessionId and name required" });
+
+    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const asset = new AnkiImport().readSessionMedia(String(sessionId), String(name));
+    if (!asset) return res.status(404).json({ error: "asset not found in import session" });
+
+    res.type(path.extname(asset.filename) || "application/octet-stream").send(asset.buffer);
+  }),
+);
+
 // POST /api/documents/import/anki
-// Multipart: file field + body { targetPath? }
+// Multipart: file field + body { targetPath?, mapping?, sessionId? }
+// `mapping` is `{ [notetypeId]: { cardType, slots } }` as JSON; notetypes it omits
+// fall back to the same suggestion analyze() reported. Supply `sessionId` to reuse
+// an earlier analyze() extraction instead of re-uploading the package.
 router.post(
   "/import/anki",
   upload.single("file"),
   catchError(async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: "file required" });
+    const sessionId = req.body.sessionId || null;
+    if (!req.file && !sessionId) return res.status(400).json({ error: "file or sessionId required" });
     const targetPath = norm(req.body.targetPath ?? "");
+
+    let mapping = null;
+    if (req.body.mapping) {
+      try {
+        mapping = typeof req.body.mapping === "string" ? JSON.parse(req.body.mapping) : req.body.mapping;
+      } catch {
+        return res.status(400).json({ error: "mapping must be valid JSON" });
+      }
+    }
+
     const { default: AnkiImport } = await import("../access/ankiImport.js");
     const importer = new AnkiImport();
-    const result = await importer.importApkg(req.file.buffer, targetPath);
+    const result = await importer.importApkg(req.file?.buffer ?? null, targetPath, mapping, sessionId);
     res.status(201).json(result);
   }),
 );

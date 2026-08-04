@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, importZipWithProgress, getEntityTags, getTags, getSidecar, updateMetadata, clipUrl, clipYoutube } from '../../api/documents';
+import { listFolder, createFile, createFolder, deleteItem, moveItem, renameItem, importFileWithProgress, importZipWithProgress, applyAnkiMapping, getEntityTags, getTags, getSidecar, updateMetadata, clipUrl, clipYoutube } from '../../api/documents';
 import IconFolder from '../icons/IconFolder';
 import IconFolderOpen from '../icons/IconFolderOpen';
 import IconFile from '../icons/IconFile';
@@ -9,6 +9,7 @@ import ContextMenu from '../shared/ContextMenu';
 import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
+import AnkiMappingModal from '../shared/AnkiMappingModal';
 import { useDataInvalidation, invalidateData } from '../../utils/dataBus';
 import './FileExplorer.css';
 
@@ -339,7 +340,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
 
 // ── Folder ────────────────────────────────────────────────────────────────────
 
-function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress }) {
+function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress, onNeedsMapping }) {
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
@@ -401,9 +402,14 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
           fd.append('name', file.name);
           if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.apkg')) {
             fd.append('targetPath', path);
-            await importZipWithProgress(fd, (pct) =>
+            const result = await importZipWithProgress(fd, (pct) =>
               onImportProgress({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
             );
+            // Anki packages need a field→slot mapping before anything is created.
+            if (result?.needsMapping) {
+              onNeedsMapping?.({ report: result, filename: file.name });
+              continue;
+            }
           } else {
             fd.append('parentPath', path);
             await importFileWithProgress(fd, (pct) =>
@@ -539,7 +545,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
                   flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
-                  onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} />
+                  onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} onNeedsMapping={onNeedsMapping} />
               : <FileNode   key={item.name} name={item.name} path={childPath(item.name)}
                   globalHash={item.metadata?.globalHash}
                   flashcardCount={item.flashcardCount ?? 0}
@@ -660,6 +666,9 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const [ctxMenu, setCtxMenu]   = useState(null);
   const [pendingNew, setPendingNew] = useState(null); // null | 'file' | 'folder'
   const [importing, setImporting]   = useState(null); // null | { done, total, pct }
+  const [ankiMapping, setAnkiMapping] = useState(null); // null | { report, filename }
+  const [ankiBusy, setAnkiBusy]       = useState(false);
+  const [ankiError, setAnkiError]     = useState(null);
   const [tagsTarget, setTagsTarget]   = useState(null); // folder path being edited
   const [swatchTarget, setSwatchTarget] = useState(null); // { path, color } for color picker
   const [clipTarget, setClipTarget] = useState(null); // { path } destination folder for Clip-from-URL
@@ -689,9 +698,14 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         fd.append('name', file.name);
         if (file.name.toLowerCase().endsWith('.zip') || file.name.toLowerCase().endsWith('.apkg')) {
           fd.append('targetPath', parent);
-          await importZipWithProgress(fd, (pct) =>
+          const result = await importZipWithProgress(fd, (pct) =>
             setImporting({ done: i, total: files.length, pct, processing: pct >= 100, filename: file.name })
           );
+          // Anki packages need a field→slot mapping before anything is created.
+          if (result?.needsMapping) {
+            setAnkiMapping({ report: result, filename: file.name });
+            continue;
+          }
         } else {
           fd.append('parentPath', parent);
           await importFileWithProgress(fd, (pct) =>
@@ -706,6 +720,21 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       invalidateData();
     } catch (err) { console.error('Import failed', err); }
     finally { setImporting(null); }
+  };
+
+  const handleApplyAnkiMapping = async (mappings) => {
+    setAnkiBusy(true);
+    setAnkiError(null);
+    try {
+      await applyAnkiMapping(ankiMapping.report.sessionId, mappings);
+      setAnkiMapping(null);
+      invalidateData();
+    } catch (err) {
+      console.error('Anki import failed', err);
+      setAnkiError(err.message || 'The import failed. Pick the file again to retry.');
+    } finally {
+      setAnkiBusy(false);
+    }
   };
 
   const handleFilePickerChange = (e) => {
@@ -872,7 +901,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
                 flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
-                onCtxMenu={openCtxMenu} onImportProgress={setImporting} />
+                onCtxMenu={openCtxMenu} onImportProgress={setImporting} onNeedsMapping={setAnkiMapping} />
             : <FileNode   key={item.name} name={item.name} path={item.name}
                 globalHash={item.metadata?.globalHash}
                 flashcardCount={item.flashcardCount ?? 0}
@@ -893,6 +922,17 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
           progress={((importing.done + importing.pct / 100) / importing.total) * 100}
           processing={importing.processing}
           statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
+        />
+      )}
+
+      {ankiMapping && (
+        <AnkiMappingModal
+          report={ankiMapping.report}
+          filename={ankiMapping.filename}
+          importing={ankiBusy}
+          error={ankiError}
+          onCancel={() => { setAnkiMapping(null); setAnkiError(null); }}
+          onConfirm={handleApplyAnkiMapping}
         />
       )}
 
