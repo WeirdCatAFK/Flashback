@@ -369,7 +369,7 @@ Fetches a `.youtube` document's captions from YouTube and stores them in the sid
 
 ## Reader `/api/reader`
 
-Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files. Built for the MCP server — which has no renderer and cannot receive bytes — but not restricted to it. Backed by [`access/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
+Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files. Built for the MCP server — which has no renderer and cannot receive bytes — but not restricted to it. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
 
 Addressing follows each format's **native unit**:
 

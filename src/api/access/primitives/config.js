@@ -1,6 +1,6 @@
 import path from "path";
 import fs from "fs";
-import defaultConfig from "../config/defaults/ConfigJSON.js";
+import defaultConfig from "../../config/defaults/ConfigJSON.js";
 
 let cache = null;
 

@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import path from 'path';
-import Documents from '../access/documents.js';
-import SRS from '../access/srs.js';
-import cardHealth from '../access/cardHealth.js';
+import Documents from '../access/orchestration/documents.js';
+import SRS from '../access/orchestration/srs.js';
+import cardHealth from '../access/orchestration/cardHealth.js';
 
 const router = Router();
 const docs = new Documents();

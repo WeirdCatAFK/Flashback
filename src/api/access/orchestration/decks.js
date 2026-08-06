@@ -1,10 +1,10 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import query from './query.js';
-import db from './database.js';
-import { getWorkspacePath } from './config.js';
-import { sealEmitter } from '../seal/seal.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
+import { getWorkspacePath } from '../primitives/config.js';
+import { sealEmitter } from '../../seal/seal.js';
 
 const DECKS_DIR = '_decks';
 

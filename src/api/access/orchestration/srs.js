@@ -3,8 +3,8 @@
  * Spaced Repetition System service.
  */
 
-import query from './query.js';
-import db from './database.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
 import * as fsrs from './fsrs.js';
 
 // A card's first N reviews are its acquisition phase — new material normally takes

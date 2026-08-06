@@ -8,15 +8,21 @@ The Access layer is the core of the Flashback system, responsible for maintainin
 
 ## Tier Structure
 
-Modules are organized in three strict tiers. A module may only import from tiers below it.
+Modules are organized in three strict tiers, and **each tier is a folder on disk**. A module may only import from tiers below it — which means a relative specifier that climbs into a *higher* tier's folder is a violation you can see in the import line itself.
 
 ```
-Tier 3 — Orchestration   documents · subscriptions · media · srs · decks · highlights · doctor · diary · mcpReader · cardHealth
-Tier 3 — Package import  ankiImport · obsidianImport   (built on top of the orchestration tier)
-Pure helpers          fsrs · ankiPackage              (no DB, no IO into the vault)
-Tier 2 — Single-resource  query · files
-Tier 1 — Primitives       config · database
+access/
+  orchestration/   Tier 3   documents · subscriptions · media · srs · decks · highlights
+                            doctor · diary · mcpReader · cardHealth
+                            ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
+                            fsrs · ankiPackage            (pure helpers — no DB, no IO into the vault)
+  resources/       Tier 2   query · files
+  primitives/      Tier 1   config · database
 ```
+
+Imports within a tier stay relative (`./query.js` from `files.js`); imports downward name the tier (`../primitives/database.js` from `resources/query.js`). Nothing outside `access/` may reach past a tier folder, so callers write `access/orchestration/documents.js`, never `access/documents.js`.
+
+`fsrs.js` and `ankiPackage.js` live in `orchestration/` next to their only consumers (`srs.js`/`cardHealth.js` and `ankiImport.js` respectively) even though they are pure functions that import nothing — they are engine parts of a Tier 3 module, not a tier of their own.
 
 Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `doctor.js`, `diary.js`, `mcpReader.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
 

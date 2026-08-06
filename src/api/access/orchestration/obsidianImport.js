@@ -9,9 +9,9 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import Documents from './documents.js';
-import Files from './files.js';
-import query from './query.js';
-import db from './database.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
 
 const CLOZE_PATTERN = /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g;
 

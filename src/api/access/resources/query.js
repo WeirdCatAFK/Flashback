@@ -4,7 +4,7 @@
  * Handles all direct SQLite interactions.
  */
 
-import db from './database.js';
+import db from '../primitives/database.js';
 
 class DocumentQuery {
     constructor() {
@@ -414,7 +414,7 @@ class DocumentQuery {
 
     // --- FSRS per-card state ---
 
-    // Load a card's FSRS record shaped for access/fsrs.js (last_recall aliased to
+    // Load a card's FSRS record shaped for access/orchestration/fsrs.js (last_recall aliased to
     // last_review). Fields are null for a card never reviewed under FSRS.
     getFlashcardFsrsState(id) {
         return this.db.prepare(`
@@ -1713,7 +1713,7 @@ class DocumentQuery {
         `).all(cardHash);
     }
 
-    // --- Card Health (see access/cardHealth.js, DATAMODEL.md § Card Health) ---
+    // --- Card Health (see access/orchestration/cardHealth.js, DATAMODEL.md § Card Health) ---
 
     // The classifier reads a card's content through the existing
     // getFlashcardContentByHash (above) — it already returns f.id, card_type and the

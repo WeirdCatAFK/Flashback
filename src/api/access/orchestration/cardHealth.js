@@ -44,7 +44,7 @@
  */
 
 import crypto from 'crypto';
-import query from './query.js';
+import query from '../resources/query.js';
 import * as fsrs from './fsrs.js';
 
 const DAY_MS = 86400000;

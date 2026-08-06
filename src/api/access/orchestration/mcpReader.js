@@ -33,7 +33,7 @@
 import path from "path";
 import { createRequire } from "module";
 import { pathToFileURL } from "url";
-import Files from "./files.js";
+import Files from "../resources/files.js";
 
 // Per-response ceiling. A response is a tool result that lands in a model's context;
 // a 40-page chapter arriving whole helps nobody.

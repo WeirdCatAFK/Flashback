@@ -12,7 +12,7 @@ import {
     initialCard,
     nextState,
     optimize,
-} from '../src/api/access/fsrs.js';
+} from '../src/api/access/orchestration/fsrs.js';
 
 const W = DEFAULT_WEIGHTS;
 const approx = (a, b, tol = 1e-6) => Math.abs(a - b) <= tol;

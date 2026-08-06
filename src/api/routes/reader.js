@@ -1,12 +1,12 @@
 import { Router } from 'express';
 import path from 'path';
-import reader from '../access/mcpReader.js';
+import reader from '../access/orchestration/mcpReader.js';
 
 // Paginated, read-only text extraction for documents whose bodies are not decodable
 // text — PDF, EPUB, saved web clips — plus char-window reads of ordinary text files.
 // Built for the MCP server (which has no renderer and cannot receive bytes); the
 // route is not gated to it, so an in-app "search inside this PDF" could reuse it.
-// See src/api/access/mcpReader.js for the addressing model.
+// See src/api/access/orchestration/mcpReader.js for the addressing model.
 const router = Router();
 const norm = (p) => (p ? path.normalize(p) : p);
 

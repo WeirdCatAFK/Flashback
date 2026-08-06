@@ -30,8 +30,8 @@
 import git from "isomorphic-git";
 import fs from "fs";
 import path from "path";
-import { getVaultPath, get as getConfig } from "./config.js";
-import query from "./query.js";
+import { getVaultPath, get as getConfig } from "../primitives/config.js";
+import query from "../resources/query.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
 // v2 added the acquisition/review split to `retention` (see buildSummary).

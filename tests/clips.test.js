@@ -2,8 +2,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
-import Documents, { extractYoutubeId, slugifyName } from '../src/api/access/documents.js';
-import db from '../src/api/access/database.js';
+import Documents, { extractYoutubeId, slugifyName } from '../src/api/access/orchestration/documents.js';
+import db from '../src/api/access/primitives/database.js';
 import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
 

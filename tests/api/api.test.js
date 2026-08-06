@@ -6,8 +6,8 @@ import fsSync from 'fs';
 import AdmZip from 'adm-zip';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
-import db from '../../src/api/access/database.js';
-import cardHealth from '../../src/api/access/cardHealth.js';
+import db from '../../src/api/access/primitives/database.js';
+import cardHealth from '../../src/api/access/orchestration/cardHealth.js';
 import Api from '../../src/api/api.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
@@ -48,7 +48,7 @@ const listFolder = async (relPath) => {
 
 // ─── Tests ──────────────────────────────────────────────────────────────────
 
-import { getWorkspacePath } from '../../src/api/access/config.js';
+import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 
 describe('Flashback API', () => {
 

@@ -4,7 +4,7 @@
 // Every assertion here runs against a synthesized review history, never the database:
 // the detectors are pure functions of a prepared context, which is the whole reason
 // buildContext() does the impure work separately. (Importing the module still opens the
-// shared dev connection, because access/database.js connects eagerly — but nothing below
+// shared dev connection, because access/primitives/database.js connects eagerly — but nothing below
 // reads or writes it.) Persistence and lifecycle are covered at the HTTP layer in
 // tests/api/api.test.js instead.
 //
@@ -26,7 +26,7 @@ import cardHealth, {
     plainText,
     FLAG_KINDS,
     PRESENTATION,
-} from '../src/api/access/cardHealth.js';
+} from '../src/api/access/orchestration/cardHealth.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 

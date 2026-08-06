@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import path from 'path';
-import highlightsService from '../access/highlights.js';
+import highlightsService from '../access/orchestration/highlights.js';
 
 const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;

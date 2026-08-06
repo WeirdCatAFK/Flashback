@@ -4,7 +4,7 @@ import { ramp } from '../../utils/chartRamp';
  * RetentionCurve — one card's predicted recall decaying from its last review out
  * past its due date.
  *
- * The math is entirely the server's (see access/srs.js `_buildCurve`): this
+ * The math is entirely the server's (see access/orchestration/srs.js `_buildCurve`): this
  * component receives sampled { t, r } points and draws them, so the renderer holds
  * no scheduler knowledge and can't disagree with the Trainer about when a card is
  * due. What it *does* own is saying which of the two curves the user is looking at —

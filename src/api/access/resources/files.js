@@ -20,9 +20,9 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as getConfig, getWorkspacePath } from "./config.js";
-import newFileMetadata from "./../config/defaults/FlashbackFile.js";
-import newFolderMetadata from "./../config/defaults/FlashbackFolder.js";
+import { get as getConfig, getWorkspacePath } from "../primitives/config.js";
+import newFileMetadata from "../../config/defaults/FlashbackFile.js";
+import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 
 // How much of a file is sniffed to decide text-vs-binary. Git uses the same idea
 // (a NUL byte in the first 8 KB ⇒ binary): cheap, and it never has to load a

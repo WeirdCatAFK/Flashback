@@ -13,13 +13,13 @@ if (!validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/documents.js');
-const { default: Doctor } = await import('../src/api/access/doctor.js');
-const { default: Decks } = await import('../src/api/access/decks.js');
-const { default: query } = await import('../src/api/access/query.js');
-const { default: db } = await import('../src/api/access/database.js');
+const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const { default: Doctor } = await import('../src/api/access/orchestration/doctor.js');
+const { default: Decks } = await import('../src/api/access/orchestration/decks.js');
+const { default: query } = await import('../src/api/access/resources/query.js');
+const { default: db } = await import('../src/api/access/primitives/database.js');
 const { sealTools, sealEmitter } = await import('../src/api/seal/seal.js');
-const { getWorkspacePath } = await import('../src/api/access/config.js');
+const { getWorkspacePath } = await import('../src/api/access/primitives/config.js');
 
 const docs = new Documents();
 const doctor = new Doctor();

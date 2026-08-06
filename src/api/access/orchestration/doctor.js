@@ -28,11 +28,11 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import Files from './files.js';
-import query from './query.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
 import Documents from './documents.js';
 import Decks from './decks.js';
-import { sealEmitter, sealTools } from '../seal/seal.js';
+import { sealEmitter, sealTools } from '../../seal/seal.js';
 
 // The DB stores relative_path with the platform separator (path.sep), the
 // walker uses path.join (also platform), and git paths use '/'. Everything is

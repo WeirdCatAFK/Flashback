@@ -5,16 +5,16 @@
 
 import path from 'path';
 import fs from 'fs';
-import Files from './files.js';
-import query from './query.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
 import srsService from './srs.js';
-import db from './database.js';
+import db from '../primitives/database.js';
 import crypto from 'crypto';
 import os from 'os';
 import AdmZip from 'adm-zip';
-import { sealEmitter } from '../seal/seal.js';
+import { sealEmitter } from '../../seal/seal.js';
 import highlightsService from './highlights.js';
-import newFileMetadata from '../config/defaults/FlashbackFile.js';
+import newFileMetadata from '../../config/defaults/FlashbackFile.js';
 
 /**
  * Extracts the 11-char video id from any common YouTube URL shape

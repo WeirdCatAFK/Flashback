@@ -1,7 +1,7 @@
 import crypto from 'crypto';
-import Files from './files.js';
-import query from './query.js';
-import db from './database.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
 
 class Highlights {
     constructor() {

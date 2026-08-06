@@ -4,7 +4,7 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
-import Documents from "../access/documents.js";
+import Documents from "../access/orchestration/documents.js";
 
 const router = Router();
 const docs = new Documents();
@@ -413,7 +413,7 @@ router.post(
         // An Anki package is not imported here. Its notetypes have arbitrary named
         // fields, so the caller is handed the inventory to map onto card slots and
         // comes back to POST /import/anki with a mapping and this session id.
-        const { default: AnkiImport } = await import("../access/ankiImport.js");
+        const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
         const importer = new AnkiImport();
         const report = await importer.analyze(req.file.buffer);
         return res.status(200).json({ ...report, needsMapping: true });
@@ -427,7 +427,7 @@ router.post(
       }
 
       if (isObsidian) {
-        const { default: ObsidianImport } = await import("../access/obsidianImport.js");
+        const { default: ObsidianImport } = await import("../access/orchestration/obsidianImport.js");
         const importer = new ObsidianImport();
         const result = await importer.importVault(req.file.buffer, targetPath);
         return res.status(201).json(result);
@@ -452,7 +452,7 @@ router.post(
   upload.single("file"),
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
-    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
     const importer = new AnkiImport();
     res.status(200).json(await importer.analyze(req.file.buffer));
   }),
@@ -469,7 +469,7 @@ router.get(
     const { sessionId, name } = req.query;
     if (!sessionId || !name) return res.status(400).json({ error: "sessionId and name required" });
 
-    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
     const asset = new AnkiImport().readSessionMedia(String(sessionId), String(name));
     if (!asset) return res.status(404).json({ error: "asset not found in import session" });
 
@@ -499,7 +499,7 @@ router.post(
       }
     }
 
-    const { default: AnkiImport } = await import("../access/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
     const importer = new AnkiImport();
     const result = await importer.importApkg(req.file?.buffer ?? null, targetPath, mapping, sessionId);
     res.status(201).json(result);
@@ -514,7 +514,7 @@ router.post(
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
     const targetPath = norm(req.body.targetPath ?? "");
-    const { default: ObsidianImport } = await import("../access/obsidianImport.js");
+    const { default: ObsidianImport } = await import("../access/orchestration/obsidianImport.js");
     const importer = new ObsidianImport();
     const result = await importer.importVault(req.file.buffer, targetPath);
     res.status(201).json(result);

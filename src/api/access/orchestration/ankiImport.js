@@ -23,9 +23,9 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import Files from './files.js';
-import query from './query.js';
-import db from './database.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
 import Decks from './decks.js';
 import { openPackage, readCollection, readMediaFile } from './ankiPackage.js';
 

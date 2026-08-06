@@ -9,11 +9,11 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/documents.js';
-import SRS from '../src/api/access/srs.js';
-import query from '../src/api/access/query.js';
+import Documents from '../src/api/access/orchestration/documents.js';
+import SRS from '../src/api/access/orchestration/srs.js';
+import query from '../src/api/access/resources/query.js';
 import { sealTools } from '../src/api/seal/seal.js';
-import { getWorkspacePath } from '../src/api/access/config.js';
+import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 

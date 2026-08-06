@@ -2,13 +2,13 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import crypto from 'crypto';
-import Documents from '../src/api/access/documents.js';
-import db from '../src/api/access/database.js';
+import Documents from '../src/api/access/orchestration/documents.js';
+import db from '../src/api/access/primitives/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
 import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
-import { getWorkspacePath } from '../src/api/access/config.js';
+import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);

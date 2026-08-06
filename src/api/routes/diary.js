@@ -1,6 +1,6 @@
 import { Router } from 'express';
-import diary from '../access/diary.js';
-import { getMcpDiaryAccess } from '../access/config.js';
+import diary from '../access/orchestration/diary.js';
+import { getMcpDiaryAccess } from '../access/primitives/config.js';
 
 const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -8,7 +8,7 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 // The diary is opt-in on the client (a localStorage preference). The server does
 // not gate on that flag — it simply never creates diary/ until a write endpoint is
-// called, which only happens when the feature is enabled. See src/api/access/diary.js.
+// called, which only happens when the feature is enabled. See src/api/access/orchestration/diary.js.
 
 // Privacy gate for AI assistants. The MCP server (a separate process) tags every
 // request with `X-Flashback-Client: mcp`; the diary holds personal reflections, so

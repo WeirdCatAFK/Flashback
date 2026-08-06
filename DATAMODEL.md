@@ -379,7 +379,7 @@ SRS progress (`level`, `ease_factor`, `last_recall`) lives in the database and i
 - **`keepSrsProgress: true` (default)** — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
 - **`keepSrsProgress: false`** — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
 
-In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the **Vault Doctor** (`access/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
+In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the **Vault Doctor** (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
 
 ### Out-of-band Change Detection
 
@@ -401,7 +401,7 @@ The Doctor's `checkIndex()` does **not** rely on `inspect()` alone (it is blind 
 
 ## Diary — Study Record
 
-The **diary** is an opt-in, per-day record of study activity implemented in `src/api/access/diary.js` (`/api/diary`). It is deliberately **not** part of the knowledge graph: it is metadata *about* studying, not study material.
+The **diary** is an opt-in, per-day record of study activity implemented in `src/api/access/orchestration/diary.js` (`/api/diary`). It is deliberately **not** part of the knowledge graph: it is metadata *about* studying, not study material.
 
 ### Purpose
 
@@ -454,7 +454,7 @@ Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSu
 Field notes:
 
 - `newCards` = cards whose earliest-ever real review falls on this date; `failed` counts `outcome = 0` rows; `passRate = (reviews - failed) / reviews`.
-- **v2** splits the day's reviews on the same acquisition boundary the Stats view uses (`LEARNING_REVIEWS` in `access/srs.js`): a review is *learning* while it is among its card's first N reviews **ever** (not just today's), *review* afterwards. `reviewPassRate` is the honest retention figure for the day; `learningPassRate` shows how new material landed. Either is `null` when that phase had no reviews. `passRate` keeps its v1 meaning (all reviews) so v1 summaries stay readable; re-run "rebuild diary" to backfill the v2 fields.
+- **v2** splits the day's reviews on the same acquisition boundary the Stats view uses (`LEARNING_REVIEWS` in `access/orchestration/srs.js`): a review is *learning* while it is among its card's first N reviews **ever** (not just today's), *review* afterwards. `reviewPassRate` is the honest retention figure for the day; `learningPassRate` shows how new material landed. Either is `null` when that phase had no reviews. `passRate` keeps its v1 meaning (all reviews) so v1 summaries stay readable; re-run "rebuild diary" to backfill the v2 fields.
 - `byDeck` is a per-deck view (a card in two decks counts once per deck); `byDocument` covers document-anchored cards only. `struggledCards` is capped at 10, most-failed first (`front` is `(custom card)` for custom-HTML cards).
 - `streak` is computed **as of the summary's date** (not wall-clock "now"), so regeneration stays idempotent.
 - Synthetic rebuild logs (`outcome IS NULL`, seeded by the Vault Doctor to preserve SM-2 ease) are excluded from every aggregate.

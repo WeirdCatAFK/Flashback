@@ -10,8 +10,8 @@
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
-import { getWorkspacePath, get as getConfig } from "../access/config.js";
-import query from "../access/query.js";
+import { getWorkspacePath, get as getConfig } from "../access/primitives/config.js";
+import query from "../access/resources/query.js";
 
 // git.statusMatrix column values for [HEAD, workdir]
 const ABSENT = 0;

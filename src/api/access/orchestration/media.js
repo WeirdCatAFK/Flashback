@@ -16,10 +16,10 @@
  * GET /api/media/:hash so the renderer never needs the absolute workspace path.
  */
 
-import Files from './files.js';
-import query from './query.js';
-import db from './database.js';
-import { sealEmitter } from '../seal/seal.js';
+import Files from '../resources/files.js';
+import query from '../resources/query.js';
+import db from '../primitives/database.js';
+import { sealEmitter } from '../../seal/seal.js';
 import crypto from 'crypto';
 import path from 'path';
 import fs from 'fs';

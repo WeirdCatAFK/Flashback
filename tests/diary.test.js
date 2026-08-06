@@ -10,14 +10,14 @@ import fs from 'fs';
 import process from 'process';
 import git from 'isomorphic-git';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/documents.js';
-import Decks from '../src/api/access/decks.js';
-import Files from '../src/api/access/files.js';
-import db from '../src/api/access/database.js';
-import query from '../src/api/access/query.js';
-import diary from '../src/api/access/diary.js';
+import Documents from '../src/api/access/orchestration/documents.js';
+import Decks from '../src/api/access/orchestration/decks.js';
+import Files from '../src/api/access/resources/files.js';
+import db from '../src/api/access/primitives/database.js';
+import query from '../src/api/access/resources/query.js';
+import diary from '../src/api/access/orchestration/diary.js';
 import { sealTools } from '../src/api/seal/seal.js';
-import { getVaultPath, getWorkspacePath } from '../src/api/access/config.js';
+import { getVaultPath, getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 

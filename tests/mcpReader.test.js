@@ -10,10 +10,10 @@ import crypto from 'crypto';
 import process from 'process';
 import { buildPdf, buildEpub } from './fixtures.js';
 import validate from '../src/api/config/validate.js';
-import Documents, { pickCaptionTrack, parseJson3Transcript } from '../src/api/access/documents.js';
-import reader, { MAX_CHARS } from '../src/api/access/mcpReader.js';
+import Documents, { pickCaptionTrack, parseJson3Transcript } from '../src/api/access/orchestration/documents.js';
+import reader, { MAX_CHARS } from '../src/api/access/orchestration/mcpReader.js';
 import { sealTools } from '../src/api/seal/seal.js';
-import { getWorkspacePath } from '../src/api/access/config.js';
+import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 

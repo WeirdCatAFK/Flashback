@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
-import Subscriptions from '../access/subscriptions.js';
-import query from '../access/query.js';
+import Subscriptions from '../access/orchestration/subscriptions.js';
+import query from '../access/resources/query.js';
 
 const router = Router();
 const subs = new Subscriptions();

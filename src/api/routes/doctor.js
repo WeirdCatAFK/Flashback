@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import Doctor from '../access/doctor.js';
+import Doctor from '../access/orchestration/doctor.js';
 
 const router = Router();
 const doctor = new Doctor();

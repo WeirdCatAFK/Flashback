@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import Decks from '../access/decks.js';
-import Documents from '../access/documents.js';
-import { FLAG_KINDS } from '../access/cardHealth.js';
+import Decks from '../access/orchestration/decks.js';
+import Documents from '../access/orchestration/documents.js';
+import { FLAG_KINDS } from '../access/orchestration/cardHealth.js';
 
 const router = Router();
 const decks = new Decks();

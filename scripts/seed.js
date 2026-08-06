@@ -74,9 +74,9 @@ console.log(`\nUsing data path: ${appDataPath}\n`);
 
 const { default: validate }  = await import('../src/api/config/validate.js');
 const { sealTools }          = await import('../src/api/seal/seal.js');
-const { default: Documents } = await import('../src/api/access/documents.js');
-const { default: Decks }     = await import('../src/api/access/decks.js');
-const { default: query }     = await import('../src/api/access/query.js');
+const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const { default: Decks }     = await import('../src/api/access/orchestration/decks.js');
+const { default: query }     = await import('../src/api/access/resources/query.js');
 
 if (!validate()) {
     console.error('Validation failed — check your data directory.');

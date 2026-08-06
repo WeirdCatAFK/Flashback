@@ -2,7 +2,7 @@
  * fsrs.js
  * Hand-rolled FSRS-6 (Free Spaced Repetition Scheduler) memory model.
  *
- * Pure functions only — no database, no I/O, no side effects. `access/srs.js`
+ * Pure functions only — no database, no I/O, no side effects. `access/orchestration/srs.js`
  * is the sole caller; it loads a card's stored FSRS state, calls `nextState()`
  * with the active weight vector + desired retention, and persists the result.
  *
@@ -194,7 +194,7 @@ export function nextState(card, grade, now, weights = DEFAULT_WEIGHTS, requestRe
 //
 // Fits the 21 weights to the vault's own review history by minimizing the binary
 // cross-entropy between predicted recall (retrievability) and observed outcomes
-// (rating > 1 = recalled). Pure and deterministic — `access/srs.js` loads the
+// (rating > 1 = recalled). Pure and deterministic — `access/orchestration/srs.js` loads the
 // history via query and persists the result.
 
 // Minimum rated reviews before fitting is worthwhile; below this we keep defaults.

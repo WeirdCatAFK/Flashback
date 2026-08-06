@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import path from 'path';
-import query from '../access/query.js';
+import query from '../access/resources/query.js';
 
 const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;

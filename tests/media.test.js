@@ -6,7 +6,7 @@ import crypto from 'crypto';
 import validate from '../src/api/config/validate.js';
 import process from 'process';
 import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
-import { getWorkspacePath } from '../src/api/access/config.js';
+import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -16,9 +16,9 @@ if (!validate()) {
     process.exit(1);
 }
 
-import Documents from '../src/api/access/documents.js';
-import Media from '../src/api/access/media.js';
-import db from '../src/api/access/database.js';
+import Documents from '../src/api/access/orchestration/documents.js';
+import Media from '../src/api/access/orchestration/media.js';
+import db from '../src/api/access/primitives/database.js';
 
 const docs = new Documents();
 const media = new Media();
