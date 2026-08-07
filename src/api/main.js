@@ -3,6 +3,7 @@ import Api from './api.js';
 import validate from './../api/config/validate.js';
 import { get as getConfig } from './access/primitives/config.js';
 import { sealTools } from './seal/seal.js';
+import runUpdates from './config/UpdateRunner.js';
 
 // Crash handlers: log a full stack to stderr (which the Electron host captures into the
 // shared log file via api_process.js) and exit nonzero so the parent notices the death
@@ -33,6 +34,30 @@ export default async function main() {
 
   await sealTools.init();
   console.log("Seal initialized.");
+
+  // Third validation stage: the canonical layer. It cannot sit inside validate() with the
+  // config and database checks, because it ends in a Seal commit and Seal is only up now —
+  // but it must still finish before the API is reachable, so no request can observe a
+  // half-updated vault.
+  //
+  // Never fatal. Every read path tolerates a file that has not been updated yet, so a
+  // failure logs, leaves the vault record unwritten, and the next launch tries again rather
+  // than locking the user out of their own notes.
+  try {
+    const r = await runUpdates();
+    if (r.walked) {
+      console.log(
+        `Canonical updates ${r.pending.join(', ') || '(re-check)'}: ` +
+        `${r.documents} document(s), ${r.folders} folder(s), ${r.decks} deck file(s)` +
+        (r.derivedRows ? `, ${r.derivedRows} derived row(s)` : '') +
+        (r.sealedOid ? ` — sealed ${r.sealedOid.slice(0, 8)}` : '')
+      );
+      for (const w of r.warnings) console.warn(`Canonical update warning: ${w}`);
+      if (!r.recorded) console.warn('Canonical updates incomplete — will run again next launch.');
+    }
+  } catch (err) {
+    console.error('Canonical updates failed (continuing; will retry next launch):', err?.stack || err);
+  }
 
   const api = new Api(await getConfig());
 

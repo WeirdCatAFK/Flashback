@@ -100,3 +100,29 @@ migration aborts startup — fix the `up()` function and restart.
 | 4       | `004_fsrs.js`            | FSRS scheduler: card state columns, review snapshot, FsrsParameters      | Registered |
 | 5       | `005_card_origin.js`     | Flashcard provenance: ensure Flashcards.origin column exists             | Registered |
 | 6       | `006_review_algorithm.js`| ReviewLogs.algorithm: record the scheduler each review was graded with    | Registered |
+| 7       | `007_card_health.js`     | Card health: CardHealth watermark + CardFlags failure signatures         | Registered |
+| 8       | `008_type_answer_answer_text.js` | type_answer: FlashcardContent.answerText + CanonicalVersion table (pairs with canonical update 001) | Registered |
+
+---
+
+## Canonical updates are the other half
+
+A migration here only ever touches this derived database. When a change also has to rewrite
+the **canonical** layer — the `.flashback` sidecars and `_decks/*.json` files — that half
+cannot live in an `up()`: it does file IO and a Seal commit, and the runner wraps `up()` in a
+DB transaction. It goes in `../updates/` instead, run by `../UpdateRunner.js`. Same shape as
+this folder — numbered modules, applied in order, recorded in `CanonicalVersion` — but
+versioned **per file**, via a `formatVersion` stamp each canonical file carries. See
+`../updates/UPDATES.md`.
+
+Both halves must land on the same end state, or the next Vault Doctor rebuild re-derives the
+database from the files and the two disagree. Reads should also stay correct if the canonical
+pass has not run, since a Seal rollback can restore a pre-update sidecar at any time.
+Migration 008 + update 001 is the worked example.
+
+The pair is also the worked example of a **one-way** change: update 001 empties a field an
+older release still grades against, so a build from before `answerText` misreads a migrated
+vault. Migration 008 alone is harmless there — old queries name their columns explicitly and
+never see the new one — but the canonical half is not. When a pair has that property, record
+it where `../updates/UPDATES.md` § One-way updates says to, and warn the user in
+`CHANGELOG.md`.

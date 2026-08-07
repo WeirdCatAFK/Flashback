@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
 import { getCategories } from '../../api/categories';
-import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './flashcardFields';
+import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
 import './FlashcardForm.css';
 
 // Reusable flashcard form. Supports all five card types. On save it hands
@@ -45,12 +45,19 @@ export default function FlashcardForm({
   onCancel,
 }) {
   const editing = !!initial;
+  // A card being edited may predate the answer/notes split, in which case its answer is
+  // still in backText. Seeding through the shared helper puts it in the answer field with
+  // empty notes, so saving normalises the card without the user doing anything.
+  const initialTypeAnswer = typeAnswerParts({
+    answerText: initial?.answerText, backText: initial?.backText,
+  });
   const [cardType, setCardType] = useState(initial?.cardType ?? 'basic');
   const [front, setFront]               = useState(initial?.frontText ?? selection?.text ?? '');
   const [back, setBack]                 = useState(initial?.backText ?? '');
   const [clozeText, setClozeText]       = useState(initial?.frontText ?? selection?.text ?? '');
   const [question, setQuestion]         = useState(initial?.frontText ?? selection?.text ?? '');
-  const [expectedAnswer, setExpectedAnswer] = useState(initial?.backText ?? '');
+  const [expectedAnswer, setExpectedAnswer] = useState(initialTypeAnswer.answer);
+  const [notes, setNotes]               = useState(initialTypeAnswer.notes);
   const [customHtml, setCustomHtml]     = useState(initial?.customHtml ?? '');
   const [tags, setTags]                 = useState(initial?.tags ?? []);
   const [tagInput, setTagInput]         = useState('');
@@ -120,8 +127,8 @@ export default function FlashcardForm({
   }, [urls, sFrontImg, sBackImg, sFrontSnd, sBackSnd, resolveMedia]);
 
   const previewCard = useMemo(
-    () => previewCardFor(cardType, { front, back, clozeText, question, expectedAnswer, customHtml }, mediaObj),
-    [cardType, front, back, clozeText, question, expectedAnswer, customHtml, mediaObj]
+    () => previewCardFor(cardType, { front, back, clozeText, question, expectedAnswer, notes, customHtml }, mediaObj),
+    [cardType, front, back, clozeText, question, expectedAnswer, notes, customHtml, mediaObj]
   );
 
   const addTag = () => {
@@ -135,7 +142,7 @@ export default function FlashcardForm({
   };
   const setFile = (key, file) => setFiles((prev) => ({ ...prev, [key]: file ?? null }));
 
-  const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
+  const fields = { front, back, clozeText, question, expectedAnswer, notes, customHtml };
   const clozeReady = hasClozeBlank(clozeText);
   const canSave = !saving && isCardValid(cardType, fields);
 
@@ -151,7 +158,13 @@ export default function FlashcardForm({
       name: core.name,
       cardType: core.cardType,
       customData: { html: core.html },
-      vanillaData: { frontText: core.frontText, backText: core.backText, media: emptyMedia, location },
+      vanillaData: {
+        frontText: core.frontText,
+        backText: core.backText,
+        ...(core.answerText !== undefined ? { answerText: core.answerText } : {}),
+        media: emptyMedia,
+        location,
+      },
     };
     // Only the basic/reversible types carry uploaded media files.
     const media = (cardType === 'basic' || cardType === 'reversible') ? files : {};
@@ -276,6 +289,16 @@ export default function FlashcardForm({
             placeholder="Paris"
           />
           <p className="fc-form-hint">Checked with a case-insensitive, trimmed exact match.</p>
+          <label htmlFor="fc-notes" className="fc-form-label">NOTES (OPTIONAL)</label>
+          <textarea
+            id="fc-notes"
+            className="fc-form-field"
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            rows={2}
+            placeholder="A mnemonic, an explanation, a why…"
+          />
+          <p className="fc-form-hint">Shown under the answer after checking. Never compared.</p>
         </>
       )}
 

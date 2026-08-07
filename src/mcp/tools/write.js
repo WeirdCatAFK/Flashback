@@ -21,7 +21,8 @@ export function registerWriteTools(server) {
         'Create a new flashcard. Pass `path` to anchor it to a document (it is appended to that document\'s ' +
         'sidecar, same as creating a card from the Inspector); omit `path` to create a standalone card in the ' +
         'system deck. For "cloze" cards, wrap blanks in {{double curly braces}} in frontText and backText. ' +
-        'For "type_answer" cards, frontText is the question and backText is the expected answer. For "custom" ' +
+        'For "type_answer" cards, frontText is the question, answerText is the expected answer (the only ' +
+        'thing compared to what the user types), and backText is optional notes shown afterwards. For "custom" ' +
         'cards, put raw HTML in customHtml (frontText/backText are unused). Pass `highlightHash` (from ' +
         'create_highlight or the document sidecar\'s highlights[]) to anchor the card to the exact passage it ' +
         'came from. Cards you create are permanently marked `origin: "ai"` in the data model, so the user can ' +
@@ -32,7 +33,8 @@ export function registerWriteTools(server) {
         path: z.string().optional().describe('Relative path of the document to attach this card to. Omit for a standalone card.'),
         cardType: z.enum(CARD_TYPES).default('basic'),
         frontText: z.string().optional(),
-        backText: z.string().optional(),
+        backText: z.string().optional().describe('The answer side. On a "type_answer" card this is instead optional post-review notes (a mnemonic, an explanation) — shown after checking, never compared.'),
+        answerText: z.string().optional().describe('"type_answer" only: the expected answer, compared case-insensitively to what the user types. Ignored by every other card type.'),
         customHtml: z.string().optional().describe('Raw HTML body, only used when cardType is "custom".'),
         name: z.string().optional().describe('Optional descriptive name for the card.'),
         category: z.string().optional().describe('Pedagogical category name. Call list_categories first to see valid values — an unrecognized name is rejected with an error, not silently dropped.'),
@@ -40,7 +42,7 @@ export function registerWriteTools(server) {
         highlightHash: z.string().optional().describe('The `id` of a highlight in the same document to anchor this card to (returned by create_highlight, listed in the sidecar\'s highlights[]). Requires `path`.'),
       },
     },
-    async ({ path, cardType, frontText, backText, customHtml, name, category, tags, highlightHash }) => {
+    async ({ path, cardType, frontText, backText, answerText, customHtml, name, category, tags, highlightHash }) => {
       try {
         if (highlightHash && !path) {
           return asToolError('`highlightHash` requires `path` — a highlight anchor only makes sense on a document-anchored card.');
@@ -67,6 +69,9 @@ export function registerWriteTools(server) {
               vanillaData: {
                 frontText: frontText || '',
                 backText: backText || '',
+                // Only type_answer has a compared value distinct from its back text; on
+                // every other type the key would be dead weight in the sidecar.
+                ...(cardType === 'type_answer' ? { answerText: answerText || '' } : {}),
                 media: {},
                 location: highlightHash ? { type: 'highlight', id: highlightHash } : undefined,
               },
@@ -78,7 +83,7 @@ export function registerWriteTools(server) {
           // sidecar card object under `card`, that one returns a bare { globalHash }.
           return asText({ globalHash: data.card?.globalHash, documentPath: path, cardType, category: category ?? null });
         }
-        const data = await request('POST', '/api/flashcards', { frontText, backText, name, cardType, category, customHtml, origin: 'ai' });
+        const data = await request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, origin: 'ai' });
         return asText({ globalHash: data.globalHash, documentPath: null, cardType, category: category ?? null });
       } catch (err) {
         return asError(err);
@@ -126,7 +131,8 @@ export function registerWriteTools(server) {
         globalHash: z.string().describe('The card\'s globalHash.'),
         documentPath: z.string().optional().describe('Accepted for compatibility and ignored — the server resolves the card\'s source document from its hash.'),
         frontText: z.string().optional(),
-        backText: z.string().optional(),
+        backText: z.string().optional().describe('The answer side; on a "type_answer" card, its post-review notes instead.'),
+        answerText: z.string().optional().describe('"type_answer" only: the expected answer that gets compared. If the card predates the split (answerText null, its answer still in backText), send both fields in one call — setting this alone leaves the old answer sitting in backText, where it starts reading as notes.'),
         name: z.string().optional(),
         cardType: z.enum(CARD_TYPES).optional(),
         category: z.string().optional().describe('Call list_categories first — an unrecognized name is rejected, not silently dropped.'),
@@ -139,10 +145,10 @@ export function registerWriteTools(server) {
     // used to fetch the sidecar, splice the card and save the whole file back, which
     // silently reverted anything else written to that sidecar in between — the same
     // race delete_flashcard was moved off.
-    async ({ globalHash, frontText, backText, name, cardType, category, customHtml, tags }) => {
+    async ({ globalHash, frontText, backText, answerText, name, cardType, category, customHtml, tags }) => {
       try {
         const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`,
-          { frontText, backText, name, cardType, category, customHtml, tags });
+          { frontText, backText, answerText, name, cardType, category, customHtml, tags });
         return asText({ ok: true, globalHash, ...data });
       } catch (err) {
         return asError(err);

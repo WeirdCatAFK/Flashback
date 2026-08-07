@@ -3,6 +3,7 @@ import { getStats } from '../api/srs';
 import { searchCards, deleteCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import CardDetailModal from '../components/shared/CardDetailModal';
+import { typeAnswerParts } from '../components/shared/flashcardFields';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { relativeFromIso } from '../utils/relativeTime';
@@ -41,6 +42,13 @@ const FLAG_LABELS = {
     overdue_drift: 'reviewed late',
     session_fatigue: 'late in session',
 };
+
+// The second line of a row: what the card asks you to produce. For type_answer that is
+// the compared answer, not the notes shown afterwards — and on a card that predates that
+// split the answer is still in backText, which typeAnswerParts resolves.
+const cardAnswerLine = (card) => (card.card_type === 'type_answer'
+    ? typeAnswerParts(card).answer
+    : card.backText) || '';
 
 function useStats() {
     const [stats, setStats] = useState(null);
@@ -319,7 +327,9 @@ export default function FlashcardsView() {
                             <LevelDot level={card.level ?? 0} />
                             <div className="fc-card-body">
                                 <div className="fc-card-front">{card.frontText || card.name || '(untitled)'}</div>
-                                {card.backText && <div className="fc-card-back">{card.backText}</div>}
+                                {cardAnswerLine(card) && (
+                                    <div className="fc-card-back">{cardAnswerLine(card)}</div>
+                                )}
                             </div>
                             <div className="fc-card-meta">
                                 {card.flags && card.flags.split(',').map(kind => (

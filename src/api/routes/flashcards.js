@@ -28,9 +28,9 @@ router.get('/:hash', catchError((req, res) => {
 // `origin` marks provenance ('ai' = created by an AI assistant); set once at
 // creation, never editable afterwards — the PUT below deliberately ignores it.
 router.post('/', catchError(async (req, res) => {
-    const { frontText, backText, name, cardType = 'basic', category, customHtml } = req.body;
+    const { frontText, backText, answerText, name, cardType = 'basic', category, customHtml } = req.body;
     const origin = req.body.origin === 'ai' ? 'ai' : null;
-    const globalHash = await decks.createStandaloneCard({ frontText, backText, name, cardType, category, customHtml, origin });
+    const globalHash = await decks.createStandaloneCard({ frontText, backText, answerText, name, cardType, category, customHtml, origin });
     res.status(201).json({ globalHash });
 }));
 
@@ -80,18 +80,18 @@ router.post('/:hash/flags/:kind/dismiss', catchError((req, res) => {
 // and dispatches. Editing an anchored card used to be refused here outright.
 router.put('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
-    const { frontText, backText, name, cardType, category, customHtml, tags } = req.body;
+    const { frontText, backText, answerText, name, cardType, category, customHtml, tags } = req.body;
     const card = decks.getCard(hash);   // throws "not found" → 404
 
     if (!card.documentPath) {
-        await decks.updateStandaloneCard(hash, { frontText, backText, name, cardType, category, customHtml });
+        await decks.updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml });
         cardHealth.onCardEdited(hash);
         return res.json({ ok: true, documentPath: null });
     }
 
     // tags are a sidecar concept — standalone cards inherit theirs from their deck.
     await docs.updateFlashcard(card.documentPath, hash, {
-        frontText, backText, name, cardType, category, customHtml, tags,
+        frontText, backText, answerText, name, cardType, category, customHtml, tags,
     });
 
     // The card's flags describe a card that no longer exists, so they go and the

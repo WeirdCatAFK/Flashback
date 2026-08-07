@@ -4,6 +4,7 @@ import remarkBreaks from 'remark-breaks';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
+import { typeAnswerParts } from './flashcardFields';
 import './Flashcard.css';
 
 // Presentation-only flashcard renderer. No evaluation/SRS/persistence logic.
@@ -330,6 +331,11 @@ const Flashcard = forwardRef(function Flashcard({
       const a = backAudioRef?.current;
       if (a) { try { a.currentTime = 0; } catch { } a.play().catch(() => {}); }
     };
+    // The back shows the answer that was compared, then whatever notes the card carries —
+    // a mnemonic, a why. Which field is which depends on whether the card predates the
+    // answer/notes split, so it is resolved in one shared place.
+    const { answer: expectedAnswer, notes: answerNotes } = typeAnswerParts(v);
+
     frontFace = (
       <div className="flashcard-face flashcard-face--front">
         {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt="Front side image" draggable={false} /></div>}
@@ -375,7 +381,10 @@ const Flashcard = forwardRef(function Flashcard({
     backFace = (
       <div className="flashcard-face flashcard-face--back">
         {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt="Back side image" draggable={false} /></div>}
-        {backText && <div className="flashcard-text"><CardMarkdown>{backText}</CardMarkdown></div>}
+        {expectedAnswer && <div className="flashcard-text"><CardMarkdown>{expectedAnswer}</CardMarkdown></div>}
+        {answerNotes && (
+          <div className="flashcard-notes"><CardMarkdown>{answerNotes}</CardMarkdown></div>
+        )}
         {backSndSrc && (
           <>
             <audio ref={backAudioRef} src={backSndSrc} preload="auto" aria-hidden="true" />

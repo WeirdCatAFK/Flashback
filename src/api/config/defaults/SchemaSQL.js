@@ -55,6 +55,11 @@ addTable('FlashcardContent', (table) => {
     table.text('render_html');
     table.string('frontText', 500);
     table.string('backText', 500);
+    // type_answer only: the value the reviewer's typed answer is compared against.
+    // `backText` is then free prose shown after checking (a mnemonic, a why), which is
+    // never compared. NULL means the card predates the split and its answer is still in
+    // `backText` — see DATAMODEL.md § Flashcard Types and migration 008.
+    table.string('answerText', 500);
     table.string('front_img', 500);
     table.string('back_img', 500);
     table.string('front_sound', 500);
@@ -243,6 +248,21 @@ addTable('DeckEntries', (table) => {
     table.string('document_path', 500);
     table.integer('position').defaultTo(0);
     table.text('inline_card');
+});
+
+// Canonical-layer updates this vault has finished (config/UpdateRunner.js), as opposed to
+// SchemaVersion which tracks schema changes to this derived database. Separate mechanisms
+// because a canonical rewrite does file IO and ends in a Seal commit, neither of which
+// belongs inside a migration's transaction.
+//
+// This table is an OPTIMISATION, not the source of truth: it lets startup skip walking the
+// vault when nothing is pending. The authority is the `formatVersion` stamped on each
+// canonical file, so a sidecar restored from a backup or an old Seal commit still says what
+// it is. A row is written only once a pass completes with nothing skipped.
+addTable('CanonicalVersion', (table) => {
+    table.integer('version').primary();
+    table.timestamp('applied_at').defaultTo(k.fn.now());
+    table.text('description');
 });
 
 // 10. Media & Subscriptions

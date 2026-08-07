@@ -271,6 +271,89 @@ describe('Documents Orchestrator Integration Tests', () => {
             const content = db.prepare('SELECT frontText FROM FlashcardContent WHERE id = ?').get(row.content_id);
             assert.ok(content.frontText.includes('moon'), 'Content frontText should be updated');
         });
+
+        // A type_answer card compares only its answerText, so the notes in backText must
+        // reach the derived layer as their own column — collapsing them would put the
+        // mnemonic back into what the reviewer has to type.
+        it('should store a type_answer card\'s answer and notes separately', async () => {
+            const hash = genHash();
+            await docs.updateFile(docPath, '# Kana', {
+                globalHash: genHash(),
+                flashcards: [makeCard('type_answer', {
+                    globalHash: hash,
+                    vanillaData: { frontText: 'か', answerText: 'ka', backText: 'Looks like a kayak.', media: {} },
+                })],
+            });
+
+            const row = db.prepare('SELECT content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+            const content = db.prepare('SELECT frontText, backText, answerText FROM FlashcardContent WHERE id = ?').get(row.content_id);
+            assert.equal(content.answerText, 'ka');
+            assert.equal(content.backText, 'Looks like a kayak.');
+        });
+
+        // A card written before the split has no answerText at all. Nothing may invent one:
+        // its absence is what tells every reader the answer is still in backText.
+        it('should leave a pre-split type_answer card without an answerText', async () => {
+            const hash = genHash();
+            await docs.updateFile(docPath, '# Kana legacy', {
+                globalHash: genHash(),
+                flashcards: [makeCard('type_answer', {
+                    globalHash: hash,
+                    vanillaData: { frontText: 'き', backText: 'ki', media: {} },
+                })],
+            });
+
+            const row = db.prepare('SELECT content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+            const content = db.prepare('SELECT backText, answerText FROM FlashcardContent WHERE id = ?').get(row.content_id);
+            assert.equal(content.answerText, null, 'no answer is invented');
+            assert.equal(content.backText, 'ki', 'the answer stays where the card put it');
+        });
+
+        // Forward compatibility, from the other direction: a sidecar written by a build that
+        // has never heard of `answerText` must survive an edit made by this one. If the
+        // orchestrator invented an empty answerText here, the card would stop reading as
+        // pre-split and its answer — still sitting in backText — would become unreachable.
+        it('should not invent an answerText when editing a pre-split card', async () => {
+            const hash = genHash();
+            await docs.updateFile(docPath, '# Kana legacy edit', {
+                globalHash: genHash(),
+                flashcards: [makeCard('type_answer', {
+                    globalHash: hash,
+                    vanillaData: { frontText: 'け', backText: 'ke', media: {} },
+                })],
+            });
+
+            const updated = await docs.updateFlashcard(docPath, hash, { frontText: 'け (edited)' });
+            assert.equal(updated.vanillaData.answerText, undefined, 'still reads as pre-split');
+            assert.equal(updated.vanillaData.backText, 'ke', 'the answer stays where it is');
+
+            const row = db.prepare('SELECT content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+            const content = db.prepare('SELECT backText, answerText FROM FlashcardContent WHERE id = ?').get(row.content_id);
+            assert.equal(content.answerText, null);
+            assert.equal(content.backText, 'ke');
+        });
+
+        // Editing through the orchestrator keeps the two fields independent: a card whose
+        // notes change must still be graded against the same answer.
+        it('should update a type_answer card\'s notes without touching its answer', async () => {
+            const hash = genHash();
+            await docs.updateFile(docPath, '# Kana edit', {
+                globalHash: genHash(),
+                flashcards: [makeCard('type_answer', {
+                    globalHash: hash,
+                    vanillaData: { frontText: 'く', answerText: 'ku', backText: 'A cuckoo.', media: {} },
+                })],
+            });
+
+            const updated = await docs.updateFlashcard(docPath, hash, { backText: 'A coo-coo bird.' });
+            assert.equal(updated.vanillaData.answerText, 'ku');
+            assert.equal(updated.vanillaData.backText, 'A coo-coo bird.');
+
+            const row = db.prepare('SELECT content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+            const content = db.prepare('SELECT backText, answerText FROM FlashcardContent WHERE id = ?').get(row.content_id);
+            assert.equal(content.answerText, 'ku');
+            assert.equal(content.backText, 'A coo-coo bird.');
+        });
     });
 
     // --- 4. SRS & PRESENCE ---

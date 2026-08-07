@@ -415,8 +415,13 @@ describe('Vault Doctor', () => {
         const docARel = path.join(folderRel, 'TargetDoc.md');
         const docBRel = path.join(folderRel, 'LinkSource.md');
         const cardHash = crypto.randomUUID();
+        // A type_answer card keeps the value it grades in `answerText` and post-review notes
+        // in `backText`. A rebuild re-derives every card from the canonical files, so it is
+        // where that split either survives or is silently collapsed back together.
+        const typedHash = crypto.randomUUID();
         let targetHash;
         let standaloneHash;
+        let typedStandaloneHash;
         let deckHash;
         let snapshot;
 
@@ -436,6 +441,13 @@ describe('Vault Doctor', () => {
                 flashcards: [{
                     globalHash: cardHash, level: 6, easeFactor: 2.7, category: 'doctor-test-cat',
                     vanillaData: { frontText: 'rebuild-q', backText: 'rebuild-a' },
+                }, {
+                    globalHash: typedHash, cardType: 'type_answer',
+                    vanillaData: {
+                        frontText: 'rebuild-typed-q',
+                        answerText: 'rebuild-typed-answer',
+                        backText: 'rebuild-typed-notes',
+                    },
                 }],
                 highlights: [{ id: crypto.randomUUID(), type: 'text_offset', start: 0, end: 5, color: 'amber', note: '' }],
             });
@@ -446,6 +458,12 @@ describe('Vault Doctor', () => {
             await docs.importFile('LinkSource.md', folderRel, `See [target](flashback://${targetHash})`, {});
 
             standaloneHash = await decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
+            // The standalone equivalent: its only canonical home is the deck file's inline
+            // snapshot, so this is the harder half of the same question.
+            typedStandaloneHash = await decks.createStandaloneCard({
+                frontText: 'standalone-typed-q', answerText: 'standalone-typed-answer',
+                backText: 'standalone-typed-notes', cardType: 'type_answer',
+            });
             deckHash = await decks.createDeck('RebuildDeck', 'survives rebuilds');
             await decks.addEntry(deckHash, { cardHash });
 
@@ -529,6 +547,22 @@ describe('Vault Doctor', () => {
 
             const deck = query.getDeckByHash(deckHash);
             assert.equal(query.getDeckEntries(deck.id).length, 1, 'user deck entries restored');
+        });
+
+        // The rebuild is the one operation that throws the derived layer away entirely, so if
+        // a type_answer card's graded answer and its notes are ever going to collapse back
+        // into one field, it happens here.
+        it('keeps a type_answer card\'s answer and notes apart through the rebuild', () => {
+            const anchored = query.getFlashcardContentByHash(typedHash);
+            assert.ok(anchored, 'anchored type_answer card restored');
+            assert.equal(anchored.card_type, 'type_answer');
+            assert.equal(anchored.answerText, 'rebuild-typed-answer', 'the graded value survives');
+            assert.equal(anchored.backText, 'rebuild-typed-notes', 'and so do its notes, separately');
+
+            const standalone = query.getFlashcardContentByHash(typedStandaloneHash);
+            assert.ok(standalone, 'standalone type_answer card restored from its inline snapshot');
+            assert.equal(standalone.answerText, 'standalone-typed-answer');
+            assert.equal(standalone.backText, 'standalone-typed-notes');
         });
 
         it('leaves a clean bill of health afterward', async () => {

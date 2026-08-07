@@ -145,6 +145,29 @@
   overflow-y: hidden;
 }
 
+/* type_answer's post-review notes: a mnemonic or explanation shown under the answer once
+   the card has been checked. Deliberately quieter and smaller than .flashcard-text — it is
+   support material, and must never be mistaken for the answer that was graded. */
+.flashcard-notes {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  text-align: left;
+  line-height: 1.4;
+  font-size: clamp(11px, 4cqw, 17px);
+  word-break: break-word;
+}
+
+.flashcard-notes p { margin: 0 0 0.5em; }
+.flashcard-notes p:last-child { margin-bottom: 0; }
+.flashcard-notes ul,
+.flashcard-notes ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; }
+
 /* Floats in the bottom-right corner, out of the content flow, so it stays clear
    of the main flashcard text/image. */
 .flashcard-audio-btn {

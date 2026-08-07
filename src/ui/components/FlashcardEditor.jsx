@@ -3,7 +3,7 @@ import { updateCard } from '../api/decks';
 import { getCategories } from '../api/categories';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from './shared/Flashcard';
-import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore } from './shared/flashcardFields';
+import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './shared/flashcardFields';
 import './shared/FlashcardForm.css';
 
 // Saving no longer needs `documentPath` — the server resolves the card's home from
@@ -12,13 +12,17 @@ import './shared/FlashcardForm.css';
 export default function FlashcardEditor({ card, documentPath, onSaved, onCancel }) {
   const originalType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
   const vd = card?.vanillaData ?? {};
+  // On a card that predates the answer/notes split the answer is still in backText;
+  // the shared helper puts it in the right field, and saving normalises the card.
+  const typeAnswer = typeAnswerParts(vd);
 
   const [cardType, setCardType]             = useState(originalType);
   const [front, setFront]                   = useState(vd.frontText ?? '');
   const [back, setBack]                     = useState(vd.backText ?? '');
   const [clozeText, setClozeText]           = useState(vd.frontText ?? '');
   const [question, setQuestion]             = useState(vd.frontText ?? '');
-  const [expectedAnswer, setExpectedAnswer] = useState(vd.backText ?? '');
+  const [expectedAnswer, setExpectedAnswer] = useState(typeAnswer.answer);
+  const [notes, setNotes]                   = useState(typeAnswer.notes);
   const [customHtml, setCustomHtml]         = useState(card?.customData?.html ?? '');
   const [tags, setTags]                     = useState(card?.tags ?? []);
   const [tagInput, setTagInput]             = useState('');
@@ -39,7 +43,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
     return () => { alive = false; };
   }, []);
 
-  const fields = { front, back, clozeText, question, expectedAnswer, customHtml };
+  const fields = { front, back, clozeText, question, expectedAnswer, notes, customHtml };
   // Editing is text-only, so the card's images/audio can't change here — but the
   // preview still has to show them, or it isn't a preview of this card.
   const media = card?.vanillaData?.media ?? {};
@@ -51,7 +55,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   }), [documentPath, media.front_img, media.back_img, media.front_sound, media.back_sound]);
   const previewCard = useMemo(
     () => previewCardFor(cardType, fields, previewMedia),
-    [cardType, front, back, clozeText, question, expectedAnswer, customHtml, previewMedia] // eslint-disable-line react-hooks/exhaustive-deps
+    [cardType, front, back, clozeText, question, expectedAnswer, notes, customHtml, previewMedia] // eslint-disable-line react-hooks/exhaustive-deps
   );
 
   const addTag = () => {
@@ -85,6 +89,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
         cardType: core.cardType,
         frontText: core.frontText,
         backText: core.backText,
+        ...(core.answerText !== undefined ? { answerText: core.answerText } : {}),
         customHtml: core.html,
         category: category || null,
         tags,
@@ -159,6 +164,10 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
             aria-label="Expected answer"
             onChange={(e) => setExpectedAnswer(e.target.value)}
             placeholder="Expected answer (case-insensitive)…" />
+          <textarea className="fc-form-field" rows={2} value={notes}
+            aria-label="Notes shown after checking"
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="Notes — shown after checking, never compared…" />
         </>
       )}
 

@@ -34,10 +34,19 @@ individual tool schemas alone:
   syntax when writing notes that should reference other notes; get_links shows a document's
   outgoing links and backlinks.
 - Cards have a \`cardType\`: basic, reversible, cloze, type_answer, or custom. Non-custom types
-  store their content in \`vanillaData\` (frontText/backText/media); "custom" stores raw HTML in
+  store their content in \`vanillaData\` (frontText/backText/media); "type_answer" adds
+  \`answerText\`, the value compared to what the user types, which frees its backText to hold
+  post-review notes like a mnemonic. "custom" stores raw HTML in
   \`customData.html\` instead and ignores vanillaData. This is a real storage split, not just an
   API convenience. Call list_categories before setting \`category\` on a card — an unrecognized
   name is rejected with an error.
+- One reading rule for type_answer, because both shapes exist: a card written before
+  \`answerText\` has it null/absent and still keeps its graded answer in \`backText\`. So the
+  compared value is \`answerText\` when present, \`backText\` otherwise — and a card is only
+  carrying notes when \`answerText\` is present. Read a null \`answerText\` as "this card is in
+  the old shape", never as "this card has no answer". If you split one yourself with
+  update_flashcard, move the text: send the answer as \`answerText\` AND send the new
+  \`backText\` in the same call, or the old answer stays behind and reads as notes.
 - Every card has a \`level\` field: it's the card's spaced-repetition strength, starting at 0 for
   a never-reviewed card and increasing after each correct review — higher = better known, 0 = new.
   Reviewing is the user's job: there is deliberately no tool to submit review grades.

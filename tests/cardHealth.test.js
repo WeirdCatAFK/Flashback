@@ -15,6 +15,7 @@ import path from 'path';
 import process from 'process';
 import cardHealth, {
     analyzeStructure,
+    answerBody,
     structuralPrior,
     buildReviewRecords,
     segmentSessions,
@@ -143,6 +144,29 @@ describe('plainText / analyzeStructure', () => {
         const s = analyzeStructure({ backText: '- alpha\n- beta\n- gamma\n- delta' });
         assert.equal(s.listItems, 4);
         assert.equal(s.chunks, 4);
+    });
+});
+
+// A type_answer card's load is what it asks you to produce, not what it tells you
+// afterwards. Measuring the notes would let a one-word answer with a paragraph of
+// mnemonic read as a mouthful — advice to split a card that is already minimal.
+describe('answerBody — what counts as the answer', () => {
+    it('takes a type_answer card\'s compared value, not its notes', () => {
+        const card = {
+            card_type: 'type_answer',
+            answerText: 'ka',
+            backText: 'It looks like a kayak, and the kayaker is paddling to the right.',
+        };
+        assert.equal(answerBody(card), 'ka');
+        assert.equal(analyzeStructure({ cardType: 'type_answer', backText: answerBody(card) }).tokens, 1);
+    });
+
+    it('falls back to backText on a card written before the split', () => {
+        assert.equal(answerBody({ card_type: 'type_answer', backText: 'ka' }), 'ka');
+    });
+
+    it('is just backText for every other type', () => {
+        assert.equal(answerBody({ card_type: 'basic', backText: 'an answer', answerText: 'ignored' }), 'an answer');
     });
 });
 

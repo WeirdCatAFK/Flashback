@@ -549,7 +549,9 @@ Single-card operations addressed by `globalHash`. Document-anchored cards live i
 
 Resolves any card to its content plus `documentPath` (`null` for a standalone card), so a client can route an edit correctly.
 
-**Response** `200` — `{ globalHash, name, cardType, level, origin, frontText, backText, customHtml, category, documentPath, media }`.
+**Response** `200` — `{ globalHash, name, cardType, level, origin, frontText, backText, answerText, customHtml, category, documentPath, media }`.
+
+`answerText` is `type_answer`-only: the value the Trainer compares to what the user types, which leaves `backText` free for notes shown after checking. It is `null` on every other card type — and on a `type_answer` card written before the split, whose answer is still in `backText` (see DATAMODEL.md § Backward compatibility).
 
 `media` is `{ front_img, back_img, front_sound, back_sound }` holding the card's **stored references** (e.g. `"./media/front-1a2b.png"`), not URLs — resolve them through `GET /api/media/file?docPath=…&name=…` before rendering.
 
@@ -557,7 +559,7 @@ Resolves any card to its content plus `documentPath` (`null` for a standalone ca
 
 ### `POST /api/flashcards`
 
-Creates a **standalone** card in the system deck. Body: `{ frontText, backText, name, cardType, category, customHtml, origin }`. `origin: 'ai'` marks AI provenance and is set once at creation; anything else is dropped.
+Creates a **standalone** card in the system deck. Body: `{ frontText, backText, answerText, name, cardType, category, customHtml, origin }`. `origin: 'ai'` marks AI provenance and is set once at creation; anything else is dropped.
 
 **Response** `201` — `{ globalHash }`. **Errors** `400` unknown category.
 
@@ -632,7 +634,7 @@ The user has ruled on a card-health flag. Suppresses it (sets `dismissed_at`) ra
 
 ### `PUT /api/flashcards/:hash`
 
-Updates a card of **either** kind. Partial — omitted fields keep their stored values. Body: `{ frontText, backText, name, cardType, category, customHtml, tags }`. For a document-anchored card the edit is applied to its sidecar entry server-side, preserving the card's SRS progress, media and highlight anchor, and emits a Seal commit; `tags` is ignored for standalone cards (they inherit theirs from their deck).
+Updates a card of **either** kind. Partial — omitted fields keep their stored values. Body: `{ frontText, backText, answerText, name, cardType, category, customHtml, tags }` (`answerText` is stored only on `type_answer` cards and dropped on any other type). For a document-anchored card the edit is applied to its sidecar entry server-side, preserving the card's SRS progress, media and highlight anchor, and emits a Seal commit; `tags` is ignored for standalone cards (they inherit theirs from their deck).
 
 **Response** `200` — `{ ok: true, documentPath }`. `documentPath` is `null` for a standalone card.
 

@@ -3,6 +3,7 @@ import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, purgeDeck, addE
 import { importZipWithProgress, applyAnkiMapping, getTags } from '../api/documents';
 import TagChipInput from '../components/shared/TagChipInput';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
+import { typeAnswerParts } from '../components/shared/flashcardFields';
 import AnkiMappingModal from '../components/shared/AnkiMappingModal';
 import DeckPurgeDialog from '../components/shared/DeckPurgeDialog';
 import ProgressDialog from '../components/shared/ProgressDialog';
@@ -154,7 +155,11 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
 
 function CardRow({ entry, onRemove }) {
     const front = entry.frontText || entry.card_name || '(untitled)';
-    const back = entry.backText || '';
+    // A type_answer card's second line is what it asks you to produce, not the notes
+    // shown afterwards (and on a card predating that split, backText IS the answer).
+    const back = (entry.card_type === 'type_answer'
+        ? typeAnswerParts(entry).answer
+        : entry.backText) || '';
     const level = entry.level ?? 0;
     const docName = entry.document_path ? entry.document_path.split('/').pop().split('\\').pop() : null;
 

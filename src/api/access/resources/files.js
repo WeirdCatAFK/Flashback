@@ -23,6 +23,7 @@ import chardet from "chardet";
 import { get as getConfig, getWorkspacePath } from "../primitives/config.js";
 import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
+import { LATEST_VERSION } from "../../config/updates/registry.js";
 
 // How much of a file is sniffed to decide text-vs-binary. Git uses the same idea
 // (a NUL byte in the first 8 KB ⇒ binary): cheap, and it never has to load a
@@ -256,6 +257,7 @@ _regenerateIdentities(absPath) {
             // the DB sync — global_hash is NOT NULL and API-owned.
             this._ensureFlashcardHashes(metadata);
             const metadataPath = this._metadataPathFor(relPath, isFolder);
+            this._ensureFormatVersion(metadata, metadataPath);
             // Ensure parent folder exists
             const parent = path.dirname(metadataPath);
             if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
@@ -267,6 +269,28 @@ _regenerateIdentities(absPath) {
         }
     }
 
+
+    /**
+     * Stamps the canonical format version on a sidecar being written for the FIRST time.
+     *
+     * The templates in `config/defaults/` already carry it, but plenty of callers assemble a
+     * metadata object themselves (imports, subscriptions, tests), and an unstamped file
+     * reads as version 0 — which would send it back through every canonical update.
+     *
+     * Deliberately only for a sidecar that does not exist yet, and never an override of a
+     * version already on disk: an old file's stamp is a fact about its contents, and quietly
+     * marking it current would tell `UpdateRunner` to skip data that still needs migrating.
+     * An existing unstamped file therefore stays unstamped and belongs to the runner.
+     *
+     * @param {object} metadata - the object about to be written.
+     * @param {string} metadataPath - absolute path of the sidecar.
+     */
+    _ensureFormatVersion(metadata, metadataPath) {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (metadata.formatVersion !== undefined) return;
+        if (fs.existsSync(metadataPath)) return;
+        metadata.formatVersion = LATEST_VERSION;
+    }
 
     /**
      * Ensures that the given metadata object has a globalHash property.

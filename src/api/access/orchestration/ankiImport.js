@@ -35,11 +35,18 @@ const SESSION_TTL_MS = 60 * 60 * 1000; // an abandoned mapping modal must not le
 // package handle (collection path, media map) without the original bytes.
 const SESSION_MARKER = '.flashback-session.json';
 
-/** Card slots a mapping may target. `front`/`back` are text; the rest are media. */
-export const CARD_SLOTS = ['front', 'back', 'front_img', 'front_sound', 'back_img', 'back_sound'];
+/**
+ * Card slots a mapping may target. `front`/`back`/`answer` are text; the rest are media.
+ *
+ * `answer` is type_answer only: it holds the value the reviewer's typing is compared
+ * against, which leaves `back` free for the mnemonic or explanation Anki notetypes so often
+ * carry in a field of their own. Before this slot existed those fields were either joined
+ * into the compared answer (making the card impossible to get right) or dropped.
+ */
+export const CARD_SLOTS = ['front', 'back', 'answer', 'front_img', 'front_sound', 'back_img', 'back_sound'];
 const MEDIA_SLOTS = { front_img: 'img', front_sound: 'snd', back_img: 'img', back_sound: 'snd' };
 
-const emptySlots = () => ({ front: [], back: [], front_img: [], front_sound: [], back_img: [], back_sound: [] });
+const emptySlots = () => ({ front: [], back: [], answer: [], front_img: [], front_sound: [], back_img: [], back_sound: [] });
 
 // Anki embeds media inside field HTML rather than in a separate column, so a
 // field's value has to be split into "text" and "the assets it mentions".
@@ -223,11 +230,24 @@ export default class AnkiImport {
 
         if (cardType === 'type_answer') {
             const typeMatch = qfmt.match(/\{\{type:([^}]+)\}\}/i);
-            const answerField = typeMatch?.[1]?.trim();
+            const typedField = typeMatch?.[1]?.trim();
             const qfmtWithoutType = qfmt.replace(/\{\{type:[^}]+\}\}/gi, '');
             for (const name of this._templateFields(qfmtWithoutType, fieldNames)) assign(name, 'front');
-            if (answerField && fieldNames.includes(answerField)) slots.back.push(answerField);
-            else if (fieldNames[1]) slots.back.push(fieldNames[1]);
+
+            // The compared answer is whatever Anki pipes through {{type:}}; a notetype that
+            // doesn't name one keeps it in the second field, as a plain Basic model does.
+            const answerField = (typedField && fieldNames.includes(typedField)) ? typedField : fieldNames[1];
+            if (answerField) slots.answer.push(answerField);
+
+            // Everything else the ANSWER template renders — the mnemonic, the reading note,
+            // the example sentence — is post-review material. It goes to the notes rather
+            // than into the string the reviewer has to reproduce exactly, which is what used
+            // to make these decks unusable (or cost them their mnemonics entirely).
+            const placed = new Set([...slots.front, ...slots.front_img, ...slots.front_sound, ...slots.answer]);
+            for (const name of this._templateFields(afmt, fieldNames)) {
+                if (!placed.has(name)) assign(name, 'back');
+            }
+
             if (!slots.front.length && fieldNames[0]) slots.front.push(fieldNames[0]);
             return { cardType, slots };
         }
@@ -389,6 +409,7 @@ export default class AnkiImport {
         // Text slots, with their inline media pulled out.
         const front = extractMediaRefs(joinFields(slots.front));
         const back = extractMediaRefs(joinFields(slots.back));
+        const answer = extractMediaRefs(joinFields(slots.answer));
 
         // Explicit media slots win over media that merely happened to sit inside a
         // text field, which is the whole point of dragging a field onto a media zone.
@@ -428,11 +449,22 @@ export default class AnkiImport {
         }
 
         const frontText = htmlToMarkdown(front.stripped);
+        const backText = htmlToMarkdown(back.stripped);
+
+        if (cardType === 'type_answer') {
+            const answerText = htmlToMarkdown(answer.stripped);
+            // A mapping that puts nothing on the answer slot predates it (or the user left
+            // it empty): the back text is then the value to compare, not notes about it.
+            return answerText
+                ? { cardType, name: deriveCardName(frontText), frontText, backText, answerText, media }
+                : { cardType, name: deriveCardName(frontText), frontText, backText: '', answerText: backText, media };
+        }
+
         return {
             cardType,
             name: deriveCardName(frontText),
             frontText,
-            backText: htmlToMarkdown(back.stripped),
+            backText,
             media,
         };
     }
@@ -536,6 +568,7 @@ export default class AnkiImport {
                         customHtml: content.customHtml ?? null,
                         frontText: content.frontText,
                         backText: content.backText,
+                        answerText: content.answerText ?? null,
                         media: content.media,
                     });
 

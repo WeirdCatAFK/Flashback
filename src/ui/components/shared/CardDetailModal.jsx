@@ -133,6 +133,9 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
         cardType: card.cardType,
         frontText: card.vanillaData?.frontText ?? '',
         backText: card.vanillaData?.backText ?? '',
+        ...(card.vanillaData?.answerText !== undefined
+          ? { answerText: card.vanillaData.answerText }
+          : {}),
         customHtml: card.customData?.html ?? '',
         category: card.category,
         // No `tags` key on purpose: this view's payload is the derived layer, which
@@ -170,6 +173,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
         vanillaData: {
           frontText: card.frontText ?? '',
           backText: card.backText ?? '',
+          answerText: card.answerText ?? null,
           media: card.media ?? {},
         },
       });
@@ -187,6 +191,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
             cardType: card.cardType ?? 'basic',
             frontText: card.frontText ?? '',
             backText: card.backText ?? '',
+            answerText: card.answerText ?? null,
             customHtml: card.customHtml ?? '',
             category: card.category ?? '',
             media: card.media ?? null,

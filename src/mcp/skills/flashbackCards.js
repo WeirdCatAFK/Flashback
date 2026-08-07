@@ -58,7 +58,7 @@ Read from the handmade cards, and worth preserving:
 
 - **Fronts are terse task descriptions, not prose questions.** \`Initialize a git repository\`, not \`What is the command you would use to create a new repository in the current directory?\`
 - **Concrete literals go in parentheses at the end of the front.** \`Git command to stage a file (readme.md)\` → \`git add readme.md\`. This is an elegant convention: it pins the exact expected answer without inflating the sentence the user has to parse.
-- **\`type_answer\` answers are the bare artifact.** No trailing prose, no explanation, no parenthetical. Explanations belong on a separate \`basic\` card. Typing the answer is meant to build muscle memory, and anything extra in the field breaks that.
+- **\`type_answer\` answers are the bare artifact.** No trailing prose, no explanation, no parenthetical in \`answerText\` — it is compared literally, so anything extra is a way to fail a card the user knew. Explanation that belongs *with* this card goes in \`backText\`, which is shown after checking and never compared (a mnemonic, a why); explanation that stands on its own belongs on a separate \`basic\` card.
 - **Symbol cards are irreducible pairs.** \`あ\` → \`a\`. Nothing to decompose further. This is the target shape; the further a card is from it, the more justification it needs.
 
 ## Choosing targets, then writing prompts
@@ -75,7 +75,7 @@ For sets larger than roughly ten cards, show the user the target list before dra
 
 | Type | Use for |
 |---|---|
-| \`type_answer\` | Production of a short exact artifact the user must type from memory: a command, an operator, a keyword, a kana, a signature fragment |
+| \`type_answer\` | Production of a short exact artifact the user must type from memory: a command, an operator, a keyword, a kana, a signature fragment. \`answerText\` is graded; \`backText\` is optional notes revealed afterwards |
 | \`basic\` | Anything graded by judgment: explanations, distinctions, "why", tradeoffs, heuristics |
 | \`cloze\` | A target embedded in a structure where seeing the structure is itself part of the knowledge — a slot in a statement, an item in a closed list. Blanks in \`{{double braces}}\` |
 | \`reversible\` | Irreducible symmetric pairs only (term ↔ symbol, word ↔ translation). Skip it when one direction is far easier than the other |
@@ -180,7 +180,8 @@ The counterweight is not coarseness but selection. Do not card what the user alr
 
 - Cards created through the MCP server are permanently marked \`origin: "ai"\`. This is how the user audits provenance — do not work around it.
 - \`create_flashcard\` without \`path\` lands the card in the **system deck**. Putting it in a named deck is a **separate \`add_to_deck\` call**. This is easy to forget and leaves the intended deck empty.
-- \`backText\` stores HTML entities literally — \`&gt;\` is saved as those four characters, not \`>\`. Write the literal character, then read back and fix with \`update_flashcard\` if needed.
+- \`backText\` and \`answerText\` store HTML entities literally — \`&gt;\` is saved as those four characters, not \`>\`. Write the literal character, then read back and fix with \`update_flashcard\` if needed. On \`answerText\` this is not cosmetic: the stored string is what the typed input is compared against.
+- **Old \`type_answer\` cards look answer-less and are not.** A card written before \`answerText\` existed reports it as null and still keeps its graded answer in \`backText\`. Read null as "old shape", not "empty card", and never overwrite \`backText\` on one without first moving its contents into \`answerText\` in the same \`update_flashcard\` call — otherwise you have deleted the answer and kept nothing.
 - Anchor to source when possible: \`path\` plus \`highlightHash\` ties the card to the passage it came from, which is what makes the vault a graph rather than a pile of cards.
 - \`update_flashcard\` takes the \`globalHash\` returned by \`create_flashcard\`, plus \`documentPath\` for document-anchored cards.
 

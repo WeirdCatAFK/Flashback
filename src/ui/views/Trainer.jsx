@@ -6,6 +6,7 @@ import { getTags, readFile, listFolder } from '../api/documents';
 import { listDecks } from '../api/decks';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from '../components/shared/Flashcard';
+import { typeAnswerParts } from '../components/shared/flashcardFields';
 import CardDetailModal from '../components/shared/CardDetailModal';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
@@ -75,6 +76,8 @@ function mapApiCard(raw, isNew = false) {
     vanillaData: {
       frontText: raw.frontText,
       backText: raw.backText,
+      // type_answer only; null on every other type and on cards that predate the split.
+      answerText: raw.answerText ?? null,
       media: {
         front_img: raw.front_img,
         back_img: raw.back_img,
@@ -463,7 +466,9 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
   const cardType = card.cardType ?? 'basic';
   const isTypeAnswer = cardType === 'type_answer';
-  const correctAnswer = card.vanillaData?.backText ?? '';
+  // Only the answer is graded — a type_answer card's backText is post-review notes, which
+  // the reviewer was never asked to reproduce (and on a pre-split card IS the answer).
+  const correctAnswer = typeAnswerParts(card.vanillaData).answer;
   const isCorrect = typedAnswer != null &&
     typedAnswer.trim().toLowerCase() === correctAnswer.trim().toLowerCase();
 
@@ -477,8 +482,12 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
       frontText: card.vanillaData?.frontText || (
         (card.vanillaData?.media?.front_img || card.vanillaData?.media?.front_sound) ? '' : (card.name ?? card.globalHash)
       ),
+      // The placeholder is for a card that has genuinely nothing on its back. A
+      // type_answer card's back is driven by its answer, and its notes are optional —
+      // an empty notes field must not be reported as a missing back.
       backText: card.vanillaData?.backText || (
-        (card.vanillaData?.media?.back_img || card.vanillaData?.media?.back_sound) ? '' : '(no back text)'
+        (isTypeAnswer || card.vanillaData?.media?.back_img || card.vanillaData?.media?.back_sound)
+          ? '' : '(no back text)'
       ),
     },
   };

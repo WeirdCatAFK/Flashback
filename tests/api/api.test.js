@@ -1611,6 +1611,31 @@ describe('Flashback API', () => {
             assert.equal(card.frontText, 'Solo front', 'omitted fields keep their value');
         });
 
+        // A type_answer card's compared answer lives in answerText so its backText is free
+        // to hold notes shown after checking. Both have to survive the round trip
+        // independently, or a mnemonic edit would silently change what gets graded.
+        it('POST/PUT /api/flashcards → round-trips a type_answer card\'s answer and notes', async () => {
+            const created = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'か', answerText: 'ka', backText: 'Looks like a kayak.',
+                cardType: 'type_answer', name: 'か',
+            });
+            assert.equal(created.status, 201);
+            const hash = (await created.json()).globalHash;
+
+            let card = await (await fetch(`${baseUrl}/api/flashcards/${hash}`)).json();
+            assert.equal(card.answerText, 'ka');
+            assert.equal(card.backText, 'Looks like a kayak.');
+
+            // Editing only the notes must leave the graded answer exactly as it was.
+            assert.equal((await put(`${baseUrl}/api/flashcards/${hash}`,
+                { backText: 'A kayak, seen side on.' })).status, 200);
+            card = await (await fetch(`${baseUrl}/api/flashcards/${hash}`)).json();
+            assert.equal(card.answerText, 'ka', 'the compared answer is untouched');
+            assert.equal(card.backText, 'A kayak, seen side on.');
+
+            await del(`${baseUrl}/api/flashcards/${hash}`);
+        });
+
         it('PUT /api/flashcards/:hash → 404 unknown hash, 400 unknown category (both homes)', async () => {
             assert.equal((await put(`${baseUrl}/api/flashcards/no-such-card`, { frontText: 'x' })).status, 404);
             assert.equal((await put(`${baseUrl}/api/flashcards/${EDITABLE}`, { category: 'Nope' })).status, 400);

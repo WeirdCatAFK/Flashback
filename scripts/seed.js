@@ -121,7 +121,14 @@ function card(front, back, opts = {}) {
 
 const cloze  = (f, b, o = {}) => card(f, b, { ...o, cardType: 'cloze' });
 const flip   = (f, b, o = {}) => card(f, b, { ...o, cardType: 'reversible' });
-const typed  = (f, b, o = {}) => card(f, b, { ...o, cardType: 'type_answer' });
+// type_answer grades `answerText` alone, so the second argument is the answer and the
+// back text is left for optional post-review notes (`o.notes`) — a mnemonic or a why the
+// reviewer sees after checking, which is never compared.
+const typed  = (f, a, o = {}) => {
+    const c = card(f, o.notes ?? '', { ...o, cardType: 'type_answer' });
+    c.vanillaData.answerText = a;
+    return c;
+};
 const custom = (html, o = {}) => ({
     globalHash: uuid(), level: 0, lastRecall: null, cardType: 'custom',
     category: o.category ?? null, name: o.name ?? null, tags: [], reviewCount: 0,
@@ -480,8 +487,14 @@ const dsCards = [
     flip('Stack', 'LIFO — push/pop at the same end; used in DFS, call stack, expression parsing, undo', { category: 'Definition', reviewCount: 3 }),
     flip('Queue', 'FIFO — enqueue at back, dequeue at front; used in BFS, task scheduling, buffers', { category: 'Definition', reviewCount: 3 }),
     cloze('A {{hash table}} maps keys to values via a hash function, providing O(1) average-case lookup, insert, and delete.', 'hash table', { category: 'Concept', reviewCount: 2 }),
-    typed('What data structure does BFS use internally?', 'Queue', { category: 'Concept', reviewCount: 4 }),
-    typed('What data structure does DFS use internally?', 'Stack (or the call stack via recursion)', { category: 'Concept', reviewCount: 3 }),
+    typed('What data structure does BFS use internally?', 'Queue', {
+        category: 'Concept', reviewCount: 4,
+        notes: 'FIFO: the *breadth* is the queue — everything at distance *n* is dequeued before anything at *n+1*.',
+    }),
+    typed('What data structure does DFS use internally?', 'Stack (or the call stack via recursion)', {
+        category: 'Concept', reviewCount: 3,
+        notes: 'LIFO: the most recent branch is always the one explored next, which is exactly what recursion does for free.',
+    }),
     card('Array vs linked list — when should you use each?', 'Array: O(1) random access, cache-friendly, fixed-size allocation. Linked list: O(1) insert/delete at known node, dynamic size, O(n) access.', { category: 'Concept', reviewCount: 2 }),
 ];
 
@@ -609,7 +622,10 @@ const calcCards = [
     card('What is the derivative of eˣ?', 'eˣ — unchanged under differentiation', { category: 'Symbol', reviewCount: 5 }),
     card('State the chain rule.', "d/dx[f(g(x))] = f'(g(x)) · g'(x) — differentiate outer, multiply by derivative of inner", { category: 'Concept', reviewCount: 4 }),
     cloze('The {{Fundamental Theorem of Calculus}} links integration and differentiation: ∫ₐᵇ f(x)dx = F(b) − F(a) where F\' = f.', 'Fundamental Theorem of Calculus', { category: 'Concept', reviewCount: 3 }),
-    typed('What is ∫x dx?', 'x²/2 + C', { category: 'Symbol', reviewCount: 4 }),
+    typed('What is ∫x dx?', 'x²/2 + C', {
+        category: 'Symbol', reviewCount: 4,
+        notes: 'The **+ C** is the whole point: differentiating kills any constant, so integrating cannot recover which one it was.',
+    }),
     flip('Product Rule', "d/dx[f·g] = f'g + fg'", { category: 'Concept', reviewCount: 2 }),
     flip('Quotient Rule', "d/dx[f/g] = (f'g − fg') / g²", { category: 'Concept', reviewCount: 2 }),
     card("What is L'Hôpital's rule?", "For indeterminate forms 0/0 or ∞/∞: lim f(x)/g(x) = lim f'(x)/g'(x)", { category: 'Concept', reviewCount: 1 }),

@@ -309,7 +309,49 @@ describe('Importers Integration Tests', () => {
         assert.equal(entries.length, 1);
         assert.equal(entries[0].card_type, 'type_answer');
         assert.equal(entries[0].frontText, 'Capital of Germany?');
-        assert.equal(entries[0].backText, 'Berlin');
+        // The {{type:}} field is what Anki grades, so it becomes the compared answer
+        // rather than the back text — which is now free for notes this notetype has none of.
+        assert.equal(entries[0].answerText, 'Berlin');
+        assert.ok(!entries[0].backText, 'nothing else on the answer side, so no notes');
+    });
+
+    // Decks in the Tofugu mould keep their mnemonic in a field of its own. Joining it into
+    // the compared answer makes the card impossible to get right; dropping it loses the
+    // reason the deck was worth importing. It belongs in the notes.
+    it('should map a type_answer notetype\'s extra answer-side field to notes, not the answer', async () => {
+        const dbPath = path.join(process.cwd(), `temp_anki_typenotes_${Date.now()}.db`);
+
+        buildAnkiDb(dbPath, {
+            decks: { 310: { id: 310, name: 'Kana_Deck' } },
+            models: {
+                810: {
+                    id: 810, name: 'Kana (type in the reading)', type: 0,
+                    flds: [{ name: 'Kana', ord: 0 }, { name: 'Reading', ord: 1 }, { name: 'Mnemonic', ord: 2 }],
+                    tmpls: [
+                        {
+                            ord: 0, name: 'Card 1',
+                            qfmt: '{{Kana}}\n\n{{type:Reading}}',
+                            afmt: '{{FrontSide}}\n\n{{Reading}}<br>{{Mnemonic}}',
+                        },
+                    ],
+                },
+            },
+            notes: [{ id: 5101, guid: 'guid51', mid: 810, flds: 'か\x1fka\x1fLooks like a kayak.' }],
+            cards: [{ id: 6101, nid: 5101, did: 310, ord: 0, reps: 0 }],
+        });
+
+        const zipBuffer = buildApkg(dbPath);
+        fs.unlinkSync(dbPath);
+
+        const importer = new AnkiImport();
+        assert.ok((await importer.importApkg(zipBuffer, '')).ok);
+
+        const deck = importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Kana_Deck');
+        const entry = importer.query.getDeckEntries(deck.id)[0];
+        assert.equal(entry.card_type, 'type_answer');
+        assert.equal(entry.frontText, 'か');
+        assert.equal(entry.answerText, 'ka', 'only the {{type:}} field is graded');
+        assert.equal(entry.backText, 'Looks like a kayak.', 'the mnemonic survives as notes');
     });
 
     it('should create one cloze card per note (not one per cloze deletion)', async () => {
@@ -479,7 +521,7 @@ describe('Importers Integration Tests', () => {
         const typed = entries.find(e => e.card_type === 'type_answer');
         assert.ok(typed, '{{type:Back}} in the protobuf qfmt must be decoded');
         assert.equal(typed.frontText, 'Capital of Japan?');
-        assert.equal(typed.backText, 'Tokyo');
+        assert.equal(typed.answerText, 'Tokyo', 'the {{type:}} field becomes the compared answer');
     });
 
     it('should dedupe one asset across a legacy and a zstd package to a single Media row', async () => {

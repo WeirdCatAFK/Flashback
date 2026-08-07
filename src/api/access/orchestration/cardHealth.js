@@ -144,6 +144,22 @@ export function plainText(html) {
 }
 
 /**
+ * The text a card actually asks the reviewer to produce, given a content row.
+ *
+ * For every type that is just `backText` — except `type_answer`, whose back face carries
+ * post-review notes that are shown but never graded. Its load is the compared value alone,
+ * so a card with a two-word answer and a paragraph of mnemonic must not read as a mouthful.
+ * A card written before that split still keeps its answer in `backText`.
+ *
+ * Accepts either the DB row shape (`card_type`) or a sidecar card (`cardType`).
+ */
+export function answerBody(row = {}) {
+    const type = row.card_type ?? row.cardType;
+    if (type === 'type_answer') return row.answerText ?? row.backText ?? null;
+    return row.backText ?? null;
+}
+
+/**
  * The load a card's answer puts on the reviewer, as far as it can be measured from
  * static text. This is the authoring-time prior: with grade-only logs it is the best
  * available proxy for "too much to hold at once".
@@ -642,7 +658,7 @@ class CardHealthService {
         const samples = query.getFlashcardAnswerSamples();
         const counts = samples
             .map(s => analyzeStructure({
-                cardType: s.card_type, backText: s.backText, customHtml: s.custom_html,
+                cardType: s.card_type, backText: answerBody(s), customHtml: s.custom_html,
             }).tokens)
             .filter(n => n > 0);
         const medianTokens = median(counts);
@@ -663,7 +679,7 @@ class CardHealthService {
     // next field and hide a real edit.
     _fingerprint(content) {
         return crypto.createHash('sha256').update([
-            content?.frontText ?? '', content?.backText ?? '',
+            content?.frontText ?? '', content?.backText ?? '', content?.answerText ?? '',
             content?.custom_html ?? '', content?.card_type ?? '',
         ].join('\u0000')).digest('hex').slice(0, 32);
     }
@@ -707,7 +723,7 @@ class CardHealthService {
 
         const structure = structuralPrior(
             analyzeStructure({
-                cardType: content.card_type, backText: content.backText,
+                cardType: content.card_type, backText: answerBody(content),
                 customHtml: content.custom_html, frontText: content.frontText,
             }),
             this._medianAnswerTokens(),

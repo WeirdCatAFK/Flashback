@@ -86,7 +86,8 @@ export function registerReadTools(server) {
       title: 'Search Flashback',
       description:
         'Search the vault. Global mode (query only) matches against actual content — folder/document/deck ' +
-        'NAMES, tag names, and flashcard frontText/backText/name — and returns results grouped by type. It does ' +
+        'NAMES, tag names, and flashcard frontText/backText/answerText/name — and returns results grouped by ' +
+        'type. It does ' +
         'NOT search by theme or association: querying a deck\'s name won\'t surface cards inside it unless the ' +
         'name literally appears in the card text too (use `deck` filter mode, or list_decks + get_graph, to ' +
         'browse a deck\'s actual contents). Filter mode (any of tag/deck/document/folder) returns only ' +
@@ -348,7 +349,7 @@ export function registerReadTools(server) {
         'sometimes show the flag is weak and should be argued with. ' +
         'Never rewrite a card on flags alone; show the user what you would change and why.',
       inputSchema: {
-        search: z.string().optional().describe('Substring filter on front/back text and card name.'),
+        search: z.string().optional().describe('Substring filter on front/back text, a type_answer card\'s answerText, and card name.'),
         level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
         cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
         origin: z.enum(['ai', 'human']).optional().describe('Filter by provenance: "human" = handmade cards only — use these as style examples when drafting new cards; "ai" = AI-created cards only.'),

@@ -176,11 +176,13 @@ class DocumentQuery {
 
     insertFlashcard(data) {
         let customHtml = data.customData?.html || null;
-        let frontText = null, backText = null, fImg = null, bImg = null, fSnd = null, bSnd = null;
+        let frontText = null, backText = null, answerText = null;
+        let fImg = null, bImg = null, fSnd = null, bSnd = null;
 
         if (data.vanillaData) {
             frontText = data.vanillaData.frontText || null;
             backText = data.vanillaData.backText || null;
+            answerText = data.vanillaData.answerText || null;
             if (data.vanillaData.media) {
                 fImg = data.vanillaData.media.front_img || null;
                 bImg = data.vanillaData.media.back_img || null;
@@ -191,10 +193,10 @@ class DocumentQuery {
 
         // 1. Content
         const contentStmt = this.db.prepare(`
-            INSERT INTO FlashcardContent (custom_html, frontText, backText, front_img, back_img, front_sound, back_sound)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO FlashcardContent (custom_html, frontText, backText, answerText, front_img, back_img, front_sound, back_sound)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        const contentInfo = contentStmt.run(customHtml, frontText, backText, fImg, bImg, fSnd, bSnd);
+        const contentInfo = contentStmt.run(customHtml, frontText, backText, answerText, fImg, bImg, fSnd, bSnd);
 
         // 2. Reference
         let referenceId = null;
@@ -265,9 +267,13 @@ class DocumentQuery {
                 contentUpdates.push("frontText = ?"); 
                 params.push(data.vanillaData.frontText); 
             }
-            if (data.vanillaData.backText !== undefined) { 
-                contentUpdates.push("backText = ?"); 
-                params.push(data.vanillaData.backText); 
+            if (data.vanillaData.backText !== undefined) {
+                contentUpdates.push("backText = ?");
+                params.push(data.vanillaData.backText);
+            }
+            if (data.vanillaData.answerText !== undefined) {
+                contentUpdates.push("answerText = ?");
+                params.push(data.vanillaData.answerText);
             }
             if (data.vanillaData.media) {
                 contentUpdates.push("front_img = ?", "back_img = ?", "front_sound = ?", "back_sound = ?");
@@ -295,7 +301,8 @@ class DocumentQuery {
 
     getFlashcardContentByHash(hash) {
         return this.db.prepare(`
-            SELECT f.id, f.document_id, f.name, f.card_type, f.level, f.origin, c.frontText, c.backText, c.custom_html,
+            SELECT f.id, f.document_id, f.name, f.card_type, f.level, f.origin,
+                   c.frontText, c.backText, c.answerText, c.custom_html,
                    c.front_img, c.back_img, c.front_sound, c.back_sound,
                    pc.name AS category,
                    d.relative_path AS document_path
@@ -892,6 +899,7 @@ class DocumentQuery {
                 fc.render_html,
                 fc.frontText,
                 fc.backText,
+                fc.answerText,
                 fc.front_img,
                 fc.back_img,
                 fc.front_sound,
@@ -1165,11 +1173,11 @@ class DocumentQuery {
         const term = `%${query}%`;
         const docs = this.db.prepare(`SELECT 'document' as type, name, relative_path, global_hash FROM Documents WHERE name LIKE ?`).all(term);
         const cards = this.db.prepare(`
-            SELECT 'flashcard' as type, f.global_hash, c.frontText, c.backText
+            SELECT 'flashcard' as type, f.global_hash, c.frontText, c.backText, c.answerText
             FROM Flashcards f JOIN FlashcardContent c ON f.content_id = c.id
-            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.global_hash = ? OR f.name LIKE ?
-        `).all(term, term, query, term);
-        const tags = this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText FROM Tags t WHERE t.name LIKE ?`).all(term);
+            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.global_hash = ? OR f.name LIKE ?
+        `).all(term, term, term, query, term);
+        const tags = this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText, null as answerText FROM Tags t WHERE t.name LIKE ?`).all(term);
         return [...docs, ...cards, ...tags];
     }
 
@@ -1195,14 +1203,14 @@ class DocumentQuery {
 
         const flashcards = this.db.prepare(`
             SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
-                   c.frontText, c.backText,
+                   c.frontText, c.backText, c.answerText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
             LEFT JOIN Documents d ON d.id = f.document_id
-            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?
+            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
             LIMIT ?
-        `).all(term, term, term, limit);
+        `).all(term, term, term, term, limit);
 
         const tags = this.db.prepare(
             `SELECT name FROM Tags WHERE name LIKE ? LIMIT ?`
@@ -1272,8 +1280,8 @@ class DocumentQuery {
         }
 
         if (q) {
-            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
-            condParams.push(`%${q}%`, `%${q}%`, `%${q}%`);
+            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?)');
+            condParams.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
         }
 
         const whereSQL = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -1282,7 +1290,7 @@ class DocumentQuery {
         return this.db.prepare(`
             ${cteSQL}
             SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
-                   c.frontText, c.backText,
+                   c.frontText, c.backText, c.answerText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
@@ -1568,7 +1576,7 @@ class DocumentQuery {
     getDeckEntries(deckId) {
         return this.db.prepare(`
             SELECT e.*, f.level, f.last_recall, f.card_type, f.name as card_name,
-                   c.frontText, c.backText, c.custom_html
+                   c.frontText, c.backText, c.answerText, c.custom_html
             FROM DeckEntries e
             LEFT JOIN Flashcards f ON f.global_hash = e.card_hash
             LEFT JOIN FlashcardContent c ON c.id = f.content_id
@@ -1610,8 +1618,8 @@ class DocumentQuery {
 
         if (search) {
             const term = `%${search}%`;
-            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR f.name LIKE ?)');
-            params.push(term, term, term);
+            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?)');
+            params.push(term, term, term, term);
         }
         if (level !== null && level !== undefined) {
             conditions.push('f.level = ?');
@@ -1652,7 +1660,7 @@ class DocumentQuery {
         return this.db.prepare(`
             SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
                    f.fsrs_lapses as lapses, f.fsrs_difficulty as difficulty, f.origin,
-                   c.frontText, c.backText, c.custom_html,
+                   c.frontText, c.backText, c.answerText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
                    pc.name as category,
                    -- Scalar subquery, not a join: the browser renders a flag chip per
@@ -1678,7 +1686,7 @@ class DocumentQuery {
         `).get(...params).c;
     }
 
-    updateFlashcardContentByHash(hash, { frontText, backText, name, cardType, category, customHtml }) {
+    updateFlashcardContentByHash(hash, { frontText, backText, answerText, name, cardType, category, customHtml }) {
         const card = this.db.prepare('SELECT id, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
         if (!card) return false;
         let categoryId = null;
@@ -1688,8 +1696,8 @@ class DocumentQuery {
         }
         this.db.prepare('UPDATE Flashcards SET name = ?, card_type = ?, category_id = ? WHERE id = ?')
             .run(name || null, cardType || 'basic', categoryId, card.id);
-        this.db.prepare('UPDATE FlashcardContent SET frontText = ?, backText = ?, custom_html = ? WHERE id = ?')
-            .run(frontText || null, backText || null, customHtml || null, card.content_id);
+        this.db.prepare('UPDATE FlashcardContent SET frontText = ?, backText = ?, answerText = ?, custom_html = ? WHERE id = ?')
+            .run(frontText || null, backText || null, answerText || null, customHtml || null, card.content_id);
         return true;
     }
 
@@ -1727,10 +1735,10 @@ class DocumentQuery {
     // threshold would be meaningless across a kana vault and a case-law vault.
     getFlashcardAnswerSamples(limit = 2000) {
         return this.db.prepare(`
-            SELECT f.card_type, c.backText, c.custom_html
+            SELECT f.card_type, c.backText, c.answerText, c.custom_html
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
-            WHERE c.backText IS NOT NULL OR c.custom_html IS NOT NULL
+            WHERE c.backText IS NOT NULL OR c.answerText IS NOT NULL OR c.custom_html IS NOT NULL
             LIMIT ?
         `).all(limit);
     }
@@ -1890,6 +1898,39 @@ class DocumentQuery {
             this.db.prepare('DELETE FROM Connections').run();
             this.db.prepare('DELETE FROM Nodes').run();
         })();
+    }
+
+    // --- Canonical updates ---
+    //
+    // Which canonical-layer updates this vault has finished (config/UpdateRunner.js) — the
+    // counterpart of SchemaVersion for the files rather than for this database. Recorded
+    // only after a pass completes with nothing skipped, and treated as a fast path rather
+    // than as truth: the authority is the `formatVersion` stamped on each canonical file.
+
+    // Moves every legacy type_answer card's answer from backText into answerText, matching
+    // what canonical update 001 writes into the files. Migration 008 carries the same
+    // statement for the upgrade path; this exists so the canonical pass can stand on its own
+    // — after a Vault Doctor rebuild the derived rows are re-derived from whatever the files
+    // said at the time, and the two layers have to end up agreeing either way.
+    // Idempotent: a row that already has an answerText is left alone.
+    backfillTypeAnswerAnswerText() {
+        return this.db.prepare(`
+            UPDATE FlashcardContent
+               SET answerText = backText,
+                   backText   = NULL
+             WHERE answerText IS NULL
+               AND id IN (SELECT content_id FROM Flashcards WHERE card_type = 'type_answer')
+        `).run().changes;
+    }
+
+    getCanonicalVersions() {
+        return new Set(this.db.prepare('SELECT version FROM CanonicalVersion').all().map(r => r.version));
+    }
+
+    recordCanonicalVersion(version, description = null) {
+        this.db.prepare(
+            'INSERT OR REPLACE INTO CanonicalVersion (version, description) VALUES (?, ?)'
+        ).run(version, description);
     }
 
     // --- Highlights ---

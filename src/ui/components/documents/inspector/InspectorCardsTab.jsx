@@ -3,6 +3,7 @@ import { readFile } from '../../../api/documents';
 import { deleteCard as deleteCardRequest } from '../../../api/decks';
 import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
+import { typeAnswerParts } from '../../shared/flashcardFields';
 
 const TYPE_LABELS = {
   basic:       'Basic',
@@ -15,7 +16,11 @@ const TYPE_LABELS = {
 function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
   const cardType     = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
   const front        = card.vanillaData?.frontText ?? card.name ?? '—';
-  const back         = card.vanillaData?.backText ?? '';
+  // For a type_answer card the preview line is the compared answer, not the notes that
+  // follow it (on a card predating that split, backText is still the answer).
+  const back         = (cardType === 'type_answer'
+    ? typeAnswerParts(card.vanillaData).answer
+    : card.vanillaData?.backText) ?? '';
   const highlightLoc = card.vanillaData?.location?.type === 'highlight'
     ? card.vanillaData.location
     : null;

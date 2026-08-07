@@ -5,6 +5,7 @@ import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import { getWorkspacePath } from '../primitives/config.js';
 import { sealEmitter } from '../../seal/seal.js';
+import { LATEST_VERSION } from '../../config/updates/registry.js';
 
 const DECKS_DIR = '_decks';
 
@@ -62,6 +63,9 @@ export default class Decks {
                 return entry;
             });
             const rebuilt = {
+                // The entries come from inline snapshots the DB mirrored off an already
+                // current file, so the rebuild is current by construction.
+                formatVersion: LATEST_VERSION,
                 globalHash,
                 name: deckRow.name,
                 description: deckRow.description ?? '',
@@ -92,7 +96,12 @@ export default class Decks {
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
         const now = new Date().toISOString();
-        const file = { globalHash, name, description, tags: [], created: now, modified: now, entries: [] };
+        // formatVersion: deck files are canonical too, so they carry the same version stamp
+        // sidecars do (see config/updates/UPDATES.md).
+        const file = {
+            formatVersion: LATEST_VERSION,
+            globalHash, name, description, tags: [], created: now, modified: now, entries: [],
+        };
 
         this._write(globalHash, file);
         try {
@@ -422,7 +431,7 @@ export default class Decks {
     // deck entry (file entry.card + DeckEntries.inline_card). Standalone cards
     // have no document sidecar, so this snapshot is their only canonical-layer
     // representation — without it they'd be unrecoverable after a DB rebuild.
-    _standaloneSnapshot({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
+    _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
         return {
             name: name ?? null,
             cardType,
@@ -431,13 +440,19 @@ export default class Decks {
             vanillaData: {
                 frontText: frontText || null,
                 backText: backText || null,
+                // type_answer only: the compared value, kept apart from backText so the
+                // back face can carry notes that are never graded. Written as a string
+                // (never null) and omitted entirely for the other types — a missing or
+                // null answerText is exactly what marks a card as predating the split,
+                // and canonical update 001 keys off that.
+                ...(cardType === 'type_answer' ? { answerText: answerText ?? '' } : {}),
                 media: media || {},
             },
             customData: customHtml ? { html: customHtml } : null,
         };
     }
 
-    async createStandaloneCard({ frontText, backText, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
+    async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
         const systemDeck = this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
         if (category && !this.query.getCategoryByName(category)) {
@@ -445,7 +460,7 @@ export default class Decks {
         }
 
         const globalHash = crypto.randomUUID();
-        const snapshot = this._standaloneSnapshot({ frontText, backText, name, cardType, category, customHtml, media, origin });
+        const snapshot = this._standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin });
 
         db.transaction(() => {
             const nodeId = this.query.createNode('Flashcard');
@@ -497,6 +512,7 @@ export default class Decks {
             origin: card.origin ?? null,
             frontText: card.frontText,
             backText: card.backText,
+            answerText: card.answerText ?? null,
             customHtml: card.custom_html,
             category: card.category,
             documentPath: card.document_path ?? null,
@@ -511,7 +527,7 @@ export default class Decks {
         };
     }
 
-    async updateStandaloneCard(hash, { frontText, backText, name, cardType, category, customHtml } = {}) {
+    async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml } = {}) {
         const card = this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -526,6 +542,7 @@ export default class Decks {
         const merged = {
             frontText: frontText !== undefined ? frontText : existing.frontText,
             backText: backText !== undefined ? backText : existing.backText,
+            answerText: answerText !== undefined ? answerText : existing.answerText,
             name: name !== undefined ? name : existing.name,
             cardType: cardType !== undefined ? cardType : existing.card_type,
             category: category !== undefined ? category : existing.category,
@@ -601,6 +618,58 @@ export default class Decks {
                     return { globalHash, data: null };
                 }
             });
+    }
+
+    /**
+     * Applies `transform` to every canonical deck file, rewriting the ones it changed and
+     * re-syncing their `DeckEntries.inline_card` mirrors.
+     *
+     * This is the deck-side entry point for canonical updates — the counterpart of walking
+     * the workspace for document sidecars — so that deck file IO stays inside this module.
+     * The transform receives the whole file (a deck carries its standalone cards inline
+     * under `entries[].card`, and an update may need to touch the deck's own fields too).
+     *
+     * It deliberately emits no Seal event: the caller binds the whole pass into a single
+     * `reconcile:` commit rather than one edit per deck. A file that cannot be parsed, or
+     * whose transform throws, is reported and left exactly as found.
+     *
+     * @param {(deckFile: object) => boolean} transform mutates the file in place; returns
+     *   true when it changed something.
+     * @returns {{ filesRewritten: number, corruptFiles: string[], failed: Array<{hash: string, error: string}> }}
+     */
+    mapDeckFiles(transform) {
+        const result = { filesRewritten: 0, corruptFiles: [], failed: [] };
+
+        for (const { globalHash, data } of this.listDeckFiles()) {
+            if (!data) { result.corruptFiles.push(globalHash); continue; }
+
+            let changed = false;
+            try {
+                changed = transform(data) === true;
+            } catch (err) {
+                result.failed.push({ hash: globalHash, error: err.message });
+                continue;
+            }
+            if (!changed) continue;
+
+            data.modified = new Date().toISOString();
+            this._write(globalHash, data);
+
+            // The DB's inline snapshots mirror the file, so they follow it wholesale rather
+            // than the caller having to say which entries moved.
+            const deck = this.query.getDeckByHash(globalHash);
+            if (deck) {
+                db.transaction(() => {
+                    for (const entry of data.entries ?? []) {
+                        if (!entry?.card) continue;
+                        this.query.updateDeckEntryInlineCard(deck.id, entry.cardHash, JSON.stringify(entry.card));
+                    }
+                })();
+            }
+            result.filesRewritten++;
+        }
+
+        return result;
     }
 
     /**

@@ -6,7 +6,8 @@ import * as m004 from './migrations/004_fsrs.js';
 import * as m005 from './migrations/005_card_origin.js';
 import * as m006 from './migrations/006_review_algorithm.js';
 import * as m007 from './migrations/007_card_health.js';
-const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007];
+import * as m008 from './migrations/008_type_answer_answer_text.js';
+const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008];
 
 function ensureVersionTable(db) {
     db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (

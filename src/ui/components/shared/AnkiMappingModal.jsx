@@ -46,7 +46,8 @@ const SLOTS_BY_TYPE = {
     ],
     type_answer: [
         { key: 'front', label: 'Question', hint: 'Shown to the user' },
-        { key: 'back', label: 'Expected answer', hint: 'Typed and checked' },
+        { key: 'answer', label: 'Expected answer', hint: 'Typed and checked' },
+        { key: 'back', label: 'Notes', hint: 'Shown after checking — never compared' },
     ],
     custom: [],
 };
@@ -64,8 +65,8 @@ const MEDIA_SLOTS = [
 // type_answer has no media in FlashcardForm, and custom stores raw HTML.
 const typeHasMedia = (cardType) => cardType === 'basic' || cardType === 'reversible' || cardType === 'cloze';
 
-const ALL_SLOTS = ['front', 'back', 'front_img', 'front_sound', 'back_img', 'back_sound'];
-const emptySlots = () => ({ front: [], back: [], front_img: [], front_sound: [], back_img: [], back_sound: [] });
+const ALL_SLOTS = ['front', 'back', 'answer', 'front_img', 'front_sound', 'back_img', 'back_sound'];
+const emptySlots = () => ({ front: [], back: [], answer: [], front_img: [], front_sound: [], back_img: [], back_sound: [] });
 
 const DRAG_MIME = 'application/x-flashback-anki-field';
 
@@ -257,7 +258,10 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
         back: joined('back'),
         clozeText: joined('front').replace(/\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g, '{{$1}}'),
         question: joined('front'),
-        expectedAnswer: joined('back'),
+        // type_answer: the compared value comes from its own slot, so whatever the notetype
+        // renders on the answer side beyond it previews as notes rather than as the answer.
+        expectedAnswer: joined('answer'),
+        notes: joined('back'),
         customHtml: '(kept as the original Anki HTML)',
     };
 

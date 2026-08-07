@@ -15,6 +15,7 @@ export default function StandaloneCardModal({ onClose, onCreated }) {
             await createStandaloneCard({
                 frontText:  card.vanillaData?.frontText  || null,
                 backText:   card.vanillaData?.backText   || null,
+                answerText: card.vanillaData?.answerText ?? null,
                 name:       card.name                    || null,
                 cardType:   card.cardType,
                 category:   card.category                || null,

@@ -1234,7 +1234,7 @@ export default class Documents {
      *
      * @param {string} relativePath - document the card is anchored to.
      * @param {string} flashcardHash - globalHash of the card to edit.
-     * @param {object} patch - any of { frontText, backText, name, cardType, category, customHtml, tags }.
+     * @param {object} patch - any of { frontText, backText, answerText, name, cardType, category, customHtml, tags }.
      * @returns {object} the updated card as written to the sidecar.
      */
     async updateFlashcard(relativePath, flashcardHash, patch = {}) {
@@ -1269,6 +1269,16 @@ export default class Documents {
                 frontText: patch.frontText !== undefined ? patch.frontText : (ex.vanillaData?.frontText ?? ''),
                 backText: patch.backText !== undefined ? patch.backText : (ex.vanillaData?.backText ?? ''),
             };
+            // type_answer's compared value. Only written for that type, and only once the
+            // caller has one: a card that still keeps its answer in backText must not gain
+            // an empty answerText here, or it would read as "answer deliberately blank"
+            // instead of "predates the split".
+            if (nextType === 'type_answer') {
+                const answerText = patch.answerText !== undefined ? patch.answerText : ex.vanillaData?.answerText;
+                if (answerText != null) updated.vanillaData.answerText = answerText;
+            } else {
+                delete updated.vanillaData.answerText;
+            }
         }
 
         meta.flashcards[idx] = updated;

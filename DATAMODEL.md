@@ -59,6 +59,25 @@ wwwInteligencia_Artificial
 
 ```
 
+### Canonical file versioning
+
+Every canonical file — folder sidecar, file sidecar, and `_decks/*.json` — carries a
+**`formatVersion`** integer saying which canonical updates it has been through:
+
+```json
+{ "formatVersion": 1, "globalHash": "…", "tags": [] }
+```
+
+This is the canonical layer's equivalent of `SchemaVersion`, but recorded **per file** rather
+than once per vault, and that is deliberate. A canonical file can arrive from anywhere — a
+backup, another machine, a Seal rollback to a commit from a year ago — so it has to be
+self-describing: `config/UpdateRunner.js` reads the stamp, applies only the updates that file
+still needs, and stamps the new version. A file with no `formatVersion` is version 0.
+
+The `CanonicalVersion` table records what the *vault* has finished, purely so a normal
+startup skips the walk. Full spec, including the rules an update must follow, in
+`src/api/config/updates/UPDATES.md`.
+
 ### Folder-level `.flashback` file
 
 - Contains metadata and tags inherited by all files and flashcards within the folder.
@@ -66,6 +85,7 @@ wwwInteligencia_Artificial
 
 ```json
 {
+  "formatVersion": 1,
   "globalHash": "unique-folder-hash", # A hash that is defined by the creator and the timestamp of when it was created
   "tags": ["Artificial Intelligence", "Course", "Fall 2024"],
 }
@@ -79,6 +99,7 @@ wwwInteligencia_Artificial
 
 ```json
 {
+  "formatVersion": 1,
   "globalHash": "unique-file-hash",# A hash that is defined by the creator and the timestamp of when it was created
   "tags": ["Lecture", "KNN"],
   "excludedTags": ["AI"],
@@ -175,7 +196,7 @@ Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAU
 | `basic`       | Standard two-sided flip. Front and back are independent text + media blocks.                                                                                                                                                                         |
 | `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions.                                                                                                                        |
 | `cloze`       | Text with `{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`).                        |
-| `type_answer` | Question in `frontText`; expected answer in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to `backText` (case-insensitive trim) and shows a correct/wrong verdict before grading. |
+| `type_answer` | Question in `frontText`; expected answer in `answerText`; optional post-review notes in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to **`answerText` only** (case-insensitive trim) and shows a correct/wrong verdict before grading; the back then shows the answer with the notes underneath, so a card can carry a mnemonic without changing what is graded. |
 | `custom`      | Full HTML stored in `customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty.                                                                                          |
 
 ### Sidecar representation per type
@@ -203,8 +224,9 @@ Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAU
 // type_answer
 {
   "cardType": "type_answer",
-  "vanillaData": { "frontText": "What is the capital of France?",
-                   "backText":  "Paris",
+  "vanillaData": { "frontText":  "What is the capital of France?",
+                   "answerText": "Paris",
+                   "backText":   "On the Seine; capital since 987.",
                    "media": { "front_img": null, "back_img": null,
                               "front_sound": null, "back_sound": null } },
   "customData": { "html": "" }
@@ -225,6 +247,12 @@ All media slots (`front_img`, `back_img`, `front_sound`, `back_sound`) store a *
 ### Backward compatibility
 
 Sidecars written before `cardType` was introduced may carry `"isCustom": true` instead of `"cardType"`. The renderer resolves this with: `card.cardType ?? (card.isCustom ? 'custom' : 'basic')`.
+
+A `type_answer` card written before `answerText` existed keeps its expected answer in `backText` and has no `answerText` key at all. Readers resolve this with one rule — **the compared value is `answerText`, falling back to `backText` when it is absent or empty; notes exist only when `answerText` does** — implemented once per side in `typeAnswerParts()` (`src/ui/components/shared/flashcardFields.js`) and `answerBody()` (`access/orchestration/cardHealth.js`).
+
+Vaults are migrated to the new shape by **canonical update 001** (`config/updates/001_type_answer_split.js` — sidecars + `_decks/*.json`, sealed as one `reconcile:` commit) and its paired schema migration 008 (the `FlashcardContent.answerText` column and its backfill). The fallback is kept regardless: a Seal rollback can restore a pre-split sidecar at any time, so correctness never depends on the update having run.
+
+Compatibility runs **forwards only**. The rule above lets a current build read a pre-split card; it cannot help a build released *before* `answerText`, which has no such rule to apply. Such a build still opens a migrated vault and reviews every other card type, but grades `type_answer` against the now-empty `backText` (unanswerable), and its standalone-card writer drops `answerText` entirely on the next edit. See `config/updates/UPDATES.md` § One-way updates and the downgrade warning in `CHANGELOG.md`.
 
 ---
 
@@ -630,7 +658,8 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | custom_html | text         | User-provided HTML formatting.            |
 | render_html | text         | Processed HTML for display.               |
 | frontText   | varchar(500) | Text shown on the front of the flashcard. |
-| backText    | varchar(500) | Text shown on the back of the flashcard.  |
+| backText    | varchar(500) | Text shown on the back of the flashcard. On a `type_answer` card this is post-review notes, never compared. |
+| answerText  | varchar(500) | `type_answer` only: the expected answer, the sole value compared to what the reviewer types. NULL on other types, and on a `type_answer` card that predates the split (its answer is then still in `backText`). |
 | front_img   | varchar(500) | Path/URL of image for front side.         |
 | back_img    | varchar(500) | Path/URL of image for back side.          |
 | front_sound | varchar(500) | Path/URL of audio for front side.         |
@@ -794,7 +823,7 @@ The **analysis watermark**, one row per evaluated card. A card-health flag is a 
 | flashcard_id        | integer (FK) | The card. UNIQUE. **(ON DELETE CASCADE)**               |
 | epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
 | epoch_reason        | varchar(20)  | What moved the watermark: `edit`, `recovered`, `dismissed`. |
-| content_fingerprint | varchar(64)  | Hash of front + back + custom HTML + card type at last evaluation. |
+| content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation. |
 | updated_at          | timestamp    | Last write.                                             |
 
 `content_fingerprint` is how an edit is detected **without an edit hook**. `cardHealth.buildContext()` compares the card's current fingerprint against the stored one and resets the epoch on a mismatch, so an edit arriving through *any* path — the PUT route, the MCP server, a Seal rollback, a Vault Doctor reindex — invalidates the card's flags without those paths knowing the classifier exists.
@@ -849,3 +878,17 @@ Detector semantics, the mouthful/probe discriminator and the guard-precedence ru
 | version     | varchar(100) | Version string of the last imported issue.               |
 | target_path | varchar(500) | Relative workspace path where the content was installed. |
 | last_sync   | timestamp    | Timestamp of the last successful import.                 |
+
+---
+
+### Table: CanonicalVersion
+
+Which **canonical updates** this vault has finished — the counterpart of `SchemaVersion`, which tracks changes to this derived database. Written by `config/UpdateRunner.js` only after a pass completes with nothing skipped; a pass that skipped a file leaves no row and is retried on the next launch.
+
+| Column      | Type         | Description                                                    |
+| ----------- | ------------ | -------------------------------------------------------------- |
+| version     | integer (PK) | Update version, matching `config/updates/NNN_*.js`.             |
+| applied_at  | timestamp    | When the pass completed.                                        |
+| description | text         | The update's one-line summary.                                  |
+
+This table is an **optimisation, not the source of truth**: it is what lets startup skip walking every sidecar when nothing is pending. The authority is the `formatVersion` stamped on each canonical file (see § Canonical file versioning), so losing this table costs one redundant walk, not correctness.
