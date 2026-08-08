@@ -123,6 +123,13 @@
   font-variant-numeric: tabular-nums;
 }
 
+.diary-main-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  align-self: center;
+}
+
 /* ── Summary ───────────────────────────────────────────────────────────────── */
 
 .diary-summary {

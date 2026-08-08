@@ -69,19 +69,17 @@ function Breakdown({ title, rows, nameKey, emptyHint }) {
   );
 }
 
-function SummaryPanel({ state, summary, onRebuild, rebuilding }) {
+function SummaryPanel({ state, summary }) {
   if (state === "loading") return <LoadingState message="Loading summary…" />;
   if (state === "error") return <ErrorState error="Could not load the summary." />;
   if (state === "none") {
+    // No action here — "Rebuild from history" lives in the day header, where it
+    // stays reachable on days that *do* have a summary (an out-of-date one is
+    // exactly when you want to re-derive it).
     return (
       <EmptyState
         title="No summary for this day"
-        message="Summaries are written automatically when you finish a study session (with the diary enabled). You can also rebuild them from your review history."
-        action={
-          <button type="button" className="diary-btn" onClick={onRebuild} disabled={rebuilding}>
-            {rebuilding ? "Rebuilding…" : "Rebuild from history"}
-          </button>
-        }
+        message="Summaries are written automatically when you finish a study session (with the diary enabled). Use “Rebuild from history” above to re-derive them from your review log."
       />
     );
   }
@@ -313,9 +311,20 @@ export default function DiaryView({ isActive }) {
         <header className="diary-main-head">
           <h2 className="diary-main-title">{selectedDate === today ? "Today" : fmtDate(selectedDate)}</h2>
           <span className="diary-main-date">{selectedDate}</span>
+          <div className="diary-main-actions">
+            <button
+              type="button"
+              className="diary-btn"
+              onClick={onRebuild}
+              disabled={rebuilding}
+              title="Re-derive every day's summary from your review history"
+            >
+              {rebuilding ? "Rebuilding…" : "Rebuild from history"}
+            </button>
+          </div>
         </header>
 
-        <SummaryPanel state={summaryState} summary={summary} onRebuild={onRebuild} rebuilding={rebuilding} />
+        <SummaryPanel state={summaryState} summary={summary} />
         <EntryEditor date={selectedDate} loading={entryLoading} content={entry} onSaved={onEntrySaved} />
       </main>
     </div>
