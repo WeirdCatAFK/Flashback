@@ -650,7 +650,13 @@
   justify-content: flex-end;
 }
 
-/* ── Deck rename inline ─────────────────────────────────────────────────── */
+/* ── Deck name/description inline edit ──────────────────────────────────── */
+
+.deck-meta-form {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
 
 .deck-detail-name-input {
   font-size: 16px;
@@ -663,6 +669,37 @@
   outline: none;
   width: 100%;
   font-family: inherit;
+}
+
+.deck-detail-desc-input {
+  font-size: 12px;
+  color: var(--color-fg-primary);
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+  width: 100%;
+  font-family: inherit;
+  resize: vertical;
+}
+
+.deck-detail-desc-input:focus {
+  border-color: var(--color-accent);
+}
+
+.deck-meta-form-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.deck-detail-desc {
+  cursor: text;
+}
+
+.deck-detail-desc--empty {
+  font-style: italic;
+  opacity: 0.65;
 }
 
 /* ── System deck badge ──────────────────────────────────────────────────── */

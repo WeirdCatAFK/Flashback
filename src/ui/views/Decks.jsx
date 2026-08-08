@@ -229,8 +229,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     const [purging, setPurging] = useState(false);
     const [purgeBusy, setPurgeBusy] = useState(false);
     const [purgeError, setPurgeError] = useState(null);
-    const [renaming, setRenaming] = useState(false);
-    const [renameVal, setRenameVal] = useState('');
+    const [editingMeta, setEditingMeta] = useState(false);
+    const [nameVal, setNameVal] = useState('');
+    const [descVal, setDescVal] = useState('');
+    const [savingMeta, setSavingMeta] = useState(false);
 
     const load = useCallback(() => {
         setLoading(true);
@@ -279,17 +281,26 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
         }
     };
 
-    const startRename = () => { setRenameVal(deck.name); setRenaming(true); };
+    // Name and description are edited together: the description is a second line of
+    // the same header, and blur-to-commit (the old rename behaviour) can't work once
+    // moving between two fields is a normal part of editing.
+    const startEditMeta = () => {
+        setNameVal(deck.name);
+        setDescVal(deck.description ?? '');
+        setEditingMeta(true);
+    };
 
-    const submitRename = async (e) => {
+    const submitMeta = async (e) => {
         e.preventDefault();
-        if (!renameVal.trim()) return;
+        if (!nameVal.trim() || savingMeta) return;
+        setSavingMeta(true);
         try {
-            await updateDeck(deckHash, { name: renameVal.trim(), description: deck.description });
-            setRenaming(false);
+            await updateDeck(deckHash, { name: nameVal.trim(), description: descVal.trim() });
+            setEditingMeta(false);
             load();
             onRefreshList();
         } catch (err) { console.error(err); }
+        finally { setSavingMeta(false); }
     };
 
     if (loading) return (
@@ -307,21 +318,42 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
         <div className="deck-content" style={{ position: 'relative' }}>
             <div className="deck-detail-header">
                 <div className="deck-detail-title-group">
-                    {renaming ? (
-                        <form onSubmit={submitRename} style={{ display: 'flex', gap: 6 }}>
-                            <input className="deck-detail-name-input" autoFocus aria-label="Deck name" value={renameVal}
-                                onChange={e => setRenameVal(e.target.value)} onBlur={() => setRenaming(false)} />
+                    {editingMeta ? (
+                        <form className="deck-meta-form" onSubmit={submitMeta}
+                            onKeyDown={e => { if (e.key === 'Escape') setEditingMeta(false); }}>
+                            <input className="deck-detail-name-input" autoFocus aria-label="Deck name" value={nameVal}
+                                onChange={e => setNameVal(e.target.value)} placeholder="Deck name" />
+                            <textarea className="deck-detail-desc-input" aria-label="Deck description" value={descVal}
+                                onChange={e => setDescVal(e.target.value)} rows={2}
+                                placeholder="Optional description" />
+                            <div className="deck-meta-form-actions">
+                                <button type="button" className="deck-btn" onClick={() => setEditingMeta(false)} disabled={savingMeta}>Cancel</button>
+                                <button type="submit" className="deck-btn primary" disabled={savingMeta || !nameVal.trim()}>
+                                    {savingMeta ? 'Saving…' : 'Save'}
+                                </button>
+                            </div>
                         </form>
                     ) : (
-                        <h2 className="deck-detail-name" onDoubleClick={startRename} title="Double-click to rename">
-                            {deck.name}
-                        </h2>
+                        <>
+                            <h2 className="deck-detail-name" onDoubleClick={startEditMeta} title="Double-click to edit">
+                                {deck.name}
+                            </h2>
+                            <div className="deck-detail-meta">
+                                {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
+                                {' · '}
+                                {/* Empty descriptions still need a target to double-click, so the
+                                    placeholder is rendered rather than the line collapsing. */}
+                                <span
+                                    className={`deck-detail-desc${deck.description ? '' : ' deck-detail-desc--empty'}`}
+                                    onDoubleClick={startEditMeta}
+                                    title="Double-click to edit"
+                                >
+                                    {deck.description || 'Add a description…'}
+                                </span>
+                                {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">Standalone cards live here</span>}
+                            </div>
+                        </>
                     )}
-                    <div className="deck-detail-meta">
-                        {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
-                        {deck.description ? ` · ${deck.description}` : ''}
-                        {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">Standalone cards live here</span>}
-                    </div>
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
