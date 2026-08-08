@@ -4,6 +4,7 @@ import { initClient } from './api/client.js';
 import App from './App.jsx';
 import SetupView from './views/Setup.jsx';
 import { ConfirmProvider } from './components/shared/ConfirmDialog.jsx';
+import { TranslationProvider } from './translations/index.jsx';
 import './index.css';
 
 const root = createRoot(document.getElementById('root'));
@@ -35,9 +36,11 @@ async function launchApp() {
   initClient(apiUrl, apiToken);
   root.render(
     <StrictMode>
-      <ConfirmProvider>
-        <App />
-      </ConfirmProvider>
+      <TranslationProvider>
+        <ConfirmProvider>
+          <App />
+        </ConfirmProvider>
+      </TranslationProvider>
     </StrictMode>
   );
 }
@@ -46,7 +49,9 @@ async function bootstrap() {
   if (window.flashback && await window.flashback.isFirstRun()) {
     root.render(
       <StrictMode>
-        <SetupView onComplete={launchApp} />
+        <TranslationProvider>
+          <SetupView onComplete={launchApp} />
+        </TranslationProvider>
       </StrictMode>
     );
     return;

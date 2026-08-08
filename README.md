@@ -95,11 +95,10 @@ git-backed history records every change automatically, so nothing is ever lost.
   git-compatible history — no manual saves and **no system Git required**.
 - Browse the timeline, inspect changes made outside the app, and **roll back** to
   any earlier version, optionally keeping your current review progress.
-  
+
 ### Learning stats
 
 - Take a look at your stats and see how far you've come on this learning journey
-  
 
 ### Import
 
@@ -159,3 +158,9 @@ pdf.js · epub.js · Tiptap · react-force-graph
 Released under the [GNU GPL v3.0](LICENSE).
 
 <div align="center">
+
+---
+
+## Translation
+
+We are looking for translators, get in contact to collaborate and set translation into the language packages dpineda.dev@gmail.com

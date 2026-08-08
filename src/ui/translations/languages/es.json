@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "code": "es",
+    "name": "Español"
+  },
+  "Documents": "Documentos",
+  "Flashcards": "Tarjetas",
+  "Decks": "Mazos",
+  "Graph": "Grafo",
+  "Trainer": "Entrenador",
+  "Statistics": "Estadísticas",
+  "Diary": "Diario",
+  "Seal": "Seal",
+  "Manage": "Gestionar",
+  "Config": "Configuración",
+  "Main navigation": "Navegación principal",
+  "Loading…": "Cargando…"
+}

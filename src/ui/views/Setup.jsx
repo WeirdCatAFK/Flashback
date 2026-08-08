@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import "./Setup.css";
 import "../App.css";
 import TitleBar from "../components/TitleBar";
+import { LanguagePicker, LOCALE_OPTIONS } from "../translations/index.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -58,6 +59,15 @@ function StepWelcome({ onNext }) {
           <polyline points="8,3 12,7 8,11"/>
         </svg>
       </button>
+
+      {/* Only worth showing once a pack exists — on a build with none, this is
+          a one-option select that just adds noise to the first screen. */}
+      {LOCALE_OPTIONS.length > 1 && (
+        <div className="ob-locale">
+          <label htmlFor="ob-locale-select">Language</label>
+          <LanguagePicker id="ob-locale-select" />
+        </div>
+      )}
     </div>
   );
 }

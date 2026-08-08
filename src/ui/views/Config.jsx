@@ -5,6 +5,7 @@ import ProgressDialog from "../components/shared/ProgressDialog";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
+import { LanguagePicker } from "../translations/index.jsx";
 import {
   THEME_VARS,
   saveCustomTheme,
@@ -848,6 +849,14 @@ export default function ConfigView({
         <h2 className="config-heading">Appearance</h2>
         <table className="config-table">
           <tbody>
+            <tr>
+              <td>
+                <label htmlFor="locale-select">Language</label>
+              </td>
+              <td>
+                <LanguagePicker id="locale-select" />
+              </td>
+            </tr>
             <tr>
               <td>
                 <label htmlFor="theme-select">Theme</label>

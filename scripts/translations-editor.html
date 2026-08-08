@@ -1,0 +1,418 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Flashback — Translation Workbench</title>
+<style>
+  :root {
+    --bg: #fafaf9; --panel: #fff; --line: #e7e5e4; --line-strong: #d6d3d1;
+    --fg: #1c1917; --fg-dim: #57534e; --fg-faint: #a8a29e;
+    --accent: #b45309; --accent-soft: #fef3c7;
+    --warn: #9a3412; --warn-soft: #ffedd5;
+    --ok: #3f6212;
+    --mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1c1917; --panel: #232020; --line: #37322f; --line-strong: #4a4340;
+      --fg: #f5f5f4; --fg-dim: #a8a29e; --fg-faint: #78716c;
+      --accent: #f59e0b; --accent-soft: #3b2c11;
+      --warn: #fb923c; --warn-soft: #3a2313;
+      --ok: #a3b18a;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg);
+    font: 13px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+
+  header {
+    position: sticky; top: 0; z-index: 10; background: var(--panel);
+    border-bottom: 1px solid var(--line); padding: 12px 20px;
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+  }
+  h1 { font-size: 13px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+  h1 span { color: var(--fg-faint); font-weight: 400; }
+
+  .tabs { display: flex; gap: 4px; }
+  .tab {
+    padding: 4px 11px; border: 1px solid var(--line-strong); background: transparent;
+    color: var(--fg-dim); border-radius: 5px; cursor: pointer; font: inherit; font-size: 12px;
+  }
+  .tab:hover { border-color: var(--accent); color: var(--fg); }
+  .tab[aria-selected="true"] { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  @media (prefers-color-scheme: dark) { .tab[aria-selected="true"] { color: #1c1917; } }
+
+  .grow { flex: 1; }
+  .meter { min-width: 190px; }
+  .meter-bar { height: 5px; border-radius: 3px; background: var(--line); overflow: hidden; }
+  .meter-fill { height: 100%; background: var(--accent); transition: width .2s; }
+  .meter-text { font-size: 11px; color: var(--fg-dim); margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+  input[type=search], input[type=text], textarea, select {
+    font: inherit; background: var(--bg); color: var(--fg);
+    border: 1px solid var(--line-strong); border-radius: 5px; padding: 5px 8px;
+  }
+  input:focus, textarea:focus, select:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+
+  button.action {
+    font: inherit; font-weight: 600; padding: 6px 14px; border-radius: 5px; cursor: pointer;
+    background: var(--accent); color: #fff; border: 1px solid var(--accent);
+  }
+  @media (prefers-color-scheme: dark) { button.action { color: #1c1917; } }
+  button.action:disabled { opacity: .4; cursor: default; }
+  button.ghost {
+    font: inherit; font-size: 12px; padding: 4px 10px; border-radius: 5px; cursor: pointer;
+    background: transparent; color: var(--fg-dim); border: 1px solid var(--line-strong);
+  }
+  button.ghost:hover { border-color: var(--accent); color: var(--fg); }
+
+  .filters { display: flex; gap: 4px; padding: 10px 20px; border-bottom: 1px solid var(--line); align-items: center; flex-wrap: wrap; }
+  .chip {
+    font: inherit; font-size: 12px; padding: 3px 10px; border-radius: 20px; cursor: pointer;
+    background: transparent; border: 1px solid var(--line-strong); color: var(--fg-dim);
+  }
+  .chip[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .chip b { font-variant-numeric: tabular-nums; }
+
+  main { padding: 16px 20px 120px; max-width: 1100px; }
+
+  .row {
+    background: var(--panel); border: 1px solid var(--line); border-radius: 7px;
+    padding: 12px 14px; margin-bottom: 8px;
+  }
+  .row.missing { border-left: 3px solid var(--accent); }
+  .row.stale   { border-left: 3px solid var(--warn); background: var(--warn-soft); }
+  .row.done    { border-left: 3px solid var(--ok); }
+
+  .src { font-family: var(--mono); font-size: 12.5px; white-space: pre-wrap; word-break: break-word; }
+  .src .plural-label { color: var(--fg-faint); font-size: 11px; margin-right: 6px; }
+  .fields { display: flex; flex-direction: column; gap: 6px; margin-top: 9px; }
+  .field { display: flex; gap: 8px; align-items: flex-start; }
+  .field label { flex: 0 0 62px; font-size: 11px; color: var(--fg-faint); padding-top: 7px; text-transform: uppercase; letter-spacing: .04em; }
+  .field textarea { flex: 1; resize: vertical; min-height: 32px; font-family: var(--mono); font-size: 12.5px; }
+
+  .uses { margin-top: 8px; font-size: 11px; color: var(--fg-faint); font-family: var(--mono); }
+  .uses button { background: none; border: none; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+
+  .badge { display: inline-block; font-size: 10px; text-transform: uppercase; letter-spacing: .05em;
+           padding: 1px 6px; border-radius: 3px; background: var(--accent-soft); color: var(--accent); margin-left: 8px; vertical-align: 2px; }
+  .stale-note { font-size: 12px; color: var(--warn); margin-top: 8px; display: flex; gap: 10px; align-items: center; }
+
+  .violations { background: var(--warn-soft); border: 1px solid var(--warn); border-radius: 7px; padding: 12px 14px; margin-bottom: 16px; }
+  .violations h2 { font-size: 12px; margin: 0 0 8px; color: var(--warn); text-transform: uppercase; letter-spacing: .05em; }
+  .violations li { font-family: var(--mono); font-size: 11.5px; margin-bottom: 4px; }
+
+  .empty { color: var(--fg-faint); padding: 40px 0; text-align: center; }
+  .toast {
+    position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+    background: var(--fg); color: var(--bg); padding: 9px 18px; border-radius: 6px;
+    font-size: 12px; font-weight: 600; opacity: 0; pointer-events: none; transition: opacity .2s;
+  }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Translation Workbench <span id="count"></span></h1>
+  <div class="tabs" id="tabs"></div>
+  <button class="ghost" id="newPack">+ Language</button>
+  <div class="grow"></div>
+  <div class="meter">
+    <div class="meter-bar"><div class="meter-fill" id="fill" style="width:0"></div></div>
+    <div class="meter-text" id="pct"></div>
+  </div>
+  <button class="action" id="save" disabled>Save</button>
+</header>
+
+<div class="filters">
+  <button class="chip" data-f="missing" aria-pressed="true">Missing <b id="n-missing">0</b></button>
+  <button class="chip" data-f="stale"   aria-pressed="true">Stale <b id="n-stale">0</b></button>
+  <button class="chip" data-f="done"    aria-pressed="false">Done <b id="n-done">0</b></button>
+  <input type="search" id="q" placeholder="Filter strings or file names…" style="margin-left:8px;min-width:260px">
+</div>
+
+<main id="main"></main>
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+let DATA = null;          // server state
+let active = null;        // active locale code
+let edits = {};           // code -> { key: string | {form: string} }
+const filters = { missing: true, stale: true, done: false };
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+/** Plural categories the target language actually needs — 2 for Spanish, 4 for Polish. */
+function categories(code) {
+  try { return new Intl.PluralRules(code).resolvedOptions().pluralCategories; }
+  catch { return ['one', 'other']; }
+}
+
+const pack = () => DATA.packs.find((p) => p.code === active);
+
+/** Working copy: saved entries with in-session edits laid over the top. */
+function entries() {
+  return { ...(pack()?.entries ?? {}), ...(edits[active] ?? {}) };
+}
+
+function setEntry(key, value) {
+  edits[active] ??= {};
+  const empty = value == null
+    || (typeof value === 'string' && !value.trim())
+    || (typeof value === 'object' && !Object.values(value).some((v) => v && v.trim()));
+  if (empty) edits[active][key] = undefined;
+  else edits[active][key] = value;
+  $('save').disabled = false;
+  refreshCounts();
+}
+
+function bucketOf(key, all) {
+  const v = all[key];
+  const filled = v != null && (typeof v === 'string' ? !!v.trim()
+    : Object.values(v).some((x) => x && x.trim()));
+  return filled ? 'done' : 'missing';
+}
+
+function computed() {
+  const all = entries();
+  const keys = DATA.keys;
+  const missing = [], done = [];
+  for (const k of keys) (bucketOf(k.key, all) === 'done' ? done : missing).push(k);
+  const known = new Set(keys.map((k) => k.key));
+  const stale = Object.keys(all).filter((k) => all[k] != null && !known.has(k));
+  return { missing, done, stale };
+}
+
+function refreshCounts() {
+  const { missing, done, stale } = computed();
+  $('n-missing').textContent = missing.length;
+  $('n-done').textContent = done.length;
+  $('n-stale').textContent = stale.length;
+  const total = DATA.keys.length || 1;
+  const pct = Math.round((done.length / total) * 100);
+  $('fill').style.width = pct + '%';
+  $('pct').textContent = `${done.length} / ${DATA.keys.length} translated · ${pct}%`;
+}
+
+function usesHtml(uses) {
+  const shown = uses.slice(0, 3).map((u) => `${u.file}:${u.line}`).join(' · ');
+  const more = uses.length > 3 ? ` · +${uses.length - 3} more` : '';
+  return `<div class="uses">${esc(shown)}${more}</div>`;
+}
+
+function rowHtml(k, all) {
+  const bucket = bucketOf(k.key, all);
+  const v = all[k.key];
+  const isPlural = k.kind === 'plural';
+
+  let src = `<div class="src">${esc(k.key)}</div>`;
+  if (isPlural) {
+    src = `<div class="src"><span class="plural-label">one</span>${esc(k.one ?? '')}
+      <br><span class="plural-label">other</span>${esc(k.key)}<span class="badge">plural</span></div>`;
+  }
+
+  let fields;
+  if (isPlural) {
+    const obj = (v && typeof v === 'object') ? v : {};
+    fields = categories(active).map((cat) => `
+      <div class="field">
+        <label for="f-${esc(k.key)}-${cat}">${cat}</label>
+        <textarea rows="1" data-key="${esc(k.key)}" data-cat="${cat}">${esc(obj[cat] ?? '')}</textarea>
+      </div>`).join('');
+  } else {
+    fields = `
+      <div class="field">
+        <label>${esc(active)}</label>
+        <textarea rows="1" data-key="${esc(k.key)}">${esc(typeof v === 'string' ? v : '')}</textarea>
+      </div>`;
+  }
+
+  return `<div class="row ${bucket}">${src}<div class="fields">${fields}</div>${usesHtml(k.uses)}</div>`;
+}
+
+function staleHtml(key, all) {
+  const v = all[key];
+  const shown = typeof v === 'string' ? v : Object.entries(v ?? {}).map(([c, s]) => `${c}: ${s}`).join(' · ');
+  return `<div class="row stale">
+    <div class="src">${esc(key)}</div>
+    <div class="uses">${esc(shown)}</div>
+    <div class="stale-note">
+      <span>Not in the source any more — the English was reworded or the string was removed.</span>
+      <button class="ghost" data-drop="${esc(key)}">Discard</button>
+    </div>
+  </div>`;
+}
+
+function render() {
+  if (!DATA) return;
+  $('count').textContent = `· ${DATA.keys.length} strings`;
+
+  $('tabs').innerHTML = DATA.packs
+    .map((p) => `<button class="tab" role="tab" aria-selected="${p.code === active}" data-code="${esc(p.code)}">${esc(p.name)}</button>`)
+    .join('');
+
+  if (!DATA.packs.length) {
+    $('main').innerHTML = `<div class="empty">No language packs yet. Click <b>+ Language</b> to start one.</div>`;
+    return;
+  }
+
+  const all = entries();
+  const { missing, done, stale } = computed();
+  const q = $('q').value.trim().toLowerCase();
+  const match = (k) => !q || k.key.toLowerCase().includes(q)
+    || (k.one ?? '').toLowerCase().includes(q)
+    || k.uses.some((u) => u.file.toLowerCase().includes(q));
+
+  let html = '';
+
+  if (DATA.violations.length) {
+    html += `<div class="violations"><h2>${DATA.violations.length} non-literal call${DATA.violations.length === 1 ? '' : 's'} — these strings can never be translated</h2><ul>`
+      + DATA.violations.map((v) => `<li>${esc(v.file)}:${v.line} — ${esc(v.reason)}<br>&nbsp;&nbsp;${esc(v.snippet)}</li>`).join('')
+      + `</ul></div>`;
+  }
+
+  if (filters.stale) html += stale.filter((k) => !q || k.toLowerCase().includes(q)).map((k) => staleHtml(k, all)).join('');
+  if (filters.missing) html += missing.filter(match).map((k) => rowHtml(k, all)).join('');
+  if (filters.done) html += done.filter(match).map((k) => rowHtml(k, all)).join('');
+
+  if (!html) {
+    // A finished language lands here with the default filters, and "try another
+    // filter" reads like a fault. Say what actually happened.
+    html = (!missing.length && !stale.length && !q)
+      ? `<div class="empty"><b>${esc(pack().name)}</b> is fully translated — all ${DATA.keys.length} strings.
+           <br><br>Switch on <b>Done</b> above to review them.</div>`
+      : `<div class="empty">Nothing matches${q ? ` “${esc(q)}”` : ''}. Try another filter.</div>`;
+  }
+  $('main').innerHTML = html;
+  refreshCounts();
+  autosize();
+}
+
+function autosize() {
+  for (const ta of document.querySelectorAll('textarea')) {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight + 2, 220) + 'px';
+  }
+}
+
+// ── Events ────────────────────────────────────────────────────────────────────
+
+$('tabs').addEventListener('click', (e) => {
+  const code = e.target.closest('[data-code]')?.dataset.code;
+  if (code) { active = code; render(); }
+});
+
+document.querySelectorAll('.chip').forEach((chip) => chip.addEventListener('click', () => {
+  const f = chip.dataset.f;
+  filters[f] = !filters[f];
+  chip.setAttribute('aria-pressed', String(filters[f]));
+  render();
+}));
+
+$('q').addEventListener('input', render);
+
+// Live-edit without re-rendering: rebuilding on every keystroke would steal focus.
+$('main').addEventListener('input', (e) => {
+  const ta = e.target.closest('textarea');
+  if (!ta) return;
+  autosizeOne(ta);
+  const key = ta.dataset.key;
+  if (ta.dataset.cat) {
+    const current = { ...(entries()[key] ?? {}) };
+    current[ta.dataset.cat] = ta.value;
+    setEntry(key, current);
+  } else {
+    setEntry(key, ta.value);
+  }
+});
+
+function autosizeOne(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = Math.min(ta.scrollHeight + 2, 220) + 'px';
+}
+
+$('main').addEventListener('click', (e) => {
+  const key = e.target.closest('[data-drop]')?.dataset.drop;
+  if (!key) return;
+  edits[active] ??= {};
+  edits[active][key] = undefined;
+  $('save').disabled = false;
+  render();
+});
+
+$('newPack').addEventListener('click', async () => {
+  const code = prompt('Locale code (e.g. es, fr, pt-BR):')?.trim();
+  if (!code) return;
+  let name = code;
+  try { name = new Intl.DisplayNames([code], { type: 'language' }).of(code) ?? code; } catch { /* keep code */ }
+  name = prompt('Language name, as speakers of it would write it:', name)?.trim();
+  if (!name) return;
+  await post({ code, name, entries: {} });
+  active = code;
+  toast(`Created ${name}`);
+});
+
+$('save').addEventListener('click', save);
+document.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); save(); }
+});
+
+window.addEventListener('beforeunload', (e) => {
+  if (!$('save').disabled) { e.preventDefault(); e.returnValue = ''; }
+});
+
+// ── Server ────────────────────────────────────────────────────────────────────
+
+async function post(body) {
+  const res = await fetch('/save', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error((await res.json()).error ?? res.statusText);
+  DATA = await res.json();
+  render();
+}
+
+async function save() {
+  if (!active) return;
+  const clean = {};
+  for (const [k, v] of Object.entries(entries())) {
+    if (v == null) continue;
+    if (typeof v === 'object') {
+      const kept = Object.fromEntries(Object.entries(v).filter(([, s]) => s && s.trim()));
+      if (Object.keys(kept).length) clean[k] = kept;
+    } else if (v.trim()) clean[k] = v;
+  }
+  try {
+    await post({ code: active, name: pack()?.name ?? active, entries: clean });
+    edits[active] = {};
+    $('save').disabled = true;
+    toast('Saved');
+  } catch (err) {
+    toast('Save failed: ' + err.message);
+  }
+}
+
+let toastTimer;
+function toast(msg) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 1800);
+}
+
+(async function boot() {
+  DATA = await (await fetch('/state')).json();
+  active = DATA.packs[0]?.code ?? null;
+  render();
+})();
+</script>
+</body>
+</html>

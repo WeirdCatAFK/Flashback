@@ -26,6 +26,8 @@
     "tests": "node scripts/run-tests.js",
     "lint": "eslint .",
     "check:contrast": "node scripts/check-contrast.js",
+    "translations": "node scripts/translations.js --open",
+    "translations:check": "node scripts/translations.js --check",
     "test:docs": "node --test tests/docs.test.js",
     "test:performance": "node --test tests/performance.test.js",
     "test:media": "node --test tests/media.test.js",
@@ -44,6 +46,7 @@
     "test:reader": "node --test tests/mcpReader.test.js",
     "test:health": "node --test tests/cardHealth.test.js",
     "test:sequencing": "node --test tests/sequencing.test.js",
+    "test:translations": "node --test tests/translations.test.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js"
   },

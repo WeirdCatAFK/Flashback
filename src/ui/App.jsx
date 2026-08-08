@@ -19,6 +19,7 @@ import ShortcutsOverlay from "./components/ShortcutsOverlay";
 import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
 import { relocatePath } from "./utils/relocatePath";
+import { useT } from "./translations/index.jsx";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'config'];
 
@@ -34,18 +35,47 @@ const StatsView      = lazy(() => import("./views/Stats"));
 const DiaryView      = lazy(() => import("./views/Diary"));
 
 const NAV_ITEMS = [
-  { id: "documents",  Icon: IconDocuments,  label: "Documents" },
-  { id: "flashcards", Icon: IconFlashcards, label: "Flashcards" },
-  { id: "decks",      Icon: IconDecks,      label: "Decks" },
-  { id: "graph",      Icon: IconGraph,      label: "Graph" },
-  { id: "trainer",    Icon: IconTrainer,    label: "Trainer" },
-  { id: "stats",      Icon: IconStats,      label: "Statistics" },
-  { id: "diary",      Icon: IconDiary,      label: "Diary" },
-  { id: "seal",       Icon: IconSeal,       label: "Seal" },
-  { id: "manage",     Icon: IconManage,     label: "Manage" },
+  { id: "documents",  Icon: IconDocuments },
+  { id: "flashcards", Icon: IconFlashcards },
+  { id: "decks",      Icon: IconDecks },
+  { id: "graph",      Icon: IconGraph },
+  { id: "trainer",    Icon: IconTrainer },
+  { id: "stats",      Icon: IconStats },
+  { id: "diary",      Icon: IconDiary },
+  { id: "seal",       Icon: IconSeal },
+  { id: "manage",     Icon: IconManage },
 ];
 
+/**
+ * Labels live in a function of t, not in NAV_ITEMS. Two reasons, and both are the
+ * standard shape for any module-level string table in this app:
+ *
+ *   1. A t() call at module scope evaluates once at import, so the nav would keep
+ *      the old language after a switch.
+ *   2. Holding the English in the constant and calling t(item.label) at render
+ *      fixes that, but passes a variable — and scripts/translations-extract.js only reads
+ *      string literals, so those keys would never reach a translator.
+ *
+ * Called during render, every key a literal: both problems gone.
+ */
+function navLabels(t) {
+  return {
+    documents:  t("Documents"),
+    flashcards: t("Flashcards"),
+    decks:      t("Decks"),
+    graph:      t("Graph"),
+    trainer:    t("Trainer"),
+    stats:      t("Statistics"),
+    diary:      t("Diary"),
+    seal:       t("Seal"),
+    manage:     t("Manage"),
+    config:     t("Config"),
+  };
+}
+
 export default function App() {
+  const { t } = useT();
+  const labels = navLabels(t);
   const [activeView, setActiveView] = useState("documents");
 
   const [theme, setTheme] = useState(() => {
@@ -56,7 +86,7 @@ export default function App() {
     return prefersDark ? "dark-workbench" : "light-workbench";
   });
   const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
-  const allThemes = useMemo(() => [...THEMES, ...customThemes.map(t => t.name)], [customThemes]);
+  const allThemes = useMemo(() => [...THEMES, ...customThemes.map(ct => ct.name)], [customThemes]);
 
   // Inject custom theme CSS on startup and whenever custom themes change
   useEffect(() => { injectCustomThemeCSS(customThemes); }, [customThemes]);
@@ -239,16 +269,16 @@ export default function App() {
 
       <AppGate>
         <div id="app-body">
-          <nav id="activity-bar" aria-label="Main navigation">
+          <nav id="activity-bar" aria-label={t("Main navigation")}>
             <div id="activity-top">
-              {NAV_ITEMS.map(({ id, Icon, label }) => (
+              {NAV_ITEMS.map(({ id, Icon }) => (
                 <button type="button"
                   key={id}
                   data-tour={`nav-${id}`}
                   className={`activity-btn${activeView === id ? " active" : ""}`}
                   onClick={() => setActiveView(id)}
-                  title={label}
-                  aria-label={label}
+                  title={labels[id]}
+                  aria-label={labels[id]}
                   aria-current={activeView === id ? "page" : undefined}
                 >
                   <Icon size={22} />
@@ -261,8 +291,8 @@ export default function App() {
                 data-tour="nav-config"
                 className={`activity-btn${activeView === "config" ? " active" : ""}`}
                 onClick={() => setActiveView("config")}
-                title="Config"
-                aria-label="Config"
+                title={labels.config}
+                aria-label={labels.config}
                 aria-current={activeView === "config" ? "page" : undefined}
               >
                 <IconConfig size={22} />
@@ -273,7 +303,7 @@ export default function App() {
           <main id="content-area">
             {ALL_VIEW_IDS.map(id => visitedRef.current.has(id) && (
               <div key={id} className={`view-slot${activeView === id ? ' view-slot--active' : ''}`}>
-                <Suspense fallback={<div className="loading">Loading…</div>}>
+                <Suspense fallback={<div className="loading">{t("Loading…")}</div>}>
                   {renderView(id)}
                 </Suspense>
               </div>

@@ -103,6 +103,17 @@
   line-height: 1.6;
 }
 
+/* Language switch on the welcome screen — deliberately quiet, since it only
+   matters to the minority of users who need it before reading anything else. */
+.ob-locale {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 18px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
 /* ── Form elements ────────────────────────────────────────────────────────── */
 
 .ob-field {
