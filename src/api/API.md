@@ -695,7 +695,7 @@ Returns the cards to study now, **already in presentation order**.
 | `minPriority` | number | Only cards whose pedagogical category priority ≥ this.            |
 | `folder`      | string | Restrict to a folder subtree.                                      |
 | `deck`        | string | Restrict to a deck's cards.                                        |
-| `tag`         | string | Restrict to a tag. Repeatable.                                     |
+| `tag`         | string | Restrict to a tag — **direct or inherited**. Repeatable.           |
 | `order`       | string | `interleaved` (default) \| `shuffle` \| `priority`.             |
 | `seed`        | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports. |
 
@@ -704,6 +704,8 @@ Returns the cards to study now, **already in presentation order**.
 `queue` is the ordered session and is what a trainer should consume; **do not re-sort it**. `due` and `new` remain for callers that only want counts or bucket membership. `relaxation` reports which rung of the degradation ladder this session settled on (`none` | `no-folder-edge` | `short-lag` | `shuffle`), so an odd-looking order can be diagnosed without reproducing the vault.
 
 Selection and sequencing are composed here but never folded together: the scheduler picks *which* cards from due dates alone, then the sequencer picks *what order*. Topology never moves a card across days. Full model in `DATAMODEL.md` § Session Sequencing.
+
+`tag` matches a card's **effective** tags — direct ones plus those inherited from its folder, document or deck (`InheritedTags`, already exclusion-resolved). Matching direct tags only would make the filter select nothing for almost every tag the picker offers, since tags are normally applied to containers rather than to individual cards.
 
 ---
 

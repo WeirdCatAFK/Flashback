@@ -978,14 +978,34 @@ class DocumentQuery {
 
         if (tags && tags.length > 0) {
             const placeholders = tags.map(() => '?').join(', ');
-            whereConditions.push(`EXISTS (
-                SELECT 1 FROM Connections ctag
-                JOIN Tags tg ON tg.node_id = ctag.destiny_id
-                WHERE ctag.origin_id = f.node_id
-                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
-                  AND tg.name IN (${placeholders})
+            // A card's effective tags are direct ∪ inherited — the same union getSessionFacets
+            // builds and the Inspector displays. Matching only direct `tag` connections made
+            // this filter select nothing for any tag that lives on a folder, document or deck,
+            // which is nearly all of them: the picker offers a vault-wide tag list, so the user
+            // chose a tag they could plainly see and got an empty session with no explanation.
+            // InheritedTags is already the exclusion-resolved set (it is rebuilt on every
+            // inheritance change — see getInheritedTagNames), so excluded tags are absent from
+            // it and no exclusion handling belongs here.
+            whereConditions.push(`(
+                EXISTS (
+                    SELECT 1 FROM Connections ctag
+                    JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                    WHERE ctag.origin_id = f.node_id
+                      AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                      AND tg.name IN (${placeholders})
+                )
+                OR EXISTS (
+                    SELECT 1 FROM InheritedTags it
+                    JOIN Connections cinh ON cinh.id = it.connection_id
+                    JOIN Tags tgi ON tgi.id = it.tag_id
+                    WHERE cinh.destiny_id = f.node_id
+                      AND cinh.type_id IN (
+                          SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck')
+                      )
+                      AND tgi.name IN (${placeholders})
+                )
             )`);
-            params.push(...tags);
+            params.push(...tags, ...tags);
         }
 
         if (minPriority > 0) {

@@ -707,6 +707,77 @@ describe('Flashback API', () => {
             );
         });
 
+        it('GET /api/srs/due → folder/tag scoping reaches the sequenced queue, not just due/new', async () => {
+            // The Trainer studies `queue` now, not `due` + `new`. Selection runs entirely
+            // upstream of the sequencer, which may only permute what it is handed — but
+            // "may only" is an invariant, not a guarantee, so pin it: a filter that reached
+            // due/new while the queue carried something else would quietly put out-of-scope
+            // cards in front of the user, and every existing scoping test would still pass.
+            const SCOPE_ROOT = 'SrsScopeTest';
+            const SCOPE_TAG = 'srs-scope-tag';
+            const SCOPE_HASH = 'srs-scope-fc-001';
+            const pastRecall = new Date(Date.now() - 10 * 24 * 3_600_000).toISOString();
+
+            await createFolder(SCOPE_ROOT);
+            await createFile('scoped.md', SCOPE_ROOT);
+            await updateFile(`${SCOPE_ROOT}/scoped.md`, '# Scoped', {
+                flashcards: [
+                    { globalHash: SCOPE_HASH, level: 1, lastRecall: pastRecall,
+                      vanillaData: { frontText: 'Scoped', backText: 'Card' } },
+                ],
+            });
+            // Tag in a second write, once the card exists. Inheritance is materialized into
+            // InheritedTags when the tag is applied, so tagging a document in the same write
+            // that introduces its cards leaves them with an empty inherited set.
+            await put(`${baseUrl}/api/documents/file`, {
+                path: `${SCOPE_ROOT}/scoped.md`, metadata: { tags: [SCOPE_TAG] },
+            });
+
+            const fetchScoped = async (qs) => {
+                const res = await fetch(`${baseUrl}/api/srs/due?${qs}`);
+                assert.equal(res.status, 200, `?${qs} should succeed`);
+                const body = await res.json();
+                const selected = [...body.due, ...body.new].map(c => c.global_hash).sort();
+                const queued = body.queue.map(c => c.global_hash).sort();
+                assert.deepEqual(queued, selected,
+                    `queue must hold exactly the selected set for ?${qs}`);
+                return queued;
+            };
+
+            // Every order mode, because each takes a different path through sequence().
+            for (const order of ['interleaved', 'shuffle', 'priority']) {
+                const inScope = await fetchScoped(`folder=${encodeURIComponent(SCOPE_ROOT)}&order=${order}`);
+                assert.ok(inScope.includes(SCOPE_HASH),
+                    `${order}: folder-scoped queue must contain the folder's own card`);
+                assert.ok(!inScope.includes(FC_HASH),
+                    `${order}: folder-scoped queue must not leak a card from ${ROOT}`);
+            }
+
+            // Tagging the document above created the Tags row and the document→card
+            // inheritance edge; materializing InheritedTags across that edge belongs to the
+            // tag subsystem (tests/tags.test.js). What this test pins is the *filter*: a card
+            // whose tag is inherited rather than applied directly must still be selectable by
+            // that tag. That is not an edge case — in a real vault it is the normal shape,
+            // because tags get applied to folders, documents and decks, not to single cards.
+            // So the inherited row is written here directly, at the derived layer the filter
+            // actually reads.
+            const tagRow = db.prepare('SELECT id FROM Tags WHERE name = ?').get(SCOPE_TAG);
+            const cardNode = db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(SCOPE_HASH);
+            assert.ok(tagRow && cardNode?.node_id, 'precondition: tagged document and its card exist');
+            const inheritEdge = db.prepare(`
+                SELECT id FROM Connections
+                WHERE destiny_id = ?
+                  AND type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
+            `).get(cardNode.node_id);
+            assert.ok(inheritEdge, 'precondition: the card inherits from its document');
+            db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)')
+                .run(inheritEdge.id, tagRow.id);
+
+            const tagged = await fetchScoped(`tag=${encodeURIComponent(SCOPE_TAG)}`);
+            assert.ok(tagged.includes(SCOPE_HASH), 'tag-scoped queue must contain the tagged card');
+            assert.ok(!tagged.includes(FC_HASH), 'tag-scoped queue must not leak an untagged card');
+        });
+
         // Regression: getDue() hands the sequencer raw DB rows, which name the column
         // `category_priority`; the ordering engine reads `categoryPriority`. When that seam
         // isn't normalized every card reads as priority 0, the whole session collapses into
@@ -1374,6 +1445,11 @@ describe('Flashback API', () => {
                 'FC_HASH_1 is in the deck — must appear in the deck-scoped session');
             assert.ok(!body.new.some(c => c.global_hash === FC_HASH_2),
                 'FC_HASH_2 is NOT in the deck — must not appear in the deck-scoped session');
+
+            // The Trainer studies `queue`; deck scoping has to survive sequencing too.
+            const queued = body.queue.map(c => c.global_hash);
+            assert.ok(queued.includes(FC_HASH_1), 'deck-scoped queue must contain the deck entry');
+            assert.ok(!queued.includes(FC_HASH_2), 'deck-scoped queue must not leak a non-entry');
         });
 
         it('DELETE /api/decks/:hash/entries/:cardHash → 200, card gone from deck-scoped session', async () => {
