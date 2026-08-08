@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import FileExplorer  from '../components/documents/FileExplorer';
 import DocumentEditor from '../components/documents/DocumentEditor';
 import { relocatePath } from '../utils/relocatePath';
+import { useT } from '../translations';
 import './Documents.css';
 
 const MIN_WIDTH     = 150;
@@ -12,6 +13,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
   const [sidebarWidth, setSidebarWidth] = useState(
     () => parseInt(localStorage.getItem('fb-sidebar-width') ?? DEFAULT_WIDTH, 10)
   );
+  const { t } = useT();
   const dragging = useRef(false);
   const startX   = useRef(0);
   const startW   = useRef(0);
@@ -164,7 +166,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
     <div className="documents-view">
       <aside className="documents-sidebar" style={{ width: sidebarWidth }}>
         <FileExplorer
-          workspaceName="Workspace"
+          workspaceName={t('Workspace')}
           onSelect={handleFileSelect}
           onDoubleSelect={handleFileDoubleSelect}
           selectedPath={selectedPath}
@@ -179,7 +181,7 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
         className="documents-resize-handle"
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize sidebar"
+        aria-label={t('Resize sidebar')}
         aria-valuenow={sidebarWidth}
         aria-valuemin={MIN_WIDTH}
         aria-valuemax={MAX_WIDTH}

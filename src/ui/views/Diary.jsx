@@ -5,6 +5,7 @@ import "./Diary.css";
 import { listDiary, getSummary, getEntry, saveEntry, rebuildSummaries } from "../api/diary";
 import { LoadingState, ErrorState, EmptyState } from "../components/shared/StateView";
 import IconDiary from "../components/icons/IconDiary";
+import { useT } from "../translations";
 
 /**
  * Diary — a per-day study record living OUTSIDE the workspace (see DATAMODEL.md § Diary).
@@ -27,11 +28,12 @@ const todayIso = () => {
 };
 
 const pct = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
-const num = (n) => (n ?? 0).toLocaleString();
 
 // A human date label from a 'YYYY-MM-DD' key (parsed as UTC to match the key).
-const fmtDate = (iso) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString(undefined, {
+// Takes the active locale explicitly rather than passing `undefined`, which would
+// follow the browser's language instead of the one chosen in Config.
+const fmtDate = (iso, locale) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString(locale, {
     weekday: "short", year: "numeric", month: "short", day: "numeric", timeZone: "UTC",
   });
 
@@ -48,14 +50,18 @@ function Tile({ label, value, sub }) {
 }
 
 function Breakdown({ title, rows, nameKey, emptyHint }) {
+  const { t } = useT();
+  const max = Math.max(...(rows ?? []).map((r) => r.reviews), 1);
   if (!rows?.length) return null;
-  const max = Math.max(...rows.map((r) => r.reviews), 1);
   return (
     <div className="diary-breakdown">
       <h4 className="diary-sub-heading">{title}</h4>
       <ul className="diary-bars">
         {rows.map((r, i) => (
-          <li key={i} className="diary-bar-row" title={`${r.reviews} reviews${r.failed != null ? ` · ${r.failed} failed` : ""}`}>
+          <li key={i} className="diary-bar-row" title={
+            t('{n} reviews', { n: r.reviews })
+            + (r.failed != null ? ` · ${t('{n} failed', { n: r.failed })}` : "")
+          }>
             <span className="diary-bar-name">{r[nameKey]}</span>
             <span className="diary-bar-track">
               <span className="diary-bar-fill" style={{ width: `${(r.reviews / max) * 100}%` }} />
@@ -70,42 +76,45 @@ function Breakdown({ title, rows, nameKey, emptyHint }) {
 }
 
 function SummaryPanel({ state, summary }) {
-  if (state === "loading") return <LoadingState message="Loading summary…" />;
-  if (state === "error") return <ErrorState error="Could not load the summary." />;
+  const { t, formatNumber, formatDateTime } = useT();
+  if (state === "loading") return <LoadingState message={t('Loading summary…')} />;
+  if (state === "error") return <ErrorState error={t('Could not load the summary.')} />;
   if (state === "none") {
     // No action here — "Rebuild from history" lives in the day header, where it
     // stays reachable on days that *do* have a summary (an out-of-date one is
     // exactly when you want to re-derive it).
     return (
       <EmptyState
-        title="No summary for this day"
-        message="Summaries are written automatically when you finish a study session (with the diary enabled). Use “Rebuild from history” above to re-derive them from your review log."
+        title={t('No summary for this day')}
+        message={t('Summaries are written automatically when you finish a study session (with the diary enabled). Use “Rebuild from history” above to re-derive them from your review log.')}
       />
     );
   }
 
-  const t = summary.totals;
+  const totals = summary.totals;
   // Pass rate excludes cards still in their learning phase (schema v2); summaries
   // written before that fall back to the day's overall rate.
   const r = summary.retention ?? {};
   return (
     <div className="diary-summary">
       <div className="diary-tiles">
-        <Tile label="Reviews" value={num(t.reviews)} />
-        <Tile label="Cards seen" value={num(t.uniqueCards)} sub={`${num(t.newCards)} new`} />
-        <Tile label="Pass rate" value={pct(r.reviewPassRate ?? r.passRate)}
+        <Tile label={t('Reviews')} value={formatNumber(totals.reviews)} />
+        <Tile label={t('Cards seen')} value={formatNumber(totals.uniqueCards)}
+          sub={t('{n} new', { n: formatNumber(totals.newCards) })} />
+        <Tile label={t('Pass rate')} value={pct(r.reviewPassRate ?? r.passRate)}
           sub={r.learningPassRate != null
-            ? `${pct(r.learningPassRate)} on new · ${num(t.failed)} failed`
-            : `${num(t.failed)} failed`} />
-        <Tile label="Streak" value={`${num(summary.streak?.current)}d`} sub={`best ${num(summary.streak?.longest)}d`} />
+            ? t('{pct} on new · {n} failed', { pct: pct(r.learningPassRate), n: formatNumber(totals.failed) })
+            : t('{n} failed', { n: formatNumber(totals.failed) })} />
+        <Tile label={t('Streak')} value={t('{n}d', { n: formatNumber(summary.streak?.current) })}
+          sub={t('best {n}d', { n: formatNumber(summary.streak?.longest) })} />
       </div>
 
-      <Breakdown title="By deck" rows={summary.byDeck} nameKey="deck" />
-      <Breakdown title="By document" rows={summary.byDocument} nameKey="path" />
+      <Breakdown title={t('By deck')} rows={summary.byDeck} nameKey="deck" />
+      <Breakdown title={t('By document')} rows={summary.byDocument} nameKey="path" />
 
       {summary.struggledCards?.length > 0 && (
         <div className="diary-breakdown">
-          <h4 className="diary-sub-heading">Struggled with</h4>
+          <h4 className="diary-sub-heading">{t('Struggled with')}</h4>
           <ul className="diary-struggled">
             {summary.struggledCards.map((c) => (
               <li key={c.globalHash} className="diary-struggled-row">
@@ -118,7 +127,10 @@ function SummaryPanel({ state, summary }) {
       )}
 
       <p className="diary-generated">
-        Derived from your review history{summary.generatedAt ? ` · updated ${new Date(summary.generatedAt).toLocaleString()}` : ""}.
+        {t('Derived from your review history')}
+        {summary.generatedAt
+          ? ` · ${t('updated {when}', { when: formatDateTime(summary.generatedAt) })}`
+          : ""}.
       </p>
     </div>
   );
@@ -127,6 +139,7 @@ function SummaryPanel({ state, summary }) {
 // ── Entry editor (plain markdown; no cards, no highlights) ─────────────────────
 
 function EntryEditor({ date, loading, content, onSaved }) {
+  const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
   const [saving, setSaving] = useState(false);
@@ -149,31 +162,31 @@ function EntryEditor({ date, loading, content, onSaved }) {
       onSaved(date, draft);
       setEditing(false);
     } catch (e) {
-      setError(e?.message ?? "Could not save the entry.");
+      setError(e?.message ?? t('Could not save the entry.'));
     } finally {
       setSaving(false);
     }
   };
 
-  if (loading) return <LoadingState message="Loading entry…" />;
+  if (loading) return <LoadingState message={t('Loading entry…')} />;
 
   return (
     <div className="diary-entry">
       <div className="diary-entry-head">
-        <h3 className="diary-entry-title">Reflection</h3>
+        <h3 className="diary-entry-title">{t('Reflection')}</h3>
         <div className="diary-entry-actions">
           {editing ? (
             <>
               <button type="button" className="diary-btn diary-btn--ghost" onClick={() => { setDraft(content); setEditing(false); }} disabled={saving}>
-                Cancel
+                {t('Cancel')}
               </button>
               <button type="button" className="diary-btn diary-btn--primary" onClick={save} disabled={saving || !dirty}>
-                {saving ? "Saving…" : "Save"}
+                {saving ? t('Saving…') : t('Save')}
               </button>
             </>
           ) : (
             <button type="button" className="diary-btn" onClick={() => setEditing(true)}>
-              {content ? "Edit" : "Write"}
+              {content ? t('Edit') : t('Write')}
             </button>
           )}
         </div>
@@ -184,7 +197,7 @@ function EntryEditor({ date, loading, content, onSaved }) {
           className="diary-entry-textarea"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          placeholder="How did studying go today? Markdown supported. No flashcards are created here."
+          placeholder={t('How did studying go today? Markdown supported. No flashcards are created here.')}
           autoFocus
           spellCheck
         />
@@ -193,7 +206,7 @@ function EntryEditor({ date, loading, content, onSaved }) {
           <ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown>
         </div>
       ) : (
-        <p className="diary-entry-empty">No reflection for this day yet.</p>
+        <p className="diary-entry-empty">{t('No reflection for this day yet.')}</p>
       )}
 
       {error && <p className="diary-entry-error">{error}</p>}
@@ -204,6 +217,7 @@ function EntryEditor({ date, loading, content, onSaved }) {
 // ── View ───────────────────────────────────────────────────────────────────────
 
 export default function DiaryView({ isActive }) {
+  const { t, locale } = useT();
   const today = useMemo(() => todayIso(), []);
   const [selectedDate, setSelectedDate] = useState(today);
 
@@ -276,16 +290,16 @@ export default function DiaryView({ isActive }) {
     return [{ date: today, hasSummary: false, hasEntry: false }, ...list];
   }, [dates, today]);
 
-  if (dates === null) return <LoadingState message="Loading diary…" />;
+  if (dates === null) return <LoadingState message={t('Loading diary…')} />;
 
   return (
     <div className="diary">
       <aside className="diary-rail">
         <div className="diary-rail-head">
           <IconDiary size={18} />
-          <span>Diary</span>
+          <span>{t('Diary')}</span>
         </div>
-        {datesError && <p className="diary-rail-error">Couldn’t load dates.</p>}
+        {datesError && <p className="diary-rail-error">{t('Couldn’t load dates.')}</p>}
         <ul className="diary-date-list">
           {railDates.map((d) => (
             <li key={d.date}>
@@ -295,11 +309,11 @@ export default function DiaryView({ isActive }) {
                 onClick={() => setSelectedDate(d.date)}
               >
                 <span className="diary-date-label">
-                  {d.date === today ? "Today" : fmtDate(d.date)}
+                  {d.date === today ? t('Today') : fmtDate(d.date, locale)}
                 </span>
                 <span className="diary-date-badges">
-                  {d.hasSummary && <span className="diary-badge diary-badge--summary" title="Has summary">S</span>}
-                  {d.hasEntry && <span className="diary-badge diary-badge--entry" title="Has entry">✎</span>}
+                  {d.hasSummary && <span className="diary-badge diary-badge--summary" title={t('Has summary')}>S</span>}
+                  {d.hasEntry && <span className="diary-badge diary-badge--entry" title={t('Has entry')}>✎</span>}
                 </span>
               </button>
             </li>
@@ -309,7 +323,7 @@ export default function DiaryView({ isActive }) {
 
       <main className="diary-main">
         <header className="diary-main-head">
-          <h2 className="diary-main-title">{selectedDate === today ? "Today" : fmtDate(selectedDate)}</h2>
+          <h2 className="diary-main-title">{selectedDate === today ? t('Today') : fmtDate(selectedDate, locale)}</h2>
           <span className="diary-main-date">{selectedDate}</span>
           <div className="diary-main-actions">
             <button
@@ -317,9 +331,9 @@ export default function DiaryView({ isActive }) {
               className="diary-btn"
               onClick={onRebuild}
               disabled={rebuilding}
-              title="Re-derive every day's summary from your review history"
+              title={t('Re-derive every day’s summary from your review history')}
             >
-              {rebuilding ? "Rebuilding…" : "Rebuild from history"}
+              {rebuilding ? t('Rebuilding…') : t('Rebuild from history')}
             </button>
           </div>
         </header>

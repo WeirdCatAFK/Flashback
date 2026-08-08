@@ -11,6 +11,8 @@ import CardDetailModal from '../components/shared/CardDetailModal';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
+import { useT } from '../translations';
+import { toDate } from '../translations/format';
 import './Trainer.css';
 
 const EMPTY_TAGS = [];
@@ -20,23 +22,41 @@ const EMPTY_TAGS = [];
 // exit flight: 'accept' = ascend off the top, 'reject' = drop back to the deck.
 // `action` is the keybinding id (see keybindings.js) used for both the shortcut
 // and the keycap shown on the button.
+//
+// Labels are deliberately NOT in these tables. A module constant is evaluated once
+// at import, so a t() call here would freeze the grade buttons in whatever language
+// was active at load and never re-render on a switch. Only the scheduling maths
+// lives here; the words come from gradeLabels() below, at render time.
 const GRADES = {
-  again: { label: 'Again', outcome: 0, ease: -0.20, level: () => 0,      kind: 'reject', action: 'trainer.gradeAgain' },
-  good:  { label: 'Good',  outcome: 1, ease:  0.00, level: (l) => l + 1, kind: 'accept', action: 'trainer.gradeGood' },
-  easy:  { label: 'Easy',  outcome: 1, ease:  0.15, level: (l) => l + 2, kind: 'accept', action: 'trainer.gradeEasy' },
+  again: { outcome: 0, ease: -0.20, level: () => 0,      kind: 'reject', action: 'trainer.gradeAgain' },
+  good:  { outcome: 1, ease:  0.00, level: (l) => l + 1, kind: 'accept', action: 'trainer.gradeGood' },
+  easy:  { outcome: 1, ease:  0.15, level: (l) => l + 2, kind: 'accept', action: 'trainer.gradeEasy' },
 };
 
 // FSRS uses a four-button rating (Again/Hard/Good/Easy → 1..4). The schedule is
 // computed server-side, so unlike GRADES these carry no client-side level/ease
 // math — just the rating and the exit flight (`kind`).
 const FSRS_GRADES = {
-  again: { label: 'Again', rating: 1, kind: 'reject', action: 'trainer.gradeAgain' },
-  hard:  { label: 'Hard',  rating: 2, kind: 'reject', action: 'trainer.gradeHard' },
-  good:  { label: 'Good',  rating: 3, kind: 'accept', action: 'trainer.gradeGood' },
-  easy:  { label: 'Easy',  rating: 4, kind: 'accept', action: 'trainer.gradeEasy' },
+  again: { rating: 1, kind: 'reject', action: 'trainer.gradeAgain' },
+  hard:  { rating: 2, kind: 'reject', action: 'trainer.gradeHard' },
+  good:  { rating: 3, kind: 'accept', action: 'trainer.gradeGood' },
+  easy:  { rating: 4, kind: 'accept', action: 'trainer.gradeEasy' },
 };
 
-const gradesFor = (algorithm) => (algorithm === 'fsrs' ? FSRS_GRADES : GRADES);
+// Every key is a literal so the extractor can see it; the lookup by grade id
+// happens after translation, never before.
+const gradeLabels = (t) => ({
+  again: t('Again'), hard: t('Hard'), good: t('Good'), easy: t('Easy'),
+});
+
+/** The grade table for `algorithm`, with its labels resolved in the active language. */
+const gradesFor = (algorithm, t) => {
+  const base = algorithm === 'fsrs' ? FSRS_GRADES : GRADES;
+  const labels = gradeLabels(t);
+  return Object.fromEntries(
+    Object.entries(base).map(([id, grade]) => [id, { ...grade, label: labels[id] }])
+  );
+};
 
 const MAX_DECK = 5; // how many cards we draw behind the live one
 // Cards to put between a failed card and its retry. Mirrors the sequencer's MIN_LAG
@@ -44,22 +64,23 @@ const MAX_DECK = 5; // how many cards we draw behind the live one
 // client-side queue mutation the server never sees, not a value the two must agree on.
 const REQUEUE_LAG = 4;
 
-function formatNextDue(sqliteStr) {
+/**
+ * When the card comes back, in the active language.
+ *
+ * The hand-rolled English ladder this replaces ("in 3 hours", "tomorrow", "in 40
+ * days") could not be translated without a key per rung; Intl.RelativeTimeFormat
+ * produces all of them. `maxUnit: 'day'` is what keeps a 40-day interval reading
+ * as "in 40 days" rather than the idiomatic-but-lossy "next month" — an SRS
+ * interval is exactly the number the user is asking for.
+ *
+ * `toDate` handles SQLite's zone-less "YYYY-MM-DD HH:MM:SS" as UTC.
+ */
+function formatNextDue(sqliteStr, formatRelative, t) {
   if (!sqliteStr) return null;
-  // SQLite datetime() returns "YYYY-MM-DD HH:MM:SS" (UTC, no tz suffix); an ISO
-  // string (already containing 'T') is parsed as-is so we never build "...ZZ".
-  const iso = sqliteStr.includes('T') ? sqliteStr : sqliteStr.replace(' ', 'T') + 'Z';
-  const next = new Date(iso);
-  if (Number.isNaN(next.getTime())) return null;
-  const diffMs = next - Date.now();
-  if (diffMs <= 0) return 'now';
-  const mins  = Math.round(diffMs / 60_000);
-  const hours = Math.round(diffMs / 3_600_000);
-  const days  = Math.round(diffMs / 86_400_000);
-  if (mins  < 60)  return `in ${mins} minute${mins  !== 1 ? 's' : ''}`;
-  if (hours < 24)  return `in ${hours} hour${hours  !== 1 ? 's' : ''}`;
-  if (days  === 1) return 'tomorrow';
-  return `in ${days} days`;
+  const next = toDate(sqliteStr);
+  if (!next) return null;
+  if (next.getTime() - Date.now() <= 0) return t('now');
+  return formatRelative(next, { maxUnit: 'day' });
 }
 
 function mapApiCard(raw, isNew = false) {
@@ -162,6 +183,7 @@ function CardDeck({ remaining }) {
 
 // Elegant feedback over the top of the card showing the level change.
 function GradePop({ pop, top }) {
+  const { t } = useT();
   if (!pop) return null;
   const up = pop.kind === 'up';
   return (
@@ -171,12 +193,13 @@ function GradePop({ pop, top }) {
       style={top != null ? { top: `${top}px` } : undefined}
     >
       <span className="grade-pop-arrow">{up ? '↑' : '↓'}</span>
-      <span className="grade-pop-level">Lv {pop.toLevel}</span>
+      <span className="grade-pop-level">{t('Lv {n}', { n: pop.toLevel })}</span>
     </div>
   );
 }
 
 function TagInput({ selected = EMPTY_TAGS, onApply }) {
+  const { t } = useT();
   const [value, setValue] = useState('');
   const [allTags, setAllTags] = useState([]);
   const [focused, setFocused] = useState(false);
@@ -190,8 +213,8 @@ function TagInput({ selected = EMPTY_TAGS, onApply }) {
   }, []);
 
   const suggestions = value.trim()
-    ? allTags.filter(t =>
-        t.toLowerCase().includes(value.toLowerCase()) && !selected.includes(t)
+    ? allTags.filter(tag =>
+        tag.toLowerCase().includes(value.toLowerCase()) && !selected.includes(tag)
       ).slice(0, 8)
     : [];
 
@@ -203,15 +226,15 @@ function TagInput({ selected = EMPTY_TAGS, onApply }) {
   };
 
   const add = (tag) => {
-    const t = tag.trim();
-    if (!t || selected.includes(t) || !allTags.includes(t)) return;
+    const trimmed = tag.trim();
+    if (!trimmed || selected.includes(trimmed) || !allTags.includes(trimmed)) return;
     setValue('');
-    onApply([...selected, t]);
+    onApply([...selected, trimmed]);
     inputRef.current?.focus();
   };
 
   const remove = (tag) => {
-    const next = selected.filter(t => t !== tag);
+    const next = selected.filter(x => x !== tag);
     onApply(next.length > 0 ? next : null);
   };
 
@@ -247,12 +270,12 @@ function TagInput({ selected = EMPTY_TAGS, onApply }) {
       className={`tag-input${focused ? ' tag-input--focused' : ''}`}
       onClick={() => inputRef.current?.focus()}
     >
-      {selected.map(t => (
-        <span key={t} className="tag-input-chip">
-          {t}
+      {selected.map(tag => (
+        <span key={tag} className="tag-input-chip">
+          {tag}
           <button type="button"
             className="tag-input-chip-remove"
-            onMouseDown={e => { e.preventDefault(); remove(t); }}
+            onMouseDown={e => { e.preventDefault(); remove(tag); }}
           >×</button>
         </span>
       ))}
@@ -260,8 +283,8 @@ function TagInput({ selected = EMPTY_TAGS, onApply }) {
         ref={inputRef}
         className="tag-input-field"
         value={value}
-        placeholder={selected.length === 0 ? 'Filter by tag…' : ''}
-        aria-label="Filter by tag"
+        placeholder={selected.length === 0 ? t('Filter by tag…') : ''}
+        aria-label={t('Filter by tag')}
         onChange={e => { setValue(e.target.value); updateDropPos(); }}
         onFocus={() => { updateDropPos(); setFocused(true); }}
         onKeyDown={handleKeyDown}
@@ -272,13 +295,13 @@ function TagInput({ selected = EMPTY_TAGS, onApply }) {
           className="tag-input-dropdown"
           style={{ top: dropPos.top, left: dropPos.left, width: dropPos.width }}
         >
-          {suggestions.map(t => (
+          {suggestions.map(tag => (
             <button type="button"
-              key={t}
+              key={tag}
               className="tag-input-suggestion"
-              onMouseDown={e => { e.preventDefault(); add(t); }}
+              onMouseDown={e => { e.preventDefault(); add(tag); }}
             >
-              {highlightMatch(t, value)}
+              {highlightMatch(tag, value)}
             </button>
           ))}
         </div>,
@@ -304,6 +327,7 @@ function highlightMatch(tag, query) {
 // Browsable folder picker. Clicking a folder label applies it as scope;
 // clicking › navigates into that folder to see its subfolders.
 function FolderPicker({ onPick }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState('');
   const [subfolders, setSubfolders] = useState([]);
@@ -347,12 +371,12 @@ function FolderPicker({ onPick }) {
   return (
     <>
       <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
-        + Folder
+        {t('+ Folder')}
       </button>
       {open && createPortal(
         <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
           <div className="scope-picker-breadcrumb">
-            <button type="button" className="scope-picker-crumb" onClick={() => loadLevel('')}>root</button>
+            <button type="button" className="scope-picker-crumb" onClick={() => loadLevel('')}>{t('root')}</button>
             {crumbs.map((seg, i) => {
               const segPath = crumbs.slice(0, i + 1).join('/');
               return (
@@ -366,13 +390,13 @@ function FolderPicker({ onPick }) {
           {browsePath && (
             <button type="button" className="scope-picker-apply"
               onClick={() => { onPick(browsePath); setOpen(false); }}>
-              Study &quot;{crumbs.at(-1)}&quot;
+              {t('Study “{name}”', { name: crumbs.at(-1) })}
             </button>
           )}
           <div className="scope-picker-list">
-            {loading && <span className="scope-picker-empty">Loading…</span>}
+            {loading && <span className="scope-picker-empty">{t('Loading…')}</span>}
             {!loading && subfolders.length === 0 && (
-              <span className="scope-picker-empty">No subfolders</span>
+              <span className="scope-picker-empty">{t('No subfolders')}</span>
             )}
             {!loading && subfolders.map(item => {
               const itemPath = browsePath ? `${browsePath}/${item.name}` : item.name;
@@ -383,7 +407,7 @@ function FolderPicker({ onPick }) {
                     {item.name}
                   </button>
                   <button type="button" className="scope-picker-item-drill"
-                    onClick={() => loadLevel(itemPath)} title="Show subfolders">
+                    onClick={() => loadLevel(itemPath)} title={t('Show subfolders')}>
                     ›
                   </button>
                 </div>
@@ -399,6 +423,7 @@ function FolderPicker({ onPick }) {
 
 // Flat deck list picker.
 function DeckPicker({ onPick }) {
+  const { t } = useT();
   const [open, setOpen] = useState(false);
   const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -434,14 +459,14 @@ function DeckPicker({ onPick }) {
   return (
     <>
       <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
-        + Deck
+        {t('+ Deck')}
       </button>
       {open && createPortal(
         <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
           <div className="scope-picker-list">
-            {loading && <span className="scope-picker-empty">Loading…</span>}
+            {loading && <span className="scope-picker-empty">{t('Loading…')}</span>}
             {!loading && decks.length === 0 && (
-              <span className="scope-picker-empty">No decks yet</span>
+              <span className="scope-picker-empty">{t('No decks yet')}</span>
             )}
             {!loading && decks.map(deck => (
               <div key={deck.globalHash} className="scope-picker-item">
@@ -463,6 +488,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
+  const { t } = useT();
 
   const cardType = card.cardType ?? 'basic';
   const isTypeAnswer = cardType === 'type_answer';
@@ -561,7 +587,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
   const gradeWithAnimation = (key) => {
     const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
-    const g = gradesFor(algorithm)[key];
+    const g = gradesFor(algorithm, t)[key];
     if (!g) return;
     Promise.resolve(cardRef.current?.flyOut(g.kind)).then((ok) => {
       if (ok !== false) handleGrade(key);
@@ -579,9 +605,9 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   useEffect(() => {
     const onKey = (e) => {
       if (!isActive) return;
-      const t = e.target;
+      const target = e.target;
       // For type_answer, let key events pass through to the input inside Flashcard.
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       const name = eventKeyName(e);
       const hits = (id) => (keymap[id] ?? []).includes(name);
       if (hits('trainer.viewSource')) { e.preventDefault(); onViewSourceRef.current?.(); return; }
@@ -598,20 +624,20 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
         return;
       }
       const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
-      for (const [gkey, g] of Object.entries(gradesFor(algorithm))) {
+      for (const [gkey, g] of Object.entries(gradesFor(algorithm, t))) {
         if (hits(g.action)) { e.preventDefault(); gradeWithAnimationRef.current(gkey); break; }
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [isActive, flipped, keymap, isTypeAnswer]);
+  }, [isActive, flipped, keymap, isTypeAnswer, t]);
 
   return (
     <div className="trainer-reviewer">
       <p className="trainer-card-meta">
-        <strong>Level {card.level ?? 0}</strong>
-        {' · '}{card.category ?? 'uncategorized'}
-        {card.isNew ? ' · New' : ''}
+        <strong>{t('Level {n}', { n: card.level ?? 0 })}</strong>
+        {' · '}{card.category ?? t('uncategorized')}
+        {card.isNew ? ` · ${t('New')}` : ''}
         {cardType !== 'basic' && <span className="trainer-card-type-badge">{cardType.replace('_', ' ')}</span>}
       </p>
       <div className="card-stage" ref={stageRef}>
@@ -629,26 +655,26 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
       {!flipped && !isTypeAnswer && (
         <p className="trainer-hint">
-          Press <kbd>{formatKeyLabel(keymap['trainer.reveal']?.[0] ?? 'Space')}</kbd> or click to reveal
+          {t('Press')} <kbd>{formatKeyLabel(keymap['trainer.reveal']?.[0] ?? 'Space')}</kbd> {t('or click to reveal')}
         </p>
       )}
 
       {!flipped && isTypeAnswer && (
-        <p className="trainer-hint">Enter to check · Shift+Enter for newline</p>
+        <p className="trainer-hint">{t('Enter to check · Shift+Enter for newline')}</p>
       )}
 
       {flipped && isTypeAnswer && (
         <div className={`type-answer-verdict type-answer-verdict--${isCorrect ? 'correct' : 'wrong'}`}>
           {isCorrect
-            ? 'Correct!'
-            : <span> You typed: <em>&quot;{typedAnswer}&quot;</em></span>
+            ? t('Correct!')
+            : <span> {t('You typed:')} <em>&quot;{typedAnswer}&quot;</em></span>
           }
         </div>
       )}
 
       {flipped && (
         <div className="trainer-grades">
-          {Object.entries(gradesFor(localStorage.getItem('fb-srs-algorithm') ?? 'sm2')).map(([key, g]) => (
+          {Object.entries(gradesFor(localStorage.getItem('fb-srs-algorithm') ?? 'sm2', t)).map(([key, g]) => (
             <button type="button"
               key={key}
               className={`trainer-grade trainer-grade--${key}`}
@@ -656,14 +682,14 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
             >
               {keymap[g.action]?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap[g.action][0])}</kbd>}
               <span className="grade-label">{g.label}</span>
-              {g.level && <span className="grade-hint">Lv {g.level(card.level ?? 0)}</span>}
+              {g.level && <span className="grade-hint">{t('Lv {n}', { n: g.level(card.level ?? 0) })}</span>}
             </button>
           ))}
           <button type="button"
             className="trainer-grade trainer-grade--undo"
             onClick={onUndo}
             disabled={!canUndo}
-            title="Take back your last grade and review that card again"
+            title={t('Take back your last grade and review that card again')}
           >
             {keymap['trainer.undo']?.[0] && <kbd className="grade-key">{formatKeyLabel(keymap['trainer.undo'][0])}</kbd>}
             <span className="grade-label">Undo</span>
@@ -736,16 +762,17 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // Hash of the flagged card the user opened from the summary, if any.
   const [inspecting, setInspecting] = useState(null);
   const keymap = useKeybindings();
+  const { t, tp, formatRelative } = useT();
 
   const handleFlagged = useCallback((card, flags) => {
     setFlagged((prev) => prev.some((f) => f.hash === card.globalHash)
       ? prev
       : [...prev, {
           hash: card.globalHash,
-          label: card.name || card.frontText || 'Untitled card',
+          label: card.name || card.frontText || t('Untitled card'),
           flags,
         }]);
-  }, []);
+  }, [t]);
 
   // Settings change handlers — reset queue so the new fetch auto-starts a fresh session.
   const applyMaxNew = (display) => {
@@ -973,8 +1000,8 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   useEffect(() => {
     const onKey = (e) => {
       if (!isActive) return;
-      const t = e.target;
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT' || t.isContentEditable)) return;
+      const target = e.target;
+      if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.tagName === 'SELECT' || target.isContentEditable)) return;
       if ((keymap['trainer.undo'] ?? []).includes(eventKeyName(e))) {
         e.preventDefault();
         handleUndoRef.current?.();
@@ -986,35 +1013,37 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   return (
     <div className="trainer-view">
-      <h2>Trainer</h2>
+      <h2>{t('Trainer')}</h2>
 
-      {loading && !sessionDone && <LoadingState message="Loading cards…" />}
-      {error && <ErrorState error={error} title="Couldn't load your cards" onRetry={() => setRefreshToken(t => t + 1)} />}
+      {loading && !sessionDone && <LoadingState message={t('Loading cards…')} />}
+      {error && <ErrorState error={error} title={t('Couldn’t load your cards')} onRetry={() => setRefreshToken(n => n + 1)} />}
 
       {saveError && (
         <div className="trainer-save-error" role="alert">
-          <span>{`Couldn't save your last review — ${saveError.message || 'the change may not be recorded'}.`}</span>
-          <button type="button" onClick={() => setSaveError(null)} aria-label="Dismiss">×</button>
+          <span>{t('Couldn’t save your last review — {reason}.',
+            { reason: saveError.message || t('the change may not be recorded') })}</span>
+          <button type="button" onClick={() => setSaveError(null)} aria-label={t('Dismiss')}>×</button>
         </div>
       )}
 
       {result && !sessionDone && (
         <p className="trainer-session-info">
-          {result.counts.due} due · {result.counts.new} new · {result.algorithm}
+          {t('{due} due · {new} new · {algorithm}',
+            { due: result.counts.due, new: result.counts.new, algorithm: result.algorithm })}
         </p>
       )}
 
       <div className="trainer-scope-bar">
         {appliedScope.deck && (
           <span className="scope-chip">
-            Deck: {appliedScope.deckName ?? appliedScope.deck}
-            <button type="button" onClick={clearDeck} title="Clear">×</button>
+            {t('Deck: {name}', { name: appliedScope.deckName ?? appliedScope.deck })}
+            <button type="button" onClick={clearDeck} title={t('Clear')}>×</button>
           </span>
         )}
         {appliedScope.folder && (
           <span className="scope-chip">
-            Folder: {appliedScope.folder}
-            <button type="button" onClick={clearFolder} title="Clear">×</button>
+            {t('Folder: {path}', { path: appliedScope.folder })}
+            <button type="button" onClick={clearFolder} title={t('Clear')}>×</button>
           </span>
         )}
         {!appliedScope.folder && <FolderPicker onPick={applyFolder} />}
@@ -1024,7 +1053,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
       <div className="trainer-settings-row">
         <div className="trainer-setting">
-          <label className="trainer-setting-label" htmlFor="trainer-max-new">Max new</label>
+          <label className="trainer-setting-label" htmlFor="trainer-max-new">{t('Max new')}</label>
           <input
             id="trainer-max-new"
             type="number"
@@ -1041,10 +1070,10 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
       {empty && (
         <div className="trainer-summary">
-          <h3 className="trainer-summary-title">All caught up</h3>
+          <h3 className="trainer-summary-title">{t('All caught up')}</h3>
           {result?.nextDue
-            ? <p className="trainer-summary-line">Next review {formatNextDue(result.nextDue)}</p>
-            : <p className="trainer-summary-line">No cards scheduled yet — start reviewing to build your schedule.</p>
+            ? <p className="trainer-summary-line">{t('Next review {when}', { when: formatNextDue(result.nextDue, formatRelative, t) })}</p>
+            : <p className="trainer-summary-line">{t('No cards scheduled yet — start reviewing to build your schedule.')}</p>
           }
         </div>
       )}
@@ -1055,31 +1084,35 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             <div className="trainer-progress-fill" style={{ width: `${Math.round(progress * 100)}%` }} />
           </div>
           <span className="trainer-progress-text">
-            {passed}/{total} cleared · {reviews} reviews{reviews ? ` · ${accuracy}% correct` : ''}
+            {t('{passed}/{total} cleared · {reviews} reviews', { passed, total, reviews })}
+            {reviews ? ` · ${t('{pct}% correct', { pct: accuracy })}` : ''}
           </span>
         </div>
       )}
 
       {sessionDone && lastSession && (
         <div className="trainer-summary">
-          <h3 className="trainer-summary-title">Session complete</h3>
-          <p className="trainer-summary-line">{displayTotal} cards · {reviews} reviews · {accuracy}% correct</p>
+          <h3 className="trainer-summary-title">{t('Session complete')}</h3>
+          <p className="trainer-summary-line">
+            {t('{cards} cards · {reviews} reviews · {pct}% correct',
+              { cards: displayTotal, reviews, pct: accuracy })}
+          </p>
           <div className="trainer-summary-breakdown">
-            <span className="sum sum--again">Again <b>{displayStats.again}</b></span>
-            <span className="sum sum--good">Good <b>{displayStats.good}</b></span>
-            <span className="sum sum--easy">Easy <b>{displayStats.easy}</b></span>
+            <span className="sum sum--again">{t('Again')} <b>{displayStats.again}</b></span>
+            <span className="sum sum--good">{t('Good')} <b>{displayStats.good}</b></span>
+            <span className="sum sum--easy">{t('Easy')} <b>{displayStats.easy}</b></span>
           </div>
-          {loading && <p className="trainer-summary-line">Checking for new cards…</p>}
+          {loading && <p className="trainer-summary-line">{t('Checking for new cards…')}</p>}
           {!loading && cards.length > 0 && (
             <button type="button" className="trainer-new-session-btn" onClick={startNewSession}>
-              Start new session ({cards.length} card{cards.length !== 1 ? 's' : ''})
+              {tp('Start new session ({n} card)', 'Start new session ({n} cards)', cards.length)}
             </button>
           )}
           {!loading && cards.length === 0 && (
             <p className="trainer-summary-line">
               {result?.nextDue
-                ? `Next review ${formatNextDue(result.nextDue)}`
-                : 'All caught up!'}
+                ? t('Next review {when}', { when: formatNextDue(result.nextDue, formatRelative, t) })
+                : t('All caught up!')}
             </p>
           )}
 
@@ -1090,7 +1123,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
           {flagged.length > 0 && (
             <div className="trainer-flagged">
               <h4 className="trainer-flagged-title">
-                {flagged.length === 1 ? '1 card worth a look' : `${flagged.length} cards worth a look`}
+                {tp('{n} card worth a look', '{n} cards worth a look', flagged.length)}
               </h4>
               <ul className="trainer-flagged-list">
                 {flagged.map((f) => (

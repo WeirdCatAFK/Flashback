@@ -7,7 +7,7 @@ import ReviewStrip from './ReviewStrip';
 import { LoadingState, ErrorState } from './StateView';
 import { getCardDetail, updateCard, dismissCardFlag } from '../../api/decks';
 import { mediaFileSrc } from '../../api/media';
-import { relativeFromIso } from '../../utils/relativeTime';
+import { useT } from '../../translations';
 import './CardDetailModal.css';
 
 /**
@@ -45,26 +45,28 @@ function Stat({ label, value, title }) {
  * compared against lets the reader disagree with it. Nothing here applies a change —
  * the action is a sentence, not a button that splits the card.
  */
-function evidenceBits(f) {
+function evidenceBits(f, t, tp) {
   const e = f.evidence ?? {};
   const bits = [];
-  if (e.lapses != null) bits.push(`${e.lapses} lapse${e.lapses === 1 ? '' : 's'}`);
-  if (e.windowDays) bits.push(`over ${days(e.windowDays)}`);
-  if (e.peaks?.length) bits.push(`intervals reached ${e.peaks.map((p) => days(p)).join(' → ')}`);
+  if (e.lapses != null) bits.push(tp('{n} lapse', '{n} lapses', e.lapses));
+  if (e.windowDays) bits.push(t('over {span}', { span: days(e.windowDays) }));
+  if (e.peaks?.length) bits.push(t('intervals reached {peaks}', { peaks: e.peaks.map((p) => days(p)).join(' → ') }));
   if (e.answerTokens != null && e.medianAnswerTokens) {
-    bits.push(`answer ${e.answerTokens} words vs. ${Math.round(e.medianAnswerTokens)} typical`);
+    bits.push(t('answer {words} words vs. {typical} typical',
+      { words: e.answerTokens, typical: Math.round(e.medianAnswerTokens) }));
   }
-  if (e.chunks > 1) bits.push(`${e.chunks} separate parts`);
-  if (e.worstOverdueRatio) bits.push(`up to ${e.worstOverdueRatio}× past due`);
+  if (e.chunks > 1) bits.push(t('{n} separate parts', { n: e.chunks }));
+  if (e.worstOverdueRatio) bits.push(t('up to {ratio}× past due', { ratio: e.worstOverdueRatio }));
   if (e.medianFailurePosition != null) {
-    bits.push(`fails ${Math.round(e.medianFailurePosition * 100)}% into a session`);
+    bits.push(t('fails {pct}% into a session', { pct: Math.round(e.medianFailurePosition * 100) }));
   }
   return bits;
 }
 
 function CardFlag({ flag, hash, onDismissed }) {
   const [busy, setBusy] = useState(false);
-  const bits = evidenceBits(flag);
+  const { t, tp } = useT();
+  const bits = evidenceBits(flag, t, tp);
 
   const dismiss = async () => {
     setBusy(true);
@@ -80,12 +82,12 @@ function CardFlag({ flag, hash, onDismissed }) {
     <li className={`cd-flag cd-flag--${flag.kind}`}>
       <div className="cd-flag-head">
         <strong className="cd-flag-title">{flag.title}</strong>
-        <span className="cd-flag-confidence" title="How much history this rests on">
+        <span className="cd-flag-confidence" title={t('How much history this rests on')}>
           {flag.confidence}
         </span>
         <button type="button" className="cd-flag-dismiss" onClick={dismiss} disabled={busy}
-          title="Stop showing this flag for this card">
-          Dismiss
+          title={t('Stop showing this flag for this card')}>
+          {t('Dismiss')}
         </button>
       </div>
       <p className="cd-flag-detail">{flag.detail}</p>
@@ -93,8 +95,7 @@ function CardFlag({ flag, hash, onDismissed }) {
       {bits.length > 0 && <p className="cd-flag-evidence">{bits.join(' · ')}</p>}
       {flag.evidence?.memoryModel === 'approximated' && (
         <p className="cd-flag-evidence">
-          Your scheduler records no difficulty signal, so this reads the card&rsquo;s
-          intervals alone — it&rsquo;s a weaker call than it would be under FSRS.
+          {t('Your scheduler records no difficulty signal, so this reads the card’s intervals alone — it’s a weaker call than it would be under FSRS.')}
         </p>
       )}
     </li>
@@ -109,6 +110,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
   const [saving, setSaving]   = useState(false);
   const [saveError, setSaveError] = useState(null);
   const [face, setFace]       = useState('front');
+  const { t, formatRelative } = useT();
 
   const load = useCallback(() => {
     setLoading(true);
@@ -147,7 +149,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
       load();
       onSaved?.();
     } catch (err) {
-      setSaveError(err.message ?? 'Failed to save');
+      setSaveError(err.message ?? t('Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -157,8 +159,8 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
   const srs = data?.srs;
 
   const title = editing
-    ? 'Edit card'
-    : (card?.name || card?.frontText || 'Card');
+    ? t('Edit card')
+    : (card?.name || card?.frontText || t('Card'));
 
   // Media arrives as stored references ("./media/front-1a2b.png"); they only become
   // loadable once resolved against the card's document.
@@ -180,9 +182,9 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
 
   return (
     <Modal title={title} size="xl" onClose={onClose}>
-      {loading && <LoadingState message="Loading card…" />}
+      {loading && <LoadingState message={t('Loading card…')} />}
       {!loading && error && (
-        <ErrorState error={error} title="Couldn't load this card" onRetry={load} />
+        <ErrorState error={error} title={t('Couldn’t load this card')} onRetry={load} />
       )}
 
       {!loading && !error && data && (editing ? (
@@ -198,7 +200,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
           }}
           resolveMedia={resolveMedia}
           showTags={false}
-          submitLabel="Save changes"
+          submitLabel={t('Save changes')}
           saving={saving}
           error={saveError}
           onSubmit={handleSave}
@@ -217,7 +219,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
                 variant="full"
               />
               <span className="cd-flip-hint">
-                {preview.cardType === 'type_answer' ? 'check to reveal the back' : 'click to flip'}
+                {preview.cardType === 'type_answer' ? t('check to reveal the back') : t('click to flip')}
               </span>
             </div>
 
@@ -228,45 +230,45 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
                 <span className="cd-badge cd-badge--muted" title={card.documentPath ?? undefined}>
                   {card.documentPath
                     ? card.documentPath.split(/[\\/]/).pop()
-                    : 'standalone'}
+                    : t('standalone')}
                 </span>
-                {card.origin === 'ai' && <span className="cd-badge cd-badge--muted">AI-made</span>}
+                {card.origin === 'ai' && <span className="cd-badge cd-badge--muted">{t('AI-made')}</span>}
               </div>
 
               <div className="cd-stats">
-                <Stat label="level" value={srs.level ?? 0} />
-                <Stat label="reviews" value={srs.reviews} />
-                <Stat label="retention" value={pct(srs.retention)}
-                  title="Share of this card's reviews that were correct" />
-                <Stat label="interval" value={srs.state === 'new' ? '—' : days(srs.intervalDays)} />
+                <Stat label={t('level')} value={srs.level ?? 0} />
+                <Stat label={t('reviews')} value={srs.reviews} />
+                <Stat label={t('retention')} value={pct(srs.retention)}
+                  title={t('Share of this card’s reviews that were correct')} />
+                <Stat label={t('interval')} value={srs.state === 'new' ? '—' : days(srs.intervalDays)} />
               </div>
 
               <dl className="cd-facts">
-                <div><dt>Last review</dt>
+                <div><dt>{t('Last review')}</dt>
                   <dd title={srs.lastRecall ?? undefined}>
-                    {srs.lastRecall ? relativeFromIso(srs.lastRecall) : 'never'}
+                    {srs.lastRecall ? formatRelative(srs.lastRecall) : t('never')}
                   </dd></div>
-                <div><dt>Due</dt>
+                <div><dt>{t('Due')}</dt>
                   <dd title={srs.dueAt ?? undefined}>
-                    {srs.dueAt ? relativeFromIso(srs.dueAt) : '—'}
-                    {srs.overdueDays > 0 && <span className="cd-overdue"> overdue</span>}
+                    {srs.dueAt ? formatRelative(srs.dueAt) : '—'}
+                    {srs.overdueDays > 0 && <span className="cd-overdue"> {t('overdue')}</span>}
                   </dd></div>
-                <div><dt>Scheduler</dt><dd>{data.algorithm}</dd></div>
+                <div><dt>{t('Scheduler')}</dt><dd>{data.algorithm}</dd></div>
                 {srs.fsrs && data.algorithm === 'fsrs' && (
-                  <div><dt>Difficulty</dt>
+                  <div><dt>{t('Difficulty')}</dt>
                     <dd>{srs.fsrs.difficulty?.toFixed(1) ?? '—'} / 10</dd></div>
                 )}
               </dl>
 
               <button type="button" className="cd-edit-btn" onClick={() => setEditing(true)}>
-                Edit card
+                {t('Edit card')}
               </button>
             </div>
           </div>
 
           {data.flags?.length > 0 && (
             <section className="cd-section">
-              <h3 className="cd-section-title">Card health</h3>
+              <h3 className="cd-section-title">{t('Card health')}</h3>
               <ul className="cd-flags">
                 {data.flags.map((f) => (
                   <CardFlag key={f.id} flag={f} hash={hash} onDismissed={load} />
@@ -276,14 +278,14 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
           )}
 
           <section className="cd-section">
-            <h3 className="cd-section-title">Predicted recall</h3>
+            <h3 className="cd-section-title">{t('Predicted recall')}</h3>
             {data.curve
               ? <RetentionCurve curve={data.curve} />
-              : <p className="cd-empty">No curve yet — this card hasn&rsquo;t been reviewed.</p>}
+              : <p className="cd-empty">{t('No curve yet — this card hasn’t been reviewed.')}</p>}
           </section>
 
           <section className="cd-section">
-            <h3 className="cd-section-title">Review history</h3>
+            <h3 className="cd-section-title">{t('Review history')}</h3>
             <ReviewStrip history={data.history} />
           </section>
         </div>

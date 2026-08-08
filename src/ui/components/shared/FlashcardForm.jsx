@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
 import { getCategories } from '../../api/categories';
-import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
+import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
+import { useT } from '../../translations';
 import './FlashcardForm.css';
 
 // Reusable flashcard form. Supports all five card types. On save it hands
@@ -14,12 +15,16 @@ import './FlashcardForm.css';
 // shows that media (via `initial.media` + `resolveMedia`), so what you see while
 // editing is the card as the Trainer will show it.
 
-const MEDIA_SLOTS = [
-  { key: 'front_img',   label: 'Front image', accept: 'image/*' },
-  { key: 'front_sound', label: 'Front sound', accept: 'audio/*' },
-  { key: 'back_img',    label: 'Back image',  accept: 'image/*' },
-  { key: 'back_sound',  label: 'Back sound',  accept: 'audio/*' },
-];
+// A function of `t`, not a constant: a constant freezes its labels at import and
+// would survive a language switch untranslated. `key` is a storage slot, never a label.
+function mediaSlots(t) {
+  return [
+    { key: 'front_img',   label: t('Front image'), accept: 'image/*' },
+    { key: 'front_sound', label: t('Front sound'), accept: 'audio/*' },
+    { key: 'back_img',    label: t('Back image'),  accept: 'image/*' },
+    { key: 'back_sound',  label: t('Back sound'),  accept: 'audio/*' },
+  ];
+}
 
 const EMPTY_FILES = { front_img: null, back_img: null, front_sound: null, back_sound: null };
 
@@ -44,6 +49,7 @@ export default function FlashcardForm({
   onSubmit,
   onCancel,
 }) {
+  const { t } = useT();
   const editing = !!initial;
   // A card being edited may predate the answer/notes split, in which case its answer is
   // still in backText. Seeding through the shared helper puts it in the answer field with
@@ -132,11 +138,11 @@ export default function FlashcardForm({
   );
 
   const addTag = () => {
-    const t = tagInput.trim();
-    if (t && !tags.includes(t)) setTags((prev) => [...prev, t]);
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed)) setTags((prev) => [...prev, trimmed]);
     setTagInput('');
   };
-  const removeTag = (tag) => setTags((prev) => prev.filter((t) => t !== tag));
+  const removeTag = (tag) => setTags((prev) => prev.filter((x) => x !== tag));
   const handleTagKeyDown = (e) => {
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); }
   };
@@ -199,11 +205,11 @@ export default function FlashcardForm({
         </div>
       )}
 
-      <label htmlFor="fc-card-type" className="fc-form-label">CARD TYPE</label>
+      <label htmlFor="fc-card-type" className="fc-form-label">{t('CARD TYPE')}</label>
       <select id="fc-card-type" className="fc-form-select fc-type-select" value={cardType}
         onChange={(e) => { setCardType(e.target.value); setPreviewFace('front'); }}>
-        {CARD_TYPES.map((t) => (
-          <option key={t.key} value={t.key}>{t.label}</option>
+        {cardTypes(t).map((ct) => (
+          <option key={ct.key} value={ct.key}>{ct.label}</option>
         ))}
       </select>
 
@@ -222,90 +228,90 @@ export default function FlashcardForm({
         </div>
         <span className="fc-form-preview-hint">
           {cardType === 'type_answer'
-            ? 'Check an answer to reveal the back'
-            : 'Click the card to flip'}
+            ? t('Check an answer to reveal the back')
+            : t('Click the card to flip')}
         </span>
       </div>
 
       {(cardType === 'basic' || cardType === 'reversible') && (
         <>
-          <label htmlFor="fc-front" className="fc-form-label">{cardType === 'reversible' ? 'TERM' : 'FRONT'}</label>
+          <label htmlFor="fc-front" className="fc-form-label">{cardType === 'reversible' ? t('TERM') : t('FRONT')}</label>
           <textarea
             id="fc-front"
             className="fc-form-field"
             value={front}
             onChange={(e) => setFront(e.target.value)}
             rows={2}
-            placeholder={cardType === 'reversible' ? 'Term or concept…' : 'Question or prompt…'}
+            placeholder={cardType === 'reversible' ? t('Term or concept…') : t('Question or prompt…')}
           />
-          <label htmlFor="fc-back" className="fc-form-label">{cardType === 'reversible' ? 'DEFINITION' : 'BACK'}</label>
+          <label htmlFor="fc-back" className="fc-form-label">{cardType === 'reversible' ? t('DEFINITION') : t('BACK')}</label>
           <textarea
             id="fc-back"
             className="fc-form-field"
             value={back}
             onChange={(e) => setBack(e.target.value)}
             rows={2}
-            placeholder={cardType === 'reversible' ? 'Definition or explanation…' : 'Answer…'}
+            placeholder={cardType === 'reversible' ? t('Definition or explanation…') : t('Answer…')}
           />
         </>
       )}
 
       {cardType === 'cloze' && (
         <>
-          <label htmlFor="fc-cloze-text" className="fc-form-label">CLOZE TEXT</label>
-          <p className="fc-form-hint">Wrap words in {'{{curly braces}}'} to mark them as blanks.</p>
+          <label htmlFor="fc-cloze-text" className="fc-form-label">{t('CLOZE TEXT')}</label>
+          <p className="fc-form-hint">{t('Wrap words in {{curly braces}} to mark them as blanks.')}</p>
           <textarea
             id="fc-cloze-text"
             className="fc-form-field"
             value={clozeText}
             onChange={(e) => setClozeText(e.target.value)}
             rows={3}
-            placeholder="The {{mitochondria}} is the powerhouse of the {{cell}}."
+            placeholder={t('The {{mitochondria}} is the powerhouse of the {{cell}}.')}
           />
           {clozeText && !clozeReady && (
-            <p className="fc-form-warn">Add at least one {'{{blank}}'} to save this card.</p>
+            <p className="fc-form-warn">{t('Add at least one {{blank}} to save this card.')}</p>
           )}
         </>
       )}
 
       {cardType === 'type_answer' && (
         <>
-          <label htmlFor="fc-question" className="fc-form-label">QUESTION</label>
+          <label htmlFor="fc-question" className="fc-form-label">{t('QUESTION')}</label>
           <textarea
             id="fc-question"
             className="fc-form-field"
             value={question}
             onChange={(e) => setQuestion(e.target.value)}
             rows={2}
-            placeholder="What is the capital of France?"
+            placeholder={t('What is the capital of France?')}
           />
-          <label htmlFor="fc-expected-answer" className="fc-form-label">EXPECTED ANSWER</label>
+          <label htmlFor="fc-expected-answer" className="fc-form-label">{t('EXPECTED ANSWER')}</label>
           <textarea
             id="fc-expected-answer"
             className="fc-form-field"
             value={expectedAnswer}
             onChange={(e) => setExpectedAnswer(e.target.value)}
             rows={2}
-            placeholder="Paris"
+            placeholder={t('Paris')}
           />
-          <p className="fc-form-hint">Checked with a case-insensitive, trimmed exact match.</p>
-          <label htmlFor="fc-notes" className="fc-form-label">NOTES (OPTIONAL)</label>
+          <p className="fc-form-hint">{t('Checked with a case-insensitive, trimmed exact match.')}</p>
+          <label htmlFor="fc-notes" className="fc-form-label">{t('NOTES (OPTIONAL)')}</label>
           <textarea
             id="fc-notes"
             className="fc-form-field"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             rows={2}
-            placeholder="A mnemonic, an explanation, a why…"
+            placeholder={t('A mnemonic, an explanation, a why…')}
           />
-          <p className="fc-form-hint">Shown under the answer after checking. Never compared.</p>
+          <p className="fc-form-hint">{t('Shown under the answer after checking. Never compared.')}</p>
         </>
       )}
 
       {cardType === 'custom' && (
         <>
-          <label htmlFor="fc-custom-html" className="fc-form-label">HTML CONTENT</label>
-          <p className="fc-form-hint">Full HTML with inline styles. Runs in a sandboxed iframe.</p>
+          <label htmlFor="fc-custom-html" className="fc-form-label">{t('HTML CONTENT')}</label>
+          <p className="fc-form-hint">{t('Full HTML with inline styles. Runs in a sandboxed iframe.')}</p>
           <textarea
             id="fc-custom-html"
             className="fc-form-field fc-form-field--code"
@@ -320,9 +326,9 @@ export default function FlashcardForm({
 
       {showMedia && (
         <>
-          <label className="fc-form-label">MEDIA</label>
+          <label className="fc-form-label">{t('MEDIA')}</label>
           <div className="fc-form-media">
-            {MEDIA_SLOTS.map(({ key, label, accept }) => (
+            {mediaSlots(t).map(({ key, label, accept }) => (
               <div className="fc-form-media-slot" key={key}>
                 <span className="fc-form-media-label">{label}</span>
                 {files[key] ? (
@@ -332,7 +338,7 @@ export default function FlashcardForm({
                   </div>
                 ) : (
                   <label className="fc-form-media-add">
-                    + Add
+                    {t('+ Add')}
                     <input type="file" accept={accept} hidden onChange={(e) => setFile(key, e.target.files?.[0])} />
                   </label>
                 )}
@@ -344,7 +350,7 @@ export default function FlashcardForm({
 
       {showTags && (
         <>
-          <label htmlFor="fc-tag-input" className="fc-form-label">TAGS</label>
+          <label htmlFor="fc-tag-input" className="fc-form-label">{t('TAGS')}</label>
           <div className="fc-form-tags">
             {tags.map((tag) => (
               <span key={tag} className="fc-tag fc-tag--removable">
@@ -359,13 +365,13 @@ export default function FlashcardForm({
               onChange={(e) => setTagInput(e.target.value)}
               onKeyDown={handleTagKeyDown}
               onBlur={addTag}
-              placeholder="+ tag"
+              placeholder={t('+ tag')}
             />
           </div>
         </>
       )}
 
-      <label htmlFor="fc-category" className="fc-form-label">CATEGORY</label>
+      <label htmlFor="fc-category" className="fc-form-label">{t('CATEGORY')}</label>
       <select
         id="fc-category"
         className="fc-form-select"
@@ -374,17 +380,17 @@ export default function FlashcardForm({
         onChange={(e) => setCategory(e.target.value)}
       >
         {categories.length === 0 && !missingCategory ? (
-          <option value="">No categories — add one in Manage</option>
+          <option value="">{t('No categories — add one in Manage')}</option>
         ) : (
           categories.map((c) => (
             <option key={c.id} value={c.name} title={c.description || undefined}>
-              {c.name} · priority {c.priority}
+              {t('{name} · priority {priority}', { name: c.name, priority: c.priority })}
             </option>
           ))
         )}
         {missingCategory && (
           <option value={missingCategory}>
-            {missingCategory}{categories.length > 0 ? ' · removed' : ''}
+            {missingCategory}{categories.length > 0 ? ` ${t('· removed')}` : ''}
           </option>
         )}
       </select>
@@ -396,9 +402,9 @@ export default function FlashcardForm({
 
       <div className="fc-form-actions">
         <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
-          {saving ? 'Saving…' : (submitLabel ?? 'Save card')}
+          {saving ? t('Saving…') : (submitLabel ?? t('Save card'))}
         </button>
-        <button type="button" className="fc-form-cancel" onClick={onCancel}>Cancel</button>
+        <button type="button" className="fc-form-cancel" onClick={onCancel}>{t('Cancel')}</button>
       </div>
     </div>
   );

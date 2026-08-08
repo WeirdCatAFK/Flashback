@@ -2,11 +2,13 @@ import { useState } from 'react';
 import FlashcardForm from './FlashcardForm';
 import Modal from './Modal';
 import { createStandaloneCard } from '../../api/decks';
+import { useT } from '../../translations';
 import './StandaloneCardModal.css';
 
 export default function StandaloneCardModal({ onClose, onCreated }) {
     const [saving, setSaving] = useState(false);
     const [error, setError]   = useState(null);
+    const { t } = useT();
 
     const handleSubmit = async ({ card }) => {
         setSaving(true);
@@ -23,13 +25,13 @@ export default function StandaloneCardModal({ onClose, onCreated }) {
             });
             onCreated();
         } catch (err) {
-            setError(err.message ?? 'Failed to create card');
+            setError(err.message ?? t('Failed to create card'));
             setSaving(false);
         }
     };
 
     return (
-        <Modal title="New standalone card" size="lg" onClose={onClose} dismissible={!saving}>
+        <Modal title={t('New standalone card')} size="lg" onClose={onClose} dismissible={!saving}>
             <FlashcardForm
                 saving={saving}
                 error={error}

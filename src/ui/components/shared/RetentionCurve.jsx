@@ -1,4 +1,5 @@
 import { ramp } from '../../utils/chartRamp';
+import { useT } from '../../translations';
 
 /**
  * RetentionCurve — one card's predicted recall decaying from its last review out
@@ -21,6 +22,7 @@ const pct = (r) => `${Math.round(r * 100)}%`;
 const days = (d) => (d >= 10 ? `${Math.round(d)}d` : `${Math.round(d * 10) / 10}d`);
 
 export default function RetentionCurve({ curve }) {
+  const { t } = useT();
   if (!curve || !curve.points?.length) return null;
 
   const { points, horizonDays, requestRetention, intervalDays, nowT, nowR, model } = curve;
@@ -38,9 +40,10 @@ export default function RetentionCurve({ curve }) {
   const nowX = nowT <= horizonDays ? x(nowT) : null;
   const overdue = nowT > intervalDays && intervalDays > 0;
 
-  const summary =
-    `Retention curve: about ${pct(nowR)} estimated recall now, ` +
-    `${pct(requestRetention)} target reached at ${days(intervalDays)} after the last review.`;
+  const summary = t(
+    'Retention curve: about {now} estimated recall now, {target} target reached at {interval} after the last review.',
+    { now: pct(nowR), target: pct(requestRetention), interval: days(intervalDays) }
+  );
 
   return (
     <div className="cd-curve">
@@ -87,7 +90,7 @@ export default function RetentionCurve({ curve }) {
               stroke="var(--color-border)" strokeWidth="1" strokeDasharray="3 3" />
             <text x={dueX} y={H - 8} textAnchor="middle"
               fontSize="11" fill="var(--color-fg-secondary)">
-              due · {days(intervalDays)}
+              {t('due · {interval}', { interval: days(intervalDays) })}
             </text>
           </g>
         )}
@@ -97,27 +100,25 @@ export default function RetentionCurve({ curve }) {
             <line x1={nowX} x2={nowX} y1={y(nowR)} y2={M.t + PH}
               stroke="var(--color-accent)" strokeWidth="1" opacity="0.4" />
             <circle cx={nowX} cy={y(nowR)} r="4" fill="var(--color-accent)">
-              <title>Now — about {pct(nowR)} estimated recall</title>
+              <title>{t('Now — about {now} estimated recall', { now: pct(nowR) })}</title>
             </circle>
           </g>
         )}
 
         <text x={M.l} y={H - 8} fontSize="11" fill="var(--color-fg-secondary)">
-          last review
+          {t('last review')}
         </text>
       </svg>
 
       <p className="cd-curve-caption">
         {model === 'fsrs' ? (
-          <>
-            Modelled from this card&rsquo;s FSRS stability
-            ({days(curve.stabilityDays)}) using your vault&rsquo;s weights.
-          </>
+          t('Modelled from this card’s FSRS stability ({stability}) using your vault’s weights.',
+            { stability: days(curve.stabilityDays) })
         ) : (
           <>
-            <strong>Approximation.</strong> This scheduler has no memory model — the
-            curve assumes its {days(intervalDays)} interval is where recall falls to{' '}
-            {pct(requestRetention)}.
+            <strong>{t('Approximation.')}</strong>{' '}
+            {t('This scheduler has no memory model — the curve assumes its {interval} interval is where recall falls to {target}.',
+              { interval: days(intervalDays), target: pct(requestRetention) })}
           </>
         )}
       </p>

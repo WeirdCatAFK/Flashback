@@ -19,48 +19,59 @@ import Modal from './Modal.jsx';
 import Flashcard from './Flashcard.jsx';
 import { previewCardFor } from './flashcardFields.js';
 import { ankiSessionMediaSrc } from '../../api/documents.js';
+import { useT } from '../../translations';
 import './AnkiMappingModal.css';
 
-const CARD_TYPE_OPTIONS = [
-    { key: 'basic', label: 'Basic' },
-    { key: 'reversible', label: 'Reversible' },
-    { key: 'cloze', label: 'Cloze' },
-    { key: 'type_answer', label: 'Type answer' },
-    { key: 'custom', label: 'Custom HTML' },
-];
+// The three tables below are functions of `t` rather than module constants: a
+// constant is evaluated once at import and would keep its labels in whatever
+// language was active then. Every `key` is a storage slot and stays untranslated.
+
+function cardTypeOptions(t) {
+    return [
+        { key: 'basic', label: t('Basic') },
+        { key: 'reversible', label: t('Reversible') },
+        { key: 'cloze', label: t('Cloze') },
+        { key: 'type_answer', label: t('Type answer') },
+        { key: 'custom', label: t('Custom HTML') },
+    ];
+}
 
 // Which slots a card type actually has, and what to call them for that type.
 // Mirrors FlashcardForm's per-type fields so the mapper cannot offer a slot the
 // card would then ignore.
-const SLOTS_BY_TYPE = {
-    basic: [
-        { key: 'front', label: 'Front', hint: 'Question or prompt' },
-        { key: 'back', label: 'Back', hint: 'Answer' },
-    ],
-    reversible: [
-        { key: 'front', label: 'Term', hint: 'Asked in either direction' },
-        { key: 'back', label: 'Definition', hint: 'Asked in either direction' },
-    ],
-    cloze: [
-        { key: 'front', label: 'Cloze text', hint: '{{c1::…}} becomes {{…}}' },
-    ],
-    type_answer: [
-        { key: 'front', label: 'Question', hint: 'Shown to the user' },
-        { key: 'answer', label: 'Expected answer', hint: 'Typed and checked' },
-        { key: 'back', label: 'Notes', hint: 'Shown after checking — never compared' },
-    ],
-    custom: [],
-};
+function slotsByType(t) {
+    return {
+        basic: [
+            { key: 'front', label: t('Front'), hint: t('Question or prompt') },
+            { key: 'back', label: t('Back'), hint: t('Answer') },
+        ],
+        reversible: [
+            { key: 'front', label: t('Term'), hint: t('Asked in either direction') },
+            { key: 'back', label: t('Definition'), hint: t('Asked in either direction') },
+        ],
+        cloze: [
+            { key: 'front', label: t('Cloze text'), hint: t('{{c1::…}} becomes {{…}}') },
+        ],
+        type_answer: [
+            { key: 'front', label: t('Question'), hint: t('Shown to the user') },
+            { key: 'answer', label: t('Expected answer'), hint: t('Typed and checked') },
+            { key: 'back', label: t('Notes'), hint: t('Shown after checking — never compared') },
+        ],
+        custom: [],
+    };
+}
 
 // Media slots say *when* they fire, because that is the actual decision: front
 // media appears with the question, back media with the revealed answer. For audio
 // that is the difference between a listening prompt and a pronunciation reward.
-const MEDIA_SLOTS = [
-    { key: 'front_img', label: 'Front image', hint: 'with the question', opposite: 'back_img' },
-    { key: 'front_sound', label: 'Front sound', hint: 'plays with the question', opposite: 'back_sound' },
-    { key: 'back_img', label: 'Back image', hint: 'with the answer', opposite: 'front_img' },
-    { key: 'back_sound', label: 'Back sound', hint: 'plays with the answer', opposite: 'front_sound' },
-];
+function mediaSlots(t) {
+    return [
+        { key: 'front_img', label: t('Front image'), hint: t('with the question'), opposite: 'back_img' },
+        { key: 'front_sound', label: t('Front sound'), hint: t('plays with the question'), opposite: 'back_sound' },
+        { key: 'back_img', label: t('Back image'), hint: t('with the answer'), opposite: 'front_img' },
+        { key: 'back_sound', label: t('Back sound'), hint: t('plays with the answer'), opposite: 'front_sound' },
+    ];
+}
 
 // type_answer has no media in FlashcardForm, and custom stores raw HTML.
 const typeHasMedia = (cardType) => cardType === 'basic' || cardType === 'reversible' || cardType === 'cloze';
@@ -130,6 +141,9 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
     const [activeId, setActiveId] = useState(notetypes[0]?.id ?? null);
     const [sampleIndex, setSampleIndex] = useState(0);
     const [face, setFace] = useState('front');
+    const { t, tp } = useT();
+    const SLOTS_BY_TYPE = slotsByType(t);
+    const MEDIA_SLOTS = mediaSlots(t);
 
     // Seeded from the server's suggestion, which is read back out of the notetype's
     // own templates — a well-formed Basic deck needs no edits at all.
@@ -216,7 +230,7 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
             className="anki-map__chip"
             draggable
             onDragStart={(e) => onDragStart(e, fieldName)}
-            title={plainSample(valueOf(fieldName)) || 'Empty in this sample note'}
+            title={plainSample(valueOf(fieldName)) || t('Empty in this sample note')}
         >
             <span className="anki-map__chip-name">{fieldName}</span>
             <span className="anki-map__chip-sample">{plainSample(valueOf(fieldName)).slice(0, 40) || '—'}</span>
@@ -227,8 +241,8 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                     type="button"
                     className="anki-map__chip-swap"
                     onClick={() => moveField(fieldName, opposite)}
-                    aria-label={`Move ${fieldName} to the other side`}
-                    title="Move to the other side"
+                    aria-label={t('Move {field} to the other side', { field: fieldName })}
+                    title={t('Move to the other side')}
                 >
                     ⇄
                 </button>
@@ -237,7 +251,9 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                 type="button"
                 className="anki-map__chip-remove"
                 onClick={() => moveField(fieldName, null)}
-                aria-label={slot ? `Unassign ${fieldName}` : `Remove ${fieldName}`}
+                aria-label={slot
+                    ? t('Unassign {field}', { field: fieldName })
+                    : t('Remove {field}', { field: fieldName })}
             >
                 ×
             </button>
@@ -262,7 +278,7 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
         // renders on the answer side beyond it previews as notes rather than as the answer.
         expectedAnswer: joined('answer'),
         notes: joined('back'),
-        customHtml: '(kept as the original Anki HTML)',
+        customHtml: t('(kept as the original Anki HTML)'),
     };
 
     // Resolve each media slot to a playable URL served straight out of the analyze
@@ -292,18 +308,20 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
 
     return (
         <Modal
-            title="Import Anki deck"
+            title={t('Import Anki deck')}
             size="xl"
             dismissible={!importing}
             onClose={onCancel}
             footer={
                 <div className="anki-map__footer">
                     <span className="anki-map__count">
-                        {totalCards} card{totalCards === 1 ? '' : 's'} from {notetypes.length} note type{notetypes.length === 1 ? '' : 's'}
+                        {tp('{n} card', '{n} cards', totalCards)}
+                        {' '}
+                        {tp('from {n} note type', 'from {n} note types', notetypes.length)}
                     </span>
                     <div className="anki-map__footer-actions">
                         <button type="button" className="anki-map__btn" onClick={onCancel} disabled={importing}>
-                            Cancel
+                            {t('Cancel')}
                         </button>
                         <button
                             type="button"
@@ -311,7 +329,7 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                             onClick={() => onConfirm(mappings)}
                             disabled={importing}
                         >
-                            {importing ? 'Importing…' : `Import ${totalCards} card${totalCards === 1 ? '' : 's'}`}
+                            {importing ? t('Importing…') : tp('Import {n} card', 'Import {n} cards', totalCards)}
                         </button>
                     </div>
                 </div>
@@ -319,9 +337,8 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
         >
             <div className="anki-map">
                 <p className="anki-map__intro">
-                    {filename ? <strong>{filename}</strong> : 'This deck'} uses Anki note types, which have
-                    their own fields. Drag each field onto the part of the Flashback card it should become.
-                    Fields left on the left are not imported.
+                    {filename ? <strong>{filename}</strong> : t('This deck')}{' '}
+                    {t('uses Anki note types, which have their own fields. Drag each field onto the part of the Flashback card it should become. Fields left on the left are not imported.')}
                 </p>
 
                 {error && <div className="anki-map__error">{error}</div>}
@@ -347,48 +364,47 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                 <div className="anki-map__grid">
                     <div className="anki-map__palette" {...dropHandlers(null)}>
                         <div className="anki-map__section-title">
-                            Anki fields
+                            {t('Anki fields')}
                             {active.samples?.length > 1 && (
                                 <button
                                     type="button"
                                     className="anki-map__sample-cycle"
                                     onClick={() => setSampleIndex(i => (i + 1) % active.samples.length)}
                                 >
-                                    sample {sampleIndex + 1}/{active.samples.length}
+                                    {t('sample {current}/{total}', { current: sampleIndex + 1, total: active.samples.length })}
                                 </button>
                             )}
                         </div>
                         <div className="anki-map__palette-list">
                             {unassigned.length === 0 && (
-                                <p className="anki-map__empty">Every field is mapped.</p>
+                                <p className="anki-map__empty">{t('Every field is mapped.')}</p>
                             )}
                             {unassigned.map(f => chip(f.name, null))}
                         </div>
                         {unassigned.length > 0 && (
-                            <p className="anki-map__note">These will be dropped.</p>
+                            <p className="anki-map__note">{t('These will be dropped.')}</p>
                         )}
                     </div>
 
                     <div className="anki-map__target">
                         <label className="anki-map__section-title" htmlFor="anki-map-type">
-                            Becomes a
+                            {t('Becomes a')}
                             <select
                                 id="anki-map-type"
                                 className="anki-map__select"
                                 value={mapping.cardType}
                                 onChange={(e) => setCardType(e.target.value)}
                             >
-                                {CARD_TYPE_OPTIONS.map(o => (
+                                {cardTypeOptions(t).map(o => (
                                     <option key={o.key} value={o.key}>{o.label}</option>
                                 ))}
                             </select>
-                            card
+                            {t('card')}
                         </label>
 
                         {mapping.cardType === 'custom' ? (
                             <p className="anki-map__note anki-map__note--block">
-                                Custom cards keep the note&apos;s original Anki HTML exactly as it
-                                renders, so there is nothing to map. Media is still imported.
+                                {t('Custom cards keep the note’s original Anki HTML exactly as it renders, so there is nothing to map. Media is still imported.')}
                             </p>
                         ) : (
                             <div className="anki-map__slots">
@@ -400,7 +416,7 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                                         </div>
                                         <div className="anki-map__slot-body">
                                             {(mapping.slots[slot.key] ?? []).length === 0 && (
-                                                <span className="anki-map__dropzone">Drop a field here</span>
+                                                <span className="anki-map__dropzone">{t('Drop a field here')}</span>
                                             )}
                                             {(mapping.slots[slot.key] ?? []).map(n => chip(n, slot.key))}
                                         </div>
@@ -419,7 +435,7 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                                                     </div>
                                                     <div className="anki-map__slot-body">
                                                         {(mapping.slots[m.key] ?? []).length === 0 && (
-                                                            <span className="anki-map__dropzone">optional</span>
+                                                            <span className="anki-map__dropzone">{t('optional')}</span>
                                                         )}
                                                         {/* Cloze only has front slots, so there is no other side to swap to. */}
                                                         {(mapping.slots[m.key] ?? []).map(n =>
@@ -435,14 +451,14 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
 
                     <div className="anki-map__preview">
                         <div className="anki-map__section-title">
-                            Preview
+                            {t('Preview')}
                             {mapping.cardType !== 'custom' && (
                                 <button
                                     type="button"
                                     className="anki-map__sample-cycle"
                                     onClick={() => setFace(f => (f === 'front' ? 'back' : 'front'))}
                                 >
-                                    {face === 'front' ? 'show back' : 'show front'}
+                                    {face === 'front' ? t('show back') : t('show front')}
                                 </button>
                             )}
                         </div>
@@ -455,8 +471,8 @@ export default function AnkiMappingModal({ report, filename, onCancel, onConfirm
                         </div>
                         <p className="anki-map__note">
                             {hasPreviewMedia
-                                ? 'Flip the preview to hear which side the sound plays on.'
-                                : 'No image or sound mapped for this note type.'}
+                                ? t('Flip the preview to hear which side the sound plays on.')
+                                : t('No image or sound mapped for this note type.')}
                         </p>
                     </div>
                 </div>

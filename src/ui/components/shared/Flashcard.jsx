@@ -5,6 +5,7 @@ import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
 import 'katex/dist/katex.min.css';
 import { typeAnswerParts } from './flashcardFields';
+import { useT } from '../../translations';
 import './Flashcard.css';
 
 // Presentation-only flashcard renderer. No evaluation/SRS/persistence logic.
@@ -80,6 +81,7 @@ function AudioIcon() {
 }
 
 function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
+  const { t } = useT();
   const imgSrc = img ? resolve(img) : null;
   const soundSrc = sound ? resolve(sound) : null;
 
@@ -94,7 +96,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
       {badge}
       {imgSrc && (
         <div className="flashcard-media">
-          <img src={imgSrc} alt={`${side} side image`} draggable={false} />
+          <img src={imgSrc} alt={side === 'front' ? t('Front side image') : t('Back side image')} draggable={false} />
         </div>
       )}
       {text && <div className="flashcard-text"><CardMarkdown>{text}</CardMarkdown></div>}
@@ -107,8 +109,8 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
             onClick={replay}
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
-            aria-label="Replay audio"
-            title="Replay audio"
+            aria-label={t('Replay audio')}
+            title={t('Replay audio')}
           >
             <AudioIcon />
           </button>
@@ -122,6 +124,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
 // silently discarded the front_img/front_sound the Anki importer has always written
 // for cloze notes — an audio-prompted cloze is an ordinary language-deck card.
 function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
+  const { t } = useT();
   const imgSrc = img ? resolve(img) : null;
   const soundSrc = sound ? resolve(sound) : null;
 
@@ -135,7 +138,7 @@ function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
     <div className={`flashcard-face flashcard-face--${side}`}>
       {imgSrc && (
         <div className="flashcard-media">
-          <img src={imgSrc} alt={`${side} side image`} draggable={false} />
+          <img src={imgSrc} alt={side === 'front' ? t('Front side image') : t('Back side image')} draggable={false} />
         </div>
       )}
       <div className="flashcard-text flashcard-cloze">
@@ -156,8 +159,8 @@ function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
             onClick={replay}
             onPointerDown={(e) => e.stopPropagation()}
             onKeyDown={(e) => e.stopPropagation()}
-            aria-label="Replay audio"
-            title="Replay audio"
+            aria-label={t('Replay audio')}
+            title={t('Replay audio')}
           >
             <AudioIcon />
           </button>
@@ -178,6 +181,7 @@ const Flashcard = forwardRef(function Flashcard({
   autoplayAudio,         // override the per-variant default (static: off, full: on)
   className = '',
 }, ref) {
+  const { t } = useT();
   const rootRef = useRef(null);
   const frontAudioRef = useRef(null);
   const backAudioRef = useRef(null);
@@ -275,12 +279,12 @@ const Flashcard = forwardRef(function Flashcard({
                   className="flashcard-custom-iframe"
                   srcDoc={html}
                   sandbox="allow-scripts"
-                  title="Custom flashcard"
+                  title={t('Custom flashcard')}
                 />
               </div>
             : <div className="flashcard-face flashcard-custom-slot">
-                <span className="flashcard-custom-badge">Custom</span>
-                <p className="flashcard-custom-note">No HTML content yet. Edit this card to add it.</p>
+                <span className="flashcard-custom-badge">{t('Custom')}</span>
+                <p className="flashcard-custom-note">{t('No HTML content yet. Edit this card to add it.')}</p>
               </div>
           }
         </div>
@@ -304,7 +308,7 @@ const Flashcard = forwardRef(function Flashcard({
   const backSound  = isReversed ? media.front_sound : media.back_sound;
 
   const dirBadge = cardType === 'reversible'
-    ? <span className="flashcard-direction-badge">{direction === 'reverse' ? '← Reverse' : 'Forward →'}</span>
+    ? <span className="flashcard-direction-badge">{direction === 'reverse' ? t('← Reverse') : t('Forward →')}</span>
     : null;
 
   // Build type-specific face elements.
@@ -338,14 +342,14 @@ const Flashcard = forwardRef(function Flashcard({
 
     frontFace = (
       <div className="flashcard-face flashcard-face--front">
-        {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt="Front side image" draggable={false} /></div>}
+        {frontImgSrc && <div className="flashcard-media"><img src={frontImgSrc} alt={t('Front side image')} draggable={false} /></div>}
         {frontText && <div className="flashcard-text"><CardMarkdown>{frontText}</CardMarkdown></div>}
         {frontSndSrc && (
           <>
             <audio ref={frontAudioRef} src={frontSndSrc} preload="auto" aria-hidden="true" />
             <button type="button" className="flashcard-audio-btn" onClick={replayFront}
               onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
-              aria-label="Replay audio" title="Replay audio"><AudioIcon /></button>
+              aria-label={t('Replay audio')} title={t('Replay audio')}><AudioIcon /></button>
           </>
         )}
         {!isStatic && (
@@ -359,10 +363,10 @@ const Flashcard = forwardRef(function Flashcard({
                 e.stopPropagation();
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doCheck(); }
               }}
-              placeholder="Type your answer…"
+              placeholder={t('Type your answer…')}
               autoComplete="off"
               spellCheck={false}
-              aria-label="Answer input"
+              aria-label={t('Answer input')}
               rows={4}
             />
             <button
@@ -372,7 +376,7 @@ const Flashcard = forwardRef(function Flashcard({
               onPointerDown={(e) => e.stopPropagation()}
               disabled={!typed.trim()}
             >
-              Check
+              {t('Check')}
             </button>
           </div>
         )}
@@ -380,7 +384,7 @@ const Flashcard = forwardRef(function Flashcard({
     );
     backFace = (
       <div className="flashcard-face flashcard-face--back">
-        {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt="Back side image" draggable={false} /></div>}
+        {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt={t('Back side image')} draggable={false} /></div>}
         {expectedAnswer && <div className="flashcard-text"><CardMarkdown>{expectedAnswer}</CardMarkdown></div>}
         {answerNotes && (
           <div className="flashcard-notes"><CardMarkdown>{answerNotes}</CardMarkdown></div>
@@ -390,7 +394,7 @@ const Flashcard = forwardRef(function Flashcard({
             <audio ref={backAudioRef} src={backSndSrc} preload="auto" aria-hidden="true" />
             <button type="button" className="flashcard-audio-btn" onClick={replayBack}
               onPointerDown={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}
-              aria-label="Replay audio" title="Replay audio"><AudioIcon /></button>
+              aria-label={t('Replay audio')} title={t('Replay audio')}><AudioIcon /></button>
           </>
         )}
       </div>
@@ -480,7 +484,10 @@ const Flashcard = forwardRef(function Flashcard({
       data-face={face}
       role="button"
       tabIndex={0}
-      aria-label={`Flashcard showing ${face} side.${!noFlipOnClick ? ' Activate to flip.' : ''}`}
+      aria-label={
+        (face === 'back' ? t('Flashcard showing back side.') : t('Flashcard showing front side.'))
+        + (noFlipOnClick ? '' : ` ${t('Activate to flip.')}`)
+      }
       style={dragStyle}
       onClick={onClick}
       onKeyDown={onKeyDown}

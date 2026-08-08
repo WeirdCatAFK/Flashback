@@ -10,13 +10,21 @@
  *   { front, back, clozeText, question, expectedAnswer, notes, customHtml }
  */
 
-export const CARD_TYPES = [
-  { key: 'basic',       label: 'Basic',       desc: 'Front and back' },
-  { key: 'reversible',  label: 'Reversible',  desc: 'Either direction' },
-  { key: 'cloze',       label: 'Cloze',       desc: '{{fill in blanks}}' },
-  { key: 'type_answer', label: 'Type Answer', desc: 'Typed input check' },
-  { key: 'custom',      label: 'Custom HTML', desc: 'Full HTML template' },
-];
+/**
+ * The card-type picker's labels. A function of `t` rather than a module constant:
+ * a constant is evaluated once at import and would keep the old language after a
+ * switch, and every key here has to stay a literal for the extractor to see it.
+ * `key` is the stored card_type value and is never translated.
+ */
+export function cardTypes(t) {
+  return [
+    { key: 'basic',       label: t('Basic'),       desc: t('Front and back') },
+    { key: 'reversible',  label: t('Reversible'),  desc: t('Either direction') },
+    { key: 'cloze',       label: t('Cloze'),       desc: t('{{fill in blanks}}') },
+    { key: 'type_answer', label: t('Type Answer'), desc: t('Typed input check') },
+    { key: 'custom',      label: t('Custom HTML'), desc: t('Full HTML template') },
+  ];
+}
 
 export function hasClozeBlank(text) {
   return /\{\{[^}]+\}\}/.test(text ?? '');

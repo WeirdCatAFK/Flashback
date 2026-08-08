@@ -9,6 +9,7 @@
  *   <EmptyState title="No decks yet" message="Create one to get started." action={…} />
  */
 
+import { useT } from '../../translations';
 import './StateView.css';
 
 function StateView({ tone = 'neutral', icon, title, message, action }) {
@@ -22,26 +23,30 @@ function StateView({ tone = 'neutral', icon, title, message, action }) {
   );
 }
 
-export function LoadingState({ message = 'Loading…' }) {
+// Defaults resolve in the body rather than as parameter defaults: t() only exists
+// once the hook has run, and a default resolved at render re-runs on a language switch.
+export function LoadingState({ message }) {
+  const { t } = useT();
   return (
     <StateView
       tone="neutral"
       icon={<span className="state-view__spinner" />}
-      message={message}
+      message={message ?? t('Loading…')}
     />
   );
 }
 
-export function ErrorState({ error, title = 'Something went wrong', onRetry }) {
-  const message = typeof error === 'string' ? error : error?.message || 'Unexpected error.';
+export function ErrorState({ error, title, onRetry }) {
+  const { t } = useT();
+  const message = typeof error === 'string' ? error : error?.message || t('Unexpected error.');
   return (
     <StateView
       tone="error"
-      title={title}
+      title={title ?? t('Something went wrong')}
       message={message}
       action={onRetry && (
         <button type="button" className="state-view__btn" onClick={onRetry}>
-          Try again
+          {t('Try again')}
         </button>
       )}
     />

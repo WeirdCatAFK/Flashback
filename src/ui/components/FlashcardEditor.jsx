@@ -3,13 +3,15 @@ import { updateCard } from '../api/decks';
 import { getCategories } from '../api/categories';
 import { mediaFileSrc } from '../api/media';
 import Flashcard from './shared/Flashcard';
-import { CARD_TYPES, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './shared/flashcardFields';
+import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './shared/flashcardFields';
+import { useT } from '../translations';
 import './shared/FlashcardForm.css';
 
 // Saving no longer needs `documentPath` — the server resolves the card's home from
 // its hash — but the preview does, to turn the card's stored media references into
 // streamable URLs.
 export default function FlashcardEditor({ card, documentPath, onSaved, onCancel }) {
+  const { t } = useT();
   const originalType = card?.cardType ?? (card?.isCustom ? 'custom' : 'basic');
   const vd = card?.vanillaData ?? {};
   // On a card that predates the answer/notes split the answer is still in backText;
@@ -59,11 +61,11 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
   );
 
   const addTag = () => {
-    const t = tagInput.trim();
-    if (t && !tags.includes(t)) setTags((p) => [...p, t]);
+    const trimmed = tagInput.trim();
+    if (trimmed && !tags.includes(trimmed)) setTags((p) => [...p, trimmed]);
     setTagInput('');
   };
-  const removeTag = (tag) => setTags((p) => p.filter((t) => t !== tag));
+  const removeTag = (tag) => setTags((p) => p.filter((x) => x !== tag));
   const onTagKey  = (e) => { if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); } };
 
   const selectedCategory = categories.find((c) => c.name === category);
@@ -96,7 +98,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       });
       onSaved?.();
     } catch (err) {
-      setError(err.message ?? 'Failed to save');
+      setError(err.message ?? t('Failed to save'));
     } finally {
       setSaving(false);
     }
@@ -104,7 +106,7 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
 
   return (
     <div className="fc-editor">
-      <button type="button" className="fc-editor-back" onClick={onCancel}>← Cards</button>
+      <button type="button" className="fc-editor-back" onClick={onCancel}>{t('← Cards')}</button>
 
       <div className="fc-editor-preview">
         <div className="fc-card-stage">
@@ -117,39 +119,39 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
           />
         </div>
         <span className="fc-editor-flip-hint">
-          {cardType === 'type_answer' ? 'check to reveal the back' : 'click to flip'}
+          {cardType === 'type_answer' ? t('check to reveal the back') : t('click to flip')}
         </span>
       </div>
 
-      <select className="fc-form-select fc-type-select" aria-label="Card type" value={cardType}
+      <select className="fc-form-select fc-type-select" aria-label={t('Card type')} value={cardType}
         onChange={(e) => { setCardType(e.target.value); setPreviewFace('front'); }}>
-        {CARD_TYPES.map((t) => (
-          <option key={t.key} value={t.key}>{t.label}</option>
+        {cardTypes(t).map((ct) => (
+          <option key={ct.key} value={ct.key}>{ct.label}</option>
         ))}
       </select>
 
       {(cardType === 'basic' || cardType === 'reversible') && (
         <>
           <textarea className="fc-form-field" rows={2} value={front}
-            aria-label={cardType === 'reversible' ? 'Term' : 'Front'}
+            aria-label={cardType === 'reversible' ? t('Term') : t('Front')}
             onChange={(e) => setFront(e.target.value)}
-            placeholder={cardType === 'reversible' ? 'Term or concept…' : 'Front / question…'} />
+            placeholder={cardType === 'reversible' ? t('Term or concept…') : t('Front / question…')} />
           <textarea className="fc-form-field" rows={2} value={back}
-            aria-label={cardType === 'reversible' ? 'Definition' : 'Back'}
+            aria-label={cardType === 'reversible' ? t('Definition') : t('Back')}
             onChange={(e) => setBack(e.target.value)}
-            placeholder={cardType === 'reversible' ? 'Definition…' : 'Back / answer…'} />
+            placeholder={cardType === 'reversible' ? t('Definition…') : t('Back / answer…')} />
         </>
       )}
 
       {cardType === 'cloze' && (
         <>
-          <p className="fc-form-hint">Wrap words in {'{{curly braces}}'} to mark blanks.</p>
+          <p className="fc-form-hint">{t('Wrap words in {{curly braces}} to mark blanks.')}</p>
           <textarea className="fc-form-field" rows={3} value={clozeText}
-            aria-label="Cloze text"
+            aria-label={t('Cloze text')}
             onChange={(e) => setClozeText(e.target.value)}
-            placeholder="The {{mitochondria}} is the powerhouse of the {{cell}}." />
+            placeholder={t('The {{mitochondria}} is the powerhouse of the {{cell}}.')} />
           {clozeText && !clozeReady && (
-            <p className="fc-form-warn">Add at least one {'{{blank}}'}.</p>
+            <p className="fc-form-warn">{t('Add at least one {{blank}}.')}</p>
           )}
         </>
       )}
@@ -157,23 +159,23 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
       {cardType === 'type_answer' && (
         <>
           <textarea className="fc-form-field" rows={2} value={question}
-            aria-label="Question"
+            aria-label={t('Question')}
             onChange={(e) => setQuestion(e.target.value)}
-            placeholder="Question…" />
+            placeholder={t('Question…')} />
           <textarea className="fc-form-field" rows={2} value={expectedAnswer}
-            aria-label="Expected answer"
+            aria-label={t('Expected answer')}
             onChange={(e) => setExpectedAnswer(e.target.value)}
-            placeholder="Expected answer (case-insensitive)…" />
+            placeholder={t('Expected answer (case-insensitive)…')} />
           <textarea className="fc-form-field" rows={2} value={notes}
-            aria-label="Notes shown after checking"
+            aria-label={t('Notes shown after checking')}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Notes — shown after checking, never compared…" />
+            placeholder={t('Notes — shown after checking, never compared…')} />
         </>
       )}
 
       {cardType === 'custom' && (
         <textarea className="fc-form-field fc-form-field--code" rows={7} value={customHtml}
-          aria-label="Custom HTML content"
+          aria-label={t('Custom HTML content')}
           onChange={(e) => setCustomHtml(e.target.value)}
           placeholder={'<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:24px">\n  Your content\n</div>'}
           spellCheck={false} />
@@ -185,22 +187,22 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
             {tag}<button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
           </span>
         ))}
-        <input className="fc-form-tag-input" aria-label="Add tag" value={tagInput} placeholder="+ tag"
+        <input className="fc-form-tag-input" aria-label={t('Add tag')} value={tagInput} placeholder={t('+ tag')}
           onChange={(e) => setTagInput(e.target.value)}
           onKeyDown={onTagKey} onBlur={addTag} />
       </div>
 
-      <select className="fc-form-select" aria-label="Pedagogical category" value={category}
+      <select className="fc-form-select" aria-label={t('Pedagogical category')} value={category}
         onChange={(e) => setCategory(e.target.value)}>
-        <option value="">No category</option>
+        <option value="">{t('No category')}</option>
         {categories.map((c) => (
           <option key={c.id} value={c.name} title={c.description || undefined}>
-            {c.name} · priority {c.priority}
+            {t('{name} · priority {priority}', { name: c.name, priority: c.priority })}
           </option>
         ))}
         {missingCategory && (
           <option value={missingCategory}>
-            {missingCategory}{categories.length > 0 ? ' · removed' : ''}
+            {missingCategory}{categories.length > 0 ? ` ${t('· removed')}` : ''}
           </option>
         )}
       </select>
@@ -212,9 +214,9 @@ export default function FlashcardEditor({ card, documentPath, onSaved, onCancel 
 
       <div className="fc-form-actions">
         <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
-          {saving ? 'Saving…' : 'Save'}
+          {saving ? t('Saving…') : t('Save')}
         </button>
-        <button type="button" className="fc-form-cancel" onClick={onCancel}>Cancel</button>
+        <button type="button" className="fc-form-cancel" onClick={onCancel}>{t('Cancel')}</button>
       </div>
     </div>
   );

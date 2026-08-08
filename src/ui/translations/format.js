@@ -55,6 +55,9 @@ export function makeFormatters(locale) {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
   });
   const number   = new Intl.NumberFormat(locale);
+  // UTC because its only caller keys off bare ISO days, which are calendar dates
+  // rather than instants — reading them locally shifts the weekday west of Greenwich.
+  const weekdayNarrow = new Intl.DateTimeFormat(locale, { weekday: 'narrow', timeZone: 'UTC' });
   // numeric:'auto' is what turns +1 day into "tomorrow" and 0 seconds into "now".
   const relative = new Intl.RelativeTimeFormat(locale, { numeric: 'auto' });
 
@@ -111,5 +114,16 @@ export function makeFormatters(locale) {
 
   const formatNumber = (n) => number.format(n ?? 0);
 
-  return { formatDate, formatDateTime, formatDay, formatRelative, formatNumber };
+  /**
+   * A single-letter weekday ("M", "L", "月") for dense axes like the Stats heatmap,
+   * which previously indexed a hardcoded English ["S","M","T",…] array.
+   */
+  const formatWeekdayNarrow = (isoDay) => {
+    const d = toDate(typeof isoDay === 'string' && !isoDay.includes('T')
+      ? `${isoDay}T00:00:00Z`
+      : isoDay);
+    return d ? weekdayNarrow.format(d) : '';
+  };
+
+  return { formatDate, formatDateTime, formatDay, formatRelative, formatNumber, formatWeekdayNarrow };
 }

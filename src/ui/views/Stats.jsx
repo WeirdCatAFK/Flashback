@@ -3,6 +3,7 @@ import "./Stats.css";
 import { getStatistics } from "../api/srs";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { ramp } from "../utils/chartRamp";
+import { useT } from "../translations";
 
 /**
  * Stats — read-only, vault-wide study analytics. Everything here is derived from
@@ -19,8 +20,9 @@ import { ramp } from "../utils/chartRamp";
 const WEEKS = 26; // half-year activity window shown in the heatmap
 
 const pctText = (r) => (r == null ? "—" : `${Math.round(r * 100)}%`);
-const num = (n) => (n ?? 0).toLocaleString();
 const oneDp = (n) => (n == null ? "—" : n.toFixed(1));
+// Counts go through formatNumber (from useT) rather than a bare toLocaleString, so
+// grouping follows the chosen language instead of the browser's own locale.
 
 // ── Headline tiles ────────────────────────────────────────────────────────────
 
@@ -40,32 +42,35 @@ function StatTile({ label, value, sub, title }) {
 // card is actually learned. These are the other half: how new material lands while
 // it is still being acquired.
 function AcquisitionPanel({ acquisition }) {
+  const { t, tp } = useT();
   const a = acquisition;
   if (a.reviews === 0 && a.firstExposureCards === 0) {
-    return <p className="stats-empty-inline">No reviews yet — study some new cards to see how they land.</p>;
+    return <p className="stats-empty-inline">{t('No reviews yet — study some new cards to see how they land.')}</p>;
   }
 
   const metrics = [
     {
       key: "pass",
-      label: "New-card pass rate",
+      label: t('New-card pass rate'),
       value: pctText(a.retentionAll),
-      sub: `${pctText(a.retention30)} last 30 days`,
-      hint: `${num(a.reviews)} learning review${a.reviews === 1 ? "" : "s"}`,
+      sub: t('{pct} last 30 days', { pct: pctText(a.retention30) }),
+      hint: tp('{n} learning review', '{n} learning reviews', a.reviews),
     },
     {
       key: "first",
-      label: "First-recall rate",
+      label: t('First-recall rate'),
       value: pctText(a.firstExposureAll),
-      sub: `${pctText(a.firstExposure30)} last 30 days`,
-      hint: `correct on first sight · ${num(a.firstExposureCards)} card${a.firstExposureCards === 1 ? "" : "s"}`,
+      sub: t('{pct} last 30 days', { pct: pctText(a.firstExposure30) }),
+      hint: tp('correct on first sight · {n} card',
+               'correct on first sight · {n} cards', a.firstExposureCards),
     },
     {
       key: "cost",
-      label: "Reviews to learn",
+      label: t('Reviews to learn'),
       value: oneDp(a.reviewsToRecall.median),
-      sub: `avg ${oneDp(a.reviewsToRecall.avg)}`,
-      hint: `median attempts to first recall · ${num(a.reviewsToRecall.cards)} card${a.reviewsToRecall.cards === 1 ? "" : "s"}`,
+      sub: t('avg {value}', { value: oneDp(a.reviewsToRecall.avg) }),
+      hint: tp('median attempts to first recall · {n} card',
+               'median attempts to first recall · {n} cards', a.reviewsToRecall.cards),
     },
   ];
 
@@ -86,22 +91,24 @@ function AcquisitionPanel({ acquisition }) {
 // ── Card maturity (stacked bar) ───────────────────────────────────────────────
 
 function MaturityBar({ maturity }) {
+  const { t, formatNumber } = useT();
   const { new: neu, young, mature } = maturity;
   const total = neu + young + mature;
   const segments = [
-    { key: "mature", label: "Mature", count: mature, hint: "Interval ≥ 21 days", fill: ramp(85) },
-    { key: "young", label: "Young", count: young, hint: "Reviewed, interval < 21 days", fill: ramp(40) },
-    { key: "new", label: "New", count: neu, hint: "Not yet reviewed", fill: ramp(12) },
+    { key: "mature", label: t('Mature'), count: mature, hint: t('Interval ≥ 21 days'), fill: ramp(85) },
+    { key: "young", label: t('Young'), count: young, hint: t('Reviewed, interval < 21 days'), fill: ramp(40) },
+    { key: "new", label: t('New'), count: neu, hint: t('Not yet reviewed'), fill: ramp(12) },
   ];
 
   if (total === 0) {
-    return <p className="stats-empty-inline">No cards yet.</p>;
+    return <p className="stats-empty-inline">{t('No cards yet.')}</p>;
   }
 
   return (
     <div className="stats-maturity">
       <div className="stats-maturity-track" role="img"
-        aria-label={`Card maturity: ${mature} mature, ${young} young, ${neu} new`}>
+        aria-label={t('Card maturity: {mature} mature, {young} young, {neu} new',
+          { mature, young, neu })}>
         {segments.map((s) =>
           s.count > 0 ? (
             <div key={s.key} className="stats-maturity-seg"
@@ -115,7 +122,7 @@ function MaturityBar({ maturity }) {
           <li key={s.key} className="stats-legend-item">
             <span className="stats-legend-swatch" style={{ background: s.fill }} />
             <span className="stats-legend-label">{s.label}</span>
-            <span className="stats-legend-count">{num(s.count)}</span>
+            <span className="stats-legend-count">{formatNumber(s.count)}</span>
             <span className="stats-legend-hint">{s.hint}</span>
           </li>
         ))}
@@ -127,36 +134,32 @@ function MaturityBar({ maturity }) {
 // ── Due forecast (bar chart, next 14 days) ────────────────────────────────────
 
 function ForecastChart({ forecast, overdue }) {
+  const { t, tp, formatWeekdayNarrow } = useT();
   const max = Math.max(1, ...forecast.map((f) => f.due));
   const totalDue = forecast.reduce((a, f) => a + f.due, 0);
 
-  const dow = (iso) => {
-    const d = new Date(iso + "T00:00:00Z");
-    return ["S", "M", "T", "W", "T", "F", "S"][d.getUTCDay()];
-  };
-
   if (totalDue === 0 && overdue === 0) {
-    return <p className="stats-empty-inline">Nothing scheduled — you&rsquo;re all caught up.</p>;
+    return <p className="stats-empty-inline">{t('Nothing scheduled — you’re all caught up.')}</p>;
   }
 
   return (
     <div className="stats-forecast">
       {overdue > 0 && (
         <p className="stats-overdue">
-          <strong>{num(overdue)}</strong> card{overdue === 1 ? "" : "s"} overdue
+          {tp('{n} card overdue', '{n} cards overdue', overdue)}
         </p>
       )}
       <div className="stats-forecast-bars">
         {forecast.map((f, i) => (
           <div key={f.date} className="stats-forecast-col"
-            title={`${f.date}: ${f.due} due`}>
+            title={t('{date}: {n} due', { date: f.date, n: f.due })}>
             <div className="stats-forecast-count">{f.due > 0 ? f.due : ""}</div>
             <div className="stats-forecast-bar-wrap">
               <div className="stats-forecast-bar"
                 style={{ height: `${(f.due / max) * 100}%`, background: ramp(f.due > 0 ? 70 : 0) }} />
             </div>
             <div className={`stats-forecast-x${i === 0 ? " is-today" : ""}`}>
-              {i === 0 ? "Today" : dow(f.date)}
+              {i === 0 ? t('Today') : formatWeekdayNarrow(f.date)}
             </div>
           </div>
         ))}
@@ -168,6 +171,7 @@ function ForecastChart({ forecast, overdue }) {
 // ── Activity heatmap (last 26 weeks) ──────────────────────────────────────────
 
 function ActivityHeatmap({ activity }) {
+  const { t, tp } = useT();
   const { cells, max } = useMemo(() => {
     const byDay = new Map(activity.map((a) => [a.day, a.total]));
     // `activity[].day` keys are local calendar days (the server buckets with
@@ -215,16 +219,16 @@ function ActivityHeatmap({ activity }) {
           ) : (
             <span key={c.key} className="stats-heatmap-cell"
               style={{ background: cellBg(level(c.total)) }}
-              title={`${c.key}: ${c.total} review${c.total === 1 ? "" : "s"}`} />
+              title={`${c.key}: ${tp('{n} review', '{n} reviews', c.total)}`} />
           ),
         )}
       </div>
       <div className="stats-heatmap-legend">
-        <span>Less</span>
+        <span>{t('Less')}</span>
         {[0, 1, 2, 3, 4].map((lv) => (
           <span key={lv} className="stats-heatmap-cell" style={{ background: cellBg(lv) }} />
         ))}
-        <span>More</span>
+        <span>{t('More')}</span>
       </div>
     </div>
   );
@@ -246,9 +250,11 @@ function Panel({ title, hint, children }) {
 
 // ── View ──────────────────────────────────────────────────────────────────────
 
+// Scheduler names are proper nouns and stay as-is in every language.
 const ALGO_LABEL = { leitner: "Leitner", sm2: "SM-2", fsrs: "FSRS" };
 
 export default function Stats({ isActive }) {
+  const { t, formatNumber } = useT();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -272,50 +278,52 @@ export default function Stats({ isActive }) {
     <div className="stats-view">
       <div className="stats-body">
         <header className="stats-header">
-          <h1 className="stats-title">Statistics</h1>
+          <h1 className="stats-title">{t('Statistics')}</h1>
           <p className="stats-lede">
-            How your vault is progressing
-            {stats && <> · scheduled with <strong>{ALGO_LABEL[stats.algorithm] ?? stats.algorithm}</strong></>}.
+            {t('How your vault is progressing')}
+            {stats && <> · {t('scheduled with {algorithm}', { algorithm: ALGO_LABEL[stats.algorithm] ?? stats.algorithm })}</>}.
           </p>
         </header>
 
         {firstLoad ? (
-          <LoadingState message="Crunching your review history…" />
+          <LoadingState message={t('Crunching your review history…')} />
         ) : error && !stats ? (
           <ErrorState error={error} onRetry={reload} />
         ) : stats && stats.totals.cards === 0 && stats.totals.reviews === 0 ? (
           <p className="stats-empty">
-            No cards or reviews yet. Create some flashcards and study them in the
-            Trainer — your progress will show up here.
+            {t('No cards or reviews yet. Create some flashcards and study them in the Trainer — your progress will show up here.')}
           </p>
         ) : stats ? (
           <>
             <div className="stats-tiles">
-              <StatTile label="Cards" value={num(stats.totals.cards)}
-                sub={`${num(stats.maturity.mature)} mature`} />
-              <StatTile label="Reviews" value={num(stats.totals.reviews)}
-                sub={stats.totals.reviewsToday > 0 ? `${num(stats.totals.reviewsToday)} today` : "none today"} />
-              <StatTile label="Retention" value={pctText(stats.totals.retentionAll)}
-                sub={`${pctText(stats.totals.retention30)} last 30 days`}
-                title={`Measured on ${num(stats.totals.retentionReviews)} reviews of cards past their learning phase — a card's first ${stats.acquisition.learningReviews} reviews are counted as acquisition instead.`} />
-              <StatTile label="Streak" value={`${num(stats.streak.current)}d`}
-                sub={`best ${num(stats.streak.longest)}d`} />
+              <StatTile label={t('Cards')} value={formatNumber(stats.totals.cards)}
+                sub={t('{n} mature', { n: formatNumber(stats.maturity.mature) })} />
+              <StatTile label={t('Reviews')} value={formatNumber(stats.totals.reviews)}
+                sub={stats.totals.reviewsToday > 0
+                  ? t('{n} today', { n: formatNumber(stats.totals.reviewsToday) })
+                  : t('none today')} />
+              <StatTile label={t('Retention')} value={pctText(stats.totals.retentionAll)}
+                sub={t('{pct} last 30 days', { pct: pctText(stats.totals.retention30) })}
+                title={t('Measured on {reviews} reviews of cards past their learning phase — a card’s first {learning} reviews are counted as acquisition instead.',
+                  { reviews: formatNumber(stats.totals.retentionReviews), learning: stats.acquisition.learningReviews })} />
+              <StatTile label={t('Streak')} value={t('{n}d', { n: formatNumber(stats.streak.current) })}
+                sub={t('best {n}d', { n: formatNumber(stats.streak.longest) })} />
             </div>
 
             <Panel
-              title="Acquisition">
+              title={t('Acquisition')}>
               <AcquisitionPanel acquisition={stats.acquisition} />
             </Panel>
 
-            <Panel title="Review activity" hint="Reviews per day over the last 26 weeks.">
+            <Panel title={t('Review activity')} hint={t('Reviews per day over the last 26 weeks.')}>
               <ActivityHeatmap activity={stats.activity} />
             </Panel>
 
             <div className="stats-two-col">
-              <Panel title="Due forecast" hint="Cards coming up over the next two weeks.">
+              <Panel title={t('Due forecast')} hint={t('Cards coming up over the next two weeks.')}>
                 <ForecastChart forecast={stats.forecast} overdue={stats.overdue} />
               </Panel>
-              <Panel title="Card maturity">
+              <Panel title={t('Card maturity')}>
                 <MaturityBar maturity={stats.maturity} />
               </Panel>
             </div>

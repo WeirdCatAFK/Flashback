@@ -14,6 +14,7 @@
 
 import { useEffect, useRef, useId } from 'react';
 import { createPortal } from 'react-dom';
+import { useT } from '../../translations';
 import './Modal.css';
 
 const FOCUSABLE =
@@ -30,6 +31,7 @@ export default function Modal({
 }) {
   const dialogRef = useRef(null);
   const titleId = useId();
+  const { t } = useT();
 
   useEffect(() => {
     const previouslyFocused = document.activeElement;
@@ -90,7 +92,7 @@ export default function Modal({
           <div className="modal__header">
             <h2 id={titleId} className="modal__title">{title}</h2>
             {dismissible && (
-              <button type="button" className="modal__close" onClick={onClose} aria-label="Close">
+              <button type="button" className="modal__close" onClick={onClose} aria-label={t('Close')}>
                 ×
               </button>
             )}

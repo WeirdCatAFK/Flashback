@@ -8,6 +8,7 @@ import {
 } from "../api/categories";
 import { getTagUsage } from "../api/tags";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
+import { useT } from "../translations";
 
 /**
  * Manage — the knowledge-environment tab. Unlike a document or a card, the things
@@ -20,6 +21,7 @@ import { LoadingState, ErrorState } from "../components/shared/StateView";
 // ── Pedagogical categories ────────────────────────────────────────────────────
 
 function CategoryRow({ cat, onSave, onDelete }) {
+  const { t } = useT();
   const [name, setName] = useState(cat.name);
   const [priority, setPriority] = useState(cat.priority);
   const [description, setDescription] = useState(cat.description ?? "");
@@ -39,7 +41,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
           max={99}
           onChange={(e) => setPriority(e.target.value)}
           onBlur={() => onSave(cat.id, { priority: Number(priority) })}
-          aria-label="Priority"
+          aria-label={t('Priority')}
         />
       </td>
       <td>
@@ -49,7 +51,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           onBlur={() => onSave(cat.id, { name })}
-          aria-label="Category name"
+          aria-label={t('Category name')}
           maxLength={200}
         />
       </td>
@@ -60,7 +62,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           onBlur={() => onSave(cat.id, { description })}
-          aria-label="Description"
+          aria-label={t('Description')}
           maxLength={500}
         />
       </td>
@@ -69,8 +71,8 @@ function CategoryRow({ cat, onSave, onDelete }) {
           type="button"
           className="mng-delete-btn"
           onClick={() => onDelete(cat.id)}
-          title="Delete category"
-          aria-label={`Delete ${cat.name}`}
+          title={t('Delete category')}
+          aria-label={t('Delete {name}', { name: cat.name })}
         >
           ×
         </button>
@@ -80,6 +82,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
 }
 
 function CategoriesPanel({ refreshKey }) {
+  const { t } = useT();
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -130,27 +133,25 @@ function CategoriesPanel({ refreshKey }) {
     <section className="mng-section">
       <div className="mng-section-head">
         <h2 className="mng-section-label">
-          Pedagogical categories
+          {t('Pedagogical categories')}
           {categories.length > 0 && <span className="mng-count">{categories.length}</span>}
         </h2>
         <p className="mng-section-hint">
-          Classify each card by its learning purpose — definition, concept,
-          application… Lower priority is studied first; cards with no category are
-          treated as priority 0.
+          {t('Classify each card by its learning purpose — definition, concept, application… Lower priority is studied first; cards with no category are treated as priority 0.')}
         </p>
       </div>
 
       {firstLoad ? (
-        <LoadingState message="Loading categories…" />
+        <LoadingState message={t('Loading categories…')} />
       ) : error && categories.length === 0 ? (
         <ErrorState error={error} onRetry={reload} />
       ) : (
         <table className="mng-table">
           <thead>
             <tr>
-              <th className="mng-th mng-th--priority">Priority</th>
-              <th className="mng-th">Name</th>
-              <th className="mng-th">Description</th>
+              <th className="mng-th mng-th--priority">{t('Priority')}</th>
+              <th className="mng-th">{t('Name')}</th>
+              <th className="mng-th">{t('Description')}</th>
               <th className="mng-th mng-th--action" />
             </tr>
           </thead>
@@ -167,18 +168,18 @@ function CategoriesPanel({ refreshKey }) {
                   min={0}
                   max={99}
                   onChange={(e) => setDraft((d) => ({ ...d, priority: e.target.value }))}
-                  aria-label="New category priority"
+                  aria-label={t('New category priority')}
                 />
               </td>
               <td>
                 <input
                   type="text"
                   className="mng-input"
-                  placeholder="New category…"
+                  placeholder={t('New category…')}
                   value={draft.name}
                   onChange={(e) => setDraft((d) => ({ ...d, name: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                  aria-label="New category name"
+                  aria-label={t('New category name')}
                   maxLength={200}
                 />
               </td>
@@ -186,11 +187,11 @@ function CategoriesPanel({ refreshKey }) {
                 <input
                   type="text"
                   className="mng-input"
-                  placeholder="Description…"
+                  placeholder={t('Description…')}
                   value={draft.description}
                   onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                   onKeyDown={(e) => e.key === "Enter" && handleAdd()}
-                  aria-label="New category description"
+                  aria-label={t('New category description')}
                   maxLength={500}
                 />
               </td>
@@ -201,7 +202,7 @@ function CategoriesPanel({ refreshKey }) {
                   onClick={handleAdd}
                   disabled={!draft.name.trim() || adding}
                 >
-                  Add
+                  {t('Add')}
                 </button>
               </td>
             </tr>
@@ -216,6 +217,7 @@ function CategoriesPanel({ refreshKey }) {
 // ── Tags ──────────────────────────────────────────────────────────────────────
 
 function TagsPanel({ refreshKey }) {
+  const { t, tp } = useT();
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -224,7 +226,7 @@ function TagsPanel({ refreshKey }) {
   const reload = useCallback(() => {
     setLoading(true);
     getTagUsage()
-      .then((t) => { setTags(t); setError(null); })
+      .then((list) => { setTags(list); setError(null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -232,7 +234,7 @@ function TagsPanel({ refreshKey }) {
   useEffect(() => { reload(); }, [reload, refreshKey]);
 
   const q = filter.trim().toLowerCase();
-  const shown = q ? tags.filter((t) => t.name.toLowerCase().includes(q)) : tags;
+  const shown = q ? tags.filter((tag) => tag.name.toLowerCase().includes(q)) : tags;
 
   const firstLoad = loading && tags.length === 0;
 
@@ -240,47 +242,44 @@ function TagsPanel({ refreshKey }) {
     <section className="mng-section">
       <div className="mng-section-head">
         <h2 className="mng-section-label">
-          Tags
+          {t('Tags')}
           {tags.length > 0 && <span className="mng-count">{tags.length}</span>}
         </h2>
         <p className="mng-section-hint">
-          Every tag in your vault and how many items apply it directly. Tags are
-          added or removed on a file or folder from the Inspector, and inherit down
-          the folder tree.
+          {t('Every tag in your vault and how many items apply it directly. Tags are added or removed on a file or folder from the Inspector, and inherit down the folder tree.')}
         </p>
       </div>
 
       {firstLoad ? (
-        <LoadingState message="Loading tags…" />
+        <LoadingState message={t('Loading tags…')} />
       ) : error && tags.length === 0 ? (
         <ErrorState error={error} onRetry={reload} />
       ) : tags.length === 0 ? (
         <p className="mng-empty">
-          No tags yet. Add tags to a file or folder from the Inspector and they
-          will appear here.
+          {t('No tags yet. Add tags to a file or folder from the Inspector and they will appear here.')}
         </p>
       ) : (
         <>
           <input
             type="search"
             className="mng-input mng-tag-filter"
-            placeholder="Filter tags…"
+            placeholder={t('Filter tags…')}
             value={filter}
             onChange={(e) => setFilter(e.target.value)}
-            aria-label="Filter tags"
+            aria-label={t('Filter tags')}
           />
           {shown.length === 0 ? (
-            <p className="mng-empty">No tags match “{filter}”.</p>
+            <p className="mng-empty">{t('No tags match “{query}”.', { query: filter })}</p>
           ) : (
             <ul className="mng-tag-list">
-              {shown.map((t) => (
+              {shown.map((tag) => (
                 <li
-                  key={t.name}
+                  key={tag.name}
                   className="mng-tag-chip"
-                  title={`${t.count} item${t.count === 1 ? "" : "s"}`}
+                  title={tp('{n} item', '{n} items', tag.count)}
                 >
-                  <span className="mng-tag-name">{t.name}</span>
-                  <span className="mng-tag-count">{t.count}</span>
+                  <span className="mng-tag-name">{tag.name}</span>
+                  <span className="mng-tag-count">{tag.count}</span>
                 </li>
               ))}
             </ul>
@@ -294,6 +293,7 @@ function TagsPanel({ refreshKey }) {
 // ── View ────────────────────────────────────────────────────────────────────
 
 export default function Manage({ isActive }) {
+  const { t } = useT();
   // Metadata can change from other tabs (tagging a file, importing a deck), so
   // re-pull whenever this tab regains focus rather than caching once on mount.
   // Views stay mounted after first visit, so this effect is what makes Manage
@@ -307,10 +307,9 @@ export default function Manage({ isActive }) {
     <div className="mng-view">
       <div className="mng-body">
         <header className="mng-header">
-          <h1 className="mng-title">Management</h1>
+          <h1 className="mng-title">{t('Management')}</h1>
           <p className="mng-lede">
-            Vault-wide metadata that shapes how your whole knowledge base is
-            classified and studied.
+            {t('Vault-wide metadata that shapes how your whole knowledge base is classified and studied.')}
           </p>
         </header>
         <CategoriesPanel refreshKey={refreshKey} />

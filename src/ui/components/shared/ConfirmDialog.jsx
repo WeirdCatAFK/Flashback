@@ -16,6 +16,7 @@
 
 import { createContext, useCallback, useContext, useRef, useState } from 'react';
 import Modal from './Modal';
+import { useT } from '../../translations';
 import './ConfirmDialog.css';
 
 const ConfirmContext = createContext(null);
@@ -29,15 +30,20 @@ export function useConfirm() {
 export function ConfirmProvider({ children }) {
   const [dialog, setDialog] = useState(null);
   const resolverRef = useRef(null);
+  const { t } = useT();
 
+  // Labels are stored raw (possibly undefined) and defaulted at render, not here:
+  // t() at call time would freeze the dialog in whatever language was active when
+  // it opened, and t(dialog.cancelLabel) would be a non-literal the extractor
+  // cannot see. Defaulting in the JSX below keeps both honest.
   const confirm = useCallback((opts) => {
     return new Promise((resolve) => {
       resolverRef.current = resolve;
       setDialog({
-        title: opts.title ?? 'Are you sure?',
+        title: opts.title,
         message: opts.message ?? '',
-        confirmLabel: opts.confirmLabel ?? 'Confirm',
-        cancelLabel: opts.cancelLabel ?? 'Cancel',
+        confirmLabel: opts.confirmLabel,
+        cancelLabel: opts.cancelLabel,
         tone: opts.tone ?? 'default',
       });
     });
@@ -54,20 +60,20 @@ export function ConfirmProvider({ children }) {
       {children}
       {dialog && (
         <Modal
-          title={dialog.title}
+          title={dialog.title ?? t('Are you sure?')}
           size="sm"
           onClose={() => settle(false)}
           footer={
             <>
               <button type="button" className="confirm-btn" onClick={() => settle(false)}>
-                {dialog.cancelLabel}
+                {dialog.cancelLabel ?? t('Cancel')}
               </button>
               <button
                 type="button"
                 className={`confirm-btn confirm-btn--primary confirm-btn--${dialog.tone}`}
                 onClick={() => settle(true)}
               >
-                {dialog.confirmLabel}
+                {dialog.confirmLabel ?? t('Confirm')}
               </button>
             </>
           }

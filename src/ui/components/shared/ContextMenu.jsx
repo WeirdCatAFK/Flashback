@@ -1,9 +1,13 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { useT } from '../../translations';
 import './ContextMenu.css';
 
+// `item.label` arrives already translated from the caller — this component never
+// translates it, which is why it stays a plain value and not a key.
 export default function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef();
+  const { t } = useT();
   const [pos, setPos] = useState({ x, y });
   const [confirmIdx, setConfirmIdx] = useState(null);
 
@@ -41,9 +45,9 @@ export default function ContextMenu({ x, y, items, onClose }) {
           ? <div key={`sep-${idx}`} className="ctx-sep" />
           : confirmIdx === idx
             ? <div key={item.label} className="ctx-confirm">
-                <span>Delete?</span>
-                <button type="button" className="ctx-confirm-yes" onClick={() => { item.action(); onClose(); }}>Yes</button>
-                <button type="button" className="ctx-confirm-no"  onClick={() => setConfirmIdx(null)}>No</button>
+                <span>{t('Delete?')}</span>
+                <button type="button" className="ctx-confirm-yes" onClick={() => { item.action(); onClose(); }}>{t('Yes')}</button>
+                <button type="button" className="ctx-confirm-no"  onClick={() => setConfirmIdx(null)}>{t('No')}</button>
               </div>
             : <button type="button"
                 key={item.label}
