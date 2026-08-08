@@ -149,7 +149,7 @@ class SRSService {
 
     // Compute + persist one FSRS review. Returns the new FSRS state so callers
     // (documents.js) can mirror it into the sidecar. Must run inside a transaction.
-    _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9) {
+    _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}) {
         const current = query.getFlashcardFsrsState(cardId);
         const next = fsrs.nextState(current, rating, new Date(timestamp), this.getWeights(), requestRetention);
         // Keep the app-wide `level` scalar in step with FSRS strength: map the new
@@ -169,21 +169,31 @@ class SRSService {
             fsrsDifficulty: next.difficulty,
             fsrsDue: next.due,
             fsrsState: next.state,
+            ...ordering,
         });
         return next;
     }
 
     // Returns { documentId, fsrs } — fsrs is the computed state for FSRS reviews,
-    // null for Leitner/SM-2. opts carries { rating, requestRetention } for FSRS.
+    // null for Leitner/SM-2. opts carries { rating, requestRetention } for FSRS, plus an
+    // optional `ordering` ({ sessionId, sessionPosition, prevDistance, nearestSiblingLag })
+    // describing how the card was PRESENTED. That is composed at the route layer by
+    // sequencer.measureOrdering and arrives here as plain numbers — this module stays
+    // ignorant of the graph, exactly as it stays ignorant of the card-health classifier.
+    // Absent for every non-trainer caller, and stored as NULL rather than 0 (see
+    // migrations/009_session_ordering.js).
     submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const timestamp = new Date().toISOString();
+        const ordering = opts.ordering ?? {};
 
         return db.transaction(() => {
             const fc = query.getFlashcardByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
 
             if (algorithm === 'fsrs') {
-                const next = this._applyFsrs(fc.id, opts.rating, timestamp, opts.requestRetention);
+                const next = this._applyFsrs(
+                    fc.id, opts.rating, timestamp, opts.requestRetention, ordering,
+                );
                 return { documentId: fc.document_id, fsrs: next };
             }
 
@@ -195,6 +205,7 @@ class SRSService {
                 easeFactor,
                 level: newLevel,
                 algorithm,
+                ...ordering,
             });
 
             return { documentId: fc.document_id, fsrs: null };

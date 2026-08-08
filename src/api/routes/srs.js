@@ -3,6 +3,7 @@ import path from 'path';
 import Documents from '../access/orchestration/documents.js';
 import SRS from '../access/orchestration/srs.js';
 import cardHealth from '../access/orchestration/cardHealth.js';
+import sequencer from '../access/orchestration/sequencer.js';
 
 const router = Router();
 const docs = new Documents();
@@ -17,7 +18,10 @@ const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next))
 // standalone cards (no document) omit it and only the DB is updated.
 router.post('/review', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
-    const { flashcardHash, outcome, easeFactor, newLevel, algorithm, rating, requestRetention } = req.body;
+    const {
+        flashcardHash, outcome, easeFactor, newLevel, algorithm, rating, requestRetention,
+        sessionId, sessionPosition, prevCardHash,
+    } = req.body;
     if (!flashcardHash) {
         return res.status(400).json({ error: 'flashcardHash required' });
     }
@@ -26,7 +30,21 @@ router.post('/review', catchError(async (req, res) => {
     } else if (outcome == null || easeFactor == null || newLevel == null) {
         return res.status(400).json({ error: 'outcome, easeFactor, and newLevel required' });
     }
-    const opts = { rating, requestRetention };
+
+    // Ordering telemetry is composed here, like card health below, so the scheduler never
+    // learns the graph exists. Derived from `prevCardHash` — what the trainer ACTUALLY
+    // showed before this card — rather than from the sequencer's plan, because a card
+    // re-queued after a failed grade is presented at a position nobody planned.
+    // Best-effort by construction: measureOrdering returns nulls rather than throwing.
+    const ordering = sessionId
+        ? {
+            sessionId,
+            sessionPosition: sessionPosition ?? null,
+            ...sequencer.measureOrdering({ sessionId, cardHash: flashcardHash, prevCardHash }),
+        }
+        : {};
+
+    const opts = { rating, requestRetention, ordering };
     if (relPath) {
         await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     } else {
@@ -135,6 +153,16 @@ router.get('/statistics', catchError((req, res) => {
 //   folder=<relPath>       — restrict to a folder subtree
 //   deck=<hash>            — restrict to cards in a specific deck
 //   tag=<name>             — restrict to cards tagged with this name (repeatable)
+//   order=interleaved|shuffle|priority — presentation order (localStorage `fb-trainer-order`)
+//   seed=<n>               — fixed PRNG seed; for tests and reproducing a reported session
+//
+// Selection and sequencing are composed here, never folded into each other: SRS.getDue
+// decides WHICH cards are due purely from due dates, then the sequencer decides the ORDER
+// they are presented in. Topology must never move a card across days — that would corrupt
+// the retention estimates the scheduler depends on.
+//
+// `queue` is the ordered session and is what the trainer consumes; `due`/`new` stay in the
+// response for callers that only want the counts.
 router.get('/due', catchError((req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const folder = req.query.folder ? norm(req.query.folder) : null;
@@ -143,9 +171,26 @@ router.get('/due', catchError((req, res) => {
     const tags = rawTags ? [].concat(rawTags).filter(Boolean) : null;
     const maxNew = req.query.maxNew != null ? parseInt(req.query.maxNew, 10) : undefined;
     const minPriority = req.query.minPriority != null ? parseInt(req.query.minPriority, 10) : undefined;
+    const order = req.query.order || 'interleaved';
+    const seed = req.query.seed != null ? parseInt(req.query.seed, 10) : null;
 
     const result = SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, maxNew, minPriority });
-    res.json(result);
+    const sequenced = sequencer.sequence({
+        due: result.due,
+        newCards: result.new,
+        order,
+        seed: Number.isFinite(seed) ? seed : null,
+    });
+
+    res.json({
+        ...result,
+        queue: sequenced.queue,
+        sessionId: sequenced.sessionId,
+        order: sequenced.order,
+        // Which rung of the degradation ladder this session settled on. Surfaced so a
+        // "the shuffle looks wrong" report can be diagnosed without reproducing the vault.
+        relaxation: sequenced.relaxation,
+    });
 }));
 
 export default router;

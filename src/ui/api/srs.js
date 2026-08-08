@@ -9,10 +9,18 @@ export const getStatistics = (algorithm) =>
 
 // opts carries the FSRS-only fields { rating, requestRetention }; Leitner/SM-2
 // ignore them and rely on the client-computed outcome/easeFactor/newLevel.
+//
+// It also carries the session-ordering context { sessionId, sessionPosition, prevCardHash }
+// — how this card was PRESENTED, which the server turns into ordering telemetry.
+// `prevCardHash` is the card actually shown before this one, so a card re-queued after a
+// failed grade is measured where it really landed. All three are optional; omitting them
+// (the Flashcards view, a script) just logs the review with no ordering context.
 export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts = {}) =>
   request('POST', '/api/srs/review', {
     path, flashcardHash, outcome, easeFactor, newLevel, algorithm,
     rating: opts.rating, requestRetention: opts.requestRetention,
+    sessionId: opts.sessionId, sessionPosition: opts.sessionPosition,
+    prevCardHash: opts.prevCardHash,
   });
 
 export const undoReview = (path, flashcardHash, algorithm) =>
@@ -29,7 +37,10 @@ export const optimizeFsrs = () =>
 export const getFsrsInfo = () =>
   request('GET', '/api/srs/fsrs-info');
 
-export const getDue = ({ algorithm, folder, deck, tags, maxNew, minPriority } = {}) => {
+// Returns { queue, sessionId, order, relaxation, due, new, counts, nextDue }. `queue` is
+// the session already in presentation order — the server sequenced it, so the caller must
+// NOT re-sort it. `order` mirrors the `fb-trainer-order` preference.
+export const getDue = ({ algorithm, folder, deck, tags, maxNew, minPriority, order } = {}) => {
   const qs = new URLSearchParams();
   if (algorithm)    qs.set('algorithm', algorithm);
   if (folder)       qs.set('folder',    folder);
@@ -37,6 +48,7 @@ export const getDue = ({ algorithm, folder, deck, tags, maxNew, minPriority } = 
   if (tags?.length) tags.forEach(t => qs.append('tag', t));
   if (maxNew != null) qs.set('maxNew',  String(maxNew));
   if (minPriority > 0) qs.set('minPriority', String(minPriority));
+  if (order)        qs.set('order',     order);
   const q = qs.toString();
   return request('GET', `/api/srs/due${q ? `?${q}` : ''}`);
 };

@@ -43,6 +43,7 @@
     "test:diary": "node --test tests/diary.test.js",
     "test:reader": "node --test tests/mcpReader.test.js",
     "test:health": "node --test tests/cardHealth.test.js",
+    "test:sequencing": "node --test tests/sequencing.test.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js"
   },

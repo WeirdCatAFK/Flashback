@@ -142,6 +142,14 @@ addTable('ReviewLogs', (table) => {
     table.float('fsrs_difficulty');
     table.timestamp('fsrs_due');
     table.integer('fsrs_state');
+    // How this card was PRESENTED, not how it was graded — written by the trainer so a
+    // retention dip after interleaving turned on can be told apart from a regression.
+    // See migrations/009_session_ordering.js. All NULL for reviews submitted outside a
+    // trainer session (e.g. the MCP server); NULL means "not recorded", never "distance 0".
+    table.string('session_id', 64).index();
+    table.integer('session_position');
+    table.integer('prev_distance');
+    table.integer('nearest_sibling_lag');
 });
 
 // Active FSRS weight vector for this vault (single row; seeded lazily with

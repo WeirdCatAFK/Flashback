@@ -8,6 +8,7 @@ import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import db from '../../src/api/access/primitives/database.js';
 import cardHealth from '../../src/api/access/orchestration/cardHealth.js';
+import { sequence } from '../../src/api/access/orchestration/sequencer.js';
 import Api from '../../src/api/api.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
@@ -628,6 +629,116 @@ describe('Flashback API', () => {
         it('POST /api/srs/review → 400 when fields are missing', async () => {
             const res = await post(`${baseUrl}/api/srs/review`, { path: `${ROOT}/${DOC}` });
             assert.equal(res.status, 400);
+        });
+
+        it('POST /api/srs/review → session ordering context is optional', async () => {
+            // Every non-trainer caller (MCP, scripts, the Flashcards view) omits it, and a
+            // review must still be graded and logged without any ordering context at all.
+            const res = await post(`${baseUrl}/api/srs/review`, {
+                path: `${ROOT}/${DOC}`,
+                flashcardHash: FC_HASH,
+                outcome: 1,
+                easeFactor: 2.5,
+                newLevel: 2,
+            });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.ok, true);
+        });
+
+        it('POST /api/srs/review → accepts a session and records ordering telemetry', async () => {
+            const dueRes = await fetch(`${baseUrl}/api/srs/due`);
+            const { sessionId, queue } = await dueRes.json();
+            assert.ok(sessionId, '/due must issue a sessionId');
+            assert.ok(queue.length >= 2, 'need at least two cards to measure a distance');
+
+            // Grade two cards in sequence, reporting what was actually shown before each.
+            const first = queue[0];
+            const second = queue[1];
+
+            const r1 = await post(`${baseUrl}/api/srs/review`, {
+                path: first.document_path ? `${first.document_path}` : undefined,
+                flashcardHash: first.global_hash,
+                outcome: 1, easeFactor: 2.5, newLevel: 2,
+                sessionId, sessionPosition: 0, prevCardHash: null,
+            });
+            assert.equal(r1.status, 200);
+
+            const r2 = await post(`${baseUrl}/api/srs/review`, {
+                path: second.document_path ? `${second.document_path}` : undefined,
+                flashcardHash: second.global_hash,
+                outcome: 1, easeFactor: 2.5, newLevel: 2,
+                sessionId, sessionPosition: 1, prevCardHash: first.global_hash,
+            });
+            assert.equal(r2.status, 200);
+
+            // The columns must actually be written — the whole point of the migration is
+            // being able to tell an interleaving dip apart from a regression later.
+            const rows = db.prepare(
+                'SELECT session_position, prev_distance FROM ReviewLogs WHERE session_id = ? ORDER BY session_position ASC',
+            ).all(sessionId);
+
+            assert.equal(rows.length, 2, 'both reviews should carry the session id');
+            assert.equal(rows[0].session_position, 0);
+            assert.equal(rows[0].prev_distance, null, 'first card of a session has nothing before it');
+            assert.equal(rows[1].session_position, 1);
+            assert.ok(
+                typeof rows[1].prev_distance === 'number' && rows[1].prev_distance >= 1,
+                'second card must record a distance to the card actually shown before it',
+            );
+        });
+
+        it('GET /api/srs/due → returns an ordered queue and a reproducible seed', async () => {
+            const res = await fetch(`${baseUrl}/api/srs/due?seed=1234`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+
+            assert.ok(Array.isArray(body.queue), 'queue should be an array');
+            assert.equal(body.queue.length, body.due.length + body.new.length,
+                'queue must hold every due and new card exactly once');
+            assert.ok(['none', 'no-folder-edge', 'short-lag', 'shuffle'].includes(body.relaxation),
+                `unexpected relaxation: ${body.relaxation}`);
+
+            // Same seed, same order — this is what makes a reported session reproducible.
+            const again = await (await fetch(`${baseUrl}/api/srs/due?seed=1234`)).json();
+            assert.deepEqual(
+                again.queue.map(c => c.global_hash),
+                body.queue.map(c => c.global_hash),
+            );
+        });
+
+        // Regression: getDue() hands the sequencer raw DB rows, which name the column
+        // `category_priority`; the ordering engine reads `categoryPriority`. When that seam
+        // isn't normalized every card reads as priority 0, the whole session collapses into
+        // one tier, and an Exercise can be presented before the Definition it builds on —
+        // silently, because the queue still contains every card exactly once.
+        const tierFixture = () => Array.from({ length: 12 }, (_, i) => ({
+            global_hash: `tier-card-${i}`,
+            category_priority: i % 3,   // 0,1,2,0,1,2,… — deliberately not pre-sorted
+            level: 5,
+        }));
+        const isNonDecreasing = (xs) => xs.every((x, i) => i === 0 || xs[i - 1] <= x);
+
+        for (const order of ['interleaved', 'shuffle']) {
+            it(`sequencer.sequence(order=${order}) → keeps pedagogical tiers in priority order`, () => {
+                const { queue } = sequence({ due: tierFixture(), order, seed: 7 });
+                const priorities = queue.map(c => c.category_priority);
+                assert.equal(queue.length, 12, 'every card must survive sequencing');
+                assert.ok(
+                    isNonDecreasing(priorities),
+                    `tiers must stay ordered (foundational first), got ${priorities.join(',')}`,
+                );
+            });
+        }
+
+        it('GET /api/srs/due?order=priority → opts back out of sequencing', async () => {
+            const body = await (await fetch(`${baseUrl}/api/srs/due?order=priority`)).json();
+            assert.equal(body.order, 'priority');
+            // Priority order is due-then-new, unsequenced.
+            assert.deepEqual(
+                body.queue.map(c => c.global_hash),
+                [...body.due, ...body.new].map(c => c.global_hash),
+            );
         });
 
         it('GET /api/srs/due → returns due and new card lists with card_type', async () => {

@@ -13,16 +13,16 @@ Modules are organized in three strict tiers, and **each tier is a folder on disk
 ```
 access/
   orchestration/   Tier 3   documents · subscriptions · media · srs · decks · highlights
-                            doctor · diary · mcpReader · cardHealth
+                            doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
-                            fsrs · ankiPackage            (pure helpers — no DB, no IO into the vault)
+                            fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
   resources/       Tier 2   query · files
   primitives/      Tier 1   config · database
 ```
 
 Imports within a tier stay relative (`./query.js` from `files.js`); imports downward name the tier (`../primitives/database.js` from `resources/query.js`). Nothing outside `access/` may reach past a tier folder, so callers write `access/orchestration/documents.js`, never `access/documents.js`.
 
-`fsrs.js` and `ankiPackage.js` live in `orchestration/` next to their only consumers (`srs.js`/`cardHealth.js` and `ankiImport.js` respectively) even though they are pure functions that import nothing — they are engine parts of a Tier 3 module, not a tier of their own.
+`fsrs.js`, `ankiPackage.js` and `sequencing.js` live in `orchestration/` next to their only consumers (`srs.js`/`cardHealth.js`, `ankiImport.js` and `sequencer.js` respectively) even though they are pure functions that import nothing — they are engine parts of a Tier 3 module, not a tier of their own.
 
 Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `doctor.js`, `diary.js`, `mcpReader.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
 
@@ -34,6 +34,7 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
 - **Canonical updates do not live in this tier.** Versioned rewrites of the sidecars and `_decks/*.json` are `config/UpdateRunner.js` + `config/updates/`, the document-driven counterpart of `config/migrations/` — see `config/updates/UPDATES.md`. The runner imports *downward* into this layer (`files.js`, `query.js`, `decks.js`) exactly as `routes/` does; nothing in `access/` imports it back, apart from `files.js` and `decks.js` reading `LATEST_VERSION` from the dependency-free `config/updates/registry.js` to stamp new files.
 - `cardHealth.js` imports `query.js` and the pure `fsrs.js` helpers only — never `srs.js`, never `documents.js`. It is composed at the route layer (`routes/srs.js`, `routes/flashcards.js`) the same way `/detail` already composes `decks` + `srs`, which keeps the scheduler ignorant of the classifier.
+- `sequencer.js` follows the same rule for the same reason: it imports `query.js` and the pure `sequencing.js` engine only, and `routes/srs.js` composes `SRS.getDue()` → `sequencer.sequence()`. Selection (which cards are due) and sequencing (what order they're shown in) must stay separable, because topology is never allowed to move a card across days.
 - `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
 - `ankiPackage.js` imports nothing from `access/` at all. It only parses the `.apkg` container into plain objects, so `ankiImport.js` is the only module that knows a package became cards, and `ankiPackage.js` is the only one that knows about zstd, protobuf, or which schema generation the collection uses.
 - Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
@@ -121,6 +122,16 @@ Two further detectors ship as **guards**, and they are not extras — they are w
 - **Honest about its own limits.** Leitner and SM-2 record no difficulty signal, so a verdict reached without one is capped one confidence step lower and reports `memoryModel: 'approximated'` in its evidence — the same honesty the retention curve applies. Every flag carries the numbers behind it (peak-interval series, difficulty slope, answer tokens vs. vault median, overdue ratios) so the user can disagree with it rather than being handed an oracle.
 - **Never auto-splits, never auto-buries.** A flag ends in a named recommendation, never an applied change.
 - **Derived, never canonical.** Flags live only in SQLite and are absent from `.flashback` sidecars — they are recomputable, and sealing one would mean a git commit on every failed review. `query.wipeDerivedContent()` clears them with `ReviewLogs`, so a **Vault Doctor `rebuildIndex` destroys card health along with the review history it rests on**; cards re-earn their flags from new review behaviour. That is a real limitation, not an oversight.
+
+### `sequencer.js` / `sequencing.js`
+**Presentation order** — decides the sequence a session's due cards are shown in, never which cards are due. Full model in `DATAMODEL.md` § Session Sequencing.
+
+The split mirrors `srs.js`/`fsrs.js`: `sequencing.js` is the pure engine (constants, `distance`, `feasibleLag`, `orderCards`) and imports nothing, so `tests/sequencing.test.js` pins its behaviour with no SQLite binary; `sequencer.js` is the thin DB-facing half that fetches facets and stamps a `sessionId`.
+
+- **Interleaves, doesn't cluster.** Graph proximity is a *spacing* signal. Cards at distance ≤ 1 (same document, shared tag, same parent folder) are pushed at least `MIN_LAG` apart; they still co-occur in the session, because that's where discrimination is learned.
+- **Degrades to shuffle, never to clusters.** The ladder is `none` → `no-folder-edge` → `short-lag` → `shuffle`, reported as `relaxation` on the response. A shuffle is already better than blocking, so every failure mode ends there.
+- **Asks the geometry before enforcing the lag.** Spacing *k* cluster-mates *g* apart in *n* slots needs `(k-1)(g+1)+1 ≤ n`; `feasibleLag()` computes the achievable lag per tier. A greedy told to honour an impossible lag spends its buffer early and piles the remainder into a block at the end — reintroducing exactly what the module exists to prevent.
+- **`measureOrdering()` is the telemetry half**, called from `routes/srs.js` on each review. It derives `prev_distance`/`nearest_sibling_lag` from `prevCardHash` — what the trainer *actually* showed — not from the planned order, because a card re-queued after a failed grade lands somewhere nobody planned. Best-effort by construction: it returns nulls rather than throwing, since telemetry must never cost a graded review.
 
 ### `media.js`
 Orchestrator for media asset lifecycle:

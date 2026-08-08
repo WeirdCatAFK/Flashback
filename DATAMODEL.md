@@ -561,6 +561,56 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 ---
 
+## Session Sequencing — Presentation Order
+
+Two separate decisions, deliberately kept apart:
+
+- **Selection** — *which* cards are due today. Owned entirely by the scheduler (`srs.js`, `query.getDueFlashcards`) and decided from due dates alone.
+- **Sequencing** — the *order* those cards are presented in. Owned by `sequencer.js` / `sequencing.js`.
+
+**Topology never moves a card across days.** Nothing in sequencing may pull a card forward or defer one to engineer a comparison; that would corrupt the retention estimates, which are already hard to read through new-card noise. The two are composed at the route layer (`routes/srs.js` `GET /due`), never folded into each other — the same arrangement `cardHealth.js` uses to stay out of the scheduler.
+
+### Why interleave
+
+Before this existed, the trainer presented cards in creation order: both sort stages were stable sorts on `category_priority` alone, so every tie resolved to rowid order and cards authored together from one document arrived together, every session, in the same sequence. That is blocked practice. It inflates within-session accuracy while producing knowledge bound to the thematic cue — the shared context does the retrieving, and a shuffled recall attempt the next day doesn't supply it.
+
+So graph proximity is used as a **spacing signal, not a grouping one**. Confusable cards still co-occur inside a session, because that is where discrimination is learned, but separated by unrelated material.
+
+### Approximate distance
+
+A real BFS over `Nodes`/`Connections` is more machinery than the signal justifies; what matters is which band a pair falls in. `query.getSessionFacets()` reads each card's `docId`, `folderId`, folder ancestry, tags (direct + inherited), decks and linked documents in a fixed number of statements, and `distance()` derives:
+
+| d | relationship |
+|---|---|
+| 1 | same document, shared tag, or same immediate folder — **confusable** |
+| 2 | shared deck, or their documents are directly linked |
+| 3 | documents share an ancestor folder within two levels |
+| 4 | nothing in common |
+
+### Constraints
+
+- **Hard** — two cards at d ≤ 1 must be separated by at least `MIN_LAG` (4) items.
+- **Soft** — prefer the medium-to-high band (`TARGET_DISTANCE` 3), *not* the maximum. Always jumping as far as possible makes every transition the same kind of jump and the relational structure itself never gets retrieved.
+- **Soft** — a **weak** card (new, or level ≤ 2) may take a same-cluster run of up to `WEAK_RUN_MAX` (3) so the learner can extract the pattern before discriminating under load. Per-card, outgrown automatically as strength rises; never a mode the user selects.
+- Pedagogical tiers are an outer partition — sequencing happens *within* a tier, so a definition is never reordered behind the exercise built on it.
+
+### Degradation ladder
+
+Reported as `relaxation` on the `/due` response. **Failure degrades toward randomness, never toward clusters** — a shuffle is already better than blocking.
+
+| rung | trigger |
+|---|---|
+| `none` | the full lag held |
+| `no-folder-edge` | > 40% of pairs read as confusable; the same-folder edge is dropped first (in a flat vault it alone makes everything confusable) |
+| `short-lag` | the tier's geometry can't sustain `MIN_LAG`; the lag drops to what actually fits |
+| `shuffle` | not even adjacent placement fits; plain seeded shuffle |
+
+The `short-lag` rung is computed, not guessed: spacing *k* cluster-mates *g* apart inside *n* slots requires `(k-1)(g+1)+1 ≤ n`. Honouring an infeasible lag anyway is what strands the remainder in a block at the end of the session — the exact blocking the feature exists to prevent.
+
+Ordering is seeded (`mulberry32`), so a session is reproducible from its seed and `tests/sequencing.test.js` can pin exact sequences.
+
+---
+
 ## Data Dictionary
 
 ### Table: Flashcards
@@ -808,6 +858,12 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | ease_factor  | float        | Spaced repetition ease factor.                   |
 | level        | integer      | Current level/stage in SRS algorithm.            |
 | algorithm    | varchar(20)  | Scheduler that graded this review (`leitner`/`sm2`/`fsrs`). NULL pre-migration 006. |
+| session_id   | varchar(64)  | Groups the reviews of one trainer session. Indexed. NULL pre-migration 009 and for non-trainer callers. |
+| session_position | integer  | 0-based index of this review within its session, counting what was *actually shown* — a re-queued card occupies two positions. |
+| prev_distance | integer     | Approximate graph distance (1–4) to the card presented immediately before. NULL for a session's first review. |
+| nearest_sibling_lag | integer | Items since the nearest *confusable* sibling (same document, shared tag, same parent folder) appeared in this session. NULL when none preceded it. |
+
+**Session-ordering columns record how a card was PRESENTED, not how it was graded.** They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. **A reader must treat NULL as "not recorded", never as distance 0**: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
 
 **Only the grade is stored, never the typed answer.** That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
 

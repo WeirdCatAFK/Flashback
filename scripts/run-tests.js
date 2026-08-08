@@ -38,6 +38,7 @@ const tests = [
     'tests/fsrs.test.js',
     'tests/fsrs.api.test.js',
     'tests/cardHealth.test.js',
+    'tests/sequencing.test.js',
     'tests/stats.test.js',
     'tests/diary.test.js',
     'tests/mcpReader.test.js',

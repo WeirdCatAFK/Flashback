@@ -102,6 +102,7 @@ migration aborts startup — fix the `up()` function and restart.
 | 6       | `006_review_algorithm.js`| ReviewLogs.algorithm: record the scheduler each review was graded with    | Registered |
 | 7       | `007_card_health.js`     | Card health: CardHealth watermark + CardFlags failure signatures         | Registered |
 | 8       | `008_type_answer_answer_text.js` | type_answer: FlashcardContent.answerText + CanonicalVersion table (pairs with canonical update 001) | Registered |
+| 9       | `009_session_ordering.js` | ReviewLogs: session ordering telemetry (session_id, position, distances) | Registered |
 
 ---
 
@@ -119,6 +120,11 @@ Both halves must land on the same end state, or the next Vault Doctor rebuild re
 database from the files and the two disagree. Reads should also stay correct if the canonical
 pass has not run, since a Seal rollback can restore a pre-update sidecar at any time.
 Migration 008 + update 001 is the worked example.
+
+Migration 009 is the worked example of the **opposite** case: it adds columns to `ReviewLogs`,
+which is derived-only — it lives in the database, never in a sidecar, and a Vault Doctor
+rebuild wipes it. So there is no canonical half to write, and no downgrade warning to record:
+an older build reading a migrated vault simply never selects the new columns.
 
 The pair is also the worked example of a **one-way** change: update 001 empties a field an
 older release still grades against, so a build from before `answerText` misreads a migrated

@@ -609,10 +609,19 @@ function useSrsPrefs() {
   const [retention, setRetentionState] = useState(
     () => Number(localStorage.getItem('fb-fsrs-retention')) || 0.9,
   );
+  // Presentation order. Defaults to interleaved: the scheduler picks which cards are due,
+  // this picks the order they're shown in.
+  const [order, setOrderState] = useState(
+    () => localStorage.getItem('fb-trainer-order') ?? 'interleaved',
+  );
 
   const applyAlgorithm = (v) => {
     localStorage.setItem('fb-srs-algorithm', v);
     setAlgorithmState(v);
+  };
+  const setOrder = (v) => {
+    localStorage.setItem('fb-trainer-order', v);
+    setOrderState(v);
   };
   const setMaxNew = (v) => {
     const n = Math.max(0, Math.min(200, Number(v) || 0));
@@ -625,7 +634,7 @@ function useSrsPrefs() {
     setRetentionState(r);
   };
 
-  return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention };
+  return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder };
 }
 
 // Diary opt-in (stored in localStorage, default off). When on, the Trainer writes a
@@ -743,7 +752,7 @@ export default function ConfigView({
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
   const [restartPending, setRestartPending] = useState(false);
-  const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention } = useSrsPrefs();
+  const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder } = useSrsPrefs();
   const { enabled: diaryEnabled, setEnabled: setDiaryEnabled } = useDiaryPref();
 
   // Algorithm migration confirm state.
@@ -951,6 +960,39 @@ export default function ConfigView({
                 </td>
               </tr>
             )}
+            <tr>
+              <td>
+                <label htmlFor="trainer-order">Card order</label>
+              </td>
+              <td>
+                <select
+                  id="trainer-order"
+                  value={order}
+                  onChange={(e) => setOrder(e.target.value)}
+                >
+                  <option value="interleaved">Interleaved (spreads related cards apart)</option>
+                  <option value="shuffle">Shuffled (random)</option>
+                  <option value="priority">By category priority</option>
+                </select>
+                <p className="config-hint">
+                  {order === 'interleaved' && (
+                    <>
+                      Cards from the same document, tag or folder are pushed apart so each one
+                      has to be recalled on its own. Expect sessions to feel harder and your
+                      pass rate to dip &mdash; that&rsquo;s the trade for remembering more later.
+                    </>
+                  )}
+                  {order === 'shuffle' && 'Random order within each category-priority tier.'}
+                  {order === 'priority' && (
+                    <>
+                      Foundational cards first, then in the order they were created. Predictable,
+                      but reviewing related cards together makes them easier to recall now and
+                      harder to recall later.
+                    </>
+                  )}
+                </p>
+              </td>
+            </tr>
             <tr>
               <td>
                 <label htmlFor="srs-max-new">New cards per day</label>

@@ -39,6 +39,10 @@ const FSRS_GRADES = {
 const gradesFor = (algorithm) => (algorithm === 'fsrs' ? FSRS_GRADES : GRADES);
 
 const MAX_DECK = 5; // how many cards we draw behind the live one
+// Cards to put between a failed card and its retry. Mirrors the sequencer's MIN_LAG
+// (access/orchestration/sequencing.js) — kept as a separate constant because this one is a
+// client-side queue mutation the server never sees, not a value the two must agree on.
+const REQUEUE_LAG = 4;
 
 function formatNextDue(sqliteStr) {
   if (!sqliteStr) return null;
@@ -113,12 +117,14 @@ function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
     // Read algorithm fresh from localStorage so Config changes are picked up
     // on the next fetch without needing a separate state channel.
     const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+    const order = localStorage.getItem('fb-trainer-order') ?? 'interleaved';
     const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
     getDue({
       algorithm,
       maxNew,
       folder,
       deck,
+      order,
       tags: tagsArray?.length ? tagsArray : undefined,
     })
       .then(setResult)
@@ -126,25 +132,19 @@ function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
       .finally(() => setLoading(false));
   }, [folder, deck, tagsKey, maxNew, refreshToken]);
 
+  // The server already sequenced this queue — by pedagogical tier, then by graph distance
+  // within each tier. Do NOT re-sort it here. The previous client-side sort was a stable
+  // sort on categoryPriority alone, which left every tie resolving to creation order and
+  // was the reason a session always played back in the order the cards were authored.
   const cards = useMemo(() => {
     if (!result) return [];
-    const all = [
-      ...result.due.map(c => mapApiCard(c, false)),
-      ...result.new.map(c => mapApiCard(c, true)),
-    ];
-    // Sort by pedagogical category priority ascending: lower = more foundational = first.
-    // Within the same priority, due cards precede new cards.
-    all.sort((a, b) => {
-      const pDiff = (a.categoryPriority ?? 0) - (b.categoryPriority ?? 0);
-      if (pDiff !== 0) return pDiff;
-      if (!a.isNew && b.isNew) return -1;
-      if (a.isNew && !b.isNew) return 1;
-      return 0;
-    });
-    return all;
+    const queue = result.queue ?? [...result.due, ...result.new];
+    // `isNew` isn't a column — it's which bucket the server put the card in.
+    const newHashes = new Set(result.new.map(c => c.global_hash));
+    return queue.map(c => mapApiCard(c, newHashes.has(c.global_hash)));
   }, [result]);
 
-  return { cards, result, loading, error };
+  return { cards, result, loading, error, sessionId: result?.sessionId ?? null };
 }
 
 // The reducing stack behind the live card: one faint card-back per remaining
@@ -459,7 +459,7 @@ function DeckPicker({ onPick }) {
   );
 }
 
-function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError, onFlagged, onUndo, canUndo }) {
+function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onViewSource, onSaveError, onFlagged, onUndo, canUndo, session }) {
   const [flipped, setFlipped] = useState(false);
   const [typedAnswer, setTypedAnswer] = useState(null);
   const keymap = useKeybindings();
@@ -518,6 +518,17 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
       onSaveErrorRef.current?.(err);
     });
 
+  // How this card was actually presented. `prevCardHash` is the card the user saw
+  // immediately before — not the one the sequencer planned — so a card re-queued after a
+  // failed grade reports the position it really occupied. Empty outside a session.
+  const ordering = session?.sessionId
+    ? {
+      sessionId: session.sessionId,
+      sessionPosition: session.position,
+      prevCardHash: session.prevCardHash ?? null,
+    }
+    : {};
+
   const handleGrade = (key) => {
     if (busyRef.current) return;
     busyRef.current = true;
@@ -528,7 +539,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
       const requestRetention = Number(localStorage.getItem('fb-fsrs-retention')) || 0.9;
       // FSRS grading is computed server-side; we only send the rating. Optimistic
       // UI advance; a failed write is surfaced, never silent.
-      collectFlags(submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention }));
+      collectFlags(submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention, ...ordering }));
       onResult({ key, success: g.rating > 1, toLevel: card.level ?? 0, easeFactor: card.easeFactor ?? 2.5 });
       return;
     }
@@ -542,7 +553,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
     const toLevel = (key === 'again' && algorithm !== 'sm2') ? Math.max(1, rawLevel) : rawLevel;
     // We advance the UI optimistically for a fluid review flow, but a failed write
     // must never be silent — surface it so the user knows this grade wasn't saved.
-    collectFlags(submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm));
+    collectFlags(submitReview(card.documentPath, card.globalHash, g.outcome, easeFactor, toLevel, algorithm, ordering));
     onResult({ key, success: g.outcome === 1, toLevel, easeFactor });
   };
 
@@ -718,6 +729,10 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // Cards the classifier flagged during this session, shown once at the end. Keyed by
   // hash so a card that fails, gets re-queued and fails again is named once, not twice.
   const [flagged, setFlagged] = useState([]);
+  // Presentation trace for ordering telemetry: how many cards have been shown so far and
+  // which one came last. Counts what the user ACTUALLY saw, so a re-queued card advances
+  // the position again rather than reusing its first one.
+  const [presented, setPresented] = useState({ position: 0, prevCardHash: null });
   // Hash of the flagged card the user opened from the summary, if any.
   const [inspecting, setInspecting] = useState(null);
   const keymap = useKeybindings();
@@ -789,7 +804,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     if (isActive && queue.length === 0 && !sessionDone) setRefreshToken(t => t + 1);
   }
 
-  const { cards, result, loading, error } = useDueCards({
+  const { cards, result, loading, error, sessionId } = useDueCards({
     folder: appliedScope.folder,
     deck: appliedScope.deck,
     tags: appliedScope.tags,
@@ -820,6 +835,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
       setTurn(0);
       setStats({ again: 0, good: 0, easy: 0 });
       setPop(null);
+      setPresented({ position: 0, prevCardHash: null });
     }
   }
 
@@ -831,6 +847,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setSessionDone(false);
     setLastSession(null);
     setFlagged([]);
+    setPresented({ position: 0, prevCardHash: null });
   };
 
   // When a session completes, record the day's summary to the diary — only if the
@@ -882,11 +899,13 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   const handleResult = ({ key, success, toLevel, easeFactor }) => {
     // Snapshot the pre-grade session so this result can be undone. Closures here
-    // hold the current (pre-mutation) queue/stats/lastSession.
-    setLastAction({ key, card: queue[0], queue, stats, lastSession });
+    // hold the current (pre-mutation) queue/stats/lastSession/presented.
+    setLastAction({ key, card: queue[0], queue, stats, lastSession, presented });
     const newStats = { ...stats, [key]: stats[key] + 1 };
     setStats(newStats);
     setPop({ id: Date.now(), kind: success ? 'up' : 'down', toLevel });
+    // Advance the presentation trace: this card has now been shown, whatever happens to it.
+    setPresented(p => ({ position: p.position + 1, prevCardHash: queue[0]?.globalHash ?? null }));
     if (success) {
       const nextQueue = queue.slice(1);
       setQueue(nextQueue);
@@ -896,16 +915,26 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
         setRefreshToken(t => t + 1);
       }
     } else {
-      // Re-queue within the same priority tier: insert the failed card immediately
-      // before the first card whose categoryPriority is higher. This keeps failed
-      // cards looping inside their tier rather than falling behind higher-priority work.
+      // Re-queue within the same priority tier, at least REQUEUE_LAG cards later.
+      // Two constraints, in this order:
+      //   1. Never past the tier boundary — a failed Definition must not fall behind the
+      //      Exercises that build on it.
+      //   2. Never immediately: re-showing a card the user just failed tests recognition,
+      //      not recall. The lag mirrors the sequencer's own spacing so a lapsed card gets
+      //      the same treatment as any other confusable repeat.
+      // The old behaviour appended to the end of the tier, which spaced short tiers fine
+      // but buried the card in long ones; clamping to the tier end keeps both cases sane.
       const failedCard = { ...queue[0], level: toLevel, easeFactor, lastRecall: new Date().toISOString() };
       const rest = queue.slice(1);
       const failedPriority = failedCard.categoryPriority ?? 0;
-      let insertAt = rest.length; // default: end (all remaining cards share this tier)
+      let tierEnd = rest.length; // default: all remaining cards share this tier
       for (let i = 0; i < rest.length; i++) {
-        if ((rest[i].categoryPriority ?? 0) > failedPriority) { insertAt = i; break; }
+        if ((rest[i].categoryPriority ?? 0) > failedPriority) { tierEnd = i; break; }
       }
+      // Clamp to the tier, but never to 0: a failed card sitting at the end of its tier
+      // would otherwise be re-dealt as the very next card, which tests recognition rather
+      // than recall. One card past the boundary is a smaller price than no lag at all.
+      const insertAt = rest.length === 0 ? 0 : Math.max(1, Math.min(REQUEUE_LAG, tierEnd));
       setQueue([...rest.slice(0, insertAt), failedCard, ...rest.slice(insertAt)]);
     }
     setTurn((t) => t + 1);
@@ -922,6 +951,10 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setQueue(action.queue);
     setStats(action.stats);
     setLastSession(action.lastSession);
+    // Rewind the presentation trace too: the undone review's log row is deleted server-side,
+    // so leaving the position advanced would put a gap in the session's ordering record and
+    // make the next card look further from its sibling than it was.
+    setPresented(action.presented ?? { position: 0, prevCardHash: null });
     setSessionDone(false);
     setTurn((t) => t + 1);
     try {
@@ -1095,6 +1128,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onFlagged={handleFlagged}
             onUndo={handleUndo}
             canUndo={!!lastAction}
+            session={{ sessionId, ...presented }}
           />
           <GradePop pop={pop} top={popTop} />
         </div>

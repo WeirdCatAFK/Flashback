@@ -665,6 +665,11 @@ Submits a spaced-repetition review result for a flashcard. Updates the card's le
 | `outcome`       | number | Yes      | Review outcome (`1` = correct, `0` = incorrect).    |
 | `easeFactor`    | number | Yes      | Updated ease factor computed by the client.             |
 | `newLevel`      | number | Yes      | New Leitner box level.                                  |
+| `sessionId`     | string | No       | Session this review belongs to, from `GET /due`.        |
+| `sessionPosition` | number | No     | 0-based index of this review within the session.        |
+| `prevCardHash`  | string | No       | `globalHash` of the card **actually shown** immediately before this one. |
+
+The last three are **session-ordering telemetry** and are optional: omit them (the MCP server, a script, the Flashcards view) and the review is logged with no ordering context. When `sessionId` is present the server derives `prev_distance` and `nearest_sibling_lag` itself via `sequencer.measureOrdering()` — the client sends only what it displayed, never a distance. `prevCardHash` is what was *actually* presented rather than what the sequencer planned, so a card re-queued after a failed grade is measured where it really landed. See `DATAMODEL.md` § ReviewLogs.
 
 **Response** `200` — `{ ok: true, flags }`.
 
@@ -676,6 +681,29 @@ Submits a spaced-repetition review result for a flashcard. Updates the card's le
 The Trainer collects these and reports them once at the **end** of the session — a review is not the moment to argue with someone about how their card is built. Classification failures are logged and swallowed: a classifier bug must never cost the user a graded review that is already persisted.
 
 **Errors** `400` all fields required.
+
+---
+
+### `GET /api/srs/due`
+
+Returns the cards to study now, **already in presentation order**.
+
+| Param           | Type   | Description                                                        |
+| --------------- | ------ | ------------------------------------------------------------------ |
+| `algorithm`   | string | `leitner` \| `sm2` \| `fsrs`. Optional — inferred when omitted.  |
+| `maxNew`      | number | New cards to introduce this session.                               |
+| `minPriority` | number | Only cards whose pedagogical category priority ≥ this.            |
+| `folder`      | string | Restrict to a folder subtree.                                      |
+| `deck`        | string | Restrict to a deck's cards.                                        |
+| `tag`         | string | Restrict to a tag. Repeatable.                                     |
+| `order`       | string | `interleaved` (default) \| `shuffle` \| `priority`.             |
+| `seed`        | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports. |
+
+**Response** `200` — `{ queue, sessionId, order, relaxation, due, new, counts, nextDue, algorithm }`.
+
+`queue` is the ordered session and is what a trainer should consume; **do not re-sort it**. `due` and `new` remain for callers that only want counts or bucket membership. `relaxation` reports which rung of the degradation ladder this session settled on (`none` | `no-folder-edge` | `short-lag` | `shuffle`), so an odd-looking order can be diagnosed without reproducing the vault.
+
+Selection and sequencing are composed here but never folded together: the scheduler picks *which* cards from due dates alone, then the sequencer picks *what order*. Topology never moves a card across days. Full model in `DATAMODEL.md` § Session Sequencing.
 
 ---
 

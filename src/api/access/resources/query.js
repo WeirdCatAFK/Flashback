@@ -389,11 +389,16 @@ class DocumentQuery {
     insertReviewLog(data) {
         // FSRS fields (rating + post-review snapshot) default to null so the
         // existing Leitner/SM-2 callers keep working unchanged.
+        // Session-ordering columns record how the card was PRESENTED (see
+        // migrations/009_session_ordering.js). They default to null so every caller
+        // without a trainer session — the MCP server, scripts, tests — keeps working,
+        // and so "not recorded" stays distinguishable from "distance 0".
         this.db.prepare(`
             INSERT INTO ReviewLogs
                 (flashcard_id, timestamp, outcome, ease_factor, level, algorithm,
-                 rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state,
+                 session_id, session_position, prev_distance, nearest_sibling_lag)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level,
             data.algorithm ?? null,
@@ -402,7 +407,151 @@ class DocumentQuery {
             data.fsrsDifficulty ?? null,
             data.fsrsDue ?? null,
             data.fsrsState ?? null,
+            data.sessionId ?? null,
+            data.sessionPosition ?? null,
+            data.prevDistance ?? null,
+            data.nearestSiblingLag ?? null,
         );
+    }
+
+    // Everything the sequencer needs to judge how related two cards are, for a whole
+    // session in a fixed number of statements. Per-card getInheritedTagNames/
+    // getDirectTagNames would be two statements per card — ~400 for a 200-card session —
+    // and this runs on every /due.
+    //
+    // Returns Map<globalHash, { docId, folderId, ancestorIds, tags:Set, deckIds:Set,
+    // linkedDocIds:Set }>. A standalone card (no document) has docId/folderId null and
+    // still carries its tags and decks, so it is never confusable by location alone.
+    getSessionFacets(hashes) {
+        const facets = new Map();
+        if (!hashes?.length) return facets;
+
+        const { tagConnTypeId, linkConnTypeId, inheritanceTypeId, deckConnTypeId } = this._typeIds();
+        const marks = (arr) => arr.map(() => '?').join(', ');
+
+        const base = this.db.prepare(`
+            SELECT f.global_hash AS globalHash, f.node_id AS nodeId,
+                   f.document_id AS docId, d.node_id AS docNodeId, d.folder_id AS folderId
+            FROM Flashcards f
+            LEFT JOIN Documents d ON d.id = f.document_id
+            WHERE f.global_hash IN (${marks(hashes)})
+        `).all(...hashes);
+        if (base.length === 0) return facets;
+
+        for (const row of base) {
+            facets.set(row.globalHash, {
+                docId: row.docId ?? null,
+                folderId: row.folderId ?? null,
+                ancestorIds: [],
+                tags: new Set(),
+                deckIds: new Set(),
+                linkedDocIds: new Set(),
+            });
+        }
+
+        // --- Tags: direct on the card, plus inherited from its document/folder/decks.
+        // Both feed one set: the sequencer only cares that two cards share a label, not
+        // how each of them acquired it.
+        const nodeIds = base.map(r => r.nodeId).filter(id => id != null);
+        const byNode = new Map(base.map(r => [r.nodeId, r.globalHash]));
+        if (nodeIds.length > 0) {
+            const nodeMarks = marks(nodeIds);
+            const direct = this.db.prepare(`
+                SELECT c.origin_id AS nodeId, t.name AS name
+                FROM Connections c
+                JOIN Tags t ON t.node_id = c.destiny_id
+                WHERE c.origin_id IN (${nodeMarks}) AND c.type_id = ?
+            `).all(...nodeIds, tagConnTypeId);
+            const inherited = this.db.prepare(`
+                SELECT c.destiny_id AS nodeId, t.name AS name
+                FROM InheritedTags it
+                JOIN Connections c ON it.connection_id = c.id
+                JOIN Tags t ON t.id = it.tag_id
+                WHERE c.destiny_id IN (${nodeMarks}) AND c.type_id IN (?, ?)
+            `).all(...nodeIds, inheritanceTypeId, deckConnTypeId);
+            for (const row of [...direct, ...inherited]) {
+                facets.get(byNode.get(row.nodeId))?.tags.add(row.name);
+            }
+        }
+
+        // --- Decks
+        const deckRows = this.db.prepare(`
+            SELECT de.card_hash AS globalHash, de.deck_id AS deckId
+            FROM DeckEntries de
+            WHERE de.card_hash IN (${marks(hashes)})
+        `).all(...hashes);
+        for (const row of deckRows) facets.get(row.globalHash)?.deckIds.add(row.deckId);
+
+        // --- Document links, in both directions: a link is evidence the two documents
+        // are about related things regardless of which one points at the other.
+        const docNodeIds = [...new Set(base.map(r => r.docNodeId).filter(id => id != null))];
+        if (docNodeIds.length > 0 && linkConnTypeId) {
+            const docNodeMarks = marks(docNodeIds);
+            const links = this.db.prepare(`
+                SELECT c.origin_id AS fromNode, c.destiny_id AS toNode
+                FROM Connections c
+                WHERE c.type_id = ?
+                  AND (c.origin_id IN (${docNodeMarks}) OR c.destiny_id IN (${docNodeMarks}))
+            `).all(linkConnTypeId, ...docNodeIds, ...docNodeIds);
+            // Document node ids reach document ids through the same rows we already read,
+            // plus any link target outside the session (which we resolve on demand).
+            const docIdOfNode = new Map(base.filter(r => r.docNodeId != null).map(r => [r.docNodeId, r.docId]));
+            const unknown = [...new Set(
+                links.flatMap(l => [l.fromNode, l.toNode]).filter(n => !docIdOfNode.has(n))
+            )];
+            if (unknown.length > 0) {
+                for (const row of this.db.prepare(
+                    `SELECT id, node_id AS nodeId FROM Documents WHERE node_id IN (${marks(unknown)})`
+                ).all(...unknown)) docIdOfNode.set(row.nodeId, row.id);
+            }
+            const nodeToHashes = new Map();
+            for (const r of base) {
+                if (r.docNodeId == null) continue;
+                if (!nodeToHashes.has(r.docNodeId)) nodeToHashes.set(r.docNodeId, []);
+                nodeToHashes.get(r.docNodeId).push(r.globalHash);
+            }
+            for (const link of links) {
+                for (const [near, far] of [[link.fromNode, link.toNode], [link.toNode, link.fromNode]]) {
+                    const farDocId = docIdOfNode.get(far);
+                    if (farDocId == null) continue;
+                    for (const hash of nodeToHashes.get(near) ?? []) {
+                        facets.get(hash)?.linkedDocIds.add(farDocId);
+                    }
+                }
+            }
+        }
+
+        // --- Folder ancestry, two levels up. The whole Folders table is a few hundred
+        // rows at most, so one read beats a recursive CTE per distinct folder.
+        const parentOf = new Map(
+            this.db.prepare('SELECT id, parent_id AS parentId FROM Folders').all()
+                .map(r => [r.id, r.parentId])
+        );
+        for (const facet of facets.values()) {
+            const chain = [];
+            let current = parentOf.get(facet.folderId);
+            for (let i = 0; i < 2 && current != null; i++) {
+                chain.push(current);
+                current = parentOf.get(current);
+            }
+            facet.ancestorIds = chain;
+        }
+
+        return facets;
+    }
+
+    // The cards already reviewed in one trainer session, in presentation order. Feeds
+    // the nearest-confusable-sibling lag on the next review: the server recomputes it
+    // from what was actually shown rather than trusting a client-side count, so a card
+    // re-queued after a failed grade is counted at both of its positions.
+    getSessionReviewOrder(sessionId) {
+        return this.db.prepare(`
+            SELECT rl.session_position AS position, f.global_hash AS globalHash
+            FROM ReviewLogs rl
+            JOIN Flashcards f ON f.id = rl.flashcard_id
+            WHERE rl.session_id = ?
+            ORDER BY rl.session_position ASC, rl.id ASC
+        `).all(sessionId);
     }
 
     // The most recent real review's algorithm marker plus the fields that betray a
