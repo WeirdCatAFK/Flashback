@@ -136,6 +136,41 @@ const CLIP_SANITIZE_OPTS = {
 const MAX_CLIP_IMAGES = 40;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
+// Level 6 == fully learned, matching the divisor in CARD_LEARNED_SQL.
+const LEARNED_FULL_LEVEL = 6;
+
+const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
+
+/**
+ * Rolls each graph node's raw learning columns up into a single `learned`
+ * scalar in 0..1, and drops the intermediate sums from the payload.
+ *
+ * `cardCount` rides along for Documents because it is the only thing that
+ * separates "this document has no cards" from "this document's cards are all
+ * brand new" — both of which score 0.
+ *
+ * Folders take the coarse path: Folders.presence is already a recursive average
+ * of document presences (see propagatePresence), so we run the same level curve
+ * over it rather than paying a query per folder to re-derive it from cards.
+ */
+function graphNodeLearning(node) {
+    const { learnedSum, flashcardLearned, cardCount, ...rest } = node;
+    let learned = 0;
+    let cards = 0;
+
+    if (node.type === 'Document') {
+        cards = cardCount ?? 0;
+        learned = cards > 0 ? clamp01((learnedSum ?? 0) / cards) : 0;
+    } else if (node.type === 'Flashcard') {
+        cards = 1;
+        learned = clamp01(flashcardLearned);
+    } else if (node.type === 'Folder') {
+        learned = clamp01((node.presence ?? 0) / LEARNED_FULL_LEVEL);
+    }
+
+    return { ...rest, learned, cardCount: cards };
+}
+
 export default class Documents {
     constructor() {
         this.files = new Files();
@@ -1791,7 +1826,14 @@ export default class Documents {
         return { outgoing, backlinks, pending };
     }
 
-    getGraphData() { return this.query.getGraphData(); }
+    // Graph nodes carry a `learned` scalar (0..1) so the view can show which
+    // parts of the vault are actually committed to memory. The per-card score
+    // is computed in SQL (CARD_LEARNED_SQL); this only rolls it up per node
+    // type and strips the intermediate sums off the payload.
+    getGraphData() {
+        const { nodes, edges } = this.query.getGraphData();
+        return { nodes: nodes.map(graphNodeLearning), edges };
+    }
     exists(rel, derived, isFolder) {
         if (derived) return isFolder ? this.query.getFolderByPath(rel) : this.query.getDocumentByPath(rel);
         return this.files.exists(rel);

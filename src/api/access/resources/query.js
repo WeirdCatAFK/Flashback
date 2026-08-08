@@ -6,6 +6,32 @@
 
 import db from '../primitives/database.js';
 
+/**
+ * Per-card "how well learned is this" score in 0..1, as a SQL expression over a
+ * Flashcards row aliased as `t`.
+ *
+ * FSRS stability is the truest memory-strength number the app has, so it wins
+ * when present; cards scheduled under Leitner/SM-2 have none and fall back to
+ * the app-wide `level` scalar. Level 6 maps to 1.0 — just past the vault-wide
+ * mastery threshold of 5 (orchestration/srs.js).
+ *
+ * The stability arm is a ladder of log-spaced bins rather than an actual log():
+ * SQLite's math functions are a compile-time option we can't rely on.
+ */
+const CARD_LEARNED_SQL = (t) => `
+    CASE
+      WHEN ${t}.fsrs_stability IS NOT NULL THEN
+        CASE WHEN ${t}.fsrs_stability >= 180 THEN 1.00
+             WHEN ${t}.fsrs_stability >=  90 THEN 0.90
+             WHEN ${t}.fsrs_stability >=  30 THEN 0.75
+             WHEN ${t}.fsrs_stability >=  14 THEN 0.60
+             WHEN ${t}.fsrs_stability >=   7 THEN 0.45
+             WHEN ${t}.fsrs_stability >=   3 THEN 0.30
+             WHEN ${t}.fsrs_stability >=   1 THEN 0.15
+             ELSE 0.05 END
+      ELSE MIN(1.0, COALESCE(${t}.level, 0) / 6.0)
+    END`;
+
 class DocumentQuery {
     constructor() {
         this.db = db;
@@ -1559,7 +1585,10 @@ class DocumentQuery {
                    fc.global_hash   as flashcardHash,
                    fcc.frontText    as flashcardFront,
                    fcd.relative_path as flashcardDocPath,
-                   dk.is_system      as deckIsSystem
+                   dk.is_system      as deckIsSystem,
+                   dl.cardCount      as cardCount,
+                   dl.learnedSum     as learnedSum,
+                   ${CARD_LEARNED_SQL('fc')} as flashcardLearned
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
             LEFT JOIN Documents d   ON d.node_id   = n.id
@@ -1569,6 +1598,14 @@ class DocumentQuery {
             LEFT JOIN FlashcardContent fcc ON fcc.id = fc.content_id
             LEFT JOIN Documents fcd        ON fcd.id = fc.document_id
             LEFT JOIN Decks dk ON dk.node_id = n.id
+            LEFT JOIN (
+                SELECT document_id,
+                       COUNT(*)                            as cardCount,
+                       SUM(${CARD_LEARNED_SQL('Flashcards')}) as learnedSum
+                FROM Flashcards
+                WHERE document_id IS NOT NULL
+                GROUP BY document_id
+            ) dl ON dl.document_id = d.id
             WHERE NOT (
                 nt.name = 'Deck' AND NOT EXISTS (
                     SELECT 1 FROM Connections c2

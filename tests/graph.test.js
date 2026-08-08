@@ -126,4 +126,45 @@ describe('Graph hierarchy — inheritance edges', () => {
         const inheritanceEdges = edges.filter(e => e.relation === 'inheritance');
         assert.ok(inheritanceEdges.length > 0, 'getGraphData returns at least one inheritance edge');
     });
+
+    it('graph nodes carry a learned scalar and a card count', async () => {
+        const studiedRel = path.join(ROOT, 'Animals', 'studied.md');
+        const emptyRel   = path.join(ROOT, 'Animals', 'empty.md');
+        await docs.createFile('studied', path.join(ROOT, 'Animals'));
+        await docs.createFile('empty',   path.join(ROOT, 'Animals'));
+
+        // Two cards at level 3 and one still new: 0.5 + 0.5 + 0 over 3 cards.
+        for (const [i, level] of [3, 3, 0].entries()) {
+            const saved = await docs.createFlashcard(studiedRel, {
+                cardType: 'basic',
+                vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
+            });
+            db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
+        }
+
+        const byId = new Map(docs.getGraphData().nodes.map(n => [n.id, n]));
+        const studied = byId.get(docNodeId(studiedRel));
+        const empty   = byId.get(docNodeId(emptyRel));
+
+        assert.equal(studied.cardCount, 3, 'studied document reports its three cards');
+        assert.ok(studied.learned > 0 && studied.learned < 1,
+            `partially studied document scores strictly between 0 and 1 (got ${studied.learned})`);
+        assert.ok(Math.abs(studied.learned - 1 / 3) < 1e-6,
+            `learned is the mean per-card score (got ${studied.learned})`);
+
+        // A card-less document must be distinguishable from an unstudied one.
+        assert.equal(empty.cardCount, 0, 'card-less document reports zero cards');
+        assert.equal(empty.learned, 0, 'card-less document scores 0');
+
+        // Flashcard nodes used to always read 0 because Flashcards.presence is
+        // hardcoded at insert; they now carry their own strength.
+        const cardNodes = [...byId.values()].filter(n => n.type === 'Flashcard' && n.flashcardDocPath === studiedRel);
+        assert.equal(cardNodes.length, 3, 'all three card nodes are in the graph');
+        assert.ok(cardNodes.some(n => n.learned > 0), 'a level-3 card node scores above 0');
+        assert.ok(cardNodes.some(n => n.learned === 0), 'a brand-new card node scores 0');
+
+        // Nothing should leak the intermediate SQL columns.
+        assert.ok(!('learnedSum' in studied) && !('flashcardLearned' in studied),
+            'intermediate rollup columns are stripped from the payload');
+    });
 });

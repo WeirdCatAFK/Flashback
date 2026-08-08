@@ -1,11 +1,85 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
-import { forceCollide } from 'd3-force';
+import { forceCollide, forceX, forceY } from 'd3-force';
 import { getGraph } from '../api/documents';
 import './GraphView.css';
 
 const HOVER_SELECT_DELAY = 700; // ms before hover auto-selects a node
 const NODE_PAINT_MODE = () => 'replace';
+const NODE_R = 7;
+
+// Every knob in the controls panel is a user preference, so per the config
+// convention they live in localStorage and never in config.json.
+const LS = {
+  tags:        'fb-graph-show-tags',
+  decks:       'fb-graph-show-decks',
+  links:       'fb-graph-show-links',
+  origin:      'fb-graph-show-origin',
+  defaultDeck: 'fb-graph-show-default-deck',
+  bloom:       'fb-graph-bloom',
+  cohesion:    'fb-graph-cohesion',
+  collapsed:   'fb-graph-controls-collapsed',
+};
+const DEFAULT_COHESION = 0.6;
+
+const clamp01 = v => Math.max(0, Math.min(1, v));
+
+/**
+ * useState that survives a reload.
+ *
+ * `sanitize` runs over the stored value only — a bad or hand-edited entry
+ * should fall back to the default rather than wedge the view, so anything that
+ * fails to parse or fails the type check is discarded.
+ */
+function usePersisted(key, initial, sanitize) {
+  const [value, setValue] = useState(() => {
+    try {
+      const raw = localStorage.getItem(key);
+      if (raw == null) return initial;
+      const parsed = JSON.parse(raw);
+      if (typeof parsed !== typeof initial) return initial;
+      return sanitize ? sanitize(parsed) : parsed;
+    } catch {
+      return initial;
+    }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* quota / private mode */ }
+  }, [key, value]);
+  return [value, setValue];
+}
+
+// How committed to memory a node is, 0..1. Computed server-side from FSRS
+// stability where available and the Leitner level otherwise; see
+// graphNodeLearning in access/orchestration/documents.js.
+const learnedOf = n => n.learned || 0;
+
+// Halo size climbs 1.5x per level up the containment hierarchy, so a folder's
+// halo envelops its documents' and a document's envelops its cards'. A parent
+// stands for everything under it, and its illumination should cover that ground.
+const HALO_SCALE = { Flashcard: 1, Deck: 1, Tag: 1, Document: 1.5, Folder: 2.25 };
+const haloScale = n => HALO_SCALE[n.type] ?? 1;
+
+// Nodes below this barely register visually and aren't worth an arc per frame.
+const LEARNED_FLOOR = 0.03;
+// Above this the illumination pass costs more than it's worth.
+const HALO_NODE_BUDGET = 3000;
+
+// Relative luminance of a CSS colour string, used to pick a blend mode.
+function luminance(color) {
+  let r, g, b;
+  const hex = color?.trim().replace('#', '');
+  if (hex?.length === 6) {
+    r = parseInt(hex.slice(0, 2), 16); g = parseInt(hex.slice(2, 4), 16); b = parseInt(hex.slice(4, 6), 16);
+  } else if (hex?.length === 3) {
+    r = parseInt(hex[0] + hex[0], 16); g = parseInt(hex[1] + hex[1], 16); b = parseInt(hex[2] + hex[2], 16);
+  } else {
+    const m = color?.match(/rgba?\((\d+)[,\s]+(\d+)[,\s]+(\d+)/);
+    if (!m) return 0;
+    r = +m[1]; g = +m[2]; b = +m[3];
+  }
+  return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
+}
 
 function getCSSVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -234,11 +308,30 @@ function redraw() {
     .filter(function(l) { return nodeIds[l.source] && nodeIds[l.target]; })
     .map(function(l) { return Object.assign({}, l); });
 
+  // Mirrors the in-app tuning (GraphView.jsx): short-range repulsion so
+  // communities can form, collide as the no-overlap floor, and learned edges
+  // that contract. Cohesion is fixed at the in-app default here.
+  var learnedOf = function(n) { return n.learned || 0; };
+  var minLearn = function(l) { return Math.min(learnedOf(l.source), learnedOf(l.target)); };
+  var deg = {};
+  links.forEach(function(l) {
+    deg[l.source] = (deg[l.source] || 0) + 1;
+    deg[l.target] = (deg[l.target] || 0) + 1;
+  });
+  var degOf = function(d) { return deg[typeof d === 'object' ? d.id : d] || 1; };
+
   var sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(links).id(function(d) { return d.id; }).distance(60))
-    .force('charge', d3.forceManyBody().strength(-90))
+    .force('link', d3.forceLink(links).id(function(d) { return d.id; })
+      .distance(function(l) { return 70 - 34 * minLearn(l); })
+      .strength(function(l) {
+        return (1 / Math.max(1, Math.min(degOf(l.source), degOf(l.target)))) * (1 + 0.8 * minLearn(l));
+      }))
+    .force('charge', d3.forceManyBody().strength(-139).distanceMax(278))
     .force('center', d3.forceCenter(W / 2, H / 2))
-    .force('collide', d3.forceCollide(10));
+    .force('collide', d3.forceCollide(function(d) { return 7 + 5 + learnedOf(d) * 10; }))
+    .force('x', d3.forceX(W / 2).strength(function(d) { return 0.015 + 0.05 * learnedOf(d); }))
+    .force('y', d3.forceY(H / 2).strength(function(d) { return 0.015 + 0.05 * learnedOf(d); }))
+    .velocityDecay(0.45);
 
   // Same rule as the in-app graph: links rest in one neutral so they read as
   // structure rather than competing with the node colours, and the resting
@@ -270,6 +363,22 @@ function redraw() {
       tip.style.top  = (e.clientY - 8)  + 'px';
     })
     .on('mouseleave', function() { document.getElementById('tooltip').style.display = 'none'; });
+
+  // Learned halo, beneath the node dot. Screen blending is the SVG counterpart
+  // of the in-app additive pass: adjacent learned nodes merge into one lit
+  // region instead of stacking as separate discs. The export ground is always
+  // dark, so screen is always the right operator here.
+  var HALO_SCALE = { Flashcard: 1, Deck: 1, Tag: 1, Document: 1.5, Folder: 2.25 };
+  var haloScale = function(d) { return HALO_SCALE[d.type] || 1; };
+  nodeSel.append('circle')
+    .attr('r', function(d) { return (7 + 4 + learnedOf(d) * 16) * haloScale(d); })
+    .attr('fill', function(d) { return COLORS.nodes[d.type] || '#888'; })
+    .attr('fill-opacity', function(d) {
+      var L = learnedOf(d);
+      return L <= 0.03 ? 0 : 0.08 + 0.20 * L;
+    })
+    .style('mix-blend-mode', 'screen')
+    .style('pointer-events', 'none');
 
   nodeSel.append('circle').attr('r', 7)
     .attr('fill', function(d) { return COLORS.nodes[d.type] || '#888'; });
@@ -321,13 +430,17 @@ redraw();
 
 export default function GraphView({ isActive = false, onNavigate }) {
   const { graphData, loading, error, refresh } = useGraph(isActive);
-  const [showTags, setShowTags]   = useState(true);
-  const [showDecks, setShowDecks] = useState(true);
-  const [showLinks, setShowLinks] = useState(true);
-  const [showOrigin, setShowOrigin] = useState(true);
-  const [showDefaultDeck, setShowDefaultDeck] = useState(true);
+  const [showTags, setShowTags]   = usePersisted(LS.tags, true);
+  const [showDecks, setShowDecks] = usePersisted(LS.decks, true);
+  const [showLinks, setShowLinks] = usePersisted(LS.links, true);
+  const [showOrigin, setShowOrigin] = usePersisted(LS.origin, true);
+  const [showDefaultDeck, setShowDefaultDeck] = usePersisted(LS.defaultDeck, true);
   const [selected, setSelected] = useState(null);
   const [hovered, setHovered] = useState(null);
+  // Bloom defaults off: the app's look is flat, and the wide soft gradient is
+  // the one part of the illumination that reads as a literal glow.
+  const [bloom, setBloom] = usePersisted(LS.bloom, false);
+  const [cohesion, setCohesion] = usePersisted(LS.cohesion, DEFAULT_COHESION, clamp01);
   const containerRef = useRef(null);
   const fgRef = useRef(null);
 
@@ -368,7 +481,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
   }, []);
 
   const [showExportMenu, setShowExportMenu] = useState(false);
-  const [controlsCollapsed, setControlsCollapsed] = useState(false);
+  const [controlsCollapsed, setControlsCollapsed] = usePersisted(LS.collapsed, false);
 
   const { width, height } = useContainerSize(containerRef);
   const themeVer = useThemeVersion();
@@ -517,21 +630,52 @@ export default function GraphView({ isActive = false, onNavigate }) {
     return neighborType.toLowerCase();
   }
 
+  // Layout: separated but clumped.
+  //
+  // The old tuning enforced spacing with unbounded repulsion, which meant every
+  // node pushed every other node no matter how far away, and no community could
+  // ever form — the graph read as an evenly-scattered field. Now repulsion is
+  // short-range (distanceMax) and only handles local legibility; collide is the
+  // hard no-overlap floor; links and a weak inward pull do the clumping.
+  //
+  // Learnedness feeds the same forces: edges between well-learned nodes are
+  // shorter and stiffer, and learned nodes are pulled harder toward the centre.
+  // Mastered material therefore contracts into dense knots near the core while
+  // frontier material stays loose on the rim.
   useEffect(() => {
     const fg = fgRef.current;
     if (!fg || !visibleData) return;
 
-    // Spread nodes further apart so labels stay legible and don't overlap:
-    // stronger repulsion + longer links + a roomier collision radius.
-    fg.d3Force('charge').strength(-240);
-    fg.d3Force('link').distance(110);
-    fg.d3Force('collide', forceCollide(node => {
-      const presenceNorm = Math.min(1, (node.presence || 0) / 10);
-      return NODE_R + 16 + presenceNorm * 12;
-    }));
-  }, [visibleData]);
+    const minLearn = l => Math.min(learnedOf(l.source), learnedOf(l.target));
 
-  const NODE_R = 7;
+    fg.d3Force('charge')
+      .strength(-(45 + 235 * (1 - cohesion)))
+      .distanceMax(130 + 370 * (1 - cohesion));
+
+    // Overriding link strength discards d3's default 1/min(degree) heuristic,
+    // which is the only thing keeping a hub from flinging its satellites, so
+    // recompute degree here and keep it as the base.
+    const deg = new Map();
+    for (const l of visibleData.links) {
+      const s = nodeId(l.source), t = nodeId(l.target);
+      deg.set(s, (deg.get(s) ?? 0) + 1);
+      deg.set(t, (deg.get(t) ?? 0) + 1);
+    }
+    fg.d3Force('link')
+      .distance(l => 70 - 34 * minLearn(l))
+      .strength(l => {
+        const base = 1 / Math.max(1, Math.min(deg.get(nodeId(l.source)) ?? 1, deg.get(nodeId(l.target)) ?? 1));
+        return base * (1 + 0.8 * minLearn(l));
+      });
+
+    fg.d3Force('collide', forceCollide(node => NODE_R + 5 + learnedOf(node) * 10));
+
+    // Also keeps disconnected components in frame now that repulsion is capped.
+    fg.d3Force('x', forceX(0).strength(n => 0.015 + 0.05 * learnedOf(n)));
+    fg.d3Force('y', forceY(0).strength(n => 0.015 + 0.05 * learnedOf(n)));
+
+    fg.d3ReheatSimulation();
+  }, [visibleData, cohesion]);
 
   // Text is by far the most expensive thing painted per frame, so on large
   // graphs labels only appear once the user zooms in far enough to read them.
@@ -569,7 +713,6 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
     const effectiveAlpha = alpha * entrance;
     const color = colors.nodes[node.type] ?? colors.nodes.Document;
-    const presenceNorm = Math.min(1, (node.presence || 0) / 10);
 
     // Soft radial glow on selected node (scale-aware)
     if (isSelected) {
@@ -603,15 +746,9 @@ export default function GraphView({ isActive = false, onNavigate }) {
       ctx.fill();
     }
 
-    // Aureola — translucent halo that grows with presence
-    if (presenceNorm > 0.02) {
-      const aureolaR = (NODE_R + presenceNorm * 12) * scale;
-      ctx.beginPath();
-      ctx.arc(node.x, node.y, aureolaR, 0, 2 * Math.PI);
-      ctx.fillStyle = color;
-      ctx.globalAlpha = effectiveAlpha * 0.3 * presenceNorm;
-      ctx.fill();
-    }
+    // The learned aureola used to be drawn here, per node. It now lives in
+    // paintHalos (onRenderFramePre) so overlapping halos can blend into one
+    // continuous field instead of stacking as separate discs.
 
     // Node circle
     const r = (isSelected ? NODE_R + 1.5 : NODE_R) * scale;
@@ -636,6 +773,63 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
     ctx.globalAlpha = 1;
   }, [colors, focusedIds, selected, hovered, labelMinScale]);
+
+  // 'lighter' sums toward white, which is what makes overlapping halos read as
+  // one brighter field — but only on a dark ground. On a light theme it washes
+  // out, so overlaps darken and saturate instead. Same information either way.
+  const blendMode = useMemo(
+    () => (luminance(colors.bg) < 0.5 ? 'lighter' : 'multiply'),
+    [colors],
+  );
+
+  // Learned illumination, painted in one pass beneath the links and nodes.
+  //
+  // Drawing every halo into a single blended pass is the whole point: where
+  // learned nodes sit close together their halos mix into a continuous lit
+  // region, so a mastered neighbourhood reads as illuminated territory rather
+  // than a pile of overlapping circles.
+  const paintHalos = useCallback((ctx) => {
+    const nodes = visibleData?.nodes;
+    if (!nodes || nodes.length > HALO_NODE_BUDGET) return;
+
+    ctx.save();
+    ctx.globalCompositeOperation = blendMode;
+
+    // Pass 1 — flat halo colour. Hard-edged discs, not gradients: the effect is
+    // additive colour, in keeping with the app's flat look.
+    for (const node of nodes) {
+      const L = learnedOf(node);
+      if (L <= LEARNED_FLOOR || !isFinite(node.x) || !isFinite(node.y)) continue;
+      const dim = alphaRef.current[node.id] ?? 1;
+      ctx.beginPath();
+      ctx.arc(node.x, node.y, (NODE_R + 4 + L * 16) * haloScale(node), 0, 2 * Math.PI);
+      ctx.fillStyle = withAlpha(colors.nodes[node.type] ?? colors.nodes.Document,
+        (0.08 + 0.20 * L) * dim);
+      ctx.fill();
+    }
+
+    // Pass 2 — bloom. Opt-in, because a wide soft gradient is the one part of
+    // this that reads as a literal glow. Only strongly-learned nodes bloom, so
+    // an isolated mastered card stays a soft ring and a mastered cluster lights.
+    if (bloom) {
+      for (const node of nodes) {
+        const L = learnedOf(node);
+        if (L <= 0.6 || !isFinite(node.x) || !isFinite(node.y)) continue;
+        const dim = alphaRef.current[node.id] ?? 1;
+        const color = colors.nodes[node.type] ?? colors.nodes.Document;
+        const r = (NODE_R + L * 44) * haloScale(node);
+        const grad = ctx.createRadialGradient(node.x, node.y, NODE_R, node.x, node.y, r);
+        grad.addColorStop(0, withAlpha(color, 0.07 * ((L - 0.6) / 0.4) * dim));
+        grad.addColorStop(1, withAlpha(color, 0));
+        ctx.beginPath();
+        ctx.arc(node.x, node.y, r, 0, 2 * Math.PI);
+        ctx.fillStyle = grad;
+        ctx.fill();
+      }
+    }
+
+    ctx.restore();
+  }, [visibleData, colors, blendMode, bloom]);
 
   // Precompute the three alpha variants per relation once per theme change so
   // the per-frame link color accessor returns cached strings instead of
@@ -724,8 +918,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
     if (!visibleData) return;
     const out = {
       exportedAt: new Date().toISOString(),
-      nodes: visibleData.nodes.map(({ id, type, name, label, presence, documentPath, flashcardHash }) =>
-        ({ id, type, name, label, presence, documentPath, flashcardHash })),
+      nodes: visibleData.nodes.map(({ id, type, name, label, presence, learned, cardCount, documentPath, flashcardHash }) =>
+        ({ id, type, name, label, presence, learned, cardCount, documentPath, flashcardHash })),
       links: visibleData.links.map(l => ({ source: nodeId(l.source), target: nodeId(l.target), relation: l.relation })),
     };
     downloadBlob(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `flashback-graph-${datestamp()}.json`);
@@ -735,7 +929,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
   function handleExportHtml() {
     if (!visibleData) return;
     const exportNodes = visibleData.nodes.map(n => ({
-      id: n.id, type: n.type, name: n.name, presence: n.presence || 0,
+      id: n.id, type: n.type, name: n.name, presence: n.presence || 0, learned: learnedOf(n),
     }));
     const exportLinks = visibleData.links.map(l => ({
       source: nodeId(l.source), target: nodeId(l.target), relation: l.relation,
@@ -766,12 +960,14 @@ export default function GraphView({ isActive = false, onNavigate }) {
             nodeRelSize={7}
             nodeCanvasObjectMode={NODE_PAINT_MODE}
             nodeCanvasObject={paintNode}
+            onRenderFramePre={paintHalos}
             autoPauseRedraw={!animating}
             cooldownTime={visibleData.nodes.length > 800 ? 8000 : 15000}
             linkColor={getLinkColor}
             linkLineDash={getLinkDash}
             linkWidth={linkWidth}
             d3AlphaDecay={visibleData.nodes.length > 800 ? 0.05 : 0.0228}
+            d3VelocityDecay={0.45}
 
             onNodeClick={handleNodeClick}
             onNodeHover={handleNodeHover}
@@ -857,6 +1053,30 @@ export default function GraphView({ isActive = false, onNavigate }) {
                   <span className="graph-switch" aria-hidden="true" />
                 </button>
               ))}
+            </div>
+
+            <div className="graph-controls-section">
+              <div className="graph-controls-heading">Illumination</div>
+              <button type="button" role="switch" aria-checked={bloom}
+                className={`graph-filter${bloom ? ' graph-filter--on' : ''}`}
+                onClick={() => setBloom(b => !b)}
+                title={`${bloom ? 'Hide' : 'Show'} bloom around well-learned nodes`}
+              >
+                <span className="graph-controls-dot"
+                  style={{ background: colors.nodes.Flashcard, opacity: bloom ? 1 : 0.3 }} />
+                <span className="graph-filter-label">Bloom</span>
+                <span className="graph-switch" aria-hidden="true" />
+              </button>
+
+              <label className="graph-slider-row">
+                <span className="graph-slider-label">Cohesion</span>
+                <input type="range" className="graph-slider"
+                  min="0" max="1" step="0.05"
+                  value={cohesion}
+                  onChange={e => setCohesion(parseFloat(e.target.value))}
+                  title="How tightly related nodes clump together"
+                />
+              </label>
             </div>
 
             <div className="graph-controls-actions">
