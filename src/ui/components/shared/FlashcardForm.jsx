@@ -390,7 +390,9 @@ export default function FlashcardForm({
         )}
         {missingCategory && (
           <option value={missingCategory}>
-            {missingCategory}{categories.length > 0 ? ` ${t('· removed')}` : ''}
+            {categories.length > 0
+              ? t('{name} · removed', { name: missingCategory })
+              : missingCategory}
           </option>
         )}
       </select>

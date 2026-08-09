@@ -50,7 +50,10 @@ function slotsByType(t) {
             { key: 'back', label: t('Definition'), hint: t('Asked in either direction') },
         ],
         cloze: [
-            { key: 'front', label: t('Cloze text'), hint: t('{{c1::…}} becomes {{…}}') },
+            // The hint is Anki's cloze syntax, not prose — "c1" is a literal token the
+            // importer matches on. Left untranslated on purpose: a localized "c1" would
+            // describe markup that doesn't work.
+            { key: 'front', label: t('Cloze text'), hint: '{{c1::…}} becomes {{…}}' },
         ],
         type_answer: [
             { key: 'front', label: t('Question'), hint: t('Shown to the user') },
