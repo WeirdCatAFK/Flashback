@@ -13,6 +13,7 @@ import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
+import { useT } from '../../translations';
 import './DocumentEditor.css';
 
 function pickRenderer(path) {
@@ -30,6 +31,7 @@ function pickRenderer(path) {
 const DEFAULT_HL_COLOR = 'amber';
 
 export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate, relocation }) {
+  const { t } = useT();
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -388,7 +390,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   if (!activeTab || openTabs.length === 0) {
     return (
       <div className="doc-editor doc-editor--empty">
-        <p>Select a file to open it.</p>
+        <p>{t('Select a file to open it.')}</p>
       </div>
     );
   }

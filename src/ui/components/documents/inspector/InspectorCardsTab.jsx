@@ -3,17 +3,11 @@ import { readFile } from '../../../api/documents';
 import { deleteCard as deleteCardRequest } from '../../../api/decks';
 import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
-import { typeAnswerParts } from '../../shared/flashcardFields';
-
-const TYPE_LABELS = {
-  basic:       'Basic',
-  reversible:  'Reversible',
-  cloze:       'Cloze',
-  type_answer: 'Type',
-  custom:      'Custom',
-};
+import { typeAnswerParts, cardTypeShortLabel } from '../../shared/flashcardFields';
+import { useT } from '../../../translations';
 
 function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
+  const { t } = useT();
   const cardType     = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
   const front        = card.vanillaData?.frontText ?? card.name ?? '—';
   // For a type_answer card the preview line is the compared answer, not the notes that
@@ -29,25 +23,25 @@ function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
     <div className="card-item">
       <div className="card-item-header">
         <span className="card-item-num">#{index + 1}</span>
-        <span className="card-item-type">{TYPE_LABELS[cardType] ?? cardType}</span>
-        {card.level > 0 && <span className="card-item-level">L{card.level}</span>}
+        <span className="card-item-type">{cardTypeShortLabel(cardType, t)}</span>
+        {card.level > 0 && <span className="card-item-level">{t('L{n}', { n: card.level })}</span>}
         <div className="card-item-actions">
           {highlightLoc && (
             <button type="button"
               className="card-item-source"
-              title="Jump to source highlight"
+              title={t('Jump to source highlight')}
               onClick={() => onJumpToHighlight?.(highlightLoc.id)}
             >
-              ↗ source
+              {t('↗ source')}
             </button>
           )}
-          <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title="Edit card">✎</button>
-          <button type="button" className="card-item-delete" onClick={() => onDelete(card)} title="Delete card">✕</button>
+          <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title={t('Edit card')}>✎</button>
+          <button type="button" className="card-item-delete" onClick={() => onDelete(card)} title={t('Delete card')}>✕</button>
         </div>
       </div>
 
       {cardType === 'custom'
-        ? <p className="card-item-front card-item-custom-label">Custom HTML card</p>
+        ? <p className="card-item-front card-item-custom-label">{t('Custom HTML card')}</p>
         : <>
             <p className="card-item-front">{front}</p>
             {back && <p className="card-item-back">{back}</p>}
@@ -56,7 +50,7 @@ function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
 
       {card.tags?.length > 0 && (
         <div className="card-item-tags">
-          {card.tags.map((t) => <span key={t} className="card-tag">{t}</span>)}
+          {card.tags.map((tag) => <span key={tag} className="card-tag">{tag}</span>)}
         </div>
       )}
     </div>
@@ -64,6 +58,7 @@ function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
 }
 
 export default function InspectorCardsTab({ path, flashcards: flashcardsProp, onNewCard, onJumpToHighlight }) {
+  const { t, tp } = useT();
   // Post-edit snapshot: after the user saves an inline edit we re-fetch fresh
   // data here. Null means "no local fetch yet — use parent's flashcardsProp."
   const [postEditCards, setPostEditCards] = useState(null);
@@ -90,9 +85,9 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
   const deleteCard = useCallback(async (card) => {
     if (!path) return;
     const ok = await confirm({
-      title: 'Delete this card?',
-      message: 'This permanently removes the flashcard from this document, including its review history. This cannot be undone.',
-      confirmLabel: 'Delete card',
+      title: t('Delete this card?'),
+      message: t('This permanently removes the flashcard from this document, including its review history. This cannot be undone.'),
+      confirmLabel: t('Delete card'),
       tone: 'danger',
     });
     if (!ok) return;
@@ -101,7 +96,7 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
     } finally {
       loadCards();
     }
-  }, [path, confirm, loadCards]);
+  }, [path, confirm, loadCards, t]);
 
   // Reset local post-edit snapshot when the document changes or parent sends fresh data.
   useEffect(() => {
@@ -141,13 +136,13 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
     <div className="cards-tab">
       <div className="cards-tab-header">
         <span className="cards-tab-count">
-          {loading ? '…' : `${cards.length} card${cards.length !== 1 ? 's' : ''}`}
+          {loading ? '…' : tp('{n} card', '{n} cards', cards.length)}
         </span>
-        <button type="button" className="cards-new-btn" onClick={onNewCard}>+ New</button>
+        <button type="button" className="cards-new-btn" onClick={onNewCard}>{t('+ New')}</button>
       </div>
 
       {!loading && cards.length === 0 && (
-        <p className="inspector-placeholder">No flashcards yet.</p>
+        <p className="inspector-placeholder">{t('No flashcards yet.')}</p>
       )}
 
       {ordered.map(({ card, i }) => (

@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react';
+import { cardTypeShortLabel } from '../../shared/flashcardFields';
+import { useT } from '../../../translations';
 
 const EMPTY = [];
 
@@ -9,15 +11,8 @@ const COLOR_VAR = {
   pink:  '--color-hl-4',
 };
 
-const TYPE_LABELS = {
-  basic:       'Basic',
-  reversible:  'Reversible',
-  cloze:       'Cloze',
-  type_answer: 'Type',
-  custom:      'Custom',
-};
-
 export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard, onDelete }) {
+  const { t, tp } = useT();
   const [expandedId, setExpandedId] = useState(null);
 
   // Newest first, matching the Cards tab and the /api/highlights listing: the
@@ -38,9 +33,9 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
     return (
       <div className="cards-tab">
         <div className="cards-tab-header">
-          <span className="cards-tab-count">0 highlights</span>
+          <span className="cards-tab-count">{tp('{n} highlight', '{n} highlights', 0)}</span>
         </div>
-        <p className="inspector-placeholder">No highlights yet.</p>
+        <p className="inspector-placeholder">{t('No highlights yet.')}</p>
       </div>
     );
   }
@@ -49,7 +44,7 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
     <div className="cards-tab">
       <div className="cards-tab-header">
         <span className="cards-tab-count">
-          {highlights.length} highlight{highlights.length === 1 ? '' : 's'}
+          {tp('{n} highlight', '{n} highlights', highlights.length)}
         </span>
       </div>
 
@@ -72,7 +67,9 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                 style={{ background: `var(${cssVar})` }}
               />
               <p className="hl-item-text">
-                {h.text || (h.type === 'pdf_bbox' && h.page ? `Marked region on page ${h.page}` : '(empty)')}
+                {h.text || (h.type === 'pdf_bbox' && h.page
+                  ? t('Marked region on page {page}', { page: h.page })
+                  : t('(empty)'))}
               </p>
               <div className="hl-item-meta">
                 {cards.length > 0 && (
@@ -80,15 +77,15 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                 )}
                 <button type="button"
                   className="hl-jump-btn"
-                  title="Scroll to highlight in document"
+                  title={t('Scroll to highlight in document')}
                   onClick={(e) => { e.stopPropagation(); onJump?.(h.id); }}
                 >
                   ↗
                 </button>
                 <button type="button"
                   className="hl-delete-btn"
-                  title={cards.length > 0 ? 'Remove highlight' : 'Remove highlight'}
-                  aria-label="Remove highlight"
+                  title={t('Remove highlight')}
+                  aria-label={t('Remove highlight')}
                   onClick={(e) => { e.stopPropagation(); onDelete?.(h.id); }}
                 >
                   ×
@@ -99,16 +96,16 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
             {isOpen && (
               <div className="hl-cards-list">
                 {cards.length === 0 && (
-                  <p className="hl-cards-empty">No cards linked to this highlight.</p>
+                  <p className="hl-cards-empty">{t('No cards linked to this highlight.')}</p>
                 )}
                 {cards.map((card) => {
                   const ct    = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
                   const front = card.vanillaData?.frontText ?? card.name ?? '—';
                   return (
                     <div key={card.globalHash} className="hl-card-item">
-                      <span className="card-item-type">{TYPE_LABELS[ct] ?? ct}</span>
+                      <span className="card-item-type">{cardTypeShortLabel(ct, t)}</span>
                       <span className="hl-card-front">
-                        {ct === 'custom' ? 'Custom HTML card' : front}
+                        {ct === 'custom' ? t('Custom HTML card') : front}
                       </span>
                     </div>
                   );
@@ -117,7 +114,7 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                   className="hl-add-card-btn"
                   onClick={() => onAddCard?.(h.id)}
                 >
-                  + Add card
+                  {t('+ Add card')}
                 </button>
               </div>
             )}

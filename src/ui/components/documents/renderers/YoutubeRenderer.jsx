@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, setYoutubeSource, fetchYoutubeTranscript } from '../../../api/documents';
 import { getBaseUrl } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
+import { useT } from '../../../translations';
 import './YoutubeRenderer.css';
 import './Renderer.css';
 
@@ -26,6 +27,7 @@ export default function YoutubeRenderer({
   onHighlightsChange,
   onSidecarRefresh,
 }) {
+  const { t, tp } = useT();
   const [meta,       setMeta]       = useState(null);   // { videoId, title, author, thumbnailUrl }
   const [highlights, setHighlights] = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -97,7 +99,7 @@ export default function YoutubeRenderer({
       setLoading(false);
     }).catch(err => {
       if (!mounted) return;
-      setError(err.message ?? 'Failed to load video reference');
+      setError(err.message ?? t('Failed to load video reference'));
       setLoading(false);
     });
 
@@ -144,12 +146,12 @@ export default function YoutubeRenderer({
       }
     } catch (err) {
       if (pathRef.current === target) {
-        setTranscriptError(err?.message || 'This video has no captions to transcribe.');
+        setTranscriptError(err?.message || t('This video has no captions to transcribe.'));
       }
     } finally {
       if (pathRef.current === target) setFetchingTranscript(false);
     }
-  }, []);
+  }, [t]);
 
   // Bridge to the embed proxy: parent → { cmd } out, iframe → { event } in.
   const postCmd = useCallback((msg) => {
@@ -178,8 +180,8 @@ export default function YoutubeRenderer({
         setPlaybackError({
           code,
           message: embedBlocked
-            ? "This video can't be played in an embed (the owner disabled embedding, or it's age-restricted). Open it on YouTube instead."
-            : 'This video is unavailable (it may be private or removed).',
+            ? t('This video can’t be played in an embed (the owner disabled embedding, or it’s age-restricted). Open it on YouTube instead.')
+            : t('This video is unavailable (it may be private or removed).'),
         });
       } else if (d.event === 'markAt') {
         addMomentAt(d.seconds || 0);
@@ -188,7 +190,7 @@ export default function YoutubeRenderer({
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [embedSrc, addMomentAt]);
+  }, [embedSrc, addMomentAt, t]);
 
   // Save: sidecar only (the .youtube body is immutable)
   const handleSaveRef = useRef(null);
@@ -266,19 +268,19 @@ export default function YoutubeRenderer({
     return () => { if (highlightRef) highlightRef.current = null; };
   });
 
-  if (loading) return <div className="renderer-loading">Loading video…</div>;
-  if (error)   return <div className="renderer-error">Could not load video: {error}</div>;
+  if (loading) return <div className="renderer-loading">{t('Loading video…')}</div>;
+  if (error)   return <div className="renderer-error">{t('Could not load video: {error}', { error })}</div>;
   if (!meta?.videoId) {
     return (
       <SourceUrlForm
-        title="Add a YouTube video"
-        hint="Paste a YouTube URL to embed the video here. You can mark timestamps and make cards from them."
+        title={t('Add a YouTube video')}
+        hint={t('Paste a YouTube URL to embed the video here. You can mark timestamps and make cards from them.')}
         placeholder="https://www.youtube.com/watch?v=…"
-        submitLabel="Load video"
-        busyLabel="Loading…"
+        submitLabel={t('Load video')}
+        busyLabel={t('Loading…')}
         onSubmit={async (url) => {
           await setYoutubeSource(path, url);
-          setReloadTick((t) => t + 1);
+          setReloadTick((n) => n + 1);
         }}
       />
     );
@@ -288,11 +290,11 @@ export default function YoutubeRenderer({
     <div className="yt-renderer">
       <div className="yt-header">
         <div className="yt-title-row">
-          <span className="yt-title">{meta.title || 'YouTube video'}</span>
+          <span className="yt-title">{meta.title || t('YouTube video')}</span>
           {meta.author && <span className="yt-author">{meta.author}</span>}
         </div>
         {meta.url && (
-          <a className="yt-source-link" href={meta.url} target="_blank" rel="noreferrer">Open on YouTube ↗</a>
+          <a className="yt-source-link" href={meta.url} target="_blank" rel="noreferrer">{t('Open on YouTube ↗')}</a>
         )}
       </div>
 
@@ -300,15 +302,15 @@ export default function YoutubeRenderer({
         {apiFailed || !embedSrc ? (
           <div className="yt-offline">
             {meta.thumbnailUrl && <img className="yt-thumb" src={meta.thumbnailUrl} alt="" />}
-            <p>Couldn&apos;t load the player.{' '}
-              {meta.url && <a href={meta.url} target="_blank" rel="noreferrer">Open on YouTube ↗</a>}
+            <p>{t('Couldn’t load the player.')}{' '}
+              {meta.url && <a href={meta.url} target="_blank" rel="noreferrer">{t('Open on YouTube ↗')}</a>}
             </p>
           </div>
         ) : (
           <div className="yt-player">
             <iframe
               ref={iframeRef}
-              title={meta.title || 'YouTube video'}
+              title={meta.title || t('YouTube video')}
               src={embedSrc}
               referrerPolicy="strict-origin-when-cross-origin"
               allow="autoplay; encrypted-media; picture-in-picture; fullscreen"
@@ -321,7 +323,7 @@ export default function YoutubeRenderer({
                 <p>{playbackError.message}</p>
                 {meta.url && (
                   <a className="yt-source-link" href={meta.url} target="_blank" rel="noreferrer">
-                    Open on YouTube ↗
+                    {t('Open on YouTube ↗')}
                   </a>
                 )}
               </div>
@@ -336,20 +338,28 @@ export default function YoutubeRenderer({
           className="yt-mark-btn"
           onClick={markMoment}
           disabled={!playerReady}
-          title={playerReady ? 'Capture the current position as a timestamp highlight' : 'Player still loading…'}
+          title={playerReady
+            ? t('Capture the current position as a timestamp highlight')
+            : t('Player still loading…')}
         >
-          ✚ Mark this moment
+          {t('✚ Mark this moment')}
         </button>
-        <span className="yt-marker-count">{highlights.length} marker{highlights.length === 1 ? '' : 's'}</span>
+        <span className="yt-marker-count">{tp('{n} marker', '{n} markers', highlights.length)}</span>
         {transcript ? (
           <button
             type="button"
             className={`yt-transcript-btn${showTranscript ? ' yt-transcript-btn--active' : ''}`}
             onClick={() => setShowTranscript(v => !v)}
             aria-pressed={showTranscript}
-            title={transcript.lang ? `Language: ${transcript.lang}${transcript.kind === 'asr' ? ' (auto-generated)' : ''}` : undefined}
+            title={transcript.lang
+              ? (transcript.kind === 'asr'
+                ? t('Language: {lang} (auto-generated)', { lang: transcript.lang })
+                : t('Language: {lang}', { lang: transcript.lang }))
+              : undefined}
           >
-            📄 {showTranscript ? 'Hide' : 'Show'} transcript{transcript.kind === 'asr' ? ' (auto)' : ''}
+            {transcript.kind === 'asr'
+              ? (showTranscript ? t('📄 Hide transcript (auto)') : t('📄 Show transcript (auto)'))
+              : (showTranscript ? t('📄 Hide transcript') : t('📄 Show transcript'))}
           </button>
         ) : (
           <button
@@ -357,9 +367,9 @@ export default function YoutubeRenderer({
             className="yt-transcript-btn"
             onClick={handleFetchTranscript}
             disabled={fetchingTranscript}
-            title="Fetch the video's captions so its transcript is readable and can be turned into cards"
+            title={t('Fetch the video’s captions so its transcript is readable and can be turned into cards')}
           >
-            {fetchingTranscript ? 'Fetching transcript…' : ' Fetch transcript'}
+            {fetchingTranscript ? t('Fetching transcript…') : t('Fetch transcript')}
           </button>
         )}
         {transcriptError && <span className="yt-transcript-error">{transcriptError}</span>}
@@ -374,7 +384,7 @@ export default function YoutubeRenderer({
                   type="button"
                   className="yt-transcript-time"
                   onClick={() => seekTo(c.start ?? 0)}
-                  title="Jump the player here"
+                  title={t('Jump the player here')}
                 >
                   {formatTime(c.start ?? 0)}
                 </button>
@@ -383,8 +393,8 @@ export default function YoutubeRenderer({
                   type="button"
                   className="yt-transcript-mark"
                   onClick={() => addMomentAt(c.start ?? 0, c.text)}
-                  aria-label="Mark this moment"
-                  title="Mark this moment as a highlight (its text becomes the card source)"
+                  aria-label={t('Mark this moment')}
+                  title={t('Mark this moment as a highlight (its text becomes the card source)')}
                 >
                   ✚
                 </button>
@@ -406,8 +416,8 @@ export default function YoutubeRenderer({
                 type="button"
                 className="yt-marker-remove"
                 onClick={() => removeMoment(h.id)}
-                aria-label="Remove marker"
-                title="Remove marker"
+                aria-label={t('Remove marker')}
+                title={t('Remove marker')}
               >×</button>
             </li>
           ))}

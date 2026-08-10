@@ -3,44 +3,50 @@ import { getStats } from '../api/srs';
 import { searchCards, deleteCard } from '../api/decks';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import CardDetailModal from '../components/shared/CardDetailModal';
-import { typeAnswerParts } from '../components/shared/flashcardFields';
+import { typeAnswerParts, cardTypes, cardTypeLabel } from '../components/shared/flashcardFields';
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
-import { relativeFromIso } from '../utils/relativeTime';
 import { useDataInvalidation } from '../utils/dataBus';
+import { useT } from '../translations';
 import './Flashcards.css';
 
-const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
-const SORT_OPTIONS = [
-    { value: 'level:desc', label: 'Level ↓' },
-    { value: 'level:asc',  label: 'Level ↑' },
-    { value: 'name:asc',   label: 'Name A–Z' },
-    { value: 'name:desc',  label: 'Name Z–A' },
-    { value: 'last_recall:desc', label: 'Recently reviewed' },
-    { value: 'last_recall:asc',  label: 'Least recently reviewed' },
+const PAGE_SIZE = 50;
+
+// Each of these is a function of `t` rather than a module constant, matching
+// cardTypes() in flashcardFields.js: a constant is evaluated once at import and would
+// keep the old language after a switch. `value`/`key` are stored values, never translated.
+const sortOptions = (t) => [
+    { value: 'level:desc', label: t('Level ↓') },
+    { value: 'level:asc',  label: t('Level ↑') },
+    { value: 'name:asc',   label: t('Name A–Z') },
+    { value: 'name:desc',  label: t('Name Z–A') },
+    { value: 'last_recall:desc', label: t('Recently reviewed') },
+    { value: 'last_recall:asc',  label: t('Least recently reviewed') },
     // FSRS-derived, so cards never rated under FSRS have no difficulty at all —
     // the query sinks them below the rated ones either way round.
-    { value: 'difficulty:desc', label: 'Hardest first' },
-    { value: 'difficulty:asc',  label: 'Easiest first' },
+    { value: 'difficulty:desc', label: t('Hardest first') },
+    { value: 'difficulty:asc',  label: t('Easiest first') },
 ];
-const PAGE_SIZE = 50;
 
 // Card-health filters. The two guards are grouped under one pill because from the
 // browser's point of view they say the same thing — "the failures here are about your
 // routine, not this card" — and splitting them would imply a distinction the user
 // cannot act on differently.
-const FLAG_FILTERS = [
-    { value: 'any', label: 'flagged', title: 'Cards the review classifier has flagged' },
-    { value: 'mouthful', label: 'overloaded', title: 'Cards that keep resetting to a short interval and look like too much at once' },
-    { value: 'probe', label: 'productive', title: 'Hard cards that are converging — worth keeping as they are' },
+const flagFilters = (t) => [
+    { value: 'any', label: t('flagged'), title: t('Cards the review classifier has flagged') },
+    { value: 'mouthful', label: t('overloaded'), title: t('Cards that keep resetting to a short interval and look like too much at once') },
+    { value: 'probe', label: t('productive'), title: t('Hard cards that are converging — worth keeping as they are') },
 ];
 
 // Short labels for the `flags` column (a comma-joined list of kinds).
-const FLAG_LABELS = {
-    mouthful: 'overloaded',
-    probe: 'productive',
-    overdue_drift: 'reviewed late',
-    session_fatigue: 'late in session',
+const flagLabel = (kind, t) => {
+    switch (kind) {
+        case 'mouthful':        return t('overloaded');
+        case 'probe':           return t('productive');
+        case 'overdue_drift':   return t('reviewed late');
+        case 'session_fatigue': return t('late in session');
+        default:                return kind;
+    }
 };
 
 // The second line of a row: what the card asks you to produce. For type_answer that is
@@ -59,20 +65,23 @@ function useStats() {
 }
 
 function LevelDot({ level }) {
+    const { t } = useT();
     const hue = Math.min(level * 20, 120);
     return (
-        <span className="fc-level-dot" style={{ background: `hsl(${hue},60%,45%)` }} title={`Level ${level}`}>
+        <span className="fc-level-dot" style={{ background: `hsl(${hue},60%,45%)` }} title={t('Level {n}', { n: level })}>
             {level}
         </span>
     );
 }
 
 function RelativeTime({ iso }) {
+    const { formatRelative } = useT();
     if (!iso) return null;
-    return <span className="fc-time" title={iso}>{relativeFromIso(iso)}</span>;
+    return <span className="fc-time" title={iso}>{formatRelative(iso)}</span>;
 }
 
 export default function FlashcardsView() {
+    const { t, tp } = useT();
     const { stats, refreshStats } = useStats();
 
     const [query, setQuery]         = useState('');
@@ -166,11 +175,11 @@ export default function FlashcardsView() {
     // than sending the user off to open it and delete from the Inspector.
     const handleDeleteCard = async (card) => {
         const ok = await confirm({
-            title: 'Delete this card?',
+            title: t('Delete this card?'),
             message: card.document_name
-                ? `This permanently removes the card from ${card.document_name}, including its review history. The document itself is untouched. This cannot be undone.`
-                : 'This permanently removes the standalone card, including its review history. This cannot be undone.',
-            confirmLabel: 'Delete card',
+                ? t('This permanently removes the card from {document}, including its review history. The document itself is untouched. This cannot be undone.', { document: card.document_name })
+                : t('This permanently removes the standalone card, including its review history. This cannot be undone.'),
+            confirmLabel: t('Delete card'),
             tone: 'danger',
         });
         if (!ok) return;
@@ -199,15 +208,15 @@ export default function FlashcardsView() {
             {/* ── Sidebar ────────────────────────────────────────────────── */}
             <div className="fc-sidebar">
                 <div className="fc-sidebar-header">
-                    <span className="fc-sidebar-title">Levels</span>
+                    <span className="fc-sidebar-title">{t('Levels')}</span>
                     {levelFilter !== null && (
                         <button className="fc-clear-level" onClick={() => { setLevel(null); setPage(0); }}>
-                            clear
+                            {t('clear')}
                         </button>
                     )}
                 </div>
                 <div className="fc-stats">
-                    <div className="fc-stats-total">{totalCards} cards total</div>
+                    <div className="fc-stats-total">{tp('{n} card total', '{n} cards total', totalCards)}</div>
                     {boxes.map(b => {
                         const pct = totalCards > 0 ? (b.count / totalCards) * 100 : 0;
                         const active = levelFilter === b.level;
@@ -216,9 +225,9 @@ export default function FlashcardsView() {
                                 key={b.level}
                                 className={`fc-box-row fc-box-btn${active ? ' fc-box-btn--active' : ''}`}
                                 onClick={() => handleLevelClick(b.level)}
-                                title={`Filter to level ${b.level}`}
+                                title={t('Filter to level {n}', { n: b.level })}
                             >
-                                <span className="fc-box-label">L{b.level}</span>
+                                <span className="fc-box-label">{t('L{n}', { n: b.level })}</span>
                                 <div className="fc-box-track">
                                     <div className="fc-box-fill" style={{ width: `${pct}%` }} />
                                 </div>
@@ -228,7 +237,7 @@ export default function FlashcardsView() {
                     })}
                     {stats && (
                         <div className="fc-mastery">
-                            Mastery {stats.masteryPercentage?.toFixed(0) ?? 0}%
+                            {t('Mastery {percent}%', { percent: stats.masteryPercentage?.toFixed(0) ?? 0 })}
                         </div>
                     )}
                 </div>
@@ -240,8 +249,8 @@ export default function FlashcardsView() {
                 <div className="fc-toolbar">
                     <input
                         className="fc-search-input"
-                        placeholder="Search cards…"
-                        aria-label="Search cards"
+                        placeholder={t('Search cards…')}
+                        aria-label={t('Search cards')}
                         value={query}
                         onChange={handleQueryChange}
                     />
@@ -249,36 +258,36 @@ export default function FlashcardsView() {
                         className="fc-sort-select"
                         value={sort}
                         onChange={e => handleSort(e.target.value)}
-                        aria-label="Sort cards"
+                        aria-label={t('Sort cards')}
                     >
-                        {SORT_OPTIONS.map(o => (
+                        {sortOptions(t).map(o => (
                             <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                     </select>
                     <button
                         className="fc-new-card-btn"
                         onClick={() => setShowNewCard(true)}
-                        title="Create a standalone card"
+                        title={t('Create a standalone card')}
                     >
-                        + New card
+                        {t('+ New card')}
                     </button>
                 </div>
 
                 {/* Card-type filter pills */}
                 <div className="fc-filter-bar">
-                    {CARD_TYPES.map(ct => (
+                    {cardTypes(t).map(({ key, label }) => (
                         <button
-                            key={ct}
-                            className={`fc-type-pill${cardType === ct ? ' fc-type-pill--active' : ''}`}
-                            onClick={() => handleCardType(ct)}
+                            key={key}
+                            className={`fc-type-pill${cardType === key ? ' fc-type-pill--active' : ''}`}
+                            onClick={() => handleCardType(key)}
                         >
-                            {ct.replace('_', ' ')}
+                            {label}
                         </button>
                     ))}
                     {/* Card health. Separated from the type pills because it filters on
                         behaviour rather than on what a card is. */}
                     <span className="fc-filter-divider" aria-hidden="true" />
-                    {FLAG_FILTERS.map(f => (
+                    {flagFilters(t).map(f => (
                         <button
                             key={f.value}
                             className={`fc-type-pill fc-flag-pill${flagFilter === f.value ? ' fc-type-pill--active' : ''}`}
@@ -289,8 +298,8 @@ export default function FlashcardsView() {
                         </button>
                     ))}
                     <span className="fc-filter-count">
-                        {loading ? '…' : `${total} card${total !== 1 ? 's' : ''}`}
-                        {hasFilters && !loading && ' (filtered)'}
+                        {loading ? '…' : tp('{n} card', '{n} cards', total)}
+                        {hasFilters && !loading && ` ${t('(filtered)')}`}
                     </span>
                     {hasFilters && (
                         <button
@@ -300,7 +309,7 @@ export default function FlashcardsView() {
                                 setFlagFilter(null); setPage(0);
                             }}
                         >
-                            Clear filters
+                            {t('Clear filters')}
                         </button>
                     )}
                 </div>
@@ -315,7 +324,7 @@ export default function FlashcardsView() {
                             className={`fc-card-row${!card.document_name ? ' fc-card-row--standalone' : ''}`}
                             role="button"
                             tabIndex={0}
-                            title="Open card details"
+                            title={t('Open card details')}
                             onClick={() => setDetailHash(card.global_hash)}
                             onKeyDown={(e) => {
                                 if (e.key === 'Enter' || e.key === ' ') {
@@ -326,7 +335,7 @@ export default function FlashcardsView() {
                         >
                             <LevelDot level={card.level ?? 0} />
                             <div className="fc-card-body">
-                                <div className="fc-card-front">{card.frontText || card.name || '(untitled)'}</div>
+                                <div className="fc-card-front">{card.frontText || card.name || t('(untitled)')}</div>
                                 {cardAnswerLine(card) && (
                                     <div className="fc-card-back">{cardAnswerLine(card)}</div>
                                 )}
@@ -334,35 +343,37 @@ export default function FlashcardsView() {
                             <div className="fc-card-meta">
                                 {card.flags && card.flags.split(',').map(kind => (
                                     <span key={kind} className={`fc-card-flag fc-card-flag--${kind}`}
-                                        title="Open the card to see what this rests on">
-                                        {FLAG_LABELS[kind] ?? kind}
+                                        title={t('Open the card to see what this rests on')}>
+                                        {flagLabel(kind, t)}
                                     </span>
                                 ))}
                                 {card.difficulty != null && (
                                     <span
                                         className="fc-card-difficulty"
-                                        title={`FSRS difficulty ${card.difficulty.toFixed(1)} of 10 — how much effort this card costs to keep remembered`}
+                                        title={t('FSRS difficulty {value} of 10 — how much effort this card costs to keep remembered', { value: card.difficulty.toFixed(1) })}
                                     >
-                                        D {card.difficulty.toFixed(1)}
+                                        {t('D {value}', { value: card.difficulty.toFixed(1) })}
                                     </span>
                                 )}
                                 {card.category && (
                                     <span className="fc-card-category">{card.category}</span>
                                 )}
                                 {card.card_type && card.card_type !== 'basic' && (
-                                    <span className="fc-card-type">{card.card_type.replace('_', ' ')}</span>
+                                    <span className="fc-card-type">{cardTypeLabel(card.card_type, t)}</span>
                                 )}
                                 {card.document_name ? (
                                     <span className="fc-card-doc" title={card.document_path}>
                                         {card.document_name}
                                     </span>
                                 ) : (
-                                    <span className="fc-card-standalone" title="Standalone card">standalone</span>
+                                    <span className="fc-card-standalone" title={t('Standalone card')}>{t('standalone')}</span>
                                 )}
                                 <RelativeTime iso={card.last_recall} />
                                 <button
                                     className="fc-card-delete"
-                                    title={card.document_name ? `Delete card from ${card.document_name}` : 'Delete card'}
+                                    title={card.document_name
+                                        ? t('Delete card from {document}', { document: card.document_name })
+                                        : t('Delete card')}
                                     onClick={(e) => { e.stopPropagation(); handleDeleteCard(card); }}
                                 >
                                     ✕
@@ -373,12 +384,12 @@ export default function FlashcardsView() {
                     {!loading && error && (
                         <ErrorState
                             error={error}
-                            title="Couldn't load your cards"
+                            title={t("Couldn't load your cards")}
                             onRetry={() => loadCards(searchArgs, page)}
                         />
                     )}
                     {!loading && !error && cards.length === 0 && (
-                        <div className="fc-empty">No cards found.</div>
+                        <div className="fc-empty">{t('No cards found.')}</div>
                     )}
                 </div>
 
@@ -390,17 +401,17 @@ export default function FlashcardsView() {
                             disabled={page === 0}
                             onClick={() => setPage(p => p - 1)}
                         >
-                            ‹ Prev
+                            {t('‹ Prev')}
                         </button>
                         <span className="fc-page-info">
-                            {page + 1} / {totalPages}
+                            {t('{page} / {total}', { page: page + 1, total: totalPages })}
                         </span>
                         <button
                             className="fc-page-btn"
                             disabled={page >= totalPages - 1}
                             onClick={() => setPage(p => p + 1)}
                         >
-                            Next ›
+                            {t('Next ›')}
                         </button>
                     </div>
                 )}

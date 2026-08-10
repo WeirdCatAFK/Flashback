@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
-import { FIXED_SHORTCUT_GROUPS, KEYBINDING_ACTIONS, formatKeyLabel } from '../keybindings';
+import { fixedShortcutGroups, keybindingActions, formatKeyLabel } from '../keybindings';
 import useKeybindings from '../hooks/useKeybindings';
+import { useT } from '../translations';
 import './ShortcutsOverlay.css';
 
 function KeyCombo({ parts }) {
@@ -33,6 +34,7 @@ function ShortcutRow({ label, combos }) {
 }
 
 export default function ShortcutsOverlay({ onClose }) {
+  const { t } = useT();
   const kbMap = useKeybindings();
 
   useEffect(() => {
@@ -41,12 +43,12 @@ export default function ShortcutsOverlay({ onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const fixedGroups = FIXED_SHORTCUT_GROUPS.map(g => ({
+  const fixedGroups = fixedShortcutGroups(t).map(g => ({
     title: g.group,
     rows: g.shortcuts.map(s => ({ label: s.label, combos: s.keys })),
   }));
 
-  const rebindableGroups = KEYBINDING_ACTIONS.map(g => ({
+  const rebindableGroups = keybindingActions(t).map(g => ({
     title: g.group,
     rows: g.actions.map(a => ({
       label: a.label,
@@ -61,10 +63,10 @@ export default function ShortcutsOverlay({ onClose }) {
       className="so-backdrop"
       onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
     >
-      <div className="so-panel" role="dialog" aria-label="Keyboard shortcuts" aria-modal="true">
+      <div className="so-panel" role="dialog" aria-label={t('Keyboard shortcuts')} aria-modal="true">
         <div className="so-header">
-          <span className="so-title">Keyboard Shortcuts</span>
-          <button type="button" className="so-close" onClick={onClose} aria-label="Close">×</button>
+          <span className="so-title">{t('Keyboard Shortcuts')}</span>
+          <button type="button" className="so-close" onClick={onClose} aria-label={t('Close')}>×</button>
         </div>
         <div className="so-body">
           {allGroups.map(({ title, rows }) => (

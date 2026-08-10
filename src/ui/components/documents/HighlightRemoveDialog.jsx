@@ -1,22 +1,25 @@
 import { createPortal } from 'react-dom';
+import { useT } from '../../translations';
 import './HighlightRemoveDialog.css';
 
 export default function HighlightRemoveDialog({ cardCount, onCancel, onKeepCards, onDeleteCards }) {
+  const { t, tp } = useT();
   return createPortal(
     <div className="hl-dialog-backdrop" onClick={onCancel} aria-hidden="true">
       <div className="hl-dialog" onClick={(e) => e.stopPropagation()}>
-        <h3 className="hl-dialog-title">Remove this highlight?</h3>
+        <h3 className="hl-dialog-title">{t('Remove this highlight?')}</h3>
         <p className="hl-dialog-body">
-          {cardCount} flashcard{cardCount === 1 ? '' : 's'} {cardCount === 1 ? 'is' : 'are'} anchored
-          to this highlight. Removing it will sever the anchor.
+          {tp('{n} flashcard is anchored to this highlight. Removing it will sever the anchor.',
+            '{n} flashcards are anchored to this highlight. Removing it will sever the anchor.',
+            cardCount)}
         </p>
         <div className="hl-dialog-actions">
-          <button type="button" className="hl-btn" onClick={onCancel}>Cancel</button>
+          <button type="button" className="hl-btn" onClick={onCancel}>{t('Cancel')}</button>
           <button type="button" className="hl-btn hl-btn--primary" onClick={onKeepCards}>
-            Remove highlight, keep cards
+            {t('Remove highlight, keep cards')}
           </button>
           <button type="button" className="hl-btn hl-btn--danger" onClick={onDeleteCards}>
-            Remove + delete cards
+            {t('Remove + delete cards')}
           </button>
         </div>
       </div>

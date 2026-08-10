@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { forceCollide, forceX, forceY } from 'd3-force';
 import { getGraph } from '../api/documents';
+import { useT } from '../translations';
 import './GraphView.css';
 
 const HOVER_SELECT_DELAY = 700; // ms before hover auto-selects a node
@@ -93,6 +94,26 @@ function useThemeVersion() {
     return () => mo.disconnect();
   }, []);
   return v;
+}
+
+/**
+ * Node types arrive from the API as stable identifiers ('Document', 'Folder', …)
+ * but reach the user as labels — in the legend, the info panel and the export.
+ * A switch of string literals rather than a lookup table because the extractor
+ * only sees literal t() arguments; a map keyed by type would translate nothing.
+ */
+function useTypeLabel() {
+  const { t } = useT();
+  return useCallback((type) => {
+    switch (type) {
+      case 'Document':  return t('Document');
+      case 'Folder':    return t('Folder');
+      case 'Flashcard': return t('Flashcard');
+      case 'Tag':       return t('Tag');
+      case 'Deck':      return t('Deck');
+      default:          return type;
+    }
+  }, [t]);
 }
 
 function buildGraphData({ nodes = [], edges = [] }) {
@@ -236,14 +257,26 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
-function generateGraphHtml(nodes, links, colorMap, exportedAt) {
+const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
+  { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+));
+
+/**
+ * The export is a standalone page the user opens outside the app, so it carries
+ * its own copy of the chrome it needs translated. `text` holds the already-
+ * translated strings; nothing in here may call t() itself, since this runs
+ * outside the provider.
+ */
+function generateGraphHtml(nodes, links, colorMap, text) {
   const data = JSON.stringify({ nodes, links }).replace(/<\/script>/gi, '<\\/script>');
   const cols = JSON.stringify(colorMap);
+  const typeLabels = JSON.stringify(text.typeLabels).replace(/<\/script>/gi, '<\\/script>');
+  const toggleLabels = JSON.stringify(text.toggleLabels).replace(/<\/script>/gi, '<\\/script>');
   return `<!DOCTYPE html>
-<html lang="en">
+<html lang="${escapeHtml(text.lang)}">
 <head>
 <meta charset="UTF-8">
-<title>Flashback Knowledge Graph</title>
+<title>${escapeHtml(text.title)}</title>
 <script src="https://cdn.jsdelivr.net/npm/d3@7/dist/d3.min.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -283,7 +316,7 @@ body { background: #1c1917; color: #d6d3d1; font-family: system-ui, sans-serif; 
   <div class="sep"></div>
   <div id="toggles"></div>
 </div>
-<div id="meta">Exported ${exportedAt} &middot; ${nodes.length} nodes &middot; ${links.length} edges</div>
+<div id="meta">${escapeHtml(text.meta)}</div>
 <div id="tooltip">
   <div class="tt-type" id="tt-type"></div>
   <div class="tt-name" id="tt-name"></div>
@@ -291,6 +324,9 @@ body { background: #1c1917; color: #d6d3d1; font-family: system-ui, sans-serif; 
 <script>
 var GRAPH = ${data};
 var COLORS = ${cols};
+var TYPE_LABELS = ${typeLabels};
+var TOGGLE_LABELS = ${toggleLabels};
+var labelOf = function(type) { return TYPE_LABELS[type] || type; };
 var hiddenTypes = {};
 
 var svg = d3.select('#root');
@@ -350,7 +386,7 @@ function redraw() {
       .on('end',   function(e, d) { if (!e.active) sim.alphaTarget(0); d.fx = null; d.fy = null; }))
     .on('mouseenter', function(e, d) {
       var tip = document.getElementById('tooltip');
-      document.getElementById('tt-type').textContent = d.type;
+      document.getElementById('tt-type').textContent = labelOf(d.type);
       document.getElementById('tt-type').style.color = COLORS.nodes[d.type] || '#ccc';
       document.getElementById('tt-name').textContent = d.name;
       tip.style.display = 'block';
@@ -396,11 +432,23 @@ function redraw() {
   });
 }
 
+// Labels go in through textContent, not innerHTML — a translation is ordinary
+// text and must not be parsed as markup.
+function swatch(parent, cls, color, label) {
+  var dot = document.createElement('span');
+  dot.className = cls;
+  dot.style.background = color;
+  var span = document.createElement('span');
+  span.textContent = label;
+  parent.appendChild(dot);
+  parent.appendChild(span);
+}
+
 var legendEl = document.getElementById('legend');
 Object.keys(COLORS.nodes).forEach(function(type) {
   var div = document.createElement('div');
   div.className = 'leg';
-  div.innerHTML = '<span class="dot" style="background:' + COLORS.nodes[type] + '"></span><span>' + type + '</span>';
+  swatch(div, 'dot', COLORS.nodes[type], labelOf(type));
   legendEl.appendChild(div);
 });
 
@@ -408,7 +456,7 @@ var togglesEl = document.getElementById('toggles');
 ['Tag', 'Deck'].forEach(function(type) {
   var btn = document.createElement('button');
   btn.className = 'tbtn on';
-  btn.innerHTML = '<span class="dot" style="background:' + COLORS.nodes[type] + '"></span><span>' + type.toLowerCase() + 's</span>';
+  swatch(btn, 'dot', COLORS.nodes[type], TOGGLE_LABELS[type] || type);
   btn.onclick = function() {
     if (hiddenTypes[type]) { delete hiddenTypes[type]; btn.className = 'tbtn on'; }
     else { hiddenTypes[type] = true; btn.className = 'tbtn off'; }
@@ -429,6 +477,8 @@ redraw();
 }
 
 export default function GraphView({ isActive = false, onNavigate }) {
+  const { t, tp, locale } = useT();
+  const typeLabel = useTypeLabel();
   const { graphData, loading, error, refresh } = useGraph(isActive);
   const [showTags, setShowTags]   = usePersisted(LS.tags, true);
   const [showDecks, setShowDecks] = usePersisted(LS.decks, true);
@@ -616,18 +666,18 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
   // Human-readable relation label between the selected node and a neighbor group.
   function relationLabel(selectedType, neighborType, relation, direction) {
-    if (relation === 'deck')      return direction === 'out' ? 'in deck' : 'deck';
-    if (relation === 'tag')       return direction === 'out' ? 'tagged'  : 'tag for';
-    if (relation === 'reference') return direction === 'in'  ? 'flashcards' : 'source';
+    if (relation === 'deck')      return direction === 'out' ? t('in deck') : t('deck');
+    if (relation === 'tag')       return direction === 'out' ? t('tagged')  : t('tag for');
+    if (relation === 'reference') return direction === 'in'  ? t('flashcards') : t('source');
     if (relation === 'inheritance') {
-      if (selectedType === 'Folder' && neighborType === 'Folder')    return 'subfolders';
-      if (selectedType === 'Folder' && neighborType === 'Document')  return 'documents';
-      if (neighborType === 'Folder')   return 'parent';
-      if (neighborType === 'Document') return 'source doc';
-      return direction === 'out' ? 'children' : 'parent';
+      if (selectedType === 'Folder' && neighborType === 'Folder')    return t('subfolders');
+      if (selectedType === 'Folder' && neighborType === 'Document')  return t('documents');
+      if (neighborType === 'Folder')   return t('parent');
+      if (neighborType === 'Document') return t('source doc');
+      return direction === 'out' ? t('children') : t('parent');
     }
-    if (relation === 'connection') return 'connected';
-    return neighborType.toLowerCase();
+    if (relation === 'connection') return t('connected');
+    return typeLabel(neighborType);
   }
 
   // Layout: separated but clumped.
@@ -934,18 +984,36 @@ export default function GraphView({ isActive = false, onNavigate }) {
     const exportLinks = visibleData.links.map(l => ({
       source: nodeId(l.source), target: nodeId(l.target), relation: l.relation,
     }));
-    const html = generateGraphHtml(exportNodes, exportLinks, colors, new Date().toLocaleString());
+    const nodeCount = tp('{n} node', '{n} nodes', exportNodes.length);
+    const edgeCount = tp('{n} edge', '{n} edges', exportLinks.length);
+    const html = generateGraphHtml(exportNodes, exportLinks, colors, {
+      lang: locale,
+      title: t('Flashback Knowledge Graph'),
+      meta: t('Exported {date} · {nodes} · {edges}', {
+        date: new Date().toLocaleString(locale),
+        nodes: nodeCount,
+        edges: edgeCount,
+      }),
+      typeLabels: {
+        Document:  t('Document'),
+        Folder:    t('Folder'),
+        Flashcard: t('Flashcard'),
+        Tag:       t('Tag'),
+        Deck:      t('Deck'),
+      },
+      toggleLabels: { Tag: t('Tags'), Deck: t('Decks') },
+    });
     downloadBlob(new Blob([html], { type: 'text/html;charset=utf-8' }), `flashback-graph-${datestamp()}.html`);
     setShowExportMenu(false);
   }
 
   return (
     <div ref={containerRef} className="graph-root">
-      {loading && <div className="graph-status">Loading graph…</div>}
-      {error   && <div className="graph-status graph-status--error">Error: {error.message}</div>}
+      {loading && <div className="graph-status">{t('Loading graph…')}</div>}
+      {error   && <div className="graph-status graph-status--error">{t('Error: {message}', { message: error.message })}</div>}
       {!loading && !error && (!visibleData || visibleData.nodes.length === 0) && (
         <div className="graph-status">
-          Nothing to see here. You're empty inside. Just like me.
+          {t("Nothing to see here. You're empty inside. Just like me.")}
         </div>
       )}
       {!loading && !error && visibleData && visibleData.nodes.length > 0 && (
@@ -982,7 +1050,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
             href="https://ko-fi.com/D1J122ME9O"
             target="_blank"
             rel="noreferrer"
-            title="Support Flashback on Ko-fi"
+            title={t('Support Flashback on Ko-fi')}
           >
             <svg className="graph-kofi-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <path d="M4 5h13a3 3 0 0 1 0 6h-1.2A5 5 0 0 1 11 15H8a4 4 0 0 1-4-4V5Z" fill="currentColor" opacity="0.28" />
@@ -991,7 +1059,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
               <path d="M8 3c0 .8-.9.9-.9 1.8M11 3c0 .8-.9.9-.9 1.8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" opacity="0.6" />
               <path d="M6 18h9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" opacity="0.5" />
             </svg>
-            <span className="graph-kofi-label">Support me on Ko-fi</span>
+            <span className="graph-kofi-label">{t('Support me on Ko-fi')}</span>
           </a>
 
           <div className={`graph-controls${controlsCollapsed ? ' graph-controls--collapsed' : ''}`}>
@@ -1003,7 +1071,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 setShowExportMenu(false);
               }}
               aria-expanded={!controlsCollapsed}
-              title={controlsCollapsed ? 'Expand panel' : 'Collapse panel'}
+              title={controlsCollapsed ? t('Expand panel') : t('Collapse panel')}
             >
               <svg className="graph-controls-glyph" width="14" height="14" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                 <circle cx="4" cy="4" r="2" fill="currentColor" />
@@ -1011,7 +1079,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                 <circle cx="6" cy="12" r="2" fill="currentColor" />
                 <path d="M4 4L12 6M12 6L6 12M6 12L4 4" stroke="currentColor" strokeWidth="1" opacity="0.5" />
               </svg>
-              <span className="graph-controls-title">Graph</span>
+              <span className="graph-controls-title">{t('Graph')}</span>
               <svg className="graph-controls-chevron" width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                 <path d="M3 4.5L6 7.5L9 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
@@ -1019,33 +1087,33 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
             <div className="graph-controls-body" hidden={controlsCollapsed}>
             <div className="graph-controls-section">
-              <div className="graph-controls-heading">Legend</div>
+              <div className="graph-controls-heading">{t('Legend')}</div>
               {Object.entries(colors.nodes).map(([type, color]) => (
                 <div key={type} className="graph-legend-item">
                   <span className="graph-controls-dot" style={{ background: color }} />
-                  <span>{type}</span>
+                  <span>{typeLabel(type)}</span>
                 </div>
               ))}
             </div>
 
             <div className="graph-controls-section">
-              <div className="graph-controls-heading">Show</div>
+              <div className="graph-controls-heading">{t('Show')}</div>
               {[
-                { key: 'origin',  label: 'Origin folder', on: showOrigin, toggle: () => setShowOrigin(s => !s),
+                { key: 'origin',  label: t('Origin folder'), on: showOrigin, toggle: () => setShowOrigin(s => !s),
                   swatch: 'dot', color: colors.nodes.Folder, when: true },
-                { key: 'default', label: 'Cards node', on: showDefaultDeck, toggle: () => setShowDefaultDeck(s => !s),
+                { key: 'default', label: t('Cards node'), on: showDefaultDeck, toggle: () => setShowDefaultDeck(s => !s),
                   swatch: 'dot', color: colors.nodes.Deck, when: graphData?.defaultDeckIds?.size > 0 },
-                { key: 'decks',   label: 'Decks', on: showDecks, toggle: () => setShowDecks(s => !s),
+                { key: 'decks',   label: t('Decks'), on: showDecks, toggle: () => setShowDecks(s => !s),
                   swatch: 'dot', color: colors.nodes.Deck, when: true },
-                { key: 'tags',    label: 'Tags', on: showTags, toggle: () => setShowTags(s => !s),
+                { key: 'tags',    label: t('Tags'), on: showTags, toggle: () => setShowTags(s => !s),
                   swatch: 'line', color: colors.links.tag, when: true },
-                { key: 'links',   label: 'Links', on: showLinks, toggle: () => setShowLinks(s => !s),
+                { key: 'links',   label: t('Links'), on: showLinks, toggle: () => setShowLinks(s => !s),
                   swatch: 'line', color: colors.links.link, when: true },
               ].filter(f => f.when).map(f => (
                 <button key={f.key} type="button" role="switch" aria-checked={f.on}
                   className={`graph-filter${f.on ? ' graph-filter--on' : ''}`}
                   onClick={f.toggle}
-                  title={`${f.on ? 'Hide' : 'Show'} ${f.label.toLowerCase()}`}
+                  title={f.on ? t('Hide {label}', { label: f.label }) : t('Show {label}', { label: f.label })}
                 >
                   <span className={f.swatch === 'line' ? 'graph-controls-line' : 'graph-controls-dot'}
                     style={{ background: f.color, opacity: f.on ? 1 : 0.3 }} />
@@ -1056,25 +1124,27 @@ export default function GraphView({ isActive = false, onNavigate }) {
             </div>
 
             <div className="graph-controls-section">
-              <div className="graph-controls-heading">Illumination</div>
+              <div className="graph-controls-heading">{t('Illumination')}</div>
               <button type="button" role="switch" aria-checked={bloom}
                 className={`graph-filter${bloom ? ' graph-filter--on' : ''}`}
                 onClick={() => setBloom(b => !b)}
-                title={`${bloom ? 'Hide' : 'Show'} bloom around well-learned nodes`}
+                title={bloom
+                  ? t('Hide bloom around well-learned nodes')
+                  : t('Show bloom around well-learned nodes')}
               >
                 <span className="graph-controls-dot"
                   style={{ background: colors.nodes.Flashcard, opacity: bloom ? 1 : 0.3 }} />
-                <span className="graph-filter-label">Bloom</span>
+                <span className="graph-filter-label">{t('Bloom')}</span>
                 <span className="graph-switch" aria-hidden="true" />
               </button>
 
               <label className="graph-slider-row">
-                <span className="graph-slider-label">Cohesion</span>
+                <span className="graph-slider-label">{t('Cohesion')}</span>
                 <input type="range" className="graph-slider"
                   min="0" max="1" step="0.05"
                   value={cohesion}
                   onChange={e => setCohesion(parseFloat(e.target.value))}
-                  title="How tightly related nodes clump together"
+                  title={t('How tightly related nodes clump together')}
                 />
               </label>
             </div>
@@ -1083,26 +1153,26 @@ export default function GraphView({ isActive = false, onNavigate }) {
               <button type="button"
                 className="graph-action-btn"
                 onClick={refresh}
-                title="Refresh graph data"
+                title={t('Refresh graph data')}
                 disabled={loading}
               >
-                Refresh
+                {t('Refresh')}
               </button>
 
               <button type="button"
                 className={`graph-action-btn${showExportMenu ? ' graph-action-btn--active' : ''}`}
                 onClick={() => setShowExportMenu(s => !s)}
-                title="Export graph"
+                title={t('Export graph')}
               >
-                Export
+                {t('Export')}
               </button>
             </div>
 
             {showExportMenu && (
               <div className="graph-export-menu">
-                <button type="button" className="graph-export-item" onClick={handleExportPng}>PNG image</button>
-                <button type="button" className="graph-export-item" onClick={handleExportJson}>JSON data</button>
-                <button type="button" className="graph-export-item" onClick={handleExportHtml}>Interactive HTML</button>
+                <button type="button" className="graph-export-item" onClick={handleExportPng}>{t('PNG image')}</button>
+                <button type="button" className="graph-export-item" onClick={handleExportJson}>{t('JSON data')}</button>
+                <button type="button" className="graph-export-item" onClick={handleExportHtml}>{t('Interactive HTML')}</button>
               </div>
             )}
             </div>
@@ -1111,7 +1181,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
           {selected && (
             <div className="graph-info">
               <div className="graph-info-type" style={{ color: colors.nodes[selected.type] }}>
-                {selected.type}
+                {typeLabel(selected.type)}
               </div>
               <div className="graph-info-name">{selected.name}</div>
               <button type="button" className="graph-info-close" onClick={() => {
@@ -1171,7 +1241,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
                             );
                           })}
                           {overflow > 0 && (
-                            <span className="graph-info-overflow">+{overflow} more</span>
+                            <span className="graph-info-overflow">{t('+{n} more', { n: overflow })}</span>
                           )}
                         </div>
                       </div>

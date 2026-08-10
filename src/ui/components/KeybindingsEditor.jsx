@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  KEYBINDING_ACTIONS,
+  keybindingActions,
   saveKeybinding,
   resetKeybinding,
   resetAllKeybindings,
@@ -8,6 +8,7 @@ import {
   formatKeyLabel,
 } from '../keybindings';
 import useKeybindings from '../hooks/useKeybindings';
+import { useT } from '../translations';
 import './KeybindingsEditor.css';
 
 // Collapsible editor (like the theme editor) that lists every registered action
@@ -15,6 +16,7 @@ import './KeybindingsEditor.css';
 // keypress. Reads the live map via the hook; writes go through the keybindings
 // module. The list grows as features register more actions, hence the collapse.
 export default function KeybindingsEditor() {
+  const { t } = useT();
   const map = useKeybindings();
   const [recording, setRecording] = useState(null); // actionId being rebound, or null
   const [open, setOpen] = useState(() => localStorage.getItem('fb-kb-open') === 'true');
@@ -53,12 +55,12 @@ export default function KeybindingsEditor() {
         >
           <polyline points="4,2 9,6 4,10" />
         </svg>
-        Keybindings
+        {t('Keybindings')}
       </button>
 
       {open && (
         <div className="kb-content">
-          {KEYBINDING_ACTIONS.map((group) => (
+          {keybindingActions(t).map((group) => (
             <div key={group.group} className="kb-group">
               <span className="kb-group-title">{group.group}</span>
               {group.actions.map((a) => (
@@ -67,16 +69,16 @@ export default function KeybindingsEditor() {
                   <div className="kb-row">
                     <span className="kb-keys">
                       {recording === a.id
-                        ? <span className="kb-recording">Press a key…</span>
+                        ? <span className="kb-recording">{t('Press a key…')}</span>
                         : (map[a.id] ?? []).map((k) => <kbd key={k} className="kb-cap">{formatKeyLabel(k)}</kbd>)}
                     </span>
                     <button type="button"
                       className={`kb-btn${recording === a.id ? ' kb-btn--recording' : ''}`}
                       onClick={() => setRecording(recording === a.id ? null : a.id)}
                     >
-                      {recording === a.id ? 'Cancel' : 'Rebind'}
+                      {recording === a.id ? t('Cancel') : t('Rebind')}
                     </button>
-                    <button type="button" className="kb-btn kb-btn--icon" title="Reset to default" onClick={() => resetKeybinding(a.id)}>
+                    <button type="button" className="kb-btn kb-btn--icon" title={t('Reset to default')} onClick={() => resetKeybinding(a.id)}>
                       ↺
                     </button>
                   </div>
@@ -85,7 +87,7 @@ export default function KeybindingsEditor() {
             </div>
           ))}
           <button type="button" className="kb-btn kb-reset-all" onClick={resetAllKeybindings}>
-            Reset all to defaults
+            {t('Reset all to defaults')}
           </button>
         </div>
       )}

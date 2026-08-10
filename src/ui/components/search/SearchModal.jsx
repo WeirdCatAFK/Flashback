@@ -5,6 +5,7 @@ import IconFolder from '../icons/IconFolder';
 import IconFile from '../icons/IconFile';
 import IconFlashcards from '../icons/IconFlashcards';
 import IconDecks from '../icons/IconDecks';
+import { useT } from '../../translations';
 import './SearchModal.css';
 
 // Matches "tag:foo", "deck:foo", "doc:foo", "in:foo" at start of input
@@ -39,7 +40,18 @@ function lastName(path) {
     return path.replace(/\\/g, '/').split('/').pop();
 }
 
-const TYPE_LABELS = { folder: 'Folders', document: 'Documents', flashcard: 'Cards', tag: 'Tags', deck: 'Decks' };
+// Group heading for a result type. A switch of literals, not a lookup table: only a
+// literal t() argument is extractable, and a module constant would freeze the language.
+const typeLabel = (type, t) => {
+    switch (type) {
+        case 'folder':    return t('Folders');
+        case 'document':  return t('Documents');
+        case 'flashcard': return t('Cards');
+        case 'tag':       return t('Tags');
+        case 'deck':      return t('Decks');
+        default:          return type;
+    }
+};
 
 function TagIcon({ size = 16 }) {
     return (
@@ -111,6 +123,7 @@ function ResultRow({ item, active, onActivate, onNavigate }) {
 }
 
 export default function SearchModal({ onClose, onNavigate }) {
+    const { t } = useT();
     const [query, setQuery]     = useState('');
     const [results, setResults] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -214,10 +227,12 @@ export default function SearchModal({ onClose, onNavigate }) {
 
     // Determine the current mode hint
     const parsed = parseQuery(query);
-    const modeHint = parsed.prefix ? {
-        tag: 'Cards with tag', deck: 'Cards in deck',
-        doc: 'Cards in document', in: 'Cards in folder',
-    }[parsed.prefix] : null;
+    const modeHint = {
+        tag:  t('Cards with tag'),
+        deck: t('Cards in deck'),
+        doc:  t('Cards in document'),
+        in:   t('Cards in folder'),
+    }[parsed.prefix] ?? null;
 
     // Group for display — only used in global mode
     const groups = useMemo(() => {
@@ -244,18 +259,20 @@ export default function SearchModal({ onClose, onNavigate }) {
 
     const modal = (
         <div className="sq-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-            <div className="sq-modal" role="dialog" aria-label="Search" onKeyDown={handleKeyDown}>
+            <div className="sq-modal" role="dialog" aria-label={t('Search')} onKeyDown={handleKeyDown}>
                 <div className="sq-input-row">
                     <svg className="sq-search-icon" width="16" height="16" viewBox="0 0 24 24"
                         fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
                     </svg>
+                    {/* The tag:/deck:/doc:/in: prefixes below are query syntax the parser
+                        matches literally — they must survive translation unchanged. */}
                     <input
                         ref={inputRef}
                         className="sq-input"
                         value={query}
                         onChange={handleChange}
-                        placeholder="Search… (tag: deck: doc: in:)"
+                        placeholder={t('Search… (tag: deck: doc: in:)')}
                         spellCheck={false}
                         autoComplete="off"
                     />
@@ -265,17 +282,23 @@ export default function SearchModal({ onClose, onNavigate }) {
                 </div>
 
                 {error && (
-                    <div className="sq-empty sq-empty--error"><span>Search failed. Check your connection and try again.</span></div>
+                    <div className="sq-empty sq-empty--error"><span>{t('Search failed. Check your connection and try again.')}</span></div>
                 )}
 
                 {!error && !results && !loading && (
                     <div className="sq-empty">
-                        <p className="sq-hint-row"><span className="sq-prefix-chip">tag:</span> cards with tag &nbsp;·&nbsp; <span className="sq-prefix-chip">deck:</span> cards in deck</p>
-                        <p className="sq-hint-row"><span className="sq-prefix-chip">doc:</span> cards by document &nbsp;·&nbsp; <span className="sq-prefix-chip">in:</span> cards in folder</p>
+                        <p className="sq-hint-row">
+                            <span className="sq-prefix-chip">tag:</span> {t('cards with tag')} &nbsp;·&nbsp;
+                            <span className="sq-prefix-chip">deck:</span> {t('cards in deck')}
+                        </p>
+                        <p className="sq-hint-row">
+                            <span className="sq-prefix-chip">doc:</span> {t('cards by document')} &nbsp;·&nbsp;
+                            <span className="sq-prefix-chip">in:</span> {t('cards in folder')}
+                        </p>
                     </div>
                 )}
 
-                {!error && isEmpty && <div className="sq-empty"><span>No results</span></div>}
+                {!error && isEmpty && <div className="sq-empty"><span>{t('No results')}</span></div>}
 
                 {flatItems.length > 0 && (
                     <div className="sq-results">
@@ -293,7 +316,7 @@ export default function SearchModal({ onClose, onNavigate }) {
                         {/* Global mode: grouped by type */}
                         {groups && groups.map((g) => (
                             <div key={g.type} className="sq-group">
-                                <div className="sq-group-label">{TYPE_LABELS[g.type]}</div>
+                                <div className="sq-group-label">{typeLabel(g.type, t)}</div>
                                 {g.items.map((item, j) => {
                                     const globalIdx = g.offset + j;
                                     return (

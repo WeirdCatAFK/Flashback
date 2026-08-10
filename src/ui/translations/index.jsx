@@ -20,7 +20,7 @@
  * switch. Keep the English literal in the constant and translate where it renders.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { makeFormatters } from './format.js';
 import { makeTranslators } from './translate.js';
 
@@ -85,6 +85,29 @@ export function TranslationProvider({ children }) {
   }), [locale]);
 
   return <TranslationContext.Provider value={value}>{children}</TranslationContext.Provider>;
+}
+
+/**
+ * Render a translated sentence whose {placeholders} stand for React nodes rather
+ * than plain values — a <code> path, a <strong> emphasis, a link.
+ *
+ *   <Rich text={t('Save this as {file}, then run {cmd}.')}
+ *         values={{ file: <code>.mcp.json</code>, cmd: <code>/mcp</code> }} />
+ *
+ * The point is that the sentence stays one key. Splitting a string around its
+ * markup — 'Save this as' + <code/> + ', then run' — hands the translator
+ * fragments and hard-codes English word order, which is exactly what a language
+ * with different ordering cannot work with. Interpolation that t() can do
+ * itself should still go through t(); this is only for nodes.
+ */
+export function Rich({ text, values }) {
+  return text.split(/(\{\w+\})/g).map((part, i) => {
+    const name = /^\{(\w+)\}$/.exec(part)?.[1];
+    const hit = name && Object.prototype.hasOwnProperty.call(values ?? {}, name);
+    // An unmatched placeholder is left visible, same as interpolate() — a
+    // literal "{file}" on screen is a bug report; a blank is a mystery.
+    return <Fragment key={i}>{hit ? values[name] : part}</Fragment>;
+  });
 }
 
 /**

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { readFile, updateMetadata, setClipSource } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
+import { useT } from '../../../translations';
 import './ClipRenderer.css';
 import './Renderer.css';
 
@@ -132,6 +133,7 @@ export default function ClipRenderer({
   onHighlightsChange,
   onSidecarRefresh,
 }) {
+  const { t } = useT();
   const [source,     setSource]     = useState(null); // { url, siteName, title, clippedAt }
   const [highlights, setHighlights] = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -184,7 +186,7 @@ export default function ClipRenderer({
       setLoading(false);
     }).catch((err) => {
       if (!mounted) return;
-      setError(err.message ?? 'Failed to load clip');
+      setError(err.message ?? t('Failed to load clip'));
       setLoading(false);
     });
 
@@ -300,19 +302,19 @@ export default function ClipRenderer({
     return () => { if (highlightRef) highlightRef.current = null; };
   });
 
-  if (loading) return <div className="renderer-loading">Loading clip…</div>;
-  if (error)   return <div className="renderer-error">Could not load clip: {error}</div>;
+  if (loading) return <div className="renderer-loading">{t('Loading clip…')}</div>;
+  if (error)   return <div className="renderer-error">{t('Could not load clip: {error}', { error })}</div>;
   if (empty) {
     return (
       <SourceUrlForm
-        title="Clip a web page"
-        hint="Paste a URL to fetch a readable snapshot of the page. Images are saved locally so it stays available offline."
+        title={t('Clip a web page')}
+        hint={t('Paste a URL to fetch a readable snapshot of the page. Images are saved locally so it stays available offline.')}
         placeholder="https://…"
-        submitLabel="Clip page"
-        busyLabel="Clipping…"
+        submitLabel={t('Clip page')}
+        busyLabel={t('Clipping…')}
         onSubmit={async (url) => {
           await setClipSource(path, url);
-          setReloadTick((t) => t + 1);
+          setReloadTick((n) => n + 1);
         }}
       />
     );

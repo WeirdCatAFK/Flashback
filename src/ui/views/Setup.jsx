@@ -2,7 +2,7 @@ import { useState, useEffect } from "react";
 import "./Setup.css";
 import "../App.css";
 import TitleBar from "../components/TitleBar";
-import { LanguagePicker, LOCALE_OPTIONS } from "../translations/index.jsx";
+import { LanguagePicker, LOCALE_OPTIONS, useT } from "../translations/index.jsx";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -10,10 +10,10 @@ import { LanguagePicker, LOCALE_OPTIONS } from "../translations/index.jsx";
 // eslint-disable-next-line no-control-regex
 const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
 
-function nameError(v) {
-  if (!v.trim()) return "Required.";
-  if (INVALID_NAME.test(v.trim())) return "Contains invalid characters.";
-  if (v.trim().length > 64) return "Too long (max 64 characters).";
+function nameError(v, t) {
+  if (!v.trim()) return t("Required.");
+  if (INVALID_NAME.test(v.trim())) return t("Contains invalid characters.");
+  if (v.trim().length > 64) return t("Too long (max 64 characters).");
   return null;
 }
 
@@ -24,8 +24,9 @@ function joinPath(...parts) {
 // ── Shared chrome ─────────────────────────────────────────────────────────────
 
 function StepDots({ step, total }) {
+  const { t } = useT();
   return (
-    <div className="ob-stepdots" aria-label={`Step ${step + 1} of ${total}`}>
+    <div className="ob-stepdots" aria-label={t('Step {step} of {total}', { step: step + 1, total })}>
       {Array.from({ length: total }, (_, i) => (
         <div
           key={i}
@@ -39,6 +40,7 @@ function StepDots({ step, total }) {
 // ── Step 0 — Welcome ──────────────────────────────────────────────────────────
 
 function StepWelcome({ onNext }) {
+  const { t } = useT();
   return (
     <div className="ob-step ob-step--welcome">
       <svg className="ob-mark" width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
@@ -46,14 +48,14 @@ function StepWelcome({ onNext }) {
         <path d="M26 16L36 26L26 36L16 26Z" fill="var(--color-accent)"/>
       </svg>
 
-      <h1 className="ob-welcome-title">Welcome to Flashback</h1>
+      <h1 className="ob-welcome-title">{t('Welcome to Flashback')}</h1>
       <p className="ob-welcome-desc">
-        A knowledge database with all your spaced repetition needs.<br/>
-        Your notes, documents, and flashcards — all in one place.
+        {t('A knowledge database with all your spaced repetition needs.')}<br/>
+        {t('Your notes, documents, and flashcards — all in one place.')}
       </p>
 
       <button type="button" className="ob-btn-primary ob-btn-lg" onClick={onNext}>
-        Get started
+        {t('Get started')}
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
           <line x1="2" y1="7" x2="12" y2="7"/>
           <polyline points="8,3 12,7 8,11"/>
@@ -64,7 +66,7 @@ function StepWelcome({ onNext }) {
           a one-option select that just adds noise to the first screen. */}
       {LOCALE_OPTIONS.length > 1 && (
         <div className="ob-locale">
-          <label htmlFor="ob-locale-select">Language</label>
+          <label htmlFor="ob-locale-select">{t('Language')}</label>
           <LanguagePicker id="ob-locale-select" />
         </div>
       )}
@@ -75,6 +77,7 @@ function StepWelcome({ onNext }) {
 // ── Step 1 — Vault setup ──────────────────────────────────────────────────────
 
 function StepVault({ state, onChange, onNext, onBack }) {
+  const { t } = useT();
   const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
   const [advanced, setAdvanced] = useState(false);
   const [touched, setTouched]   = useState(false);
@@ -86,7 +89,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
     }
   }, []);
 
-  const err = nameError(vaultName);
+  const err = nameError(vaultName, t);
   const previewBase = isCustomPath ? (customPath.trim() || "…") : (dataPath || "…");
   const previewPath = joinPath(previewBase, vaultName.trim() || "…");
   const canNext = !err && (!isCustomPath || customPath.trim());
@@ -98,13 +101,13 @@ function StepVault({ state, onChange, onNext, onBack }) {
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">Name your vault</h2>
+      <h2 className="ob-step-title">{t('Name your vault')}</h2>
       <p className="ob-step-desc">
-        A vault is a self-contained workspace — its own folder and database on disk.
+        {t('A vault is a self-contained workspace — its own folder and database on disk.')}
       </p>
 
       <div className="ob-field">
-        <label className="ob-label" htmlFor="ob-vault-name">Vault name</label>
+        <label className="ob-label" htmlFor="ob-vault-name">{t('Vault name')}</label>
         <input
           id="ob-vault-name"
           className={`ob-input ob-input--lg${touched && err ? " ob-input--err" : ""}`}
@@ -133,7 +136,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
       <div className="ob-divider" />
 
       <div className="ob-field">
-        <label className="ob-label">SRS algorithm</label>
+        <label className="ob-label">{t('SRS algorithm')}</label>
         <div className="ob-algo-group">
           <label className={`ob-algo-option${algorithm === 'sm2' ? ' ob-algo-option--active' : ''}`}>
             <input
@@ -144,7 +147,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
               onChange={() => onChange("algorithm", "sm2")}
             />
             <span className="ob-algo-name">SM-2</span>
-            <span className="ob-algo-desc">Ease factor — adapts to your recall speed. Better for large collections.</span>
+            <span className="ob-algo-desc">{t('Ease factor — adapts to your recall speed. Better for large collections.')}</span>
           </label>
           <label className={`ob-algo-option${algorithm === 'leitner' ? ' ob-algo-option--active' : ''}`}>
             <input
@@ -155,7 +158,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
               onChange={() => onChange("algorithm", "leitner")}
             />
             <span className="ob-algo-name">Leitner</span>
-            <span className="ob-algo-desc">Box system — intervals double each level. Simple and effective.</span>
+            <span className="ob-algo-desc">{t('Box system — intervals double each level. Simple and effective.')}</span>
           </label>
           <label className={`ob-algo-option${algorithm === 'fsrs' ? ' ob-algo-option--active' : ''}`}>
             <input
@@ -166,10 +169,10 @@ function StepVault({ state, onChange, onNext, onBack }) {
               onChange={() => onChange("algorithm", "fsrs")}
             />
             <span className="ob-algo-name">FSRS</span>
-            <span className="ob-algo-desc">Memory model — predicts recall to minimise reviews. Most efficient; the modern default.</span>
+            <span className="ob-algo-desc">{t('Memory model — predicts recall to minimise reviews. Most efficient; the modern default.')}</span>
           </label>
         </div>
-        <span className="ob-field-msg">You can change this later in Settings → Flashcards.</span>
+        <span className="ob-field-msg">{t('You can change this later in Settings → Flashcards.')}</span>
       </div>
 
       <div className="ob-divider" />
@@ -181,12 +184,12 @@ function StepVault({ state, onChange, onNext, onBack }) {
           checked={isCustomPath}
           onChange={e => onChange("isCustomPath", e.target.checked)}
         />
-        <span className="ob-check-label">Store vault at a custom location</span>
+        <span className="ob-check-label">{t('Store vault at a custom location')}</span>
       </label>
 
       {isCustomPath && (
         <div className="ob-field ob-field--indented">
-          <label className="ob-label" htmlFor="ob-custom-path">Vault root folder</label>
+          <label className="ob-label" htmlFor="ob-custom-path">{t('Vault root folder')}</label>
           <input
             id="ob-custom-path"
             className="ob-input"
@@ -196,7 +199,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
             spellCheck={false}
             autoComplete="off"
           />
-          <span className="ob-field-msg">Absolute path — the vault folder will be created inside it.</span>
+          <span className="ob-field-msg">{t('Absolute path — the vault folder will be created inside it.')}</span>
         </div>
       )}
 
@@ -211,13 +214,13 @@ function StepVault({ state, onChange, onNext, onBack }) {
           style={{ transform: advanced ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 140ms ease" }}>
           <polyline points="2,1 7,4.5 2,8"/>
         </svg>
-        Advanced
+        {t('Advanced')}
       </button>
 
       {advanced && (
         <div className="ob-advanced">
           <div className="ob-inline-row">
-            <label className="ob-label" htmlFor="ob-port">API port</label>
+            <label className="ob-label" htmlFor="ob-port">{t('API port')}</label>
             <input
               id="ob-port"
               className="ob-input ob-input--short"
@@ -229,7 +232,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
             />
           </div>
           <div className="ob-inline-row">
-            <label className="ob-label" htmlFor="ob-log">Log format</label>
+            <label className="ob-label" htmlFor="ob-log">{t('Log format')}</label>
             <select
               id="ob-log"
               className="ob-select"
@@ -246,9 +249,9 @@ function StepVault({ state, onChange, onNext, onBack }) {
       )}
 
       <div className="ob-nav">
-        <button type="button" className="ob-btn-ghost" onClick={onBack}>Back</button>
+        <button type="button" className="ob-btn-ghost" onClick={onBack}>{t('Back')}</button>
         <button type="button" className="ob-btn-primary" onClick={handleNext}>
-          Next
+          {t('Next')}
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
             <line x1="2" y1="7" x2="12" y2="7"/>
             <polyline points="8,3 12,7 8,11"/>
@@ -262,6 +265,7 @@ function StepVault({ state, onChange, onNext, onBack }) {
 // ── Step 2 — Review & create ──────────────────────────────────────────────────
 
 function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
+  const { t } = useT();
   const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
   const [dataPath, setDataPath] = useState("");
 
@@ -277,33 +281,34 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">You&rsquo;re all set</h2>
-      <p className="ob-step-desc">Review your vault settings before creating it.</p>
+      <h2 className="ob-step-title">{t('You’re all set')}</h2>
+      <p className="ob-step-desc">{t('Review your vault settings before creating it.')}</p>
 
       <div className="ob-summary">
         <div className="ob-summary-row">
-          <span className="ob-summary-key">Vault name</span>
+          <span className="ob-summary-key">{t('Vault name')}</span>
           <span className="ob-summary-val">{vaultName}</span>
         </div>
         <div className="ob-summary-row">
-          <span className="ob-summary-key">Documents</span>
+          <span className="ob-summary-key">{t('Documents')}</span>
           <span className="ob-summary-val ob-summary-val--path">{joinPath(vaultPath, "workspace")}</span>
         </div>
         <div className="ob-summary-row">
-          <span className="ob-summary-key">Database</span>
+          <span className="ob-summary-key">{t('Database')}</span>
           <span className="ob-summary-val ob-summary-val--path">{dbPath}</span>
         </div>
         <div className="ob-summary-divider" />
         <div className="ob-summary-row">
-          <span className="ob-summary-key">SRS algorithm</span>
+          <span className="ob-summary-key">{t('SRS algorithm')}</span>
+          {/* Algorithm names are proper nouns, the same in every language. */}
           <span className="ob-summary-val">{algorithm === 'sm2' ? 'SM-2' : algorithm === 'fsrs' ? 'FSRS' : 'Leitner'}</span>
         </div>
         <div className="ob-summary-row">
-          <span className="ob-summary-key">API port</span>
+          <span className="ob-summary-key">{t('API port')}</span>
           <span className="ob-summary-val">{port}</span>
         </div>
         <div className="ob-summary-row">
-          <span className="ob-summary-key">Log format</span>
+          <span className="ob-summary-key">{t('Log format')}</span>
           <span className="ob-summary-val">{logFormat}</span>
         </div>
       </div>
@@ -311,9 +316,9 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
       {submitError && <p className="ob-submit-error">{submitError}</p>}
 
       <div className="ob-nav">
-        <button type="button" className="ob-btn-ghost" onClick={onBack} disabled={submitting}>Back</button>
+        <button type="button" className="ob-btn-ghost" onClick={onBack} disabled={submitting}>{t('Back')}</button>
         <button type="button" className="ob-btn-primary" onClick={onSubmit} disabled={submitting}>
-          {submitting ? "Creating vault…" : "Create vault"}
+          {submitting ? t('Creating vault…') : t('Create vault')}
           {!submitting && (
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
               <line x1="2" y1="7" x2="12" y2="7"/>
@@ -329,6 +334,7 @@ function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function SetupView({ onComplete }) {
+  const { t } = useT();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
     vaultName:    "dreams",
@@ -364,7 +370,7 @@ export default function SetupView({ onComplete }) {
       localStorage.setItem("fb-srs-algorithm", form.algorithm);
       await onComplete();
     } else {
-      setSubmitError(result?.error ?? "Setup failed. Check the path and try again.");
+      setSubmitError(result?.error ?? t('Setup failed. Check the path and try again.'));
       setSubmitting(false);
     }
   };

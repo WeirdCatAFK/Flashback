@@ -4,18 +4,22 @@ import InspectorCardsTab      from './InspectorCardsTab';
 import InspectorNewCardTab    from './InspectorNewCardTab';
 import InspectorTagsTab       from './InspectorTagsTab';
 import InspectorHighlightsTab from './InspectorHighlightsTab';
+import { useT } from '../../../translations';
 
-const TABS = [
-  { id: 'cards',      label: 'Cards' },
-  { id: 'highlights', label: 'Highlights' },
-  { id: 'new-card',   label: 'New Card' },
-  { id: 'tags',       label: 'Tags' },
+// A function of `t`, not a module constant: a constant is evaluated once at import
+// and would keep the old language after a switch. `id` is never translated.
+const tabsFor = (t) => [
+  { id: 'cards',      label: t('Cards') },
+  { id: 'highlights', label: t('Highlights') },
+  { id: 'new-card',   label: t('New Card') },
+  { id: 'tags',       label: t('Tags') },
 ];
 
 const MIN_WIDTH = 20;
 const MAX_WIDTH = 520;
 
 export default function Inspector({ path, activeTab, onTabChange, cardDraft, onSelectionClear, open, onToggle, highlights, flashcards, tags, excludedTags, onTagsChange, onJumpToHighlight, onHighlightCardRequest, onHighlightDeleteRequest, onCardSaved }) {
+  const { t } = useT();
   const handleSaved  = () => { onCardSaved ? onCardSaved() : (onSelectionClear(), onTabChange('cards')); };
   const handleCancel = () => { onSelectionClear(); onTabChange('cards'); };
 
@@ -48,7 +52,7 @@ export default function Inspector({ path, activeTab, onTabChange, cardDraft, onS
       {open && <div className="inspector-resize-handle" onMouseDown={startResize} aria-hidden="true" />}
 
       <div className="inspector-tabs">
-        {open && TABS.map(({ id, label }) => (
+        {open && tabsFor(t).map(({ id, label }) => (
           <button type="button"
             key={id}
             className={`inspector-tab${activeTab === id ? ' inspector-tab--active' : ''}`}
@@ -60,7 +64,7 @@ export default function Inspector({ path, activeTab, onTabChange, cardDraft, onS
         <button type="button"
           className="inspector-toggle"
           onClick={onToggle}
-          title={open ? 'Collapse inspector' : 'Expand inspector'}
+          title={open ? t('Collapse inspector') : t('Expand inspector')}
         >
           {open ? '›' : '‹'}
         </button>

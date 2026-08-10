@@ -703,7 +703,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
             {keymap['trainer.viewSource']?.[0] && (
               <kbd className="trainer-source-key">{formatKeyLabel(keymap['trainer.viewSource'][0])}</kbd>
             )}
-            View source ↗
+            {t('View source ↗')}
           </button>
         </div>
       )}

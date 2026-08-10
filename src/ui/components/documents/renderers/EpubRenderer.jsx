@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { readFile, updateMetadata, fetchRaw } from '../../../api/documents';
+import { useT } from '../../../translations';
 import './EpubRenderer.css';
 import './Renderer.css';
 
@@ -51,6 +52,7 @@ export default function EpubRenderer({
   onSidecarRefresh,
   onExternalSelection,
 }) {
+  const { t } = useT();
   const [highlights, setHighlights] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
@@ -168,7 +170,7 @@ export default function EpubRenderer({
           .catch(() => {});
       } catch (err) {
         if (!cancelled) {
-          setError(err?.message ?? 'Failed to load EPUB');
+          setError(err?.message ?? t('Failed to load EPUB'));
           setLoading(false);
         }
       }
@@ -393,19 +395,19 @@ export default function EpubRenderer({
   return (
     <div className="epub-renderer">
       <div className="epub-toolbar">
-        <button className="epub-btn" onClick={goPrev} disabled={atStart} title="Previous page">‹</button>
-        <button className="epub-btn" onClick={goNext} disabled={atEnd} title="Next page">›</button>
+        <button className="epub-btn" onClick={goPrev} disabled={atStart} title={t('Previous page')}>‹</button>
+        <button className="epub-btn" onClick={goNext} disabled={atEnd} title={t('Next page')}>›</button>
         <span className="epub-progress">{progress != null ? `${progress}%` : ''}</span>
         <div className="epub-toolbar-spacer" />
-        <button className="epub-btn epub-btn--font" onClick={() => changeFont(-FONT_STEP)} disabled={fontPct <= FONT_MIN} title="Smaller text">A−</button>
+        <button className="epub-btn epub-btn--font" onClick={() => changeFont(-FONT_STEP)} disabled={fontPct <= FONT_MIN} title={t('Smaller text')}>A−</button>
         <span className="epub-font-label">{fontPct}%</span>
-        <button className="epub-btn epub-btn--font" onClick={() => changeFont(FONT_STEP)} disabled={fontPct >= FONT_MAX} title="Larger text">A+</button>
+        <button className="epub-btn epub-btn--font" onClick={() => changeFont(FONT_STEP)} disabled={fontPct >= FONT_MAX} title={t('Larger text')}>A+</button>
       </div>
 
       <div className="epub-viewport-wrap">
         <div ref={viewportRef} className="epub-viewport" />
-        {loading && <div className="renderer-loading epub-overlay">Loading EPUB…</div>}
-        {error && <div className="renderer-error epub-overlay">Could not load EPUB: {error}</div>}
+        {loading && <div className="renderer-loading epub-overlay">{t('Loading EPUB…')}</div>}
+        {error && <div className="renderer-error epub-overlay">{t('Could not load EPUB: {error}', { error })}</div>}
       </div>
     </div>
   );

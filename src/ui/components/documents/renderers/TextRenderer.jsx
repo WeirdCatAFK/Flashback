@@ -6,6 +6,7 @@ import {
   applyHighlightsToText,
 } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
+import { useT } from '../../../translations';
 import './Renderer.css';
 
 // Plain-text editor. Same TipTap/ProseMirror foundation as the markdown
@@ -56,6 +57,7 @@ const loadContent = (editor, text, meta) => {
 };
 
 export default function TextRenderer(props) {
+  const { t } = useT();
   const { editor, loading } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
@@ -67,7 +69,7 @@ export default function TextRenderer(props) {
 
   return (
     <div className="text-tiptap-container">
-      {loading && <div className="renderer-loading">Loading…</div>}
+      {loading && <div className="renderer-loading">{t('Loading…')}</div>}
       <EditorContent editor={editor} className="text-tiptap-wrapper" />
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { pingApi } from '../api/client';
+import { useT } from '../translations';
 import './AppGate.css';
 
 // Blocks the app until the API process answers. In Electron the renderer mounts
@@ -11,6 +12,7 @@ const POLL_INTERVAL_MS = 400;
 const SLOW_THRESHOLD_MS = 10000; // after this, surface a manual retry
 
 export default function AppGate({ children }) {
+  const { t } = useT();
   const [ready, setReady] = useState(false);
   const [slow, setSlow] = useState(false);
   const [attempt, setAttempt] = useState(0); // bumping this re-runs the poll
@@ -44,12 +46,12 @@ export default function AppGate({ children }) {
     <div className="app-gate">
       <div className="app-gate-inner">
         <div className="app-gate-spinner" />
-        <p className="app-gate-title">Starting Flashback…</p>
+        <p className="app-gate-title">{t('Starting Flashback…')}</p>
         {slow && (
           <div className="app-gate-slow">
-            <p className="app-gate-slow-text">The workspace service is taking a while to start.</p>
+            <p className="app-gate-slow-text">{t('The workspace service is taking a while to start.')}</p>
             <button type="button" className="app-gate-retry" onClick={() => setAttempt(a => a + 1)}>
-              Retry now
+              {t('Retry now')}
             </button>
           </div>
         )}

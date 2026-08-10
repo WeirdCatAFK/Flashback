@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import { createVanillaCard } from '../../../api/media';
 import FlashcardForm from '../../shared/FlashcardForm';
+import { useT } from '../../../translations';
 
 // `draft` is DocumentEditor's snapshot of what this card is anchored to:
 // { text, highlightId, color } | null. It is stable state — unlike the live
 // browser selection, it doesn't vanish when the user clicks into a field.
 export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) {
+  const { t } = useT();
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
 
@@ -14,7 +16,9 @@ export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) 
   const location    = highlightId ? { type: 'highlight', id: highlightId } : null;
 
   const sourceLabel = draft?.text
-    ? (highlightId ? `Anchored to highlight in ${filename}` : `From ${filename} (not anchored)`)
+    ? (highlightId
+      ? t('Anchored to highlight in {file}', { file: filename })
+      : t('From {file} (not anchored)', { file: filename }))
     : undefined;
 
   const handleSubmit = async ({ card, media }) => {
@@ -26,7 +30,7 @@ export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) 
       await createVanillaCard(path, card, media);
       onSaved();
     } catch (err) {
-      setError(err.message ?? 'Failed to save card');
+      setError(err.message ?? t('Failed to save card'));
     } finally {
       setSaving(false);
     }

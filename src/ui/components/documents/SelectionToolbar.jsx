@@ -1,11 +1,14 @@
 import { createPortal } from 'react-dom';
+import { useT } from '../../translations';
 import './SelectionToolbar.css';
 
-const HIGHLIGHT_COLORS = [
-  { key: 'amber', cssVar: '--color-hl-1', label: 'Highlight 1' },
-  { key: 'green', cssVar: '--color-hl-2', label: 'Highlight 2' },
-  { key: 'blue',  cssVar: '--color-hl-3', label: 'Highlight 3' },
-  { key: 'pink',  cssVar: '--color-hl-4', label: 'Highlight 4' },
+// A function of `t` rather than a module constant, so a language switch re-renders
+// the labels; `key` and `cssVar` are stable identifiers and are never translated.
+const highlightColors = (t) => [
+  { key: 'amber', cssVar: '--color-hl-1', label: t('Highlight 1') },
+  { key: 'green', cssVar: '--color-hl-2', label: t('Highlight 2') },
+  { key: 'blue',  cssVar: '--color-hl-3', label: t('Highlight 3') },
+  { key: 'pink',  cssVar: '--color-hl-4', label: t('Highlight 4') },
 ];
 
 // Floating toolbar over a text selection. Two verbs:
@@ -14,6 +17,7 @@ const HIGHLIGHT_COLORS = [
 //   • Card — highlight (default color) + open the New Card form anchored to it
 // Renderers that can't persist highlights only get the Card verb.
 export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhighlight, onClear }) {
+  const { t } = useT();
   const top = rect.top - 42;
   const left = rect.left + rect.width / 2;
 
@@ -30,22 +34,22 @@ export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhi
     >
       {onHighlight && (
         <>
-          {HIGHLIGHT_COLORS.map(({ key, cssVar, label }) => (
+          {highlightColors(t).map(({ key, cssVar, label }) => (
             <button type="button"
               key={key}
               className="sel-color-dot"
               style={{ '--dot-color': `var(${cssVar})` }}
-              title={`Highlight — ${label}`}
-              aria-label={`Highlight: ${label}`}
+              title={t('Highlight — {color}', { color: label })}
+              aria-label={t('Highlight: {color}', { color: label })}
               onClick={() => handleColor(key)}
             />
           ))}
           {onUnhighlight && (
             <button type="button"
               className="sel-color-dot sel-color-dot--clear"
-              title="Remove highlight"
+              title={t('Remove highlight')}
               onClick={onUnhighlight}
-              aria-label="Remove highlight"
+              aria-label={t('Remove highlight')}
             >
               ×
             </button>
@@ -54,7 +58,7 @@ export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhi
         </>
       )}
       <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>
-        + Card
+        {t('+ Card')}
       </button>
     </div>,
     document.body

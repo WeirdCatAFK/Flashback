@@ -7,49 +7,61 @@
 const STORAGE_KEY = 'fb-keybindings';
 export const KB_EVENT = 'fb-keybindings-change';
 
+// Both registries below are functions of `t` rather than module constants: a label
+// baked into a constant is evaluated once at import time and would keep the old
+// language after a switch. Only the labels are translated — `id`, `default` and the
+// key names are stable data.
+
 // Fixed (non-rebindable) shortcuts. Informational only — used by ShortcutsOverlay
 // to build the cheatsheet. Each `keys` entry is an array of key-part strings
 // rendered as [Ctrl]+[K] etc.
-export const FIXED_SHORTCUT_GROUPS = [
-  {
-    group: 'General',
-    shortcuts: [
-      { label: 'Open search',        keys: [['Ctrl', 'K']] },
-      { label: 'Keyboard shortcuts', keys: [['?']] },
-      { label: 'Zoom in',            keys: [['Ctrl', '+']] },
-      { label: 'Zoom out',           keys: [['Ctrl', '−']] },
-      { label: 'Reset zoom',         keys: [['Ctrl', '0']] },
-    ],
-  },
-  {
-    group: 'Editor',
-    shortcuts: [
-      { label: 'Save document',      keys: [['Ctrl', 'S']] },
-    ],
-  },
-];
+export function fixedShortcutGroups(t) {
+  return [
+    {
+      group: t('General'),
+      shortcuts: [
+        { label: t('Open search'),        keys: [['Ctrl', 'K']] },
+        { label: t('Keyboard shortcuts'), keys: [['?']] },
+        { label: t('Zoom in'),            keys: [['Ctrl', '+']] },
+        { label: t('Zoom out'),           keys: [['Ctrl', '−']] },
+        { label: t('Reset zoom'),         keys: [['Ctrl', '0']] },
+      ],
+    },
+    {
+      group: t('Editor'),
+      shortcuts: [
+        { label: t('Save document'),      keys: [['Ctrl', 'S']] },
+      ],
+    },
+  ];
+}
 
 // The registry. Add a group here and any feature can bind against it; the Config
 // editor renders straight from this list.
-export const KEYBINDING_ACTIONS = [
-  {
-    group: 'Trainer',
-    actions: [
-      // Unified Anki-style numbering: 1=Again, 2=Hard, 3=Good, 4=Easy. "Hard"
-      // only appears under FSRS; Leitner/SM-2 use 1/3/4 (2 is inert for them).
-      { id: 'trainer.reveal',     label: 'Reveal answer', default: ['Space', 'Enter'] },
-      { id: 'trainer.gradeAgain', label: 'Grade · Again', default: ['1'] },
-      { id: 'trainer.gradeHard',  label: 'Grade · Hard (FSRS)', default: ['2'] },
-      { id: 'trainer.gradeGood',  label: 'Grade · Good',  default: ['3'] },
-      { id: 'trainer.gradeEasy',  label: 'Grade · Easy',  default: ['4'] },
-      { id: 'trainer.undo',       label: 'Undo last grade', default: ['Backspace'] },
-      { id: 'trainer.viewSource', label: 'View source',   default: ['S'] },
-    ],
-  },
-];
+export function keybindingActions(t) {
+  return [
+    {
+      group: t('Trainer'),
+      actions: [
+        // Unified Anki-style numbering: 1=Again, 2=Hard, 3=Good, 4=Easy. "Hard"
+        // only appears under FSRS; Leitner/SM-2 use 1/3/4 (2 is inert for them).
+        { id: 'trainer.reveal',     label: t('Reveal answer'), default: ['Space', 'Enter'] },
+        { id: 'trainer.gradeAgain', label: t('Grade · Again'), default: ['1'] },
+        { id: 'trainer.gradeHard',  label: t('Grade · Hard (FSRS)'), default: ['2'] },
+        { id: 'trainer.gradeGood',  label: t('Grade · Good'),  default: ['3'] },
+        { id: 'trainer.gradeEasy',  label: t('Grade · Easy'),  default: ['4'] },
+        { id: 'trainer.undo',       label: t('Undo last grade'), default: ['Backspace'] },
+        { id: 'trainer.viewSource', label: t('View source'),   default: ['S'] },
+      ],
+    },
+  ];
+}
 
+// Defaults are structural, so they are read back out of the same registry with an
+// identity translator — the labels it returns are discarded. One source of truth
+// for ids and default keys, with no second list to keep in step.
 const DEFAULTS = Object.fromEntries(
-  KEYBINDING_ACTIONS.flatMap((g) => g.actions.map((a) => [a.id, a.default])),
+  keybindingActions((s) => s).flatMap((g) => g.actions.map((a) => [a.id, a.default])),
 );
 
 function readStored() {

@@ -1,4 +1,5 @@
 import IconSave from '../icons/IconSave';
+import { useT } from '../../translations';
 import './EditorTabBar.css';
 
 function getLabel(path) {
@@ -6,6 +7,7 @@ function getLabel(path) {
 }
 
 export default function EditorTabBar({ tabs, activeTab, previewTab, dirtyPaths, onTabChange, onTabClose, onTabDoubleClick, onSave, canSave, isDirty }) {
+  const { t } = useT();
   return (
     <div className="tab-bar">
       <div className="tab-bar-scroll" role="tablist">
@@ -29,7 +31,7 @@ export default function EditorTabBar({ tabs, activeTab, previewTab, dirtyPaths, 
                 className="tab-close"
                 role="button"
                 tabIndex={-1}
-                aria-label={`Close ${label}`}
+                aria-label={t('Close {name}', { name: label })}
                 onClick={(e) => { e.stopPropagation(); onTabClose(path); }}
                 onKeyDown={(e) => e.key === 'Enter' && (e.stopPropagation(), onTabClose(path))}
               >
@@ -47,11 +49,11 @@ export default function EditorTabBar({ tabs, activeTab, previewTab, dirtyPaths, 
             className={`tab-save-btn${isDirty ? ' tab-save-btn--dirty' : ''}`}
             onClick={() => onSave()}
             disabled={!canSave}
-            title="Save (Ctrl+S)"
-            aria-label="Save (Ctrl+S)"
+            title={t('Save (Ctrl+S)')}
+            aria-label={t('Save (Ctrl+S)')}
           >
             <IconSave size={13} />
-            <span>{isDirty ? 'Save' : 'Saved'}</span>
+            <span>{isDirty ? t('Save') : t('Saved')}</span>
           </button>
         </div>
       )}

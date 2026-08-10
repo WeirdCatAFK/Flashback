@@ -11,6 +11,7 @@ import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
 import AnkiMappingModal from '../shared/AnkiMappingModal';
 import { useDataInvalidation, invalidateData } from '../../utils/dataBus';
+import { useT } from '../../translations';
 import './FileExplorer.css';
 
 const sortItems = (items) =>
@@ -25,12 +26,12 @@ const sanitizeName = (s) => s.replace(/[\\/:*?"<>|]/g, '');
 // Names reserved by the data model (see DATAMODEL.md): the per-folder `media`
 // asset directory and `.flashback` metadata sidecars are managed automatically
 // and can't be created by hand. Returns an error message, or null if allowed.
-const reservedNameError = (name, type) => {
+const reservedNameError = (name, type, t) => {
   const lower = name.trim().toLowerCase();
   if (lower === '.flashback' || lower.endsWith('.flashback'))
-    return 'The ".flashback" name is reserved for Flashback metadata and can\'t be created directly.';
+    return t('The ".flashback" name is reserved for Flashback metadata and can’t be created directly.');
   if (type === 'folder' && lower === 'media')
-    return 'The "media" folder name is reserved for flashcard assets and is managed automatically.';
+    return t('The "media" folder name is reserved for flashcard assets and is managed automatically.');
   return null;
 };
 
@@ -39,6 +40,7 @@ const reservedNameError = (name, type) => {
 const SWATCH_PRESETS = ['#ef4444','#f97316','#eab308','#22c55e','#06b6d4','#3b82f6','#8b5cf6','#ec4899'];
 
 function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
+  const { t } = useT();
   const [custom, setCustom]   = useState(currentColor || '#3b82f6');
   const [saving, setSaving]   = useState(false);
 
@@ -57,14 +59,14 @@ function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
     <div className="fsm-backdrop" onClick={onClose}>
       <div className="fsm-modal" onClick={e => e.stopPropagation()}>
         <div className="fsm-header">
-          <span className="fsm-title">Folder color</span>
+          <span className="fsm-title">{t('Folder color')}</span>
           <button type="button" className="ftm-close" onClick={onClose}>×</button>
         </div>
         <div className="fsm-swatches">
           <button
             type="button"
             className={`fsm-swatch fsm-swatch--none${!currentColor ? ' fsm-swatch--active' : ''}`}
-            title="No color"
+            title={t('No color')}
             disabled={saving}
             onClick={() => apply('')}
           />
@@ -81,7 +83,7 @@ function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
           ))}
         </div>
         <div className="fsm-custom-row">
-          <span className="fsm-custom-label">Custom</span>
+          <span className="fsm-custom-label">{t('Custom')}</span>
           <input
             type="color"
             className="fsm-custom-input"
@@ -94,7 +96,7 @@ function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
             disabled={saving}
             onClick={() => apply(custom)}
           >
-            Apply
+            {t('Apply')}
           </button>
         </div>
       </div>
@@ -106,6 +108,7 @@ function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
 // ── Folder tags modal ─────────────────────────────────────────────────────────
 
 function FolderTagsModal({ path, onClose }) {
+  const { t } = useT();
   const [inherited, setInherited]       = useState([]);
   const [directTags, setDirectTags]     = useState([]);
   const [excludedTags, setExcludedTags] = useState([]);
@@ -129,10 +132,10 @@ function FolderTagsModal({ path, onClose }) {
     return () => { cancelled = true; };
   }, [path]);
 
-  const addDirect   = (t) => { setDirectTags(p => p.includes(t) ? p : [...p, t]);   setDirty(true); };
-  const removeDirect = (t) => { setDirectTags(p => p.filter(x => x !== t));          setDirty(true); };
-  const addExcluded  = (t) => { setExcludedTags(p => p.includes(t) ? p : [...p, t]); setDirty(true); };
-  const removeExcluded = (t) => { setExcludedTags(p => p.filter(x => x !== t));      setDirty(true); };
+  const addDirect   = (tag) => { setDirectTags(p => p.includes(tag) ? p : [...p, tag]);   setDirty(true); };
+  const removeDirect = (tag) => { setDirectTags(p => p.filter(x => x !== tag));            setDirty(true); };
+  const addExcluded  = (tag) => { setExcludedTags(p => p.includes(tag) ? p : [...p, tag]); setDirty(true); };
+  const removeExcluded = (tag) => { setExcludedTags(p => p.filter(x => x !== tag));        setDirty(true); };
 
   const handleSave = async () => {
     setSaving(true);
@@ -142,7 +145,7 @@ function FolderTagsModal({ path, onClose }) {
       await updateMetadata(path, { ...sidecar, tags: directTags, excludedTags }, true);
       onClose();
     } catch {
-      setError('Save failed.');
+      setError(t('Save failed.'));
       setSaving(false);
     }
   };
@@ -151,22 +154,24 @@ function FolderTagsModal({ path, onClose }) {
     <div className="ftm-backdrop" onClick={onClose}>
       <div className="ftm-modal" onClick={e => e.stopPropagation()}>
         <div className="ftm-header">
-          <span className="ftm-title">Folder tags</span>
+          <span className="ftm-title">{t('Folder tags')}</span>
           <span className="ftm-path">{path}</span>
-          <button type="button" className="ftm-close" onClick={onClose} aria-label="Close">×</button>
+          <button type="button" className="ftm-close" onClick={onClose} aria-label={t('Close')}>×</button>
         </div>
 
         {inherited.length > 0 && (
           <div className="ftm-section">
-            <div className="ftm-label">Inherited <span className="ftm-hint">from parent folders, read-only</span></div>
+            <div className="ftm-label">
+              {t('Inherited')} <span className="ftm-hint">{t('from parent folders, read-only')}</span>
+            </div>
             <div className="tags-chip-row">
-              {inherited.map(t => <span key={t} className="tag-chip tag-chip--inherited">{t}</span>)}
+              {inherited.map(tag => <span key={tag} className="tag-chip tag-chip--inherited">{tag}</span>)}
             </div>
           </div>
         )}
 
         <div className="ftm-section">
-          <div className="ftm-label">Direct tags</div>
+          <div className="ftm-label">{t('Direct tags')}</div>
           <TagChipInput
             tags={directTags}
             onAdd={addDirect}
@@ -178,15 +183,15 @@ function FolderTagsModal({ path, onClose }) {
 
         <div className="ftm-section">
           <div className="ftm-label">
-            Excluded tags
-            <span className="ftm-hint">block these inherited tags from propagating to children</span>
+            {t('Excluded tags')}
+            <span className="ftm-hint">{t('block these inherited tags from propagating to children')}</span>
           </div>
           <TagChipInput
             tags={excludedTags}
             onAdd={addExcluded}
             onRemove={removeExcluded}
             allKnownTags={[...inherited, ...directTags]}
-            placeholder="Add exclusion…"
+            placeholder={t('Add exclusion…')}
             chipClass="tag-chip--excluded"
           />
         </div>
@@ -194,9 +199,9 @@ function FolderTagsModal({ path, onClose }) {
         {error && <p className="ftm-error">{error}</p>}
 
         <div className="ftm-footer">
-          <button type="button" className="tags-btn tags-btn--ghost" onClick={onClose}>Cancel</button>
+          <button type="button" className="tags-btn tags-btn--ghost" onClick={onClose}>{t('Cancel')}</button>
           <button type="button" className="tags-btn tags-btn--save" onClick={handleSave} disabled={!dirty || saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('Saving…') : t('Save')}
           </button>
         </div>
       </div>
@@ -208,7 +213,10 @@ function FolderTagsModal({ path, onClose }) {
 // ── Inline create input ───────────────────────────────────────────────────────
 
 function InlineCreate({ type, onConfirm, onCancel }) {
-  const defaultName = type === 'folder' ? 'New Folder' : 'new_file';
+  const { t } = useT();
+  // These become real names on disk, but they are pre-selected in the input for the
+  // user to type over, so they read as prompts and are translated like one.
+  const defaultName = type === 'folder' ? t('New Folder') : t('new_file');
   const [name, setName] = useState(defaultName);
   const committed = useRef(false); // guard against Enter + onBlur both firing commit
 
@@ -217,7 +225,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
     const trimmed = name.trim();
     if (!trimmed) { committed.current = true; onCancel(); return; }
     const finalName = type === 'file' ? (trimmed.includes('.') ? trimmed : `${trimmed}.md`) : trimmed;
-    const err = reservedNameError(finalName, type);
+    const err = reservedNameError(finalName, type, t);
     if (err) { committed.current = true; window.alert(err); onCancel(); return; }
     committed.current = true;
     onConfirm(finalName);
@@ -241,7 +249,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
           className="fe-rename-input"
           value={name}
           autoFocus
-          aria-label="New name"
+          aria-label={t('New name')}
           onChange={e => setName(sanitizeName(e.target.value))}
           onKeyDown={handleKey}
           onBlur={commit}
@@ -256,6 +264,7 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 // ── File ──────────────────────────────────────────────────────────────────────
 
 function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, relocatePaths, onCtxMenu }) {
+  const { t } = useT();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
   const FileIcon = getFileIcon(name);
@@ -280,7 +289,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
     const ext = name.includes('.') ? name.slice(name.lastIndexOf('.')) : '';
     const base = trimmed.replace(/\.+$/, '');
     const newName = ext && (!trimmed.includes('.') || trimmed.endsWith('.')) ? base + ext : trimmed;
-    const err = reservedNameError(newName, 'file');
+    const err = reservedNameError(newName, 'file', t);
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, newName, false);
@@ -322,7 +331,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
       <span className="fe-item-label">
         {renaming
           ? <input className="fe-rename-input" value={draft} autoFocus
-              aria-label="New name"
+              aria-label={t('New name')}
               onChange={e => setDraft(sanitizeName(e.target.value))}
               onKeyDown={handleRenameKey}
               onBlur={commitRename}
@@ -341,6 +350,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
 // ── Folder ────────────────────────────────────────────────────────────────────
 
 function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress, onNeedsMapping }) {
+  const { t } = useT();
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
@@ -439,7 +449,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
   const commitRename = async () => {
     const trimmed = draft.trim();
     if (!trimmed || trimmed === name) { setDraft(name); setRenaming(false); return; }
-    const err = reservedNameError(trimmed, 'folder');
+    const err = reservedNameError(trimmed, 'folder', t);
     if (err) { window.alert(err); setDraft(name); setRenaming(false); return; }
     try {
       await renameItem(path, trimmed, true);
@@ -515,7 +525,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
         <span className="fe-item-label" onClick={toggle}>
           {renaming
             ? <input className="fe-rename-input" value={draft} autoFocus
-                aria-label="New name"
+                aria-label={t('New name')}
                 onChange={e => setDraft(sanitizeName(e.target.value))}
                 onKeyDown={handleRenameKey}
                 onBlur={commitRename}
@@ -538,7 +548,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
               onCancel={() => setPendingNew(null)}
             />
           )}
-          {loading && <span className="fe-loading">Loading…</span>}
+          {loading && <span className="fe-loading">{t('Loading…')}</span>}
           {!loading && children.map(item =>
             item.type === 'folder'
               ? <FolderNode key={item.name} name={item.name} path={childPath(item.name)}
@@ -569,6 +579,7 @@ const looksLikeYoutube = (url) => {
 // Captures a web article (.clip) or a YouTube reference (.youtube) into the
 // target folder. Kind auto-detects from the host but can be overridden.
 function ClipUrlModal({ targetPath, onClose, onCreated }) {
+  const { t } = useT();
   const [url, setUrl]     = useState('');
   const [kind, setKind]   = useState('auto'); // 'auto' | 'article' | 'youtube'
   const [busy, setBusy]   = useState(false);
@@ -587,7 +598,7 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
         : await clipUrl(u, targetPath);
       onCreated(result?.path);
     } catch (err) {
-      setError(err?.message || 'Could not capture that URL.');
+      setError(err?.message || t('Could not capture that URL.'));
       setBusy(false);
     }
   };
@@ -596,22 +607,22 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
 
   return (
     <Modal
-      title="Clip from URL"
+      title={t('Clip from URL')}
       size="sm"
       dismissible={!busy}
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="clip-btn" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="clip-btn" onClick={onClose} disabled={busy}>{t('Cancel')}</button>
           <button type="button" className="clip-btn clip-btn--primary" onClick={submit} disabled={busy || !url.trim()}>
-            {busy ? 'Clipping…' : 'Clip'}
+            {busy ? t('Clipping…') : t('Clip')}
           </button>
         </>
       }
     >
       <div className="clip-form">
         <label className="clip-field">
-          <span className="clip-label">Page or video URL</span>
+          <span className="clip-label">{t('Page or video URL')}</span>
           <input
             className="clip-input"
             type="url"
@@ -624,11 +635,11 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
             onKeyDown={onKeyDown}
           />
         </label>
-        <div className="clip-kind" role="radiogroup" aria-label="Capture as">
+        <div className="clip-kind" role="radiogroup" aria-label={t('Capture as')}>
           {[
-            ['auto', 'Auto'],
-            ['article', 'Article'],
-            ['youtube', 'YouTube'],
+            ['auto', t('Auto')],
+            ['article', t('Article')],
+            ['youtube', t('YouTube')],
           ].map(([val, lbl]) => (
             <button
               key={val}
@@ -645,10 +656,12 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
         </div>
         <p className="clip-hint">
           {kind === 'auto'
-            ? `Auto-detected: ${effectiveKind === 'youtube' ? 'YouTube video' : 'web article'}.`
+            ? (effectiveKind === 'youtube'
+              ? t('Auto-detected: YouTube video.')
+              : t('Auto-detected: web article.'))
             : effectiveKind === 'youtube'
-              ? 'Stores the video reference with timestamp highlights.'
-              : 'Fetches and stores a readable snapshot of the page.'}
+              ? t('Stores the video reference with timestamp highlights.')
+              : t('Fetches and stores a readable snapshot of the page.')}
         </p>
         {error && <p className="clip-error">{error}</p>}
       </div>
@@ -659,6 +672,7 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
 // ── Root ──────────────────────────────────────────────────────────────────────
 
 export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
+  const { t } = useT();
   const [items, setItems]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [rootError, setRootError] = useState(false);
@@ -731,7 +745,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       invalidateData();
     } catch (err) {
       console.error('Anki import failed', err);
-      setAnkiError(err.message || 'The import failed. Pick the file again to retry.');
+      setAnkiError(err.message || t('The import failed. Pick the file again to retry.'));
     } finally {
       setAnkiBusy(false);
     }
@@ -805,14 +819,14 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
   const ctxItems = ctxMenu ? [
     ...(ctxMenu.isFolder ? [
-      { label: 'Study folder', action: () => onStudyFolder?.(ctxMenu.folderPath) },
-      { label: 'Edit tags',    action: () => setTagsTarget(ctxMenu.folderPath) },
-      { label: 'Set color',    action: () => {
+      { label: t('Study folder'), action: () => onStudyFolder?.(ctxMenu.folderPath) },
+      { label: t('Edit tags'),    action: () => setTagsTarget(ctxMenu.folderPath) },
+      { label: t('Set color'),    action: () => {
           swatchRefreshRef.current = ctxMenu.doRefreshOnColorSave;
           setSwatchTarget({ path: ctxMenu.folderPath, color: ctxMenu.folderColor ?? '' });
         }
       },
-      { label: 'Import to folder', action: () => {
+      { label: t('Import to folder'), action: () => {
           ctxMenuTargetRef.current = ctxMenu.folderPath;
           fileInputRef.current?.click();
         }
@@ -820,11 +834,11 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       { separator: true },
     ] : []),
     ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
-      { label: 'New File',   action: ctxMenu.doNewFile   },
-      { label: 'New Folder', action: ctxMenu.doNewFolder },
-      { label: 'Clip from URL', action: () => openClip(ctxMenu.isRoot ? '' : ctxMenu.folderPath, ctxMenu.isRoot ? loadRoot : ctxMenu.doRefreshOnColorSave) },
+      { label: t('New File'),   action: ctxMenu.doNewFile   },
+      { label: t('New Folder'), action: ctxMenu.doNewFolder },
+      { label: t('Clip from URL'), action: () => openClip(ctxMenu.isRoot ? '' : ctxMenu.folderPath, ctxMenu.isRoot ? loadRoot : ctxMenu.doRefreshOnColorSave) },
       ...(ctxMenu.isRoot ? [
-        { label: 'Import files/packages', action: () => {
+        { label: t('Import files/packages'), action: () => {
             ctxMenuTargetRef.current = '';
             fileInputRef.current?.click();
           }
@@ -833,8 +847,8 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       ] : [{ separator: true }]),
     ] : []),
     ...(ctxMenu.isRoot ? [] : [
-      { label: 'Rename', action: ctxMenu.triggerRename },
-      { label: 'Delete', action: ctxMenu.doDelete, danger: true },
+      { label: t('Rename'), action: ctxMenu.triggerRename },
+      { label: t('Delete'), action: ctxMenu.doDelete, danger: true },
     ]),
   ] : [];
 
@@ -848,27 +862,27 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       <div className="fe-header">
         <span className="fe-workspace-name">{workspaceName}</span>
         <div className="fe-header-actions">
-          <button type="button" className="fe-action-btn" onClick={() => handleCreate(true)} title="New folder" aria-label="New folder">
+          <button type="button" className="fe-action-btn" onClick={() => handleCreate(true)} title={t('New folder')} aria-label={t('New folder')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.38a1.5 1.5 0 0 1 1.06.44L8 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z"/>
               <line x1="8" y1="7" x2="8" y2="11"/><line x1="6" y1="9" x2="10" y2="9"/>
             </svg>
           </button>
-          <button type="button" className="fe-action-btn" onClick={() => handleCreate(false)} title="New file" aria-label="New file">
+          <button type="button" className="fe-action-btn" onClick={() => handleCreate(false)} title={t('New file')} aria-label={t('New file')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M9 1H3.5A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9A1.5 1.5 0 0 0 14 13.5V6L9 1z"/>
               <polyline points="9,1 9,6 14,6"/>
               <line x1="8" y1="9" x2="8" y2="13"/><line x1="6" y1="11" x2="10" y2="11"/>
             </svg>
           </button>
-          <button type="button" className="fe-action-btn" onClick={() => { ctxMenuTargetRef.current = ''; fileInputRef.current?.click(); }} title="Import files / packages (.zip, .apkg, .md)" aria-label="Import files">
+          <button type="button" className="fe-action-btn" onClick={() => { ctxMenuTargetRef.current = ''; fileInputRef.current?.click(); }} title={t('Import files / packages (.zip, .apkg, .md)')} aria-label={t('Import files')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M12 12L8 8L4 12"/>
               <line x1="8" y1="8" x2="8" y2="15"/>
               <rect x="2" y="2" width="12" height="4" rx="1"/>
             </svg>
           </button>
-          <button type="button" className="fe-action-btn" onClick={() => openClip('', loadRoot)} title="Clip from URL (web article or YouTube)" aria-label="Clip from URL">
+          <button type="button" className="fe-action-btn" onClick={() => openClip('', loadRoot)} title={t('Clip from URL (web article or YouTube)')} aria-label={t('Clip from URL')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2.4-2.4a2.5 2.5 0 1 0-3.5-3.5l-1 1"/>
               <path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1L3.5 8.8a2.5 2.5 0 1 0 3.5 3.5l1-1"/>
@@ -885,15 +899,15 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
             onCancel={() => setPendingNew(null)}
           />
         )}
-        {loading && <span className="fe-loading">Loading…</span>}
+        {loading && <span className="fe-loading">{t('Loading…')}</span>}
         {!loading && rootError && (
           <span className="fe-empty fe-empty--error">
-            Couldn&apos;t load your files.
-            <button type="button" className="fe-retry" onClick={loadRoot}>Try again</button>
+            {t("Couldn't load your files.")}
+            <button type="button" className="fe-retry" onClick={loadRoot}>{t('Try again')}</button>
           </span>
         )}
         {!loading && !rootError && !pendingNew && items.length === 0 && (
-          <span className="fe-empty">No files yet — use the buttons above to get started.</span>
+          <span className="fe-empty">{t('No files yet — use the buttons above to get started.')}</span>
         )}
         {!loading && items.map(item =>
           item.type === 'folder'
@@ -917,11 +931,15 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
 
       {importing && (
         <ProgressDialog
-          title={importing.total === 1 ? 'Importing file' : `Importing file ${importing.done + 1} of ${importing.total}`}
+          title={importing.total === 1
+            ? t('Importing file')
+            : t('Importing file {index} of {total}', { index: importing.done + 1, total: importing.total })}
           filename={importing.filename}
           progress={((importing.done + importing.pct / 100) / importing.total) * 100}
           processing={importing.processing}
-          statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
+          statusText={importing.processing
+            ? t('Processing…')
+            : t('Uploading… {percent}%', { percent: importing.pct })}
         />
       )}
 
@@ -968,7 +986,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         multiple
         accept=".zip,.apkg,.md,.txt,.pdf,.epub"
         onChange={handleFilePickerChange}
-        aria-label="Upload files"
+        aria-label={t('Upload files')}
       />
     </div>
   );

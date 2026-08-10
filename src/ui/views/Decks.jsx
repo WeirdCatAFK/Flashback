@@ -3,13 +3,14 @@ import { listDecks, createDeck, getDeck, updateDeck, deleteDeck, purgeDeck, addE
 import { importZipWithProgress, applyAnkiMapping, getTags } from '../api/documents';
 import TagChipInput from '../components/shared/TagChipInput';
 import StandaloneCardModal from '../components/shared/StandaloneCardModal';
-import { typeAnswerParts } from '../components/shared/flashcardFields';
+import { typeAnswerParts, cardTypeLabel } from '../components/shared/flashcardFields';
 import AnkiMappingModal from '../components/shared/AnkiMappingModal';
 import DeckPurgeDialog from '../components/shared/DeckPurgeDialog';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { useDataInvalidation, invalidateData } from '../utils/dataBus';
+import { Rich, useT } from '../translations';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ function useDecks() {
 // ── NewDeckForm ──────────────────────────────────────────────────────────────
 
 function NewDeckForm({ onCreated, onCancel }) {
+    const { t } = useT();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [saving, setSaving] = useState(false);
@@ -59,17 +61,17 @@ function NewDeckForm({ onCreated, onCancel }) {
     return (
         <form className="new-deck-form" onSubmit={submit}>
             <label>
-                Name
-                <input ref={inputRef} value={name} onChange={e => setName(e.target.value)} placeholder="Deck name" required />
+                {t('Name')}
+                <input ref={inputRef} value={name} onChange={e => setName(e.target.value)} placeholder={t('Deck name')} required />
             </label>
             <label>
-                Description
-                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="Optional description" rows={2} />
+                {t('Description')}
+                <textarea value={description} onChange={e => setDescription(e.target.value)} placeholder={t('Optional description')} rows={2} />
             </label>
             <div className="new-deck-actions">
-                <button type="button" className="deck-btn" onClick={onCancel}>Cancel</button>
+                <button type="button" className="deck-btn" onClick={onCancel}>{t('Cancel')}</button>
                 <button type="submit" className="deck-btn primary" disabled={saving || !name.trim()}>
-                    {saving ? 'Creating…' : 'Create'}
+                    {saving ? t('Creating…') : t('Create')}
                 </button>
             </div>
         </form>
@@ -79,6 +81,7 @@ function NewDeckForm({ onCreated, onCancel }) {
 // ── AddCardsPanel ────────────────────────────────────────────────────────────
 
 function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
+    const { t } = useT();
     const [query, setQuery] = useState('');
     const [results, setResults] = useState([]);
     const [total, setTotal] = useState(0);
@@ -118,16 +121,16 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
     return (
         <div className="add-cards-panel">
             <div className="add-cards-header">
-                <span className="add-cards-title">Add cards to deck</span>
-                <button type="button" className="add-cards-close" onClick={onClose} title="Close">×</button>
+                <span className="add-cards-title">{t('Add cards to deck')}</span>
+                <button type="button" className="add-cards-close" onClick={onClose} title={t('Close')}>×</button>
             </div>
             <div className="add-cards-search">
-                <input autoFocus placeholder="Search cards…" aria-label="Search cards" value={query} onChange={onQueryChange} />
+                <input autoFocus placeholder={t('Search cards…')} aria-label={t('Search cards')} value={query} onChange={onQueryChange} />
             </div>
             <div className="add-cards-results">
                 {results.length === 0 && (
                     <div style={{ padding: '24px', textAlign: 'center', color: 'var(--color-fg-secondary)', fontSize: 12 }}>
-                        No cards found.
+                        {t('No cards found.')}
                     </div>
                 )}
                 {results.map(card => {
@@ -136,17 +139,19 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
                     return (
                         <div key={card.global_hash} className="add-card-row">
                             <div className="add-card-row-body">
-                                <div className="add-card-front">{card.frontText || card.name || '(untitled)'}</div>
+                                <div className="add-card-front">{card.frontText || card.name || t('(untitled)')}</div>
                                 {card.document_name && <div className="add-card-doc">{card.document_name}</div>}
                             </div>
                             <button type="button" className="add-card-btn" disabled={isAdded || isAdding} onClick={() => handleAdd(card)}>
-                                {isAdded ? 'Added' : isAdding ? '…' : '+ Add'}
+                                {isAdded ? t('Added') : isAdding ? '…' : t('+ Add')}
                             </button>
                         </div>
                     );
                 })}
             </div>
-            <div className="add-cards-info">Showing {results.length} of {total} cards</div>
+            <div className="add-cards-info">
+                {t('Showing {shown} of {total} cards', { shown: results.length, total })}
+            </div>
         </div>
     );
 }
@@ -154,7 +159,8 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
 // ── CardRow ──────────────────────────────────────────────────────────────────
 
 function CardRow({ entry, onRemove }) {
-    const front = entry.frontText || entry.card_name || '(untitled)';
+    const { t } = useT();
+    const front = entry.frontText || entry.card_name || t('(untitled)');
     // A type_answer card's second line is what it asks you to produce, not the notes
     // shown afterwards (and on a card predating that split, backText IS the answer).
     const back = (entry.card_type === 'type_answer'
@@ -172,11 +178,11 @@ function CardRow({ entry, onRemove }) {
             </div>
             <div className="card-row-meta">
                 {entry.card_type && entry.card_type !== 'basic' && (
-                    <span className="card-type-badge">{entry.card_type.replace('_', ' ')}</span>
+                    <span className="card-type-badge">{cardTypeLabel(entry.card_type, t)}</span>
                 )}
                 {docName && <span className="card-doc-badge" title={entry.document_path}>{docName}</span>}
             </div>
-            <button type="button" className="card-row-remove" title="Remove from deck" onClick={onRemove}>×</button>
+            <button type="button" className="card-row-remove" title={t('Remove from deck')} onClick={onRemove}>×</button>
         </div>
     );
 }
@@ -184,6 +190,7 @@ function CardRow({ entry, onRemove }) {
 // ── DeckTags ─────────────────────────────────────────────────────────────────
 
 function DeckTags({ deckHash, tags, onChanged }) {
+    const { t } = useT();
     const [allTags, setAllTags] = useState([]);
     const [saving, setSaving] = useState(false);
 
@@ -199,20 +206,20 @@ function DeckTags({ deckHash, tags, onChanged }) {
     };
 
     const addTag = (name) => { if (!tags.includes(name)) save([...tags, name]); };
-    const removeTag = (name) => save(tags.filter(t => t !== name));
+    const removeTag = (name) => save(tags.filter(tag => tag !== name));
 
     return (
         <div className="deck-tags" aria-busy={saving}>
-            <span className="deck-tags-label">Tags</span>
+            <span className="deck-tags-label">{t('Tags')}</span>
             <TagChipInput
                 tags={tags}
                 onAdd={addTag}
                 onRemove={removeTag}
                 allKnownTags={allTags}
-                placeholder="Add a tag…"
+                placeholder={t('Add a tag…')}
                 chipClass="tag-chip--direct"
             />
-            <span className="deck-tags-hint">Tags flow down to every card in this deck.</span>
+            <span className="deck-tags-hint">{t('Tags flow down to every card in this deck.')}</span>
         </div>
     );
 }
@@ -220,6 +227,7 @@ function DeckTags({ deckHash, tags, onChanged }) {
 // ── DeckDetail ───────────────────────────────────────────────────────────────
 
 function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
+    const { t, tp } = useT();
     const confirm = useConfirm();
     const [deck, setDeck] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -255,9 +263,9 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 
     const handleDelete = async () => {
         const ok = await confirm({
-            title: `Delete "${deck.name}"?`,
-            message: 'This removes the deck. The cards themselves are not deleted.',
-            confirmLabel: 'Delete deck',
+            title: t('Delete "{name}"?', { name: deck.name }),
+            message: t('This removes the deck. The cards themselves are not deleted.'),
+            confirmLabel: t('Delete deck'),
             tone: 'danger',
         });
         if (!ok) return;
@@ -275,7 +283,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
             setPurging(false);
             onDeleted();
         } catch (err) {
-            setPurgeError(err.message || 'Could not erase the deck.');
+            setPurgeError(err.message || t('Could not erase the deck.'));
         } finally {
             setPurgeBusy(false);
         }
@@ -304,10 +312,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     };
 
     if (loading) return (
-        <div className="deck-content"><LoadingState message="Loading deck…" /></div>
+        <div className="deck-content"><LoadingState message={t('Loading deck…')} /></div>
     );
     if (error) return (
-        <div className="deck-content"><ErrorState error={error} title="Couldn't load this deck" onRetry={load} /></div>
+        <div className="deck-content"><ErrorState error={error} title={t("Couldn't load this deck")} onRetry={load} /></div>
     );
     if (!deck) return null;
 
@@ -321,55 +329,55 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     {editingMeta ? (
                         <form className="deck-meta-form" onSubmit={submitMeta}
                             onKeyDown={e => { if (e.key === 'Escape') setEditingMeta(false); }}>
-                            <input className="deck-detail-name-input" autoFocus aria-label="Deck name" value={nameVal}
-                                onChange={e => setNameVal(e.target.value)} placeholder="Deck name" />
-                            <textarea className="deck-detail-desc-input" aria-label="Deck description" value={descVal}
+                            <input className="deck-detail-name-input" autoFocus aria-label={t('Deck name')} value={nameVal}
+                                onChange={e => setNameVal(e.target.value)} placeholder={t('Deck name')} />
+                            <textarea className="deck-detail-desc-input" aria-label={t('Deck description')} value={descVal}
                                 onChange={e => setDescVal(e.target.value)} rows={2}
-                                placeholder="Optional description" />
+                                placeholder={t('Optional description')} />
                             <div className="deck-meta-form-actions">
-                                <button type="button" className="deck-btn" onClick={() => setEditingMeta(false)} disabled={savingMeta}>Cancel</button>
+                                <button type="button" className="deck-btn" onClick={() => setEditingMeta(false)} disabled={savingMeta}>{t('Cancel')}</button>
                                 <button type="submit" className="deck-btn primary" disabled={savingMeta || !nameVal.trim()}>
-                                    {savingMeta ? 'Saving…' : 'Save'}
+                                    {savingMeta ? t('Saving…') : t('Save')}
                                 </button>
                             </div>
                         </form>
                     ) : (
                         <>
-                            <h2 className="deck-detail-name" onDoubleClick={startEditMeta} title="Double-click to edit">
+                            <h2 className="deck-detail-name" onDoubleClick={startEditMeta} title={t('Double-click to edit')}>
                                 {deck.name}
                             </h2>
                             <div className="deck-detail-meta">
-                                {deck.entries?.length ?? 0} card{deck.entries?.length !== 1 ? 's' : ''}
+                                {tp('{n} card', '{n} cards', deck.entries?.length ?? 0)}
                                 {' · '}
                                 {/* Empty descriptions still need a target to double-click, so the
                                     placeholder is rendered rather than the line collapsing. */}
                                 <span
                                     className={`deck-detail-desc${deck.description ? '' : ' deck-detail-desc--empty'}`}
                                     onDoubleClick={startEditMeta}
-                                    title="Double-click to edit"
+                                    title={t('Double-click to edit')}
                                 >
-                                    {deck.description || 'Add a description…'}
+                                    {deck.description || t('Add a description…')}
                                 </span>
-                                {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">Standalone cards live here</span>}
+                                {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">{t('Standalone cards live here')}</span>}
                             </div>
                         </>
                     )}
                 </div>
                 <div className="deck-detail-actions">
                     {deck.entries?.length > 0 && (
-                        <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>▶ Study</button>
+                        <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>{t('▶ Study')}</button>
                     )}
                     {!!deck.is_system && (
-                        <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>+ New card</button>
+                        <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>{t('+ New card')}</button>
                     )}
-                    <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>+ Add cards</button>
+                    <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>{t('+ Add cards')}</button>
                     {!deck.is_system && (
                         <>
-                            <button type="button" className="deck-btn danger" onClick={handleDelete}>Delete</button>
+                            <button type="button" className="deck-btn danger" onClick={handleDelete}>{t('Delete')}</button>
                             {/* Separate action, not a variant of Delete: this one destroys
                                 the cards too, and a mis-click must not be able to do that. */}
                             <button type="button" className="deck-btn danger" onClick={() => setPurging(true)}>
-                                Erase
+                                {t('Erase')}
                             </button>
                         </>
                     )}
@@ -382,7 +390,11 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
             <div className="deck-cards-area">
                 {deck.entries?.length === 0 ? (
                     <div className="deck-cards-empty">
-                        This deck is empty.<br />Click <strong>+ Add cards</strong> to pick cards from your library.
+                        {t('This deck is empty.')}<br />
+                        <Rich
+                            text={t('Click {action} to pick cards from your library.')}
+                            values={{ action: <strong>{t('+ Add cards')}</strong> }}
+                        />
                     </div>
                 ) : (
                     deck.entries.map(entry => (
@@ -419,6 +431,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 // ── Main view ────────────────────────────────────────────────────────────────
 
 export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed }) {
+    const { t, tp } = useT();
     const { decks, loading, error, refresh } = useDecks();
     const [activeDeck, setActiveDeck] = useState(null);
 
@@ -473,7 +486,10 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
             invalidateData();
         } catch (err) {
             console.error('Import failed', err);
-            setImportError(`Couldn't import "${file.name}". ${err.message || 'The file may be unsupported or corrupt.'}`);
+            setImportError(t('Couldn’t import "{name}". {reason}', {
+                name: file.name,
+                reason: err.message || t('The file may be unsupported or corrupt.'),
+            }));
         } finally {
             setImporting(null);
         }
@@ -488,7 +504,7 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
             invalidateData();
         } catch (err) {
             console.error('Anki import failed', err);
-            setMappingError(err.message || 'The import failed. Pick the file again to retry.');
+            setMappingError(err.message || t('The import failed. Pick the file again to retry.'));
         } finally {
             setMappingBusy(false);
         }
@@ -498,17 +514,17 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
         <div className="decks-view">
             <div className="decks-panel">
                 <div className="decks-panel-header">
-                    <span className="decks-panel-title">Decks</span>
+                    <span className="decks-panel-title">{t('Decks')}</span>
                     <div className="decks-panel-actions">
-                        <button type="button" className="decks-panel-import" title="Import an Anki deck (.apkg) or Obsidian vault (.zip)"
-                            onClick={() => importInputRef.current?.click()} aria-label="Import deck">
+                        <button type="button" className="decks-panel-import" title={t('Import an Anki deck (.apkg) or Obsidian vault (.zip)')}
+                            onClick={() => importInputRef.current?.click()} aria-label={t('Import deck')}>
                             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
                                 <path d="M12 12L8 8L4 12"/>
                                 <line x1="8" y1="8" x2="8" y2="15"/>
                                 <rect x="2" y="2" width="12" height="4" rx="1"/>
                             </svg>
                         </button>
-                        <button type="button" className="decks-panel-new" title="New deck" onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                        <button type="button" className="decks-panel-new" title={t('New deck')} onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
                     </div>
                     <input
                         ref={importInputRef}
@@ -520,15 +536,15 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                 </div>
 
                 <div className="decks-list">
-                    {loading && <div className="decks-empty">Loading…</div>}
+                    {loading && <div className="decks-empty">{t('Loading…')}</div>}
                     {!loading && error && (
                         <div className="decks-empty decks-empty--error">
-                            <span>Failed to load decks.</span>
-                            <button type="button" className="decks-retry" onClick={refresh}>Try again</button>
+                            <span>{t('Failed to load decks.')}</span>
+                            <button type="button" className="decks-retry" onClick={refresh}>{t('Try again')}</button>
                         </div>
                     )}
                     {!loading && !error && decks.length === 0 && !creating && (
-                        <div className="decks-empty">No decks yet.<br />Click + to create one.</div>
+                        <div className="decks-empty">{t('No decks yet.')}<br />{t('Click + to create one.')}</div>
                     )}
                     {decks.map(deck => (
                         <div key={deck.global_hash}
@@ -538,9 +554,9 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                             <div className="deck-item-info">
                                 <div className="deck-item-name">
                                     {deck.name}
-                                    {deck.is_system ? <span className="deck-system-badge">default</span> : null}
+                                    {deck.is_system ? <span className="deck-system-badge">{t('default')}</span> : null}
                                 </div>
-                                <div className="deck-item-count">{deck.entry_count} card{deck.entry_count !== 1 ? 's' : ''}</div>
+                                <div className="deck-item-count">{tp('{n} card', '{n} cards', deck.entry_count)}</div>
                             </div>
                         </div>
                     ))}
@@ -552,7 +568,7 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                     <>
                         <div className="deck-detail-header">
                             <div className="deck-detail-title-group">
-                                <h2 className="deck-detail-name">New Deck</h2>
+                                <h2 className="deck-detail-name">{t('New Deck')}</h2>
                             </div>
                         </div>
                         <NewDeckForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
@@ -563,23 +579,25 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                 ) : (
                     <div className="deck-empty-state">
                         <div className="deck-empty-icon">▤</div>
-                        <div className="deck-empty-text">Select a deck or create a new one to get started.</div>
+                        <div className="deck-empty-text">{t('Select a deck or create a new one to get started.')}</div>
                     </div>
                 )}
             </div>
             {importing && (
                 <ProgressDialog
-                    title="Importing deck"
+                    title={t('Importing deck')}
                     filename={importing.filename}
                     progress={importing.pct}
                     processing={importing.processing}
-                    statusText={importing.processing ? 'Processing…' : `Uploading… ${importing.pct}%`}
+                    statusText={importing.processing
+                        ? t('Processing…')
+                        : t('Uploading… {percent}%', { percent: importing.pct })}
                 />
             )}
             {importError && (
                 <div className="decks-import-error" role="alert">
                     <span>{importError}</span>
-                    <button type="button" onClick={() => setImportError(null)} aria-label="Dismiss">×</button>
+                    <button type="button" onClick={() => setImportError(null)} aria-label={t('Dismiss')}>×</button>
                 </div>
             )}
             {mapping && (

@@ -8,6 +8,7 @@ import { Markdown } from 'tiptap-markdown';
 import { ThemedHighlight, reconcileHighlights, applyMissingHighlights } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
 import { getDocumentByHash } from '../../../api/documents';
+import { useT } from '../../../translations';
 import './MarkdownRenderer.css';
 
 // tiptap-markdown registers a minimal Link$1 mark (no parseHTML/addAttributes) at
@@ -71,6 +72,7 @@ const loadContent = (editor, markdown, meta) => {
 };
 
 export default function MarkdownRenderer({ onNavigate, ...props }) {
+  const { t } = useT();
   const { editor, loading } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
@@ -130,7 +132,7 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
     >
       <div className="editor-content-wrapper">
         {loading && (
-          <div className="editor-loading-overlay">Loading Editor…</div>
+          <div className="editor-loading-overlay">{t('Loading Editor…')}</div>
         )}
         <EditorContent editor={editor} className="tiptap-wrapper" />
       </div>

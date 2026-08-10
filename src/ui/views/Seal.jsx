@@ -2,18 +2,29 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { getLog, inspectDrift, rollback, getCommitFiles } from '../api/seal';
 import { checkIndex, syncIndex, rebuildIndex } from '../api/doctor';
 import Modal from '../components/shared/Modal';
-import { relativeFromMs } from '../utils/relativeTime';
 import { invalidateData } from '../utils/dataBus';
+import { Rich, useT } from '../translations';
 import './Seal.css';
 
-const ACTION_LABELS = {
-    create: 'Created',
-    edit: 'Edited',
-    metadata: 'Metadata',
-    move: 'Moved',
-    delete: 'Deleted',
-    reconcile: 'Reconciled',
-};
+/**
+ * Commit actions are stable identifiers in the seal log but labels on screen.
+ * A switch of literals rather than the old lookup table: the extractor only
+ * sees literal t() arguments, so a map keyed by action would translate nothing.
+ */
+function useActionLabel() {
+    const { t } = useT();
+    return useCallback((action) => {
+        switch (action) {
+            case 'create':    return t('Created');
+            case 'edit':      return t('Edited');
+            case 'metadata':  return t('Metadata');
+            case 'move':      return t('Moved');
+            case 'delete':    return t('Deleted');
+            case 'reconcile': return t('Reconciled');
+            default:          return action;
+        }
+    }, [t]);
+}
 
 const SIDECAR_SUFFIX = '.flashback';
 
@@ -39,15 +50,25 @@ const documentPath = p => (isSidecar(p) ? p.slice(0, -SIDECAR_SUFFIX.length) : p
 // is meaningful to someone who has never opened a sidecar, so every label is translated
 // back into the thing the user actually touched. Returns null when the label isn't a path
 // (batch commits say "3 sidecars" / "12 files").
-function describeTarget(raw) {
+//
+// `tr` is the { t, tp } pair from useT(), passed in rather than looked up: keeping these
+// helpers plain functions means the caller decides when they run, and they stay callable
+// from anywhere in the render tree without becoming hooks themselves.
+function describeTarget(raw, tr) {
     if (!raw) return null;
     const p = raw.replace(/\\/g, '/');
 
-    if (/^\d+ sidecars$/.test(p)) return { name: `${parseInt(p, 10)} documents`, dir: '' };
-    if (/^\d+ files$/.test(p)) return { name: p, dir: '' };
-    if (p.startsWith('_decks/')) return { name: 'a deck', dir: '' };
+    if (/^\d+ sidecars$/.test(p)) {
+        const n = parseInt(p, 10);
+        return { name: tr.tp('{n} document', '{n} documents', n), dir: '' };
+    }
+    if (/^\d+ files$/.test(p)) {
+        const n = parseInt(p, 10);
+        return { name: tr.tp('{n} file', '{n} files', n), dir: '' };
+    }
+    if (p.startsWith('_decks/')) return { name: tr.t('a deck'), dir: '' };
 
-    if (p === SIDECAR_SUFFIX) return { name: 'the workspace', dir: '' };
+    if (p === SIDECAR_SUFFIX) return { name: tr.t('the workspace'), dir: '' };
     if (p.endsWith(`/${SIDECAR_SUFFIX}`)) {
         const folder = p.slice(0, -(SIDECAR_SUFFIX.length + 1));
         return { name: `${baseName(folder)}/`, dir: dirName(folder) };
@@ -67,17 +88,17 @@ function describeTarget(raw) {
  * never opened is in their history. stats.content is the server-computed count of changed
  * non-sidecar paths, so this is measured, not inferred from the message.
  */
-function describeCommit(commit) {
+function describeCommit(commit, tr) {
     const { action, detail } = parseCommitMessage(commit.commit.message);
     const stats = commit.stats;
     const touched = stats ? stats.added + stats.modified + stats.deleted : 0;
     const metadataOnly = action === 'edit' && stats && touched > 0 && stats.content === 0;
-    const target = action === 'move' ? null : describeTarget(detail);
+    const target = action === 'move' ? null : describeTarget(detail, tr);
 
     if (metadataOnly) {
         return {
             variant: 'metadata',
-            detail: `Metadata updated for ${target?.name ?? detail}`,
+            detail: tr.t('Metadata updated for {target}', { target: target?.name ?? detail }),
             dir: target?.dir ?? '',
             raw: detail,
         };
@@ -95,10 +116,10 @@ function formatOid(oid) {
 }
 
 // isomorphic-git commit timestamps are unix seconds, not ms.
-function formatCommitTime(unixSeconds) {
+function formatCommitTime(unixSeconds, { formatRelative, formatDateTime }) {
     if (!unixSeconds) return { relative: '', absolute: '' };
-    const date = new Date(unixSeconds * 1000);
-    return { relative: relativeFromMs(date.getTime()), absolute: date.toLocaleString() };
+    const ms = unixSeconds * 1000;
+    return { relative: formatRelative(ms), absolute: formatDateTime(ms) };
 }
 
 // A small embossed glyph stamped into each wax seal — gives the action a shape, not just a
@@ -131,6 +152,7 @@ const MAX_PAGE = 200;
 // (highlighting a PDF, say) used to push everything else past a hard 20-entry limit with
 // no way to reach it. Pages are cursor-based, so "load older" walks back arbitrarily far.
 function useSealLog(isActive) {
+    const { t } = useT();
     const [log, setLog] = useState([]);
     const [loading, setLoading] = useState(true);
     const [loadingMore, setLoadingMore] = useState(false);
@@ -158,10 +180,10 @@ function useSealLog(isActive) {
                 setHasMore(page.length >= size);
                 depthRef.current = Math.max(page.length, PAGE_SIZE);
             })
-            .catch(err => { if (!cancelled) setError(err.message ?? 'Failed to load history'); })
+            .catch(err => { if (!cancelled) setError(err.message ?? t('Failed to load history')); })
             .finally(() => { if (!cancelled) setLoading(false); });
         return () => { cancelled = true; };
-    }, [isActive, refreshToken]);
+    }, [isActive, refreshToken, t]);
 
     const loadMore = useCallback(() => {
         const current = logRef.current;
@@ -175,9 +197,9 @@ function useSealLog(isActive) {
                 setHasMore(page.length === PAGE_SIZE);
                 depthRef.current += page.length;
             })
-            .catch(err => setError(err.message ?? 'Failed to load older entries'))
+            .catch(err => setError(err.message ?? t('Failed to load older entries')))
             .finally(() => setLoadingMore(false));
-    }, []);
+    }, [t]);
 
     const refresh = useCallback(() => setRefreshToken(t => t + 1), []);
 
@@ -185,6 +207,7 @@ function useSealLog(isActive) {
 }
 
 function useDrift(isActive) {
+    const { t } = useT();
     const [drift, setDrift] = useState(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
@@ -196,9 +219,9 @@ function useDrift(isActive) {
         setError(null);
         inspectDrift()
             .then(setDrift)
-            .catch(err => setError(err.message ?? 'Failed to inspect workspace'))
+            .catch(err => setError(err.message ?? t('Failed to inspect workspace')))
             .finally(() => setLoading(false));
-    }, [isActive, refreshToken]);
+    }, [isActive, refreshToken, t]);
 
     const refresh = useCallback(() => setRefreshToken(t => t + 1), []);
 
@@ -208,6 +231,7 @@ function useDrift(isActive) {
 const LIST_VISIBLE_CAP = 12;
 
 function LoosePagesGroup({ label, className, paths }) {
+    const { t } = useT();
     if (paths.length === 0) return null;
     const overflow = paths.length - LIST_VISIBLE_CAP;
     return (
@@ -215,7 +239,7 @@ function LoosePagesGroup({ label, className, paths }) {
             <span className={`seal-loose-group-label ${className}`}>{label} · {paths.length}</span>
             <ul>
                 {paths.slice(0, LIST_VISIBLE_CAP).map(p => <li key={p}>{p}</li>)}
-                {overflow > 0 && <li className="seal-loose-more">+{overflow} more</li>}
+                {overflow > 0 && <li className="seal-loose-more">{t('+{n} more', { n: overflow })}</li>}
             </ul>
         </div>
     );
@@ -224,25 +248,26 @@ function LoosePagesGroup({ label, className, paths }) {
 // "Loose pages" — sidecars changed outside Flashback with no seal commit yet. Framed as
 // pages that haven't been bound into the ledger, distinct from the stamped, sealed history below.
 function LoosePagesPanel({ drift, loading, error, onRefresh }) {
+    const { t } = useT();
     const empty = drift && drift.added.length === 0 && drift.modified.length === 0 && drift.deleted.length === 0;
     return (
         <section className="seal-section">
             <div className="seal-section-head">
-                <h2 className="seal-eyebrow">Loose pages</h2>
+                <h2 className="seal-eyebrow">{t('Loose pages')}</h2>
                 <button type="button" className="seal-btn" onClick={onRefresh} disabled={loading}>
-                    {loading ? 'Checking…' : 'Refresh'}
+                    {loading ? t('Checking…') : t('Refresh')}
                 </button>
             </div>
             <div className="seal-loose-card">
                 {error && <div className="seal-error">{error}</div>}
                 {!error && empty && (
-                    <p className="seal-loose-empty">Nothing changed outside Flashback.</p>
+                    <p className="seal-loose-empty">{t('Nothing changed outside Flashback.')}</p>
                 )}
                 {!error && drift && !empty && (
                     <div className="seal-loose-groups">
-                        <LoosePagesGroup label="Added" className="seal-loose-group-label--added" paths={drift.added} />
-                        <LoosePagesGroup label="Modified" className="seal-loose-group-label--modified" paths={drift.modified} />
-                        <LoosePagesGroup label="Deleted" className="seal-loose-group-label--deleted" paths={drift.deleted} />
+                        <LoosePagesGroup label={t('Added')} className="seal-loose-group-label--added" paths={drift.added} />
+                        <LoosePagesGroup label={t('Modified')} className="seal-loose-group-label--modified" paths={drift.modified} />
+                        <LoosePagesGroup label={t('Deleted')} className="seal-loose-group-label--deleted" paths={drift.deleted} />
                     </div>
                 )}
             </div>
@@ -259,15 +284,16 @@ function LoosePagesPanel({ drift, loading, error, onRefresh }) {
 const RIBBON_MAX = 60;
 
 function SealOverviewRibbon({ log, onSelect }) {
+    const tr = useT();
     if (log.length === 0) return null;
     const chronological = [...log].slice(0, RIBBON_MAX).reverse();
     return (
         <div className="seal-overview">
-            <span className="seal-overview-lane-label">Main</span>
+            <span className="seal-overview-lane-label">{tr.t('Main')}</span>
             <div className="seal-overview-track">
                 {chronological.map((commit, i) => {
                     const isCurrent = i === chronological.length - 1;
-                    const { variant, detail } = describeCommit(commit);
+                    const { variant, detail } = describeCommit(commit, tr);
                     return (
                         <button
                             type="button"
@@ -284,11 +310,12 @@ function SealOverviewRibbon({ log, onSelect }) {
 }
 
 function StatsLine({ stats }) {
+    const { t } = useT();
     if (!stats) return null;
     const parts = [];
-    if (stats.added) parts.push(`+${stats.added} created`);
-    if (stats.modified) parts.push(`${stats.modified} modified`);
-    if (stats.deleted) parts.push(`−${stats.deleted} deleted`);
+    if (stats.added) parts.push(t('+{n} created', { n: stats.added }));
+    if (stats.modified) parts.push(t('{n} modified', { n: stats.modified }));
+    if (stats.deleted) parts.push(t('−{n} deleted', { n: stats.deleted }));
     if (parts.length === 0) return null;
     return <span className="seal-entry-stats">{parts.join(' · ')}</span>;
 }
@@ -296,6 +323,7 @@ function StatsLine({ stats }) {
 // Fetched lazily on first expand — a single commit (e.g. a large import) can touch hundreds
 // of paths, so the full list isn't worth bundling into every log entry up front.
 function ChangedFiles({ oid, stats }) {
+    const { t } = useT();
     const [expanded, setExpanded] = useState(false);
     const [files, setFiles] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -313,7 +341,7 @@ function ChangedFiles({ oid, stats }) {
             setError(null);
             getCommitFiles(oid)
                 .then(setFiles)
-                .catch(err => setError(err.message ?? 'Failed to load changed files'))
+                .catch(err => setError(err.message ?? t('Failed to load changed files')))
                 .finally(() => setLoading(false));
         }
     };
@@ -335,19 +363,19 @@ function ChangedFiles({ oid, stats }) {
         <div className="seal-files">
             <button type="button" className="seal-files-toggle" onClick={toggle} aria-expanded={expanded}>
                 <span className={`seal-files-caret${expanded ? ' seal-files-caret--open' : ''}`} aria-hidden="true">▸</span>
-                Changed files
+                {t('Changed files')}
             </button>
             {expanded && (
                 <div className="seal-files-body">
-                    {loading && <p className="seal-loading">Loading…</p>}
+                    {loading && <p className="seal-loading">{t('Loading…')}</p>}
                     {error && <div className="seal-error">{error}</div>}
                     {files && (
                         <>
-                            <FileGroup label="Documents" rows={contentRows} showAll={showAll} />
-                            <FileGroup label="Metadata — highlights, cards, tags" rows={metaRows} showAll={showAll} transform={documentPath} />
+                            <FileGroup label={t('Documents')} rows={contentRows} showAll={showAll} />
+                            <FileGroup label={t('Metadata — highlights, cards, tags')} rows={metaRows} showAll={showAll} transform={documentPath} />
                             {!showAll && rows.length > LIST_VISIBLE_CAP && (
                                 <button type="button" className="seal-files-showall" onClick={() => setShowAll(true)}>
-                                    Show all {rows.length} files
+                                    {t('Show all {n} files', { n: rows.length })}
                                 </button>
                             )}
                         </>
@@ -376,29 +404,32 @@ function FileGroup({ label, rows, showAll, transform }) {
 }
 
 function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
-    const { variant, detail, dir, raw } = describeCommit(commit);
-    const { relative, absolute } = formatCommitTime(commit.commit.author?.timestamp);
+    const tr = useT();
+    const { t } = tr;
+    const actionLabel = useActionLabel();
+    const { variant, detail, dir, raw } = describeCommit(commit, tr);
+    const { relative, absolute } = formatCommitTime(commit.commit.author?.timestamp, tr);
     return (
         <div
             id={`seal-entry-${commit.oid}`}
             className={`seal-entry${isCurrent ? ' seal-entry--current' : ''}${isHighlighted ? ' seal-entry--highlight' : ''}`}
         >
             <div className="seal-entry-rail">
-                <span className={`seal-stamp seal-stamp--${variant}`} title={ACTION_LABELS[variant] ?? variant} aria-hidden="true">
+                <span className={`seal-stamp seal-stamp--${variant}`} title={actionLabel(variant)} aria-hidden="true">
                     <ActionGlyph action={variant} />
                 </span>
                 {!isLast && <span className="seal-rail-line" aria-hidden="true" />}
             </div>
             <div className="seal-card">
                 <div className="seal-card-head">
-                    <span className="seal-entry-action">{ACTION_LABELS[variant] ?? variant}</span>
+                    <span className="seal-entry-action">{actionLabel(variant)}</span>
                     {/* title keeps the exact sealed path reachable — the visible text is the
                         translated version, but power users still need the real thing. */}
                     <span className="seal-entry-detail" title={raw}>
                         {detail}
-                        {dir && <span className="seal-entry-dir"> in {dir}</span>}
+                        {dir && <span className="seal-entry-dir"> {t('in {dir}', { dir })}</span>}
                     </span>
-                    {isCurrent && <span className="seal-entry-current">current</span>}
+                    {isCurrent && <span className="seal-entry-current">{t('current')}</span>}
                 </div>
                 <div className="seal-card-meta">
                     <span className="seal-entry-time" title={absolute}>{relative}</span>
@@ -409,7 +440,7 @@ function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
                 {!isCurrent && (
                     <div className="seal-card-actions">
                         <button type="button" className="seal-entry-rollback" onClick={() => onRollback(commit)}>
-                            Restore this version
+                            {t('Restore this version')}
                         </button>
                     </div>
                 )}
@@ -419,9 +450,10 @@ function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
 }
 
 function SealTimeline({ log, loading, loadingMore, hasMore, error, highlightOid, onRollback, onLoadMore }) {
-    if (loading) return <p className="seal-loading">Loading…</p>;
+    const { t, tp } = useT();
+    if (loading) return <p className="seal-loading">{t('Loading…')}</p>;
     if (error && log.length === 0) return <div className="seal-error">{error}</div>;
-    if (log.length === 0) return <p className="seal-empty">Nothing sealed yet — changes you make will appear here.</p>;
+    if (log.length === 0) return <p className="seal-empty">{t('Nothing sealed yet — changes you make will appear here.')}</p>;
     return (
         <>
             <div className="seal-rail">
@@ -438,13 +470,13 @@ function SealTimeline({ log, loading, loadingMore, hasMore, error, highlightOid,
             </div>
             {error && <div className="seal-error">{error}</div>}
             <div className="seal-log-foot">
-                <span className="seal-log-count">{log.length} entries</span>
+                <span className="seal-log-count">{tp('{n} entry', '{n} entries', log.length)}</span>
                 {hasMore ? (
                     <button type="button" className="seal-btn" onClick={onLoadMore} disabled={loadingMore}>
-                        {loadingMore ? 'Loading…' : 'Load older entries'}
+                        {loadingMore ? t('Loading…') : t('Load older entries')}
                     </button>
                 ) : (
-                    <span className="seal-log-end">Beginning of history</span>
+                    <span className="seal-log-end">{t('Beginning of history')}</span>
                 )}
             </div>
         </>
@@ -452,12 +484,14 @@ function SealTimeline({ log, loading, loadingMore, hasMore, error, highlightOid,
 }
 
 function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
+    const tr = useT();
+    const { t, tp } = tr;
     const [keepSrsProgress, setKeepSrsProgress] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
 
-    const { variant, detail } = describeCommit(commit);
-    const { absolute } = formatCommitTime(commit.commit.author?.timestamp);
+    const { variant, detail } = describeCommit(commit, tr);
+    const { absolute } = formatCommitTime(commit.commit.author?.timestamp, tr);
 
     const handleConfirm = async () => {
         setBusy(true);
@@ -465,24 +499,24 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
         try {
             await onConfirm(commit.oid, keepSrsProgress);
         } catch (err) {
-            setError(err.message ?? 'Restore failed');
+            setError(err.message ?? t('Restore failed'));
             setBusy(false);
         }
     };
 
     return (
         <Modal
-            title="Restore this version"
+            title={t('Restore this version')}
             size="md"
             onClose={onCancel}
             dismissible={!busy}
             footer={
                 <>
                     <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>
-                        Cancel
+                        {t('Cancel')}
                     </button>
                     <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy}>
-                        {busy ? 'Restoring…' : 'Restore'}
+                        {busy ? t('Restoring…') : t('Restore')}
                     </button>
                 </>
             }
@@ -497,11 +531,11 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
             </div>
 
             <p className="seal-modal-warning">
-                This restores the workspace to this point in time and discards any uncommitted
-                changes on disk.
+                {t('This restores the workspace to this point in time and discards any uncommitted changes on disk.')}
                 {newerCount > 0 && (
-                    <> If you keep editing afterward, the {newerCount} entr{newerCount === 1 ? 'y' : 'ies'} newer
-                    than this point will no longer appear in the log.</>
+                    <> {tp('If you keep editing afterward, the {n} entry newer than this point will no longer appear in the log.',
+                        'If you keep editing afterward, the {n} entries newer than this point will no longer appear in the log.',
+                        newerCount)}</>
                 )}
             </p>
 
@@ -512,12 +546,12 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
                     onChange={e => setKeepSrsProgress(e.target.checked)}
                     disabled={busy}
                 />
-                Keep current review progress (recommended)
+                {t('Keep current review progress (recommended)')}
             </label>
             <p className="seal-modal-hint">
                 {keepSrsProgress
-                    ? 'Flashcard review history and scheduling stay as they are now — only document content and structure roll back.'
-                    : 'Flashcard review history and scheduling also roll back to what they were at this point.'}
+                    ? t('Flashcard review history and scheduling stay as they are now — only document content and structure roll back.')
+                    : t('Flashcard review history and scheduling also roll back to what they were at this point.')}
             </p>
 
             {error && <div className="seal-error">{error}</div>}
@@ -531,7 +565,7 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
 
 // Flattens a checkIndex() report into a flat list of labelled path groups so the panel
 // can render them uniformly. Tone drives the accent color (reusing the loose-page palette).
-function collectDoctorIssues(report) {
+function collectDoctorIssues(report, t) {
     const groups = [];
     const add = (label, tone, paths) => { if (paths && paths.length) groups.push({ label, tone, paths }); };
     const d = report.documents;
@@ -539,26 +573,26 @@ function collectDoctorIssues(report) {
     const m = report.media;
     const dk = report.decks;
 
-    add('Documents on disk, not indexed', 'added', d.missingInDb);
-    add('Index rows with no file', 'deleted', d.orphanedInDb);
-    add('Modified since last index', 'modified', d.modified.map(x => `${x.relPath}  ·  ${x.reasons.join(', ')}`));
-    add('Hash conflicts — skipped', 'warn', d.hashConflicts.map(x => `${x.hash.slice(0, 8)}…  ·  ${x.paths.join('  ,  ')}`));
-    add('Corrupt document sidecars', 'warn', d.corruptSidecars);
-    add('Stray files', 'warn', d.untracked.map(x => `${x.relPath}  (${x.kind})`));
+    add(t('Documents on disk, not indexed'), 'added', d.missingInDb);
+    add(t('Index rows with no file'), 'deleted', d.orphanedInDb);
+    add(t('Modified since last index'), 'modified', d.modified.map(x => `${x.relPath}  ·  ${x.reasons.join(', ')}`));
+    add(t('Hash conflicts — skipped'), 'warn', d.hashConflicts.map(x => `${x.hash.slice(0, 8)}…  ·  ${x.paths.join('  ,  ')}`));
+    add(t('Corrupt document sidecars'), 'warn', d.corruptSidecars);
+    add(t('Stray files'), 'warn', d.untracked.map(x => `${x.relPath}  (${x.kind})`));
 
-    add('Folders on disk, not indexed', 'added', f.missingInDb);
-    add('Folder rows with no directory', 'deleted', f.orphanedInDb);
-    add('Ghost directories — no sidecar', 'warn', f.ghostDirs);
-    add('Corrupt folder sidecars', 'warn', f.corruptSidecars);
+    add(t('Folders on disk, not indexed'), 'added', f.missingInDb);
+    add(t('Folder rows with no directory'), 'deleted', f.orphanedInDb);
+    add(t('Ghost directories — no sidecar'), 'warn', f.ghostDirs);
+    add(t('Corrupt folder sidecars'), 'warn', f.corruptSidecars);
 
-    add('Media files not registered', 'added', m.unregistered);
-    add('Media rows missing on disk', 'deleted', m.missingOnDisk);
+    add(t('Media files not registered'), 'added', m.unregistered);
+    add(t('Media rows missing on disk'), 'deleted', m.missingOnDisk);
 
-    add('Deck files not in index', 'added', dk.fileWithoutDb);
-    add('Deck rows with no file', 'deleted', dk.dbWithoutFile);
-    add('Corrupt deck files', 'warn', dk.corruptFiles);
-    add('Deck entry mismatches', 'modified', dk.entryMismatches.map(x => `${x.deckHash.slice(0, 8)}…  ·  +${x.missingInDb.length} / −${x.missingInFile.length}`));
-    add('Dangling deck entries', 'warn', dk.danglingEntries.map(x => `${x.deckHash.slice(0, 8)}… → ${x.cardHash.slice(0, 8)}…`));
+    add(t('Deck files not in index'), 'added', dk.fileWithoutDb);
+    add(t('Deck rows with no file'), 'deleted', dk.dbWithoutFile);
+    add(t('Corrupt deck files'), 'warn', dk.corruptFiles);
+    add(t('Deck entry mismatches'), 'modified', dk.entryMismatches.map(x => `${x.deckHash.slice(0, 8)}…  ·  +${x.missingInDb.length} / −${x.missingInFile.length}`));
+    add(t('Dangling deck entries'), 'warn', dk.danglingEntries.map(x => `${x.deckHash.slice(0, 8)}… → ${x.cardHash.slice(0, 8)}…`));
 
     return groups;
 }
@@ -571,13 +605,14 @@ const TONE_CLASS = {
 };
 
 function DoctorIssueGroup({ label, tone, paths }) {
+    const { t } = useT();
     const overflow = paths.length - LIST_VISIBLE_CAP;
     return (
         <div className="seal-loose-group">
             <span className={`seal-loose-group-label ${TONE_CLASS[tone] ?? ''}`}>{label} · {paths.length}</span>
             <ul>
                 {paths.slice(0, LIST_VISIBLE_CAP).map((p, i) => <li key={`${p}-${i}`}>{p}</li>)}
-                {overflow > 0 && <li className="seal-loose-more">+{overflow} more</li>}
+                {overflow > 0 && <li className="seal-loose-more">{t('+{n} more', { n: overflow })}</li>}
             </ul>
         </div>
     );
@@ -587,6 +622,7 @@ function DoctorIssueGroup({ label, tone, paths }) {
 // check + full workspace walk + DB joins), so it is button-triggered rather than auto-run
 // on every tab activation.
 function useDoctorCheck() {
+    const { t } = useT();
     const [report, setReport] = useState(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -596,21 +632,22 @@ function useDoctorCheck() {
         setError(null);
         return checkIndex()
             .then(r => { setReport(r); return r; })
-            .catch(err => { setError(err.message ?? 'Check failed'); throw err; })
+            .catch(err => { setError(err.message ?? t('Check failed')); throw err; })
             .finally(() => setLoading(false));
-    }, []);
+    }, [t]);
 
     return { report, loading, error, run, setReport };
 }
 
 function DoctorSummary({ report }) {
+    const { t } = useT();
     const c = report.counts;
     const items = [
-        ['Documents', c.documents],
-        ['Folders', c.folders],
-        ['Flashcards', c.flashcards],
-        ['Standalone', c.standaloneCards],
-        ['Pending links', c.pendingLinks],
+        [t('Documents'), c.documents],
+        [t('Folders'), c.folders],
+        [t('Flashcards'), c.flashcards],
+        [t('Standalone'), c.standaloneCards],
+        [t('Pending links'), c.pendingLinks],
     ];
     return (
         <div className="seal-doctor-counts">
@@ -628,6 +665,7 @@ function DoctorSummary({ report }) {
 // deletions would resurrect on a later rollback, so binding them into history is the safe
 // default (the loose-pages panel above is where the user sees that drift).
 function SyncConfirmModal({ report, onCancel, onConfirm }) {
+    const { t } = useT();
     const [sealDrift, setSealDrift] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
@@ -638,7 +676,7 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
         try {
             await onConfirm(sealDrift);
         } catch (err) {
-            setError(err.message ?? 'Sync failed');
+            setError(err.message ?? t('Sync failed'));
             setBusy(false);
         }
     };
@@ -647,25 +685,23 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
 
     return (
         <Modal
-            title="Sync index to files"
+            title={t('Sync index to files')}
             size="md"
             onClose={onCancel}
             dismissible={!busy}
             footer={
                 <>
-                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
                     <button type="button" className="seal-btn seal-btn--primary" onClick={handleConfirm} disabled={busy}>
-                        {busy ? 'Syncing…' : 'Sync index'}
+                        {busy ? t('Syncing…') : t('Sync index')}
                     </button>
                 </>
             }
         >
             <p className="seal-modal-warning">
-                Your files on disk are the source of truth. This indexes anything new, refreshes
-                documents that changed outside Flashback, and drops index entries for things that
-                were deleted. Review progress is never lowered.
+                {t('Your files on disk are the source of truth. This indexes anything new, refreshes documents that changed outside Flashback, and drops index entries for things that were deleted. Review progress is never lowered.')}
                 {hasConflicts && (
-                    <> Documents that share a duplicate identity are left untouched and reported.</>
+                    <> {t('Documents that share a duplicate identity are left untouched and reported.')}</>
                 )}
             </p>
 
@@ -676,12 +712,12 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
                     onChange={e => setSealDrift(e.target.checked)}
                     disabled={busy}
                 />
-                Seal out-of-band changes into history (recommended)
+                {t('Seal out-of-band changes into history (recommended)')}
             </label>
             <p className="seal-modal-hint">
                 {sealDrift
-                    ? 'Changes made outside Flashback are bound into the seal log as one entry, so a later rollback treats them as real history.'
-                    : 'Changes made outside Flashback stay unsealed — a later rollback may undo or resurrect them.'}
+                    ? t('Changes made outside Flashback are bound into the seal log as one entry, so a later rollback treats them as real history.')
+                    : t('Changes made outside Flashback stay unsealed — a later rollback may undo or resurrect them.')}
             </p>
 
             {error && <div className="seal-error">{error}</div>}
@@ -693,9 +729,12 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
 // levels and ease survive (they live in the sidecars) but per-review ReviewLogs history
 // is lost.
 function RebuildConfirmModal({ onCancel, onConfirm }) {
+    const { t } = useT();
     const [typed, setTyped] = useState('');
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
+    // The token stays untranslated on purpose: it is a literal the user must retype
+    // exactly, and it is shown verbatim right next to the field.
     const armed = typed.trim().toUpperCase() === 'REBUILD';
 
     const handleConfirm = async () => {
@@ -705,38 +744,44 @@ function RebuildConfirmModal({ onCancel, onConfirm }) {
         try {
             await onConfirm();
         } catch (err) {
-            setError(err.message ?? 'Rebuild failed');
+            setError(err.message ?? t('Rebuild failed'));
             setBusy(false);
         }
     };
 
     return (
         <Modal
-            title="Rebuild index from files"
+            title={t('Rebuild index from files')}
             size="md"
             onClose={onCancel}
             dismissible={!busy}
             footer={
                 <>
-                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>Cancel</button>
+                    <button type="button" className="seal-btn" onClick={onCancel} disabled={busy}>{t('Cancel')}</button>
                     <button type="button" className="seal-btn seal-btn--danger" onClick={handleConfirm} disabled={busy || !armed}>
-                        {busy ? 'Rebuilding…' : 'Rebuild index'}
+                        {busy ? t('Rebuilding…') : t('Rebuild index')}
                     </button>
                 </>
             }
         >
             <p className="seal-modal-warning">
-                This discards the entire document index and regenerates it from your <code>.flashback</code>{' '}
-                files. Use it only when the index is corrupt or badly out of sync — <strong>Sync index</strong>{' '}
-                is the safe everyday choice.
+                <Rich
+                    text={t('This discards the entire document index and regenerates it from your {sidecar} files. Use it only when the index is corrupt or badly out of sync — {sync} is the safe everyday choice.')}
+                    values={{
+                        sidecar: <code>.flashback</code>,
+                        sync: <strong>{t('Sync index')}</strong>,
+                    }}
+                />
             </p>
             <p className="seal-modal-hint">
-                Card levels and ease survive (they are stored in the files), but per-review history
-                (each card&apos;s review log) is lost and scheduling is re-seeded from the saved levels.
+                {t('Card levels and ease survive (they are stored in the files), but per-review history (each card’s review log) is lost and scheduling is re-seeded from the saved levels.')}
             </p>
 
             <label className="seal-doctor-type-label">
-                Type <span className="seal-doctor-type-token">REBUILD</span> to confirm
+                <Rich
+                    text={t('Type {token} to confirm')}
+                    values={{ token: <span className="seal-doctor-type-token">REBUILD</span> }}
+                />
                 <input
                     className="seal-doctor-type-input"
                     value={typed}
@@ -753,25 +798,38 @@ function RebuildConfirmModal({ onCancel, onConfirm }) {
 }
 
 function DoctorResult({ result }) {
+    const { t, tp } = useT();
     if (!result) return null;
+
+    const warnLine = (warnings) => tp(
+        '{n} warning — {first}', '{n} warnings — {first}',
+        warnings.length, { first: warnings[0] },
+    );
+
     if (result.kind === 'sync') {
         const a = result.actions;
         const parts = [];
-        if (a.foldersIndexed) parts.push(`${a.foldersIndexed} folders indexed`);
-        if (a.documentsIndexed) parts.push(`${a.documentsIndexed} documents indexed`);
-        if (a.documentsReindexed) parts.push(`${a.documentsReindexed} reindexed`);
-        if (a.foldersRemoved) parts.push(`${a.foldersRemoved} folders dropped`);
-        if (a.documentsRemoved) parts.push(`${a.documentsRemoved} documents dropped`);
-        if (a.mediaRegistered) parts.push(`${a.mediaRegistered} media registered`);
-        if (a.mediaRowsRemoved) parts.push(`${a.mediaRowsRemoved} media rows dropped`);
-        const summary = parts.length ? parts.join(' · ') : 'Index already matched the files — nothing to change.';
+        if (a.foldersIndexed) parts.push(t('{n} folders indexed', { n: a.foldersIndexed }));
+        if (a.documentsIndexed) parts.push(t('{n} documents indexed', { n: a.documentsIndexed }));
+        if (a.documentsReindexed) parts.push(t('{n} reindexed', { n: a.documentsReindexed }));
+        if (a.foldersRemoved) parts.push(t('{n} folders dropped', { n: a.foldersRemoved }));
+        if (a.documentsRemoved) parts.push(t('{n} documents dropped', { n: a.documentsRemoved }));
+        if (a.mediaRegistered) parts.push(t('{n} media registered', { n: a.mediaRegistered }));
+        if (a.mediaRowsRemoved) parts.push(t('{n} media rows dropped', { n: a.mediaRowsRemoved }));
+        const summary = parts.length
+            ? parts.join(' · ')
+            : t('Index already matched the files — nothing to change.');
         return (
             <div className="seal-doctor-result">
-                <span className="seal-doctor-result-head">Sync complete</span>
+                <span className="seal-doctor-result-head">{t('Sync complete')}</span>
                 <span className="seal-doctor-result-body">{summary}</span>
-                {result.sealedOid && <span className="seal-doctor-result-meta">Sealed as {formatOid(result.sealedOid)}</span>}
+                {result.sealedOid && (
+                    <span className="seal-doctor-result-meta">
+                        {t('Sealed as {oid}', { oid: formatOid(result.sealedOid) })}
+                    </span>
+                )}
                 {result.warnings?.length > 0 && (
-                    <span className="seal-doctor-result-warn">{result.warnings.length} warning{result.warnings.length === 1 ? '' : 's'} — {result.warnings[0]}</span>
+                    <span className="seal-doctor-result-warn">{warnLine(result.warnings)}</span>
                 )}
             </div>
         );
@@ -779,25 +837,35 @@ function DoctorResult({ result }) {
     const s = result.summary;
     return (
         <div className="seal-doctor-result">
-            <span className="seal-doctor-result-head">Rebuild complete</span>
+            <span className="seal-doctor-result-head">{t('Rebuild complete')}</span>
             <span className="seal-doctor-result-body">
-                {s.documentsIndexed} documents · {s.foldersIndexed} folders · {s.flashcards} cards · {s.decks} decks rebuilt
+                {t('{documents} documents · {folders} folders · {cards} cards · {decks} decks rebuilt', {
+                    documents: s.documentsIndexed,
+                    folders: s.foldersIndexed,
+                    cards: s.flashcards,
+                    decks: s.decks,
+                })}
             </span>
             <span className="seal-doctor-result-meta">
-                {s.standaloneCardsRestored} standalone restored · {s.easeFactorsRestored} ease factors preserved · {s.mediaRegistered} media
+                {t('{standalone} standalone restored · {ease} ease factors preserved · {media} media', {
+                    standalone: s.standaloneCardsRestored,
+                    ease: s.easeFactorsRestored,
+                    media: s.mediaRegistered,
+                })}
             </span>
             {result.warnings?.length > 0 && (
-                <span className="seal-doctor-result-warn">{result.warnings.length} warning{result.warnings.length === 1 ? '' : 's'} — {result.warnings[0]}</span>
+                <span className="seal-doctor-result-warn">{warnLine(result.warnings)}</span>
             )}
         </div>
     );
 }
 
 function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt }) {
+    const { t } = useT();
     const [modal, setModal] = useState(null); // 'sync' | 'rebuild' | null
     const [result, setResult] = useState(null);
 
-    const issues = report ? collectDoctorIssues(report) : [];
+    const issues = report ? collectDoctorIssues(report, t) : [];
     const integrityOk = report?.db.integrity === 'ok';
     const clean = report && integrityOk && issues.length === 0;
 
@@ -824,9 +892,9 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
     return (
         <section className="seal-section">
             <div className="seal-section-head">
-                <h2 className="seal-eyebrow">Vault doctor</h2>
+                <h2 className="seal-eyebrow">{t('Vault doctor')}</h2>
                 <button type="button" className="seal-btn" onClick={() => { setResult(null); onCheck(); }} disabled={loading}>
-                    {loading ? 'Checking…' : report ? 'Re-check index' : 'Check index'}
+                    {loading ? t('Checking…') : report ? t('Re-check index') : t('Check index')}
                 </button>
             </div>
 
@@ -834,20 +902,22 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
                 {error && <div className="seal-error">{error}</div>}
 
                 {!report && !error && (
-                    <p className="seal-loose-empty">Check the index to compare every file on disk against Flashback&apos;s database.</p>
+                    <p className="seal-loose-empty">{t('Check the index to compare every file on disk against Flashback’s database.')}</p>
                 )}
 
                 {report && (
                     <>
                         <div className="seal-doctor-status">
                             <span className={`seal-doctor-badge ${integrityOk ? 'seal-doctor-badge--ok' : 'seal-doctor-badge--bad'}`}>
-                                {integrityOk ? 'Database integrity OK' : `Integrity: ${report.db.integrity}`}
+                                {integrityOk
+                                    ? t('Database integrity OK')
+                                    : t('Integrity: {status}', { status: report.db.integrity })}
                             </span>
                             <DoctorSummary report={report} />
                         </div>
 
                         {clean && (
-                            <p className="seal-loose-empty">Clean bill of health — the index matches your files exactly.</p>
+                            <p className="seal-loose-empty">{t('Clean bill of health — the index matches your files exactly.')}</p>
                         )}
 
                         {!clean && (
@@ -864,12 +934,12 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
                                 className="seal-btn seal-btn--primary"
                                 onClick={() => setModal('sync')}
                                 disabled={!integrityOk}
-                                title={integrityOk ? undefined : 'Integrity check failed — rebuild the index instead'}
+                                title={integrityOk ? undefined : t('Integrity check failed — rebuild the index instead')}
                             >
-                                Sync index now
+                                {t('Sync index now')}
                             </button>
                             <button type="button" className="seal-btn seal-btn--danger-quiet" onClick={() => setModal('rebuild')}>
-                                Rebuild index from files
+                                {t('Rebuild index from files')}
                             </button>
                         </div>
                     </>
@@ -887,6 +957,7 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
 }
 
 export default function SealView({ isActive = false }) {
+    const { t } = useT();
     const {
         log,
         loading: logLoading,
@@ -954,7 +1025,7 @@ export default function SealView({ isActive = false }) {
             {rollbackDone && (
                 <div className="seal-restart-banner">
                     <span className="seal-restart-message">
-                        Restore complete. Flashback&apos;s document index is now out of date — sync it to the restored files.
+                        {t('Restore complete. Flashback’s document index is now out of date — sync it to the restored files.')}
                     </span>
                     <div className="seal-restart-actions">
                         <button
@@ -963,10 +1034,10 @@ export default function SealView({ isActive = false }) {
                             onClick={handleBannerSync}
                             disabled={bannerSyncing}
                         >
-                            {bannerSyncing ? 'Syncing…' : 'Sync index now'}
+                            {bannerSyncing ? t('Syncing…') : t('Sync index now')}
                         </button>
                         <button type="button" className="seal-restart-btn" onClick={() => setRollbackDone(false)} disabled={bannerSyncing}>
-                            Later
+                            {t('Later')}
                         </button>
                     </div>
                 </div>
@@ -974,7 +1045,7 @@ export default function SealView({ isActive = false }) {
 
             {!logLoading && log.length > 0 && (
                 <section className="seal-section">
-                    <h2 className="seal-eyebrow">Main thread</h2>
+                    <h2 className="seal-eyebrow">{t('Main thread')}</h2>
                     <SealOverviewRibbon log={log} onSelect={handleOverviewSelect} />
                 </section>
             )}
@@ -991,15 +1062,13 @@ export default function SealView({ isActive = false }) {
             />
 
             <section className="seal-section">
-                <h2 className="seal-eyebrow">Seal log</h2>
+                <h2 className="seal-eyebrow">{t('Seal log')}</h2>
                 {/* Said once, at the top, instead of on every row: metadata entries are the
                     bulk of a normal session's history, and without this the user has no way
                     to know why highlighting a page shows up as a change to a file they never
                     opened. */}
                 <p className="seal-log-note">
-                    Highlights, flashcards and tags are stored beside each document in its
-                    own metadata file, so changing them is recorded here as a metadata update —
-                    the document&apos;s own text is untouched.
+                    {t('Highlights, flashcards and tags are stored beside each document in its own metadata file, so changing them is recorded here as a metadata update — the document’s own text is untouched.')}
                 </p>
                 <SealTimeline
                     log={log}

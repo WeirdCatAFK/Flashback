@@ -1,11 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import "./Config.css";
 import KeybindingsEditor from "../components/KeybindingsEditor";
 import ProgressDialog from "../components/shared/ProgressDialog";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
-import { LanguagePicker } from "../translations/index.jsx";
+import { LanguagePicker, Rich, useT } from "../translations/index.jsx";
 import {
   THEME_VARS,
   saveCustomTheme,
@@ -84,7 +84,63 @@ const DARK_DEFAULTS = {
 
 const PREVIEW_THEME = "__fb_preview__";
 
+/**
+ * Display names for the theme variables, keyed by CSS custom property.
+ *
+ * customThemes.js stays the structural source of truth (which keys exist, which
+ * take a raw string instead of a colour) and keeps the English label as its
+ * fallback; only the text lives here. It has to, because THEME_VARS is a
+ * module-level constant — translating it in place would bake one language in at
+ * import time and never re-render on a language switch.
+ */
+function useThemeVarLabels() {
+  const { t } = useT();
+  return useMemo(() => ({
+    "--color-bg-base":         t("Window background"),
+    "--color-bg-sidebar":      t("Activity bar"),
+    "--color-bg-surface":      t("Panels & cards"),
+    "--color-bg-hover":        t("Hover state"),
+    "--color-title-bar":       t("Title bar"),
+    "--color-sidebar-header":  t("Sidebar header"),
+    "--color-bg-reader":       t("Reader background"),
+    "--color-bg-editor":       t("Editor theme"),
+    "--color-fg-primary":      t("Primary text"),
+    "--color-fg-secondary":    t("Secondary text"),
+    "--color-fg-icon":         t("Inactive icons"),
+    "--color-accent":          t("Accent / active"),
+    "--color-accent-subtle":   t("Accent tint"),
+    "--color-on-accent":       t("Text on accent"),
+    "--color-border":          t("Borders"),
+    "--color-border-strong":   t("Input & control borders"),
+    "--color-tree-indent":     t("Tree indent line"),
+    "--color-hl-1":            t("Highlight 1"),
+    "--color-hl-2":            t("Highlight 2"),
+    "--color-hl-3":            t("Highlight 3"),
+    "--color-hl-4":            t("Highlight 4"),
+    "--color-on-review":       t("Review · Button label"),
+    "--color-review-again":    t("Review · Again"),
+    "--color-review-hard":     t("Review · Hard"),
+    "--color-review-good":     t("Review · Good"),
+    "--color-review-easy":     t("Review · Easy"),
+    "--color-graph-edge":      t("Graph · Resting links"),
+    "--color-graph-document":  t("Graph · Document"),
+    "--color-graph-folder":    t("Graph · Folder"),
+    "--color-graph-flashcard": t("Graph · Flashcard"),
+    "--color-graph-tag":       t("Graph · Tag"),
+    "--color-graph-deck":      t("Graph · Deck"),
+    "--color-graph-link":      t("Graph · Link"),
+    "--color-graph-disconnect":t("Graph · Disconnect"),
+    "--color-graph-inherit":   t("Graph · Inherit"),
+    "--color-danger":          t("Danger / error"),
+    "--color-danger-bg":       t("Danger background"),
+    "--shadow-sm":             t("Resting shadow"),
+    "--shadow-float":          t("Float shadow"),
+  }), [t]);
+}
+
 function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
+  const { t } = useT();
+  const varLabels = useThemeVarLabels();
   const [open, setOpen] = useState(
     () => localStorage.getItem("fb-editor-open") === "true",
   );
@@ -175,7 +231,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
 
   const loadExisting = (themeName) => {
     const all = loadCustomThemes();
-    const found = all.find((t) => t.name === themeName);
+    const found = all.find((entry) => entry.name === themeName);
     if (found) {
       persistName(found.name);
       persistColors(found.colors);
@@ -196,13 +252,13 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
     try {
       const parsed = JSON.parse(importText);
       if (typeof parsed.name !== "string" || !parsed.name.trim())
-        throw new Error('Missing or invalid "name" field.');
+        throw new Error(t('Missing or invalid "name" field.'));
       if (typeof parsed.colors !== "object" || parsed.colors === null)
-        throw new Error('Missing or invalid "colors" field.');
+        throw new Error(t('Missing or invalid "colors" field.'));
       const missing = THEME_VARS.filter(({ key }) => !(key in parsed.colors));
       if (missing.length > THEME_VARS.length / 2)
         throw new Error(
-          `Missing variables: ${missing.map((v) => v.key).join(", ")}`,
+          t("Missing variables: {list}", { list: missing.map((v) => v.key).join(", ") }),
         );
       persistName(parsed.name.trim());
       persistColors(parsed.colors);
@@ -254,7 +310,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
         >
           <polyline points="4,2 9,6 4,10" />
         </svg>
-        Theme editor
+        {t("Theme editor")}
       </button>
 
       {open && (
@@ -262,8 +318,8 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
           <div className="theme-editor-header">
             <input
               className="theme-name-input"
-              placeholder="Theme name…"
-              aria-label="Theme name"
+              placeholder={t("Theme name…")}
+              aria-label={t("Theme name")}
               value={name}
               onChange={(e) => persistName(e.target.value)}
               spellCheck={false}
@@ -272,20 +328,20 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
               <button type="button"
                 className="te-btn"
                 onClick={seedFromCurrent}
-                title="Copy colors from the active theme"
+                title={t("Copy colors from the active theme")}
               >
-                Seed from current
+                {t("Seed from current")}
               </button>
               <button type="button"
                 className={`te-btn${previewing ? " te-btn-active" : ""}`}
                 onClick={togglePreview}
-                title="Apply colors temporarily without saving"
+                title={t("Apply colors temporarily without saving")}
               >
-                {previewing ? "Stop preview" : "Preview"}
+                {previewing ? t("Stop preview") : t("Preview")}
               </button>
               {editing && (
                 <button type="button" className="te-btn te-btn-danger" onClick={handleDelete}>
-                  Delete
+                  {t("Delete")}
                 </button>
               )}
               <button type="button"
@@ -293,19 +349,21 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                 onClick={handleSave}
                 disabled={!canSave}
               >
-                {editing ? "Update" : "Save & apply"}
+                {editing ? t("Update") : t("Save & apply")}
               </button>
             </div>
           </div>
 
           {isNameTaken && (
             <p className="theme-editor-error">
-              &ldquo;{name}&rdquo; is a built-in theme name and cannot be overwritten.
+              {t('“{name}” is a built-in theme name and cannot be overwritten.', { name })}
             </p>
           )}
 
            <div className="theme-vars-grid">
-            {THEME_VARS.map(({ key, label, type }) => (
+            {THEME_VARS.map(({ key, label: fallback, type }) => {
+              const label = varLabels[key] ?? fallback;
+              return (
               <div key={key} className={`theme-var-row${type === 'text' ? ' theme-var-row--text' : ''}`}>
                 <label className="theme-var-label" title={key}>
                   {label}
@@ -315,11 +373,11 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                     <button type="button"
                       className={`te-btn te-btn-tag${colors[key] === 'dark' ? ' te-btn-active' : ''}`}
                       onClick={() => handleColorChange(key, 'dark')}
-                    >Dark</button>
+                    >{t('Dark')}</button>
                     <button type="button"
                       className={`te-btn te-btn-tag${colors[key] === 'light' ? ' te-btn-active' : ''}`}
                       onClick={() => handleColorChange(key, 'light')}
-                    >Light</button>
+                    >{t('Light')}</button>
                   </div>
                 ) : type === 'text' ? (
                   <div className="theme-var-inputs">
@@ -338,14 +396,14 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                     <input
                       type="color"
                       className="theme-color-swatch"
-                      aria-label={`${label} color picker`}
+                      aria-label={t("{label} color picker", { label })}
                       value={colors[key] || "#000000"}
                       onChange={(e) => handleColorChange(key, e.target.value)}
                     />
                     <input
                       type="text"
                       className="theme-color-text"
-                      aria-label={`${label} hex code`}
+                      aria-label={t("{label} hex code", { label })}
                       value={colors[key] || ""}
                       onChange={(e) => handleColorChange(key, e.target.value)}
                       spellCheck={false}
@@ -354,19 +412,20 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
 
           <div className="theme-text-panel">
             <div className="theme-text-toolbar">
               <span className="theme-text-label">JSON</span>
               <button type="button" className="te-btn" onClick={handleCopy}>
-                Copy
+                {t("Copy")}
               </button>
             </div>
             <textarea
               className="theme-textarea"
-              aria-label="Theme JSON"
+              aria-label={t("Theme JSON")}
               value={importText || exportText}
               onChange={(e) => setImportText(e.target.value)}
               spellCheck={false}
@@ -378,7 +437,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                   className="te-btn te-btn-primary"
                   onClick={handleImport}
                 >
-                  Import
+                  {t("Import")}
                 </button>
                 <button type="button"
                   className="te-btn"
@@ -387,7 +446,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
                     setImportError(null);
                   }}
                 >
-                  Cancel
+                  {t("Cancel")}
                 </button>
                 {importError && (
                   <span className="theme-editor-error">{importError}</span>
@@ -397,14 +456,14 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
           </div>
 
           <div className="theme-existing">
-            <span className="theme-existing-label">Edit existing:</span>
-            {loadCustomThemes().map((t) => (
+            <span className="theme-existing-label">{t("Edit existing:")}</span>
+            {loadCustomThemes().map((custom) => (
               <button type="button"
-                key={t.name}
+                key={custom.name}
                 className="te-btn te-btn-tag"
-                onClick={() => loadExisting(t.name)}
+                onClick={() => loadExisting(custom.name)}
               >
-                {t.name}
+                {custom.name}
               </button>
             ))}
           </div>
@@ -417,6 +476,7 @@ function ThemeEditor({ onSaved, onThemeChange, currentTheme }) {
 // ── AI assistant (MCP) integration ───────────────────────────────────────────
 
 function McpIntegration() {
+  const { t } = useT();
   const [state, setState] = useState({ loading: true, data: null, error: null });
   const [copied, setCopied] = useState(false);
 
@@ -435,27 +495,25 @@ function McpIntegration() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  if (state.loading) return <p className="config-hint">Loading…</p>;
+  if (state.loading) return <p className="config-hint">{t('Loading…')}</p>;
   if (state.error) return <p className="theme-editor-error">{state.error.message}</p>;
 
   return (
     <div className="mcp-integration">
       <p className="config-hint">
-        Connect an AI assistant to this vault — it can search your notes, draft flashcards from a
-        document, and add them to a deck, right from a conversation. Nothing it changes skips
-        Flashback&rsquo;s normal save path.
+        {t('Connect an AI assistant to this vault — it can search your notes, draft flashcards from a document, and add them to a deck, right from a conversation. Nothing it changes skips Flashback’s normal save path.')}
       </p>
 
       <div className="theme-text-panel">
         <div className="theme-text-toolbar">
-          <span className="theme-text-label">MCP config</span>
+          <span className="theme-text-label">{t('MCP config')}</span>
           <button type="button" className="te-btn" onClick={handleCopy}>
-            {copied ? 'Copied!' : 'Copy'}
+            {copied ? t('Copied!') : t('Copy')}
           </button>
         </div>
         <textarea
           className="theme-textarea"
-          aria-label="MCP server configuration JSON"
+          aria-label={t('MCP server configuration JSON')}
           value={state.data?.json ?? ''}
           readOnly
           spellCheck={false}
@@ -465,18 +523,23 @@ function McpIntegration() {
 
       <ul className="mcp-instructions">
         <li>
-          <strong>Claude Desktop</strong> — paste this into{' '}
-          <code>%APPDATA%\Claude\claude_desktop_config.json</code>, then restart Claude Desktop.
+          <strong>Claude Desktop</strong>{' — '}
+          <Rich
+            text={t('paste this into {file}, then restart Claude Desktop.')}
+            values={{ file: <code>%APPDATA%\Claude\claude_desktop_config.json</code> }}
+          />
         </li>
         <li>
-          <strong>Claude Code</strong> — save this as <code>.mcp.json</code> in your project, then
-          restart and run <code>/mcp</code> to check the connection.
+          <strong>Claude Code</strong>{' — '}
+          <Rich
+            text={t('save this as {file} in your project, then restart and run {command} to check the connection.')}
+            values={{ file: <code>.mcp.json</code>, command: <code>/mcp</code> }}
+          />
         </li>
       </ul>
 
       <p className="config-hint">
-        Flashback needs to be running for this to work — since you&rsquo;re looking at this screen, it
-        already is.
+        {t('Flashback needs to be running for this to work — since you’re looking at this screen, it already is.')}
       </p>
     </div>
   );
@@ -486,44 +549,45 @@ function McpIntegration() {
 
 // Renders the changing part of the update flow off the 'update-status' IPC stream.
 function UpdateStatusLine({ status, onDownload, onInstall, busy }) {
+  const { t } = useT();
   switch (status.state) {
     case 'available':
       return (
         <span className="config-update-notice">
-          Version {status.version} is available.
+          {t('Version {version} is available.', { version: status.version })}
           <button
             type="button"
             className="config-restart-btn config-restart-btn--primary"
             onClick={onDownload}
             disabled={busy}
           >
-            Update now
+            {t('Update now')}
           </button>
         </span>
       );
     case 'downloading':
-      return <span className="config-status">Downloading… {status.percent ?? 0}%</span>;
+      return <span className="config-status">{t('Downloading… {percent}%', { percent: status.percent ?? 0 })}</span>;
     case 'downloaded':
       return (
         <span className="config-update-notice">
-          Version {status.version} is ready to install.
+          {t('Version {version} is ready to install.', { version: status.version })}
           <button
             type="button"
             className="config-restart-btn config-restart-btn--primary"
             onClick={onInstall}
           >
-            Restart &amp; install
+            {t('Restart & install')}
           </button>
         </span>
       );
     case 'none':
-      return <span className="config-status">You&rsquo;re up to date.</span>;
+      return <span className="config-status">{t('You’re up to date.')}</span>;
     case 'dev':
-      return <span className="config-hint">Updates are only available in the packaged app.</span>;
+      return <span className="config-hint">{t('Updates are only available in the packaged app.')}</span>;
     case 'error':
       return (
         <span className="config-status config-status--error">
-          {status.message || 'Update check failed.'}
+          {status.message || t('Update check failed.')}
         </span>
       );
     default:
@@ -532,6 +596,7 @@ function UpdateStatusLine({ status, onDownload, onInstall, busy }) {
 }
 
 function AboutUpdates() {
+  const { t } = useT();
   const [version, setVersion] = useState(null);
   const [status, setStatus] = useState({ state: 'idle' });
   const [busy, setBusy] = useState(false);
@@ -564,7 +629,7 @@ function AboutUpdates() {
   const handleInstall = () => window.flashback.installUpdate();
 
   if (!window.flashback) {
-    return <p className="config-hint">Version and updates are available in the desktop app.</p>;
+    return <p className="config-hint">{t('Version and updates are available in the desktop app.')}</p>;
   }
 
   return (
@@ -572,7 +637,7 @@ function AboutUpdates() {
       <table className="config-table">
         <tbody>
           <tr>
-            <td><label>Version</label></td>
+            <td><label>{t('Version')}</label></td>
             <td><span className="config-version">{version ? `v${version}` : '—'}</span></td>
           </tr>
         </tbody>
@@ -585,7 +650,7 @@ function AboutUpdates() {
           onClick={handleCheck}
           disabled={busy || status.state === 'checking' || status.state === 'downloading'}
         >
-          {status.state === 'checking' ? 'Checking…' : 'Check for updates'}
+          {status.state === 'checking' ? t('Checking…') : t('Check for updates')}
         </button>
         <UpdateStatusLine
           status={status}
@@ -659,6 +724,7 @@ const algoLabel = (a) => ALGO_LABEL[a] ?? a;
 // weights were last fitted, and runs the fit on demand (reporting before/after
 // loss). Rendered only while FSRS is the active algorithm.
 function FsrsOptimizer() {
+  const { t, tp, formatDate } = useT();
   const [info, setInfo] = useState(null);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState(null);
@@ -680,35 +746,34 @@ function FsrsOptimizer() {
       setResult(res);
       load();
     } catch (e) {
-      setError(e?.message ?? 'Optimization failed');
+      setError(e?.message ?? t('Optimization failed'));
     } finally {
       setRunning(false);
     }
   };
 
   const fmtLoss = (n) => (typeof n === 'number' ? n.toFixed(4) : '—');
-  const fmtDate = (s) => {
-    if (!s) return null;
-    const d = new Date(s.includes('T') ? s : s.replace(' ', 'T') + 'Z');
-    return Number.isNaN(d.getTime()) ? null : d.toLocaleDateString();
-  };
 
   return (
     <div className="fsrs-optimizer">
       <p className="config-hint">
-        Fit the memory model to your own review history for more accurate
-        scheduling. Needs at least {info?.minReviews ?? 400} graded reviews
-        {info != null && ` — you have ${info.reviewCount}`}.
+        {t('Fit the memory model to your own review history for more accurate scheduling.')}{' '}
+        {info != null
+          ? t('Needs at least {min} graded reviews — you have {count}.',
+            { min: info.minReviews, count: info.reviewCount })
+          : t('Needs at least {min} graded reviews.', { min: 400 })}
       </p>
 
       {info?.optimizedAt && (
         <p className="fsrs-optimizer-status">
-          Last fitted {fmtDate(info.optimizedAt)}
-          {info.weightReviewCount != null && ` from ${info.weightReviewCount} reviews`}.
+          {info.weightReviewCount != null
+            ? tp('Last fitted {date} from {n} review.', 'Last fitted {date} from {n} reviews.',
+              info.weightReviewCount, { date: formatDate(info.optimizedAt) })
+            : t('Last fitted {date}.', { date: formatDate(info.optimizedAt) })}
         </p>
       )}
       {info && !info.optimizedAt && (
-        <p className="fsrs-optimizer-status">Using default weights.</p>
+        <p className="fsrs-optimizer-status">{t('Using default weights.')}</p>
       )}
 
       <button
@@ -717,22 +782,27 @@ function FsrsOptimizer() {
         onClick={run}
         disabled={running || !enough}
       >
-        {running ? 'Optimizing…' : 'Optimize FSRS parameters'}
+        {running ? t('Optimizing…') : t('Optimize FSRS parameters')}
       </button>
 
       {result && result.optimized && (
         <p className="fsrs-optimizer-result">
-          Fitted from {result.reviewCount} reviews. Loss{' '}
-          {fmtLoss(result.initialLoss)} → <strong>{fmtLoss(result.loss)}</strong>
-          {result.loss < result.initialLoss
-            ? ' (improved).'
-            : ' (already near-optimal).'}
+          {tp('Fitted from {n} review.', 'Fitted from {n} reviews.', result.reviewCount)}{' '}
+          <Rich
+            text={result.loss < result.initialLoss
+              ? t('Loss {before} → {after} (improved).')
+              : t('Loss {before} → {after} (already near-optimal).')}
+            values={{
+              before: fmtLoss(result.initialLoss),
+              after: <strong>{fmtLoss(result.loss)}</strong>,
+            }}
+          />
         </p>
       )}
       {result && !result.optimized && (
         <p className="fsrs-optimizer-result">
-          Not enough graded reviews yet ({result.reviewCount} of{' '}
-          {result.minReviews}). Keep reviewing and try again later.
+          {t('Not enough graded reviews yet ({count} of {min}). Keep reviewing and try again later.',
+            { count: result.reviewCount, min: result.minReviews })}
         </p>
       )}
       {error && <p className="fsrs-optimizer-error">{error}</p>}
@@ -749,6 +819,7 @@ export default function ConfigView({
   onCustomThemesChange,
   onReplayTour,
 }) {
+  const { t } = useT();
   const { config, setConfig, loading, error } = useConfig();
   const [form, setForm] = useState(null);
   const [status, setStatus] = useState(null);
@@ -846,12 +917,12 @@ export default function ConfigView({
   return (
     <div className="config-view">
       <section className="config-section">
-        <h2 className="config-heading">Appearance</h2>
+        <h2 className="config-heading">{t('Appearance')}</h2>
         <table className="config-table">
           <tbody>
             <tr>
               <td>
-                <label htmlFor="locale-select">Language</label>
+                <label htmlFor="locale-select">{t('Language')}</label>
               </td>
               <td>
                 <LanguagePicker id="locale-select" />
@@ -859,7 +930,7 @@ export default function ConfigView({
             </tr>
             <tr>
               <td>
-                <label htmlFor="theme-select">Theme</label>
+                <label htmlFor="theme-select">{t('Theme')}</label>
               </td>
               <td>
                 <select
@@ -867,9 +938,9 @@ export default function ConfigView({
                   value={theme ?? "light-workbench"}
                   onChange={(e) => onThemeChange(e.target.value)}
                 >
-                  {allThemes.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
+                  {allThemes.map((name) => (
+                    <option key={name} value={name}>
+                      {name}
                     </option>
                   ))}
                 </select>
@@ -888,12 +959,12 @@ export default function ConfigView({
       </section>
 
       <section className="config-section">
-        <h2 className="config-heading">Flashcards</h2>
+        <h2 className="config-heading">{t('Flashcards')}</h2>
         <table className="config-table">
           <tbody>
             <tr>
               <td>
-                <label htmlFor="srs-algorithm">SRS algorithm</label>
+                <label htmlFor="srs-algorithm">{t('SRS algorithm')}</label>
               </td>
               <td>
                 <select
@@ -901,9 +972,9 @@ export default function ConfigView({
                   value={pendingAlgo ?? algorithm}
                   onChange={(e) => handleAlgorithmSelect(e.target.value)}
                 >
-                  <option value="leitner">Leitner (doubles each level)</option>
-                  <option value="sm2">SM-2 (ease factor)</option>
-                  <option value="fsrs">FSRS (memory model)</option>
+                  <option value="leitner">{t('Leitner (doubles each level)')}</option>
+                  <option value="sm2">{t('SM-2 (ease factor)')}</option>
+                  <option value="fsrs">{t('FSRS (memory model)')}</option>
                 </select>
               </td>
             </tr>
@@ -912,24 +983,28 @@ export default function ConfigView({
                 <td colSpan={2}>
                   <div className="algo-migrate-confirm">
                     <p className="algo-migrate-msg">
-                      Switch to <strong>{algoLabel(pendingAlgo)}</strong>?
+                      <Rich
+                        text={t('Switch to {algorithm}?')}
+                        values={{ algorithm: <strong>{algoLabel(pendingAlgo)}</strong> }}
+                      />
                     </p>
                     <div className="algo-migrate-actions">
                       <button type="button" className="algo-migrate-btn algo-migrate-btn--primary"
                         onClick={() => confirmMigrate(true)}>
-                        Carry over progress
+                        {t('Carry over progress')}
                       </button>
                       <button type="button" className="algo-migrate-btn"
                         onClick={() => confirmMigrate(false)}>
-                        Start fresh
+                        {t('Start fresh')}
                       </button>
                       <button type="button" className="algo-migrate-btn algo-migrate-btn--cancel"
                         onClick={cancelAlgorithmChange}>
-                        Cancel
+                        {t('Cancel')}
                       </button>
                     </div>
                     <p className="algo-migrate-hint">
-                      Carry over maps each card&rsquo;s current interval to the nearest equivalent in {algoLabel(pendingAlgo)}.
+                      {t('Carry over maps each card’s current interval to the nearest equivalent in {algorithm}.',
+                        { algorithm: algoLabel(pendingAlgo) })}
                     </p>
                   </div>
                 </td>
@@ -938,7 +1013,7 @@ export default function ConfigView({
             {algorithm === 'fsrs' && (
               <tr>
                 <td>
-                  <label htmlFor="fsrs-retention">Desired retention</label>
+                  <label htmlFor="fsrs-retention">{t('Desired retention')}</label>
                 </td>
                 <td>
                   <div className="fsrs-retention-row">
@@ -954,7 +1029,7 @@ export default function ConfigView({
                     <span className="fsrs-retention-value">{Math.round(retention * 100)}%</span>
                   </div>
                   <p className="config-hint">
-                    Higher = more frequent reviews and stronger recall; lower = fewer reviews. 90% is a good default.
+                    {t('Higher = more frequent reviews and stronger recall; lower = fewer reviews. 90% is a good default.')}
                   </p>
                 </td>
               </tr>
@@ -962,7 +1037,7 @@ export default function ConfigView({
             {algorithm === 'fsrs' && (
               <tr>
                 <td>
-                  <label>Optimize parameters</label>
+                  <label>{t('Optimize parameters')}</label>
                 </td>
                 <td>
                   <FsrsOptimizer />
@@ -971,7 +1046,7 @@ export default function ConfigView({
             )}
             <tr>
               <td>
-                <label htmlFor="trainer-order">Card order</label>
+                <label htmlFor="trainer-order">{t('Card order')}</label>
               </td>
               <td>
                 <select
@@ -979,37 +1054,25 @@ export default function ConfigView({
                   value={order}
                   onChange={(e) => setOrder(e.target.value)}
                 >
-                  <option value="interleaved">Interleaved (spreads related cards apart)</option>
-                  <option value="shuffle">Shuffled (random)</option>
-                  <option value="priority">By category priority</option>
+                  <option value="interleaved">{t('Interleaved (spreads related cards apart)')}</option>
+                  <option value="shuffle">{t('Shuffled (random)')}</option>
+                  <option value="priority">{t('By category priority')}</option>
                 </select>
                 <p className="config-hint">
-                  {order === 'interleaved' && (
-                    <>
-                      Cards from the same document, tag or folder are pushed apart so each one
-                      has to be recalled on its own. Expect sessions to feel harder and your
-                      pass rate to dip &mdash; that&rsquo;s the trade for remembering more later.
-                    </>
-                  )}
-                  {order === 'shuffle' && 'Random order within each category-priority tier.'}
-                  {order === 'priority' && (
-                    <>
-                      Foundational cards first, then in the order they were created. Predictable,
-                      but reviewing related cards together makes them easier to recall now and
-                      harder to recall later.
-                    </>
-                  )}
+                  {order === 'interleaved' && t('Cards from the same document, tag or folder are pushed apart so each one has to be recalled on its own. Expect sessions to feel harder and your pass rate to dip — that’s the trade for remembering more later.')}
+                  {order === 'shuffle' && t('Random order within each category-priority tier.')}
+                  {order === 'priority' && t('Foundational cards first, then in the order they were created. Predictable, but reviewing related cards together makes them easier to recall now and harder to recall later.')}
                 </p>
               </td>
             </tr>
             <tr>
               <td>
-                <label htmlFor="srs-max-new">New cards per day</label>
+                <label htmlFor="srs-max-new">{t('New cards per day')}</label>
               </td>
               <td>
                 <input
                   id="srs-max-new"
-                  aria-label="New cards per day"
+                  aria-label={t('New cards per day')}
                   type="number"
                   min={0}
                   max={200}
@@ -1023,12 +1086,12 @@ export default function ConfigView({
       </section>
 
       <section className="config-section">
-        <h2 className="config-heading">Diary</h2>
+        <h2 className="config-heading">{t('Diary')}</h2>
         <table className="config-table">
           <tbody>
             <tr>
               <td>
-                <label htmlFor="diary-enabled">Study diary</label>
+                <label htmlFor="diary-enabled">{t('Study diary')}</label>
               </td>
               <td>
                 <label className="config-checkbox">
@@ -1038,12 +1101,10 @@ export default function ConfigView({
                     checked={diaryEnabled}
                     onChange={(e) => setDiaryEnabled(e.target.checked)}
                   />
-                  <span>Record a daily summary when a study session finishes</span>
+                  <span>{t('Record a daily summary when a study session finishes')}</span>
                 </label>
                 <p className="config-hint">
-                  Writes a per-day summary of your reviews (counts, pass rate, streak) to a
-                  private diary kept outside your workspace — never in the graph, search, or
-                  flashcards. You can also add your own written reflections. Off by default.
+                  {t('Writes a per-day summary of your reviews (counts, pass rate, streak) to a private diary kept outside your workspace — never in the graph, search, or flashcards. You can also add your own written reflections. Off by default.')}
                 </p>
               </td>
             </tr>
@@ -1053,38 +1114,37 @@ export default function ConfigView({
 
       {onReplayTour && (
         <section className="config-section">
-          <h2 className="config-heading">Getting started</h2>
+          <h2 className="config-heading">{t('Getting started')}</h2>
           <p className="config-hint">
-            Take the guided tour of Flashback&rsquo;s features again — this only
-            replays the walkthrough, it doesn&rsquo;t touch your vault or settings.
+            {t('Take the guided tour of Flashback’s features again — this only replays the walkthrough, it doesn’t touch your vault or settings.')}
           </p>
           <button
             type="button"
             className="config-restart-btn config-restart-btn--primary"
             onClick={onReplayTour}
           >
-            Replay welcome tour
+            {t('Replay welcome tour')}
           </button>
         </section>
       )}
 
-      {loading && <LoadingState message="Loading settings…" />}
-      {error && <ErrorState error={error} title="Couldn't load settings" />}
+      {loading && <LoadingState message={t('Loading settings…')} />}
+      {error && <ErrorState error={error} title={t("Couldn't load settings")} />}
 
       {form && (
         <>
           <section className="config-section">
-            <h2 className="config-heading">Server</h2>
+            <h2 className="config-heading">{t('Server')}</h2>
             <table className="config-table">
               <tbody>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-vault-name">Vault name</label>
+                    <label htmlFor="cfg-vault-name">{t('Vault name')}</label>
                   </td>
                   <td>
                     <input
                       id="cfg-vault-name"
-                      aria-label="Vault name"
+                      aria-label={t('Vault name')}
                       placeholder="default"
                       value={form.vaultName ?? ""}
                       onChange={(e) => handleChange("vaultName", e.target.value)}
@@ -1093,12 +1153,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-port">Port</label>
+                    <label htmlFor="cfg-port">{t('Port')}</label>
                   </td>
                   <td>
                     <input
                       id="cfg-port"
-                      aria-label="Port"
+                      aria-label={t('Port')}
                       type="number"
                       value={form.port ?? 50500}
                       onChange={(e) =>
@@ -1109,12 +1169,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-host">Host</label>
+                    <label htmlFor="cfg-host">{t('Host')}</label>
                   </td>
                   <td>
                     <input
                       id="cfg-host"
-                      aria-label="Host"
+                      aria-label={t('Host')}
                       value={form.host ?? "localhost"}
                       onChange={(e) => handleChange("host", e.target.value)}
                     />
@@ -1122,7 +1182,7 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-log-format">Log format</label>
+                    <label htmlFor="cfg-log-format">{t('Log format')}</label>
                   </td>
                   <td>
                     <select
@@ -1139,12 +1199,12 @@ export default function ConfigView({
                 </tr>
                 <tr>
                   <td>
-                    <label htmlFor="cfg-custom-path">Use custom workspace path</label>
+                    <label htmlFor="cfg-custom-path">{t('Use custom workspace path')}</label>
                   </td>
                   <td>
                     <input
                       id="cfg-custom-path"
-                      aria-label="Use custom workspace path"
+                      aria-label={t('Use custom workspace path')}
                       type="checkbox"
                       checked={!!form.isCustomPath}
                       onChange={(e) =>
@@ -1156,12 +1216,12 @@ export default function ConfigView({
                 {form.isCustomPath && (
                   <tr>
                     <td>
-                      <label htmlFor="cfg-workspace-path">Workspace path</label>
+                      <label htmlFor="cfg-workspace-path">{t('Workspace path')}</label>
                     </td>
                     <td>
                       <input
                         id="cfg-workspace-path"
-                        aria-label="Workspace path"
+                        aria-label={t('Workspace path')}
                         value={form.customPath ?? ""}
                         onChange={(e) =>
                           handleChange("customPath", e.target.value)
@@ -1184,12 +1244,12 @@ export default function ConfigView({
                 onClick={handleSave}
                 disabled={!isDirty || status === 'saving'}
               >
-                {status === 'saving' ? 'Saving…' : status === 'saved' ? '✓ Saved' : 'Save changes'}
+                {status === 'saving' ? t('Saving…') : status === 'saved' ? t('✓ Saved') : t('Save changes')}
               </button>
               {isDirty && (
                 <span className="config-unsaved-indicator">
                   <span className="config-unsaved-dot" />
-                  Unsaved changes
+                  {t('Unsaved changes')}
                 </span>
               )}
               {status && status !== 'saved' && status !== 'saving' && (
@@ -1201,14 +1261,14 @@ export default function ConfigView({
 
             {hasRestartDirty && (
               <p className="config-hint">
-                ⚠ Changes to vault name, port, host, log format, or workspace path require a restart to take effect.
+                {t('⚠ Changes to vault name, port, host, log format, or workspace path require a restart to take effect.')}
               </p>
             )}
 
             {restartPending && (
               <div className="config-restart-prompt">
                 <span className="config-restart-message">
-                  Server settings changed — restart to apply.
+                  {t('Server settings changed — restart to apply.')}
                 </span>
                 <div className="config-restart-actions">
                   <button
@@ -1216,14 +1276,14 @@ export default function ConfigView({
                     className="config-restart-btn config-restart-btn--primary"
                     onClick={() => window.flashback?.restartApp()}
                   >
-                    Restart now
+                    {t('Restart now')}
                   </button>
                   <button
                     type="button"
                     className="config-restart-btn"
                     onClick={() => setRestartPending(false)}
                   >
-                    Later
+                    {t('Later')}
                   </button>
                 </div>
               </div>
@@ -1231,31 +1291,33 @@ export default function ConfigView({
           </section>
 
           <section className="config-section">
-            <h2 className="config-heading">AI Assistant</h2>
+            <h2 className="config-heading">{t('AI Assistant')}</h2>
             <McpIntegration />
             <label className="config-checkbox config-checkbox--spaced" htmlFor="diary-access-select">
-              <span>What AI assistants may read from your diary</span>
+              <span>{t('What AI assistants may read from your diary')}</span>
             </label>
             <select
               id="diary-access-select"
               value={diaryAccess}
               onChange={(e) => setDiaryAccess(e.target.value)}
             >
-              <option value="none">Nothing (off)</option>
-              <option value="summaries">Daily summaries only</option>
-              <option value="full">Summaries and written entries</option>
+              <option value="none">{t('Nothing (off)')}</option>
+              <option value="summaries">{t('Daily summaries only')}</option>
+              <option value="full">{t('Summaries and written entries')}</option>
             </select>
             <p className="config-hint">
-              Off by default. <strong>Daily summaries only</strong> lets an assistant see your
-              machine-generated study record (review counts, pass rates, streaks) while keeping
-              your written reflections private — the right choice if you use the diary as a
-              personal journal. <strong>Summaries and written entries</strong> also exposes your
-              own prose. When off, every diary tool is refused.
+              <Rich
+                text={t('Off by default. {summaries} lets an assistant see your machine-generated study record (review counts, pass rates, streaks) while keeping your written reflections private — the right choice if you use the diary as a personal journal. {full} also exposes your own prose. When off, every diary tool is refused.')}
+                values={{
+                  summaries: <strong>{t('Daily summaries only')}</strong>,
+                  full: <strong>{t('Summaries and written entries')}</strong>,
+                }}
+              />
             </p>
           </section>
 
           <section className="config-section">
-            <h2 className="config-heading">About</h2>
+            <h2 className="config-heading">{t('About')}</h2>
             <AboutUpdates />
           </section>
         </>
@@ -1263,8 +1325,8 @@ export default function ConfigView({
 
       {migrating && (
         <ProgressDialog
-          title="Translating progress…"
-          statusText="Mapping intervals to the new algorithm"
+          title={t('Translating progress…')}
+          statusText={t('Mapping intervals to the new algorithm')}
           progress={0}
           processing
         />

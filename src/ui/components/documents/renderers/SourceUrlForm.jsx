@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useT } from '../../../translations';
 import './SourceUrlForm.css';
 
 // Empty-state URL entry shown by the YouTube/clip renderers when a file was
@@ -8,13 +9,19 @@ export default function SourceUrlForm({
   title,
   hint,
   placeholder = 'https://…',
-  submitLabel = 'Load',
-  busyLabel = 'Loading…',
+  submitLabel,
+  busyLabel,
   onSubmit,
 }) {
+  const { t } = useT();
   const [url, setUrl]     = useState('');
   const [busy, setBusy]   = useState(false);
   const [error, setError] = useState(null);
+
+  // Defaulted here rather than in the parameter list: a default that calls t()
+  // has to run inside the component to pick up a language switch.
+  const submitText = submitLabel ?? t('Load');
+  const busyText   = busyLabel   ?? t('Loading…');
 
   const submit = async () => {
     const u = url.trim();
@@ -24,7 +31,7 @@ export default function SourceUrlForm({
     try {
       await onSubmit(u);
     } catch (err) {
-      setError(err?.message || 'Could not load that URL.');
+      setError(err?.message || t('Could not load that URL.'));
       setBusy(false);
     }
   };
@@ -47,7 +54,7 @@ export default function SourceUrlForm({
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
           />
           <button type="button" className="srcform-btn" onClick={submit} disabled={busy || !url.trim()}>
-            {busy ? busyLabel : submitLabel}
+            {busy ? busyText : submitText}
           </button>
         </div>
         {error && <p className="srcform-error">{error}</p>}

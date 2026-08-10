@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getTags, getEntityTags } from '../../../api/documents';
 import TagChipInput from '../../shared/TagChipInput';
+import { useT } from '../../../translations';
 
 export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChange }) {
+  const { t } = useT();
   const [directTags, setDirectTags]     = useState(propTags);
   const [inheritedTags, setInheritedTags] = useState([]);
   const [allKnownTags, setAllKnownTags] = useState([]);
@@ -37,7 +39,7 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
   }, []);
 
   const removeTag = useCallback((name) => {
-    setDirectTags(prev => prev.filter(t => t !== name));
+    setDirectTags(prev => prev.filter(tag => tag !== name));
     setDirty(true);
     setError(null);
   }, []);
@@ -53,7 +55,7 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
       const entity = await getEntityTags(path, false);
       setInheritedTags(entity.inherited ?? []);
     } catch (err) {
-      setError('Save failed. Please try again.');
+      setError(t('Save failed. Please try again.'));
       console.error(err);
     } finally {
       setSaving(false);
@@ -66,32 +68,32 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
     setError(null);
   };
 
-  if (!path) return <div className="inspector-placeholder"><p>No file open.</p></div>;
+  if (!path) return <div className="inspector-placeholder"><p>{t('No file open.')}</p></div>;
 
   return (
     <div className="tags-tab">
       {inheritedTags.length > 0 && (
         <div className="tags-section">
           <div className="tags-section-label">
-            Inherited
-            <span className="tags-section-hint">from parent folders</span>
+            {t('Inherited')}
+            <span className="tags-section-hint">{t('from parent folders')}</span>
           </div>
           <div className="tags-chip-row">
-            {inheritedTags.map(t => (
-              <span key={t} className="tag-chip tag-chip--inherited">{t}</span>
+            {inheritedTags.map(tag => (
+              <span key={tag} className="tag-chip tag-chip--inherited">{tag}</span>
             ))}
           </div>
         </div>
       )}
 
       <div className="tags-section">
-        <div className="tags-section-label">Direct tags</div>
+        <div className="tags-section-label">{t('Direct tags')}</div>
         <TagChipInput
           tags={directTags}
           onAdd={addTag}
           onRemove={removeTag}
           allKnownTags={allKnownTags}
-          placeholder="Add tag…"
+          placeholder={t('Add tag…')}
           chipClass="tag-chip--direct"
         />
       </div>
@@ -100,16 +102,16 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
 
       {dirty && (
         <div className="tags-actions">
-          <button type="button" className="tags-btn tags-btn--ghost" onClick={handleDiscard}>Discard</button>
+          <button type="button" className="tags-btn tags-btn--ghost" onClick={handleDiscard}>{t('Discard')}</button>
           <button type="button" className="tags-btn tags-btn--save" onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? t('Saving…') : t('Save')}
           </button>
         </div>
       )}
 
       {!dirty && directTags.length === 0 && inheritedTags.length === 0 && (
         <p className="inspector-placeholder" style={{ marginTop: 12 }}>
-          No tags yet. Add a direct tag above, or assign tags to a parent folder.
+          {t('No tags yet. Add a direct tag above, or assign tags to a parent folder.')}
         </p>
       )}
     </div>

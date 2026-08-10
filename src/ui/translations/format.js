@@ -11,8 +11,9 @@
  * Deliberately free of any dependency on ./index.jsx — no t() is needed here, so
  * there is no import cycle between the provider and its own formatters.
  *
- * Supersedes src/ui/utils/relativeTime.js (past-only, English, hardcoded
- * toLocaleDateString) and the future-facing ladder inlined in Trainer.jsx.
+ * Replaced the old utils/relativeTime.js (past-only, English, hardcoded
+ * toLocaleDateString) and the future-facing ladder inlined in Trainer.jsx; that
+ * module is gone now that its last callers went through here.
  */
 
 /**

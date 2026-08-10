@@ -26,6 +26,31 @@ export function cardTypes(t) {
   ];
 }
 
+/**
+ * Display name for a stored card_type, read back out of the picker's own labels so a
+ * badge in a list and the type chooser can never disagree. Falls back to the raw key
+ * (de-underscored) for a type this build doesn't know about.
+ */
+export function cardTypeLabel(key, t) {
+  return cardTypes(t).find(c => c.key === key)?.label ?? String(key).replace('_', ' ');
+}
+
+/**
+ * The compact badge form, for dense lists where the full picker label is too long
+ * ("Type" rather than "Type Answer"). Separate keys from cardTypes() on purpose:
+ * a translator needs to shorten each one for the target language independently.
+ */
+export function cardTypeShortLabel(key, t) {
+  switch (key) {
+    case 'basic':       return t('Basic');
+    case 'reversible':  return t('Reversible');
+    case 'cloze':       return t('Cloze');
+    case 'type_answer': return t('Type|card type badge');
+    case 'custom':      return t('Custom');
+    default:            return String(key);
+  }
+}
+
 export function hasClozeBlank(text) {
   return /\{\{[^}]+\}\}/.test(text ?? '');
 }

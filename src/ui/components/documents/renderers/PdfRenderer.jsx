@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions, TextLayer } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { readFile, updateMetadata } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
+import { useT } from '../../../translations';
 import './PdfRenderer.css';
 import './Renderer.css';
 
@@ -119,6 +120,7 @@ export default function PdfRenderer({
   onHighlightsChange,
   onSidecarRefresh,
 }) {
+  const { t, tp } = useT();
   const [pages,      setPages]      = useState([]);
   const [highlights, setHighlights] = useState([]);
   const [loading,    setLoading]    = useState(true);
@@ -171,7 +173,7 @@ export default function PdfRenderer({
       setLoading(false);
     }).catch(err => {
       if (!mounted) return;
-      setError(err.message ?? 'Failed to load PDF');
+      setError(err.message ?? t('Failed to load PDF'));
       setLoading(false);
     });
 
@@ -422,19 +424,19 @@ export default function PdfRenderer({
     return () => { if (highlightRef) highlightRef.current = null; };
   });
 
-  if (loading) return <div className="renderer-loading">Loading PDF…</div>;
-  if (error)   return <div className="renderer-error">Could not load PDF: {error}</div>;
+  if (loading) return <div className="renderer-loading">{t('Loading PDF…')}</div>;
+  if (error)   return <div className="renderer-error">{t('Could not load PDF: {error}', { error })}</div>;
 
   return (
     <div className={`pdf-renderer${drawMode ? ' pdf-renderer--draw' : ''}`} ref={rendererRef}>
       <div className="pdf-toolbar">
-        <div className="pdf-zoom-group" role="group" aria-label="Zoom">
+        <div className="pdf-zoom-group" role="group" aria-label={t('Zoom')}>
           <button type="button"
             className="pdf-zoom-btn"
             onClick={zoomOut}
             disabled={scale <= SCALE_MIN}
-            title="Zoom out"
-            aria-label="Zoom out"
+            title={t('Zoom out')}
+            aria-label={t('Zoom out')}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <line x1="3" y1="7" x2="11" y2="7" />
@@ -445,8 +447,8 @@ export default function PdfRenderer({
             className="pdf-zoom-btn"
             onClick={zoomIn}
             disabled={scale >= SCALE_MAX}
-            title="Zoom in"
-            aria-label="Zoom in"
+            title={t('Zoom in')}
+            aria-label={t('Zoom in')}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
               <line x1="3" y1="7" x2="11" y2="7" />
@@ -455,13 +457,13 @@ export default function PdfRenderer({
           </button>
         </div>
 
-        <button type="button" className="pdf-tool-btn" onClick={fitWidth} title="Zoom so a page fills the width">
+        <button type="button" className="pdf-tool-btn" onClick={fitWidth} title={t('Zoom so a page fills the width')}>
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <line x1="1.5" y1="2.5" x2="1.5" y2="11.5" />
             <line x1="12.5" y1="2.5" x2="12.5" y2="11.5" />
             <path d="M4 7h6M4 7l2-2M4 7l2 2M10 7l-2-2M10 7l-2 2" />
           </svg>
-          Fit width
+          {t('Fit width')}
         </button>
 
         <div className="pdf-toolbar-sep" aria-hidden="true" />
@@ -471,21 +473,21 @@ export default function PdfRenderer({
           onClick={() => setDrawMode(m => !m)}
           aria-pressed={drawMode}
           title={drawMode
-            ? 'Stop drawing highlight boxes'
-            : 'Draw a highlight box — for scanned PDFs where text can\'t be selected'}
+            ? t('Stop drawing highlight boxes')
+            : t('Draw a highlight box — for scanned PDFs where text can’t be selected')}
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" aria-hidden="true">
             <rect x="2" y="3" width="10" height="8" rx="1" strokeDasharray="2.5 2" />
           </svg>
-          Box highlight
+          {t('Box highlight')}
         </button>
 
         {drawMode && (
-          <span className="pdf-toolbar-hint">Drag on a page to mark a region · Esc cancels</span>
+          <span className="pdf-toolbar-hint">{t('Drag on a page to mark a region · Esc cancels')}</span>
         )}
 
         <span className="pdf-toolbar-pages">
-          {pages.length} page{pages.length === 1 ? '' : 's'}
+          {tp('{n} page', '{n} pages', pages.length)}
         </span>
       </div>
 
