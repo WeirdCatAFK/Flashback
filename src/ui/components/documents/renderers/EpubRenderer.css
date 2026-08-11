@@ -86,3 +86,25 @@
   justify-content: center;
   background: var(--color-bg-reader);
 }
+
+/* "Make a card from this image" — anchored to a clicked figure. Positioned from
+   viewport coordinates (the rect is translated out of the section iframe), so it is
+   fixed, not absolute, and sits above the SelectionToolbar's stacking neighbours. */
+.epub-image-action {
+  position: fixed;
+  z-index: 400;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  white-space: nowrap;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: none;
+  border-radius: 4px;
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+}
+
+.epub-image-action:hover {
+  filter: brightness(1.08);
+}

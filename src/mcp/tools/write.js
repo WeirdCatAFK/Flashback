@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import nodePath from 'node:path';
-import { request, upload } from '../client.js';
+import { request, requestBuffer, upload } from '../client.js';
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 const asError = (err) => ({
@@ -436,6 +437,62 @@ export function registerWriteTools(server) {
         formData.append('position', position);
         const data = await upload('/api/media/vanilla', formData);
         return asText({ ...data, name: storedName, type, position });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'attach_book_image',
+    {
+      title: 'Put an EPUB figure on a flashcard',
+      description:
+        'Copy one image out of an EPUB and attach it to the front or back of an existing ' +
+        'document-anchored vanilla flashcard. This is how a diagram from a book becomes the front ' +
+        'of a card. The image lives inside the EPUB\'s zip and has no path on disk, so attach_media ' +
+        'cannot reach it — use this instead, addressing the image by the `href` list_book_images ' +
+        'reported. The card and the book do not have to be the same document: read a textbook, ' +
+        'anchor the card to whichever document it belongs in, and pull the figure from the book. ' +
+        'The bytes are copied into the card\'s document, so the card keeps working if the book is ' +
+        'later removed, and the same figure can go on as many cards as you like.',
+      inputSchema: {
+        bookPath: z.string().describe('Relative path to the EPUB holding the image.'),
+        href: z.string().describe('The image\'s `href` (or bare file name) from list_book_images.'),
+        documentPath: z.string().describe('Relative path of the CARD\'s source document (often, but not always, the book itself).'),
+        flashcardHash: z.string().describe('The card\'s globalHash.'),
+        position: z.enum(['front', 'back']).describe('Which side of the card the image goes on.'),
+        name: z.string().optional().describe('File name to store it as, including extension. Leave this off unless you need a specific name — by default the book\'s name gets a short unique suffix, which is what lets one figure be attached repeatedly. An explicit name that is already taken in that document is an error.'),
+      },
+    },
+    async ({ bookPath, href, documentPath, flashcardHash, position, name }) => {
+      try {
+        const query = `?path=${encodeURIComponent(bookPath)}&href=${encodeURIComponent(href)}`;
+        const { buffer, mimeType } = await requestBuffer(`/api/reader/image${query}`);
+
+        // Default to the book's own file name plus a short unique suffix — the same
+        // scheme documents.createFlashcard uses, and for the same reason: a document's
+        // media/ dir is shared by all its cards, and files.addVanillaData refuses to
+        // overwrite. Book figures have fixed names ("fig1.png"), so without this the
+        // second card built from one diagram would fail. An explicit `name` is honoured
+        // as given, collision and all, because asking for a name means meaning it.
+        const fromBook = nodePath.basename(String(href).split('?')[0]);
+        const ext = nodePath.extname(fromBook);
+        const base = nodePath.basename(fromBook, ext).replace(/[^\w.-]+/g, '_') || 'image';
+        const storedName = name || `${base}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+        if (!nodePath.extname(storedName)) {
+          return asToolError(`"${storedName}" has no file extension — pass \`name\` with one (the image is ${mimeType}).`);
+        }
+
+        const formData = new FormData();
+        formData.append('file', new Blob([buffer], { type: mimeType }), storedName);
+        formData.append('docPath', documentPath);
+        formData.append('flashcardHash', flashcardHash);
+        formData.append('name', storedName);
+        formData.append('type', 'image');
+        formData.append('position', position);
+        const data = await upload('/api/media/vanilla', formData);
+        return asText({ ...data, name: storedName, type: 'image', position, from: bookPath });
       } catch (err) {
         return asError(err);
       }

@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
+import BookImagePicker from './BookImagePicker';
+import { fetchBookImageFile } from '../../api/reader';
 import { getCategories } from '../../api/categories';
 import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
 import { useT } from '../../translations';
@@ -26,6 +28,8 @@ function mediaSlots(t) {
   ];
 }
 
+const isImageSlot = (key) => key === 'front_img' || key === 'back_img';
+
 const EMPTY_FILES = { front_img: null, back_img: null, front_sound: null, back_sound: null };
 
 const HL_COLOR_VAR = {
@@ -42,6 +46,15 @@ export default function FlashcardForm({
   location = null,
   initial = null,     // existing card's fields → edit mode
   resolveMedia = null, // (storedRef) => url — needed to preview `initial.media`
+  // Relative path of an EPUB whose figures can go on this card, or null. Set by the
+  // Inspector when the document being read is a book: a diagram is often the best
+  // front a card can have, and it is otherwise unreachable — it lives inside the
+  // EPUB's zip, so the file picker cannot see it.
+  bookPath = null,
+  // { slot, href } for a figure the user already chose elsewhere — clicking an image
+  // in the reader opens this form with it in place, rather than making them find it
+  // again in the picker. Requires `bookPath`.
+  seedImage = null,
   submitLabel,
   showTags = true,
   saving = false,
@@ -147,6 +160,37 @@ export default function FlashcardForm({
     if (e.key === 'Enter' || e.key === ',') { e.preventDefault(); addTag(); }
   };
   const setFile = (key, file) => setFiles((prev) => ({ ...prev, [key]: file ?? null }));
+
+  // Which image slot the book picker is filling, or null when it is closed.
+  const [pickingFor, setPickingFor] = useState(null);
+  const [pickError, setPickError] = useState(null);
+
+  // An image the caller pre-chose (the reader's click gesture). Fetched here rather
+  // than by the caller so there is one path from "a figure in a book" to "a File".
+  const seedSlot = seedImage?.slot;
+  const seedHref = seedImage?.href;
+  useEffect(() => {
+    if (!bookPath || !seedHref || !seedSlot) return;
+    let cancelled = false;
+    fetchBookImageFile(bookPath, seedHref)
+      .then((file) => { if (!cancelled) setFile(seedSlot, file); })
+      .catch((err) => { if (!cancelled) setPickError(err.message ?? t('Could not load that image')); });
+    return () => { cancelled = true; };
+  }, [bookPath, seedHref, seedSlot]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // A figure chosen from the book becomes an ordinary File, so from here on nothing
+  // downstream — preview, validation, upload — can tell it apart from one the user
+  // picked off disk.
+  const handleBookPick = async (image) => {
+    const slot = pickingFor;
+    setPickingFor(null);
+    setPickError(null);
+    try {
+      setFile(slot, await fetchBookImageFile(bookPath, image.href, image.name));
+    } catch (err) {
+      setPickError(err.message ?? t('Could not load that image'));
+    }
+  };
 
   const fields = { front, back, clozeText, question, expectedAnswer, notes, customHtml };
   const clozeReady = hasClozeBlank(clozeText);
@@ -337,15 +381,35 @@ export default function FlashcardForm({
                     <button type="button" className="fc-form-media-clear" onClick={() => setFile(key, null)}>×</button>
                   </div>
                 ) : (
-                  <label className="fc-form-media-add">
-                    {t('+ Add')}
-                    <input type="file" accept={accept} hidden onChange={(e) => setFile(key, e.target.files?.[0])} />
-                  </label>
+                  <div className="fc-form-media-sources">
+                    <label className="fc-form-media-add">
+                      {t('+ Add')}
+                      <input type="file" accept={accept} hidden onChange={(e) => setFile(key, e.target.files?.[0])} />
+                    </label>
+                    {bookPath && isImageSlot(key) && (
+                      <button
+                        type="button"
+                        className="fc-form-media-add fc-form-media-add--book"
+                        onClick={() => setPickingFor(key)}
+                      >
+                        {t('From book')}
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             ))}
           </div>
+          {pickError && <p className="fc-form-media-error">{pickError}</p>}
         </>
+      )}
+
+      {pickingFor && (
+        <BookImagePicker
+          bookPath={bookPath}
+          onPick={handleBookPick}
+          onClose={() => setPickingFor(null)}
+        />
       )}
 
       {showTags && (

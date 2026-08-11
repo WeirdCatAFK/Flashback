@@ -369,7 +369,7 @@ Fetches a `.youtube` document's captions from YouTube and stores them in the sid
 
 ## Reader `/api/reader`
 
-Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files. Built for the MCP server — which has no renderer and cannot receive bytes — but not restricted to it. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
+Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **images** an EPUB holds. Built for the MCP server — which has no renderer — but not restricted to it: the card form's book-image picker is the other client of the image half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
 
 Addressing follows each format's **native unit**:
 
@@ -390,7 +390,7 @@ What the document is and how much of it there is, without returning a body.
 | ------ | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ path, format, unit, total, extractable, note?, sections? }`. `total` counts pages, sections, or characters depending on `unit`. `sections` lists `{ index, label, href, chars }` for EPUBs. `extractable: false` with a `note` means the file parsed but holds no text layer (a scanned PDF needing OCR).
+**Response** `200` — `{ path, format, unit, total, extractable, note?, sections?, images? }`. `total` counts pages, sections, or characters depending on `unit`. `sections` lists `{ index, label, href, chars }` for EPUBs, and `images` is that EPUB's image *count*. `extractable: false` with a `note` means the file parsed but holds no text layer (a scanned PDF needing OCR).
 
 **Errors** `400` path required · `404` no such document · `415` format has no readable text.
 
@@ -411,6 +411,33 @@ One window of text.
 **Response** `200` — `{ path, format, unit, index, total, label, text, hasMore, next, nextCharOffset, truncated }`. Follow `next` (and `nextCharOffset` when `truncated`) until `hasMore` is false. Every response is capped at 20 000 characters.
 
 **Errors** `400` path required, index out of range, unknown href, or offset past the end · `404` no such document · `415` format has no readable text.
+
+### `GET /api/reader/images`
+
+Every image an EPUB declares, in reading order — metadata only, no bytes. This is how a figure from a book becomes a flashcard's front: the picker (and the MCP server) chooses here, then fetches the one it wants.
+
+| Param  | In    | Type   | Required | Description                |
+| ------ | ----- | ------ | -------- | -------------------------- |
+| `path` | query | string | Yes      | Relative path to the EPUB. |
+
+**Response** `200` — `{ path, format, total, images: [{ index, href, name, mediaType, bytes, alt, caption, section, sectionIndex, isCover }] }`. `href` is how the image is addressed below. `sectionIndex` is the number to pass `/read` for the surrounding page, or `null` when the image sits on a page with no prose (a plate, a cover). Images no section references — a cover named only by metadata, leftover manifest assets — come last.
+
+**Errors** `400` path required · `404` no such document · `415` not an EPUB (no other format has an extractable image list).
+
+### `GET /api/reader/image`
+
+One image's bytes, with its own content type. Loaded directly by `<img>` in the picker, so it accepts the `?token=` query param like the other browser-initiated media URLs.
+
+| Param  | In    | Type   | Required | Description                                          |
+| ------ | ----- | ------ | -------- | ---------------------------------------------------- |
+| `path` | query | string | Yes      | Relative path to the EPUB.                           |
+| `href` | query | string | Yes      | The image's `href` from `/images` (the full archive path, its bare file name, or the section-relative `src` — as long as exactly one image matches). |
+
+**Response** `200` — the raw bytes, `Content-Type` from the manifest, `Cache-Control: private, max-age=3600`.
+
+**Errors** `400` path/href required, no such image in the book, or an href matching more than one · `404` declared in the manifest but missing from the archive · `415` not an EPUB.
+
+Only an href the OPF manifest declares as an **image** is served — that allow-list is what stops this being a way to read arbitrary entries out of the zip.
 
 ---
 

@@ -8,7 +8,7 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import process from 'process';
-import { buildPdf, buildEpub } from './fixtures.js';
+import { buildPdf, buildEpub, buildPng } from './fixtures.js';
 import validate from '../src/api/config/validate.js';
 import Documents, { pickCaptionTrack, parseJson3Transcript } from '../src/api/access/orchestration/documents.js';
 import reader, { MAX_CHARS } from '../src/api/access/orchestration/mcpReader.js';
@@ -70,6 +70,38 @@ describe('mcpReader', () => {
             { href: 'ch1.xhtml', title: 'Chapter One', body: '<h1>Chapter One</h1><p>The cell is the unit of life.</p><p>Second paragraph.</p>' },
             { href: 'ch2.xhtml', title: 'Chapter Two', body: '<p>Photosynthesis<br/>makes glucose.</p><script>evil()</script>' },
             { href: 'ch3.xhtml', title: 'Long Chapter', body: `<p>${LONG}</p>` },
+        ]), { globalHash: crypto.randomUUID() });
+
+        // A second book, illustrated, so the text assertions above keep their fixture.
+        // Spine order is ch1 → plate → ch2, which is the order images must come back in.
+        await docs.importFile('illustrated.epub', ROOT, buildEpub([
+            {
+                href: 'ch1.xhtml', title: 'Cells',
+                body: '<p>The cell is the unit of life.</p>'
+                    + '<figure><img src="images/fig1.png" alt="A mitochondrion"/>'
+                    + '<figcaption>Figure 1. The powerhouse.</figcaption></figure>'
+                    // Painted but never declared in the manifest: not ours to serve.
+                    + '<img src="images/ghost.png" alt="Undeclared"/>',
+            },
+            {
+                // Image-only page: no prose at all, which is exactly what a plate is.
+                href: 'plate.xhtml', title: 'Plate I',
+                body: '<img src="images/plate.png"/>',
+            },
+            {
+                href: 'ch2.xhtml', title: 'Light',
+                // Percent-encoded, as a file name with a space is stored in the wild.
+                body: '<p>Photosynthesis makes glucose.</p><img src="images/fig%202.png" alt="A chloroplast"/>',
+            },
+        ], [
+            { href: 'images/fig1.png' },
+            { href: 'images/fig 2.png' },
+            { href: 'images/plate.png' },
+            // Declared as the cover and referenced by no section — the manifest-only case.
+            { href: 'cover.png', cover: true },
+            // Same bare name as images/fig1.png in a different directory, which real
+            // books do: makes "fig1.png" an ambiguous way to ask for one of them.
+            { href: 'plates/fig1.png' },
         ]), { globalHash: crypto.randomUUID() });
 
         await docs.importFile('notes.md', ROOT, Buffer.from(MD_BODY), { globalHash: crypto.randomUUID() });
@@ -173,6 +205,112 @@ describe('mcpReader', () => {
 
             // The two windows are contiguous and lossless: no gap, no repeat.
             assert.equal(body(first) + body(second), LONG);
+        });
+    });
+
+    describe('EPUB images', () => {
+        const list = () => reader.images(rel('illustrated.epub'));
+
+        it('lists declared images in reading order, manifest-only ones last', async () => {
+            const { total, images } = await list();
+            assert.equal(total, 5);
+            assert.deepEqual(images.map((i) => i.href), [
+                'OEBPS/images/fig1.png',    // ch1
+                'OEBPS/images/plate.png',   // the plate page, second in the spine
+                'OEBPS/images/fig 2.png',   // ch2, reached through a percent-encoded src
+                // Referenced by no section, so these come last, in manifest order.
+                'OEBPS/cover.png',
+                'OEBPS/plates/fig1.png',
+            ]);
+            assert.deepEqual(images.map((i) => i.index), [1, 2, 3, 4, 5]);
+        });
+
+        it('carries the context that identifies a figure without seeing it', async () => {
+            const { images } = await list();
+            const fig1 = images.find((i) => i.name === 'fig1.png');
+            assert.equal(fig1.alt, 'A mitochondrion');
+            assert.equal(fig1.caption, 'Figure 1. The powerhouse.');
+            assert.equal(fig1.section, 'Cells');
+            assert.equal(fig1.sectionIndex, 1);
+            assert.equal(fig1.mediaType, 'image/png');
+            assert.ok(fig1.bytes > 0, 'byte size comes off the zip header');
+        });
+
+        it('numbers an image by the section it can be read from, not its spine slot', async () => {
+            const { images } = await list();
+            // ch2 is third in the spine but only the second section with prose, and
+            // sectionIndex has to be the number read() accepts.
+            const fig2 = images.find((i) => i.name === 'fig 2.png');
+            assert.equal(fig2.sectionIndex, 2);
+            const res = await reader.read(rel('illustrated.epub'), { index: fig2.sectionIndex });
+            assert.match(res.text, /Photosynthesis/);
+        });
+
+        it('keeps a plate, with no section number because its page has no prose', async () => {
+            const { images } = await list();
+            const plate = images.find((i) => i.name === 'plate.png');
+            assert.equal(plate.section, 'Plate I', 'the page is still named');
+            assert.equal(plate.sectionIndex, null, 'but there is no text unit to address');
+        });
+
+        it('flags the cover', async () => {
+            const { images } = await list();
+            assert.deepEqual(images.filter((i) => i.isCover).map((i) => i.name), ['cover.png']);
+        });
+
+        it('ignores an image the manifest does not declare', async () => {
+            const { images } = await list();
+            assert.ok(!images.some((i) => i.name === 'ghost.png'), 'painted, but undeclared');
+        });
+
+        it('reports a count from info without listing them', async () => {
+            const info = await reader.info(rel('illustrated.epub'));
+            assert.equal(info.images, 5);
+            assert.equal(info.sections.length, 2, 'the plate page is not a readable section');
+        });
+
+        it('reads one image\'s bytes, however it is spelled', async () => {
+            const book = rel('illustrated.epub');
+            // buildEpub tints its images by position, so tint 1 is provably the first.
+            const full = await reader.imageBuffer(book, 'OEBPS/images/fig1.png');
+            assert.equal(full.mediaType, 'image/png');
+            assert.equal(full.name, 'fig1.png');
+            assert.deepEqual(full.buffer, buildPng(1), 'the actual entry, byte for byte');
+
+            // The section-relative src an author writes in the markup...
+            const relative = await reader.imageBuffer(book, 'images/fig1.png');
+            assert.deepEqual(relative.buffer, buildPng(1));
+            // ...and the bare name, when only one image has it.
+            const bare = await reader.imageBuffer(book, 'fig 2.png');
+            assert.deepEqual(bare.buffer, buildPng(2));
+        });
+
+        it('refuses to guess between two images with the same name', async () => {
+            await assert.rejects(
+                () => reader.imageBuffer(rel('illustrated.epub'), 'fig1.png'),
+                (e) => e.status === 400
+                    && /matches 2 images/.test(e.message)
+                    && /plates\/fig1\.png/.test(e.message),
+            );
+        });
+
+        it('refuses an href the manifest does not declare', async () => {
+            // The allow-list is the security boundary: without it this reads any entry
+            // in the archive, and `..` walks out of it.
+            for (const href of ['OEBPS/images/ghost.png', '../../../etc/passwd', 'META-INF/container.xml']) {
+                await assert.rejects(
+                    () => reader.imageBuffer(rel('illustrated.epub'), href),
+                    (e) => e.status === 400 && /No image/.test(e.message),
+                    `${href} must not be readable`,
+                );
+            }
+        });
+
+        it('refuses a format that has no images to declare', async () => {
+            await assert.rejects(
+                () => reader.images(rel('book.pdf')),
+                (e) => e.status === 415 && /only EPUBs/.test(e.message),
+            );
         });
     });
 

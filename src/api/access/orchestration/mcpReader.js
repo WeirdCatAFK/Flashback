@@ -23,6 +23,16 @@
  * human `label` ("p. 37", a chapter title) so a card drafted from a chunk can cite
  * where it came from.
  *
+ * EPUB IMAGES are the one thing here that is not prose. A textbook's figure is
+ * content a card wants, and there is no text form of a diagram, so `images()` lists
+ * what an EPUB declares and `imageBuffer()` pulls one out of the zip. The split is
+ * deliberate: listing is metadata only (href, alt, caption, which section, byte
+ * size) and rides the extraction cache; BYTES ARE NEVER CACHED and come out one at a
+ * time, because a single full-page plate would swamp a cache budget meant for text.
+ * `imageBuffer` will only read an entry the OPF manifest declares as an image —
+ * that allow-list, not path arithmetic, is what keeps it from becoming "read any
+ * entry in any zip".
+ *
  * Tier 3 orchestrator, but a narrow one: it imports `files.js` and nothing else —
  * no database, no query.js, no documents.js. Read-only toward the canonical layer
  * (like doctor.js). Heavy parsers (pdfjs-dist, adm-zip, jsdom) are lazily imported
@@ -56,6 +66,10 @@ const FORMATS = {
     ".clip": "clip",
     ".youtube": "youtube",
 };
+
+// A manifest item is offerable as a picture if it declares an image media type.
+// Everything else in there — fonts, CSS, the NCX, the nav document — is machinery.
+const IMAGE_TYPE = /^image\//i;
 
 // Tags whose content reads as its own block of prose — used to keep paragraph
 // breaks when flattening XHTML/HTML, which textContent alone throws away.
@@ -125,6 +139,47 @@ function blockText(el) {
         if (tag === "BR") { out += "\n"; continue; }
         const inner = blockText(node);
         out += BLOCK_TAGS.has(tag) ? `\n${inner}\n` : inner;
+    }
+    return out;
+}
+
+/**
+ * Resolves an image reference against the section that holds it, to the path the
+ * zip actually stores it under. EPUB srcs are relative to their own XHTML file and
+ * are usually percent-encoded; some authoring tools emit them root-relative
+ * ("/images/fig1.png"), meaning relative to the zip root. External and inline
+ * (`data:`, `http:`) sources resolve to null — there is nothing in the book to read.
+ */
+function resolveHref(baseHref, src) {
+    const clean = String(src ?? "").split("#")[0].split("?")[0].trim();
+    if (!clean) return null;
+    let decoded;
+    try { decoded = decodeURIComponent(clean); } catch { decoded = clean; }
+    if (/^[a-z][a-z0-9+.-]*:/i.test(decoded)) return null;
+    return path.posix.normalize(
+        decoded.startsWith("/") ? decoded.slice(1) : `${path.posix.dirname(baseHref)}/${decoded}`,
+    );
+}
+
+/**
+ * Every image a section paints, in document order, with the context that makes it
+ * identifiable without looking at it: its alt text and its figure's caption. SVG
+ * `<image>` carries the reference on href/xlink:href rather than src.
+ */
+function sectionImages(doc, sectionHref) {
+    const out = [];
+    for (const el of doc.querySelectorAll("img, image")) {
+        const href = resolveHref(
+            sectionHref,
+            el.getAttribute("src") ?? el.getAttribute("xlink:href") ?? el.getAttribute("href"),
+        );
+        if (!href) continue;
+        const caption = el.closest?.("figure")?.querySelector("figcaption")?.textContent;
+        out.push({
+            href,
+            alt: el.getAttribute("alt")?.trim() || null,
+            caption: caption?.trim() || null,
+        });
     }
     return out;
 }
@@ -374,8 +429,39 @@ class McpReader {
             manifest.set(item.getAttribute("id"), {
                 href: item.getAttribute("href"),
                 type: item.getAttribute("media-type") ?? "",
+                properties: item.getAttribute("properties") ?? "",
             });
         }
+
+        // The cover is declared either by an OPF3 manifest property or, in OPF2, by a
+        // <meta name="cover"> naming a manifest id. Both are common in the wild, and
+        // neither is guaranteed, so a book with no flagged cover is normal.
+        const coverId = [...opfDoc.querySelectorAll("meta")]
+            .find((m) => m.getAttribute("name") === "cover")?.getAttribute("content");
+
+        // Declared images, keyed by resolved zip path. This map is imageBuffer's
+        // allow-list: an href absent from here is not something the book declares,
+        // and is never read out of the zip.
+        const images = new Map();
+        for (const [id, item] of manifest) {
+            if (!item.href || !IMAGE_TYPE.test(item.type)) continue;
+            const href = resolve(decodeURIComponent(item.href));
+            images.set(href, {
+                href,
+                name: path.posix.basename(href),
+                mediaType: item.type,
+                bytes: zip.getEntry(href)?.header?.size ?? 0,
+                alt: null,
+                caption: null,
+                section: null,
+                sectionIndex: null,
+                isCover: /\bcover-image\b/.test(item.properties) || (coverId != null && coverId === id),
+            });
+        }
+        // Reading order, which is the order a reader would meet these figures in —
+        // more useful than the manifest's arbitrary order when the caller is looking
+        // for "the diagram in the chapter I'm on".
+        const imageOrder = [];
 
         const segments = [];
         for (const ref of opfDoc.querySelectorAll("spine > itemref")) {
@@ -386,14 +472,38 @@ class McpReader {
             if (raw == null) continue;
             const doc = new JSDOM(raw).window.document;
             const text = tidy(blockText(doc.body ?? doc.documentElement));
-            if (!text) continue;   // covers, blank pages
             const title = doc.querySelector("title")?.textContent?.trim()
                 || doc.querySelector("h1, h2")?.textContent?.trim();
-            segments.push({ label: title || path.posix.basename(href), href, text });
+            const label = title || path.posix.basename(href);
+
+            // Scanned BEFORE the empty-text skip below: a plate or a cover page is
+            // exactly a section with a picture and no prose, and those are the images
+            // most worth having. Such a section has no readable text to address, so
+            // its images carry a label but a null sectionIndex.
+            for (const found of sectionImages(doc, href)) {
+                const entry = images.get(found.href);
+                if (!entry) continue;   // painted but undeclared: not ours to serve
+                if (!imageOrder.includes(found.href)) imageOrder.push(found.href);
+                entry.alt ??= found.alt;
+                entry.caption ??= found.caption;
+                entry.section ??= label;
+                if (text && entry.sectionIndex == null) entry.sectionIndex = segments.length + 1;
+            }
+
+            if (!text) continue;   // covers, blank pages
+            segments.push({ label, href, text });
         }
 
         if (segments.length === 0) throw fail(`${relPath} has no readable sections.`, 415);
-        return { format: "epub", unit: "section", segments };
+
+        // Images no section references — covers pointed at only by metadata, and
+        // assets left in the manifest by the authoring tool — come last.
+        for (const href of images.keys()) {
+            if (!imageOrder.includes(href)) imageOrder.push(href);
+        }
+        const ordered = imageOrder.map((href, i) => ({ index: i + 1, ...images.get(href) }));
+
+        return { format: "epub", unit: "section", segments, images: ordered };
     }
 
     // ---------- public surface ----------
@@ -422,7 +532,72 @@ class McpReader {
             sections: doc.unit === "section"
                 ? doc.segments.map((s, i) => ({ index: i + 1, label: s.label, href: s.href, chars: s.text.length }))
                 : undefined,
+            // Only a count here: enough to know whether calling images() is worth it,
+            // without putting a figure list in every info() response.
+            images: doc.images ? doc.images.length : undefined,
         };
+    }
+
+    /**
+     * The images an EPUB declares, in reading order. Metadata only — alt text, the
+     * figure's caption, which section it appears in, byte size — so a caller can
+     * decide which figure it wants before paying to fetch one. Rides the extraction
+     * cache, since none of this is the bytes.
+     *
+     * `sectionIndex` is the section's number for read(), or null when the image sits
+     * on a page with no prose (a plate, a cover) — there is no text unit to address.
+     */
+    async images(relPath) {
+        const doc = await this._extract(relPath);
+        if (!doc.images) {
+            throw fail(
+                `${relPath} is a ${doc.format} document — only EPUBs carry extractable images.`,
+                415,
+            );
+        }
+        return { path: relPath, format: doc.format, total: doc.images.length, images: doc.images };
+    }
+
+    /**
+     * One image's bytes, addressed by an `href` (or bare file name) from images().
+     * Deliberately uncached: a full-page plate can be megabytes, and the extraction
+     * cache is sized for text. Only an href the OPF manifest declares as an image
+     * can be read — that check, not path arithmetic, is what keeps this from being a
+     * way to pull arbitrary entries out of the archive.
+     */
+    async imageBuffer(relPath, href) {
+        const { images } = await this.images(relPath);
+
+        // The same picture has three names in play: the resolved zip path images()
+        // reports, its bare file name, and the section-relative src an author wrote in
+        // the markup. All three are matched AGAINST THE DECLARED LIST, so a loose
+        // spelling can still only ever select an image the book itself declares — but
+        // an ambiguous one is an error, never a guess, because quietly picking the
+        // wrong figure would end up on a card and not be noticed until review.
+        const wanted = String(href ?? "").trim().replace(/^\.?\//, "");
+        const exact = images.find((i) => i.href === wanted);
+        const found = exact
+            ? [exact]
+            : images.filter((i) => i.name === wanted || i.href.endsWith(`/${wanted}`));
+
+        if (found.length === 0) {
+            throw fail(`No image "${href}" in ${relPath}. Call images for the list.`, 400);
+        }
+        if (found.length > 1) {
+            throw fail(
+                `"${href}" matches ${found.length} images in ${relPath} `
+                + `(${found.map((f) => f.href).join(", ")}). Use the full href from images.`,
+                400,
+            );
+        }
+        const entry = found[0];
+
+        const { default: AdmZip } = await import("adm-zip");
+        const data = new AdmZip(this.files.readBuffer(relPath)).getEntry(entry.href)?.getData();
+        if (!data?.length) {
+            throw fail(`${entry.href} is in ${relPath}'s manifest but missing from the archive.`, 404);
+        }
+        return { buffer: data, mediaType: entry.mediaType, name: entry.name, bytes: data.length };
     }
 
     /**

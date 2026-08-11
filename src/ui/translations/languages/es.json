@@ -1061,5 +1061,17 @@
   "{n} cards worth a look": {
     "one": "{n} tarjeta que vale la pena revisar",
     "other": "{n} tarjetas que vale la pena revisar"
-  }
+  },
+  "Images in this book": "Imágenes de este libro",
+  "All chapters": "Todos los capítulos",
+  "Filter by chapter": "Filtrar por capítulo",
+  "Reading the book…": "Leyendo el libro…",
+  "This book has no images.": "Este libro no tiene imágenes.",
+  "Could not read this book's images": "No se pudieron leer las imágenes de este libro",
+  "Cover": "Portada",
+  "Not in a chapter": "Fuera de los capítulos",
+  "From book": "Del libro",
+  "Could not load that image": "No se pudo cargar esa imagen",
+  "Make a card from this image": "Crear una tarjeta con esta imagen",
+  "Figure from {file}": "Figura de {file}"
 }

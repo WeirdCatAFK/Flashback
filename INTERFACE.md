@@ -57,6 +57,7 @@ api/srs.js           /api/srs/*
 api/subscriptions.js /api/subscriptions/*
 api/seal.js          /api/seal/*
 api/doctor.js        /api/doctor/*   (checkIndex / syncIndex / rebuildIndex — Vault Doctor)
+api/reader.js        /api/reader/*   (an EPUB's images: list, <img> src, and as a File)
 ```
 
 (Not every domain is listed here — `decks`, `highlights`, `categories`, `search`, `flashcards` each have a sibling module too.)
@@ -256,6 +257,8 @@ Every renderer receives the same props from `DocumentEditor`:
 | `onDraftChange`      | callback         | `(path, body \| undefined)` — body on edit, `undefined` once saved.     |
 | `onHighlightsChange` | callback         | `(path, highlights[])` — registry after load and after each save.       |
 | `onSidecarRefresh`   | callback         | `(path, metadata)` — full sidecar after load/save (cards, tags, …).     |
+| `onExternalSelection`| callback         | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
+| `onImagePick`        | callback         | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it. |
 
 A renderer that supports highlighting also exposes a **static** flag so the
 parent can enable the highlight toolbar without knowing the renderer's identity:
