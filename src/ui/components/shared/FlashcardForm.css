@@ -126,6 +126,26 @@
   background: var(--color-accent-subtle);
 }
 
+/* Two ways to fill one image slot: the file picker, and the book being read. */
+.fc-form-media-sources {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+/* A <button>, unlike the <label> beside it, arrives with UA styling to strip. */
+.fc-form-media-add--book {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.fc-form-media-error {
+  margin: 6px 0 0;
+  font-size: 11px;
+  color: var(--color-danger);
+}
+
 .fc-form-media-picked {
   display: flex;
   align-items: center;

@@ -43,11 +43,71 @@ export function buildPdf(pages) {
 }
 
 /**
- * An EPUB with the full container.xml → OPF → spine chain mcpReader walks.
- * @param {{href: string, title: string, body: string}[]} chapters - body is XHTML.
+ * The smallest thing a decoder will accept as a PNG: a 1×1 image, with a real
+ * signature, IHDR, IDAT and IEND. `tint` changes the pixel byte (and with it the
+ * checksums), so two fixtures differ in content while staying the same length — which
+ * is what lets a test assert it got *this* image back rather than some other one.
+ * @param {number} [tint=0]
  * @returns {Buffer}
  */
-export function buildEpub(chapters) {
+export function buildPng(tint = 0) {
+    const crcTable = Array.from({ length: 256 }, (_, n) => {
+        let c = n;
+        for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+        return c >>> 0;
+    });
+    const crc = (buf) => {
+        let c = 0xffffffff;
+        for (const b of buf) c = crcTable[(c ^ b) & 0xff] ^ (c >>> 8);
+        return (c ^ 0xffffffff) >>> 0;
+    };
+    const chunk = (type, data) => {
+        const body = Buffer.concat([Buffer.from(type, 'latin1'), data]);
+        const len = Buffer.alloc(4); len.writeUInt32BE(data.length);
+        const sum = Buffer.alloc(4); sum.writeUInt32BE(crc(body));
+        return Buffer.concat([len, body, sum]);
+    };
+
+    const ihdr = Buffer.alloc(13);
+    ihdr.writeUInt32BE(1, 0);   // width
+    ihdr.writeUInt32BE(1, 4);   // height
+    ihdr[8] = 8;                // 8-bit
+    ihdr[9] = 2;                // truecolour
+    // One scanline: a filter byte then RGB. zlib-stored (uncompressed) so no deflate
+    // is needed here — a fixture should be readable, not clever.
+    const raw = Buffer.from([0, tint & 0xff, 0, 0]);
+    const adler = (b) => {
+        let a = 1, s = 0;
+        for (const byte of b) { a = (a + byte) % 65521; s = (s + a) % 65521; }
+        return ((s << 16) | a) >>> 0;
+    };
+    const sum = Buffer.alloc(4); sum.writeUInt32BE(adler(raw));
+    const len = Buffer.alloc(4); len.writeUInt16LE(raw.length, 0); len.writeUInt16LE(~raw.length & 0xffff, 2);
+    const idat = Buffer.concat([Buffer.from([0x78, 0x01]), Buffer.from([0x01]), len, raw, sum]);
+
+    return Buffer.concat([
+        Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+        chunk('IHDR', ihdr),
+        chunk('IDAT', idat),
+        chunk('IEND', Buffer.alloc(0)),
+    ]);
+}
+
+/**
+ * An EPUB with the full container.xml → OPF → spine chain mcpReader walks.
+ *
+ * `images` is optional and backward-compatible: without it this builds exactly the
+ * text-only book the extraction tests have always used. With it, each entry becomes
+ * a manifest item AND a real zip entry, so image listing and byte reads can both be
+ * exercised. Chapter bodies reference them with ordinary relative `<img src>`, since
+ * that is what the resolver has to cope with.
+ *
+ * @param {{href: string, title: string, body: string}[]} chapters - body is XHTML.
+ * @param {{href: string, data?: Buffer, mediaType?: string, cover?: boolean}[]} [images]
+ *   `href` is relative to OEBPS/, matching how chapters reference it.
+ * @returns {Buffer}
+ */
+export function buildEpub(chapters, images = []) {
     const zip = new AdmZip();
     zip.addFile('mimetype', Buffer.from('application/epub+zip'));
     zip.addFile('META-INF/container.xml', Buffer.from(
@@ -55,13 +115,19 @@ export function buildEpub(chapters) {
         + `<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>`));
     const items = chapters.map((c, i) =>
         `<item id="c${i}" href="${c.href}" media-type="application/xhtml+xml"/>`).join('');
+    const imageItems = images.map((img, i) =>
+        `<item id="img${i}" href="${img.href}" media-type="${img.mediaType ?? 'image/png'}"`
+        + `${img.cover ? ' properties="cover-image"' : ''}/>`).join('');
     const spine = chapters.map((_, i) => `<itemref idref="c${i}"/>`).join('');
     zip.addFile('OEBPS/content.opf', Buffer.from(
         `<?xml version="1.0"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0">`
-        + `<manifest>${items}</manifest><spine>${spine}</spine></package>`));
+        + `<manifest>${items}${imageItems}</manifest><spine>${spine}</spine></package>`));
     for (const c of chapters) {
         zip.addFile(`OEBPS/${c.href}`, Buffer.from(
             `<html><head><title>${c.title}</title></head><body>${c.body}</body></html>`));
+    }
+    for (const [i, img] of images.entries()) {
+        zip.addFile(`OEBPS/${img.href}`, img.data ?? buildPng(i + 1));
     }
     return zip.toBuffer();
 }

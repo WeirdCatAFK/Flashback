@@ -29,6 +29,23 @@ export async function request(method, path, body = null) {
   return res.json();
 }
 
+/**
+ * `request` for a route that answers with bytes rather than JSON — today only
+ * `/api/reader/image`. Failures still come back as JSON, so they parse identically.
+ * @returns {Promise<{ buffer: Buffer, mimeType: string }>}
+ */
+export async function requestBuffer(path) {
+  const res = await fetch(`${baseUrl()}${path}`, { method: 'GET', headers: authHeaders() });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+  }
+  return {
+    buffer: Buffer.from(await res.arrayBuffer()),
+    mimeType: (res.headers.get('content-type') ?? 'application/octet-stream').split(';')[0].trim(),
+  };
+}
+
 export async function upload(path, formData) {
   const res = await fetch(`${baseUrl()}${path}`, { method: 'POST', body: formData, headers: authHeaders() });
   if (!res.ok) {

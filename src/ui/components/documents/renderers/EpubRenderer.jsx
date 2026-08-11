@@ -44,6 +44,51 @@ function isDarkTheme() {
   return !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
 }
 
+/**
+ * A rect measured INSIDE a section iframe, expressed in top-window coordinates.
+ *
+ * The two are in different scales when the page is zoomed: an in-iframe rect stays in
+ * the iframe's own layout pixels, while the iframe element measured from the top
+ * document is already scaled by Chromium's per-origin zoom (which a packaged file://
+ * build can set differently from dev). Composing them directly makes an overlay drift
+ * further with every page; scaling by the rendered/layout ratio first is a no-op at
+ * 100% and correct everywhere else.
+ */
+function toViewportRect(contents, rect) {
+  const iframe = contents.document?.defaultView?.frameElement;
+  const io = iframe?.getBoundingClientRect();
+  if (!rect || !io) return null;
+  const scaleX = iframe.offsetWidth ? io.width / iframe.offsetWidth : 1;
+  const scaleY = iframe.offsetHeight ? io.height / iframe.offsetHeight : 1;
+  return {
+    top: io.top + rect.top * scaleY,
+    left: io.left + rect.left * scaleX,
+    width: rect.width * scaleX,
+    height: rect.height * scaleY,
+  };
+}
+
+/**
+ * The manifest href behind an image the reader is painting.
+ *
+ * epub.js rewrites in-iframe asset srcs to blob: URLs, so a clicked <img> no longer
+ * carries the href /api/reader/image needs. `book.resources` holds the only mapping
+ * back: urls[i] is the manifest href of replacementUrls[i]. It filters failed
+ * replacements out of one array and not the other (see createUrls in
+ * epubjs/lib/resources.js), so a length mismatch means the pairing cannot be trusted —
+ * return null there and let the card form's picker be the way in. Guessing would put
+ * the wrong figure on a card, which nobody would notice until review.
+ */
+function hrefFromRenderedSrc(book, src) {
+  const res = book?.resources;
+  if (!src || !res?.urls || !res?.replacementUrls) return null;
+  if (res.urls.length !== res.replacementUrls.length) return null;
+  const i = res.replacementUrls.indexOf(src);
+  // Manifest-relative (e.g. "images/fig1.png"); the API resolves that against the
+  // book's declared images, so it does not have to be the full archive path.
+  return i === -1 ? null : res.urls[i];
+}
+
 export default function EpubRenderer({
   path,
   saveRef,
@@ -51,9 +96,12 @@ export default function EpubRenderer({
   onHighlightsChange,
   onSidecarRefresh,
   onExternalSelection,
+  onImagePick,
 }) {
   const { t } = useT();
   const [highlights, setHighlights] = useState([]);
+  // The figure the reader just clicked: { href, name, alt, rect } | null.
+  const [imageHit, setImageHit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError]     = useState(null);
   const [ready, setReady]     = useState(false);
@@ -80,6 +128,8 @@ export default function EpubRenderer({
   const appliedRef    = useRef(new Map());
   const onExternalSelectionRef = useRef(onExternalSelection);
   onExternalSelectionRef.current = onExternalSelection;
+  const onImagePickRef = useRef(onImagePick);
+  onImagePickRef.current = onImagePick;
 
   const findByCfi = (cfi) => highlightsRef.current.find(h => h.cfi === cfi);
 
@@ -194,30 +244,10 @@ export default function EpubRenderer({
       try {
         const range = contents.range(cfiRange);
         text = range?.toString() ?? '';
-        const r = range?.getBoundingClientRect();
-        const iframe = contents.document?.defaultView?.frameElement;
-        const io = iframe?.getBoundingClientRect();
-        if (r && io) {
-          // `r` comes from range.getBoundingClientRect() *inside* the section
-          // iframe, which stays in the iframe's own layout pixels; `io` is the
-          // iframe element measured in the top document, whose coordinates ARE
-          // scaled by the page zoom. When zoom ≠ 100% (Chromium stores it per
-          // origin, so a packaged file:// build can differ from dev) the two are
-          // in different scales and composing them directly makes the toolbar
-          // drift a little further each page. Scale the in-iframe rect by the
-          // iframe's rendered/layout ratio (the effective zoom) first; this is
-          // a no-op at 100%.
-          const scaleX = iframe.offsetWidth ? io.width / iframe.offsetWidth : 1;
-          const scaleY = iframe.offsetHeight ? io.height / iframe.offsetHeight : 1;
-          rect = {
-            top:    io.top  + r.top   * scaleY,
-            left:   io.left + r.left  * scaleX,
-            width:  r.width  * scaleX,
-            height: r.height * scaleY,
-          };
-        }
+        rect = toViewportRect(contents, range?.getBoundingClientRect());
       } catch { /* ignore */ }
       pendingSelRef.current = { cfiRange, text };
+      setImageHit(null);   // a text selection supersedes a picked figure
       if (rect) onExternalSelectionRef.current?.({ text: text.trim(), rect });
     });
 
@@ -238,6 +268,26 @@ export default function EpubRenderer({
           onExternalSelectionRef.current?.(null);
         }
       });
+
+      // Clicking a figure offers to make a card from it. A diagram is often the best
+      // front a card can have, and clicking the thing you're looking at beats
+      // describing it to the picker. Text selection is checked first because a drag
+      // that ends on an image is a selection, not a pick.
+      doc.addEventListener('click', (e) => {
+        const el = e.target?.closest?.('img, image');
+        if (!el || !doc.getSelection()?.isCollapsed) return setImageHit(null);
+
+        const src = el.getAttribute('src') ?? el.getAttribute('xlink:href') ?? el.getAttribute('href');
+        const href = hrefFromRenderedSrc(bookRef.current, src);
+        // Unresolvable (an inline data: image, or a book whose replacement lists
+        // don't line up): stay silent rather than offer a button that would attach
+        // the wrong figure. The card form's "From book" picker still reaches it.
+        if (!href) return setImageHit(null);
+
+        const rect = toViewportRect(contents, el.getBoundingClientRect());
+        if (!rect) return setImageHit(null);
+        setImageHit({ href, name: href.split('/').pop(), alt: el.getAttribute('alt') ?? null, rect });
+      });
     });
 
     rendition.on('relocated', (loc) => {
@@ -245,6 +295,8 @@ export default function EpubRenderer({
       setProgress(typeof pct === 'number' && pct > 0 ? Math.round(pct * 100) : null);
       setAtStart(!!loc?.atStart);
       setAtEnd(!!loc?.atEnd);
+      // The rect belonged to the page that just left.
+      setImageHit(null);
     });
   }
 
@@ -379,6 +431,7 @@ export default function EpubRenderer({
       if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
       if (e.key === 'ArrowLeft')  { goPrev(); }
       if (e.key === 'ArrowRight') { goNext(); }
+      if (e.key === 'Escape')     { setImageHit(null); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -408,6 +461,25 @@ export default function EpubRenderer({
         <div ref={viewportRef} className="epub-viewport" />
         {loading && <div className="renderer-loading epub-overlay">{t('Loading EPUB…')}</div>}
         {error && <div className="renderer-error epub-overlay">{t('Could not load EPUB: {error}', { error })}</div>}
+        {imageHit && (
+          // Anchored under the figure, or above it when it runs to the bottom of the
+          // page — a full-page plate would otherwise push the button off-screen.
+          <button
+            type="button"
+            className="epub-image-action"
+            style={
+              imageHit.rect.top + imageHit.rect.height + 44 > window.innerHeight
+                ? { top: imageHit.rect.top - 34, left: imageHit.rect.left }
+                : { top: imageHit.rect.top + imageHit.rect.height + 6, left: imageHit.rect.left }
+            }
+            onClick={() => {
+              onImagePickRef.current?.({ href: imageHit.href, name: imageHit.name, alt: imageHit.alt });
+              setImageHit(null);
+            }}
+          >
+            {t('Make a card from this image')}
+          </button>
+        )}
       </div>
     </div>
   );

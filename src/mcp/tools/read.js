@@ -1,6 +1,14 @@
 import { z } from 'zod';
-import { request } from '../client.js';
+import { request, requestBuffer } from '../client.js';
 import cardGuide from '../skills/flashbackCards.js';
+
+// A book's figure is the one thing here a model has to SEE rather than read — there
+// is no text form of a diagram — so view_book_image returns a real image content
+// block. That is a deliberate, single exception to the rule that document bodies
+// reach this server as text or not at all (CLAUDE.md § MCP server); it does not
+// generalize to PDF pages or any other body. The ceiling stops one full-page plate
+// from swallowing a context window; nothing here resizes an image.
+const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
 // The guide is Markdown meant to be read as prose. JSON-stringifying it would bury it in
@@ -10,6 +18,7 @@ const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
   isError: true,
 });
+const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
 // Wraps a tool handler so a failed fetch (API down, 404, etc.) comes back as a
 // clean tool error instead of an unhandled rejection.
@@ -251,6 +260,65 @@ export function registerReadTools(server) {
     safe(async ({ path, index, count, offset, limit, charOffset, at }) => {
       const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset, at })}`);
       return asText(data);
+    }),
+  );
+
+  server.registerTool(
+    'list_book_images',
+    {
+      title: 'List an EPUB\'s images',
+      description:
+        'List the figures, diagrams, plates and photographs an EPUB contains — the pictures ' +
+        'read_document_text cannot give you, because it returns prose only. This is metadata, not ' +
+        'the pictures themselves: each entry has an `href` (how you address it), `alt` text, the ' +
+        '`caption` of its figure, the `section` it appears in, `sectionIndex` (the number to pass ' +
+        'read_document_text to read the surrounding page), `bytes`, and `isCover`. Images come back ' +
+        'in READING ORDER, so entry 1 is the first picture in the book. Usually the alt text and ' +
+        'caption are enough to know which figure is which; when they are missing or ambiguous, call ' +
+        'view_book_image to actually look at it. To put one on a card, pass its `href` to ' +
+        'attach_book_image — never try to read the file off disk, it lives inside the EPUB\'s zip. ' +
+        'EPUB only: PDFs and other formats have no extractable image list.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the EPUB from the workspace root.'),
+        section: z.number().int().min(1).optional().describe('Only images appearing in this section number (as reported by read_document_text / list_book_images `sectionIndex`). Omit for the whole book.'),
+      },
+    },
+    safe(async ({ path, section }) => {
+      const data = await request('GET', `/api/reader/images${qs({ path })}`);
+      if (section == null) return asText(data);
+      const images = data.images.filter((i) => i.sectionIndex === section);
+      return asText({ ...data, total: images.length, section, images });
+    }),
+  );
+
+  server.registerTool(
+    'view_book_image',
+    {
+      title: 'Look at one of an EPUB\'s images',
+      description:
+        'Return one image from an EPUB so you can actually SEE it — use this when a figure\'s alt ' +
+        'text and caption from list_book_images do not tell you what it depicts, and you need to ' +
+        'know before writing a card about it or attaching it. Address it by the `href` ' +
+        'list_book_images gave you. This is the ONLY tool that returns bytes rather than text; do ' +
+        'not go looking for an equivalent for PDF pages or document bodies, there isn\'t one. Very ' +
+        'large images are refused rather than resized — attach_book_image can still put one on a ' +
+        'card without either of us looking at it.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the EPUB from the workspace root.'),
+        href: z.string().describe('The image\'s `href` (or bare file name) from list_book_images.'),
+      },
+    },
+    safe(async ({ path, href }) => {
+      const { buffer, mimeType } = await requestBuffer(`/api/reader/image${qs({ path, href })}`);
+      if (buffer.length > MAX_IMAGE_BYTES) {
+        return asToolError(
+          `"${href}" is ${(buffer.length / 1024 / 1024).toFixed(1)} MB, over the ` +
+          `${MAX_IMAGE_BYTES / 1024 / 1024} MB viewing limit. Nothing here can resize it. You can ` +
+          `still attach it to a card with attach_book_image, or go by its alt text and caption ` +
+          `from list_book_images.`,
+        );
+      }
+      return { content: [{ type: 'image', data: buffer.toString('base64'), mimeType }] };
     }),
   );
 

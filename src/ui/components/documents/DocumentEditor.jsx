@@ -337,6 +337,17 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     setInspectorTab('new-card');
   }, [selection, highlights, clearSelection]);
 
+  // A figure clicked in the reader. Same destination as handleMakeCard — the New
+  // Card form — but the draft carries an image instead of a passage, and there is
+  // nothing to anchor: a highlight is a range of text, and this is a picture. The
+  // form fetches the image itself from `image.href`.
+  const handleImagePick = useCallback((image) => {
+    if (!image?.href) return;
+    clearSelection();
+    setCardDraft({ text: '', highlightId: null, color: null, image });
+    setInspectorTab('new-card');
+  }, [clearSelection]);
+
   const handleCardSaved = useCallback(() => {
     clearSelection();
     setCardDraft(null);
@@ -430,6 +441,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 onDraftChange={handleDraftChange}
                 onNavigate={onNavigate}
                 onExternalSelection={handleExternalSelection}
+                onImagePick={handleImagePick}
               />
             )}
           </div>

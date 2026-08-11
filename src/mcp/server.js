@@ -66,6 +66,12 @@ individual tool schemas alone:
   cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
   cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
   the vault has no handmade cards.
+- An EPUB's pictures are reachable even though its prose arrives as plain text: read_document_text
+  returns text only, so a figure or diagram comes from list_book_images (metadata — alt text,
+  caption, which section it's in), view_book_image when you need to actually look at one, and
+  attach_book_image to put it on a card. Those images live inside the EPUB's zip and have no path
+  on disk, so attach_media cannot reach them. view_book_image is the only place bytes flow to you;
+  there is deliberately no equivalent for PDF pages or document bodies.
 - Writing a good card is a craft with real rules, and get_card_guide is where they are written
   down: decomposition, card-type selection, the house conventions this vault already follows,
   and the failure modes that make a card lapse for years. Read it before drafting cards or

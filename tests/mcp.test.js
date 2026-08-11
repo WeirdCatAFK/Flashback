@@ -15,7 +15,7 @@ import db from '../src/api/access/primitives/database.js';
 import Documents from '../src/api/access/orchestration/documents.js';
 import Api from '../src/api/api.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
-import { buildPdf, buildEpub } from './fixtures.js';
+import { buildPdf, buildEpub, buildPng } from './fixtures.js';
 import { registerReadTools } from '../src/mcp/tools/read.js';
 import { registerWriteTools } from '../src/mcp/tools/write.js';
 
@@ -89,6 +89,7 @@ describe('MCP tools', () => {
             // read
             'get_card_guide',
             'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
+            'list_book_images', 'view_book_image',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
@@ -97,7 +98,7 @@ describe('MCP tools', () => {
             'create_document', 'update_document', 'create_folder', 'update_tags',
             'fetch_youtube_transcript',
             'create_deck', 'update_deck', 'delete_deck', 'add_to_deck', 'remove_from_deck',
-            'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
+            'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media', 'attach_book_image',
             'create_category', 'update_category',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
@@ -546,6 +547,18 @@ describe('MCP tools', () => {
             await d.importFile('book.epub', ROOT, buildEpub([
                 { href: 'ch1.xhtml', title: 'Chapter One', body: '<p>The cell is the unit of life.</p>' },
             ]), {});
+            await d.importFile('illustrated.epub', ROOT, buildEpub([
+                {
+                    href: 'ch1.xhtml', title: 'Cells',
+                    body: '<p>The cell is the unit of life.</p>'
+                        + '<figure><img src="images/fig1.png" alt="A mitochondrion"/>'
+                        + '<figcaption>Figure 1. The powerhouse.</figcaption></figure>',
+                },
+                { href: 'ch2.xhtml', title: 'Light', body: '<p>Photosynthesis.</p><img src="images/fig2.png" alt="A chloroplast"/>' },
+            ], [
+                { href: 'images/fig1.png' },
+                { href: 'images/fig2.png' },
+            ]), {});
             // Each cue's text exceeds the transcript block cap, so cue == block and the
             // block starts (0:00, 1:30) are deterministic for `at` addressing.
             const ytFiller = 'detail '.repeat(80);
@@ -594,6 +607,137 @@ describe('MCP tools', () => {
             const p2 = await call('read_document_text', { path: bookRel, index: p1.data.next });
             assert.match(p2.data.text, /chloroplasts/);
             assert.equal(p2.data.hasMore, false);
+        });
+
+        // A figure is content read_document_text structurally cannot return, and the
+        // only bytes this server hands a model. These pin all three halves: choosing
+        // an image by its metadata, seeing one, and getting one onto a card.
+        describe('EPUB images', () => {
+            const illRel = `${ROOT}/illustrated.epub`;
+
+            it('list_book_images describes each figure without sending it', async () => {
+                const res = await call('list_book_images', { path: illRel });
+                assert.equal(res.isError, false, res.text);
+                assert.equal(res.data.total, 2);
+                const [fig1] = res.data.images;
+                assert.equal(fig1.name, 'fig1.png');
+                assert.equal(fig1.alt, 'A mitochondrion');
+                assert.equal(fig1.caption, 'Figure 1. The powerhouse.');
+                assert.equal(fig1.section, 'Cells');
+                assert.equal(fig1.sectionIndex, 1);
+                assert.ok(!/base64|PNG/.test(res.text), 'metadata only — no bytes in the response');
+            });
+
+            it('list_book_images narrows to one section', async () => {
+                const res = await call('list_book_images', { path: illRel, section: 2 });
+                assert.equal(res.data.total, 1);
+                assert.equal(res.data.images[0].name, 'fig2.png');
+            });
+
+            it('list_book_images refuses a format with no images', async () => {
+                const res = await call('list_book_images', { path: bookRel });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /only EPUBs/);
+            });
+
+            it('view_book_image returns a real image block, not text', async () => {
+                // call() unwraps content[0].text, which an image block does not have —
+                // go through the handler so the block itself can be inspected.
+                const res = await tools.get('view_book_image')({ path: illRel, href: 'images/fig1.png' });
+                assert.ok(!res.isError, JSON.stringify(res));
+                const block = res.content[0];
+                assert.equal(block.type, 'image');
+                assert.equal(block.mimeType, 'image/png');
+                // buildEpub tints by position, so this is provably the FIRST figure.
+                assert.deepEqual(Buffer.from(block.data, 'base64'), buildPng(1));
+            });
+
+            it('view_book_image refuses an image the book does not declare', async () => {
+                const res = await call('view_book_image', { path: illRel, href: 'images/ghost.png' });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /No image/);
+            });
+
+            it('attach_book_image copies a figure out of the zip onto a card', async () => {
+                const card = await call('create_flashcard', {
+                    path: docRel, cardType: 'basic', frontText: 'Which organelle?', backText: 'Mitochondrion',
+                });
+                assert.equal(card.isError, false, card.text);
+                try {
+                    const res = await call('attach_book_image', {
+                        bookPath: illRel, href: 'images/fig1.png',
+                        documentPath: docRel, flashcardHash: card.data.globalHash, position: 'front',
+                    });
+                    assert.equal(res.isError, false, res.text);
+                    assert.equal(res.data.type, 'image');
+                    // The book's name plus a short unique suffix, not the bare name.
+                    assert.match(res.data.name, /^fig1-[0-9a-f]{8}\.png$/);
+
+                    const read = await call('read_document', { path: docRel });
+                    const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
+                    assert.ok(saved.vanillaData.media?.front_img, 'the sidecar references it');
+
+                    // The bytes are copied into the CARD's document, not linked back into
+                    // the book — so the card survives the book being deleted.
+                    const copied = path.join(
+                        getWorkspacePath(), path.dirname(docRel), 'media',
+                        path.basename(saved.vanillaData.media.front_img),
+                    );
+                    assert.ok(fs.existsSync(copied), `media file written to ${copied}`);
+                    assert.deepEqual(fs.readFileSync(copied), buildPng(1), 'byte-for-byte the book\'s figure');
+
+                    const row = db.prepare('SELECT name FROM Media WHERE absolute_path = ?').get(copied);
+                    assert.ok(row, 'and registered in the Media table');
+                } finally {
+                    await call('delete_flashcard', { globalHash: card.data.globalHash });
+                }
+            });
+
+            it('attach_book_image puts one figure on several cards in the same document', async () => {
+                // A document's media/ dir is shared by all its cards and
+                // files.addVanillaData refuses to overwrite, so a fixed book name like
+                // "fig1.png" made the second card fail. One diagram feeding several
+                // cards is ordinary use, not an edge case.
+                const cards = [];
+                for (const n of [1, 2]) {
+                    const c = await call('create_flashcard', {
+                        path: docRel, cardType: 'basic', frontText: `organelle Q${n}`, backText: `A${n}`,
+                    });
+                    assert.equal(c.isError, false, c.text);
+                    cards.push(c.data.globalHash);
+                }
+                try {
+                    const names = [];
+                    for (const hash of cards) {
+                        const res = await call('attach_book_image', {
+                            bookPath: illRel, href: 'images/fig1.png',
+                            documentPath: docRel, flashcardHash: hash, position: 'front',
+                        });
+                        assert.equal(res.isError, false, res.text);
+                        names.push(res.data.name);
+                    }
+                    assert.notEqual(names[0], names[1], 'each attachment gets its own file');
+
+                    const read = await call('read_document', { path: docRel });
+                    for (const [i, hash] of cards.entries()) {
+                        const saved = read.data.metadata.flashcards.find((f) => f.globalHash === hash);
+                        assert.equal(saved.vanillaData.media.front_img, `./media/${names[i]}`);
+                        const abs = path.join(getWorkspacePath(), path.dirname(docRel), 'media', names[i]);
+                        assert.deepEqual(fs.readFileSync(abs), buildPng(1), 'both are the same figure');
+                    }
+                } finally {
+                    for (const hash of cards) await call('delete_flashcard', { globalHash: hash });
+                }
+            });
+
+            it('attach_book_image refuses a name it cannot type from its extension', async () => {
+                const res = await call('attach_book_image', {
+                    bookPath: illRel, href: 'images/fig1.png', documentPath: docRel,
+                    flashcardHash: 'whatever', position: 'front', name: 'figure',
+                });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /no file extension/);
+            });
         });
 
         it('read_document_text reads an EPUB section', async () => {
