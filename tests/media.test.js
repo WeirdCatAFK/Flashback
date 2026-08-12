@@ -62,7 +62,7 @@ describe('Media & Binary Operations', () => {
     });
 
     after(() => {
-        // DB and data teardown deferred to the Media Orchestrator suite's after()
+        // DB and data teardown deferred to the move/copy suite's after()
     });
 
     it('should attach an image file to a flashcard (Manual/Low-level)', async () => {
@@ -250,14 +250,8 @@ describe('Media Orchestrator', () => {
         await docs.createFolder("OrchestratorSuite", TEST_ROOT);
     });
 
-    after(async () => {
-        db.close();
-        await new Promise(resolve => setTimeout(resolve, 50));
-        try {
-            fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
-        } catch (e) {
-            console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
-        }
+    after(() => {
+        // DB and data teardown deferred to the move/copy suite's after()
     });
 
     it('should add vanilla media: write file, update sidecar, register in DB, and fire a Seal commit', async () => {
@@ -381,5 +375,219 @@ describe('Media Orchestrator', () => {
         const realHash = crypto.createHash('sha256').update(realBuffer).digest('hex');
         const real = db.prepare('SELECT * FROM Media WHERE hash = ?').get(realHash);
         assert.ok(real, "Real media DB entry should survive reconciliation");
+    });
+});
+
+// Media is stored per-folder at `<dirname(doc)>/media/<name>` and referenced by
+// cards as the folder-relative `./media/<name>`. Moving a document to another
+// folder therefore re-points every one of its refs unless the media travels too.
+describe('Media follows its document across a move or copy', () => {
+    const MOVE_ROOT = "MediaMoveWorkspace";
+    const SRC = path.join(MOVE_ROOT, "src");
+    const DEST = path.join(MOVE_ROOT, "dest");
+
+    const absMedia = (folderRel, name) =>
+        path.join(getWorkspacePath(), folderRel, 'media', name);
+
+    // Creates a document in `folderRel` with one vanilla card holding `name` as its front image.
+    const makeCardWithImage = async (folderRel, docName, cardHash, name, buffer) => {
+        const relPath = path.join(folderRel, docName);
+        await docs.createFile(docName, folderRel);
+        await docs.updateFile(relPath, '# doc', {
+            flashcards: [{ globalHash: cardHash, level: 0, vanillaData: {} }]
+        });
+        await media.addVanillaMedia(relPath, cardHash, buffer, name, "image", "front");
+        return relPath;
+    };
+
+    before(async () => {
+        const abs = path.join(getWorkspacePath(), MOVE_ROOT);
+        if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+        await docs.createFolder(MOVE_ROOT);
+        await docs.createFolder("src", MOVE_ROOT);
+        await docs.createFolder("dest", MOVE_ROOT);
+    });
+
+    after(async () => {
+        db.close();
+        await new Promise(resolve => setTimeout(resolve, 50));
+        try {
+            fs.rmSync(path.join(process.cwd(), 'data'), { recursive: true, force: true });
+        } catch (e) {
+            console.warn('Teardown warning (safe to ignore): Failed to delete data directory:', e.message);
+        }
+    });
+
+    it('carries the media file into the destination folder', async () => {
+        const name = "solo-figure.png";
+        const buffer = Buffer.from("solo-figure-bytes");
+        const relPath = await makeCardWithImage(SRC, "Solo.md", "move-solo-1", name, buffer);
+
+        assert.ok(fs.existsSync(absMedia(SRC, name)), "precondition: media starts in the source folder");
+
+        const destPath = path.join(DEST, "Solo.md");
+        await docs.move(relPath, destPath);
+
+        assert.ok(
+            fs.existsSync(absMedia(DEST, name)),
+            "media referenced by the moved document must exist in the destination folder"
+        );
+        assert.equal(
+            fs.readFileSync(absMedia(DEST, name), 'utf-8'), "solo-figure-bytes",
+            "carried media must keep its bytes"
+        );
+
+        // The ref itself is folder-relative and unchanged, so it now resolves again.
+        const meta = docs.files.getMetadata(destPath);
+        assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
+    });
+
+    it('leaves no orphan behind when no other document needs the media', async () => {
+        const name = "lonely.png";
+        const relPath = await makeCardWithImage(SRC, "Lonely.md", "move-lonely-1", name, Buffer.from("lonely-bytes"));
+
+        await docs.move(relPath, path.join(DEST, "Lonely.md"));
+
+        assert.equal(
+            fs.existsSync(absMedia(SRC, name)), false,
+            "media no document references any more must not be left in the source folder"
+        );
+    });
+
+    it('keeps media in the source folder when a sibling document still references it', async () => {
+        const name = "shared-figure.png";
+        const buffer = Buffer.from("shared-figure-bytes");
+        const movingPath = await makeCardWithImage(SRC, "Mover.md", "move-shared-1", name, buffer);
+
+        // A second document in the same folder pointing at the very same file.
+        const stayingPath = path.join(SRC, "Stayer.md");
+        await docs.createFile("Stayer.md", SRC);
+        await docs.updateFile(stayingPath, '# stays', {
+            flashcards: [{
+                globalHash: "move-shared-2", level: 0,
+                vanillaData: { media: { front_img: `./media/${name}` } }
+            }]
+        });
+
+        await docs.move(movingPath, path.join(DEST, "Mover.md"));
+
+        assert.ok(
+            fs.existsSync(absMedia(SRC, name)),
+            "media still referenced by a sibling document must stay in the source folder"
+        );
+        assert.ok(
+            fs.existsSync(absMedia(DEST, name)),
+            "the moved document needs its own copy in the destination folder"
+        );
+    });
+
+    // Copy has the same folder-relative ref problem as move, minus the cleanup half:
+    // the original keeps its media, so the destination needs its own copy.
+    it('copies the media alongside a document copied into another folder', async () => {
+        const name = "copyable.png";
+        const buffer = Buffer.from("copyable-bytes");
+        const relPath = await makeCardWithImage(SRC, "Copyable.md", "copy-1", name, buffer);
+
+        await docs.copy(relPath, path.join(DEST, "Copyable.md"));
+
+        assert.ok(
+            fs.existsSync(absMedia(DEST, name)),
+            "the copy needs its own media in the destination folder"
+        );
+        assert.equal(
+            fs.readFileSync(absMedia(DEST, name), 'utf-8'), "copyable-bytes",
+            "copied media must keep its bytes"
+        );
+    });
+
+    it('leaves the original media untouched when a document is copied away', async () => {
+        const name = "original-stays.png";
+        const relPath = await makeCardWithImage(SRC, "OriginalStays.md", "copy-2", name, Buffer.from("stay-bytes"));
+
+        await docs.copy(relPath, path.join(DEST, "OriginalStays.md"));
+
+        assert.ok(
+            fs.existsSync(absMedia(SRC, name)),
+            "a copy must never remove media from the source folder"
+        );
+        // The original document still resolves its own ref.
+        const meta = docs.files.getMetadata(relPath);
+        assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
+    });
+
+    it('copies media for a document duplicated under an auto-renamed name', async () => {
+        // Copying onto an existing name makes Files.copy pick a free one; the media
+        // still has to land in the folder the copy actually ended up in.
+        const name = "collide.png";
+        const relPath = await makeCardWithImage(SRC, "Collide.md", "copy-3", name, Buffer.from("collide-bytes"));
+        await docs.createFile("Collide.md", DEST);   // occupy the destination name
+
+        await docs.copy(relPath, path.join(DEST, "Collide.md"));
+
+        assert.ok(
+            fs.existsSync(absMedia(DEST, name)),
+            "media must follow the copy to its auto-renamed destination folder"
+        );
+    });
+
+    it('carries media for every document in a copied folder tree', async () => {
+        const name = "tree-figure.png";
+        const buffer = Buffer.from("tree-figure-bytes");
+        await docs.createFolder("treesrc", MOVE_ROOT);
+        const treeRel = path.join(MOVE_ROOT, "treesrc");
+        await makeCardWithImage(treeRel, "Leaf.md", "copy-tree-1", name, buffer);
+
+        const destTreeRel = path.join(DEST, "treecopy");
+        await docs.copy(treeRel, destTreeRel, true);
+
+        assert.ok(
+            fs.existsSync(absMedia(destTreeRel, name)),
+            "a copied folder must bring its media/ dir along"
+        );
+        assert.ok(
+            fs.existsSync(absMedia(treeRel, name)),
+            "the source folder keeps its media"
+        );
+    });
+
+    // A folder carries its own media/ dir along on disk, so the files stay resolvable.
+    // The derived index is what goes stale, which breaks hash-served media.
+    it('re-points the Media table when the owning folder itself moves', async () => {
+        const name = "in-folder.png";
+        const buffer = Buffer.from("in-folder-bytes");
+        const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+
+        await docs.createFolder("movable", MOVE_ROOT);
+        const folderRel = path.join(MOVE_ROOT, "movable");
+        await makeCardWithImage(folderRel, "Inside.md", "move-folder-1", name, buffer);
+
+        const destFolderRel = path.join(DEST, "movable");
+        await docs.move(folderRel, destFolderRel, true);
+
+        assert.ok(
+            fs.existsSync(absMedia(destFolderRel, name)),
+            "precondition: the media/ dir travels inside the folder on disk"
+        );
+        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        assert.equal(
+            entry.absolute_path, absMedia(destFolderRel, name),
+            "Media.absolute_path must follow the folder move"
+        );
+    });
+
+    it('re-points the Media table at the new location', async () => {
+        const name = "indexed.png";
+        const buffer = Buffer.from("indexed-bytes");
+        const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+        const relPath = await makeCardWithImage(SRC, "Indexed.md", "move-indexed-1", name, buffer);
+
+        await docs.move(relPath, path.join(DEST, "Indexed.md"));
+
+        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        assert.ok(entry, "media must remain registered after the move");
+        assert.equal(
+            entry.absolute_path, absMedia(DEST, name),
+            "Media.absolute_path must point at the file's new location"
+        );
     });
 });

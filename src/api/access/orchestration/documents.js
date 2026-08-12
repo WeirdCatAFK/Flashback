@@ -332,6 +332,8 @@ export default class Documents {
                     this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
                     this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                     this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    // media/ dirs ride along inside the folder on disk; only the index needs catching up.
+                    this.query.cascadeMediaPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                     const movedFolder = this.query.getFolderByAbsolutePath(newAbsPath);
                     if (movedFolder?.node_id) {
                         const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
@@ -356,9 +358,12 @@ export default class Documents {
             const { removed, added } = this._buildMovePaths(relativePath, newRelativePath, newAbsPath);
             await sealEmitter.move(relativePath, newRelativePath, removed, added);
         } else {
+            // The document changed folder, so its folder-relative media refs have to
+            // be re-grounded — otherwise every one of them points at an empty dir.
+            const media = this._carryMediaAfterMove(relativePath, newRelativePath);
             await sealEmitter.move(relativePath, newRelativePath,
-                [relativePath, relativePath + '.flashback'],
-                [newRelativePath, newRelativePath + '.flashback']
+                [relativePath, relativePath + '.flashback', ...media.removed],
+                [newRelativePath, newRelativePath + '.flashback', ...media.added]
             );
         }
     }
@@ -561,6 +566,22 @@ export default class Documents {
             }
         })();
 
+        // A copied folder brings its own media/ dir along in the recursive copy, but a
+        // single copied file does not — and its refs are folder-relative, so without
+        // this the copy renders against an empty media/ dir. Nothing is removed from
+        // the source: the original document still resolves against it.
+        const mediaPaths = [];
+        if (!isFolder) {
+            const copied = items.find(i => i.type === 'file');
+            if (copied) {
+                mediaPaths.push(...this._replicateMedia(
+                    copied.relativePath,
+                    path.dirname(relPath),
+                    path.dirname(copied.relativePath),
+                ).added);
+            }
+        }
+
         const sidecarPaths = items.map(i =>
             i.type === 'folder'
                 ? path.join(i.relativePath, '.flashback')
@@ -569,7 +590,7 @@ export default class Documents {
         const docPaths = [];
         for (const i of items) { if (i.type === 'file') docPaths.push(i.relativePath); }
         const rootSidecar = sidecarPaths[0];
-        await sealEmitter.create(rootSidecar, [...sidecarPaths.slice(1), ...docPaths]);
+        await sealEmitter.create(rootSidecar, [...sidecarPaths.slice(1), ...docPaths, ...mediaPaths]);
     }
 
     // --- Metadata Helpers ---
@@ -1714,6 +1735,127 @@ export default class Documents {
                 if (tag) this.query.insertInheritedTag(conn.id, tag.id);
             }
         }
+    }
+
+    // --- Media carrying (see _carryMediaAfterMove) ---
+
+    // Every `./media/<name>` occurrence in a blob of text (custom card HTML, or a
+    // clip/markdown body). Media refs are always folder-relative by design, which
+    // is exactly why they have to be kept in step with the folder a document sits in.
+    static _MEDIA_REF = /\.\/media\/([^"')\s>]+)/g;
+
+    // A 64-hex ref is a content hash served from the Media table (Anki imports use
+    // these), not a path — those are location-independent and need no carrying.
+    static _IS_HASH = /^[a-f0-9]{64}$/i;
+
+    // Collects the media file names a single document references, across all the
+    // places a ref can hide: vanilla card slots, custom card HTML, and the body.
+    _mediaNamesReferencedBy(relDocPath) {
+        const names = new Set();
+        const addRefsIn = (text) => {
+            if (!text) return;
+            for (const m of String(text).matchAll(Documents._MEDIA_REF)) {
+                names.add(path.basename(m[1]));
+            }
+        };
+
+        const meta = this.files.getMetadata(relDocPath);
+        for (const card of meta?.flashcards ?? []) {
+            for (const ref of Object.values(card?.vanillaData?.media ?? {})) {
+                if (ref && !Documents._IS_HASH.test(String(ref))) {
+                    names.add(path.basename(String(ref).replace(/\\/g, '/')));
+                }
+            }
+            addRefsIn(card?.customData?.html);
+        }
+
+        // Bodies only carry refs in text formats; binary ones simply throw here.
+        try { addRefsIn(this.files.readFile(relDocPath).content); } catch { /* binary or unreadable body */ }
+
+        return names;
+    }
+
+    // The union of media names still referenced by the documents sitting directly
+    // in `folderRel`. Only direct children matter: a sub-folder has its own media/.
+    _mediaNamesStillNeededIn(folderRel, excludeRelDocPath) {
+        const folderAbs = this.files.safePath(folderRel);
+        const needed = new Set();
+        for (const doc of this.query.getDocumentsByAbsPathPrefix(folderAbs + path.sep)) {
+            if (doc.relative_path === excludeRelDocPath) continue;
+            if (path.dirname(doc.relative_path) !== folderRel) continue;
+            for (const name of this._mediaNamesReferencedBy(doc.relative_path)) needed.add(name);
+        }
+        return needed;
+    }
+
+    // Replicates the media a document references from one folder's media/ dir into
+    // another's. Pure addition: nothing is removed and no DB row is re-pointed, so
+    // it is safe for both halves of a copy and as the first half of a move.
+    //
+    // Returns { added, carried } — the rel-paths written, and the names that were
+    // actually found at the source (the caller decides what to do with the originals).
+    _replicateMedia(relDocPath, oldFolder, newFolder) {
+        const added = [], carried = [];
+        if (oldFolder === newFolder) return { added, carried };
+
+        for (const name of this._mediaNamesReferencedBy(relDocPath)) {
+            const srcAbs = this.files.safePath(path.join(oldFolder, 'media', name));
+            if (!fs.existsSync(srcAbs)) continue;   // already missing; nothing to carry
+
+            const destRel = path.join(newFolder, 'media', name);
+            const destAbs = this.files.safePath(destRel);
+            fs.mkdirSync(path.dirname(destAbs), { recursive: true });
+            if (!fs.existsSync(destAbs)) fs.copyFileSync(srcAbs, destAbs);
+            added.push(destRel);
+            carried.push(name);
+        }
+        return { added, carried };
+    }
+
+    // Media lives at `<dirname(document)>/media/<name>` and is referenced folder-
+    // relatively, so a document that changes folder leaves every one of its refs
+    // pointing into an empty directory unless the files travel with it. Replicates
+    // each referenced file into the destination folder, then drops the source copy
+    // only when no sibling left behind still needs it (media/ is shared folder-wide).
+    //
+    // Returns the media rel-paths touched, so the caller can fold them into the
+    // one Seal commit that records the move.
+    _carryMediaAfterMove(oldRelDocPath, newRelDocPath) {
+        const oldFolder = path.dirname(oldRelDocPath);
+        const newFolder = path.dirname(newRelDocPath);
+        if (oldFolder === newFolder) return { added: [], removed: [] };
+
+        const { added, carried } = this._replicateMedia(newRelDocPath, oldFolder, newFolder);
+        if (carried.length === 0) return { added, removed: [] };
+
+        const stillNeeded = this._mediaNamesStillNeededIn(oldFolder, newRelDocPath);
+        const removed = [];
+
+        for (const name of carried) {
+            if (stillNeeded.has(name)) {
+                // A sibling still resolves `./media/<name>` against the old folder,
+                // so both copies are live. The Media row keys on the content hash,
+                // which is identical for both, so it stays pointed at the original.
+                continue;
+            }
+            const srcRel = path.join(oldFolder, 'media', name);
+            const srcAbs = this.files.safePath(srcRel);
+            const destRel = path.join(newFolder, 'media', name);
+            fs.rmSync(srcAbs, { force: true });
+            removed.push(srcRel);
+            this.query.updateMediaPath(srcAbs, destRel, this.files.safePath(destRel));
+        }
+
+        // Drop the source media/ dir once it has gone empty, so reorganising does
+        // not litter the vault with husks the user is tempted to delete by hand.
+        const srcMediaAbs = this.files.safePath(path.join(oldFolder, 'media'));
+        try {
+            if (fs.existsSync(srcMediaAbs) && fs.readdirSync(srcMediaAbs).length === 0) {
+                fs.rmdirSync(srcMediaAbs);
+            }
+        } catch { /* non-empty or racing another write; harmless to leave */ }
+
+        return { added, removed };
     }
 
     // Returns { removed, added } path arrays for a folder rename/move.

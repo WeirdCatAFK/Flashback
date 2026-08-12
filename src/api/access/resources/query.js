@@ -1256,6 +1256,22 @@ class DocumentQuery {
         return this.db.prepare('SELECT * FROM Media WHERE absolute_path LIKE ?').all(prefix + '%');
     }
 
+    // Re-points a single media row after its file has been carried to another
+    // folder. Keyed on the old absolute path because the hash is unchanged by a
+    // move — the bytes are identical, only the location moved.
+    updateMediaPath(oldAbsPath, newRelPath, newAbsPath) {
+        return this.db.prepare('UPDATE Media SET relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
+            .run(newRelPath, newAbsPath, oldAbsPath);
+    }
+
+    // Prefix-rewrites every media row beneath a folder that was moved or renamed.
+    // A folder carries its own media/ dir along on disk, so the files are fine —
+    // it is only the derived index that would otherwise keep the stale paths.
+    cascadeMediaPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+        this.db.prepare(`UPDATE Media SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
+    }
+
     // --- Subscriptions ---
 
     getSubscription(magazineId) {
