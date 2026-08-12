@@ -500,6 +500,68 @@ export function registerWriteTools(server) {
   );
 
   server.registerTool(
+    'attach_clip_media',
+    {
+      title: 'Put a web clip\'s picture or sound on a flashcard',
+      description:
+        'Copy one asset out of a saved web clip and attach it to the front or back of an existing ' +
+        'document-anchored vanilla flashcard, addressing it by the `href` list_clip_media reported. ' +
+        'This is how a diagram from an article, or a pronunciation clip from a language page, ' +
+        'becomes part of a card. Images land in the card\'s picture slot and sound in its sound ' +
+        'slot, chosen from the asset itself — a card can carry one of each per side, and a sound ' +
+        'plays automatically when that side is shown. The card and the clip do not have to be the ' +
+        'same document. The bytes are copied into the card\'s document, so the card keeps working if ' +
+        'the clip is later removed, and the same asset can go on as many cards as you like. Only an ' +
+        'asset the clipper actually downloaded (`cached: true`) can be attached; one still loading ' +
+        'from the web is refused rather than fetched.',
+      inputSchema: {
+        clipPath: z.string().describe('Relative path to the .clip document holding the asset.'),
+        href: z.string().describe('The asset\'s `href` (or bare file name) from list_clip_media.'),
+        documentPath: z.string().describe('Relative path of the CARD\'s source document (often, but not always, the clip itself).'),
+        flashcardHash: z.string().describe('The card\'s globalHash.'),
+        position: z.enum(['front', 'back']).describe('Which side of the card the asset goes on.'),
+        name: z.string().optional().describe('File name to store it as, including extension. Leave this off unless you need a specific name — by default the asset\'s name gets a short unique suffix, which is what lets one asset be attached repeatedly. An explicit name that is already taken in that document is an error.'),
+      },
+    },
+    async ({ clipPath, href, documentPath, flashcardHash, position, name }) => {
+      try {
+        const query = `?path=${encodeURIComponent(clipPath)}&href=${encodeURIComponent(href)}`;
+        const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${query}`);
+
+        // The slot follows the bytes, not a parameter: a caller who had to say
+        // "this is a sound" could say it wrong, and a mp3 in an image slot fails
+        // silently at review time rather than here.
+        const type = /^audio\//i.test(mimeType ?? '') ? 'sound' : 'image';
+
+        // Default to the asset's own file name plus a short unique suffix, for the
+        // same reason attach_book_image does: a document's media/ dir is shared by all
+        // its cards and files.addVanillaData refuses to overwrite. A clip asset's name
+        // is a content hash, so without this the second card built from one picture
+        // would fail. An explicit `name` is honoured as given, collision and all.
+        const fromClip = nodePath.basename(String(href).split('?')[0]);
+        const ext = nodePath.extname(fromClip);
+        const base = nodePath.basename(fromClip, ext).replace(/[^\w.-]+/g, '_') || type;
+        const storedName = name || `${base}-${crypto.randomUUID().slice(0, 8)}${ext}`;
+        if (!nodePath.extname(storedName)) {
+          return asToolError(`"${storedName}" has no file extension — pass \`name\` with one (the asset is ${mimeType}).`);
+        }
+
+        const formData = new FormData();
+        formData.append('file', new Blob([buffer], { type: mimeType }), storedName);
+        formData.append('docPath', documentPath);
+        formData.append('flashcardHash', flashcardHash);
+        formData.append('name', storedName);
+        formData.append('type', type);
+        formData.append('position', position);
+        const data = await upload('/api/media/vanilla', formData);
+        return asText({ ...data, name: storedName, type, position, from: clipPath });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
     'create_highlight',
     {
       title: 'Create highlight',

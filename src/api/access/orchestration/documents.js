@@ -104,6 +104,22 @@ function extFromContentType(ct) {
     return map[type] || null;
 }
 
+// Best-effort audio extension from an HTTP content-type header. Separate from the
+// image map because the two loops must never accept each other's formats: an <audio>
+// pointing at a PNG is a broken page, not a sound to cache.
+function extFromAudioContentType(ct) {
+    if (!ct) return null;
+    const type = ct.split(';')[0].trim().toLowerCase();
+    const map = {
+        'audio/mpeg': 'mp3', 'audio/mp3': 'mp3',
+        'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/aac': 'aac',
+        'audio/ogg': 'ogg', 'audio/vorbis': 'ogg',
+        'audio/wav': 'wav', 'audio/x-wav': 'wav', 'audio/wave': 'wav',
+        'audio/webm': 'weba', 'audio/flac': 'flac', 'audio/x-flac': 'flac',
+    };
+    return map[type] || null;
+}
+
 // Best-effort image extension from a URL path.
 function extFromUrl(u) {
     try {
@@ -115,26 +131,44 @@ function extFromUrl(u) {
 // Whitelist for stored clip HTML — readable structure only, no scripts/handlers.
 // Relative `./media/` image src survive (verified); remote/data src are kept as
 // a fallback for images that couldn't be cached locally.
+//
+// `audio`/`source` are here for the same reason `img` is: Readability preserves
+// them and rewrites their src to absolute URLs, so a page's sound reaches us
+// intact and would be thrown away here otherwise. `controls` is allowed because a
+// clipped sound with no way to play it is not worth storing; no other media
+// attribute is — `autoplay` especially, which would make opening a clip noisy.
 const CLIP_SANITIZE_OPTS = {
     allowedTags: [
         'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'a', 'ul', 'ol', 'li',
         'blockquote', 'pre', 'code', 'em', 'strong', 'b', 'i', 'u', 's',
         'sub', 'sup', 'br', 'hr', 'img', 'figure', 'figcaption', 'table',
         'thead', 'tbody', 'tfoot', 'tr', 'th', 'td', 'caption', 'span',
-        'div', 'mark', 'small', 'abbr', 'cite', 'time',
+        'div', 'mark', 'small', 'abbr', 'cite', 'time', 'audio', 'source',
     ],
     allowedAttributes: {
         a: ['href', 'title'],
         img: ['src', 'alt', 'title', 'width', 'height'],
+        audio: ['src', 'controls', 'preload', 'title'],
+        source: ['src', 'type'],
         '*': ['id'],
     },
     allowedSchemes: ['http', 'https', 'mailto'],
-    allowedSchemesByTag: { img: ['http', 'https', 'data'] },
+    allowedSchemesByTag: {
+        img: ['http', 'https', 'data'],
+        audio: ['http', 'https'],
+        source: ['http', 'https'],
+    },
     allowProtocolRelative: false,
 };
 
 const MAX_CLIP_IMAGES = 40;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+// Sound is capped far tighter than pictures, and deliberately: the clip-worthy
+// cases are short — a pronunciation button, a language sample, a bird call, a
+// heart sound. A podcast episode is a 60-minute file that no flashcard wants, so
+// it is left playing from its own server rather than copied into the vault.
+const MAX_CLIP_AUDIO = 8;
+const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 
 // Level 6 == fully learned, matching the divisor in CARD_LEARNED_SQL.
 const LEARNED_FULL_LEVEL = 6;
@@ -838,10 +872,65 @@ export default class Documents {
         return { path: relPath, cues: cues.length, lang: gotLang, kind };
     }
 
-    // Fetches a page, extracts its readable article, caches its images into
-    // `<mediaFolder>/media/`, and returns the sanitized HTML + `source` block +
-    // the cached media rel-paths. `mediaFolder` is the folder the clip lives in
-    // (media/ is a sibling of the clip file). Throws on fetch/extraction failure.
+    /**
+     * Downloads one remote asset into `<mediaFolder>/media/`, registers it in the
+     * Media table, and returns the `./media/<name>` reference the clip body should
+     * point at — or null when it could not or should not be cached, in which case
+     * the caller leaves the remote src alone and the asset still loads online.
+     *
+     * Shared by the image and audio passes of _buildClipDoc, which differ only in
+     * their size ceiling and how they name an extension. Content-addressed: the
+     * same picture linked twice costs one file, and `seen` short-circuits the
+     * second fetch entirely.
+     *
+     * @param {string} absSrc absolute http(s) URL
+     * @param {object} opts
+     * @param {string} opts.mediaFolder folder the clip lives in
+     * @param {Map<string,string>} opts.seen absolute src -> ./media/<name>, mutated
+     * @param {string[]} opts.mediaRelPaths collected rel-paths for Seal, mutated
+     * @param {number} opts.maxBytes size ceiling
+     * @param {(contentType: string|null, url: string) => string} opts.extFor
+     * @returns {Promise<string|null>}
+     */
+    async _cacheRemoteAsset(absSrc, { mediaFolder, seen, mediaRelPaths, maxBytes, extFor }) {
+        if (!/^https?:/i.test(absSrc)) return null; // leave data:/other src untouched
+        if (seen.has(absSrc)) return seen.get(absSrc);
+        try {
+            const r = await fetch(absSrc);
+            if (!r.ok) return null;
+            // Checked before the body is buffered: an image that overshoots 10 MB is
+            // cheap to discard, but a podcast episode advertising 90 MB must never be
+            // pulled into memory just to be thrown away. Servers that omit the header
+            // fall through to the post-buffer check below.
+            const declared = Number(r.headers.get('content-length'));
+            if (Number.isFinite(declared) && declared > maxBytes) return null;
+
+            const buf = Buffer.from(await r.arrayBuffer());
+            if (buf.length === 0 || buf.length > maxBytes) return null;
+
+            const hash = crypto.createHash('sha256').update(buf).digest('hex');
+            const name = `clip-${hash.slice(0, 12)}.${extFor(r.headers.get('content-type'), absSrc)}`;
+            const mediaRel = path.join(mediaFolder, 'media', name);
+            const mediaAbs = this.files.safePath(mediaRel);
+            fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
+            fs.writeFileSync(mediaAbs, buf);
+            db.transaction(() => {
+                this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+            })();
+
+            const localRef = `./media/${name}`;
+            seen.set(absSrc, localRef);
+            mediaRelPaths.push(mediaRel);
+            return localRef;
+        } catch {
+            return null;   // best-effort
+        }
+    }
+
+    // Fetches a page, extracts its readable article, caches its images and short
+    // audio into `<mediaFolder>/media/`, and returns the sanitized HTML + `source`
+    // block + the cached media rel-paths. `mediaFolder` is the folder the clip lives
+    // in (media/ is a sibling of the clip file). Throws on fetch/extraction failure.
     async _buildClipDoc(url, mediaFolder) {
         let html;
         try {
@@ -871,33 +960,47 @@ export default class Documents {
 
         const mediaRelPaths = [];
         const seen = new Map(); // absolute src -> ./media/<name>
+        const cache = (absSrc, opts) =>
+            this._cacheRemoteAsset(absSrc, { mediaFolder, seen, mediaRelPaths, ...opts });
+
         for (const img of Array.from(cdoc.querySelectorAll('img')).slice(0, MAX_CLIP_IMAGES)) {
             const raw = img.getAttribute('src') || '';
             let absSrc;
             try { absSrc = new URL(raw, url).href; } catch { continue; }
-            if (!/^https?:/i.test(absSrc)) continue; // leave data:/other src untouched
-            if (seen.has(absSrc)) { img.setAttribute('src', seen.get(absSrc)); img.removeAttribute('srcset'); continue; }
-            try {
-                const r = await fetch(absSrc);
-                if (!r.ok) continue;
-                const buf = Buffer.from(await r.arrayBuffer());
-                if (buf.length === 0 || buf.length > MAX_IMAGE_BYTES) continue;
-                const hash = crypto.createHash('sha256').update(buf).digest('hex');
-                const ext = extFromContentType(r.headers.get('content-type')) || extFromUrl(absSrc) || 'img';
-                const name = `clip-${hash.slice(0, 12)}.${ext}`;
-                const mediaRel = path.join(mediaFolder, 'media', name);
-                const mediaAbs = this.files.safePath(mediaRel);
-                fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
-                fs.writeFileSync(mediaAbs, buf);
-                db.transaction(() => {
-                    this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
-                })();
-                const localRef = `./media/${name}`;
-                img.setAttribute('src', localRef);
-                img.removeAttribute('srcset');
-                seen.set(absSrc, localRef);
-                mediaRelPaths.push(mediaRel);
-            } catch { /* best-effort — leave the remote src in place */ }
+            const localRef = await cache(absSrc, {
+                maxBytes: MAX_IMAGE_BYTES,
+                extFor: (ct, u) => extFromContentType(ct) || extFromUrl(u) || 'img',
+            });
+            if (!localRef) continue;   // best-effort — leave the remote src in place
+            img.setAttribute('src', localRef);
+            img.removeAttribute('srcset');
+        }
+
+        // Sound. An <audio> usually offers the same recording in several formats
+        // (an mp3 and an ogg), so only the FIRST candidate that caches is kept:
+        // the alternatives are then removed, because leaving a remote <source>
+        // next to a local one lets the browser pick the one that needs the network.
+        for (const audio of Array.from(cdoc.querySelectorAll('audio')).slice(0, MAX_CLIP_AUDIO)) {
+            const sources = Array.from(audio.querySelectorAll('source'));
+            const candidates = [
+                { el: audio, raw: audio.getAttribute('src') || '' },
+                ...sources.map((el) => ({ el, raw: el.getAttribute('src') || '' })),
+            ].filter((c) => c.raw);
+
+            for (const { el, raw } of candidates) {
+                let absSrc;
+                try { absSrc = new URL(raw, url).href; } catch { continue; }
+                const localRef = await cache(absSrc, {
+                    maxBytes: MAX_AUDIO_BYTES,
+                    extFor: (ct, u) => extFromAudioContentType(ct) || extFromUrl(u) || 'audio',
+                });
+                if (!localRef) continue;
+                el.setAttribute('src', localRef);
+                for (const other of sources) {
+                    if (other !== el) other.remove();
+                }
+                break;
+            }
         }
 
         const clean = sanitizeHtml(cdoc.body.innerHTML, CLIP_SANITIZE_OPTS);
@@ -913,7 +1016,7 @@ export default class Documents {
     }
 
     /**
-     * Fetches a web page and stores a readable, image-cached `.clip` snapshot.
+     * Fetches a web page and stores a readable, media-cached `.clip` snapshot.
      * Highlights anchor by text offset. See _buildClipDoc for the pipeline.
      * @param {string} url
      * @param {string} [relativePath=""] destination folder
@@ -934,7 +1037,7 @@ export default class Documents {
 
     /**
      * Populates an existing (e.g. blank, hand-created) `.clip` file from a URL —
-     * fetches/parses the page, caches images alongside it, writes the sanitized
+     * fetches/parses the page, caches its images and audio alongside it, writes the sanitized
      * HTML body, and merges the `source` block into the sidecar (preserving
      * existing highlights/tags). Backs the renderer's empty-state URL form.
      * @param {string} relPath existing `.clip` file

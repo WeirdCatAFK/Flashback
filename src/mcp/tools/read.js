@@ -2,12 +2,15 @@ import { z } from 'zod';
 import { request, requestBuffer } from '../client.js';
 import cardGuide from '../skills/flashbackCards.js';
 
-// A book's figure is the one thing here a model has to SEE rather than read — there
-// is no text form of a diagram — so view_book_image returns a real image content
-// block. That is a deliberate, single exception to the rule that document bodies
-// reach this server as text or not at all (CLAUDE.md § MCP server); it does not
-// generalize to PDF pages or any other body. The ceiling stops one full-page plate
-// from swallowing a context window; nothing here resizes an image.
+// A picture inside a captured document is the one thing here a model has to SEE
+// rather than read — there is no text form of a diagram — so view_book_image and
+// view_clip_image return real image content blocks. That is a deliberate, narrow
+// exception to the rule that document bodies reach this server as text or not at all
+// (CLAUDE.md § MCP server), and it turns on the picture BEING the content: it does
+// not generalize to rasterized PDF pages or any document body. Sound is outside it
+// too — nothing can play audio to a model, so view_clip_image refuses one. The
+// ceiling stops a single full-page plate from swallowing a context window; nothing
+// here resizes an image.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
@@ -316,6 +319,73 @@ export function registerReadTools(server) {
           `${MAX_IMAGE_BYTES / 1024 / 1024} MB viewing limit. Nothing here can resize it. You can ` +
           `still attach it to a card with attach_book_image, or go by its alt text and caption ` +
           `from list_book_images.`,
+        );
+      }
+      return { content: [{ type: 'image', data: buffer.toString('base64'), mimeType }] };
+    }),
+  );
+
+  server.registerTool(
+    'list_clip_media',
+    {
+      title: 'List a web clip\'s pictures and sound',
+      description:
+        'List the media a saved web clip (.clip) downloaded when it was captured — the pictures and ' +
+        'short audio read_document cannot give you, because it returns the page\'s prose only. ' +
+        'Metadata, not the bytes: each entry has `kind` ("image" or "audio"), an `href` (how you ' +
+        'address it here), `alt` text, the `caption` of its figure, the `heading` it sits under, ' +
+        '`bytes`, and `cached`. Entries come back in DOCUMENT ORDER, so entry 1 is the first one in ' +
+        'the article. When `cached` is false the clipper could not download that asset — it still ' +
+        'loads from the web, its `href` is the remote URL, and its alt text and caption are all ' +
+        'that can be known about it; nothing here will fetch it. A cached entry also carries `path`, ' +
+        'its real location in the vault, so attach_media works on it as well as attach_clip_media. ' +
+        'Sound is worth checking for on language, music and medical pages: a pronunciation clip ' +
+        'makes a far better card front than a written description of one. Clips only.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the .clip document from the workspace root.'),
+        kind: z.enum(['image', 'audio']).optional().describe('Only assets of this kind. Omit for everything the clip holds.'),
+      },
+    },
+    safe(async ({ path, kind }) => {
+      const data = await request('GET', `/api/reader/media${qs({ path })}`);
+      if (kind == null) return asText(data);
+      const media = data.media.filter((m) => m.kind === kind);
+      return asText({ ...data, total: media.length, kind, media });
+    }),
+  );
+
+  server.registerTool(
+    'view_clip_image',
+    {
+      title: 'Look at one of a web clip\'s images',
+      description:
+        'Return one picture from a saved web clip so you can actually SEE it — use this when an ' +
+        'image\'s alt text and caption from list_clip_media do not tell you what it depicts, and you ' +
+        'need to know before writing a card about it or attaching it. Address it by the `href` ' +
+        'list_clip_media gave you. Images only: there is no way to play a sound to you, so an audio ' +
+        'entry is refused — go by its caption and heading, and attach it unheard with ' +
+        'attach_clip_media if the surrounding text says what it is. Very large images are refused ' +
+        'rather than resized.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the .clip document from the workspace root.'),
+        href: z.string().describe('The image\'s `href` (or bare file name) from list_clip_media.'),
+      },
+    },
+    safe(async ({ path, href }) => {
+      const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${qs({ path, href })}`);
+      if (/^audio\//i.test(mimeType ?? '')) {
+        return asToolError(
+          `"${href}" is a sound file, and nothing here can play one to you. Use its caption, alt ` +
+          `text and heading from list_clip_media to decide what it is, then attach it with ` +
+          `attach_clip_media.`,
+        );
+      }
+      if (buffer.length > MAX_IMAGE_BYTES) {
+        return asToolError(
+          `"${href}" is ${(buffer.length / 1024 / 1024).toFixed(1)} MB, over the ` +
+          `${MAX_IMAGE_BYTES / 1024 / 1024} MB viewing limit. Nothing here can resize it. You can ` +
+          `still attach it to a card with attach_clip_media, or go by its alt text and caption ` +
+          `from list_clip_media.`,
         );
       }
       return { content: [{ type: 'image', data: buffer.toString('base64'), mimeType }] };

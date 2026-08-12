@@ -110,13 +110,16 @@ function highlightIdAtSelection(root) {
   return node.closest?.('mark[data-hl]')?.getAttribute('data-hl') ?? null;
 }
 
-// Point cached local images (`./media/<name>`) at the API media endpoint.
+// Point cached local assets (`./media/<name>`) at the API media endpoint. Covers
+// pictures and sound alike — an <audio> and its <source> children carry the same
+// kind of reference an <img> does, and a clip that cached its audio is exactly the
+// one that should keep playing with the network off.
 function rewriteMedia(root, docPath) {
-  root.querySelectorAll('img[src]').forEach((img) => {
-    const src = img.getAttribute('src') || '';
+  root.querySelectorAll('img[src], audio[src], source[src]').forEach((el) => {
+    const src = el.getAttribute('src') || '';
     const m = src.match(/^\.?\/?media\/(.+)$/);
     if (m) {
-      img.setAttribute(
+      el.setAttribute(
         'src',
         appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(m[1])}`),
       );
@@ -308,7 +311,7 @@ export default function ClipRenderer({
     return (
       <SourceUrlForm
         title={t('Clip a web page')}
-        hint={t('Paste a URL to fetch a readable snapshot of the page. Images are saved locally so it stays available offline.')}
+        hint={t('Paste a URL to fetch a readable snapshot of the page. Images and short audio are saved locally so it stays available offline.')}
         placeholder="https://…"
         submitLabel={t('Clip page')}
         busyLabel={t('Clipping…')}

@@ -17,9 +17,13 @@ export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) 
   const highlightId = draft?.highlightId ?? null;
   const location    = highlightId ? { type: 'highlight', id: highlightId } : null;
 
-  // An EPUB's figures are reachable from a card made while reading it; no other
-  // format has an image list, so the picker stays hidden for those.
-  const bookPath  = /\.epub$/i.test(path ?? '') ? path : null;
+  // Two formats carry media a card can pull from while it is being read: an EPUB's
+  // figures, and a clip's downloaded pictures and sound. Anything else has no media
+  // list, so the picker stays hidden for those.
+  const sourceKind = /\.epub$/i.test(path ?? '') ? 'epub'
+    : /\.clip$/i.test(path ?? '') ? 'clip'
+      : null;
+  const sourcePath = sourceKind ? path : null;
   const seedImage = draft?.image?.href ? { slot: 'front_img', href: draft.image.href } : null;
 
   const sourceLabel = draft?.text
@@ -49,7 +53,8 @@ export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) 
       sourceLabel={sourceLabel}
       anchorColor={highlightId ? (draft?.color ?? 'amber') : null}
       location={location}
-      bookPath={bookPath}
+      sourcePath={sourcePath}
+      sourceKind={sourceKind}
       seedImage={seedImage}
       saving={saving}
       error={error}

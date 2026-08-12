@@ -369,7 +369,7 @@ Fetches a `.youtube` document's captions from YouTube and stores them in the sid
 
 ## Reader `/api/reader`
 
-Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **images** an EPUB holds. Built for the MCP server — which has no renderer — but not restricted to it: the card form's book-image picker is the other client of the image half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
+Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **media** those documents carry — an EPUB's figures, a clip's downloaded pictures and sound. Built for the MCP server — which has no renderer — but not restricted to it: the card form's media pickers are the other client of the media half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
 
 Addressing follows each format's **native unit**:
 
@@ -390,7 +390,7 @@ What the document is and how much of it there is, without returning a body.
 | ------ | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ path, format, unit, total, extractable, note?, sections?, images? }`. `total` counts pages, sections, or characters depending on `unit`. `sections` lists `{ index, label, href, chars }` for EPUBs, and `images` is that EPUB's image *count*. `extractable: false` with a `note` means the file parsed but holds no text layer (a scanned PDF needing OCR).
+**Response** `200` — `{ path, format, unit, total, extractable, note?, sections?, images?, media? }`. `total` counts pages, sections, or characters depending on `unit`. `sections` lists `{ index, label, href, chars }` for EPUBs, and `images` is that EPUB's image *count*. For a clip, `media` is `{ total, images, audio }` — counts only, enough to know whether calling `/media` is worth it. `extractable: false` with a `note` means the file parsed but holds no text layer (a scanned PDF needing OCR).
 
 **Errors** `400` path required · `404` no such document · `415` format has no readable text.
 
@@ -438,6 +438,42 @@ One image's bytes, with its own content type. Loaded directly by `<img>` in the 
 **Errors** `400` path/href required, no such image in the book, or an href matching more than one · `404` declared in the manifest but missing from the archive · `415` not an EPUB.
 
 Only an href the OPF manifest declares as an **image** is served — that allow-list is what stops this being a way to read arbitrary entries out of the zip.
+
+### `GET /api/reader/media`
+
+Every asset a document carries, in document order — metadata only, no bytes. The general form of `/images`: it serves an **EPUB**'s figures and a **saved clip**'s downloaded pictures and sound alike, so one picker can browse either.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ path, format, total, media: [{ index, kind, href, name, mediaType, bytes, alt, caption, … }] }`. `kind` is `"image"` or `"audio"`. The remaining fields follow the format:
+
+| Field | EPUB | Clip |
+| --- | --- | --- |
+| `section` / `sectionIndex` / `isCover` | as `/images` reports them | absent |
+| `heading` | absent | the last `h1`–`h6` before the asset, or `null` above the first |
+| `cached` | always `true` | `false` for an asset the clipper could not download |
+| `path` | always `null` — a figure lives inside the zip | the asset's real workspace-relative path, so `/api/media` and MCP's `attach_media` can reach it |
+
+An **uncached** clip entry is reported rather than hidden: its `href` is still the remote URL it loads from, and its `alt`/`caption` are all that can be known about it without the network.
+
+**Errors** `400` path required · `404` no such document · `415` neither an EPUB nor a clip (no other format carries extractable media).
+
+### `GET /api/reader/media-file`
+
+One asset's bytes, with its own content type — the general form of `/image`, and what an `<audio src>` points at. Loaded directly by the browser, so it accepts the `?token=` query param.
+
+| Param  | In    | Type   | Required | Description                                          |
+| ------ | ----- | ------ | -------- | ---------------------------------------------------- |
+| `path` | query | string | Yes      | Relative path to the document.                       |
+| `href` | query | string | Yes      | The asset's `href` from `/media` (or its bare file name, as long as exactly one asset matches). |
+
+**Response** `200` — the raw bytes, `Cache-Control: private, max-age=3600`.
+
+**Errors** `400` path/href required, no such asset, an href matching more than one, or a clip asset that was never downloaded · `404` declared but missing from the archive or the vault · `415` format carries no media.
+
+The same allow-list applies for both formats, and a clip asset that was never cached is **refused, not fetched** — this endpoint does no network IO on a caller's behalf.
 
 ---
 

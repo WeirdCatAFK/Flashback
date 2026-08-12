@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import Flashcard from './Flashcard';
 import BookImagePicker from './BookImagePicker';
-import { fetchBookImageFile } from '../../api/reader';
+import ClipMediaPicker from './ClipMediaPicker';
+import { fetchBookImageFile, fetchDocumentMediaFile } from '../../api/reader';
 import { getCategories } from '../../api/categories';
 import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
 import { useT } from '../../translations';
@@ -46,14 +47,16 @@ export default function FlashcardForm({
   location = null,
   initial = null,     // existing card's fields → edit mode
   resolveMedia = null, // (storedRef) => url — needed to preview `initial.media`
-  // Relative path of an EPUB whose figures can go on this card, or null. Set by the
-  // Inspector when the document being read is a book: a diagram is often the best
-  // front a card can have, and it is otherwise unreachable — it lives inside the
-  // EPUB's zip, so the file picker cannot see it.
-  bookPath = null,
+  // Relative path of a document whose own media can go on this card, or null, plus
+  // which kind of document it is ('epub' | 'clip'). Set by the Inspector from the
+  // document being read. Both formats carry media a file picker cannot reach or a
+  // user cannot easily find: a book's figures are sealed inside its zip, and a clip's
+  // downloaded pictures and sound sit in a media/ folder named by content hash.
+  sourcePath = null,
+  sourceKind = null,
   // { slot, href } for a figure the user already chose elsewhere — clicking an image
   // in the reader opens this form with it in place, rather than making them find it
-  // again in the picker. Requires `bookPath`.
+  // again in the picker. Requires `sourcePath`.
   seedImage = null,
   submitLabel,
   showTags = true,
@@ -161,34 +164,43 @@ export default function FlashcardForm({
   };
   const setFile = (key, file) => setFiles((prev) => ({ ...prev, [key]: file ?? null }));
 
-  // Which image slot the book picker is filling, or null when it is closed.
+  // Which media slot the source picker is filling, or null when it is closed.
   const [pickingFor, setPickingFor] = useState(null);
   const [pickError, setPickError] = useState(null);
 
+  // Each format reaches its own bytes: a book figure through /api/reader/image, a
+  // clip asset through /api/reader/media-file. Everything downstream of the File is
+  // identical, which is why the difference stops here.
+  const fetchSourceFile = (href, name) => (
+    sourceKind === 'clip'
+      ? fetchDocumentMediaFile(sourcePath, href, name)
+      : fetchBookImageFile(sourcePath, href, name)
+  );
+
   // An image the caller pre-chose (the reader's click gesture). Fetched here rather
-  // than by the caller so there is one path from "a figure in a book" to "a File".
+  // than by the caller so there is one path from "a figure in a document" to "a File".
   const seedSlot = seedImage?.slot;
   const seedHref = seedImage?.href;
   useEffect(() => {
-    if (!bookPath || !seedHref || !seedSlot) return;
+    if (!sourcePath || !seedHref || !seedSlot) return;
     let cancelled = false;
-    fetchBookImageFile(bookPath, seedHref)
+    fetchSourceFile(seedHref)
       .then((file) => { if (!cancelled) setFile(seedSlot, file); })
       .catch((err) => { if (!cancelled) setPickError(err.message ?? t('Could not load that image')); });
     return () => { cancelled = true; };
-  }, [bookPath, seedHref, seedSlot]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [sourcePath, sourceKind, seedHref, seedSlot]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // A figure chosen from the book becomes an ordinary File, so from here on nothing
-  // downstream — preview, validation, upload — can tell it apart from one the user
-  // picked off disk.
-  const handleBookPick = async (image) => {
+  // An asset chosen from the source document becomes an ordinary File, so from here on
+  // nothing downstream — preview, validation, upload — can tell it apart from one the
+  // user picked off disk.
+  const handleSourcePick = async (asset) => {
     const slot = pickingFor;
     setPickingFor(null);
     setPickError(null);
     try {
-      setFile(slot, await fetchBookImageFile(bookPath, image.href, image.name));
+      setFile(slot, await fetchSourceFile(asset.href, asset.name));
     } catch (err) {
-      setPickError(err.message ?? t('Could not load that image'));
+      setPickError(err.message ?? t('Could not load that media'));
     }
   };
 
@@ -386,13 +398,15 @@ export default function FlashcardForm({
                       {t('+ Add')}
                       <input type="file" accept={accept} hidden onChange={(e) => setFile(key, e.target.files?.[0])} />
                     </label>
-                    {bookPath && isImageSlot(key) && (
+                    {/* A book offers pictures only; a clip offers sound too, so its
+                        button appears on the sound slots as well. */}
+                    {sourcePath && (sourceKind === 'clip' || isImageSlot(key)) && (
                       <button
                         type="button"
                         className="fc-form-media-add fc-form-media-add--book"
                         onClick={() => setPickingFor(key)}
                       >
-                        {t('From book')}
+                        {sourceKind === 'clip' ? t('From clip') : t('From book')}
                       </button>
                     )}
                   </div>
@@ -404,13 +418,20 @@ export default function FlashcardForm({
         </>
       )}
 
-      {pickingFor && (
-        <BookImagePicker
-          bookPath={bookPath}
-          onPick={handleBookPick}
+      {pickingFor && (sourceKind === 'clip' ? (
+        <ClipMediaPicker
+          clipPath={sourcePath}
+          kind={isImageSlot(pickingFor) ? 'image' : 'audio'}
+          onPick={handleSourcePick}
           onClose={() => setPickingFor(null)}
         />
-      )}
+      ) : (
+        <BookImagePicker
+          bookPath={sourcePath}
+          onPick={handleSourcePick}
+          onClose={() => setPickingFor(null)}
+        />
+      ))}
 
       {showTags && (
         <>

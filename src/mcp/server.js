@@ -66,12 +66,17 @@ individual tool schemas alone:
   cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
   cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
   the vault has no handmade cards.
-- An EPUB's pictures are reachable even though its prose arrives as plain text: read_document_text
-  returns text only, so a figure or diagram comes from list_book_images (metadata — alt text,
-  caption, which section it's in), view_book_image when you need to actually look at one, and
-  attach_book_image to put it on a card. Those images live inside the EPUB's zip and have no path
-  on disk, so attach_media cannot reach them. view_book_image is the only place bytes flow to you;
-  there is deliberately no equivalent for PDF pages or document bodies.
+- Two kinds of document carry pictures that are reachable even though their prose arrives as plain
+  text, and each has the same three tools: list (metadata), view (look at one), attach (put it on
+  a card). An EPUB's figures: list_book_images / view_book_image / attach_book_image — those live
+  inside the book's zip and have no path on disk, so attach_media cannot reach them. A saved web
+  clip's downloaded pictures and short audio: list_clip_media / view_clip_image / attach_clip_media
+  — a clip's assets ARE real files, so attach_media works on them too once you have their \`path\`.
+  Check list_clip_media for sound on language, music and medical pages: a pronunciation recording
+  makes a far better card front than a written description of one. Nothing can play audio to you,
+  so view_clip_image refuses a sound and you go by its caption and heading instead. Those two view
+  tools are the only place bytes flow to you, and only because a picture IS its bytes; there is
+  deliberately no equivalent for PDF pages or document bodies.
 - Writing a good card is a craft with real rules, and get_card_guide is where they are written
   down: decomposition, card-type selection, the house conventions this vault already follows,
   and the failure modes that make a card lapse for years. Read it before drafting cards or
