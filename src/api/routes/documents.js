@@ -376,6 +376,22 @@ router.put(
   }),
 );
 
+// POST /api/documents/clip/asset
+// JSON body { path, href } — downloads one of a clip's remote pictures or sounds
+// into the vault and points the clip at the local copy. Clipping itself saves no
+// assets; this is what saves the ones a card actually uses. `href` must be a src
+// already present in that clip's body, which is what keeps this from being a
+// general-purpose downloader. An href that is already local is a no-op success.
+router.post(
+  "/clip/asset",
+  catchError(async (req, res) => {
+    const { path: relPath, href } = req.body ?? {};
+    if (!relPath || !href) return res.status(400).json({ error: "path and href required" });
+    const result = await docs.saveClipAsset(norm(relPath), href);
+    res.json(result);
+  }),
+);
+
 // POST /api/documents/import/zip
 // Multipart: file field + body { targetPath? }
 router.post(

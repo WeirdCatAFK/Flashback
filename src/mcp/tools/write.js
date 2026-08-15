@@ -511,9 +511,10 @@ export function registerWriteTools(server) {
         'slot, chosen from the asset itself — a card can carry one of each per side, and a sound ' +
         'plays automatically when that side is shown. The card and the clip do not have to be the ' +
         'same document. The bytes are copied into the card\'s document, so the card keeps working if ' +
-        'the clip is later removed, and the same asset can go on as many cards as you like. Only an ' +
-        'asset the clipper actually downloaded (`cached: true`) can be attached; one still loading ' +
-        'from the web is refused rather than fetched.',
+        'the clip is later removed, and the same asset can go on as many cards as you like. An asset ' +
+        'still loading from the web (`cached: false`, which is how every asset starts — capturing a ' +
+        'clip downloads none of them) is fetched from its original site and saved into the clip on ' +
+        'the way, so the clip keeps it too.',
       inputSchema: {
         clipPath: z.string().describe('Relative path to the .clip document holding the asset.'),
         href: z.string().describe('The asset\'s `href` (or bare file name) from list_clip_media.'),
@@ -525,7 +526,11 @@ export function registerWriteTools(server) {
     },
     async ({ clipPath, href, documentPath, flashcardHash, position, name }) => {
       try {
-        const query = `?path=${encodeURIComponent(clipPath)}&href=${encodeURIComponent(href)}`;
+        // Save it into the clip first. Clipping downloads no media, so the asset is
+        // usually still on the site it came from, and /media-file will not go and get
+        // it — fetching is a POST, on purpose. A no-op for one already in the vault.
+        const saved = await request('POST', '/api/documents/clip/asset', { path: clipPath, href });
+        const query = `?path=${encodeURIComponent(clipPath)}&href=${encodeURIComponent(saved.href)}`;
         const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${query}`);
 
         // The slot follows the bytes, not a parameter: a caller who had to say
@@ -538,9 +543,13 @@ export function registerWriteTools(server) {
         // its cards and files.addVanillaData refuses to overwrite. A clip asset's name
         // is a content hash, so without this the second card built from one picture
         // would fail. An explicit `name` is honoured as given, collision and all.
-        const fromClip = nodePath.basename(String(href).split('?')[0]);
-        const ext = nodePath.extname(fromClip);
-        const base = nodePath.basename(fromClip, ext).replace(/[^\w.-]+/g, '_') || type;
+        // Named from the href, which for an asset still on the web is its URL and
+        // says something ("Common_nightingale.jpg") where the vault's content-hash
+        // name would not. A URL with no extension borrows the one the save derived
+        // from the server's content type.
+        const fromClip = nodePath.basename(String(href).split('?')[0].split('#')[0]);
+        const ext = nodePath.extname(fromClip) || nodePath.extname(saved.name || '');
+        const base = nodePath.basename(fromClip, nodePath.extname(fromClip)).replace(/[^\w.-]+/g, '_') || type;
         const storedName = name || `${base}-${crypto.randomUUID().slice(0, 8)}${ext}`;
         if (!nodePath.extname(storedName)) {
           return asToolError(`"${storedName}" has no file extension — pass \`name\` with one (the asset is ${mimeType}).`);

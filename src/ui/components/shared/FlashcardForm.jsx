@@ -3,6 +3,7 @@ import Flashcard from './Flashcard';
 import BookImagePicker from './BookImagePicker';
 import ClipMediaPicker from './ClipMediaPicker';
 import { fetchBookImageFile, fetchDocumentMediaFile } from '../../api/reader';
+import { saveClipAsset } from '../../api/documents';
 import { getCategories } from '../../api/categories';
 import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
 import { useT } from '../../translations';
@@ -167,15 +168,23 @@ export default function FlashcardForm({
   // Which media slot the source picker is filling, or null when it is closed.
   const [pickingFor, setPickingFor] = useState(null);
   const [pickError, setPickError] = useState(null);
+  // Which slot is waiting on its bytes. A clip asset is downloaded from its
+  // original site at this moment, so the wait is real and has to be visible.
+  const [loadingSlot, setLoadingSlot] = useState(null);
 
   // Each format reaches its own bytes: a book figure through /api/reader/image, a
   // clip asset through /api/reader/media-file. Everything downstream of the File is
   // identical, which is why the difference stops here.
-  const fetchSourceFile = (href, name) => (
-    sourceKind === 'clip'
-      ? fetchDocumentMediaFile(sourcePath, href, name)
-      : fetchBookImageFile(sourcePath, href, name)
-  );
+  //
+  // A clip's asset may still be out on the web — clipping downloads no media — so it
+  // is saved into the vault first. That call is a no-op for one already saved, so
+  // this stays a single path rather than a branch on where the picture currently
+  // lives, and the clip keeps the asset for good rather than only this card.
+  const fetchSourceFile = async (href, name) => {
+    if (sourceKind !== 'clip') return fetchBookImageFile(sourcePath, href, name);
+    const saved = await saveClipAsset(sourcePath, href);
+    return fetchDocumentMediaFile(sourcePath, saved.href, name ?? saved.name);
+  };
 
   // An image the caller pre-chose (the reader's click gesture). Fetched here rather
   // than by the caller so there is one path from "a figure in a document" to "a File".
@@ -184,9 +193,11 @@ export default function FlashcardForm({
   useEffect(() => {
     if (!sourcePath || !seedHref || !seedSlot) return;
     let cancelled = false;
+    setLoadingSlot(seedSlot);
     fetchSourceFile(seedHref)
       .then((file) => { if (!cancelled) setFile(seedSlot, file); })
-      .catch((err) => { if (!cancelled) setPickError(err.message ?? t('Could not load that image')); });
+      .catch((err) => { if (!cancelled) setPickError(err.message ?? t('Could not load that image')); })
+      .finally(() => { if (!cancelled) setLoadingSlot(null); });
     return () => { cancelled = true; };
   }, [sourcePath, sourceKind, seedHref, seedSlot]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -197,10 +208,13 @@ export default function FlashcardForm({
     const slot = pickingFor;
     setPickingFor(null);
     setPickError(null);
+    setLoadingSlot(slot);
     try {
       setFile(slot, await fetchSourceFile(asset.href, asset.name));
     } catch (err) {
       setPickError(err.message ?? t('Could not load that media'));
+    } finally {
+      setLoadingSlot(null);
     }
   };
 
@@ -391,6 +405,10 @@ export default function FlashcardForm({
                   <div className="fc-form-media-picked">
                     <span className="fc-form-media-name" title={files[key].name}>{files[key].name}</span>
                     <button type="button" className="fc-form-media-clear" onClick={() => setFile(key, null)}>×</button>
+                  </div>
+                ) : loadingSlot === key ? (
+                  <div className="fc-form-media-picked">
+                    <span className="fc-form-media-name">{t('Saving…')}</span>
                   </div>
                 ) : (
                   <div className="fc-form-media-sources">

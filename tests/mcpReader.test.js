@@ -108,9 +108,9 @@ describe('mcpReader', () => {
         await docs.importFile('page.clip', ROOT, Buffer.from(
             '<div><h1>Clipped</h1><p>Some <b>bold</b> prose.</p><script>evil()</script></div>'), { globalHash: crypto.randomUUID() });
 
-        // An illustrated, noisy clip: the shape documents._buildClipDoc writes after it
-        // has downloaded what it could. Two cached pictures and a cached sound under
-        // different headings, one picture it could not cache (still remote), and an
+        // An illustrated, noisy clip that has been read for a while: two pictures and a
+        // sound already saved into the vault under different headings, one picture still
+        // loading from the site it was clipped from (as every asset starts out), and an
         // <audio> whose src sits on a <source> child rather than the element.
         await docs.importFile('article.clip', ROOT, Buffer.from(
             '<h1>Birdsong</h1>'
@@ -122,7 +122,14 @@ describe('mcpReader', () => {
             + '<p>More prose under the second heading.</p>'
             + '<img src="./media/clip-bbbbbbbbbbbb.png" alt="A finch"/>'
             + '<img src="https://example.test/too-big.png" alt="Never downloaded"/>'
-            + '<audio controls><source src="./media/clip-dddddddddddd.ogg" type="audio/ogg"></audio>',
+            + '<audio controls><source src="./media/clip-dddddddddddd.ogg" type="audio/ogg"></audio>'
+            // A sound the page publishes as a LINK, with no player of its own — how
+            // Wikipedia renders every one of its sounds. Beside it, the two links that
+            // must not be mistaken for it: the file's description page (whose URL also
+            // ends in a media extension) and an ordinary article link.
+            + '<p>Hear it <a href="https://example.test/audio/nightingale.mp3" title="Play audio">Play</a>'
+            + '<sup><a href="https://example.test/wiki/File:nightingale.mid">i</a></sup>'
+            + ' or read <a href="https://example.test/wiki/Nightingale">the article</a>.</p>',
         ), { globalHash: crypto.randomUUID() });
 
         // The cached bytes those refs point at. The clipper writes these itself; here
@@ -346,13 +353,14 @@ describe('mcpReader', () => {
         it('lists a clip\'s pictures and sound in document order, with their context', async () => {
             const { total, media } = await reader.media(rel('article.clip'));
 
-            assert.equal(total, 5, 'two cached images, one uncached image, two sounds');
+            assert.equal(total, 6, 'two cached images, one uncached image, three sounds');
             assert.deepEqual(media.map((m) => m.name), [
                 'clip-aaaaaaaaaaaa.png',
                 'clip-cccccccccccc.mp3',
                 'clip-bbbbbbbbbbbb.png',
                 'too-big.png',
                 'clip-dddddddddddd.ogg',
+                'nightingale.mp3',
             ], 'document order, sound interleaved with pictures where it appears');
 
             const wren = findByName(media, 'clip-aaaaaaaaaaaa.png');
@@ -368,6 +376,27 @@ describe('mcpReader', () => {
             const ogg = findByName(media, 'clip-dddddddddddd.ogg');
             assert.equal(ogg.kind, 'audio', 'an <audio> whose src is on a <source> child still counts');
             assert.equal(ogg.mediaType, 'audio/ogg');
+        });
+
+        it('counts a link to a sound as sound, and other links as nothing', async () => {
+            // Most of the web publishes sound as a link rather than a player, so a list
+            // built only from <audio> misses it entirely — a page of pronunciations
+            // reads as having no sound on it at all.
+            const { media } = await reader.media(rel('article.clip'));
+
+            const linked = findByName(media, 'nightingale.mp3');
+            assert.equal(linked.kind, 'audio');
+            assert.equal(linked.cached, false, 'it is still on the site it was clipped from');
+            assert.equal(linked.href, 'https://example.test/audio/nightingale.mp3');
+            assert.equal(linked.heading, 'Field recordings');
+            assert.equal(linked.alt, null, 'not "Play audio", which every one of them says');
+
+            const hrefs = media.map((m) => m.href);
+            assert.ok(
+                !hrefs.some((h) => h.includes('File:nightingale.mid')),
+                'a description page is a page about a sound, not a sound',
+            );
+            assert.ok(!hrefs.some((h) => h.endsWith('/wiki/Nightingale')), 'and prose links are not media');
         });
 
         it('says which assets are really in the vault, and where', async () => {
@@ -389,7 +418,7 @@ describe('mcpReader', () => {
 
         it('counts a clip\'s media by kind in info()', async () => {
             const info = await reader.info(rel('article.clip'));
-            assert.deepEqual(info.media, { total: 5, images: 3, audio: 2 });
+            assert.deepEqual(info.media, { total: 6, images: 3, audio: 3 });
             // A clip with nothing in it reports an empty tally rather than undefined.
             assert.deepEqual((await reader.info(rel('page.clip'))).media, { total: 0, images: 0, audio: 0 });
         });
@@ -406,10 +435,12 @@ describe('mcpReader', () => {
             assert.equal(byName.buffer.toString(), 'ID3-fake-mp3-bytes');
         });
 
-        it('refuses an asset that was never downloaded, rather than fetching it', async () => {
+        it('refuses an asset still out on the web, rather than fetching it', async () => {
+            // This module does no network IO on a caller's behalf, whatever the caller
+            // wants; saving one is documents.saveClipAsset, which is a write and says so.
             await assert.rejects(
                 () => reader.mediaBuffer(rel('article.clip'), 'https://example.test/too-big.png'),
-                (e) => e.status === 400 && /never downloaded/.test(e.message),
+                (e) => e.status === 400 && /not in the vault/.test(e.message),
             );
         });
 

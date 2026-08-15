@@ -18,19 +18,28 @@ export default function InspectorNewCardTab({ path, draft, onCancel, onSaved }) 
   const location    = highlightId ? { type: 'highlight', id: highlightId } : null;
 
   // Two formats carry media a card can pull from while it is being read: an EPUB's
-  // figures, and a clip's downloaded pictures and sound. Anything else has no media
-  // list, so the picker stays hidden for those.
+  // figures, and a clip's pictures and sound. Anything else has no media list, so
+  // the picker stays hidden for those.
   const sourceKind = /\.epub$/i.test(path ?? '') ? 'epub'
     : /\.clip$/i.test(path ?? '') ? 'clip'
       : null;
   const sourcePath = sourceKind ? path : null;
-  const seedImage = draft?.image?.href ? { slot: 'front_img', href: draft.image.href } : null;
+  // A clip can hand over a sound as well as a picture, so the draft's `kind` decides
+  // the slot. (The prop is still called seedImage — a book only ever sends figures —
+  // but `slot` is what actually says where this lands.)
+  const seedImage = draft?.image?.href
+    ? { slot: draft.image.kind === 'audio' ? 'front_sound' : 'front_img', href: draft.image.href }
+    : null;
 
   const sourceLabel = draft?.text
     ? (highlightId
       ? t('Anchored to highlight in {file}', { file: filename })
       : t('From {file} (not anchored)', { file: filename }))
-    : (draft?.image ? t('Figure from {file}', { file: filename }) : undefined);
+    : (draft?.image
+      ? (draft.image.kind === 'audio'
+        ? t('Sound from {file}', { file: filename })
+        : t('Figure from {file}', { file: filename }))
+      : undefined);
 
   const handleSubmit = async ({ card, media }) => {
     setSaving(true);

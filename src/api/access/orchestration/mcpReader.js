@@ -28,8 +28,8 @@
  * document carries and `mediaBuffer()` fetches one asset's bytes. Two formats carry
  * media, for opposite reasons: an EPUB's figures are sealed inside its zip
  * (`images()`/`imageBuffer()`, which `media()` delegates to), while a saved clip's
- * pictures and short sound were downloaded to `media/` at clip time and are ordinary
- * files — so a clip entry reports a real `path` and a book entry never can.
+ * pictures and short sound become ordinary files in `media/` once someone saves one
+ * — so a clip entry can report a real `path` and a book entry never can.
  *
  * The split is deliberate: listing is metadata only (href, alt, caption, which
  * section or heading, byte size) and rides the extraction cache; BYTES ARE NEVER
@@ -37,8 +37,8 @@
  * cache budget meant for text. Both readers work off an allow-list — an entry the
  * document itself declares — rather than path arithmetic, which is what keeps this
  * from becoming "read any entry in any zip" or "read any file in the vault". A clip
- * asset that was never downloaded is refused rather than fetched: this module does
- * no network IO.
+ * asset still loading from the web is refused rather than fetched: this module does
+ * no network IO, and downloading one is documents.saveClipAsset's job.
  *
  * Tier 3 orchestrator, but a narrow one: it imports `files.js` and nothing else —
  * no database, no query.js, no documents.js. Read-only toward the canonical layer
@@ -224,26 +224,61 @@ function headingBefore(headings, el) {
 }
 
 /**
+ * Whether a link points at a sound a browser can play, and is therefore a sound the
+ * clip carries rather than an ordinary link.
+ *
+ * This exists because a great many pages have no `<audio>` element at all. Wikipedia
+ * renders every TimedMediaHandler sound as `<a href="…mp3" title="Play audio">Play</a>`,
+ * so a whole page of chords, pronunciations or birdsong looks, to a parser, like text
+ * with links in it. Ignoring those means the sounds that most deserve a card are the
+ * ones nothing can see.
+ *
+ * Two exclusions carry the weight. MIDI is left out because no browser plays it — and
+ * because on Wikipedia a `.mid` URL is the file's *description page*, not the file, so
+ * excluding it also drops the "ⓘ" link that sits beside every player. A last segment
+ * containing a colon goes for the same reason: `File:Something.ogg` is a page about a
+ * sound, and downloading it would store an HTML document as audio.
+ *
+ * (`documents.js` keeps its own copy for saving, and the clip renderer a third for its
+ * hover button — mcpReader imports `files.js` and nothing else, and the renderer is a
+ * different process entirely.)
+ */
+const PLAYABLE_SOUND_EXT = /\.(mp3|ogg|oga|wav|m4a|aac|flac|opus|weba)(\?|#|$)/i;
+function isSoundLink(href) {
+    if (!href) return false;
+    const segment = href.split("?")[0].split("#")[0].split("/").pop() || "";
+    if (segment.includes(":")) return false;
+    return PLAYABLE_SOUND_EXT.test(segment);
+}
+
+/**
  * Every picture and sound a saved clip carries, in document order.
  *
  * Deliberately not sectionImages(): that resolves an href against the XHTML file
  * holding it and returns null for anything absolute, which is right for a zip and
- * wrong here. A clip's src is either `./media/<name>` — an asset the clipper
- * downloaded, which is the interesting case — or an absolute URL it could not cache,
- * which is still worth reporting so the caller learns why a picture on the page is
- * not on offer. `cached` is that distinction, and it is what decides whether the
- * bytes can be served at all.
+ * wrong here. A clip's src is either `./media/<name>` — an asset saved into the vault,
+ * which is the case whose bytes can be served — or the absolute URL it still loads
+ * from, which is most of them and is still worth reporting: that is how a caller
+ * learns a picture exists at all and can ask for it to be saved. `cached` is that
+ * distinction, and it is what decides whether the bytes can be served from here.
+ *
+ * A sound reaches this list as either an `<audio>` or a link to an audio file (see
+ * isSoundLink) — the second is how most of the web publishes sound, and saving one
+ * turns it into the first.
  */
 function clipMedia(doc) {
     const headings = [...doc.querySelectorAll("h1, h2, h3, h4, h5, h6")];
     const out = [];
-    for (const el of doc.querySelectorAll("img, audio")) {
-        const isAudio = (el.tagName ?? "").toUpperCase() === "AUDIO";
+    for (const el of doc.querySelectorAll("img, audio, a[href]")) {
+        const tag = (el.tagName ?? "").toUpperCase();
+        const isLink = tag === "A";
+        if (isLink && !isSoundLink(el.getAttribute("href"))) continue;
+        const isAudio = tag === "AUDIO" || isLink;
         // An <audio> carries its src directly or on its first <source> child; the
         // clipper collapses the alternatives down to one, so the first is the one.
         const src = (
-            el.getAttribute("src")
-            || (isAudio ? el.querySelector("source")?.getAttribute("src") : null)
+            (isLink ? el.getAttribute("href") : el.getAttribute("src"))
+            || (isAudio && !isLink ? el.querySelector("source")?.getAttribute("src") : null)
             || ""
         ).trim();
         if (!src) continue;
@@ -264,7 +299,10 @@ function clipMedia(doc) {
             name,
             mediaType: mediaTypeOf(name),
             bytes: null,            // filled from disk by media(), which knows the vault path
-            alt: el.getAttribute("alt")?.trim() || el.getAttribute("title")?.trim() || null,
+            // A player link's own words are "Play" and its title "Play audio" — true of
+            // every one on the page and therefore no help in telling them apart. Left
+            // null so the file name, which usually does name the sound, is what shows.
+            alt: isLink ? null : (el.getAttribute("alt")?.trim() || el.getAttribute("title")?.trim() || null),
             caption: caption?.trim() || null,
             heading: headingBefore(headings, el),
             cached: Boolean(cachedName),
@@ -399,8 +437,8 @@ class McpReader {
     }
 
     // A .clip body is the sanitized HTML of a saved web page. The same parse yields
-    // its prose and its media list — the clipper already downloaded the pictures and
-    // short sound into `media/`, and this is where they become discoverable.
+    // its prose and its media list — the pictures and short sound the page carries,
+    // wherever they currently live, and this is where they become discoverable.
     async _extractClip(relPath) {
         const { content } = this.files.readFile(relPath);
         const { JSDOM } = await import("jsdom");
@@ -704,7 +742,7 @@ class McpReader {
 
     /**
      * The media a document carries, whatever kind of document it is: an EPUB's
-     * figures or a clip's downloaded pictures and sound. Every entry has `kind`
+     * figures or a clip's pictures and sound. Every entry has `kind`
      * ("image" | "audio"), `href` to address it by, and the context that identifies
      * it without looking — alt text, caption, and the heading or section it sits
      * under. The rest of the shape follows the format: EPUB entries carry
@@ -754,8 +792,9 @@ class McpReader {
      *
      * The allow-list discipline is the point, and it is identical for both formats:
      * only an entry the document itself declares can be read, an ambiguous spelling
-     * is an error rather than a guess, and a clip asset that was never downloaded is
+     * is an error rather than a guess, and a clip asset still out on the web is
      * refused outright — this will not reach out to the network on a caller's behalf.
+     * Saving one is documents.saveClipAsset, which is a write and says so.
      */
     async mediaBuffer(relPath, href) {
         const doc = await this._extract(relPath);
@@ -780,9 +819,9 @@ class McpReader {
 
         if (!entry.cached) {
             throw fail(
-                `"${entry.name}" was never downloaded into the vault — it is still served from `
-                + `${entry.href}, and nothing here will fetch it for you. Its alt text and caption `
-                + `are all this can tell you about it.`,
+                `"${entry.name}" is not in the vault — it is still served from ${entry.href}, and `
+                + `nothing here will fetch it for you. Save it into the clip first `
+                + `(POST /api/documents/clip/asset), or go by its alt text and caption.`,
                 400,
             );
         }

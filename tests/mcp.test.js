@@ -580,8 +580,9 @@ describe('MCP tools', () => {
                 url: 'https://youtu.be/bare', videoId: 'bare', title: 'No Captions',
             })), {});
 
-            // A saved clip in the shape _buildClipDoc writes: a cached picture, a cached
-            // sound, and one picture it could not download.
+            // A clip that has been read for a while: a picture and a sound already saved
+            // into the vault (a card was built from each), and one picture still loading
+            // from the site it was clipped from, as every asset starts out.
             await d.importFile('article.clip', ROOT, Buffer.from(
                 '<h1>Birdsong</h1><p>Prose about calls.</p>'
                 + '<figure><img src="./media/clip-aaaaaaaaaaaa.png" alt="A wren"/>'
@@ -807,10 +808,16 @@ describe('MCP tools', () => {
                 assert.match(res.text, /attach_clip_media/, 'points at what CAN be done with it');
             });
 
-            it('view_clip_image refuses an asset that was never downloaded', async () => {
+            it('view_clip_image goes and gets an asset still on the web, and says why when it cannot', async () => {
+                // Capturing a clip downloads no media, so most of what list_clip_media
+                // reports is still on the original site. Looking at one saves it into
+                // the vault first — it is no longer a refusal. Here the host does not
+                // exist, so what comes back is that failure rather than the old
+                // "nothing here will fetch it".
                 const res = await call('view_clip_image', { path: clipRel, href: 'https://example.test/remote.png' });
                 assert.equal(res.isError, true);
-                assert.match(res.text, /never downloaded/);
+                assert.match(res.text, /could not reach|refused/i, res.text);
+                assert.ok(!/never downloaded/.test(res.text), 'not refused for being remote');
             });
 
             it('attach_clip_media puts a clipped picture on a card', async () => {
@@ -864,13 +871,28 @@ describe('MCP tools', () => {
                 }
             });
 
-            it('attach_clip_media refuses an asset that was never downloaded', async () => {
+            it('attach_clip_media fetches an asset still on the web on its way to the card', async () => {
+                // Same change of contract as view_clip_image: an asset that is not in
+                // the vault yet is saved into the clip rather than refused. The host in
+                // this fixture does not resolve, so the failure that surfaces is the
+                // download's, not a policy.
                 const res = await call('attach_clip_media', {
                     clipPath: clipRel, href: 'https://example.test/remote.png',
                     documentPath: docRel, flashcardHash: 'whatever', position: 'front',
                 });
                 assert.equal(res.isError, true);
-                assert.match(res.text, /never downloaded/);
+                assert.match(res.text, /could not reach|refused/i, res.text);
+            });
+
+            it('attach_clip_media still refuses an address that is not in the clip', async () => {
+                // The check that keeps this from being a downloader for any URL on the
+                // internet, writing into the vault under the user's own token.
+                const res = await call('attach_clip_media', {
+                    clipPath: clipRel, href: 'https://elsewhere.test/anything.png',
+                    documentPath: docRel, flashcardHash: 'whatever', position: 'front',
+                });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /not part of this clip/i, res.text);
             });
         });
 

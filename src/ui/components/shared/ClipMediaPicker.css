@@ -47,17 +47,10 @@
   outline-offset: 2px;
 }
 
-/* An asset the clipper couldn't download: present, explained, not selectable. */
-.cmp-item--unavailable {
-  opacity: 0.55;
-  cursor: default;
-}
-
-.cmp-thumb--empty {
-  font-size: 11px;
-  color: var(--color-fg-secondary);
-  /* .bip-thumb paints a light mat for book art; this cell has no art on it, so it
-     takes the surface color and its own border instead. */
-  background: var(--color-bg-base);
-  border: 1px dashed var(--color-border);
+/* An asset still loading from the site it was clipped from. It is fully selectable —
+   choosing it is what brings it into the vault — so this is a footnote, not a state:
+   lighter than the section line above it and never competing with the picture. */
+.cmp-sub--remote {
+  font-style: italic;
+  opacity: 0.75;
 }

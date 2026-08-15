@@ -5,14 +5,21 @@ import { useT } from '../../translations';
 import './BookImagePicker.css';
 import './ClipMediaPicker.css';
 
-// Browse the pictures and sound a saved web clip downloaded, and pick one for a
+// Browse the pictures and sound a saved web clip carries, and pick one for a
 // flashcard. A sibling of BookImagePicker rather than a mode of it: a sound cannot be
 // shown as a thumbnail, so the two need genuinely different item chrome, and the book
 // picker is shipped code worth leaving alone. The shell — backdrop, panel, header,
 // Escape — is the same, and comes from the same stylesheet.
 //
-// Deliberately a chooser and nothing else: it hands back the chosen entry and the
-// caller turns it into a File (api/reader.fetchDocumentMediaFile).
+// Most of what it lists is not in the vault: clipping downloads no media, so an asset
+// still lives on the site it came from until someone puts it on a card. The picker
+// treats both the same and loads a remote thumbnail straight from that site, which is
+// what the article itself is already doing a few pixels away. `cached` therefore only
+// decides where the preview is fetched from, never whether an entry can be chosen.
+//
+// Deliberately a chooser and nothing else: it hands back the chosen entry, and the
+// caller both saves it into the vault and turns it into a File (FlashcardForm's
+// fetchSourceFile).
 //
 // `kind` is which card slot opened it — an image slot has no use for an audio file
 // and vice versa — so the picker only ever offers what the slot can hold.
@@ -39,8 +46,10 @@ export default function ClipMediaPicker({ clipPath, kind = 'image', onPick, onCl
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // A `data:` asset is written into the clip body itself. It shows on the page but
+  // has no address to save it from, so it is left out rather than offered and refused.
   const ofKind = useMemo(
-    () => (media ?? []).filter((m) => m.kind === kind),
+    () => (media ?? []).filter((m) => m.kind === kind && !/^data:/i.test(m.href ?? '')),
     [media, kind],
   );
 
@@ -115,61 +124,47 @@ export default function ClipMediaPicker({ clipPath, kind = 'image', onPick, onCl
   );
 }
 
-// An asset the clipper could not download is shown rather than hidden, greyed out and
-// unselectable. Hiding it would leave the user hunting for a picture they can see on
-// the page; saying so answers the question instead.
-function notDownloadedLabel(t) {
-  return t('Not downloaded — still loads from the web');
+// Where to load an asset's preview from: the vault if it has been saved there, the
+// original site if it has not. Either way the user sees the actual picture, which is
+// the only thing a picker owes them.
+function previewSrc(m, clipPath) {
+  return m.cached ? documentMediaSrc(clipPath, m.href) : m.href;
+}
+
+// Said only of an asset still on the web, and said quietly: it is not a warning but
+// the answer to "what happens if I use this one".
+function remoteNote(m, t) {
+  return m.cached ? null : t('Saved to the vault when you use it');
 }
 
 function ImageTile({ m, clipPath, onPick, t }) {
-  if (!m.cached) {
-    return (
-      <div className="bip-item cmp-item--unavailable" title={m.href}>
-        <span className="bip-thumb cmp-thumb--empty">{t('Not saved')}</span>
-        <span className="bip-meta">
-          <span className="bip-label">{m.caption || m.alt || m.name}</span>
-          <span className="bip-sub">{notDownloadedLabel(t)}</span>
-        </span>
-      </div>
-    );
-  }
   return (
     <button type="button" className="bip-item" onClick={() => onPick(m)} title={m.href}>
       <span className="bip-thumb">
-        <img src={documentMediaSrc(clipPath, m.href)} alt={m.alt ?? ''} loading="lazy" />
+        <img src={previewSrc(m, clipPath)} alt={m.alt ?? ''} loading="lazy" />
       </span>
       <span className="bip-meta">
         {/* Whatever names this picture best: its caption, else its alt text, else the
             file name — one of the three is always there. */}
         <span className="bip-label">{m.caption || m.alt || m.name}</span>
         <span className="bip-sub">{m.heading || t('Not in a section')}</span>
+        {!m.cached && <span className="bip-sub cmp-sub--remote">{remoteNote(m, t)}</span>}
       </span>
     </button>
   );
 }
 
 function AudioRow({ m, clipPath, onPick, t }) {
-  const label = m.caption || m.alt || m.name;
-  if (!m.cached) {
-    return (
-      <div className="cmp-row cmp-item--unavailable" title={m.href}>
-        <span className="bip-meta">
-          <span className="bip-label">{label}</span>
-          <span className="bip-sub">{notDownloadedLabel(t)}</span>
-        </span>
-      </div>
-    );
-  }
   return (
     <div className="cmp-row" title={m.href}>
       <span className="bip-meta cmp-row-meta">
-        <span className="bip-label">{label}</span>
+        <span className="bip-label">{m.caption || m.alt || m.name}</span>
         <span className="bip-sub">{m.heading || t('Not in a section')}</span>
+        {!m.cached && <span className="bip-sub cmp-sub--remote">{remoteNote(m, t)}</span>}
       </span>
       {/* Listening before choosing is the whole point — a sound's file name says even
           less about it than a figure's does. */}
-      <audio className="cmp-audio" src={documentMediaSrc(clipPath, m.href)} controls preload="none" />
+      <audio className="cmp-audio" src={previewSrc(m, clipPath)} controls preload="none" />
       <button type="button" className="cmp-use" onClick={() => onPick(m)}>{t('Use')}</button>
     </div>
   );

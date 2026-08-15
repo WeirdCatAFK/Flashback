@@ -367,6 +367,25 @@ Fetches a `.youtube` document's captions from YouTube and stores them in the sid
 
 ---
 
+### `POST /api/documents/clip/asset`
+
+Downloads one of a saved clip's remote pictures or sounds into the vault: the file lands in `media/` beside the clip as `clip-<hash>.<ext>`, the clip body's `src` is rewritten to `./media/<name>`, a `Media` row is registered, and the edit is sealed.
+
+Clipping a page saves its prose and nothing else — every picture and sound keeps the URL it came from and loads from that host while reading. This endpoint is what makes one of them local, and it runs when a user puts that asset on a card. A clip therefore fills in over time with exactly the figures and sounds that were used.
+
+| Field  | Type   | Required | Description                                                                        |
+| ------ | ------ | -------- | ---------------------------------------------------------------------------------- |
+| `path` | string | Yes      | Relative path to the `.clip` document.                                             |
+| `href` | string | Yes      | The asset's `src`, exactly as it appears in the body (or as [`/api/reader/media`](#get-apireadermedia) reports it). |
+
+**Response** `200` — `{ path, href, name, kind, bytes, mediaType, alreadySaved }`. `href` is the new `./media/<name>` reference. An href that is **already local** returns `alreadySaved: true` with no network IO, so a caller can call this unconditionally rather than first working out whether the asset was saved before.
+
+**Errors** `400` path/href required, not a `.clip`, an href that is not a src in this clip, a `data:` src, the site refusing the file, or an asset over its size ceiling (10 MB image / 15 MB audio) · `404` no such document.
+
+The href must already appear in that clip's body. That check is what keeps this from being a general-purpose downloader that writes any URL on the internet into the vault under the user's token.
+
+---
+
 ## Reader `/api/reader`
 
 Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **media** those documents carry — an EPUB's figures, a clip's downloaded pictures and sound. Built for the MCP server — which has no renderer — but not restricted to it: the card form's media pickers are the other client of the media half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
@@ -441,22 +460,22 @@ Only an href the OPF manifest declares as an **image** is served — that allow-
 
 ### `GET /api/reader/media`
 
-Every asset a document carries, in document order — metadata only, no bytes. The general form of `/images`: it serves an **EPUB**'s figures and a **saved clip**'s downloaded pictures and sound alike, so one picker can browse either.
+Every asset a document carries, in document order — metadata only, no bytes. The general form of `/images`: it serves an **EPUB**'s figures and a **saved clip**'s pictures and sound alike, so one picker can browse either.
 
 | Param  | In    | Type   | Required | Description                    |
 | ------ | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ path, format, total, media: [{ index, kind, href, name, mediaType, bytes, alt, caption, … }] }`. `kind` is `"image"` or `"audio"`. The remaining fields follow the format:
+**Response** `200` — `{ path, format, total, media: [{ index, kind, href, name, mediaType, bytes, alt, caption, … }] }`. `kind` is `"image"` or `"audio"`. A clip's sound reaches this list as either an `<audio>` element **or a link to an audio file** — most of the web, Wikipedia included, publishes sound as a link and has no `<audio>` anywhere, so a list built only from players would report such a page as silent. Links to MIDI, and to anything whose last path segment contains a colon (`File:Something.ogg` — a page *about* a sound), are excluded. The remaining fields follow the format:
 
 | Field | EPUB | Clip |
 | --- | --- | --- |
 | `section` / `sectionIndex` / `isCover` | as `/images` reports them | absent |
 | `heading` | absent | the last `h1`–`h6` before the asset, or `null` above the first |
-| `cached` | always `true` | `false` for an asset the clipper could not download |
-| `path` | always `null` — a figure lives inside the zip | the asset's real workspace-relative path, so `/api/media` and MCP's `attach_media` can reach it |
+| `cached` | always `true` | `false` until the asset is saved into the vault |
+| `path` | always `null` — a figure lives inside the zip | the asset's real workspace-relative path once saved, so `/api/media` and MCP's `attach_media` can reach it |
 
-An **uncached** clip entry is reported rather than hidden: its `href` is still the remote URL it loads from, and its `alt`/`caption` are all that can be known about it without the network.
+A clip's assets start **uncached** — a fresh clip downloads no media at all — and an uncached entry's `href` is the remote URL it loads from. That is not a failure: the picture displays perfectly well from its own host, and [`POST /api/documents/clip/asset`](#post-apidocumentsclipasset) pulls it into the vault when it goes on a card. `cached` says which side of that line an asset is on, and therefore whether `/media-file` can serve its bytes.
 
 **Errors** `400` path required · `404` no such document · `415` neither an EPUB nor a clip (no other format carries extractable media).
 
@@ -471,9 +490,9 @@ One asset's bytes, with its own content type — the general form of `/image`, a
 
 **Response** `200` — the raw bytes, `Cache-Control: private, max-age=3600`.
 
-**Errors** `400` path/href required, no such asset, an href matching more than one, or a clip asset that was never downloaded · `404` declared but missing from the archive or the vault · `415` format carries no media.
+**Errors** `400` path/href required, no such asset, an href matching more than one, or a clip asset not yet saved into the vault · `404` declared but missing from the archive or the vault · `415` format carries no media.
 
-The same allow-list applies for both formats, and a clip asset that was never cached is **refused, not fetched** — this endpoint does no network IO on a caller's behalf.
+The same allow-list applies for both formats, and a clip asset still loading from the web is **refused, not fetched** — this endpoint does no network IO on a caller's behalf. Downloading one is [`POST /api/documents/clip/asset`](#post-apidocumentsclipasset)'s job, and it is a POST precisely because it reaches out to the network.
 
 ---
 

@@ -330,17 +330,19 @@ export function registerReadTools(server) {
     {
       title: 'List a web clip\'s pictures and sound',
       description:
-        'List the media a saved web clip (.clip) downloaded when it was captured — the pictures and ' +
-        'short audio read_document cannot give you, because it returns the page\'s prose only. ' +
+        'List the media a saved web clip (.clip) carries — the pictures and short audio ' +
+        'read_document cannot give you, because it returns the page\'s prose only. ' +
         'Metadata, not the bytes: each entry has `kind` ("image" or "audio"), an `href` (how you ' +
         'address it here), `alt` text, the `caption` of its figure, the `heading` it sits under, ' +
         '`bytes`, and `cached`. Entries come back in DOCUMENT ORDER, so entry 1 is the first one in ' +
-        'the article. When `cached` is false the clipper could not download that asset — it still ' +
-        'loads from the web, its `href` is the remote URL, and its alt text and caption are all ' +
-        'that can be known about it; nothing here will fetch it. A cached entry also carries `path`, ' +
-        'its real location in the vault, so attach_media works on it as well as attach_clip_media. ' +
-        'Sound is worth checking for on language, music and medical pages: a pronunciation clip ' +
-        'makes a far better card front than a written description of one. Clips only.',
+        'the article. `cached` says where the asset lives, not whether you can use it: capturing a ' +
+        'clip downloads no media, so most entries start `cached: false` with their original web ' +
+        'address as `href`, and viewing or attaching one is what brings it into the vault. A cached ' +
+        'entry also carries `path`, its real location there, so attach_media works on it as well as ' +
+        'attach_clip_media. Sound is worth checking for on language, music and medical pages: a ' +
+        'pronunciation clip makes a far better card front than a written description of one. A sound is ' +
+        'listed whether the page carries it as a player or, far more often, as a link to the audio ' +
+        'file — either way it is addressed here by `href` and attaches the same. Clips only.',
       inputSchema: {
         path: z.string().describe('Relative path to the .clip document from the workspace root.'),
         kind: z.enum(['image', 'audio']).optional().describe('Only assets of this kind. Omit for everything the clip holds.'),
@@ -364,22 +366,33 @@ export function registerReadTools(server) {
         'need to know before writing a card about it or attaching it. Address it by the `href` ' +
         'list_clip_media gave you. Images only: there is no way to play a sound to you, so an audio ' +
         'entry is refused — go by its caption and heading, and attach it unheard with ' +
-        'attach_clip_media if the surrounding text says what it is. Very large images are refused ' +
-        'rather than resized.',
+        'attach_clip_media if the surrounding text says what it is. An image still out on the web ' +
+        '(`cached: false`) is downloaded into the vault to show it to you, so looking is not free: ' +
+        'read the alt text and caption first and view the one you are unsure about. Very large ' +
+        'images are refused rather than resized.',
       inputSchema: {
         path: z.string().describe('Relative path to the .clip document from the workspace root.'),
         href: z.string().describe('The image\'s `href` (or bare file name) from list_clip_media.'),
       },
     },
     safe(async ({ path, href }) => {
-      const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${qs({ path, href })}`);
-      if (/^audio\//i.test(mimeType ?? '')) {
-        return asToolError(
-          `"${href}" is a sound file, and nothing here can play one to you. Use its caption, alt ` +
-          `text and heading from list_clip_media to decide what it is, then attach it with ` +
-          `attach_clip_media.`,
-        );
-      }
+      // An asset still on the web has no bytes to serve, and /media-file will not go
+      // and get them — fetching is a POST, on purpose. Saving it first is a no-op for
+      // one already in the vault.
+      const saved = await request('POST', '/api/documents/clip/asset', { path, href });
+      const soundRefusal = asToolError(
+        `"${href}" is a sound file, and nothing here can play one to you. Use its caption, alt ` +
+        `text and heading from list_clip_media to decide what it is, then attach it with ` +
+        `attach_clip_media.`,
+      );
+      // `kind` comes from the clip's own markup — an <audio> is a sound whatever its
+      // file name suggests — so this refuses without asking for the bytes twice. The
+      // save above has already pulled the sound into the vault, which is where
+      // attach_clip_media would have wanted it anyway.
+      if (saved.kind === 'audio') return soundRefusal;
+
+      const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${qs({ path, href: saved.href })}`);
+      if (/^audio\//i.test(mimeType ?? '')) return soundRefusal;
       if (buffer.length > MAX_IMAGE_BYTES) {
         return asToolError(
           `"${href}" is ${(buffer.length / 1024 / 1024).toFixed(1)} MB, over the ` +

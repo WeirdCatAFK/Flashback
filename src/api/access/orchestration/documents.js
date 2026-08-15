@@ -129,8 +129,9 @@ function extFromUrl(u) {
 }
 
 // Whitelist for stored clip HTML — readable structure only, no scripts/handlers.
-// Relative `./media/` image src survive (verified); remote/data src are kept as
-// a fallback for images that couldn't be cached locally.
+// A fresh clip's media src are the absolute URLs Readability resolved, and they
+// survive here because they are how the clip displays at all; relative `./media/`
+// src survive too (verified), which is what an asset saved to the vault becomes.
 //
 // `audio`/`source` are here for the same reason `img` is: Readability preserves
 // them and rewrites their src to absolute URLs, so a page's sound reaches us
@@ -161,13 +162,94 @@ const CLIP_SANITIZE_OPTS = {
     allowProtocolRelative: false,
 };
 
-const MAX_CLIP_IMAGES = 40;
+const CLIP_USER_AGENT = 'Mozilla/5.0 (Flashback webclipper)';
+
+// Clipping downloads the page and nothing else. A page's pictures and sound stay
+// where they are and load from their own host as the clip is read — which is what
+// a browser does anyway, one unremarkable request at a time. Mirroring all of them
+// up front was both slow and the exact traffic pattern asset hosts throttle:
+// Wikimedia's limiter lets three or four rapid requests through and answers the
+// rest with 429, so the clipper spent a minute and a half arguing with it over
+// files nobody had asked for. An asset is downloaded when the user puts it on a
+// card — see saveClipAsset.
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+/** The file name an asset's src is known by — the last path segment, no query or fragment. */
+function assetName(src) {
+    const bare = src.split('?')[0].split('#')[0].split('/').pop() || src;
+    try { return decodeURIComponent(bare); } catch { return bare; }
+}
+
+// Whether a link points at a sound a browser can play. Most of the web publishes
+// sound as a link rather than an <audio> — every Wikipedia player is
+// `<a href="…mp3" title="Play audio">Play</a>` — so a clip's sounds are frequently
+// all links and nothing else. MIDI is excluded (no browser plays it, and on Wikipedia
+// a `.mid` URL is the file's description page), as is any last segment with a colon
+// in it, which is what `File:Something.ogg` looks like: a page about a sound.
+// Mirrors mcpReader.isSoundLink, which lists the same assets for reading.
+const PLAYABLE_SOUND_EXT = /\.(mp3|ogg|oga|wav|m4a|aac|flac|opus|weba)(\?|#|$)/i;
+function isSoundLink(href) {
+    if (!href) return false;
+    const segment = href.split('?')[0].split('#')[0].split('/').pop() || '';
+    if (segment.includes(':')) return false;
+    return PLAYABLE_SOUND_EXT.test(segment);
+}
+
+/** Where an element loads from: an anchor's href, anything else's src. */
+function assetAddress(el) {
+    return (el.tagName.toUpperCase() === 'A' ? el.getAttribute('href') : el.getAttribute('src')) || '';
+}
+
+/**
+ * Every element in a clip body that carries an asset: pictures and players by `src`,
+ * plus links that point at a playable sound — the form most of the web's audio takes.
+ * An ordinary link is not an asset and never appears here, which is what keeps the
+ * lookup below from turning "save this" into "download any page".
+ */
+function clipAssetNodes(cdoc) {
+    return Array.from(cdoc.querySelectorAll('img[src], audio[src], source[src], a[href]'))
+        .filter((n) => n.tagName.toUpperCase() !== 'A'
+            || isSoundLink(n.getAttribute('href'))
+            || isSoundLink(n.getAttribute('data-src')));
+}
+
+/**
+ * The element in a clip body that `wanted` names, by the same addressing rules
+ * /api/reader/media-file uses: the exact src, the src without its `./` prefix, or
+ * the asset's bare file name. Matching them here rather than only accepting an exact
+ * src is not a nicety — the MCP tools document a bare file name as a valid address,
+ * and a caller who reads a clip's media list should be able to save from it with
+ * what that list gave them.
+ *
+ * An ambiguous name is an error rather than a guess, and an address that names
+ * nothing is refused: this lookup is what stops the endpoint behind it from
+ * downloading arbitrary URLs into the vault.
+ */
+function resolveClipAsset(cdoc, wanted) {
+    const nodes = clipAssetNodes(cdoc);
+    const bare = wanted.replace(/^\.?\//, '');
+    const matches = (value) => value && (value === wanted || value.replace(/^\.?\//, '') === bare);
+    // `data-src` is the address a saved asset used to load from, kept when its src was
+    // rewritten. It is what lets a caller still holding the web address — an open
+    // reader that has not reloaded, a media list read a minute ago — ask again and be
+    // told "already saved" instead of "not part of this clip".
+    const exact = nodes.find((n) => matches(assetAddress(n)) || matches(n.getAttribute('data-src')));
+    if (exact) return exact;
+
+    const byName = nodes.filter((n) => assetName(assetAddress(n)) === bare);
+    if (byName.length === 0) throw new Error("That asset is not part of this clip");
+    if (byName.length > 1) {
+        throw new Error(
+            `"${wanted}" matches ${byName.length} assets in this clip `
+            + `(${byName.map((n) => assetAddress(n)).join(', ')}). Use the full href.`,
+        );
+    }
+    return byName[0];
+}
 // Sound is capped far tighter than pictures, and deliberately: the clip-worthy
 // cases are short — a pronunciation button, a language sample, a bird call, a
 // heart sound. A podcast episode is a 60-minute file that no flashcard wants, so
 // it is left playing from its own server rather than copied into the vault.
-const MAX_CLIP_AUDIO = 8;
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 
 // Level 6 == fully learned, matching the divisor in CARD_LEARNED_SQL.
@@ -875,63 +957,80 @@ export default class Documents {
     /**
      * Downloads one remote asset into `<mediaFolder>/media/`, registers it in the
      * Media table, and returns the `./media/<name>` reference the clip body should
-     * point at — or null when it could not or should not be cached, in which case
-     * the caller leaves the remote src alone and the asset still loads online.
+     * point at.
      *
-     * Shared by the image and audio passes of _buildClipDoc, which differ only in
-     * their size ceiling and how they name an extension. Content-addressed: the
-     * same picture linked twice costs one file, and `seen` short-circuits the
-     * second fetch entirely.
+     * Content-addressed, so the same picture saved twice costs one file — and a
+     * second save of one already in the vault is a rewrite of the same name over
+     * identical bytes.
+     *
+     * Throws rather than returning null on failure: the only caller is a user
+     * waiting on one asset they asked for, and "nothing happened" is not an answer
+     * they can act on. It was best-effort when it ran over a whole page's worth of
+     * pictures nobody had chosen.
      *
      * @param {string} absSrc absolute http(s) URL
      * @param {object} opts
      * @param {string} opts.mediaFolder folder the clip lives in
-     * @param {Map<string,string>} opts.seen absolute src -> ./media/<name>, mutated
-     * @param {string[]} opts.mediaRelPaths collected rel-paths for Seal, mutated
      * @param {number} opts.maxBytes size ceiling
      * @param {(contentType: string|null, url: string) => string} opts.extFor
-     * @returns {Promise<string|null>}
+     * @returns {Promise<{localRef: string, name: string, mediaRel: string, bytes: number, mediaType: string|null}>}
      */
-    async _cacheRemoteAsset(absSrc, { mediaFolder, seen, mediaRelPaths, maxBytes, extFor }) {
-        if (!/^https?:/i.test(absSrc)) return null; // leave data:/other src untouched
-        if (seen.has(absSrc)) return seen.get(absSrc);
+    async _cacheRemoteAsset(absSrc, { mediaFolder, maxBytes, extFor }) {
+        if (!/^https?:/i.test(absSrc)) throw new Error(`Not a downloadable address: ${absSrc}`);
+
+        let r;
         try {
-            const r = await fetch(absSrc);
-            if (!r.ok) return null;
-            // Checked before the body is buffered: an image that overshoots 10 MB is
-            // cheap to discard, but a podcast episode advertising 90 MB must never be
-            // pulled into memory just to be thrown away. Servers that omit the header
-            // fall through to the post-buffer check below.
-            const declared = Number(r.headers.get('content-length'));
-            if (Number.isFinite(declared) && declared > maxBytes) return null;
-
-            const buf = Buffer.from(await r.arrayBuffer());
-            if (buf.length === 0 || buf.length > maxBytes) return null;
-
-            const hash = crypto.createHash('sha256').update(buf).digest('hex');
-            const name = `clip-${hash.slice(0, 12)}.${extFor(r.headers.get('content-type'), absSrc)}`;
-            const mediaRel = path.join(mediaFolder, 'media', name);
-            const mediaAbs = this.files.safePath(mediaRel);
-            fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
-            fs.writeFileSync(mediaAbs, buf);
-            db.transaction(() => {
-                this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
-            })();
-
-            const localRef = `./media/${name}`;
-            seen.set(absSrc, localRef);
-            mediaRelPaths.push(mediaRel);
-            return localRef;
-        } catch {
-            return null;   // best-effort
+            r = await fetch(absSrc, { headers: { 'User-Agent': CLIP_USER_AGENT } });
+        } catch (err) {
+            throw new Error(`Could not reach ${new URL(absSrc).hostname}: ${err.message}`);
         }
+        if (!r.ok) throw new Error(`The site refused that file (status ${r.status})`);
+        // A page, not a file. Reachable when a sound was published as a link and the
+        // link turns out to point at a description page rather than the recording —
+        // the one way the link filter can be wrong, and storing an HTML document as a
+        // flashcard's audio is a failure nobody would notice until review time.
+        if (/^text\/html/i.test(r.headers.get('content-type') ?? '')) {
+            throw new Error('That address answers with a web page, not a file');
+        }
+
+        // Checked before the body is buffered: an image that overshoots 10 MB is
+        // cheap to discard, but a podcast episode advertising 90 MB must never be
+        // pulled into memory just to be thrown away. Servers that omit the header
+        // fall through to the post-buffer check below.
+        const tooBig = () => new Error(`That file is larger than the ${Math.round(maxBytes / 1024 / 1024)} MB limit`);
+        const declared = Number(r.headers.get('content-length'));
+        if (Number.isFinite(declared) && declared > maxBytes) throw tooBig();
+
+        const buf = Buffer.from(await r.arrayBuffer());
+        if (buf.length === 0) throw new Error('That file came back empty');
+        if (buf.length > maxBytes) throw tooBig();
+
+        const contentType = r.headers.get('content-type');
+        const hash = crypto.createHash('sha256').update(buf).digest('hex');
+        const name = `clip-${hash.slice(0, 12)}.${extFor(contentType, absSrc)}`;
+        const mediaRel = path.join(mediaFolder, 'media', name);
+        const mediaAbs = this.files.safePath(mediaRel);
+        fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
+        fs.writeFileSync(mediaAbs, buf);
+        db.transaction(() => {
+            this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+        })();
+
+        return {
+            localRef: `./media/${name}`,
+            name,
+            mediaRel,
+            bytes: buf.length,
+            mediaType: contentType ? contentType.split(';')[0].trim() : null,
+        };
     }
 
-    // Fetches a page, extracts its readable article, caches its images and short
-    // audio into `<mediaFolder>/media/`, and returns the sanitized HTML + `source`
-    // block + the cached media rel-paths. `mediaFolder` is the folder the clip lives
-    // in (media/ is a sibling of the clip file). Throws on fetch/extraction failure.
-    async _buildClipDoc(url, mediaFolder) {
+    // Fetches a page, extracts its readable article, and returns the sanitized HTML
+    // + `source` block. Nothing is downloaded but the page itself — the article's
+    // pictures and sound keep the absolute URLs Readability resolved and load from
+    // their own host until saveClipAsset pulls one into the vault. Throws on
+    // fetch/extraction failure.
+    async _buildClipDoc(url) {
         let html;
         try {
             const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback webclipper)' } });
@@ -954,54 +1053,10 @@ export default class Documents {
         }
 
         // Re-parse the article fragment with the page URL as base so relative
-        // <img> src resolve to absolute URLs we can fetch.
+        // <img> src resolve to absolute URLs — the form every asset is stored in,
+        // and the address saveClipAsset later downloads from.
         const contentDom = new JSDOM(`<body>${article.content}</body>`, { url });
         const cdoc = contentDom.window.document;
-
-        const mediaRelPaths = [];
-        const seen = new Map(); // absolute src -> ./media/<name>
-        const cache = (absSrc, opts) =>
-            this._cacheRemoteAsset(absSrc, { mediaFolder, seen, mediaRelPaths, ...opts });
-
-        for (const img of Array.from(cdoc.querySelectorAll('img')).slice(0, MAX_CLIP_IMAGES)) {
-            const raw = img.getAttribute('src') || '';
-            let absSrc;
-            try { absSrc = new URL(raw, url).href; } catch { continue; }
-            const localRef = await cache(absSrc, {
-                maxBytes: MAX_IMAGE_BYTES,
-                extFor: (ct, u) => extFromContentType(ct) || extFromUrl(u) || 'img',
-            });
-            if (!localRef) continue;   // best-effort — leave the remote src in place
-            img.setAttribute('src', localRef);
-            img.removeAttribute('srcset');
-        }
-
-        // Sound. An <audio> usually offers the same recording in several formats
-        // (an mp3 and an ogg), so only the FIRST candidate that caches is kept:
-        // the alternatives are then removed, because leaving a remote <source>
-        // next to a local one lets the browser pick the one that needs the network.
-        for (const audio of Array.from(cdoc.querySelectorAll('audio')).slice(0, MAX_CLIP_AUDIO)) {
-            const sources = Array.from(audio.querySelectorAll('source'));
-            const candidates = [
-                { el: audio, raw: audio.getAttribute('src') || '' },
-                ...sources.map((el) => ({ el, raw: el.getAttribute('src') || '' })),
-            ].filter((c) => c.raw);
-
-            for (const { el, raw } of candidates) {
-                let absSrc;
-                try { absSrc = new URL(raw, url).href; } catch { continue; }
-                const localRef = await cache(absSrc, {
-                    maxBytes: MAX_AUDIO_BYTES,
-                    extFor: (ct, u) => extFromAudioContentType(ct) || extFromUrl(u) || 'audio',
-                });
-                if (!localRef) continue;
-                el.setAttribute('src', localRef);
-                for (const other of sources) {
-                    if (other !== el) other.remove();
-                }
-                break;
-            }
-        }
 
         const clean = sanitizeHtml(cdoc.body.innerHTML, CLIP_SANITIZE_OPTS);
         const source = {
@@ -1012,46 +1067,149 @@ export default class Documents {
             excerpt: article.excerpt || '',
             clippedAt: new Date().toISOString(),
         };
-        return { html: clean, source, title: article.title || 'clip', mediaRelPaths };
+        return { html: clean, source, title: article.title || 'clip' };
     }
 
     /**
-     * Fetches a web page and stores a readable, media-cached `.clip` snapshot.
+     * Fetches a web page and stores a readable `.clip` snapshot.
      * Highlights anchor by text offset. See _buildClipDoc for the pipeline.
      * @param {string} url
      * @param {string} [relativePath=""] destination folder
      * @returns {Promise<{path: string, globalHash: string}>}
      */
     async createClip(url, relativePath = "") {
-        const { html, source, title, mediaRelPaths } = await this._buildClipDoc(url, relativePath);
+        const { html, source, title } = await this._buildClipDoc(url);
         const metadata = { ...newFileMetadata(), source };
         const name = slugifyName(title) + ".clip";
-        const result = await this.importFile(name, relativePath, html, metadata);
-
-        // importFile only sealed the clip + sidecar; stage the cached images too.
-        if (mediaRelPaths.length && result?.path) {
-            await sealEmitter.edit(result.path + '.flashback', mediaRelPaths);
-        }
-        return result;
+        return this.importFile(name, relativePath, html, metadata);
     }
 
     /**
      * Populates an existing (e.g. blank, hand-created) `.clip` file from a URL —
-     * fetches/parses the page, caches its images and audio alongside it, writes the sanitized
-     * HTML body, and merges the `source` block into the sidecar (preserving
-     * existing highlights/tags). Backs the renderer's empty-state URL form.
+     * fetches/parses the page, writes the sanitized HTML body, and merges the
+     * `source` block into the sidecar (preserving existing highlights/tags).
+     * Backs the renderer's empty-state URL form.
      * @param {string} relPath existing `.clip` file
      * @param {string} url
      */
     async setClipSource(relPath, url) {
         if (!this.files.exists(relPath)) throw new Error("File not found");
-        const parent = path.dirname(relPath);
-        const mediaFolder = parent === '.' ? '' : parent;
-        const { html, source, mediaRelPaths } = await this._buildClipDoc(url, mediaFolder);
+        const { html, source } = await this._buildClipDoc(url);
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
         this.files.updateFile(relPath, html, { ...existing, source });
-        await sealEmitter.edit(relPath + '.flashback', [relPath, ...mediaRelPaths]);
+        await sealEmitter.edit(relPath + '.flashback', [relPath]);
         return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
+    }
+
+    /**
+     * Downloads one of a saved clip's remote assets into the vault and points the
+     * clip at the local copy: the picture or sound becomes `./media/clip-<hash>.<ext>`
+     * next to the clip file, is registered in the Media table, and the edit is sealed.
+     *
+     * This is the whole of the clipper's media strategy. Clipping saves the page's
+     * prose; an asset is only worth a request once someone wants it on a card, and
+     * this is that request. A clip therefore fills in over time with exactly the
+     * figures and sounds that were used, and stays readable offline in those parts.
+     *
+     * The `href` must already name an asset in this clip's body. That check is not
+     * a formality — without it the endpoint is an open downloader that writes any URL
+     * on the internet into the vault, under the user's own token.
+     *
+     * A sound published as a **link** rather than a player (how Wikipedia and much of
+     * the web do it) is saved the same way, and the link becomes a real `<audio>` on
+     * the way in — so the clip ends up playing it where the page only pointed at it,
+     * and everything downstream sees the shape it already understands.
+     *
+     * Safe to call unconditionally: an href that is already local returns as-is with
+     * no IO, so a caller never has to know whether the asset was saved before.
+     *
+     * @param {string} relPath the `.clip` document
+     * @param {string} href the asset's src or href as it appears in the body, or its bare file name
+     * @returns {Promise<{path: string, href: string, name: string, kind: 'image'|'audio', bytes: number|null, mediaType: string|null, alreadySaved: boolean}>}
+     */
+    async saveClipAsset(relPath, href) {
+        if (!/\.clip$/i.test(relPath)) throw new Error("Not a web clip");
+        if (!this.files.exists(relPath)) throw new Error("File not found");
+        const wanted = String(href ?? '').trim();
+        if (!wanted) throw new Error("No asset given");
+
+        const { JSDOM } = await import('jsdom');
+        const { content } = this.files.readFile(relPath);
+        const cdoc = new JSDOM(`<body>${content ?? ''}</body>`).window.document;
+
+        const el = resolveClipAsset(cdoc, wanted);
+        const src = assetAddress(el);
+
+        // A <source> is a candidate for its parent <audio>; everything else is
+        // itself. The distinction matters because it is the parent whose remaining
+        // alternatives have to go, and because an <audio> is a sound whatever its
+        // file name looks like. A link only reaches here if it points at a playable
+        // sound, so it is one too.
+        const tag = el.tagName.toUpperCase();
+        const audioEl = tag === 'SOURCE' ? el.closest('audio') : (tag === 'AUDIO' ? el : null);
+        const kind = (audioEl || tag === 'A') ? 'audio' : 'image';
+
+        const local = src.match(/^\.?\/?media\/(.+)$/);
+        if (local) {
+            // Already in the vault. Reported as a success rather than an error so a
+            // caller can save on every pick without first asking where the asset
+            // currently lives.
+            let name = local[1];
+            try { name = decodeURIComponent(name); } catch { /* keep as written */ }
+            return {
+                path: relPath, href: src, name, kind,
+                bytes: null, mediaType: null, alreadySaved: true,
+            };
+        }
+        if (/^data:/i.test(src)) {
+            throw new Error("That picture is written into the page itself — it is already saved with the clip");
+        }
+
+        const parent = path.dirname(relPath);
+        const saved = await this._cacheRemoteAsset(src, {
+            mediaFolder: parent === '.' ? '' : parent,
+            maxBytes: kind === 'audio' ? MAX_AUDIO_BYTES : MAX_IMAGE_BYTES,
+            extFor: kind === 'audio'
+                ? (ct, u) => extFromAudioContentType(ct) || extFromUrl(u) || 'audio'
+                : (ct, u) => extFromContentType(ct) || extFromUrl(u) || 'img',
+        });
+
+        // A saved sound that was published as a link becomes the player the page never
+        // had. The anchor's own content is the site's play-button chrome — three empty
+        // spans and the word "Play" here — so nothing of value is lost, and a reader
+        // that could only send you to the file can now play it, offline.
+        let target = el;
+        if (tag === 'A') {
+            target = cdoc.createElement('audio');
+            target.setAttribute('controls', '');
+            target.setAttribute('preload', 'none');
+            el.replaceWith(target);
+        }
+
+        target.setAttribute('src', saved.localRef);
+        // Where this file came from, kept on the element. It is provenance a content
+        // hash cannot carry, and it keeps the asset addressable by its web URL after
+        // the src stops being one — see resolveClipAsset.
+        target.setAttribute('data-src', src);
+        target.removeAttribute('srcset');
+        // An <audio> usually offers the same recording in several formats (an mp3 and
+        // an ogg). Now that one of them is local the alternatives have to go: left in
+        // place, they let the browser pick the one that still needs the network.
+        if (audioEl) {
+            for (const other of audioEl.querySelectorAll('source')) {
+                if (other !== el) other.remove();
+            }
+            if (el !== audioEl) audioEl.removeAttribute('src');
+        }
+
+        const existing = this.files.getMetadata(relPath) || newFileMetadata();
+        this.files.updateFile(relPath, cdoc.body.innerHTML, existing);
+        await sealEmitter.edit(relPath + '.flashback', [relPath, saved.mediaRel]);
+
+        return {
+            path: relPath, href: saved.localRef, name: saved.name, kind,
+            bytes: saved.bytes, mediaType: saved.mediaType, alreadySaved: false,
+        };
     }
 
     // --- Indexing (Vault Doctor) ---
