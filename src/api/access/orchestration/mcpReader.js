@@ -23,15 +23,22 @@
  * human `label` ("p. 37", a chapter title) so a card drafted from a chunk can cite
  * where it came from.
  *
- * EPUB IMAGES are the one thing here that is not prose. A textbook's figure is
- * content a card wants, and there is no text form of a diagram, so `images()` lists
- * what an EPUB declares and `imageBuffer()` pulls one out of the zip. The split is
- * deliberate: listing is metadata only (href, alt, caption, which section, byte
- * size) and rides the extraction cache; BYTES ARE NEVER CACHED and come out one at a
- * time, because a single full-page plate would swamp a cache budget meant for text.
- * `imageBuffer` will only read an entry the OPF manifest declares as an image —
- * that allow-list, not path arithmetic, is what keeps it from becoming "read any
- * entry in any zip".
+ * MEDIA is the one thing here that is not prose. A textbook's figure is content a
+ * card wants, and there is no text form of a diagram, so `media()` lists what a
+ * document carries and `mediaBuffer()` fetches one asset's bytes. Two formats carry
+ * media, for opposite reasons: an EPUB's figures are sealed inside its zip
+ * (`images()`/`imageBuffer()`, which `media()` delegates to), while a saved clip's
+ * pictures and short sound become ordinary files in `media/` once someone saves one
+ * — so a clip entry can report a real `path` and a book entry never can.
+ *
+ * The split is deliberate: listing is metadata only (href, alt, caption, which
+ * section or heading, byte size) and rides the extraction cache; BYTES ARE NEVER
+ * CACHED and come out one at a time, because a single full-page plate would swamp a
+ * cache budget meant for text. Both readers work off an allow-list — an entry the
+ * document itself declares — rather than path arithmetic, which is what keeps this
+ * from becoming "read any entry in any zip" or "read any file in the vault". A clip
+ * asset still loading from the web is refused rather than fetched: this module does
+ * no network IO, and downloading one is documents.saveClipAsset's job.
  *
  * Tier 3 orchestrator, but a narrow one: it imports `files.js` and nothing else —
  * no database, no query.js, no documents.js. Read-only toward the canonical layer
@@ -70,6 +77,18 @@ const FORMATS = {
 // A manifest item is offerable as a picture if it declares an image media type.
 // Everything else in there — fonts, CSS, the NCX, the nav document — is machinery.
 const IMAGE_TYPE = /^image\//i;
+
+// Media type by file extension, for clip assets. An EPUB declares the type in its
+// manifest and needs none of this; a clip's cached file has only its name, which the
+// clipper derived from the server's content-type in the first place.
+const MEDIA_TYPES = {
+    jpg: "image/jpeg", jpeg: "image/jpeg", png: "image/png", gif: "image/gif",
+    webp: "image/webp", svg: "image/svg+xml", avif: "image/avif", bmp: "image/bmp",
+    mp3: "audio/mpeg", m4a: "audio/mp4", aac: "audio/aac", ogg: "audio/ogg",
+    oga: "audio/ogg", wav: "audio/wav", weba: "audio/webm", flac: "audio/flac",
+};
+const mediaTypeOf = (name) =>
+    MEDIA_TYPES[path.extname(String(name ?? "")).slice(1).toLowerCase()] ?? null;
 
 // Tags whose content reads as its own block of prose — used to keep paragraph
 // breaks when flattening XHTML/HTML, which textContent alone throws away.
@@ -179,6 +198,114 @@ function sectionImages(doc, sectionHref) {
             href,
             alt: el.getAttribute("alt")?.trim() || null,
             caption: caption?.trim() || null,
+        });
+    }
+    return out;
+}
+
+/** Node.DOCUMENT_POSITION_FOLLOWING — the argument comes after the receiver. */
+const DOCUMENT_POSITION_FOLLOWING = 4;
+
+/**
+ * The heading a clip element sits under: the last h1–h6 that precedes it in document
+ * order, or null above the first one. This is the clip's answer to what `section` is
+ * for an EPUB — the context that says which part of the article a picture belongs to,
+ * so a caller can pick "the diagram in the Methods section" without looking at it.
+ * `headings` must be in document order (querySelectorAll already is).
+ */
+function headingBefore(headings, el) {
+    let found = null;
+    for (const h of headings) {
+        if (!(h.compareDocumentPosition(el) & DOCUMENT_POSITION_FOLLOWING)) break;
+        found = h;
+    }
+    const label = found ? tidy(found.textContent ?? "") : "";
+    return label ? label.slice(0, 120) : null;
+}
+
+/**
+ * Whether a link points at a sound a browser can play, and is therefore a sound the
+ * clip carries rather than an ordinary link.
+ *
+ * This exists because a great many pages have no `<audio>` element at all. Wikipedia
+ * renders every TimedMediaHandler sound as `<a href="…mp3" title="Play audio">Play</a>`,
+ * so a whole page of chords, pronunciations or birdsong looks, to a parser, like text
+ * with links in it. Ignoring those means the sounds that most deserve a card are the
+ * ones nothing can see.
+ *
+ * Two exclusions carry the weight. MIDI is left out because no browser plays it — and
+ * because on Wikipedia a `.mid` URL is the file's *description page*, not the file, so
+ * excluding it also drops the "ⓘ" link that sits beside every player. A last segment
+ * containing a colon goes for the same reason: `File:Something.ogg` is a page about a
+ * sound, and downloading it would store an HTML document as audio.
+ *
+ * (`documents.js` keeps its own copy for saving, and the clip renderer a third for its
+ * hover button — mcpReader imports `files.js` and nothing else, and the renderer is a
+ * different process entirely.)
+ */
+const PLAYABLE_SOUND_EXT = /\.(mp3|ogg|oga|wav|m4a|aac|flac|opus|weba)(\?|#|$)/i;
+function isSoundLink(href) {
+    if (!href) return false;
+    const segment = href.split("?")[0].split("#")[0].split("/").pop() || "";
+    if (segment.includes(":")) return false;
+    return PLAYABLE_SOUND_EXT.test(segment);
+}
+
+/**
+ * Every picture and sound a saved clip carries, in document order.
+ *
+ * Deliberately not sectionImages(): that resolves an href against the XHTML file
+ * holding it and returns null for anything absolute, which is right for a zip and
+ * wrong here. A clip's src is either `./media/<name>` — an asset saved into the vault,
+ * which is the case whose bytes can be served — or the absolute URL it still loads
+ * from, which is most of them and is still worth reporting: that is how a caller
+ * learns a picture exists at all and can ask for it to be saved. `cached` is that
+ * distinction, and it is what decides whether the bytes can be served from here.
+ *
+ * A sound reaches this list as either an `<audio>` or a link to an audio file (see
+ * isSoundLink) — the second is how most of the web publishes sound, and saving one
+ * turns it into the first.
+ */
+function clipMedia(doc) {
+    const headings = [...doc.querySelectorAll("h1, h2, h3, h4, h5, h6")];
+    const out = [];
+    for (const el of doc.querySelectorAll("img, audio, a[href]")) {
+        const tag = (el.tagName ?? "").toUpperCase();
+        const isLink = tag === "A";
+        if (isLink && !isSoundLink(el.getAttribute("href"))) continue;
+        const isAudio = tag === "AUDIO" || isLink;
+        // An <audio> carries its src directly or on its first <source> child; the
+        // clipper collapses the alternatives down to one, so the first is the one.
+        const src = (
+            (isLink ? el.getAttribute("href") : el.getAttribute("src"))
+            || (isAudio && !isLink ? el.querySelector("source")?.getAttribute("src") : null)
+            || ""
+        ).trim();
+        if (!src) continue;
+
+        const cachedName = src.match(/^\.?\/?media\/(.+)$/)?.[1];
+        let name = cachedName;
+        if (name) {
+            try { name = decodeURIComponent(name); } catch { /* keep as written */ }
+        } else {
+            name = src.split("?")[0].split("#")[0].split("/").pop() || src;
+        }
+        const caption = el.closest?.("figure")?.querySelector("figcaption")?.textContent;
+
+        out.push({
+            index: out.length + 1,
+            kind: isAudio ? "audio" : "image",
+            href: src,
+            name,
+            mediaType: mediaTypeOf(name),
+            bytes: null,            // filled from disk by media(), which knows the vault path
+            // A player link's own words are "Play" and its title "Play audio" — true of
+            // every one on the page and therefore no help in telling them apart. Left
+            // null so the file name, which usually does name the sound, is what shows.
+            alt: isLink ? null : (el.getAttribute("alt")?.trim() || el.getAttribute("title")?.trim() || null),
+            caption: caption?.trim() || null,
+            heading: headingBefore(headings, el),
+            cached: Boolean(cachedName),
         });
     }
     return out;
@@ -309,14 +436,17 @@ class McpReader {
         return { format, unit: "chars", segments: [{ label: null, text: content }] };
     }
 
-    // A .clip body is the sanitized HTML of a saved web page.
+    // A .clip body is the sanitized HTML of a saved web page. The same parse yields
+    // its prose and its media list — the pictures and short sound the page carries,
+    // wherever they currently live, and this is where they become discoverable.
     async _extractClip(relPath) {
         const { content } = this.files.readFile(relPath);
         const { JSDOM } = await import("jsdom");
-        const dom = new JSDOM(`<body>${content ?? ""}</body>`);
+        const body = new JSDOM(`<body>${content ?? ""}</body>`).window.document.body;
         return {
             format: "clip", unit: "chars",
-            segments: [{ label: null, text: tidy(blockText(dom.window.document.body)) }],
+            segments: [{ label: null, text: tidy(blockText(body)) }],
+            media: clipMedia(body),
         };
     }
 
@@ -535,6 +665,16 @@ class McpReader {
             // Only a count here: enough to know whether calling images() is worth it,
             // without putting a figure list in every info() response.
             images: doc.images ? doc.images.length : undefined,
+            // Same idea for a clip, which carries sound as well as pictures, so the
+            // count is broken down by kind — "has audio" is the part worth knowing
+            // before deciding to look.
+            media: doc.media
+                ? {
+                    total: doc.media.length,
+                    images: doc.media.filter((m) => m.kind === "image").length,
+                    audio: doc.media.filter((m) => m.kind === "audio").length,
+                }
+                : undefined,
         };
     }
 
@@ -598,6 +738,105 @@ class McpReader {
             throw fail(`${entry.href} is in ${relPath}'s manifest but missing from the archive.`, 404);
         }
         return { buffer: data, mediaType: entry.mediaType, name: entry.name, bytes: data.length };
+    }
+
+    /**
+     * The media a document carries, whatever kind of document it is: an EPUB's
+     * figures or a clip's pictures and sound. Every entry has `kind`
+     * ("image" | "audio"), `href` to address it by, and the context that identifies
+     * it without looking — alt text, caption, and the heading or section it sits
+     * under. The rest of the shape follows the format: EPUB entries carry
+     * `section`/`sectionIndex`/`isCover`, clip entries carry `heading`/`cached`/`path`.
+     *
+     * `path` is a clip asset's real workspace-relative location, which is the one
+     * thing a book figure can never have — those live inside the zip.
+     */
+    async media(relPath) {
+        const doc = await this._extract(relPath);
+
+        if (doc.images) {
+            const { images } = await this.images(relPath);
+            return {
+                path: relPath,
+                format: doc.format,
+                total: images.length,
+                media: images.map((i) => ({ kind: "image", cached: true, path: null, ...i })),
+            };
+        }
+
+        if (doc.media) {
+            // `bytes` is read here rather than at extraction time because the
+            // extraction cache is keyed on the CLIP's mtime, not its assets'. Sizes
+            // stay honest even if a media file is replaced under a clip that hasn't
+            // changed.
+            const media = doc.media.map((m) => {
+                if (!m.cached) return { ...m, path: null };
+                const rel = path.join(path.dirname(relPath), "media", m.name);
+                let bytes = null;
+                try { bytes = this.files.statFile(rel).size; } catch { /* gone from disk */ }
+                return { ...m, path: rel, bytes };
+            });
+            return { path: relPath, format: doc.format, total: media.length, media };
+        }
+
+        throw fail(
+            `${relPath} is a ${doc.format} document — only EPUBs and saved web clips carry extractable media.`,
+            415,
+        );
+    }
+
+    /**
+     * One asset's bytes, addressed by an `href` (or bare file name) from media().
+     * Uncached for the same reason imageBuffer is: a full-page plate or a sound file
+     * would swamp a cache budget meant for text.
+     *
+     * The allow-list discipline is the point, and it is identical for both formats:
+     * only an entry the document itself declares can be read, an ambiguous spelling
+     * is an error rather than a guess, and a clip asset still out on the web is
+     * refused outright — this will not reach out to the network on a caller's behalf.
+     * Saving one is documents.saveClipAsset, which is a write and says so.
+     */
+    async mediaBuffer(relPath, href) {
+        const doc = await this._extract(relPath);
+        if (doc.images) return { ...(await this.imageBuffer(relPath, href)), kind: "image" };
+
+        const { media } = await this.media(relPath);
+        const wanted = String(href ?? "").trim().replace(/^\.?\//, "");
+        const exact = media.find((m) => m.href === href || m.href.replace(/^\.?\//, "") === wanted);
+        const found = exact ? [exact] : media.filter((m) => m.name === wanted);
+
+        if (found.length === 0) {
+            throw fail(`No media "${href}" in ${relPath}. Call media for the list.`, 400);
+        }
+        if (found.length > 1) {
+            throw fail(
+                `"${href}" matches ${found.length} assets in ${relPath} `
+                + `(${found.map((f) => f.href).join(", ")}). Use the full href from media.`,
+                400,
+            );
+        }
+        const entry = found[0];
+
+        if (!entry.cached) {
+            throw fail(
+                `"${entry.name}" is not in the vault — it is still served from ${entry.href}, and `
+                + `nothing here will fetch it for you. Save it into the clip first `
+                + `(POST /api/documents/clip/asset), or go by its alt text and caption.`,
+                400,
+            );
+        }
+
+        const buffer = this.files.readBuffer(entry.path);
+        if (!buffer?.length) {
+            throw fail(`${entry.path} is referenced by ${relPath} but missing from the vault.`, 404);
+        }
+        return {
+            buffer,
+            mediaType: entry.mediaType || "application/octet-stream",
+            name: entry.name,
+            bytes: buffer.length,
+            kind: entry.kind,
+        };
     }
 
     /**

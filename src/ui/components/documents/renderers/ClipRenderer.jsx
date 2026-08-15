@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, setClipSource } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
@@ -110,18 +110,86 @@ function highlightIdAtSelection(root) {
   return node.closest?.('mark[data-hl]')?.getAttribute('data-hl') ?? null;
 }
 
-// Point cached local images (`./media/<name>`) at the API media endpoint.
+// Point saved local assets (`./media/<name>`) at the API media endpoint, and record
+// every asset's stored src in `data-href` on the way past. Covers pictures and sound
+// alike — an <audio> and its <source> children carry the same kind of reference an
+// <img> does, and an asset saved into the vault is exactly the one that should keep
+// working with the network off.
+//
+// `data-href` is the identifier everything else here speaks in: it is what the clip
+// file actually holds, which is both what saveClipAsset accepts and what
+// listDocumentMedia reports. The live `src` cannot serve — it has either been
+// rewritten to a tokenised API URL or, for an asset still on the web, been resolved
+// by the browser into something that need not match the attribute.
 function rewriteMedia(root, docPath) {
-  root.querySelectorAll('img[src]').forEach((img) => {
-    const src = img.getAttribute('src') || '';
+  root.querySelectorAll('img[src], audio[src], source[src]').forEach((el) => {
+    const src = el.getAttribute('src') || '';
+    el.setAttribute('data-href', src);
     const m = src.match(/^\.?\/?media\/(.+)$/);
     if (m) {
-      img.setAttribute(
+      el.setAttribute(
         'src',
         appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(m[1])}`),
       );
     }
   });
+  // Sound published as a link. Most of the web does it this way — every Wikipedia
+  // player is an <a> to the file — so a page can be full of sound and hold no <audio>
+  // at all. Marking those links here is what puts them within reach of the same
+  // gesture as everything else; saving one turns it into a real player.
+  root.querySelectorAll('a[href]').forEach((el) => {
+    const href = el.getAttribute('href') || '';
+    if (isSoundLink(href)) el.setAttribute('data-href', href);
+  });
+}
+
+// Mirrors the same predicate in mcpReader.js (which lists these) and documents.js
+// (which saves them); the renderer is a different process, so it keeps its own.
+// MIDI is out because no browser plays it — and because a `.mid` URL on Wikipedia is
+// the file's description page, which is also why a last segment with a colon in it
+// (`File:Something.ogg`) is out.
+const PLAYABLE_SOUND_EXT = /\.(mp3|ogg|oga|wav|m4a|aac|flac|opus|weba)(\?|#|$)/i;
+function isSoundLink(href) {
+  if (!href) return false;
+  const segment = href.split('?')[0].split('#')[0].split('/').pop() || '';
+  if (segment.includes(':')) return false;
+  return PLAYABLE_SOUND_EXT.test(segment);
+}
+
+// Where the save button goes for the asset under the pointer. A picture is big enough
+// to wear it on its corner, the way a save button sits on an image everywhere else. A
+// sound published as a link is a few characters wide — sitting on that would bury the
+// thing it points at — so it goes beside it, and flips back to the corner near the
+// right edge of the window rather than running off it.
+const BESIDE_MAX_WIDTH = 160;
+const ACTION_CLEARANCE = 240;
+function actionPosition(rect) {
+  const beside = rect.width < BESIDE_MAX_WIDTH && rect.right + ACTION_CLEARANCE < window.innerWidth;
+  return beside
+    ? { top: Math.max(8, rect.top - 2), left: rect.right + 8 }
+    : { top: Math.max(8, rect.top + 8), right: Math.max(8, window.innerWidth - rect.right + 8) };
+}
+
+// The asset under the pointer, as the card form needs to hear about it, or null when
+// this element has nothing attachable. An inline `data:` picture is deliberately
+// nothing: it is written into the clip body itself and cannot be lost, and there is
+// no URL to save it from.
+function mediaHitFor(el) {
+  const isAudio = el.tagName === 'AUDIO';
+  // A marked link is a sound too — a player the page rendered as an anchor.
+  const isSound = isAudio || (el.tagName === 'A' && !!el.getAttribute('data-href'));
+  const holder = isAudio ? (el.getAttribute('data-href') ? el : el.querySelector('source[data-href]')) : el;
+  const href = holder?.getAttribute('data-href') || '';
+  if (!href || /^data:/i.test(href)) return null;
+  const rect = el.getBoundingClientRect();
+  if (!rect.width || !rect.height) return null;
+  return {
+    href,
+    kind: isSound ? 'audio' : 'image',
+    name: href.split('?')[0].split('#')[0].split('/').pop() || null,
+    alt: el.getAttribute('alt')?.trim() || null,
+    rect,
+  };
 }
 
 // ── Renderer ─────────────────────────────────────────────────────────────────
@@ -132,6 +200,7 @@ export default function ClipRenderer({
   highlightRef,
   onHighlightsChange,
   onSidecarRefresh,
+  onImagePick,
 }) {
   const { t } = useT();
   const [source,     setSource]     = useState(null); // { url, siteName, title, clippedAt }
@@ -140,6 +209,8 @@ export default function ClipRenderer({
   const [error,      setError]      = useState(null);
   const [empty,      setEmpty]      = useState(false); // no source + no body yet
   const [reloadTick, setReloadTick] = useState(0);
+  // The picture or sound under the pointer: { href, kind, name, alt, rect } | null.
+  const [mediaHit,   setMediaHit]   = useState(null);
 
   const pathRef        = useRef(path);
   pathRef.current      = path;
@@ -148,6 +219,8 @@ export default function ClipRenderer({
   const currentHlRef   = useRef(null);
   const loadedPathRef  = useRef(null);
   const bodyRef        = useRef(null);
+  const onImagePickRef = useRef(onImagePick);
+  onImagePickRef.current = onImagePick;
 
   // Load body (HTML) + sidecar, populate the container imperatively (React never
   // owns the container's children, so injected <mark>s survive re-renders).
@@ -193,7 +266,60 @@ export default function ClipRenderer({
     return () => { mounted = false; };
   }, [path, reloadTick]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Save: sidecar only (clip body is immutable)
+  // ── Pinterest-style asset picking ──────────────────────────────────────────
+  // Hovering a picture or a sound offers to put it on a card. This is the only
+  // gesture that downloads anything: a clip's assets stay on their own host until
+  // one is actually wanted, so this button is where a clip starts filling its own
+  // media/ folder. The EPUB reader has the same affordance on a click; a clip is
+  // ordinary DOM, so it can afford hover.
+  const hideTimerRef = useRef(null);
+  const cancelHide = useCallback(() => {
+    clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = null;
+  }, []);
+  const hideSoon = useCallback(() => {
+    cancelHide();
+    // Not immediate: the button sits outside the body container, so travelling to
+    // it means leaving the image, and an instant hide would make it unclickable.
+    hideTimerRef.current = setTimeout(() => setMediaHit(null), 140);
+  }, [cancelHide]);
+
+  useEffect(() => {
+    const root = bodyRef.current;
+    if (!root) return;
+
+    const onOver = (e) => {
+      // Anchors are in the list for the sound ones only; mediaHitFor returns null for
+      // an ordinary link, since rewriteMedia marked no data-href on it.
+      const el = e.target?.closest?.('img, audio, a[data-href]');
+      if (!el || !root.contains(el)) return;
+      const hit = mediaHitFor(el);
+      // Too small to be worth a card, and the button would be larger than the
+      // thing it points at — a status icon or a spacer. The card form's clip
+      // picker still lists them.
+      if (hit && (hit.rect.width < 48 || hit.rect.height < 48) && hit.kind !== 'audio') return;
+      if (hit) { cancelHide(); setMediaHit(hit); }
+    };
+    const onOut = (e) => {
+      if (e.target?.closest?.('img, audio, a[data-href]')) hideSoon();
+    };
+    const onScroll = () => { cancelHide(); setMediaHit(null); };
+
+    root.addEventListener('mouseover', onOver);
+    root.addEventListener('mouseout', onOut);
+    // Capture: the scrolling element is an ancestor of this container, and its
+    // scroll events never bubble to window on their own.
+    window.addEventListener('scroll', onScroll, true);
+    return () => {
+      cancelHide();
+      root.removeEventListener('mouseover', onOver);
+      root.removeEventListener('mouseout', onOut);
+      window.removeEventListener('scroll', onScroll, true);
+    };
+  }, [loading, error, empty, path, cancelHide, hideSoon]);
+
+  // Save: sidecar only — the body changes only when an asset is saved into the
+  // vault, and saveClipAsset owns that write.
   const handleSaveRef = useRef(null);
   handleSaveRef.current = async () => {
     const savedPath = pathRef.current;
@@ -308,7 +434,7 @@ export default function ClipRenderer({
     return (
       <SourceUrlForm
         title={t('Clip a web page')}
-        hint={t('Paste a URL to fetch a readable snapshot of the page. Images are saved locally so it stays available offline.')}
+        hint={t('Paste a URL to fetch a readable snapshot of the page. Its pictures and sound keep loading from the web — hover one to save it to the vault and put it on a card.')}
         placeholder="https://…"
         submitLabel={t('Clip page')}
         busyLabel={t('Clipping…')}
@@ -340,6 +466,27 @@ export default function ClipRenderer({
         </div>
       )}
       <div ref={bodyRef} className="clip-body" />
+      {mediaHit && (
+        // Overlaid on the asset's top-right corner, the way a save button sits on a
+        // picture everywhere else. Fixed-position from a viewport rect, which is why
+        // scrolling dismisses it rather than dragging it out of place.
+        <button
+          type="button"
+          className="clip-media-action"
+          style={actionPosition(mediaHit.rect)}
+          onMouseEnter={cancelHide}
+          onMouseLeave={hideSoon}
+          onClick={() => {
+            onImagePickRef.current?.({
+              href: mediaHit.href, name: mediaHit.name, alt: mediaHit.alt, kind: mediaHit.kind,
+            });
+            cancelHide();
+            setMediaHit(null);
+          }}
+        >
+          {mediaHit.kind === 'audio' ? t('Make a card from this sound') : t('Make a card from this image')}
+        </button>
+      )}
     </div>
   );
 }

@@ -58,3 +58,10 @@ export const clipUrl     = (url, parentPath = '') => request('POST', '/api/docum
 export const setYoutubeSource = (path, url) => request('PUT', '/api/documents/youtube', { path, url });
 export const setClipSource    = (path, url) => request('PUT', '/api/documents/clip',    { path, url });
 export const fetchYoutubeTranscript = (path, lang) => request('POST', '/api/documents/youtube/transcript', { path, lang });
+
+// Download one of a clip's remote pictures or sounds into the vault and point the
+// clip at the local copy. Clipping saves no media, so this is what makes an asset
+// local — and it runs when one is put on a card. Resolves to { href, name, kind, … }
+// with `href` the new `./media/<name>`; an href that is already local comes straight
+// back with `alreadySaved: true`, so callers never have to check first.
+export const saveClipAsset = (path, href) => request('POST', '/api/documents/clip/asset', { path, href });

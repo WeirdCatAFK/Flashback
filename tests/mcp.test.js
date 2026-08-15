@@ -90,6 +90,7 @@ describe('MCP tools', () => {
             'get_card_guide',
             'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
             'list_book_images', 'view_book_image',
+            'list_clip_media', 'view_clip_image',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
@@ -98,7 +99,8 @@ describe('MCP tools', () => {
             'create_document', 'update_document', 'create_folder', 'update_tags',
             'fetch_youtube_transcript',
             'create_deck', 'update_deck', 'delete_deck', 'add_to_deck', 'remove_from_deck',
-            'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media', 'attach_book_image',
+            'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
+            'attach_book_image', 'attach_clip_media',
             'create_category', 'update_category',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
@@ -577,6 +579,21 @@ describe('MCP tools', () => {
             await d.importFile('bare.youtube', ROOT, Buffer.from(JSON.stringify({
                 url: 'https://youtu.be/bare', videoId: 'bare', title: 'No Captions',
             })), {});
+
+            // A clip that has been read for a while: a picture and a sound already saved
+            // into the vault (a card was built from each), and one picture still loading
+            // from the site it was clipped from, as every asset starts out.
+            await d.importFile('article.clip', ROOT, Buffer.from(
+                '<h1>Birdsong</h1><p>Prose about calls.</p>'
+                + '<figure><img src="./media/clip-aaaaaaaaaaaa.png" alt="A wren"/>'
+                + '<figcaption>Figure 1. A wren.</figcaption></figure>'
+                + '<audio src="./media/clip-cccccccccccc.mp3" controls></audio>'
+                + '<img src="https://example.test/remote.png" alt="Never downloaded"/>',
+            ), {});
+            const clipMediaDir = path.join(getWorkspacePath(), ROOT, 'media');
+            fs.mkdirSync(clipMediaDir, { recursive: true });
+            fs.writeFileSync(path.join(clipMediaDir, 'clip-aaaaaaaaaaaa.png'), buildPng(1));
+            fs.writeFileSync(path.join(clipMediaDir, 'clip-cccccccccccc.mp3'), Buffer.from('ID3-fake-mp3'));
         });
 
         it('read_document returns metadata and guidance instead of decoded bytes', async () => {
@@ -737,6 +754,145 @@ describe('MCP tools', () => {
                 });
                 assert.equal(res.isError, true);
                 assert.match(res.text, /no file extension/);
+            });
+        });
+
+        // The clip half of the same three-tool split. Its one real difference from a
+        // book: these assets are files on disk, so a listing has to say so, and sound
+        // exists at all — which view_clip_image must refuse rather than fumble.
+        describe('clip media', () => {
+            const clipRel = `${ROOT}/article.clip`;
+
+            it('list_clip_media describes each asset without sending it', async () => {
+                const res = await call('list_clip_media', { path: clipRel });
+                assert.equal(res.isError, false, res.text);
+                assert.equal(res.data.total, 3);
+
+                const [wren] = res.data.media;
+                assert.equal(wren.kind, 'image');
+                assert.equal(wren.alt, 'A wren');
+                assert.equal(wren.caption, 'Figure 1. A wren.');
+                assert.equal(wren.heading, 'Birdsong');
+                assert.equal(wren.cached, true);
+                assert.ok(wren.path, 'a clip asset reports where it really is');
+                assert.ok(!/base64/.test(res.text), 'metadata only — no bytes in the response');
+
+                const remote = res.data.media.find((m) => m.name === 'remote.png');
+                assert.equal(remote.cached, false, 'an undownloaded picture is reported, not hidden');
+                assert.equal(remote.path, null);
+            });
+
+            it('list_clip_media narrows to one kind', async () => {
+                const res = await call('list_clip_media', { path: clipRel, kind: 'audio' });
+                assert.equal(res.data.total, 1);
+                assert.equal(res.data.media[0].name, 'clip-cccccccccccc.mp3');
+            });
+
+            it('list_clip_media refuses a format that carries no media', async () => {
+                const res = await call('list_clip_media', { path: bookRel });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /EPUBs and saved web clips/);
+            });
+
+            it('view_clip_image returns a real image block, not text', async () => {
+                const res = await tools.get('view_clip_image')({ path: clipRel, href: './media/clip-aaaaaaaaaaaa.png' });
+                assert.ok(!res.isError, JSON.stringify(res));
+                assert.equal(res.content[0].type, 'image');
+                assert.deepEqual(Buffer.from(res.content[0].data, 'base64'), buildPng(1));
+            });
+
+            it('view_clip_image refuses a sound instead of returning bytes nobody can hear', async () => {
+                const res = await call('view_clip_image', { path: clipRel, href: 'clip-cccccccccccc.mp3' });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /cannot play|nothing here can play/i);
+                assert.match(res.text, /attach_clip_media/, 'points at what CAN be done with it');
+            });
+
+            it('view_clip_image goes and gets an asset still on the web, and says why when it cannot', async () => {
+                // Capturing a clip downloads no media, so most of what list_clip_media
+                // reports is still on the original site. Looking at one saves it into
+                // the vault first — it is no longer a refusal. Here the host does not
+                // exist, so what comes back is that failure rather than the old
+                // "nothing here will fetch it".
+                const res = await call('view_clip_image', { path: clipRel, href: 'https://example.test/remote.png' });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /could not reach|refused/i, res.text);
+                assert.ok(!/never downloaded/.test(res.text), 'not refused for being remote');
+            });
+
+            it('attach_clip_media puts a clipped picture on a card', async () => {
+                const card = await call('create_flashcard', {
+                    path: docRel, cardType: 'basic', frontText: 'Which bird?', backText: 'A wren',
+                });
+                assert.equal(card.isError, false, card.text);
+                try {
+                    const res = await call('attach_clip_media', {
+                        clipPath: clipRel, href: './media/clip-aaaaaaaaaaaa.png',
+                        documentPath: docRel, flashcardHash: card.data.globalHash, position: 'front',
+                    });
+                    assert.equal(res.isError, false, res.text);
+                    assert.equal(res.data.type, 'image');
+
+                    const read = await call('read_document', { path: docRel });
+                    const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
+                    assert.ok(saved.vanillaData.media?.front_img, 'lands in the picture slot');
+
+                    const copied = path.join(
+                        getWorkspacePath(), path.dirname(docRel), 'media',
+                        path.basename(saved.vanillaData.media.front_img),
+                    );
+                    assert.deepEqual(fs.readFileSync(copied), buildPng(1), 'byte-for-byte the clipped picture');
+                } finally {
+                    await call('delete_flashcard', { globalHash: card.data.globalHash });
+                }
+            });
+
+            it('attach_clip_media routes a sound to the sound slot, not the picture slot', async () => {
+                // The slot follows the bytes rather than a caller-supplied flag: an mp3 in
+                // an image slot would fail silently at review time instead of here.
+                const card = await call('create_flashcard', {
+                    path: docRel, cardType: 'basic', frontText: 'Name this call', backText: 'Wren',
+                });
+                assert.equal(card.isError, false, card.text);
+                try {
+                    const res = await call('attach_clip_media', {
+                        clipPath: clipRel, href: 'clip-cccccccccccc.mp3',
+                        documentPath: docRel, flashcardHash: card.data.globalHash, position: 'front',
+                    });
+                    assert.equal(res.isError, false, res.text);
+                    assert.equal(res.data.type, 'sound');
+
+                    const read = await call('read_document', { path: docRel });
+                    const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
+                    assert.ok(saved.vanillaData.media?.front_sound, 'lands in the sound slot');
+                    assert.ok(!saved.vanillaData.media?.front_img, 'and not in the picture slot');
+                } finally {
+                    await call('delete_flashcard', { globalHash: card.data.globalHash });
+                }
+            });
+
+            it('attach_clip_media fetches an asset still on the web on its way to the card', async () => {
+                // Same change of contract as view_clip_image: an asset that is not in
+                // the vault yet is saved into the clip rather than refused. The host in
+                // this fixture does not resolve, so the failure that surfaces is the
+                // download's, not a policy.
+                const res = await call('attach_clip_media', {
+                    clipPath: clipRel, href: 'https://example.test/remote.png',
+                    documentPath: docRel, flashcardHash: 'whatever', position: 'front',
+                });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /could not reach|refused/i, res.text);
+            });
+
+            it('attach_clip_media still refuses an address that is not in the clip', async () => {
+                // The check that keeps this from being a downloader for any URL on the
+                // internet, writing into the vault under the user's own token.
+                const res = await call('attach_clip_media', {
+                    clipPath: clipRel, href: 'https://elsewhere.test/anything.png',
+                    documentPath: docRel, flashcardHash: 'whatever', position: 'front',
+                });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /not part of this clip/i, res.text);
             });
         });
 

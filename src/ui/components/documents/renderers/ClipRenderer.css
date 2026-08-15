@@ -82,6 +82,15 @@
   margin: 1em auto;
 }
 
+/* Captured sound. The native control is left as the browser draws it — it is the
+   one widget users already know how to operate — but sized to the column so a
+   default 300px player doesn't sit oddly narrow in a 720px article. */
+.clip-body audio {
+  display: block;
+  width: 100%;
+  margin: 1em auto;
+}
+
 .clip-body figcaption {
   font-size: 13px;
   color: var(--color-fg-secondary);
@@ -135,3 +144,25 @@
 .clip-body mark[data-color="green"] { background: var(--color-hl-2); }
 .clip-body mark[data-color="blue"]  { background: var(--color-hl-3); }
 .clip-body mark[data-color="pink"]  { background: var(--color-hl-4); }
+
+/* The save-to-a-card button that appears over a hovered picture or sound. Sits on
+   the asset's corner the way a save button does anywhere else; fixed-position
+   because it is placed from a viewport rect. */
+.clip-media-action {
+  position: fixed;
+  z-index: 400;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-family: inherit;
+  white-space: nowrap;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: none;
+  border-radius: 4px;
+  box-shadow: var(--shadow-float);
+  cursor: pointer;
+}
+
+.clip-media-action:hover {
+  filter: brightness(1.08);
+}

@@ -107,6 +107,39 @@ describe('mcpReader', () => {
         await docs.importFile('notes.md', ROOT, Buffer.from(MD_BODY), { globalHash: crypto.randomUUID() });
         await docs.importFile('page.clip', ROOT, Buffer.from(
             '<div><h1>Clipped</h1><p>Some <b>bold</b> prose.</p><script>evil()</script></div>'), { globalHash: crypto.randomUUID() });
+
+        // An illustrated, noisy clip that has been read for a while: two pictures and a
+        // sound already saved into the vault under different headings, one picture still
+        // loading from the site it was clipped from (as every asset starts out), and an
+        // <audio> whose src sits on a <source> child rather than the element.
+        await docs.importFile('article.clip', ROOT, Buffer.from(
+            '<h1>Birdsong</h1>'
+            + '<p>Opening prose about calls and songs.</p>'
+            + '<figure><img src="./media/clip-aaaaaaaaaaaa.png" alt="A wren"/>'
+            + '<figcaption>Figure 1. A wren mid-song.</figcaption></figure>'
+            + '<audio src="./media/clip-cccccccccccc.mp3" controls></audio>'
+            + '<h2>Field recordings</h2>'
+            + '<p>More prose under the second heading.</p>'
+            + '<img src="./media/clip-bbbbbbbbbbbb.png" alt="A finch"/>'
+            + '<img src="https://example.test/too-big.png" alt="Never downloaded"/>'
+            + '<audio controls><source src="./media/clip-dddddddddddd.ogg" type="audio/ogg"></audio>'
+            // A sound the page publishes as a LINK, with no player of its own — how
+            // Wikipedia renders every one of its sounds. Beside it, the two links that
+            // must not be mistaken for it: the file's description page (whose URL also
+            // ends in a media extension) and an ordinary article link.
+            + '<p>Hear it <a href="https://example.test/audio/nightingale.mp3" title="Play audio">Play</a>'
+            + '<sup><a href="https://example.test/wiki/File:nightingale.mid">i</a></sup>'
+            + ' or read <a href="https://example.test/wiki/Nightingale">the article</a>.</p>',
+        ), { globalHash: crypto.randomUUID() });
+
+        // The cached bytes those refs point at. The clipper writes these itself; here
+        // they are placed directly so the reader can be tested without the network.
+        const mediaDir = docs.files.safePath(path.join(ROOT, 'media'));
+        fs.mkdirSync(mediaDir, { recursive: true });
+        fs.writeFileSync(path.join(mediaDir, 'clip-aaaaaaaaaaaa.png'), buildPng(1));
+        fs.writeFileSync(path.join(mediaDir, 'clip-bbbbbbbbbbbb.png'), buildPng(2));
+        fs.writeFileSync(path.join(mediaDir, 'clip-cccccccccccc.mp3'), Buffer.from('ID3-fake-mp3-bytes'));
+        fs.writeFileSync(path.join(mediaDir, 'clip-dddddddddddd.ogg'), Buffer.from('OggS-fake-bytes'));
         await docs.importFile('vid.youtube', ROOT, Buffer.from(JSON.stringify({
             url: 'https://youtu.be/abc', videoId: 'abc', title: 'A Talk', author: 'Someone',
         })), { globalHash: crypto.randomUUID() });
@@ -310,6 +343,135 @@ describe('mcpReader', () => {
             await assert.rejects(
                 () => reader.images(rel('book.pdf')),
                 (e) => e.status === 415 && /only EPUBs/.test(e.message),
+            );
+        });
+    });
+
+    describe('clip media', () => {
+        const findByName = (media, name) => media.find((m) => m.name === name);
+
+        it('lists a clip\'s pictures and sound in document order, with their context', async () => {
+            const { total, media } = await reader.media(rel('article.clip'));
+
+            assert.equal(total, 6, 'two cached images, one uncached image, three sounds');
+            assert.deepEqual(media.map((m) => m.name), [
+                'clip-aaaaaaaaaaaa.png',
+                'clip-cccccccccccc.mp3',
+                'clip-bbbbbbbbbbbb.png',
+                'too-big.png',
+                'clip-dddddddddddd.ogg',
+                'nightingale.mp3',
+            ], 'document order, sound interleaved with pictures where it appears');
+
+            const wren = findByName(media, 'clip-aaaaaaaaaaaa.png');
+            assert.equal(wren.kind, 'image');
+            assert.equal(wren.alt, 'A wren');
+            assert.equal(wren.caption, 'Figure 1. A wren mid-song.');
+            assert.equal(wren.heading, 'Birdsong', 'the h1 it sits under');
+            assert.equal(wren.mediaType, 'image/png');
+
+            const finch = findByName(media, 'clip-bbbbbbbbbbbb.png');
+            assert.equal(finch.heading, 'Field recordings', 'the nearest PRECEDING heading, not the first');
+
+            const ogg = findByName(media, 'clip-dddddddddddd.ogg');
+            assert.equal(ogg.kind, 'audio', 'an <audio> whose src is on a <source> child still counts');
+            assert.equal(ogg.mediaType, 'audio/ogg');
+        });
+
+        it('counts a link to a sound as sound, and other links as nothing', async () => {
+            // Most of the web publishes sound as a link rather than a player, so a list
+            // built only from <audio> misses it entirely — a page of pronunciations
+            // reads as having no sound on it at all.
+            const { media } = await reader.media(rel('article.clip'));
+
+            const linked = findByName(media, 'nightingale.mp3');
+            assert.equal(linked.kind, 'audio');
+            assert.equal(linked.cached, false, 'it is still on the site it was clipped from');
+            assert.equal(linked.href, 'https://example.test/audio/nightingale.mp3');
+            assert.equal(linked.heading, 'Field recordings');
+            assert.equal(linked.alt, null, 'not "Play audio", which every one of them says');
+
+            const hrefs = media.map((m) => m.href);
+            assert.ok(
+                !hrefs.some((h) => h.includes('File:nightingale.mid')),
+                'a description page is a page about a sound, not a sound',
+            );
+            assert.ok(!hrefs.some((h) => h.endsWith('/wiki/Nightingale')), 'and prose links are not media');
+        });
+
+        it('says which assets are really in the vault, and where', async () => {
+            const { media } = await reader.media(rel('article.clip'));
+
+            const cached = findByName(media, 'clip-aaaaaaaaaaaa.png');
+            assert.equal(cached.cached, true);
+            assert.equal(cached.path, path.join(ROOT, 'media', 'clip-aaaaaaaaaaaa.png'));
+            assert.equal(cached.bytes, buildPng(1).length, 'size read from the file on disk');
+
+            // The point of reporting it at all: a picture visible on the page that the
+            // clipper could not download is explained, not silently missing.
+            const remote = findByName(media, 'too-big.png');
+            assert.equal(remote.cached, false);
+            assert.equal(remote.path, null);
+            assert.equal(remote.bytes, null);
+            assert.equal(remote.href, 'https://example.test/too-big.png', 'still addressed by its remote URL');
+        });
+
+        it('counts a clip\'s media by kind in info()', async () => {
+            const info = await reader.info(rel('article.clip'));
+            assert.deepEqual(info.media, { total: 6, images: 3, audio: 3 });
+            // A clip with nothing in it reports an empty tally rather than undefined.
+            assert.deepEqual((await reader.info(rel('page.clip'))).media, { total: 0, images: 0, audio: 0 });
+        });
+
+        it('serves a cached asset\'s bytes by href or bare name', async () => {
+            const byHref = await reader.mediaBuffer(rel('article.clip'), './media/clip-bbbbbbbbbbbb.png');
+            assert.deepEqual(byHref.buffer, buildPng(2), 'the actual file, byte for byte');
+            assert.equal(byHref.mediaType, 'image/png');
+            assert.equal(byHref.kind, 'image');
+
+            const byName = await reader.mediaBuffer(rel('article.clip'), 'clip-cccccccccccc.mp3');
+            assert.equal(byName.kind, 'audio');
+            assert.equal(byName.mediaType, 'audio/mpeg');
+            assert.equal(byName.buffer.toString(), 'ID3-fake-mp3-bytes');
+        });
+
+        it('refuses an asset still out on the web, rather than fetching it', async () => {
+            // This module does no network IO on a caller's behalf, whatever the caller
+            // wants; saving one is documents.saveClipAsset, which is a write and says so.
+            await assert.rejects(
+                () => reader.mediaBuffer(rel('article.clip'), 'https://example.test/too-big.png'),
+                (e) => e.status === 400 && /not in the vault/.test(e.message),
+            );
+        });
+
+        it('refuses an href the clip does not reference', async () => {
+            // The allow-list is the security boundary here exactly as it is for a book:
+            // without it, a clip becomes a way to read any file in the vault.
+            for (const href of ['./media/secret.png', '../../notes.md', '../../../etc/passwd']) {
+                await assert.rejects(
+                    () => reader.mediaBuffer(rel('article.clip'), href),
+                    (e) => e.status === 400 && /No media/.test(e.message),
+                    `${href} must not be readable`,
+                );
+            }
+        });
+
+        it('still serves a book through the general media surface', async () => {
+            // media()/mediaBuffer() must not have quietly become clip-only.
+            const { media } = await reader.media(rel('illustrated.epub'));
+            assert.ok(media.length > 0);
+            assert.ok(media.every((m) => m.kind === 'image'), 'a book carries pictures only');
+            assert.ok(media.every((m) => m.path === null), 'a figure in a zip has no path on disk');
+            assert.equal(media[0].section, 'Cells', 'EPUB fields survive the generalization');
+
+            const bytes = await reader.mediaBuffer(rel('illustrated.epub'), 'fig 2.png');
+            assert.deepEqual(bytes.buffer, buildPng(2));
+        });
+
+        it('refuses a format that carries no media at all', async () => {
+            await assert.rejects(
+                () => reader.media(rel('notes.md')),
+                (e) => e.status === 415 && /EPUBs and saved web clips/.test(e.message),
             );
         });
     });
