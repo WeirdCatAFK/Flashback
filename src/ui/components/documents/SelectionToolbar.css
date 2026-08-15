@@ -1,5 +1,10 @@
 .selection-toolbar {
   position: fixed;
+  /* Portaled to document.body, outside #app-shell's zoom — so it has to opt back in
+     to scale with the document it annotates. Its `rect` prop arrives in shell-layout
+     space (see utils/uiZoom.js), which is what this makes the offsets mean.
+     translateX(-50%) is self-relative and stays correct under zoom. */
+  zoom: var(--ui-zoom, 1);
   transform: translateX(-50%);
   display: flex;
   align-items: center;

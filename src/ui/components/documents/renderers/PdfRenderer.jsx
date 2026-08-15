@@ -3,6 +3,7 @@ import { getDocument, GlobalWorkerOptions, TextLayer } from 'pdfjs-dist';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { readFile, updateMetadata } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
+import { getUiZoom, useUiZoomChange } from '../../../utils/uiZoom';
 import { useT } from '../../../translations';
 import './PdfRenderer.css';
 import './Renderer.css';
@@ -17,6 +18,20 @@ const SCALE_DEFAULT = 1.2;
 function generateId() {
   const rand = crypto.getRandomValues(new Uint32Array(2));
   return 'h_' + (rand[0].toString(36) + rand[1].toString(36)).slice(0, 9);
+}
+
+// Divisor that turns a VIEWPORT-space length — what getBoundingClientRect() and a
+// mouse event's clientX/clientY report — into PDF units, which is how a bbox is
+// stored so it survives a zoom change.
+//
+// `scale` is layout px per PDF unit, and app zoom multiplies layout px into viewport
+// px on top of that (see utils/uiZoom.js), so BOTH factors have to come out. Dividing
+// by `scale` alone leaves a stray uiZoom baked into the sidecar: a box drawn at 150%
+// is persisted 1.5x too large and 1.5x too far from the page origin, then rendered
+// back without the factor. Rendering needs no such correction — `bbox * scale` lands
+// inside .pdf-page, which is itself sized in layout px.
+function viewportToPdf(scale) {
+  return scale * getUiZoom();
 }
 
 // --- PdfPage ---
@@ -233,11 +248,16 @@ export default function PdfRenderer({
         pageEl,
         startClientX: e.clientX,
         startClientY: e.clientY,
+        // The band is `position: fixed` but lives INSIDE the zoomed #app-shell, so its
+        // inline offsets are read as layout px while clientX/clientY arrive in viewport
+        // px. Captured once at mousedown so a zoom mid-drag can't split the math.
+        uiZoom: getUiZoom(),
       };
       if (drawOverlayRef.current) {
+        const z = drawDragRef.current.uiZoom;
         drawOverlayRef.current.style.display = 'block';
-        drawOverlayRef.current.style.left   = e.clientX + 'px';
-        drawOverlayRef.current.style.top    = e.clientY + 'px';
+        drawOverlayRef.current.style.left   = e.clientX / z + 'px';
+        drawOverlayRef.current.style.top    = e.clientY / z + 'px';
         drawOverlayRef.current.style.width  = '0';
         drawOverlayRef.current.style.height = '0';
       }
@@ -245,11 +265,11 @@ export default function PdfRenderer({
 
     const onMouseMove = (e) => {
       if (!drawDragRef.current || !drawOverlayRef.current) return;
-      const { startClientX, startClientY } = drawDragRef.current;
-      drawOverlayRef.current.style.left   = Math.min(e.clientX, startClientX) + 'px';
-      drawOverlayRef.current.style.top    = Math.min(e.clientY, startClientY) + 'px';
-      drawOverlayRef.current.style.width  = Math.abs(e.clientX - startClientX) + 'px';
-      drawOverlayRef.current.style.height = Math.abs(e.clientY - startClientY) + 'px';
+      const { startClientX, startClientY, uiZoom: z } = drawDragRef.current;
+      drawOverlayRef.current.style.left   = Math.min(e.clientX, startClientX) / z + 'px';
+      drawOverlayRef.current.style.top    = Math.min(e.clientY, startClientY) / z + 'px';
+      drawOverlayRef.current.style.width  = Math.abs(e.clientX - startClientX) / z + 'px';
+      drawOverlayRef.current.style.height = Math.abs(e.clientY - startClientY) / z + 'px';
     };
 
     const onMouseUp = (e) => {
@@ -264,7 +284,7 @@ export default function PdfRenderer({
 
       // Re-read page rect at mouseup time to handle scroll-during-drag
       const pr = pageEl.getBoundingClientRect();
-      const sc = scaleRef.current;
+      const sc = viewportToPdf(scaleRef.current);
       const bbox = {
         x:      Math.min(e.clientX, startClientX) - pr.left,
         y:      Math.min(e.clientY, startClientY) - pr.top,
@@ -308,6 +328,14 @@ export default function PdfRenderer({
     };
   }, [drawMode]);
 
+  // Zooming mid-drag would leave the band's captured uiZoom stale and bank a wrong
+  // bbox on release, so abandon the drag the same way Escape does.
+  useUiZoomChange(() => {
+    if (!drawDragRef.current) return;
+    drawDragRef.current = null;
+    if (drawOverlayRef.current) drawOverlayRef.current.style.display = 'none';
+  });
+
   // Find the highlight (if any) whose bbox contains the centre of the current selection
   const findOverlappingHighlight = useCallback(() => {
     const sel = window.getSelection();
@@ -319,8 +347,9 @@ export default function PdfRenderer({
       const pageNum = parseInt(pageEl.dataset.page, 10);
       const pr = pageEl.getBoundingClientRect();
       const sr = range.getBoundingClientRect();
-      const cx = ((sr.left + sr.right)  / 2 - pr.left) / scaleRef.current;
-      const cy = ((sr.top  + sr.bottom) / 2 - pr.top)  / scaleRef.current;
+      const sc = viewportToPdf(scaleRef.current);
+      const cx = ((sr.left + sr.right)  / 2 - pr.left) / sc;
+      const cy = ((sr.top  + sr.bottom) / 2 - pr.top)  / sc;
       return (
         highlightsRef.current.find(h =>
           h.page === pageNum && h.bbox &&
@@ -361,7 +390,7 @@ export default function PdfRenderer({
           }
 
           // New highlight — bbox in PDF units at scale=1
-          const sc = scaleRef.current;
+          const sc = viewportToPdf(scaleRef.current);
           const pr = pageEl.getBoundingClientRect();
           const rr = range.getBoundingClientRect();
           const bbox = {

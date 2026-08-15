@@ -19,6 +19,7 @@ import ShortcutsOverlay from "./components/ShortcutsOverlay";
 import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
 import { relocatePath } from "./utils/relocatePath";
+import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { useT } from "./translations/index.jsx";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'config'];
@@ -172,6 +173,9 @@ export default function App() {
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-zoom", zoom);
     localStorage.setItem("fb-zoom", zoom);
+    // Overlays anchored to a captured rect (selection toolbar, the renderers'
+    // hover buttons) dismiss on this — the element they point at just moved.
+    notifyUiZoomChanged();
   }, [zoom]);
 
   useEffect(() => {

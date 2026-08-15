@@ -123,6 +123,21 @@ const GraphView      = lazy(() => import('./views/GraphView'));
 
 `App.jsx` does not fetch data, does not hold server state, and does not know what the active view renders. It only switches between views.
 
+### App zoom and the two coordinate spaces
+
+`App.jsx` also owns app zoom (Ctrl `+`/`−`/`0`, persisted as `fb-zoom`): it writes `--ui-zoom` on `<html>`, and `App.css` applies it as `#app-shell { zoom: var(--ui-zoom, 1) }`. That one declaration splits the renderer into two coordinate spaces, and mixing them is the single easiest geometry bug to write:
+
+| space | what reports it |
+|---|---|
+| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`) |
+| **layout** (unzoomed CSS px) | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
+
+**The rule: position every floating overlay in layout space.** An overlay inside `#app-shell` needs nothing extra. One portaled to `document.body` carries `zoom: var(--ui-zoom, 1)` in its own CSS so it scales with the document it annotates (`SelectionToolbar.css`). Geometry arriving in viewport space is converted at the point of **capture**, never at render — that way every placement constant downstream stays plain layout px and no call site has to know any of this.
+
+`src/ui/utils/uiZoom.js` is the only module that reads `--ui-zoom`: `getUiZoom()`, `toLayoutRect()`, `layoutViewport()`, plus `useUiZoomChange()` for overlays that must dismiss when the anchor moves (a zoom change is as invalidating as a scroll). `GraphView.css` is the one deliberate exception — it counter-zooms with `zoom: calc(1 / var(--ui-zoom, 1))` because its D3 transform math is in root pixels.
+
+Anything that persists captured geometry has to strip the zoom too, not just overlays: `PdfRenderer`'s highlight `bbox` is stored in PDF units, so its capture divides by `scale * getUiZoom()` — dividing by `scale` alone banks the zoom into the sidecar and the box reopens in the wrong place.
+
 ---
 
 ## Entry Point (`src/ui/index.jsx`)

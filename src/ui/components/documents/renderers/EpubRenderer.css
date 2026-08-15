@@ -88,8 +88,10 @@
 }
 
 /* "Make a card from this image" — anchored to a clicked figure. Positioned from
-   viewport coordinates (the rect is translated out of the section iframe), so it is
-   fixed, not absolute, and sits above the SelectionToolbar's stacking neighbours. */
+   shell-layout coordinates (the rect is translated out of the section iframe by
+   toShellRect), so it is fixed, not absolute: it escapes the viewport's overflow
+   without leaving the zoomed shell whose scale its offsets are read in. Sits above
+   the SelectionToolbar's stacking neighbours. */
 .epub-image-action {
   position: fixed;
   z-index: 400;

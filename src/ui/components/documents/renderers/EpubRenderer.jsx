@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { readFile, updateMetadata, fetchRaw } from '../../../api/documents';
+import { layoutViewport, useUiZoomChange } from '../../../utils/uiZoom';
 import { useT } from '../../../translations';
 import './EpubRenderer.css';
 import './Renderer.css';
@@ -14,7 +15,7 @@ import './Renderer.css';
 // epub.js renders each spine section into a sandboxed iframe, so text selection
 // happens inside that iframe (invisible to DocumentEditor's top-window selection
 // pipeline). We bridge it: listen to epub.js's `selected` event, translate the
-// iframe-relative rect to viewport coords, and drive DocumentEditor's existing
+// iframe-relative rect into shell-layout coords, and drive DocumentEditor's existing
 // SelectionToolbar via the onExternalSelection prop. The highlight commands then
 // operate on the stored pending CFI range instead of window.getSelection().
 
@@ -45,26 +46,29 @@ function isDarkTheme() {
 }
 
 /**
- * A rect measured INSIDE a section iframe, expressed in top-window coordinates.
+ * A rect measured INSIDE a section iframe, expressed in the app shell's LAYOUT
+ * coordinates — the space every floating overlay is positioned in (see utils/uiZoom.js).
  *
- * The two are in different scales when the page is zoomed: an in-iframe rect stays in
- * the iframe's own layout pixels, while the iframe element measured from the top
- * document is already scaled by Chromium's per-origin zoom (which a packaged file://
- * build can set differently from dev). Composing them directly makes an overlay drift
- * further with every page; scaling by the rendered/layout ratio first is a no-op at
- * 100% and correct everywhere else.
+ * An in-iframe rect is already in layout pixels: the iframe's own document lays out
+ * unzoomed no matter what scales the element on screen. Only the iframe element's
+ * offset comes back zoomed, because getBoundingClientRect() reports viewport pixels —
+ * so that offset is the one part the zoom has to come out of. Composing the two
+ * directly makes an overlay drift further with every page.
+ *
+ * The ratio is measured rather than read from --ui-zoom so it also absorbs Chromium's
+ * per-origin zoom, which a packaged file:// build can set differently from dev. It is
+ * a no-op at 100% and correct everywhere else.
  */
-function toViewportRect(contents, rect) {
+function toShellRect(contents, rect) {
   const iframe = contents.document?.defaultView?.frameElement;
   const io = iframe?.getBoundingClientRect();
   if (!rect || !io) return null;
-  const scaleX = iframe.offsetWidth ? io.width / iframe.offsetWidth : 1;
-  const scaleY = iframe.offsetHeight ? io.height / iframe.offsetHeight : 1;
+  const z = iframe.offsetWidth ? io.width / iframe.offsetWidth : 1;
   return {
-    top: io.top + rect.top * scaleY,
-    left: io.left + rect.left * scaleX,
-    width: rect.width * scaleX,
-    height: rect.height * scaleY,
+    top: io.top / z + rect.top,
+    left: io.left / z + rect.left,
+    width: rect.width,
+    height: rect.height,
   };
 }
 
@@ -244,7 +248,7 @@ export default function EpubRenderer({
       try {
         const range = contents.range(cfiRange);
         text = range?.toString() ?? '';
-        rect = toViewportRect(contents, range?.getBoundingClientRect());
+        rect = toShellRect(contents, range?.getBoundingClientRect());
       } catch { /* ignore */ }
       pendingSelRef.current = { cfiRange, text };
       setImageHit(null);   // a text selection supersedes a picked figure
@@ -284,7 +288,7 @@ export default function EpubRenderer({
         // the wrong figure. The card form's "From book" picker still reaches it.
         if (!href) return setImageHit(null);
 
-        const rect = toViewportRect(contents, el.getBoundingClientRect());
+        const rect = toShellRect(contents, el.getBoundingClientRect());
         if (!rect) return setImageHit(null);
         setImageHit({ href, name: href.split('/').pop(), alt: el.getAttribute('alt') ?? null, rect });
       });
@@ -338,6 +342,10 @@ export default function EpubRenderer({
     ro.observe(el);
     return () => { ro.disconnect(); clearTimeout(t); };
   }, []);
+
+  // An app-zoom change repaginates through that same observer, so the figure the
+  // button points at is about to move. Drop it, exactly as `relocated` does.
+  useUiZoomChange(() => setImageHit(null));
 
   // --- Save (sidecar only; EPUB body never changes) --------------------------
   const handleSaveRef = useRef(null);
@@ -468,7 +476,7 @@ export default function EpubRenderer({
             type="button"
             className="epub-image-action"
             style={
-              imageHit.rect.top + imageHit.rect.height + 44 > window.innerHeight
+              imageHit.rect.top + imageHit.rect.height + 44 > layoutViewport().height
                 ? { top: imageHit.rect.top - 34, left: imageHit.rect.left }
                 : { top: imageHit.rect.top + imageHit.rect.height + 6, left: imageHit.rect.left }
             }

@@ -13,6 +13,7 @@ import PlaceholderRenderer from './renderers/PlaceholderRenderer';
 import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
+import { toLayoutRect, useUiZoomChange } from '../../utils/uiZoom';
 import { useT } from '../../translations';
 import './DocumentEditor.css';
 
@@ -209,8 +210,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   }, []);
 
   // Bridge for iframe-based renderers (EPUB) whose text selection lives outside
-  // the top-window selection pipeline. They report a viewport-space rect and the
-  // selected text; we drive the same SelectionToolbar from it. `null` clears.
+  // the top-window selection pipeline. They report a shell-layout-space rect (the
+  // space handleMouseUp converts into) and the selected text; we drive the same
+  // SelectionToolbar from it. `null` clears.
   const handleExternalSelection = useCallback((payload) => {
     if (!payload || !payload.text || !payload.rect) {
       clearSelection();
@@ -227,7 +229,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
       return;
     }
     const range = sel.getRangeAt(0);
-    const rect  = range.getBoundingClientRect();
+    // The toolbar is positioned in shell-layout space (see utils/uiZoom.js), so the
+    // viewport rect is converted here rather than at the point of use.
+    const rect  = toLayoutRect(range.getBoundingClientRect());
     setSelection({ text: sel.toString().trim(), startOffset: range.startOffset, endOffset: range.endOffset });
     setSelectionRect(rect);
   }, [clearSelection]);
@@ -257,6 +261,10 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
       window.removeEventListener('scroll', onScroll, true);
     };
   }, [selectionRect, clearSelection]);
+
+  // Same reason as the scroll dismissal: an app-zoom change reflows the document, so
+  // the rect the toolbar is anchored to no longer covers the selection.
+  useUiZoomChange(clearSelection);
 
   const countCardsForHighlight = useCallback((id) =>
     flashcards.filter(c => c?.vanillaData?.location?.type === 'highlight'

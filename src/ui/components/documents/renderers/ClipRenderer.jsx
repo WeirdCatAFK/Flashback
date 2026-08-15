@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, setClipSource } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
+import { toLayoutRect, layoutViewport, useUiZoomChange } from '../../../utils/uiZoom';
 import { useT } from '../../../translations';
 import './ClipRenderer.css';
 import './Renderer.css';
@@ -163,11 +164,14 @@ function isSoundLink(href) {
 // right edge of the window rather than running off it.
 const BESIDE_MAX_WIDTH = 160;
 const ACTION_CLEARANCE = 240;
+// `rect` is in shell-layout space (mediaHitFor converts it), so these constants and
+// the window width they are compared against have to be too — see utils/uiZoom.js.
 function actionPosition(rect) {
-  const beside = rect.width < BESIDE_MAX_WIDTH && rect.right + ACTION_CLEARANCE < window.innerWidth;
+  const vw = layoutViewport().width;
+  const beside = rect.width < BESIDE_MAX_WIDTH && rect.right + ACTION_CLEARANCE < vw;
   return beside
     ? { top: Math.max(8, rect.top - 2), left: rect.right + 8 }
-    : { top: Math.max(8, rect.top + 8), right: Math.max(8, window.innerWidth - rect.right + 8) };
+    : { top: Math.max(8, rect.top + 8), right: Math.max(8, vw - rect.right + 8) };
 }
 
 // The asset under the pointer, as the card form needs to hear about it, or null when
@@ -188,7 +192,9 @@ function mediaHitFor(el) {
     kind: isSound ? 'audio' : 'image',
     name: href.split('?')[0].split('#')[0].split('/').pop() || null,
     alt: el.getAttribute('alt')?.trim() || null,
-    rect,
+    // Converted here, once, so every size threshold and placement offset downstream
+    // is plain layout px and none of them has to know about app zoom.
+    rect: toLayoutRect(rect),
   };
 }
 
@@ -317,6 +323,10 @@ export default function ClipRenderer({
       window.removeEventListener('scroll', onScroll, true);
     };
   }, [loading, error, empty, path, cancelHide, hideSoon]);
+
+  // Same reasoning as the scroll dismissal above: an app-zoom change relays out the
+  // body under the pointer, so the captured rect no longer points at the asset.
+  useUiZoomChange(() => { cancelHide(); setMediaHit(null); });
 
   // Save: sidecar only — the body changes only when an asset is saved into the
   // vault, and saveClipAsset owns that write.

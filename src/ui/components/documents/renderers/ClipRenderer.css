@@ -146,8 +146,9 @@
 .clip-body mark[data-color="pink"]  { background: var(--color-hl-4); }
 
 /* The save-to-a-card button that appears over a hovered picture or sound. Sits on
-   the asset's corner the way a save button does anywhere else; fixed-position
-   because it is placed from a viewport rect. */
+   the asset's corner the way a save button does anywhere else; fixed-position so it
+   escapes the body's scroll container, placed from a shell-layout rect (mediaHitFor
+   converts one — see utils/uiZoom.js) so its offsets and the zoom agree. */
 .clip-media-action {
   position: fixed;
   z-index: 400;
