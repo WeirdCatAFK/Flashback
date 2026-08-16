@@ -252,39 +252,61 @@ function resolveClipAsset(cdoc, wanted) {
 // it is left playing from its own server rather than copied into the vault.
 const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 
-// Level 6 == fully learned, matching the divisor in CARD_LEARNED_SQL.
-const LEARNED_FULL_LEVEL = 6;
-
 const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
 
 /**
- * Rolls each graph node's raw learning columns up into a single `learned`
- * scalar in 0..1, and drops the intermediate sums from the payload.
+ * Rolls each graph node's raw learning columns up into the two scalars the graph
+ * draws with, and drops the intermediate sums from the payload.
  *
- * `cardCount` rides along for Documents because it is the only thing that
- * separates "this document has no cards" from "this document's cards are all
- * brand new" — both of which score 0.
+ * These are deliberately separate channels, because one cannot substitute for
+ * the other:
  *
- * Folders take the coarse path: Folders.presence is already a recursive average
- * of document presences (see propagatePresence), so we run the same level curve
- * over it rather than paying a query per folder to re-derive it from cards.
+ *   `mass`    — how much knowledge the node stands for, in mastered-card-
+ *               equivalents. Unbounded. Drives halo *size*.
+ *   `learned` — how well that knowledge is held, 0..1. A mean, so it is scale-
+ *               free by construction. Drives halo *opacity*.
+ *
+ * A node holding two perfect cards and a node holding eighty cards at half
+ * strength both used to be described by `learned` alone, which made the smaller
+ * one look like the stronger knowledge area (mass 2 vs mass 40). `mass` is what
+ * tells them apart.
+ *
+ * `cardCount` rides along because it is the only thing that separates "this node
+ * has no cards" from "this node's cards are all brand new" — both score 0.
+ *
+ * Tags and Decks are left at zero here and filled in client-side: their members
+ * are already-summed Documents and Flashcards, so aggregating them needs the
+ * edge list rather than another join. See `aggregateMass` in ui/views/graphMetrics.js.
  */
 function graphNodeLearning(node) {
-    const { learnedSum, flashcardLearned, cardCount, ...rest } = node;
+    const {
+        learnedSum, flashcardLearned, cardCount,
+        folderLearnedSum, folderCardCount,
+        ...rest
+    } = node;
     let learned = 0;
     let cards = 0;
+    let mass = 0;
 
     if (node.type === 'Document') {
         cards = cardCount ?? 0;
-        learned = cards > 0 ? clamp01((learnedSum ?? 0) / cards) : 0;
+        mass = Math.max(0, learnedSum ?? 0);
+        learned = cards > 0 ? clamp01(mass / cards) : 0;
     } else if (node.type === 'Flashcard') {
         cards = 1;
-        learned = clamp01(flashcardLearned);
+        mass = clamp01(flashcardLearned);
+        learned = mass;
     } else if (node.type === 'Folder') {
-        learned = clamp01((node.presence ?? 0) / LEARNED_FULL_LEVEL);
+        // Card-weighted, not Folders.presence. presence is an unweighted recursive
+        // average of document presences, so a single perfect two-card document
+        // lifts a folder exactly as hard as a hundred-card one — the same
+        // scale-free error this whole split exists to correct, one level up.
+        cards = folderCardCount ?? 0;
+        mass = Math.max(0, folderLearnedSum ?? 0);
+        learned = cards > 0 ? clamp01(mass / cards) : 0;
     }
 
-    return { ...rest, learned, cardCount: cards };
+    return { ...rest, learned, mass, cardCount: cards };
 }
 
 export default class Documents {

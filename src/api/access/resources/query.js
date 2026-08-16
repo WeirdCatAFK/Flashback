@@ -1594,6 +1594,27 @@ class DocumentQuery {
 
     getGraphData() {
         const nodes = this.db.prepare(`
+            WITH RECURSIVE folder_tree AS (
+                SELECT id, id AS root_id FROM Folders
+                UNION ALL
+                SELECT fo.id, ft.root_id FROM Folders fo
+                JOIN folder_tree ft ON fo.parent_id = ft.id
+            ),
+            -- Recursive card rollup per folder: every card in the folder's whole
+            -- subtree, counted and summed. Folders.presence can't stand in for this
+            -- — it's an unweighted average of document presences, so it says how
+            -- well the folder is known but nothing about how much it holds.
+            -- Seeded from every folder, so this is O(folders x depth); at vault
+            -- scale that's cheaper than a query per folder.
+            folder_rollup AS (
+                SELECT ft.root_id,
+                       COUNT(ffc.id)                                 AS cardCount,
+                       COALESCE(SUM(${CARD_LEARNED_SQL('ffc')}), 0)  AS learnedSum
+                FROM folder_tree ft
+                JOIN Documents fd ON fd.folder_id = ft.id
+                LEFT JOIN Flashcards ffc ON ffc.document_id = fd.id
+                GROUP BY ft.root_id
+            )
             SELECT n.id, nt.name as type,
                    COALESCE(d.name, f.name, t.name, fc.name, dk.name) as label,
                    COALESCE(d.presence, f.presence, fc.presence, 0) as presence,
@@ -1604,6 +1625,8 @@ class DocumentQuery {
                    dk.is_system      as deckIsSystem,
                    dl.cardCount      as cardCount,
                    dl.learnedSum     as learnedSum,
+                   fr.cardCount      as folderCardCount,
+                   fr.learnedSum     as folderLearnedSum,
                    ${CARD_LEARNED_SQL('fc')} as flashcardLearned
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
@@ -1622,6 +1645,7 @@ class DocumentQuery {
                 WHERE document_id IS NOT NULL
                 GROUP BY document_id
             ) dl ON dl.document_id = d.id
+            LEFT JOIN folder_rollup fr ON fr.root_id = f.id
             WHERE NOT (
                 nt.name = 'Deck' AND NOT EXISTS (
                     SELECT 1 FROM Connections c2

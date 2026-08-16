@@ -3,6 +3,7 @@ import ForceGraph2D from 'react-force-graph-2d';
 import { forceCollide, forceX, forceY } from 'd3-force';
 import { getGraph } from '../api/documents';
 import { useT } from '../translations';
+import { aggregateMass, haloRadius, collideRadius, HALO_BASE, HALO_K, HALO_MAX } from './graphMetrics';
 import './GraphView.css';
 
 const HOVER_SELECT_DELAY = 700; // ms before hover auto-selects a node
@@ -50,16 +51,17 @@ function usePersisted(key, initial, sanitize) {
   return [value, setValue];
 }
 
-// How committed to memory a node is, 0..1. Computed server-side from FSRS
-// stability where available and the Leitner level otherwise; see
-// graphNodeLearning in access/orchestration/documents.js.
+// How committed to memory a node is, 0..1 — a rate, so it says nothing about how
+// much the node holds. Computed server-side from FSRS stability where available
+// and the Leitner level otherwise; see graphNodeLearning in
+// access/orchestration/documents.js. Drives halo opacity.
 const learnedOf = n => n.learned || 0;
 
-// Halo size climbs 1.5x per level up the containment hierarchy, so a folder's
-// halo envelops its documents' and a document's envelops its cards'. A parent
-// stands for everything under it, and its illumination should cover that ground.
-const HALO_SCALE = { Flashcard: 1, Deck: 1, Tag: 1, Document: 1.5, Folder: 2.25 };
-const haloScale = n => HALO_SCALE[n.type] ?? 1;
+// How much knowledge the node stands for, in mastered-card-equivalents. Drives
+// halo size. A parent's mass is the sum of its children's, so √(sum) ≥ √(each)
+// and a folder's halo envelops its documents' as a matter of arithmetic — which
+// is what the old per-type HALO_SCALE constant (1 / 1.5 / 2.25) was guessing at.
+const massOf = n => n.mass || 0;
 
 // Nodes below this barely register visually and aren't worth an arc per frame.
 const LEARNED_FLOOR = 0.03;
@@ -157,17 +159,29 @@ function buildGraphData({ nodes = [], edges = [] }) {
     links.push({ source: e.fromId, target: e.toId, relation: e.relation });
   }
 
-  return {
-    nodes: nodes.map(n => ({
-      ...n,
-      name: (n.type === 'Flashcard' && n.flashcardFront)
-        ? n.flashcardFront.slice(0, 52) + (n.flashcardFront.length > 52 ? '…' : '')
-        : (n.label ?? String(n.id)),
-    })),
-    links,
-    originIds,
-    defaultDeckIds,
-  };
+  const named = nodes.map(n => ({
+    ...n,
+    name: (n.type === 'Flashcard' && n.flashcardFront)
+      ? n.flashcardFront.slice(0, 52) + (n.flashcardFront.length > 52 ? '…' : '')
+      : (n.label ?? String(n.id)),
+  }));
+
+  // Tags and Decks arrive with mass 0 — they aggregate Documents and Flashcards,
+  // which needs the edge list rather than another join. Fed `links` rather than
+  // raw `edges` so a severed connection stops contributing mass, exactly as it
+  // stops being drawn. Done here rather than in visibleData on purpose: a tag's
+  // mass is a property of the vault, and must not change because the user
+  // toggled a folder off.
+  const aggregated = aggregateMass(named, links);
+  for (const n of named) {
+    const agg = aggregated.get(n.id);
+    if (!agg) continue;
+    n.mass = agg.mass;
+    n.cardCount = agg.cardCount;
+    n.learned = agg.cardCount > 0 ? Math.min(1, agg.mass / agg.cardCount) : 0;
+  }
+
+  return { nodes: named, links, originIds, defaultDeckIds };
 }
 
 function useGraph(isActive) {
@@ -347,7 +361,16 @@ function redraw() {
   // Mirrors the in-app tuning (GraphView.jsx): short-range repulsion so
   // communities can form, collide as the no-overlap floor, and learned edges
   // that contract. Cohesion is fixed at the in-app default here.
+  //
+  // This page is standalone and cannot import graphMetrics.js, so the halo math
+  // is restated below. The constants are interpolated from the module, so the
+  // numbers cannot drift even though the function bodies are duplicated.
   var learnedOf = function(n) { return n.learned || 0; };
+  var massOf    = function(n) { return n.mass || 0; };
+  var haloRadius = function(m) {
+    if (!(m > 0)) return ${HALO_BASE};
+    return Math.min(${HALO_MAX}, ${HALO_BASE} + ${HALO_K} * Math.sqrt(m));
+  };
   var minLearn = function(l) { return Math.min(learnedOf(l.source), learnedOf(l.target)); };
   var deg = {};
   links.forEach(function(l) {
@@ -364,7 +387,7 @@ function redraw() {
       }))
     .force('charge', d3.forceManyBody().strength(-139).distanceMax(278))
     .force('center', d3.forceCenter(W / 2, H / 2))
-    .force('collide', d3.forceCollide(function(d) { return 7 + 5 + learnedOf(d) * 10; }))
+    .force('collide', d3.forceCollide(function(d) { return 7 + 5 + 0.35 * (haloRadius(massOf(d)) - ${HALO_BASE}); }))
     .force('x', d3.forceX(W / 2).strength(function(d) { return 0.015 + 0.05 * learnedOf(d); }))
     .force('y', d3.forceY(H / 2).strength(function(d) { return 0.015 + 0.05 * learnedOf(d); }))
     .velocityDecay(0.45);
@@ -404,10 +427,11 @@ function redraw() {
   // of the in-app additive pass: adjacent learned nodes merge into one lit
   // region instead of stacking as separate discs. The export ground is always
   // dark, so screen is always the right operator here.
-  var HALO_SCALE = { Flashcard: 1, Deck: 1, Tag: 1, Document: 1.5, Folder: 2.25 };
-  var haloScale = function(d) { return HALO_SCALE[d.type] || 1; };
+  //
+  // Size from mass, opacity from the learned rate — the same two channels the
+  // in-app graph uses, so a big half-known area out-glows a small perfect one.
   nodeSel.append('circle')
-    .attr('r', function(d) { return (7 + 4 + learnedOf(d) * 16) * haloScale(d); })
+    .attr('r', function(d) { return haloRadius(massOf(d)); })
     .attr('fill', function(d) { return COLORS.nodes[d.type] || '#888'; })
     .attr('fill-opacity', function(d) {
       var L = learnedOf(d);
@@ -718,7 +742,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
         return base * (1 + 0.8 * minLearn(l));
       });
 
-    fg.d3Force('collide', forceCollide(node => NODE_R + 5 + learnedOf(node) * 10));
+    // Spacing follows halo size, but only a fraction of it — see collideRadius.
+    fg.d3Force('collide', forceCollide(node => collideRadius(node, NODE_R)));
 
     // Also keeps disconnected components in frame now that repulsion is capped.
     fg.d3Force('x', forceX(0).strength(n => 0.015 + 0.05 * learnedOf(n)));
@@ -847,27 +872,33 @@ export default function GraphView({ isActive = false, onNavigate }) {
 
     // Pass 1 — flat halo colour. Hard-edged discs, not gradients: the effect is
     // additive colour, in keeping with the app's flat look.
+    //
+    // Size comes from mass, opacity from the learned rate. Keeping them on
+    // separate channels is what lets "a lot, half-known" out-read "a little,
+    // perfectly known" — the wide dim halo covers far more ground than the small
+    // bright one, which is the honest picture.
     for (const node of nodes) {
       const L = learnedOf(node);
       if (L <= LEARNED_FLOOR || !isFinite(node.x) || !isFinite(node.y)) continue;
       const dim = alphaRef.current[node.id] ?? 1;
       ctx.beginPath();
-      ctx.arc(node.x, node.y, (NODE_R + 4 + L * 16) * haloScale(node), 0, 2 * Math.PI);
+      ctx.arc(node.x, node.y, haloRadius(massOf(node)), 0, 2 * Math.PI);
       ctx.fillStyle = withAlpha(colors.nodes[node.type] ?? colors.nodes.Document,
         (0.08 + 0.20 * L) * dim);
       ctx.fill();
     }
 
     // Pass 2 — bloom. Opt-in, because a wide soft gradient is the one part of
-    // this that reads as a literal glow. Only strongly-learned nodes bloom, so
-    // an isolated mastered card stays a soft ring and a mastered cluster lights.
+    // this that reads as a literal glow. The gate stays on the learned rate —
+    // bloom means *well-learned* — while the size, like every other halo, comes
+    // from mass.
     if (bloom) {
       for (const node of nodes) {
         const L = learnedOf(node);
         if (L <= 0.6 || !isFinite(node.x) || !isFinite(node.y)) continue;
         const dim = alphaRef.current[node.id] ?? 1;
         const color = colors.nodes[node.type] ?? colors.nodes.Document;
-        const r = (NODE_R + L * 44) * haloScale(node);
+        const r = haloRadius(massOf(node)) * 1.8;
         const grad = ctx.createRadialGradient(node.x, node.y, NODE_R, node.x, node.y, r);
         grad.addColorStop(0, withAlpha(color, 0.07 * ((L - 0.6) / 0.4) * dim));
         grad.addColorStop(1, withAlpha(color, 0));
@@ -968,8 +999,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
     if (!visibleData) return;
     const out = {
       exportedAt: new Date().toISOString(),
-      nodes: visibleData.nodes.map(({ id, type, name, label, presence, learned, cardCount, documentPath, flashcardHash }) =>
-        ({ id, type, name, label, presence, learned, cardCount, documentPath, flashcardHash })),
+      nodes: visibleData.nodes.map(({ id, type, name, label, presence, learned, mass, cardCount, documentPath, flashcardHash }) =>
+        ({ id, type, name, label, presence, learned, mass, cardCount, documentPath, flashcardHash })),
       links: visibleData.links.map(l => ({ source: nodeId(l.source), target: nodeId(l.target), relation: l.relation })),
     };
     downloadBlob(new Blob([JSON.stringify(out, null, 2)], { type: 'application/json' }), `flashback-graph-${datestamp()}.json`);
@@ -979,7 +1010,8 @@ export default function GraphView({ isActive = false, onNavigate }) {
   function handleExportHtml() {
     if (!visibleData) return;
     const exportNodes = visibleData.nodes.map(n => ({
-      id: n.id, type: n.type, name: n.name, presence: n.presence || 0, learned: learnedOf(n),
+      id: n.id, type: n.type, name: n.name, presence: n.presence || 0,
+      learned: learnedOf(n), mass: massOf(n),
     }));
     const exportLinks = visibleData.links.map(l => ({
       source: nodeId(l.source), target: nodeId(l.target), relation: l.relation,
