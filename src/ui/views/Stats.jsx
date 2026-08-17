@@ -4,6 +4,7 @@ import { getStatistics } from "../api/srs";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { ramp } from "../utils/chartRamp";
 import { useT } from "../translations";
+import { getPref } from "../prefs.js";
 
 /**
  * Stats — read-only, vault-wide study analytics. Everything here is derived from
@@ -260,7 +261,7 @@ export default function Stats({ isActive }) {
   const [error, setError] = useState(null);
 
   const reload = useCallback(() => {
-    const algorithm = localStorage.getItem("fb-srs-algorithm") ?? "sm2";
+    const algorithm = getPref("fb-srs-algorithm") ?? "sm2";
     setLoading(true);
     getStatistics(algorithm)
       .then((s) => { setStats(s); setError(null); })

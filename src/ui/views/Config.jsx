@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from "react";
 import "./Config.css";
 import KeybindingsEditor from "../components/KeybindingsEditor";
 import ProgressDialog from "../components/shared/ProgressDialog";
+import { getPref, setPref, getNumberPref } from "../prefs.js";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
@@ -665,52 +666,55 @@ function AboutUpdates() {
 
 // ── SRS study preferences (stored in localStorage) ───────────────────────────
 
+// Read and written through prefs.js rather than localStorage directly: every setting here
+// is scoped to the active vault, because a work vault and a personal vault genuinely want
+// different daily goals, new-card limits and even schedulers. See src/ui/prefs.js.
 function useSrsPrefs() {
   const [algorithm, setAlgorithmState] = useState(
-    () => localStorage.getItem('fb-srs-algorithm') ?? 'sm2',
+    () => getPref('fb-srs-algorithm') ?? 'sm2',
   );
   const [maxNew, setMaxNewState] = useState(
-    () => parseInt(localStorage.getItem('fb-srs-max-new') ?? '20', 10),
+    () => getNumberPref('fb-srs-max-new', 20),
   );
   const [retention, setRetentionState] = useState(
-    () => Number(localStorage.getItem('fb-fsrs-retention')) || 0.9,
+    () => getNumberPref('fb-fsrs-retention', 0.9) || 0.9,
   );
   // Presentation order. Defaults to interleaved: the scheduler picks which cards are due,
   // this picks the order they're shown in.
   const [order, setOrderState] = useState(
-    () => localStorage.getItem('fb-trainer-order') ?? 'interleaved',
+    () => getPref('fb-trainer-order') ?? 'interleaved',
   );
 
   const applyAlgorithm = (v) => {
-    localStorage.setItem('fb-srs-algorithm', v);
+    setPref('fb-srs-algorithm', v);
     setAlgorithmState(v);
   };
   const setOrder = (v) => {
-    localStorage.setItem('fb-trainer-order', v);
+    setPref('fb-trainer-order', v);
     setOrderState(v);
   };
   const setMaxNew = (v) => {
     const n = Math.max(0, Math.min(200, Number(v) || 0));
-    localStorage.setItem('fb-srs-max-new', String(n));
+    setPref('fb-srs-max-new', String(n));
     setMaxNewState(n);
   };
   const setRetention = (v) => {
     const r = Math.max(0.7, Math.min(0.97, Number(v) || 0.9));
-    localStorage.setItem('fb-fsrs-retention', String(r));
+    setPref('fb-fsrs-retention', String(r));
     setRetentionState(r);
   };
 
   return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder };
 }
 
-// Diary opt-in (stored in localStorage, default off). When on, the Trainer writes a
-// per-day summary to the diary on session completion. See DATAMODEL.md § Diary.
+// Diary opt-in (per vault, default off). When on, the Trainer writes a per-day summary to
+// the diary on session completion. See DATAMODEL.md § Diary.
 function useDiaryPref() {
   const [enabled, setEnabledState] = useState(
-    () => localStorage.getItem('fb-diary-enabled') === '1',
+    () => getPref('fb-diary-enabled') === '1',
   );
   const setEnabled = (v) => {
-    localStorage.setItem('fb-diary-enabled', v ? '1' : '0');
+    setPref('fb-diary-enabled', v ? '1' : '0');
     setEnabledState(v);
   };
   return { enabled, setEnabled };
@@ -864,7 +868,10 @@ export default function ConfigView({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const RESTART_FIELDS = ['port', 'host', 'logFormat', 'isCustomPath', 'customPath', 'vaultName'];
+  // Fields whose change only takes effect on the next API start. The vault fields are no
+  // longer here — they are not editable from this form any more, and switching vaults
+  // happens live rather than by restarting.
+  const RESTART_FIELDS = ['port', 'host', 'logFormat'];
 
   const handleSave = async () => {
     setStatus("saving");
@@ -1137,18 +1144,16 @@ export default function ConfigView({
             <h2 className="config-heading">{t('Server')}</h2>
             <table className="config-table">
               <tbody>
+                {/* Read-only, and deliberately the ONLY mention of vaults in Config.
+                    This used to be an editable field, and editing it renamed the folder
+                    on disk without moving the database inside it — silently producing a
+                    blank vault. Everything to do with vaults now lives in the vault
+                    manager (title bar → the vault name → "Manage vaults…"), which is
+                    outside any one vault, because that is what those operations are. */}
                 <tr>
+                  <td>{t('Active vault')}</td>
                   <td>
-                    <label htmlFor="cfg-vault-name">{t('Vault name')}</label>
-                  </td>
-                  <td>
-                    <input
-                      id="cfg-vault-name"
-                      aria-label={t('Vault name')}
-                      placeholder="default"
-                      value={form.vaultName ?? ""}
-                      onChange={(e) => handleChange("vaultName", e.target.value)}
-                    />
+                    <span className="config-static-value">{form.vaultName ?? t('default')}</span>
                   </td>
                 </tr>
                 <tr>
@@ -1197,36 +1202,15 @@ export default function ConfigView({
                     </select>
                   </td>
                 </tr>
-                <tr>
-                  <td>
-                    <label htmlFor="cfg-custom-path">{t('Use custom workspace path')}</label>
-                  </td>
-                  <td>
-                    <input
-                      id="cfg-custom-path"
-                      aria-label={t('Use custom workspace path')}
-                      type="checkbox"
-                      checked={!!form.isCustomPath}
-                      onChange={(e) =>
-                        handleChange("isCustomPath", e.target.checked)
-                      }
-                    />
-                  </td>
-                </tr>
+                {/* Where the active vault lives. Also read-only now: a vault's location is
+                    a property of that vault, not of the server, and changing it here would
+                    have pointed the app at a directory with nothing in it. Register a
+                    vault somewhere else with "Open a vault from disk" below. */}
                 {form.isCustomPath && (
                   <tr>
+                    <td>{t('Workspace path')}</td>
                     <td>
-                      <label htmlFor="cfg-workspace-path">{t('Workspace path')}</label>
-                    </td>
-                    <td>
-                      <input
-                        id="cfg-workspace-path"
-                        aria-label={t('Workspace path')}
-                        value={form.customPath ?? ""}
-                        onChange={(e) =>
-                          handleChange("customPath", e.target.value)
-                        }
-                      />
+                      <span className="config-static-value">{form.customPath || '—'}</span>
                     </td>
                   </tr>
                 )}

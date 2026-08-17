@@ -3,18 +3,22 @@ import "./Setup.css";
 import "../App.css";
 import TitleBar from "../components/TitleBar";
 import { LanguagePicker, LOCALE_OPTIONS, useT } from "../translations/index.jsx";
+import { vaultNameError } from "../../shared/vaultName.js";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-// Windows-illegal filename chars, including control chars (intentional).
-// eslint-disable-next-line no-control-regex
-const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
-
+// The rules themselves live in src/shared/vaultName.js so the Electron main process — the
+// half that actually creates and renames folders — validates identically. This wraps the
+// returned code in a translated sentence.
 function nameError(v, t) {
-  if (!v.trim()) return t("Required.");
-  if (INVALID_NAME.test(v.trim())) return t("Contains invalid characters.");
-  if (v.trim().length > 64) return t("Too long (max 64 characters).");
-  return null;
+  switch (vaultNameError(v)) {
+    case "required":      return t("Required.");
+    case "invalid-chars": return t("Contains invalid characters.");
+    case "too-long":      return t("Too long (max 64 characters).");
+    case "trailing-dot":  return t("Cannot end with a dot or a space.");
+    case "reserved":      return t("That name is reserved.");
+    default:              return null;
+  }
 }
 
 function joinPath(...parts) {
@@ -367,6 +371,10 @@ export default function SetupView({ onComplete }) {
       vaultName:    form.vaultName.trim(),
     });
     if (result?.ok) {
+      // Written to the GLOBAL key deliberately: the vault has no id yet at this point in
+      // setup. prefs.js reads a vault-scoped key by falling back to the global one and
+      // copying it forward, so this becomes the first vault's algorithm — and the
+      // starting point for any vault created later.
       localStorage.setItem("fb-srs-algorithm", form.algorithm);
       await onComplete();
     } else {

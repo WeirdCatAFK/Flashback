@@ -155,6 +155,32 @@ export class SealEventEmitter {
     }
 
     /**
+     * Brings the emitter to a complete stop against the CURRENT vault, before the active
+     * vault changes underneath it.
+     *
+     * dir() and author() resolve per call, so a debounce timer armed in vault A but firing
+     * after the switch would stage A's sidecar paths into B's repo and author the commit
+     * with B's name — silently, and only for whoever happened to edit within 2 seconds of
+     * switching. Flushing first (rather than just cancelling) means those edits still land
+     * where they belong instead of being dropped.
+     *
+     * Errors are swallowed on purpose: a vault switch must not be blocked by a repo that
+     * cannot commit, and the Vault Doctor's commitDrift() sweeps up anything left unstaged.
+     *
+     * @returns {Promise<void>}
+     */
+    async quiesce() {
+        try {
+            await this.flushEdits();
+        } catch (err) {
+            console.error("Seal quiesce failed to flush pending edits:", err?.stack || err);
+        } finally {
+            this._cancelDebounce();
+            this._pendingEditPaths.clear();
+        }
+    }
+
+    /**
      * Records the creation of a new document and its sidecar.
      * Flushes any pending debounced edits before committing so order is preserved.
      * For folder operations, pass all file paths within the folder — isomorphic-git

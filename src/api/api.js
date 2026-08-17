@@ -18,6 +18,9 @@ import flashcardsRouter from './routes/flashcards.js';
 import doctorRouter from './routes/doctor.js';
 import diaryRouter from './routes/diary.js';
 import readerRouter from './routes/reader.js';
+import vaultRouter from './routes/vault.js';
+import remotesRouter from './routes/remotes.js';
+import { isSwitching } from './vaultSession.js';
 
 class api {
 /**
@@ -93,6 +96,20 @@ class api {
     // set headers (PDF/media URLs, <img>/<audio>) pass the token as ?token=.
     this.app.use('/api', (req, res, next) => this.authenticate(req, res, next));
 
+    // Vault-switch gate. A switch closes the database and re-points every path resolver;
+    // a request served mid-sequence would read a closed handle or, worse, mix the two
+    // vaults. better-sqlite3 is synchronous so no single query can straddle the swap —
+    // this guards the async work (Seal git operations, file IO) that can.
+    //
+    // Deliberately AFTER the auth guard (an unauthenticated caller learns nothing about
+    // vault state) and after /vault's own routes are unreachable — 503 + Retry-After is
+    // what tells the renderer to keep polling rather than surface an error.
+    this.app.use('/api', (req, res, next) => {
+      if (!isSwitching()) return next();
+      res.set('Retry-After', '1');
+      return res.status(503).json({ error: 'Vault switch in progress', switching: true });
+    });
+
     // Route mounting
     this.app.use('/api/documents', documentsRouter);
     this.app.use('/api/media', mediaRouter);
@@ -107,6 +124,8 @@ class api {
     this.app.use('/api/doctor', doctorRouter);
     this.app.use('/api/diary', diaryRouter);
     this.app.use('/api/reader', readerRouter);
+    this.app.use('/api/vault', vaultRouter);
+    this.app.use('/api/remotes', remotesRouter);
 
     // 404
     this.app.use((req, res) => {

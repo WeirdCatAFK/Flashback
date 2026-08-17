@@ -83,11 +83,19 @@ function performRebuild() {
 
 /**
  * Rebuilds the database schema and populates default data in a single transaction.
+ *
+ * The transaction wrapper is built PER CALL, not once at module load. `db.transaction()`
+ * returns a function bound to the connection that created it, so a module-level constant
+ * would still point at the first vault's connection after a vault switch closed it — and
+ * the failure mode was silent: validation of the new vault died with "the database
+ * connection is not open", fell through to a rebuild that used the same dead handle, and
+ * left the new vault with no schema at all.
+ *
  * @returns {boolean} True if the database was rebuilt and initialized successfully.
  */
-const rebuildDatabase = db.transaction(() => {
-  return performRebuild();
-});
+function rebuildDatabase() {
+  return db.transaction(() => performRebuild())();
+}
 
 /**
  * Validates the database by performing a quick integrity check and

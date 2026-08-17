@@ -1,0 +1,408 @@
+/* VaultManager — the two-pane vault/remote overlay. See VaultManager.jsx.
+
+   The panel opts out of Modal's body padding entirely: the rail needs to reach the panel
+   edge to read as a rail rather than as a list floating inside a dialog. */
+
+.vault-manager-modal .modal__body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.vault-manager {
+  display: grid;
+  grid-template-columns: 286px 1fr;
+  min-height: 460px;
+  /* Deliberately UNCAPPED. The dialog grows to fit whatever it contains — including its
+     tallest state, the remote form open — because a settings panel that scrolls its own
+     body reads as cramped. The only ceiling is Modal's own `calc(100vh - 64px)`, and the
+     content above is sized so the tallest state clears it in the 1200×800 default window.
+     A long vault list scrolls the RAIL, which is a list and is allowed to. */
+}
+
+/* ── Left rail: everywhere this app can open ─────────────────────────────── */
+
+.vault-manager__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-3) var(--space-2);
+  overflow-y: auto;
+  background: var(--color-bg-base);
+  border-right: 1px solid var(--color-border);
+}
+
+.vm-section {
+  margin: var(--space-2) var(--space-2) var(--space-1);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.vm-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.vm-row {
+  position: relative;
+  border-radius: var(--radius-md);
+}
+
+.vm-row:hover { background: var(--color-bg-hover); }
+
+/* The active row is a raised card against the rail's flatter background, plus a hairline
+   and the dot. No accent tint and no side bar: those made it look SELECTED — like
+   something waiting on a confirm — when what it means is "you are already here". */
+.vm-row.is-active {
+  background: var(--color-bg-surface);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+}
+
+.vm-row__open {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px 10px 7px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vm-row__open:disabled { cursor: default; opacity: 0.55; }
+
+.vm-row__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-fg-primary);
+}
+
+.vm-row__title {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vm-row.is-active .vm-row__title { font-weight: 600; }
+
+/* Holds its slot on every row so the names line up whether or not one is active. */
+.vm-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.vm-dot.is-on { background: var(--color-accent); }
+
+.vm-row__detail {
+  /* Indented past the dot so it hangs under the name, not under the marker. */
+  padding-left: 12px;
+  font-size: 10.5px;
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* direction:rtl tail-truncates a path from the LEFT, so "…/Documents/dreams" keeps the
+     part that identifies it. The bidi isolate stops the leading separator jumping. */
+  direction: rtl;
+  text-align: left;
+  unicode-bidi: isolate;
+}
+
+/* Row actions stay out of the way until wanted. focus-within is what keeps them
+   keyboard-reachable — without it, hover-only would strand them entirely. */
+.vm-row__actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: 0 10px 9px 22px;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.vm-row:hover .vm-row__actions,
+.vm-row:focus-within .vm-row__actions,
+.vm-row__actions.is-open {
+  opacity: 1;
+}
+
+.vm-row--editing {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 7px;
+}
+
+.vm-row--editing input { width: 100%; }
+
+/* Outlined rather than bare text: they sit on two different row backgrounds (rail and the
+   raised active row), and a hairline is the one treatment that reads as a button on both.
+   Roomy on purpose — these are small targets in a narrow rail. */
+.vm-mini {
+  min-width: 66px;
+  padding: 4px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out);
+}
+
+.vm-mini:hover:not(:disabled) {
+  border-color: var(--color-accent);
+  color: var(--color-fg-primary);
+}
+
+.vm-mini:disabled { opacity: 0.4; cursor: default; }
+
+.vm-tag {
+  padding: 1px 5px;
+  border-radius: 999px;
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.vm-tag--warn {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.vm-empty {
+  margin: 2px var(--space-2) var(--space-2);
+  font-size: 11.5px;
+  color: var(--color-fg-secondary);
+}
+
+/* ── Right pane: what this app is, and what you can do ───────────────────── */
+
+.vault-manager__main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-6) var(--space-6) var(--space-4);
+  overflow-y: auto;
+}
+
+.vm-close {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-lg);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.vm-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.vm-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.vm-brand__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.vm-brand__mark {
+  display: block;
+  /* The mark carries its own dark ground, so it needs no theming — but it does need to
+     not look pasted on: a soft shadow seats it on both light and dark surfaces. */
+  filter: drop-shadow(0 2px 6px rgb(0 0 0 / 0.25));
+}
+
+.vm-brand__name {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--color-fg-primary);
+}
+
+.vm-brand__version {
+  margin: 0;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+}
+
+.vm-explainer {
+  margin: 0 0 var(--space-3);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.vm-actions {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  overflow: hidden;
+}
+
+.vm-action {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+}
+
+.vm-action + .vm-action,
+.vm-form + .vm-action {
+  border-top: 1px solid var(--color-border);
+}
+
+.vm-action__text { flex: 1; min-width: 0; }
+
+.vm-action__title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-fg-primary);
+}
+
+.vm-action__desc {
+  margin: 2px 0 0;
+  font-size: 11.5px;
+  line-height: 1.45;
+  color: var(--color-fg-secondary);
+}
+
+.vm-btn {
+  flex: none;
+  min-width: 84px;
+  padding: 6px 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color var(--dur-fast) var(--ease-out),
+              background var(--dur-fast) var(--ease-out);
+}
+
+.vm-btn:hover:not(:disabled) { border-color: var(--color-accent); }
+
+.vm-btn--primary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+}
+
+.vm-btn--primary:hover:not(:disabled) { filter: brightness(1.08); }
+
+.vm-btn:disabled { opacity: 0.5; cursor: default; }
+
+.vm-form {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.vm-form input { flex: 1; min-width: 14ch; }
+
+.vm-form--fields {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+.vm-form--fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}
+
+/* Name + address side by side. They collapse to one column only when the pane is too
+   narrow to give each a usable field. */
+.vm-form__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: var(--space-2);
+}
+
+@media (max-width: 900px) {
+  .vm-form__pair { grid-template-columns: 1fr; }
+}
+
+/* The token hint shares the button row rather than taking a line of its own — it is
+   guidance about the field above, not a step in its own right. */
+.vm-form__buttons {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.vm-hint {
+  flex: 1;
+  min-width: 16ch;
+  margin: 0;
+  font-size: 10.5px;
+  line-height: 1.4;
+  color: var(--color-fg-secondary);
+}
+
+.vm-msg {
+  width: 100%;
+  margin: 0 0 var(--space-3);
+  font-size: 12px;
+}
+
+.vm-form .vm-msg { margin: 0; }
+
+.vm-msg--error { color: var(--color-danger); }
+.vm-msg--ok    { color: var(--color-accent); }
+
+/* The rail stacks above the pane when the window is too narrow to hold both. */
+@media (max-width: 720px) {
+  .vault-manager {
+    grid-template-columns: 1fr;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+
+  .vault-manager__rail {
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+}

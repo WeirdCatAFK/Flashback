@@ -18,17 +18,33 @@ The Flashback system maintains data in **two synchronized layers**:
 
 ## Vault Structure
 
-All user data is scoped to a **vault** — a named, self-contained directory identified by the `vaultName` field in `config.json`. Both data layers for a given vault live inside it.
+All user data is scoped to a **vault** — a named, self-contained directory. An install may hold several; `config.json` carries a `vaults[]` registry and an `activeVaultId` pointer, and keeps the flat `vaultName`/`isCustomPath`/`customPath` fields as the projection of whichever vault is active. Both data layers for a given vault live inside it.
 
 ```
 {baseDir}/                        ← app data directory (or customPath if configured)
-  config.json                     ← server configuration; lives outside vaults
+  config.json                     ← server configuration + vault/remote registries; outside vaults
   {vaultName}/                    ← vault root, e.g. dreams/
+    vault.json                    ← vault identity (a stable UUID); NOT versioned by Seal
     workspace/                    ← canonical layer root (.flashback sidecars and documents)
     {vaultName}.db                ← derived layer (SQLite), e.g. dreams.db
+    diary/                        ← per-day study record, its own git repo (see § Diary)
 ```
 
-`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable. Renaming a vault updates `vaultName` in `config.json` and renames the vault directory and database file on disk. The `workspace/` subdirectory is the root of the Seal git repository.
+### Vault identity — `vault.json`
+
+```json
+{ "id": "<uuid>", "name": "dreams", "createdAt": "<iso>", "manifestVersion": 1 }
+```
+
+`id` is the only field anything should key on. It survives renaming the folder, moving it to another disk, or copying it to another machine — none of which the vault *name* survives, and none of which the derived database can be trusted through, since it is rebuildable by definition.
+
+It sits at the vault root rather than inside `workspace/` on purpose. `workspace/` is the Seal git repo, and a vault's identity is not something to version, roll back, or read out of a diff; keeping it outside also means `UpdateRunner`'s workspace walk never sees it, so it needs no `formatVersion` of its own. `manifestVersion` moves only if this file's own shape changes, and is unrelated to the sidecar `formatVersion` ladder.
+
+`ensureManifest()` is idempotent and runs on every vault open, which is how vaults created before manifests existed acquire an id — on their next launch, with no migration and no schema change.
+
+**A copied vault keeps its id.** That is intended: two copies of the same vault are the same vault as far as a future sync is concerned, and telling them apart is a job for whatever compares their histories, not for the identity itself.
+
+`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable — which the config resolver honours wherever it is set, Electron or not. Renaming a vault updates its registry entry and moves the vault directory **and** the `{vaultName}.db` inside it together, then re-derives the index so the stored `absolute_path` columns stop pointing at the old folder. The `workspace/` subdirectory is the root of the Seal git repository.
 
 ---
 

@@ -6,6 +6,7 @@ import RetentionCurve from './RetentionCurve';
 import ReviewStrip from './ReviewStrip';
 import { LoadingState, ErrorState } from './StateView';
 import { getCardDetail, updateCard, dismissCardFlag } from '../../api/decks';
+import { getPref } from '../../prefs.js';
 import { mediaFileSrc } from '../../api/media';
 import { useT } from '../../translations';
 import './CardDetailModal.css';
@@ -117,7 +118,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
     setError(null);
     // The active scheduler is a local preference the API can't see; send it so the
     // schedule shown here is the one the Trainer would actually use.
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+    const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
     getCardDetail(hash, algorithm)
       .then(setData)
       .catch(setError)

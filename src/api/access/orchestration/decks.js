@@ -12,9 +12,29 @@ const DECKS_DIR = '_decks';
 export default class Decks {
     constructor() {
         this.query = query;
-        this.decksPath = path.join(getWorkspacePath(), DECKS_DIR);
-        if (!fs.existsSync(this.decksPath)) {
-            fs.mkdirSync(this.decksPath, { recursive: true });
+        this.onVaultOpened();
+    }
+
+    /**
+     * Where this vault's canonical deck JSON lives.
+     *
+     * A getter for the same reason as Files.workspaceRoot: this class is instantiated
+     * once at import (routes/decks.js, routes/flashcards.js) and must follow a vault
+     * switch rather than stay pinned to whichever vault was active at startup.
+     */
+    get decksPath() {
+        return path.join(getWorkspacePath(), DECKS_DIR);
+    }
+
+    /**
+     * Per-vault setup: create `_decks/` and make sure the system deck's file exists.
+     * Runs from the constructor at boot, and again from vaultSession.switchVault() —
+     * a freshly created vault reaches its first request with neither in place.
+     */
+    onVaultOpened() {
+        const dir = this.decksPath;
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
         this._ensureSystemDeckFile();
     }

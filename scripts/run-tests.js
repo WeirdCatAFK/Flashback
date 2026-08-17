@@ -32,6 +32,8 @@ const tests = [
     'tests/seal.test.js',
     'tests/doctor.test.js',
     'tests/updates.test.js',
+    'tests/vault.test.js',
+    'tests/upgrade.test.js',
     'tests/tags.test.js',
     'tests/imports.test.js',
     'tests/clips.test.js',
