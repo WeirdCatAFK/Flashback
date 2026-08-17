@@ -183,7 +183,7 @@ export default class ObsidianImport {
                             const mediaDirAbs = this.files.safePath(mediaDirRel);
 
                             // Helper to copy and register media
-                            const resolveMedia = (fileName) => {
+                            const resolveMedia = async (fileName) => {
                                 const mFile = mediaFiles.find(f => f.name.toLowerCase() === fileName.toLowerCase());
                                 if (!mFile) return null;
 
@@ -197,8 +197,8 @@ export default class ObsidianImport {
 
                                 const fileBuf = fs.readFileSync(destPath);
                                 const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
-                                db.transaction(() => {
-                                    this.query.insertMedia({
+                                await db.transaction(async () => {
+                                    await this.query.insertMedia({
                                         hash: fileHash,
                                         name: copiedName,
                                         relativePath: path.join(mediaDirRel, copiedName),
@@ -210,8 +210,8 @@ export default class ObsidianImport {
                             };
 
                             // Replace Obsidian images ![[image.png]] with standard markdown ![](./media/image.png)
-                            content = content.replace(/!\[\[([^\]]+)\]\]/g, (match, mediaRef) => {
-                                const copied = resolveMedia(mediaRef.trim());
+                            content = content.replace(/!\[\[([^\]]+)\]\]/g, async (match, mediaRef) => {
+                                const copied = await resolveMedia(mediaRef.trim());
                                 if (copied) {
                                     return `![](./media/${copied})`;
                                 }
@@ -344,8 +344,8 @@ export default class ObsidianImport {
                             if (mediaExtensions.includes(ext)) {
                                 const fileBuf = fs.readFileSync(destAbs);
                                 const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
-                                db.transaction(() => {
-                                    this.query.insertMedia({
+                                await db.transaction(async () => {
+                                    await this.query.insertMedia({
                                         hash: fileHash,
                                         name: entry.name,
                                         relativePath: entryDestRel,

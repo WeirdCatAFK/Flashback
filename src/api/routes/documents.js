@@ -38,9 +38,9 @@ const catchError = (fn) => (req, res, next) =>
 // GET /api/documents/list?path=
 router.get(
   "/list",
-  catchError((req, res) => {
+  catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? "");
-    res.json(docs.listFolder(folderPath));
+    res.json(await docs.listFolder(folderPath));
   }),
 );
 
@@ -74,10 +74,10 @@ router.get(
 // GET /api/documents/search?q=
 router.get(
   "/search",
-  catchError((req, res) => {
+  catchError(async (req, res) => {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: "q required" });
-    res.json(docs.search(q));
+    res.json(await docs.search(q));
   }),
 );
 
@@ -86,11 +86,11 @@ router.get(
 // DB) — returns per-document match counts and context snippets.
 router.get(
   "/search/content",
-  catchError((req, res) => {
+  catchError(async (req, res) => {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: "q required" });
     const limit = Math.min(parseInt(req.query.limit ?? "20", 10), 100);
-    res.json(docs.searchContent(q, limit));
+    res.json(await docs.searchContent(q, limit));
   }),
 );
 
@@ -99,11 +99,11 @@ router.get(
 // (linked hashes whose target document doesn't exist yet).
 router.get(
   "/links",
-  catchError((req, res) => {
+  catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     try {
-      res.json(docs.getLinks(relPath));
+      res.json(await docs.getLinks(relPath));
     } catch (err) {
       if (err.message?.includes("not found")) return res.status(404).json({ error: err.message });
       throw err;
@@ -114,16 +114,16 @@ router.get(
 // GET /api/documents/graph
 router.get(
   "/graph",
-  catchError((req, res) => {
-    res.json(docs.getGraphData());
+  catchError(async (req, res) => {
+    res.json(await docs.getGraphData());
   }),
 );
 
 // GET /api/documents/tags
 router.get(
   "/tags",
-  catchError((req, res) => {
-    res.json({ tags: docs.query.getAllTags() });
+  catchError(async (req, res) => {
+    res.json({ tags: await docs.query.getAllTags() });
   }),
 );
 
@@ -131,8 +131,8 @@ router.get(
 // Returns [{ name, count }] — every tag and how many entities apply it directly.
 router.get(
   "/tags/usage",
-  catchError((req, res) => {
-    res.json({ tags: docs.query.getTagsWithCounts() });
+  catchError(async (req, res) => {
+    res.json({ tags: await docs.query.getTagsWithCounts() });
   }),
 );
 
@@ -140,18 +140,18 @@ router.get(
 // Returns { direct, inherited, excluded } for a specific file or folder.
 router.get(
   "/tags/entity",
-  catchError((req, res) => {
+  catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     const isFolder = req.query.isFolder === "true";
 
     const entity = isFolder
-      ? docs.query.getFolderByPath(relPath)
-      : docs.query.getDocumentByPath(relPath);
+      ? await docs.query.getFolderByPath(relPath)
+      : await docs.query.getDocumentByPath(relPath);
     if (!entity) return res.status(404).json({ error: "entity not found" });
 
-    const inherited = docs.query.getInheritedTagNames(entity.node_id);
-    const direct    = docs.query.getDirectTagNames(entity.node_id);
+    const inherited = await docs.query.getInheritedTagNames(entity.node_id);
+    const direct    = await docs.query.getDirectTagNames(entity.node_id);
     const sidecar   = docs.files.getMetadata(relPath, isFolder) || {};
     const excluded  = sidecar.excludedTags || [];
 
@@ -544,7 +544,7 @@ router.post(
 router.get(
   '/by-hash/:hash',
   catchError(async (req, res) => {
-    const doc = docs.query.getDocumentByHash(req.params.hash);
+    const doc = await docs.query.getDocumentByHash(req.params.hash);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     res.json({ relativePath: doc.relative_path, name: doc.name });
   }),

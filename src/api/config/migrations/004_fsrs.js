@@ -11,26 +11,26 @@
 export const version = 4;
 export const description = 'FSRS scheduler: card state columns, review snapshot, FsrsParameters';
 
-export function shouldRun(db) {
-    const cols = db.prepare("PRAGMA table_info('Flashcards')").all().map(c => c.name);
-    const hasTable = db.prepare(
+export async function shouldRun(db) {
+    const cols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
+    const hasTable = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'"
     ).get();
     return !cols.includes('fsrs_stability') || !hasTable;
 }
 
-export function up(db) {
-    const addColumns = (tableName, additions) => {
-        const existing = db.prepare(`PRAGMA table_info('${tableName}')`).all().map(c => c.name);
+export async function up(db) {
+    const addColumns = async (tableName, additions) => {
+        const existing = (await db.prepare(`PRAGMA table_info('${tableName}')`).all()).map(c => c.name);
         for (const [name, ddl] of additions) {
             if (!existing.includes(name)) {
-                db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`).run();
+                await db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`).run();
             }
         }
     };
 
     // ── Flashcards: FSRS per-card state ───────────────────────────────────────
-    addColumns('Flashcards', [
+    await addColumns('Flashcards', [
         ['fsrs_stability', 'fsrs_stability FLOAT'],
         ['fsrs_difficulty', 'fsrs_difficulty FLOAT'],
         ['fsrs_due', 'fsrs_due TIMESTAMP'],
@@ -40,7 +40,7 @@ export function up(db) {
     ]);
 
     // ── ReviewLogs: real rating + post-review FSRS snapshot ───────────────────
-    addColumns('ReviewLogs', [
+    await addColumns('ReviewLogs', [
         ['rating', 'rating INTEGER'],
         ['fsrs_stability', 'fsrs_stability FLOAT'],
         ['fsrs_difficulty', 'fsrs_difficulty FLOAT'],
@@ -49,7 +49,7 @@ export function up(db) {
     ]);
 
     // ── FsrsParameters: active weight vector for the vault ────────────────────
-    db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
+    await db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         weights_json TEXT NOT NULL,
         optimized_at TIMESTAMP,

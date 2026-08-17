@@ -20,8 +20,8 @@ router.post('/import', upload.single('file'), catchError(async (req, res) => {
 }));
 
 // GET /api/subscriptions/:magazineId
-router.get('/:magazineId', catchError((req, res) => {
-    const sub = query.getSubscription(req.params.magazineId);
+router.get('/:magazineId', catchError(async (req, res) => {
+    const sub = await query.getSubscription(req.params.magazineId);
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
     res.json(sub);
 }));

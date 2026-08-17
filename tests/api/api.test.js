@@ -55,7 +55,7 @@ describe('Flashback API', () => {
 
     before(async () => {
         if (!validate()) throw new Error('Validation failed');
-        db.exec(`
+        await db.exec(`
             PRAGMA foreign_keys = OFF;
             DELETE FROM FlashcardReference;
             DELETE FROM FlashcardContent;
@@ -820,7 +820,7 @@ describe('Flashback API', () => {
 
             // The columns must actually be written — the whole point of the migration is
             // being able to tell an interleaving dip apart from a regression later.
-            const rows = db.prepare(
+            const rows = await db.prepare(
                 'SELECT session_position, prev_distance FROM ReviewLogs WHERE session_id = ? ORDER BY session_position ASC',
             ).all(sessionId);
 
@@ -907,16 +907,16 @@ describe('Flashback API', () => {
             // because tags get applied to folders, documents and decks, not to single cards.
             // So the inherited row is written here directly, at the derived layer the filter
             // actually reads.
-            const tagRow = db.prepare('SELECT id FROM Tags WHERE name = ?').get(SCOPE_TAG);
-            const cardNode = db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(SCOPE_HASH);
+            const tagRow = await db.prepare('SELECT id FROM Tags WHERE name = ?').get(SCOPE_TAG);
+            const cardNode = await db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(SCOPE_HASH);
             assert.ok(tagRow && cardNode?.node_id, 'precondition: tagged document and its card exist');
-            const inheritEdge = db.prepare(`
+            const inheritEdge = await db.prepare(`
                 SELECT id FROM Connections
                 WHERE destiny_id = ?
                   AND type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
             `).get(cardNode.node_id);
             assert.ok(inheritEdge, 'precondition: the card inherits from its document');
-            db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)')
+            await db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)')
                 .run(inheritEdge.id, tagRow.id);
 
             const tagged = await fetchScoped(`tag=${encodeURIComponent(SCOPE_TAG)}`);
@@ -937,8 +937,8 @@ describe('Flashback API', () => {
         const isNonDecreasing = (xs) => xs.every((x, i) => i === 0 || xs[i - 1] <= x);
 
         for (const order of ['interleaved', 'shuffle']) {
-            it(`sequencer.sequence(order=${order}) → keeps pedagogical tiers in priority order`, () => {
-                const { queue } = sequence({ due: tierFixture(), order, seed: 7 });
+            it(`sequencer.sequence(order=${order}) → keeps pedagogical tiers in priority order`, async () => {
+                const { queue } = await sequence({ due: tierFixture(), order, seed: 7 });
                 const priorities = queue.map(c => c.category_priority);
                 assert.equal(queue.length, 12, 'every card must survive sequencing');
                 assert.ok(
@@ -2261,8 +2261,8 @@ describe('Flashback API', () => {
         // falling over again — the mouthful shape: an oscillating floor that never
         // leaves the learning band. Reviews land ON schedule so `overdue_drift` (which
         // would rightly suppress the verdict) has nothing to fire on.
-        const seedOscillatingHistory = (cardHash) => {
-            const id = db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash).id;
+        const seedOscillatingHistory = async (cardHash) => {
+            const id = (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash)).id;
             const insert = db.prepare(`
                 INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level, algorithm)
                 VALUES (?, ?, ?, 2.5, ?, 'leitner')
@@ -2270,12 +2270,12 @@ describe('Flashback API', () => {
             const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
             for (let c = 0; c < 4; c++) {
                 const base = 44 - c * 11;
-                insert.run(id, ago(base), 0, 1);        // lapse → box 1
-                insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
-                insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
-                insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
+                await insert.run(id, ago(base), 0, 1);        // lapse → box 1
+                await insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
+                await insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
+                await insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
-            db.prepare('UPDATE Flashcards SET level = 3, last_recall = ? WHERE id = ?')
+            await db.prepare('UPDATE Flashcards SET level = 3, last_recall = ? WHERE id = ?')
                 .run(ago(4), id);
             // Baselines and session segmentation are cached for a minute; the rows above
             // appeared behind the cache's back.
@@ -2290,7 +2290,7 @@ describe('Flashback API', () => {
         });
         const flagsOf = async () =>
             (await (await fetch(`${baseUrl}/api/flashcards/${hash}/detail`)).json()).flags;
-        const healthRow = () => db.prepare(`
+        const healthRow = async () => await db.prepare(`
             SELECT ch.* FROM CardHealth ch
             JOIN Flashcards f ON f.id = ch.flashcard_id WHERE f.global_hash = ?
         `).get(hash);
@@ -2301,7 +2301,7 @@ describe('Flashback API', () => {
                 frontText: 'What are the sixty terms?', backText: LONG_ANSWER, cardType: 'basic',
             });
             hash = (await res.json()).globalHash;
-            seedOscillatingHistory(hash);
+            await seedOscillatingHistory(hash);
         };
 
         it('raises a flag on a failing review and reports it in the same response', async () => {
@@ -2351,8 +2351,8 @@ describe('Flashback API', () => {
         it('a passing review that reaches the recovery level clears it and restarts the window', async () => {
             await pass(3);
             assert.deepEqual(await flagsOf(), []);
-            assert.equal(healthRow().epoch_reason, 'recovered');
-            assert.ok(healthRow().epoch_at, 'the analysis window is stamped, not just cleared');
+            assert.equal((await healthRow()).epoch_reason, 'recovered');
+            assert.ok((await healthRow()).epoch_at, 'the analysis window is stamped, not just cleared');
         });
 
         it('does not re-raise from history that predates the recovery', async () => {
@@ -2370,16 +2370,16 @@ describe('Flashback API', () => {
             const res = await put(`${baseUrl}/api/flashcards/${hash}`, { backText: 'short' });
             assert.equal(res.status, 200);
             assert.deepEqual(await flagsOf(), []);
-            assert.equal(healthRow().epoch_reason, 'edit');
+            assert.equal((await healthRow()).epoch_reason, 'edit');
         });
 
         it('undoing a review re-classifies against what is left of the ledger', async () => {
             await freshCard();
             await fail();
-            const raisedBy = db.prepare(`
+            const raisedBy = (await db.prepare(`
                 SELECT cf.review_log_id FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
-            `).get(hash).review_log_id;
+            `).get(hash)).review_log_id;
 
             await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
 
@@ -2389,12 +2389,12 @@ describe('Flashback API', () => {
             // longer exists.
             const [flag] = await flagsOf();
             assert.equal(flag.kind, 'mouthful');
-            const now = db.prepare(`
+            const now = (await db.prepare(`
                 SELECT cf.review_log_id FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
-            `).get(hash).review_log_id;
+            `).get(hash)).review_log_id;
             assert.notEqual(now, raisedBy, 're-evaluated rather than left stale');
-            assert.ok(db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
+            assert.ok(await db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
                 'the flag cites a review that still exists');
         });
 
@@ -2429,7 +2429,7 @@ describe('Flashback API', () => {
             // Still suppressed after the card fails again — that is what "sticky" means.
             const again = await (await fail()).json();
             assert.deepEqual(again.flags, []);
-            const row = db.prepare(`
+            const row = await db.prepare(`
                 SELECT cf.dismissed_at FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id
                 WHERE f.global_hash = ? AND cf.kind = 'mouthful'
@@ -2439,7 +2439,7 @@ describe('Flashback API', () => {
 
         it('editing a dismissed card un-suppresses it — a rewrite gets judged fresh', async () => {
             await put(`${baseUrl}/api/flashcards/${hash}`, { backText: `${LONG_ANSWER} extra` });
-            const row = db.prepare(`
+            const row = await db.prepare(`
                 SELECT COUNT(*) AS c FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
             `).get(hash);
@@ -2457,7 +2457,7 @@ describe('Flashback API', () => {
                 frontText: 'Healthy card', backText: LONG_ANSWER, cardType: 'basic',
             });
             const healthy = (await res.json()).globalHash;
-            seedOscillatingHistory(healthy);   // an identically ugly history…
+            await seedOscillatingHistory(healthy);   // an identically ugly history…
             // …but the card passes, so nothing is computed and nothing is said.
             const body = await (await post(`${baseUrl}/api/srs/review`, {
                 flashcardHash: healthy, outcome: 1, easeFactor: 2.5, newLevel: 2, algorithm: 'leitner',

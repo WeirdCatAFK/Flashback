@@ -40,7 +40,7 @@ router.post('/review', catchError(async (req, res) => {
         ? {
             sessionId,
             sessionPosition: sessionPosition ?? null,
-            ...sequencer.measureOrdering({ sessionId, cardHash: flashcardHash, prevCardHash }),
+            ...await sequencer.measureOrdering({ sessionId, cardHash: flashcardHash, prevCardHash }),
         }
         : {};
 
@@ -48,7 +48,7 @@ router.post('/review', catchError(async (req, res) => {
     if (relPath) {
         await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     } else {
-        SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
+        await SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
     }
 
     // Card health is composed here rather than inside srs.js, the way /detail already
@@ -60,7 +60,7 @@ router.post('/review', catchError(async (req, res) => {
     // classifier bug must not cost the user a graded review that is already persisted.
     let flags = [];
     try {
-        flags = cardHealth.onReview(flashcardHash, { outcome, rating });
+        flags = await cardHealth.onReview(flashcardHash, { outcome, rating });
     } catch (err) {
         console.error('card health evaluation failed:', err);
     }
@@ -82,13 +82,13 @@ router.post('/undo', catchError(async (req, res) => {
     if (relPath) {
         restored = await docs.undoReview(relPath, flashcardHash, algorithm);
     } else {
-        ({ restored } = SRS.undoReview(flashcardHash, algorithm));
+        ({ restored } = await SRS.undoReview(flashcardHash, algorithm));
     }
 
     // The retracted grade may be the one that raised a flag. Re-classify against what's
     // left of the ledger so an undone review doesn't leave behind a verdict it earned.
     try {
-        cardHealth.evaluate(flashcardHash);
+        await cardHealth.evaluate(flashcardHash);
     } catch (err) {
         console.error('card health re-evaluation failed:', err);
     }
@@ -96,9 +96,9 @@ router.post('/undo', catchError(async (req, res) => {
 }));
 
 // GET /api/srs/stats
-router.get('/stats', catchError((req, res) => {
-    const boxes = docs.query.getLeitnerBoxes();
-    const total = docs.query.getFlashcardCount();
+router.get('/stats', catchError(async (req, res) => {
+    const boxes = await docs.query.getLeitnerBoxes();
+    const total = await docs.query.getFlashcardCount();
     res.json({ boxes, total });
 }));
 
@@ -106,7 +106,7 @@ router.get('/stats', catchError((req, res) => {
 // Body: { from: 'leitner'|'sm2', to: 'leitner'|'sm2' }
 // Translates all card progress from one algorithm's scale to the other using
 // interval-matched mapping, so the review schedule is preserved as closely as possible.
-router.post('/migrate', catchError((req, res) => {
+router.post('/migrate', catchError(async (req, res) => {
     const { from, to } = req.body;
     if (!from || !to || from === to) {
         return res.status(400).json({ error: 'from and to are required and must differ' });
@@ -115,7 +115,7 @@ router.post('/migrate', catchError((req, res) => {
     if (!ALGS.includes(from) || !ALGS.includes(to)) {
         return res.status(400).json({ error: 'from and to must be leitner, sm2, or fsrs' });
     }
-    const count = SRS.migrateProgress(from, to);
+    const count = await SRS.migrateProgress(from, to);
     res.json({ ok: true, count });
 }));
 
@@ -123,16 +123,16 @@ router.post('/migrate', catchError((req, res) => {
 // Fits the vault's FSRS weights from its own rated review history and persists
 // them (no-op below the minimum-data threshold). Returns before/after loss and
 // review counts. No body required.
-router.post('/optimize', catchError((req, res) => {
-    const result = SRS.optimizeParameters();
+router.post('/optimize', catchError(async (req, res) => {
+    const result = await SRS.optimizeParameters();
     res.json({ ok: true, ...result });
 }));
 
 // GET /api/srs/fsrs-info
 // Optimizer status for the Config panel: rated-review count, whether the weights
 // have been fitted, and when.
-router.get('/fsrs-info', catchError((req, res) => {
-    res.json(SRS.getFsrsInfo());
+router.get('/fsrs-info', catchError(async (req, res) => {
+    res.json(await SRS.getFsrsInfo());
 }));
 
 // GET /api/srs/statistics?algorithm=leitner|sm2|fsrs
@@ -140,9 +140,9 @@ router.get('/fsrs-info', catchError((req, res) => {
 // forecast, activity heatmap, streaks). Retention counts only reviews past a card's
 // learning phase; the learning phase is reported separately under `acquisition`.
 // Read-only. Algorithm defaults server-side.
-router.get('/statistics', catchError((req, res) => {
+router.get('/statistics', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
-    res.json(SRS.getStatistics({ algorithm }));
+    res.json(await SRS.getStatistics({ algorithm }));
 }));
 
 // GET /api/srs/due
@@ -163,7 +163,7 @@ router.get('/statistics', catchError((req, res) => {
 //
 // `queue` is the ordered session and is what the trainer consumes; `due`/`new` stay in the
 // response for callers that only want the counts.
-router.get('/due', catchError((req, res) => {
+router.get('/due', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const folder = req.query.folder ? norm(req.query.folder) : null;
     const deck = req.query.deck || null;
@@ -174,8 +174,8 @@ router.get('/due', catchError((req, res) => {
     const order = req.query.order || 'interleaved';
     const seed = req.query.seed != null ? parseInt(req.query.seed, 10) : null;
 
-    const result = SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, maxNew, minPriority });
-    const sequenced = sequencer.sequence({
+    const result = await SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, maxNew, minPriority });
+    const sequenced = await sequencer.sequence({
         due: result.due,
         newCards: result.new,
         order,

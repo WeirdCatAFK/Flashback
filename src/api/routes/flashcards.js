@@ -19,8 +19,8 @@ const catchError = (fn) => (req, res, next) =>
 
 // GET /api/flashcards/:hash — resolve any card (standalone or anchored) to its
 // content + source document path, so clients can route edits correctly.
-router.get('/:hash', catchError((req, res) => {
-    const card = decks.getCard(req.params.hash);
+router.get('/:hash', catchError(async (req, res) => {
+    const card = await decks.getCard(req.params.hash);
     res.json(card);
 }));
 
@@ -43,10 +43,10 @@ router.post('/', catchError(async (req, res) => {
 // `flags` is a read here, never a computation: classification runs at review time, only
 // on a card that has just failed. Opening a card's detail view must not be able to
 // accuse it of anything.
-router.get('/:hash/detail', catchError((req, res) => {
-    const card = decks.getCard(req.params.hash);     // throws "not found" → 404
-    const insights = srs.getCardInsights(req.params.hash, { algorithm: req.query.algorithm || null });
-    res.json({ card, ...insights, flags: cardHealth.getFlags(req.params.hash) });
+router.get('/:hash/detail', catchError(async (req, res) => {
+    const card = await decks.getCard(req.params.hash);     // throws "not found" → 404
+    const insights = await srs.getCardInsights(req.params.hash, { algorithm: req.query.algorithm || null });
+    res.json({ card, ...insights, flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
 // GET /api/flashcards/:hash/flags — just the card-health flags, with their evidence.
@@ -55,9 +55,9 @@ router.get('/:hash/detail', catchError((req, res) => {
 // It exists for callers that want to know *why* a card was flagged but have no use for its
 // full history — chiefly the MCP server, where the ledger would be a large payload spent to
 // reach a four-element array.
-router.get('/:hash/flags', catchError((req, res) => {
-    decks.getCard(req.params.hash);                  // throws "not found" → 404
-    res.json({ flags: cardHealth.getFlags(req.params.hash) });
+router.get('/:hash/flags', catchError(async (req, res) => {
+    await decks.getCard(req.params.hash);                  // throws "not found" → 404
+    res.json({ flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
 // POST /api/flashcards/:hash/flags/:kind/dismiss — the user has ruled on this flag.
@@ -66,10 +66,10 @@ router.get('/:hash/flags', catchError((req, res) => {
 // failure while its evidence stays current. Only the named flag is affected (a card can
 // carry both guards at once). Editing the card clears the suppression — a rewritten card
 // gets judged fresh.
-router.post('/:hash/flags/:kind/dismiss', catchError((req, res) => {
-    const dismissed = cardHealth.dismiss(req.params.hash, req.params.kind);
+router.post('/:hash/flags/:kind/dismiss', catchError(async (req, res) => {
+    const dismissed = await cardHealth.dismiss(req.params.hash, req.params.kind);
     if (!dismissed) return res.status(404).json({ error: 'No such flag on this card' });
-    res.json({ ok: true, flags: cardHealth.getFlags(req.params.hash) });
+    res.json({ ok: true, flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
 // PUT /api/flashcards/:hash — update any card, standalone or document-anchored
@@ -81,11 +81,11 @@ router.post('/:hash/flags/:kind/dismiss', catchError((req, res) => {
 router.put('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
     const { frontText, backText, answerText, name, cardType, category, customHtml, tags } = req.body;
-    const card = decks.getCard(hash);   // throws "not found" → 404
+    const card = await decks.getCard(hash);   // throws "not found" → 404
 
     if (!card.documentPath) {
         await decks.updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml });
-        cardHealth.onCardEdited(hash);
+        await cardHealth.onCardEdited(hash);
         return res.json({ ok: true, documentPath: null });
     }
 
@@ -99,7 +99,7 @@ router.put('/:hash', catchError(async (req, res) => {
     // at the next failing review regardless (and catches edits through paths this route
     // never sees — MCP, a Seal rollback, a Doctor reindex); this is here so the flag
     // disappears the moment the user saves.
-    cardHealth.onCardEdited(hash);
+    await cardHealth.onCardEdited(hash);
     res.json({ ok: true, documentPath: card.documentPath });
 }));
 
@@ -111,7 +111,7 @@ router.put('/:hash', catchError(async (req, res) => {
 // unlinked first, while the card's node still exists for removeEntry to unhook.
 router.delete('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
-    const card = decks.getCard(hash);   // throws "not found" → 404
+    const card = await decks.getCard(hash);   // throws "not found" → 404
 
     if (!card.documentPath) {
         await decks.deleteStandaloneCard(hash);   // handles its own system-deck cleanup

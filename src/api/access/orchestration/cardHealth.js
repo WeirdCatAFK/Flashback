@@ -651,23 +651,23 @@ class CardHealthService {
 
     // --- Context assembly (the only impure part) ---
 
-    _sessionIndex() {
+    async _sessionIndex() {
         const now = Date.now();
         if (this._sessionCache && now - this._sessionCache.at < SESSION_CACHE_MS) {
             return this._sessionCache.index;
         }
         const since = new Date(now - SESSION_WINDOW_DAYS * DAY_MS).toISOString();
-        const index = segmentSessions(query.getRecentReviewSessionRows(since));
+        const index = segmentSessions(await query.getRecentReviewSessionRows(since));
         this._sessionCache = { at: now, index };
         return index;
     }
 
-    _medianAnswerTokens() {
+    async _medianAnswerTokens() {
         const now = Date.now();
         if (this._baselineCache && now - this._baselineCache.at < SESSION_CACHE_MS) {
             return this._baselineCache.medianTokens;
         }
-        const samples = query.getFlashcardAnswerSamples();
+        const samples = await query.getFlashcardAnswerSamples();
         const counts = samples
             .map(s => analyzeStructure({
                 cardType: s.card_type, backText: answerBody(s), customHtml: s.custom_html,
@@ -705,32 +705,32 @@ class CardHealthService {
      * (the PUT route, MCP, a Seal rollback, a Doctor reindex) with no coupling to any
      * of them.
      */
-    buildContext(hash) {
-        const content = query.getFlashcardContentByHash(hash);
+    async buildContext(hash) {
+        const content = await query.getFlashcardContentByHash(hash);
         if (!content) return null;
 
         const fingerprint = this._fingerprint(content);
-        let health = query.getCardHealth(content.id);
+        let health = await query.getCardHealth(content.id);
 
         if (health && health.content_fingerprint && health.content_fingerprint !== fingerprint) {
             // The card was edited out from under its flags. Analysis restarts here:
             // history from before the fix is not evidence against what replaced it.
-            query.deleteCardFlags(content.id, { includeDismissed: true });
-            query.upsertCardHealth(content.id, {
+            await query.deleteCardFlags(content.id, { includeDismissed: true });
+            await query.upsertCardHealth(content.id, {
                 epochAt: new Date().toISOString(), epochReason: 'edit', contentFingerprint: fingerprint,
             });
-            health = query.getCardHealth(content.id);
+            health = await query.getCardHealth(content.id);
         } else if (!health) {
-            query.upsertCardHealth(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint });
-            health = query.getCardHealth(content.id);
+            await query.upsertCardHealth(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint });
+            health = await query.getCardHealth(content.id);
         } else if (health.content_fingerprint !== fingerprint) {
-            query.setCardHealthFingerprint(content.id, fingerprint);
+            await query.setCardHealthFingerprint(content.id, fingerprint);
         }
 
-        const logs = query.getFlashcardReviewHistory(content.id);
+        const logs = await query.getFlashcardReviewHistory(content.id);
         const reviews = buildReviewRecords(logs, {
             epochAt: health?.epoch_at ?? null,
-            sessionIndex: this._sessionIndex(),
+            sessionIndex: await this._sessionIndex(),
         });
 
         const structure = structuralPrior(
@@ -738,7 +738,7 @@ class CardHealthService {
                 cardType: content.card_type, backText: answerBody(content),
                 customHtml: content.custom_html, frontText: content.frontText,
             }),
-            this._medianAnswerTokens(),
+            await this._medianAnswerTokens(),
         );
 
         return {
@@ -751,7 +751,7 @@ class CardHealthService {
             trajectory: classifyTrajectory(reviews),
             repeatFailure: hasWithinSessionRepeatFailure(reviews),
             lastReviewId: reviews.length ? reviews[reviews.length - 1].id : null,
-            level: query.getFlashcardSrsStateByHash(hash)?.level ?? 0,
+            level: (await query.getFlashcardSrsStateByHash(hash))?.level ?? 0,
         };
     }
 
@@ -759,8 +759,8 @@ class CardHealthService {
      * Classify one card and persist the result. Called only when a card has just FAILED
      * — there is no reason to guess at why a card is failing when it isn't.
      */
-    evaluate(hash) {
-        const ctx = this.buildContext(hash);
+    async evaluate(hash) {
+        const ctx = await this.buildContext(hash);
         if (!ctx) return [];
 
         const raised = this.runDetectors(ctx);
@@ -769,10 +769,10 @@ class CardHealthService {
         // Withdraw any live flag the current evidence no longer supports (a guard that
         // has taken over, or a verdict that flipped). Dismissed rows are left alone.
         const stale = FLAG_KINDS.filter(k => !raisedKinds.includes(k));
-        if (stale.length) query.deleteCardFlags(ctx.cardId, { kinds: stale });
+        if (stale.length) await query.deleteCardFlags(ctx.cardId, { kinds: stale });
 
         for (const flag of raised) {
-            query.upsertCardFlag({
+            await query.upsertCardFlag({
                 flashcardId: ctx.cardId,
                 kind: flag.kind,
                 confidence: flag.confidence,
@@ -783,7 +783,7 @@ class CardHealthService {
             });
         }
 
-        return this.getFlags(hash);
+        return await this.getFlags(hash);
     }
 
     /**
@@ -796,13 +796,13 @@ class CardHealthService {
      *            recovered, and treating every pass as success is what would make this
      *            feature useless.
      */
-    onReview(hash, { outcome = null, rating = null } = {}) {
+    async onReview(hash, { outcome = null, rating = null } = {}) {
         const failed = rating != null ? rating <= 1 : outcome === 0;
-        if (failed) return this.evaluate(hash);
+        if (failed) return await this.evaluate(hash);
 
-        const state = query.getFlashcardSrsStateByHash(hash);
+        const state = await query.getFlashcardSrsStateByHash(hash);
         if (!state) return [];
-        if ((state.level ?? 0) >= RECOVERY_LEVEL) this._address(state.id, 'recovered');
+        if ((state.level ?? 0) >= RECOVERY_LEVEL) await this._address(state.id, 'recovered');
 
         // Nothing is ever announced on a pass. Existing flags stay readable in the card
         // detail view; the Trainer only speaks up when a card has just failed.
@@ -816,11 +816,11 @@ class CardHealthService {
      * through every path; this exists so the flag disappears the moment the user saves
      * rather than at their next failing review.
      */
-    onCardEdited(hash) {
-        const content = query.getFlashcardContentByHash(hash);
+    async onCardEdited(hash) {
+        const content = await query.getFlashcardContentByHash(hash);
         if (!content) return;
-        query.deleteCardFlags(content.id, { includeDismissed: true });
-        query.upsertCardHealth(content.id, {
+        await query.deleteCardFlags(content.id, { includeDismissed: true });
+        await query.upsertCardHealth(content.id, {
             epochAt: new Date().toISOString(),
             epochReason: 'edit',
             contentFingerprint: this._fingerprint(content),
@@ -832,22 +832,22 @@ class CardHealthService {
      * every later failure, and reset the analysis window so that if it ever comes back
      * it argues from evidence gathered after the user looked, not before.
      */
-    dismiss(hash, kind) {
+    async dismiss(hash, kind) {
         if (!FLAG_KINDS.includes(kind)) throw new Error(`Unknown flag kind: ${kind}`);
-        const content = query.getFlashcardContentByHash(hash);
+        const content = await query.getFlashcardContentByHash(hash);
         if (!content) throw new Error(`Card not found: ${hash}`);
-        const changed = query.dismissCardFlag(content.id, kind);
+        const changed = await query.dismissCardFlag(content.id, kind);
         // Only the named flag is suppressed — a card can carry both guards at once, and
         // ruling on one says nothing about the other. The watermark still moves, so a
         // re-raise later argues from evidence gathered after the user looked.
-        if (changed) this._setEpoch(content.id, 'dismissed');
+        if (changed) await this._setEpoch(content.id, 'dismissed');
         return changed > 0;
     }
 
     // Move the analysis watermark to now, preserving the stored fingerprint.
-    _setEpoch(cardId, reason) {
-        const existing = query.getCardHealth(cardId);
-        query.upsertCardHealth(cardId, {
+    async _setEpoch(cardId, reason) {
+        const existing = await query.getCardHealth(cardId);
+        await query.upsertCardHealth(cardId, {
             epochAt: new Date().toISOString(),
             epochReason: reason,
             contentFingerprint: existing?.content_fingerprint ?? null,
@@ -855,19 +855,19 @@ class CardHealthService {
     }
 
     // "The user addressed this card": clear the live flags and restart the window.
-    _address(cardId, reason) {
-        query.deleteCardFlags(cardId);
-        this._setEpoch(cardId, reason);
+    async _address(cardId, reason) {
+        await query.deleteCardFlags(cardId);
+        await this._setEpoch(cardId, reason);
     }
 
     /**
      * The card's live flags, shaped for the UI: a title, the recommended action, and the
      * numbers behind the verdict so the reader can disagree with it. Never an oracle.
      */
-    getFlags(hash) {
-        const content = query.getFlashcardContentByHash(hash);
+    async getFlags(hash) {
+        const content = await query.getFlashcardContentByHash(hash);
         if (!content) return [];
-        return query.getCardFlags(content.id).map(row => {
+        return (await query.getCardFlags(content.id)).map(row => {
             const evidence = row.evidence_json ? JSON.parse(row.evidence_json) : {};
             return {
                 id: `${row.kind}:${row.flashcard_id}`,

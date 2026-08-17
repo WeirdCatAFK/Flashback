@@ -57,8 +57,8 @@ async function createDoc(name) {
     await docs.createFile(name, '');
 }
 
-function documentNames() {
-    return db.prepare('SELECT name FROM Documents ORDER BY name').all().map((r) => r.name);
+async function documentNames() {
+    return (await await db.prepare('SELECT name FROM Documents ORDER BY name').all()).map((r) => r.name);
 }
 
 // Pure, and shared with the Electron main process — the half that actually creates and
@@ -158,17 +158,17 @@ describe('switching vaults', () => {
         assert.match(config.getDatabasePath(), /beta\.db$/);
     });
 
-    it('provisions a brand-new vault without a restart', () => {
+    it('provisions a brand-new vault without a restart', async () => {
         // The switch ran validate(), which builds the schema for an empty database — the
         // same path a fresh install takes.
-        assert.ok(query.getSchemaVersion() > 0, 'migrations should have run on the new vault');
+        assert.ok(await query.getSchemaVersion() > 0, 'migrations should have run on the new vault');
         assert.ok(fs.existsSync(config.getDatabasePath()));
         assert.ok(fs.existsSync(path.join(config.getWorkspacePath(), '_decks')));
-        assert.ok(query.getSystemDeck(), 'the system deck must exist in the new vault');
+        assert.ok(await query.getSystemDeck(), 'the system deck must exist in the new vault');
     });
 
-    it('does not carry the previous vault\'s documents across', () => {
-        assert.deepEqual(documentNames(), [], 'beta should be empty');
+    it('does not carry the previous vault\'s documents across', async () => {
+        assert.deepEqual(await documentNames(), [], 'beta should be empty');
     });
 
     it('gives the new vault its own identity', () => {
@@ -183,17 +183,17 @@ describe('switching vaults', () => {
 
         assert.equal(config.get().vaultName, 'alpha');
         assert.equal(vault.getVaultId(), alphaId, 'a vault keeps its id across switches');
-        assert.deepEqual(documentNames(), ['alpha-note.md']);
+        assert.deepEqual(await documentNames(), ['alpha-note.md']);
         assert.ok(fs.existsSync(path.join(config.getWorkspacePath(), 'alpha-note.md')));
     });
 
     it('writes new documents into the vault that is actually active', async () => {
         await switchVault(BETA);
         await createDoc('beta-note.md');
-        assert.deepEqual(documentNames(), ['beta-note.md']);
+        assert.deepEqual(await documentNames(), ['beta-note.md']);
 
         await switchVault(ALPHA);
-        assert.deepEqual(documentNames(), ['alpha-note.md'],
+        assert.deepEqual(await documentNames(), ['alpha-note.md'],
             'writing to beta must not have touched alpha');
     });
 
@@ -221,7 +221,7 @@ describe('switching vaults', () => {
         assert.ok(!fs.existsSync(`${dbPath}-wal`), 'WAL should be checkpointed away on release');
 
         // The connection re-opens lazily on the next access, with no explicit resume.
-        assert.ok(query.getSchemaVersion() > 0);
+        assert.ok(await query.getSchemaVersion() > 0);
     });
 });
 
@@ -230,9 +230,9 @@ describe('vault-scoped caches', () => {
     // across a switch would write one vault's type ids into another's Nodes rows.
     it('exposes a reset that clears the type-id cache', async () => {
         await switchVault(ALPHA);
-        assert.ok(query._typeIds().tagNodeTypeId, 'the cache should populate on first use');
+        assert.ok((await query._typeIds()).tagNodeTypeId, 'the cache should populate on first use');
 
-        query.onVaultOpened();
+        await query.onVaultOpened();
         assert.equal(query._typeCache, null);
     });
 
@@ -241,10 +241,10 @@ describe('vault-scoped caches', () => {
         // The switch itself repopulates this — opening a vault ensures its system deck,
         // which reads the type ids. What matters is that they came from beta's database,
         // so they resolve to real rows there.
-        const types = query._typeIds();
+        const types = await query._typeIds();
         assert.ok(types.tagNodeTypeId);
         assert.equal(
-            db.prepare('SELECT name FROM NodeTypes WHERE id = ?').get(types.tagNodeTypeId)?.name,
+            (await db.prepare('SELECT name FROM NodeTypes WHERE id = ?').get(types.tagNodeTypeId))?.name,
             'Tag',
         );
         await switchVault(ALPHA);

@@ -24,6 +24,7 @@ const electronDir = path.join(buildDir, 'Debug.electron');
 const releaseDir = path.join(buildDir, 'Release');
 
 const tests = [
+    'tests/dbAdapter.test.js',
     'tests/docs.test.js',
     'tests/graph.test.js',
     'tests/performance.test.js',

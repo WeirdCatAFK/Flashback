@@ -44,8 +44,8 @@ router.get('/', catchError(async (req, res) => {
         vaultId: manifest.id,
         vaultName: config.vaultName ?? null,
         appVersion: APP_VERSION,
-        schemaVersion: query.getSchemaVersion(),
-        canonicalVersion: Math.max(0, ...query.getCanonicalVersions(), 0),
+        schemaVersion: await query.getSchemaVersion(),
+        canonicalVersion: Math.max(0, ...await query.getCanonicalVersions(), 0),
         capabilities: [],
     });
 }));

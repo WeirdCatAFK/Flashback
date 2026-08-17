@@ -25,7 +25,7 @@ const workspace = getWorkspacePath();
 describe('Seal Integration Tests', () => {
 
     before(async () => {
-        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch (e) {}
+        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch (e) {}
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });
@@ -221,7 +221,7 @@ describe('Seal Integration Tests', () => {
             // DB was snapshotted at level=7 before rollback and re-applied after checkout.
             // The rolled-back sidecar does not carry a level field (it was omitted on creation).
             // This proves the DB is intentionally diverged from the canonical layer until reconcile runs.
-            const fc = db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash);
+            const fc = await db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash);
             assert.equal(fc.level, 7, 'DB SRS level should be the pre-rollback value, not reset');
 
             const sidecar = JSON.parse(fs.readFileSync(sidecarAbsPath, 'utf-8'));

@@ -411,7 +411,7 @@ class McpReader {
      * `chars`-unit formats yield exactly one segment. Cached per file version.
      */
     async _extract(relPath) {
-        if (!this.files.exists(relPath)) throw fail(`Document ${relPath} not found`, 404);
+        if (!await this.files.exists(relPath)) throw fail(`Document ${relPath} not found`, 404);
         const format = this._formatOf(relPath);
         if (!format) {
             throw fail(

@@ -19,8 +19,8 @@ if (!validate()) {
 const docs = new Documents();
 const ROOT = 'GraphTestWorkspace';
 
-const getInheritanceEdges = () =>
-    db.prepare(`
+const getInheritanceEdges = async () =>
+    await db.prepare(`
         SELECT c.origin_id as fromNode, c.destiny_id as toNode
         FROM Connections c
         JOIN ConnectionTypes ct ON c.type_id = ct.id
@@ -30,11 +30,11 @@ const getInheritanceEdges = () =>
 const hasEdge = (edges, fromNode, toNode) =>
     edges.some(e => e.fromNode === fromNode && e.toNode === toNode);
 
-const folderNodeId = (relPath) =>
-    db.prepare('SELECT node_id FROM Folders WHERE relative_path = ?').get(relPath)?.node_id;
+const folderNodeId = async (relPath) =>
+    (await db.prepare('SELECT node_id FROM Folders WHERE relative_path = ?').get(relPath))?.node_id;
 
-const docNodeId = (relPath) =>
-    db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(relPath)?.node_id;
+const docNodeId = async (relPath) =>
+    (await db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(relPath))?.node_id;
 
 /**
  * Creates a document holding one card per entry in `levels`, each stamped at that
@@ -47,7 +47,7 @@ const addCards = async (docRel, name, folderRel, levels) => {
             cardType: 'basic',
             vanillaData: { frontText: `${name}-Q${i}`, backText: `${name}-A${i}` },
         });
-        db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
+        await db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
     }
 };
 
@@ -74,9 +74,9 @@ describe('Graph hierarchy — inheritance edges', () => {
         await docs.createFolder('Animals', ROOT);
         await docs.createFile('dog', path.join(ROOT, 'Animals'));
 
-        const edges = getInheritanceEdges();
-        const parentNode = folderNodeId(path.join(ROOT, 'Animals'));
-        const childNode  = docNodeId(path.join(ROOT, 'Animals', 'dog.md'));
+        const edges = await getInheritanceEdges();
+        const parentNode = await folderNodeId(path.join(ROOT, 'Animals'));
+        const childNode  = await docNodeId(path.join(ROOT, 'Animals', 'dog.md'));
 
         assert.ok(parentNode, 'Animals folder node exists');
         assert.ok(childNode,  'dog.md document node exists');
@@ -86,9 +86,9 @@ describe('Graph hierarchy — inheritance edges', () => {
     it('creating a subfolder adds an inheritance edge parent→subfolder', async () => {
         await docs.createFolder('Mammals', path.join(ROOT, 'Animals'));
 
-        const edges = getInheritanceEdges();
-        const parentNode = folderNodeId(path.join(ROOT, 'Animals'));
-        const childNode  = folderNodeId(path.join(ROOT, 'Animals', 'Mammals'));
+        const edges = await getInheritanceEdges();
+        const parentNode = await folderNodeId(path.join(ROOT, 'Animals'));
+        const childNode  = await folderNodeId(path.join(ROOT, 'Animals', 'Mammals'));
 
         assert.ok(parentNode, 'Animals folder node exists');
         assert.ok(childNode,  'Mammals folder node exists');
@@ -99,11 +99,11 @@ describe('Graph hierarchy — inheritance edges', () => {
         await docs.createFolder('Plants', ROOT);
         await docs.createFile('rose', path.join(ROOT, 'Plants'));
 
-        const roseNode    = docNodeId(path.join(ROOT, 'Plants', 'rose.md'));
-        const plantsNode  = folderNodeId(path.join(ROOT, 'Plants'));
-        const animalsNode = folderNodeId(path.join(ROOT, 'Animals'));
+        const roseNode    = await docNodeId(path.join(ROOT, 'Plants', 'rose.md'));
+        const plantsNode  = await folderNodeId(path.join(ROOT, 'Plants'));
+        const animalsNode = await folderNodeId(path.join(ROOT, 'Animals'));
 
-        assert.ok(hasEdge(getInheritanceEdges(), plantsNode, roseNode), 'edge Plants→rose exists before move');
+        assert.ok(hasEdge(await getInheritanceEdges(), plantsNode, roseNode), 'edge Plants→rose exists before move');
 
         await docs.move(
             path.join(ROOT, 'Plants', 'rose.md'),
@@ -111,7 +111,7 @@ describe('Graph hierarchy — inheritance edges', () => {
             false
         );
 
-        const edgesAfter = getInheritanceEdges();
+        const edgesAfter = await getInheritanceEdges();
         assert.ok(!hasEdge(edgesAfter, plantsNode, roseNode),  'old edge Plants→rose removed');
         assert.ok(hasEdge(edgesAfter, animalsNode, roseNode),  'new edge Animals→rose added');
     });
@@ -120,11 +120,11 @@ describe('Graph hierarchy — inheritance edges', () => {
         await docs.createFolder('Oceans', ROOT);
         await docs.createFolder('Pacific', path.join(ROOT, 'Oceans'));
 
-        const pacificNode = folderNodeId(path.join(ROOT, 'Oceans', 'Pacific'));
-        const oceansNode  = folderNodeId(path.join(ROOT, 'Oceans'));
-        const animalsNode = folderNodeId(path.join(ROOT, 'Animals'));
+        const pacificNode = await folderNodeId(path.join(ROOT, 'Oceans', 'Pacific'));
+        const oceansNode  = await folderNodeId(path.join(ROOT, 'Oceans'));
+        const animalsNode = await folderNodeId(path.join(ROOT, 'Animals'));
 
-        assert.ok(hasEdge(getInheritanceEdges(), oceansNode, pacificNode), 'edge Oceans→Pacific exists before move');
+        assert.ok(hasEdge(await getInheritanceEdges(), oceansNode, pacificNode), 'edge Oceans→Pacific exists before move');
 
         await docs.move(
             path.join(ROOT, 'Oceans', 'Pacific'),
@@ -132,13 +132,13 @@ describe('Graph hierarchy — inheritance edges', () => {
             true
         );
 
-        const edgesAfter = getInheritanceEdges();
+        const edgesAfter = await getInheritanceEdges();
         assert.ok(!hasEdge(edgesAfter, oceansNode, pacificNode),  'old edge Oceans→Pacific removed');
         assert.ok(hasEdge(edgesAfter, animalsNode, pacificNode),  'new edge Animals→Pacific added');
     });
 
     it('getGraphData includes inheritance edges', async () => {
-        const { edges } = docs.query.getGraphData();
+        const { edges } = await docs.query.getGraphData();
         const inheritanceEdges = edges.filter(e => e.relation === 'inheritance');
         assert.ok(inheritanceEdges.length > 0, 'getGraphData returns at least one inheritance edge');
     });
@@ -155,12 +155,12 @@ describe('Graph hierarchy — inheritance edges', () => {
                 cardType: 'basic',
                 vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
             });
-            db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
+            await db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
         }
 
-        const byId = new Map(docs.getGraphData().nodes.map(n => [n.id, n]));
-        const studied = byId.get(docNodeId(studiedRel));
-        const empty   = byId.get(docNodeId(emptyRel));
+        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const studied = byId.get(await docNodeId(studiedRel));
+        const empty   = byId.get(await docNodeId(emptyRel));
 
         assert.equal(studied.cardCount, 3, 'studied document reports its three cards');
         assert.ok(studied.learned > 0 && studied.learned < 1,
@@ -203,9 +203,9 @@ describe('Graph hierarchy — inheritance edges', () => {
         await addCards(path.join(rollupRel, 'shallow.md'), 'shallow', rollupRel, [6, 6]);
         await addCards(path.join(deepRel, 'deep.md'),      'deep',    deepRel,   [3, 3, 3, 3]);
 
-        const byId = new Map(docs.getGraphData().nodes.map(n => [n.id, n]));
-        const rollup = byId.get(folderNodeId(rollupRel));
-        const deep   = byId.get(folderNodeId(deepRel));
+        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const rollup = byId.get(await folderNodeId(rollupRel));
+        const deep   = byId.get(await folderNodeId(deepRel));
 
         // Deep holds only its own four half-learned cards.
         assert.equal(deep.cardCount, 4, 'Deep counts its own four cards');
@@ -235,8 +235,8 @@ describe('Graph hierarchy — inheritance edges', () => {
         await addCards(path.join(weightedRel, 'big.md'),  'big',  weightedRel,
             Array(10).fill(3));
 
-        const byId = new Map(docs.getGraphData().nodes.map(n => [n.id, n]));
-        const weighted = byId.get(folderNodeId(weightedRel));
+        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const weighted = byId.get(await folderNodeId(weightedRel));
 
         assert.equal(weighted.cardCount, 12, 'folder counts all twelve cards');
         assert.ok(Math.abs(weighted.learned - 7 / 12) < 1e-6,
@@ -257,13 +257,16 @@ describe('Graph hierarchy — inheritance edges', () => {
         const meta = docs.files.getMetadata(taggedRel, true) || {};
         await docs.updateMetadata(taggedRel, { ...meta, tags: ['physics'] }, true);
 
-        const { nodes, edges } = docs.getGraphData();
+        const { nodes, edges } = await docs.getGraphData();
         const tagNode = nodes.find(n => n.type === 'Tag' && n.label === 'physics');
         assert.ok(tagNode, 'the physics tag is a graph node');
 
         // The premise the dedup guard rests on: the tag really does reach the
         // document, not just the folder.
-        const docNode = nodes.find(n => n.id === docNodeId(path.join(taggedRel, 'td.md')));
+        // Resolved before the search: docNodeId reads the database, so it cannot run
+        // inside a .find() predicate now that the data layer is async.
+        const wantedDocNodeId = await docNodeId(path.join(taggedRel, 'td.md'));
+        const docNode = nodes.find(n => n.id === wantedDocNodeId);
         const reachesDoc = edges.some(e =>
             e.relation === 'tag' &&
             ((e.fromId === docNode.id && e.toId === tagNode.id) ||

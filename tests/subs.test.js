@@ -27,16 +27,16 @@ describe('Subscriptions Integration Tests', () => {
     const cleanup = async () => {
         try {
             // Clear Database Tables
-            const dropAll = db.transaction(() => {
-                const tables = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").all();
+            const dropAll = db.transaction(async () => {
+                const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").all();
                 for (const table of tables) {
-                    db.prepare(`DROP TABLE IF EXISTS "${table.name}"`).run();
+                    await db.prepare(`DROP TABLE IF EXISTS "${table.name}"`).run();
                 }
             });
             
-            db.pragma('foreign_keys = OFF');
+            await db.pragma('foreign_keys = OFF');
             dropAll();
-            db.pragma('foreign_keys = ON');
+            await db.pragma('foreign_keys = ON');
 
             // Re-initialize DB
             if (!validate()) {
@@ -125,17 +125,17 @@ describe('Subscriptions Integration Tests', () => {
         
         await subscriptions.importIssue(issueId, issueZip, TEST_ROOT);
 
-        const doc = db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
+        const doc = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         assert.ok(doc, "Document should be imported");
 
-        const fc = db.prepare('SELECT * FROM Flashcards WHERE document_id = ?').get(doc.id);
+        const fc = await db.prepare('SELECT * FROM Flashcards WHERE document_id = ?').get(doc.id);
         assert.ok(fc, "Flashcard should be imported");
 
         const folderMeta = subscriptions.documents.files.getMetadata(TEST_ROOT, true);
         assert.equal(folderMeta.subscription.issueId, issueId);
         assert.equal(folderMeta.subscription.version, version);
 
-        const sub = db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(MAGAZINE_ID);
+        const sub = await db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(MAGAZINE_ID);
         assert.ok(sub, "Subscriptions table should have a record for this magazine");
         assert.equal(sub.issue_id, issueId, "Subscriptions table should record the imported issueId");
         assert.equal(sub.version, version, "Subscriptions table should record the version");
@@ -157,11 +157,11 @@ describe('Subscriptions Integration Tests', () => {
         const initialZip = createIssueZip("issue-2", "v1.0.0", initialContent);
         await subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
         
-        const doc = db.prepare('SELECT id FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
-        const fcInitial = db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(doc.id);
+        const doc = await db.prepare('SELECT id FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
+        const fcInitial = await db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(doc.id);
 
         // 2. Simulate user progress
-        db.prepare('UPDATE Flashcards SET level = 5 WHERE id = ?').run(fcInitial.id);
+        await db.prepare('UPDATE Flashcards SET level = 5 WHERE id = ?').run(fcInitial.id);
 
         // 3. Import updated issue
         const updatedContent = [{
@@ -177,7 +177,7 @@ describe('Subscriptions Integration Tests', () => {
         await subscriptions.importIssue("issue-3", updatedZip, TEST_ROOT);
 
         // 4. Assertions
-        const fc = db.prepare('SELECT * FROM Flashcards INNER JOIN FlashcardContent ON Flashcards.content_id = FlashcardContent.id WHERE Flashcards.id = ?').get(fcInitial.id);
+        const fc = await db.prepare('SELECT * FROM Flashcards INNER JOIN FlashcardContent ON Flashcards.content_id = FlashcardContent.id WHERE Flashcards.id = ?').get(fcInitial.id);
         assert.equal(fc.level, 5, "Flashcard level should be preserved");
         assert.equal(fc.frontText, "Q1 Updated", "Flashcard content should be updated");
 
@@ -224,7 +224,7 @@ describe('Subscriptions Integration Tests', () => {
         const issueZip = createIssueZip("issue-3", "v1.2.0", newContent);
         await subscriptions.importIssue("issue-3", issueZip, TEST_ROOT);
 
-        const doc2 = db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc2.md"));
+        const doc2 = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc2.md"));
         assert.ok(doc2, "New document should be added");
     });
 
@@ -267,7 +267,7 @@ describe('Subscriptions Integration Tests', () => {
         const issueZip = createIssueZip("issue-5", "v1.3.0", newContent);
         await subscriptions.importIssue("issue-5", issueZip, TEST_ROOT);
 
-        const oldDoc = db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
+        const oldDoc = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         assert.strictEqual(oldDoc, undefined, "Doc1.md should have been removed");
     });
 });

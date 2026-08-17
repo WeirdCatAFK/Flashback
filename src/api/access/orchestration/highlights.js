@@ -28,8 +28,8 @@ class Highlights {
      * @param {boolean} [opts.uncardedOnly] Only highlights no flashcard anchors to yet.
      * @returns {Array<object>} Newest first.
      */
-    listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
-        const paths = path ? [path] : this.query.getHighlightedDocumentPaths();
+    async listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
+        const paths = path ? [path] : await this.query.getHighlightedDocumentPaths();
         const results = [];
 
         for (const relPath of paths) {
@@ -112,7 +112,7 @@ class Highlights {
         return { text, context };
     }
 
-    createHighlight(relPath, data) {
+    async createHighlight(relPath, data) {
         const globalHash = data.globalHash ?? crypto.randomUUID();
         const highlight = {
             id: globalHash,
@@ -130,14 +130,14 @@ class Highlights {
             createdAt: data.createdAt ?? new Date().toISOString(),
         };
 
-        return db.transaction(() => {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             const highlights = [...(sidecar.highlights ?? []), highlight];
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
 
-            const doc = this.query.getDocumentByPath(relPath);
+            const doc = await this.query.getDocumentByPath(relPath);
             if (doc) {
-                this.query.insertHighlight({
+                await this.query.insertHighlight({
                     documentId: doc.id,
                     globalHash: highlight.id,
                     type: highlight.type,
@@ -154,8 +154,8 @@ class Highlights {
         })();
     }
 
-    updateHighlight(relPath, hash, data) {
-        return db.transaction(() => {
+    async updateHighlight(relPath, hash, data) {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             let updated = null;
             const highlights = (sidecar.highlights ?? []).map(h => {
@@ -165,24 +165,24 @@ class Highlights {
             });
             if (!updated) throw new Error(`Highlight not found: ${hash}`);
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
-            this.query.updateHighlight(hash, { color: updated.color, note: updated.note });
+            await this.query.updateHighlight(hash, { color: updated.color, note: updated.note });
             return updated;
         })();
     }
 
-    deleteHighlight(relPath, hash) {
-        return db.transaction(() => {
+    async deleteHighlight(relPath, hash) {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             const highlights = (sidecar.highlights ?? []).filter(h => h.id !== hash);
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
-            this.query.deleteHighlight(hash);
+            await this.query.deleteHighlight(hash);
         })();
     }
 
     // Called from Documents._syncDocumentHighlights when a file is imported.
-    syncFromSidecar(documentId, highlightsData) {
+    async syncFromSidecar(documentId, highlightsData) {
         if (!Array.isArray(highlightsData) || highlightsData.length === 0) return;
-        this.query.syncDocumentHighlights(documentId, highlightsData);
+        await this.query.syncDocumentHighlights(documentId, highlightsData);
     }
 }
 

@@ -10,17 +10,17 @@ import * as m008 from './migrations/008_type_answer_answer_text.js';
 import * as m009 from './migrations/009_session_ordering.js';
 const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008, m009];
 
-function ensureVersionTable(db) {
-    db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (
+async function ensureVersionTable(db) {
+    await db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (
         version     INTEGER PRIMARY KEY,
         applied_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
         description TEXT
     )`);
 }
 
-function appliedVersions(db) {
+async function appliedVersions(db) {
     return new Set(
-        db.prepare('SELECT version FROM SchemaVersion').all().map(r => r.version)
+        (await db.prepare('SELECT version FROM SchemaVersion').all()).map(r => r.version)
     );
 }
 
@@ -29,9 +29,9 @@ function appliedVersions(db) {
  * Each migration executes in its own transaction; a failed migration
  * halts the runner and rethrows so startup fails loudly.
  */
-export default function runMigrations(db) {
-    ensureVersionTable(db);
-    const applied = appliedVersions(db);
+export default async function runMigrations(db) {
+    await ensureVersionTable(db);
+    const applied = await appliedVersions(db);
 
     // A migration runs if it hasn't been recorded yet, OR if its optional
     // shouldRun() guard says its artifacts are still missing (handles the case
@@ -47,9 +47,9 @@ export default function runMigrations(db) {
     );
 
     for (const migration of pending) {
-        db.transaction(() => {
+        await db.transaction(async () => {
             migration.up(db);
-            record.run(migration.version, migration.description);
+            await record.run(migration.version, migration.description);
         })();
         console.log(`Migration ${migration.version} applied: ${migration.description}`);
     }

@@ -35,8 +35,8 @@ const requiredTables = [
  * @param {string} name The name of the table to check.
  * @returns {boolean} True if the table exists, false otherwise.
  */
-function tableExists(name) {
-  const row = db
+async function tableExists(name) {
+  const row = await db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
     .get(name);
   return !!row;
@@ -46,31 +46,31 @@ function tableExists(name) {
  * Performs the core database schema and default data initialization.
  * This function should NOT start its own transaction.
  */
-function performRebuild() {
+async function performRebuild() {
   try {
     // Remove manual transaction control from schema if present to avoid nested transactions
     const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, "");
-    db.exec(cleanSchema);
+    await db.exec(cleanSchema);
 
     const insertConnectionType = db.prepare(
       "INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES (?, ?)",
     );
     for (const ct of connectionTypes) {
-      insertConnectionType.run(ct.name, ct.is_directed);
+      await insertConnectionType.run(ct.name, ct.is_directed);
     }
 
     const insertNodeType = db.prepare(
       "INSERT OR IGNORE INTO NodeTypes (name) VALUES (?)",
     );
     for (const nt of nodeTypes) {
-      insertNodeType.run(nt);
+      await insertNodeType.run(nt);
     }
 
     const insertCategory = db.prepare(
       "INSERT OR IGNORE INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)",
     );
     for (const cat of pedagogicalCategories) {
-      insertCategory.run(cat.name, cat.priority, cat.description);
+      await insertCategory.run(cat.name, cat.priority, cat.description);
     }
 
     console.log("Database schema and default data initialized successfully.");
@@ -93,8 +93,8 @@ function performRebuild() {
  *
  * @returns {boolean} True if the database was rebuilt and initialized successfully.
  */
-function rebuildDatabase() {
-  return db.transaction(() => performRebuild())();
+async function rebuildDatabase() {
+  return await db.transaction(async () => await performRebuild())();
 }
 
 /**
@@ -104,25 +104,25 @@ function rebuildDatabase() {
  * default data is inserted.
  * @returns {boolean} True if the database is valid or was successfully repaired.
  */
-function validateDatabase() {
-  const handleRebuild = () => {
+async function validateDatabase() {
+  const handleRebuild = async () => {
     // @ts-ignore — inTransaction is a valid better-sqlite3 property, missing from bundled types
     if (db.inTransaction) {
-      return performRebuild();
+      return await performRebuild();
     }
-    return rebuildDatabase();
+    return await rebuildDatabase();
   };
 
   try {
-    const integrity = db.prepare("PRAGMA integrity_check").get();
+    const integrity = await db.prepare("PRAGMA integrity_check").get();
     if (integrity.integrity_check !== "ok") {
       console.error("DB integrity check failed:", integrity.integrity_check);
-      return handleRebuild();
+      return await handleRebuild();
     }
 
     for (const table of requiredTables) {
-      if (!tableExists(table)) {
-        return handleRebuild();
+      if (!await tableExists(table)) {
+        return await handleRebuild();
       }
     }
 
@@ -133,15 +133,15 @@ function validateDatabase() {
       err.message,
     );
     try {
-      return handleRebuild();
+      return await handleRebuild();
     } catch (rebuildErr) {
       return false;
     }
   }
 }
 
-function validateDatabaseWithMigrations() {
-  const ok = validateDatabase();
+async function validateDatabaseWithMigrations() {
+  const ok = await validateDatabase();
   if (ok) {
     try {
       runMigrations(db);

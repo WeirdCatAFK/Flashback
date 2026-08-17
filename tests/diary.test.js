@@ -38,7 +38,7 @@ const hashes = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 
 const diaryRoot = () => path.join(getVaultPath(), 'diary');
 
-const cleanup = () => {
+const cleanup = async () => {
     try {
         const abs = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
@@ -48,11 +48,11 @@ const cleanup = () => {
     } catch { /* ignore */ }
     // Drop the review logs this suite inserts so counts stay deterministic across runs.
     try {
-        db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') IN (?, ?)").run(DAY, NEXT);
+        await db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') IN (?, ?)").run(DAY, NEXT);
     } catch { /* ignore */ }
 };
 
-const fcId = (hash) => db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(hash).id;
+const fcId = async (hash) => (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(hash)).id;
 
 // Timestamps are stored as UTC ISO strings but bucketed by LOCAL calendar day, so a
 // fixture that wants a review "on DAY at 10:00" has to say so in local wall-clock
@@ -62,14 +62,14 @@ const localIso = (dayIso, hh) => {
     const [y, m, d] = dayIso.split('-').map(Number);
     return new Date(y, m - 1, d, hh, 0, 0, 0).toISOString();
 };
-const insertLog = (fid, outcome, dayIso, hh) =>
-    db.prepare(
+const insertLog = async (fid, outcome, dayIso, hh) =>
+    await db.prepare(
         'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
     ).run(fid, localIso(dayIso, hh), outcome, 2.5, 0);
 
 describe('Diary storage layer', () => {
     before(async () => {
-        cleanup();
+        await cleanup();
         await sealTools.init();
         await docs.createFolder(ROOT);
         await docs.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
@@ -79,13 +79,13 @@ describe('Diary storage layer', () => {
             })),
         });
         // Day DAY: card0 pass, card1 pass, card2 fail twice → 4 reviews, 2 failed, 3 unique.
-        insertLog(fcId(hashes[0]), 1, DAY, '10');
-        insertLog(fcId(hashes[1]), 1, DAY, '11');
-        insertLog(fcId(hashes[2]), 0, DAY, '12');
-        insertLog(fcId(hashes[2]), 0, DAY, '13');
+        await insertLog(await fcId(hashes[0]), 1, DAY, '10');
+        await insertLog(await fcId(hashes[1]), 1, DAY, '11');
+        await insertLog(await fcId(hashes[2]), 0, DAY, '12');
+        await insertLog(await fcId(hashes[2]), 0, DAY, '13');
     });
 
-    after(() => cleanup());
+    after(async () => await cleanup());
 
     it('derives the day summary from ReviewLogs with the v2 schema', async () => {
         const s = await diary.generateSummary(DAY);
@@ -149,11 +149,11 @@ describe('Diary storage layer', () => {
         //    graph (built from Documents/Folders) can never reach a diary file.
         const norm = (p) => (p || '').replace(/\\/g, '/');
         const diaryAbs = norm(diaryRoot());
-        const under = query.getAllDocuments().filter(d => norm(d.absolute_path).startsWith(diaryAbs));
+        const under = (await query.getAllDocuments()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
         assert.equal(under.length, 0, 'no Documents rows point under diary/');
 
         // 4. Global search never returns a hit anchored under the diary directory.
-        const results = docs.search('summary');
+        const results = await docs.search('summary');
         assert.ok(results.every(r => !norm(r.relative_path).startsWith(diaryAbs)));
     });
 
@@ -178,8 +178,8 @@ describe('Diary storage layer', () => {
         assert.ok(commits.some(c => c.commit.message.startsWith('entry:')));
     });
 
-    it('lists diary dates newest-first with per-kind flags', () => {
-        const list = diary.list();
+    it('lists diary dates newest-first with per-kind flags', async () => {
+        const list = await diary.list();
         const day = list.find(d => d.date === DAY);
         assert.ok(day && day.hasSummary && day.hasEntry);
         // Descending order.
@@ -190,25 +190,25 @@ describe('Diary storage layer', () => {
     // of Greenwich an evening session was filed under tomorrow, so the diary opened on
     // a date the user had not yet lived and today's page looked empty.
     it('buckets a late-evening review into the LOCAL day, not the UTC one', async () => {
-        const fid = fcId(hashes[0]);
+        const fid = await fcId(hashes[0]);
         // 23:00 local on DAY. In any timezone behind UTC this instant is already the
         // next UTC day, which is exactly the case that used to be misfiled.
-        db.prepare(
+        await db.prepare(
             'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
         ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
 
         try {
-            const totals = query.getDayReviewTotals(DAY);
+            const totals = await query.getDayReviewTotals(DAY);
             assert.equal(totals.reviews, 5, 'the 23:00 review belongs to the day the user was studying');
 
             const utcDay = new Date(localIso(DAY, 23)).toISOString().slice(0, 10);
             if (utcDay !== DAY) {
-                assert.equal(query.getDayReviewTotals(utcDay).reviews, 0,
+                assert.equal((await query.getDayReviewTotals(utcDay)).reviews, 0,
                     'and must not leak into the adjacent UTC day');
             }
-            assert.ok(query.getReviewActivityDays().includes(DAY));
+            assert.ok((await query.getReviewActivityDays()).includes(DAY));
         } finally {
-            db.prepare('DELETE FROM ReviewLogs WHERE flashcard_id = ? AND timestamp = ?')
+            await db.prepare('DELETE FROM ReviewLogs WHERE flashcard_id = ? AND timestamp = ?')
                 .run(fid, localIso(DAY, 23));
         }
     });
@@ -223,18 +223,18 @@ describe('Diary by-deck breakdown', () => {
     let standaloneHash;
     let docCardHash;
 
-    const cleanup2 = () => {
+    const cleanup2 = async () => {
         try {
             const abs = path.join(getWorkspacePath(), ROOT2);
             if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
         } catch { /* ignore */ }
         try {
-            db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') = ?").run(D);
+            await db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') = ?").run(D);
         } catch { /* ignore */ }
     };
 
     before(async () => {
-        cleanup2();
+        await cleanup2();
         await sealTools.init();
         await docs.createFolder(ROOT2);
 
@@ -253,27 +253,27 @@ describe('Diary by-deck breakdown', () => {
         deckHash = await decks.createDeck('Real Deck');
         await decks.addEntry(deckHash, { cardHash: docCardHash, documentPath: path.join(ROOT2, 'cards.md') });
 
-        insertLog(fcId(standaloneHash), 1, D, 9);
-        insertLog(fcId(docCardHash), 1, D, 9);
+        await insertLog(await fcId(standaloneHash), 1, D, 9);
+        await insertLog(await fcId(docCardHash), 1, D, 9);
     });
 
-    after(() => cleanup2());
+    after(async () => await cleanup2());
 
-    it('omits the system deck, which is a fallback bucket and not a deck the user built', () => {
-        const rows = query.getDayByDeck(D);
-        const systemDeck = query.getSystemDeck();
+    it('omits the system deck, which is a fallback bucket and not a deck the user built', async () => {
+        const rows = await query.getDayByDeck(D);
+        const systemDeck = await query.getSystemDeck();
         assert.ok(systemDeck, 'precondition: the vault has a system deck');
         assert.ok(rows.every(r => r.deck !== systemDeck.name),
             `system deck "${systemDeck.name}" must not appear as a by-deck bar`);
     });
 
-    it('still lists real decks, and still counts the standalone review in the totals', () => {
-        const rows = query.getDayByDeck(D);
+    it('still lists real decks, and still counts the standalone review in the totals', async () => {
+        const rows = await query.getDayByDeck(D);
         const real = rows.find(r => r.deck === 'Real Deck');
         assert.ok(real, 'a user-created deck is still reported');
         assert.equal(real.reviews, 1);
 
         // The excluded reviews are hidden from the breakdown, not from the day.
-        assert.equal(query.getDayReviewTotals(D).reviews, 2);
+        assert.equal((await query.getDayReviewTotals(D)).reviews, 2);
     });
 });

@@ -129,7 +129,7 @@ function bytesResponse(buf, contentType) {
 
 describe('Custom formats: webclip + youtube', () => {
     before(async () => {
-        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch { /* ok */ }
+        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch { /* ok */ }
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
         installFetchStub();
@@ -173,7 +173,7 @@ describe('Custom formats: webclip + youtube', () => {
             assert.equal(body.videoId, 'dQw4w9WgXcQ');
             assert.equal(body.author, 'Rick Astley');
 
-            const listing = docs.listFolder(TEST_ROOT).map((i) => i.name);
+            const listing = (await await docs.listFolder(TEST_ROOT)).map((i) => i.name);
             assert.ok(listing.some((n) => n.endsWith('.youtube')), 'shows up in the folder listing');
 
             const commits = await sealTools.log();
@@ -182,7 +182,7 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('rejects an invalid YouTube URL', async () => {
-            await assert.rejects(() => docs.createYoutube('https://example.com/not-a-video', TEST_ROOT), /Invalid YouTube URL/);
+            await assert.rejects(async () => await docs.createYoutube('https://example.com/not-a-video', TEST_ROOT), /Invalid YouTube URL/);
         });
     });
 
@@ -243,7 +243,7 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('rejects a page that fails to fetch', async () => {
-            await assert.rejects(() => docs.createClip('https://example.test/missing', TEST_ROOT), /fetch|readable/i);
+            await assert.rejects(async () => await docs.createClip('https://example.test/missing', TEST_ROOT), /fetch|readable/i);
         });
 
     });
@@ -282,9 +282,9 @@ describe('Custom formats: webclip + youtube', () => {
             assert.ok(body().includes(` data-src="${IMG_URL}"`), 'but remembers where it came from');
         });
 
-        it('registers it in the Media table, content-addressed', () => {
+        it('registers it in the Media table, content-addressed', async () => {
             const name = body().match(/\.\/media\/(clip-[0-9a-f]+\.png)/)[1];
-            const row = db.prepare('SELECT name, hash FROM Media WHERE name = ?').get(name);
+            const row = await db.prepare('SELECT name, hash FROM Media WHERE name = ?').get(name);
             assert.ok(row, 'the picture has a Media row');
             assert.equal(row.hash.length, 64, 'addressed by sha256');
         });
@@ -349,7 +349,7 @@ describe('Custom formats: webclip + youtube', () => {
             // also ends in a media extension. Treating that as a sound would put a web
             // page in a card's audio slot.
             await assert.rejects(
-                () => docs.saveClipAsset(clipPath, FILE_PAGE_URL),
+                async () => await docs.saveClipAsset(clipPath, FILE_PAGE_URL),
                 /not part of this clip/i,
             );
             assert.ok(!FETCH_LOG.includes(FILE_PAGE_URL), 'and never asks for it');
@@ -357,7 +357,7 @@ describe('Custom formats: webclip + youtube', () => {
 
         it('leaves ordinary links alone', async () => {
             await assert.rejects(
-                () => docs.saveClipAsset(clipPath, PROSE_LINK_URL),
+                async () => await docs.saveClipAsset(clipPath, PROSE_LINK_URL),
                 /not part of this clip/i,
             );
         });
@@ -365,13 +365,13 @@ describe('Custom formats: webclip + youtube', () => {
         it('refuses an oversized sound without ever buffering it', async () => {
             // The stub throws if that response's body is read, so a clean rejection
             // here is what proves the Content-Length pre-check ran first.
-            await assert.rejects(() => docs.saveClipAsset(clipPath, HUGE_SND_URL), /larger than/i);
+            await assert.rejects(async () => await docs.saveClipAsset(clipPath, HUGE_SND_URL), /larger than/i);
             assert.ok(body().includes(HUGE_SND_URL), 'a 90 MB episode still plays from its own server');
             assert.ok(!onDisk().some((n) => n.includes('episode')), 'nothing was written for it');
         });
 
         it('leaves the clip readable when the site refuses the file', async () => {
-            await assert.rejects(() => docs.saveClipAsset(clipPath, REFUSED_IMG_URL), /refused|429/i);
+            await assert.rejects(async () => await docs.saveClipAsset(clipPath, REFUSED_IMG_URL), /refused|429/i);
             assert.ok(body().includes(REFUSED_IMG_URL), 'the picture still loads from its own host');
         });
 
@@ -379,7 +379,7 @@ describe('Custom formats: webclip + youtube', () => {
             // Without this check the endpoint is a downloader for any URL on the
             // internet, writing into the vault under the user's own token.
             await assert.rejects(
-                () => docs.saveClipAsset(clipPath, 'https://elsewhere.test/anything.png'),
+                async () => await docs.saveClipAsset(clipPath, 'https://elsewhere.test/anything.png'),
                 /not part of this clip/i,
             );
             assert.ok(!FETCH_LOG.includes('https://elsewhere.test/anything.png'), 'and never requests it');
@@ -414,7 +414,7 @@ describe('Custom formats: webclip + youtube', () => {
 
         it('rejects a document that is not a clip', async () => {
             await assert.rejects(
-                () => docs.saveClipAsset(path.join(TEST_ROOT, 'anything.youtube'), IMG_URL),
+                async () => await docs.saveClipAsset(path.join(TEST_ROOT, 'anything.youtube'), IMG_URL),
                 /not a web clip/i,
             );
         });
@@ -448,7 +448,7 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('setYoutubeSource on a missing file rejects', async () => {
-            await assert.rejects(() => docs.setYoutubeSource(path.join(TEST_ROOT, 'nope.youtube'), 'https://youtu.be/dQw4w9WgXcQ'), /not found/i);
+            await assert.rejects(async () => await docs.setYoutubeSource(path.join(TEST_ROOT, 'nope.youtube'), 'https://youtu.be/dQw4w9WgXcQ'), /not found/i);
         });
     });
 });

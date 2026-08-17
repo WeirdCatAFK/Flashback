@@ -45,7 +45,7 @@ const call = async (name, args = {}) => {
     return { isError: !!res.isError, text, data };
 };
 
-const cardRow = (hash) => db.prepare(`
+const cardRow = async (hash) => await db.prepare(`
     SELECT f.global_hash, f.name, f.card_type, f.document_id, c.frontText, c.backText, c.custom_html
     FROM Flashcards f JOIN FlashcardContent c ON f.content_id = c.id
     WHERE f.global_hash = ?
@@ -179,7 +179,7 @@ describe('MCP tools', () => {
         const read = await call('read_document', { path: docRel });
         const card = read.data.metadata.flashcards.find((f) => f.globalHash === anchoredHash);
         assert.ok(card, 'card in sidecar');
-        const row = cardRow(anchoredHash);
+        const row = await cardRow(anchoredHash);
         assert.ok(row?.document_id, 'card linked to a document in the DB');
     });
 
@@ -187,8 +187,8 @@ describe('MCP tools', () => {
         const res = await call('update_flashcard', { globalHash: anchoredHash, name: 'auto-resolved edit' });
         assert.equal(res.isError, false, res.text);
         assert.equal(res.data.documentPath.replace(/\\/g, '/'), docRel, 'resolved to the right document');
-        assert.equal(cardRow(anchoredHash).name, 'auto-resolved edit');
-        assert.equal(cardRow(anchoredHash).frontText, 'What organelle powers the cell?', 'omitted fields untouched');
+        assert.equal((await cardRow(anchoredHash)).name, 'auto-resolved edit');
+        assert.equal((await cardRow(anchoredHash)).frontText, 'What organelle powers the cell?', 'omitted fields untouched');
     });
 
     it('update_flashcard on an unknown hash is a clean not-found error', async () => {
@@ -211,7 +211,7 @@ describe('MCP tools', () => {
         assert.equal(card.vanillaData.backText, 'The mitochondria', 'omitted backText preserved');
         assert.deepEqual(card.tags, ['mcp-test', 'edited']);
 
-        const row = cardRow(anchoredHash);
+        const row = await cardRow(anchoredHash);
         assert.equal(row.frontText, 'Which organelle is the powerhouse of the cell?', 'derived layer synced');
     });
 
@@ -299,7 +299,7 @@ describe('MCP tools', () => {
         const read = await call('read_document', { path: docRel });
         const aiCard = read.data.metadata.flashcards.find((f) => f.vanillaData?.location?.id === highlightHash);
         assert.equal(aiCard.origin, 'ai');
-        const row = db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(aiCard.globalHash);
+        const row = await db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(aiCard.globalHash);
         assert.equal(row.origin, 'ai');
 
         // list_cards can slice by provenance so handmade cards can serve as style examples.
@@ -317,7 +317,7 @@ describe('MCP tools', () => {
             cardType: 'basic', frontText: 'Standalone provenance Q', backText: 'A',
         });
         assert.equal(res.isError, false, res.text);
-        const row = db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(res.data.globalHash);
+        const row = await db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(res.data.globalHash);
         assert.equal(row.origin, 'ai');
         await call('delete_flashcard', { globalHash: res.data.globalHash });
     });
@@ -349,25 +349,25 @@ describe('MCP tools', () => {
 
         const res = await call('update_flashcard', { globalHash: hash, frontText: 'Standalone Q (edited)' });
         assert.equal(res.isError, false, res.text);
-        const row = cardRow(hash);
+        const row = await cardRow(hash);
         assert.equal(row.frontText, 'Standalone Q (edited)');
         assert.equal(row.backText, 'Standalone A', 'omitted backText preserved');
         assert.equal(row.name, 'Standalone card', 'omitted name preserved');
 
         const del = await call('delete_flashcard', { globalHash: hash });
         assert.equal(del.isError, false, del.text);
-        assert.equal(cardRow(hash), undefined);
+        assert.equal(await cardRow(hash), undefined);
     });
 
     it('standalone custom card: customHtml is editable', async () => {
         const created = await call('create_flashcard', { cardType: 'custom', customHtml: '<b>front v1</b>', name: 'Custom card' });
         assert.equal(created.isError, false, created.text);
         const hash = created.data.globalHash;
-        assert.equal(cardRow(hash).custom_html, '<b>front v1</b>');
+        assert.equal((await cardRow(hash)).custom_html, '<b>front v1</b>');
 
         const res = await call('update_flashcard', { globalHash: hash, customHtml: '<b>front v2</b>' });
         assert.equal(res.isError, false, res.text);
-        const row = cardRow(hash);
+        const row = await cardRow(hash);
         assert.equal(row.custom_html, '<b>front v2</b>');
         assert.equal(row.card_type, 'custom', 'omitted cardType preserved');
 
@@ -380,7 +380,7 @@ describe('MCP tools', () => {
         assert.equal(res.data.documentPath.replace(/\\/g, '/'), docRel, 'resolved to the right document');
         const read = await call('read_document', { path: docRel });
         assert.ok(!read.data.metadata.flashcards.some((f) => f.globalHash === anchoredHash), 'gone from sidecar');
-        assert.equal(cardRow(anchoredHash), undefined, 'gone from DB');
+        assert.equal(await cardRow(anchoredHash), undefined, 'gone from DB');
     });
 
     it('deck lifecycle: create → update+tags → add/remove entry → delete', async () => {
@@ -403,7 +403,7 @@ describe('MCP tools', () => {
 
         const del = await call('delete_deck', { deckHash });
         assert.equal(del.isError, false, del.text);
-        assert.equal(cardRow(card.data.globalHash)?.global_hash, card.data.globalHash, 'member card survives deck deletion');
+        assert.equal((await cardRow(card.data.globalHash))?.global_hash, card.data.globalHash, 'member card survives deck deletion');
         await call('delete_flashcard', { globalHash: card.data.globalHash, documentPath: docRel });
     });
 
@@ -703,7 +703,7 @@ describe('MCP tools', () => {
                     assert.ok(fs.existsSync(copied), `media file written to ${copied}`);
                     assert.deepEqual(fs.readFileSync(copied), buildPng(1), 'byte-for-byte the book\'s figure');
 
-                    const row = db.prepare('SELECT name FROM Media WHERE absolute_path = ?').get(copied);
+                    const row = await db.prepare('SELECT name FROM Media WHERE absolute_path = ?').get(copied);
                     assert.ok(row, 'and registered in the Media table');
                 } finally {
                     await call('delete_flashcard', { globalHash: card.data.globalHash });

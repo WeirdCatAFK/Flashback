@@ -55,10 +55,10 @@ export default class Doctor {
     async checkIndex() {
         await sealEmitter.flushEdits();
 
-        const integrity = this.query.integrityCheck();
+        const integrity = await this.query.integrityCheck();
         const walk = this.files.walkWorkspace();
-        const dbDocs = this.query.getAllDocuments();
-        const dbFolders = this.query.getAllFolders();
+        const dbDocs = await this.query.getAllDocuments();
+        const dbFolders = await this.query.getAllFolders();
 
         // --- Folders ---
         const walkFolderByPath = new Map(walk.folders.map(f => [norm(f.relPath), f]));
@@ -74,7 +74,7 @@ export default class Doctor {
         };
 
         // --- Documents ---
-        const walkDocByPath = new Map(walk.documents.map(d => [norm(d.relPath), d]));
+        const walkDocByPath = new Map(await walk.documents.map(d => [norm(d.relPath), d]));
         const dbDocByPath = new Map(dbDocs.map(d => [norm(d.relative_path), d]));
 
         const missingInDb = [];
@@ -93,7 +93,7 @@ export default class Doctor {
             const dbDoc = dbDocByPath.get(norm(wd.relPath));
             if (!dbDoc) { missingInDb.push(wd.relPath); continue; }
 
-            const reasons = this._diffDocument(wd.meta ?? {}, dbDoc);
+            const reasons = await this._diffDocument(wd.meta ?? {}, dbDoc);
             if (reasons.length > 0) modified.push({ relPath: wd.relPath, reasons });
         }
 
@@ -113,7 +113,7 @@ export default class Doctor {
         };
 
         // --- Media (both directions) ---
-        const dbMedia = this.query.getAllMedia();
+        const dbMedia = await this.query.getAllMedia();
         const missingOnDisk = dbMedia.filter(m => !fs.existsSync(m.absolute_path)).map(m => m.relative_path);
         const dbMediaAbs = new Set(dbMedia.map(m => norm(m.absolute_path)));
         const unregistered = [];
@@ -132,14 +132,14 @@ export default class Doctor {
             folders,
             documents,
             media: { missingOnDisk, unregistered },
-            decks: this.decks.diagnoseDecks(),
+            decks: await this.decks.diagnoseDecks(),
             seal: { drift: await sealTools.inspect() },
             counts: {
                 documents: dbDocs.length,
                 folders: Math.max(0, dbFolders.length - 1), // exclude the root row
-                flashcards: this.query.getFlashcardCount(),
-                standaloneCards: this.query.getStandaloneCardCount(),
-                pendingLinks: this.query.getPendingLinkCount(),
+                flashcards: await this.query.getFlashcardCount(),
+                standaloneCards: await this.query.getStandaloneCardCount(),
+                pendingLinks: await this.query.getPendingLinkCount(),
             },
             generatedAt: new Date().toISOString(),
         };
@@ -148,11 +148,11 @@ export default class Doctor {
     // Shallow drift detection for a document present in both layers. syncIndex's
     // reindex is idempotent and wholesale, so these reasons only need to answer
     // "does this doc need a reindex", not enumerate every difference.
-    _diffDocument(meta, dbDoc) {
+    async _diffDocument(meta, dbDoc) {
         const reasons = [];
         if (meta.globalHash && meta.globalHash !== dbDoc.global_hash) reasons.push('hashChanged');
 
-        const dbCards = this.query.getFlashcardsByDocument(dbDoc.id);
+        const dbCards = await this.query.getFlashcardsByDocument(dbDoc.id);
         const dbByHash = new Map(dbCards.map(c => [c.global_hash, c]));
         const metaCards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
 
@@ -168,7 +168,7 @@ export default class Doctor {
             }
         }
 
-        const dbTags = new Set(this.query.getDirectTagNames(dbDoc.node_id));
+        const dbTags = new Set(await this.query.getDirectTagNames(dbDoc.node_id));
         const metaTags = new Set(meta.tags ?? []);
         if (dbTags.size !== metaTags.size || [...metaTags].some(t => !dbTags.has(t))) {
             reasons.push('tagsChanged');
@@ -204,7 +204,7 @@ export default class Doctor {
         // 1. Folders on disk but not in the index — parents before children.
         for (const relPath of [...report.folders.missingInDb].sort((a, b) => depth(a) - depth(b))) {
             try {
-                this.documents.indexFolder(relPath);
+                await this.documents.indexFolder(relPath);
                 actions.foldersIndexed++;
             } catch (err) {
                 warnings.push(`Folder indexing failed for ${relPath}: ${err.message}`);
@@ -239,7 +239,7 @@ export default class Doctor {
         //    contained rows' individual deletions no-ops.
         for (const relPath of [...report.folders.orphanedInDb].sort((a, b) => depth(a) - depth(b))) {
             try {
-                this.documents.removeFromIndex(relPath, true);
+                await this.documents.removeFromIndex(relPath, true);
                 actions.foldersRemoved++;
             } catch (err) {
                 warnings.push(`Folder removal failed for ${relPath}: ${err.message}`);
@@ -247,8 +247,8 @@ export default class Doctor {
         }
         for (const relPath of report.documents.orphanedInDb) {
             try {
-                if (this.query.getDocumentByPath(relPath)) {
-                    this.documents.removeFromIndex(relPath, false);
+                if (await this.query.getDocumentByPath(relPath)) {
+                    await this.documents.removeFromIndex(relPath, false);
                     actions.documentsRemoved++;
                 }
             } catch (err) {
@@ -258,12 +258,12 @@ export default class Doctor {
 
         // 5. Media, both directions.
         for (const relPath of report.media.missingOnDisk) {
-            this.query.deleteMediaByAbsPath(this.files.safePath(relPath));
+            await this.query.deleteMediaByAbsPath(this.files.safePath(relPath));
             actions.mediaRowsRemoved++;
         }
         for (const relPath of report.media.unregistered) {
             try {
-                this._registerMediaFile(relPath);
+                await this._registerMediaFile(relPath);
                 actions.mediaRegistered++;
             } catch (err) {
                 warnings.push(`Media registration failed for ${relPath}: ${err.message}`);
@@ -271,7 +271,7 @@ export default class Doctor {
         }
 
         // 6. Decks (file wins).
-        actions.decks = this.decks.repairFromFiles();
+        actions.decks = await this.decks.repairFromFiles();
 
         // 7. Bind the out-of-band changes this sync just reconciled (plus the
         //    idempotent sidecar rewrites reindexing may have produced) into history.
@@ -306,16 +306,16 @@ export default class Doctor {
 
         // Card categories must exist before any insertFlashcard call — unknown
         // category names are silently dropped at the query layer.
-        this._ensureCategories(walk, warnings);
+        await this._ensureCategories(walk, warnings);
 
-        this.query.wipeDerivedContent();
+        await this.query.wipeDerivedContent();
 
         // Root folder row, then every folder in pre-order.
-        this.documents.indexFolder('');
+        await this.documents.indexFolder('');
         let foldersIndexed = 0;
         for (const f of walk.folders) {
             try {
-                this.documents.indexFolder(f.relPath);
+                await this.documents.indexFolder(f.relPath);
                 foldersIndexed++;
             } catch (err) {
                 warnings.push(`Folder indexing failed for ${f.relPath}: ${err.message}`);
@@ -338,10 +338,10 @@ export default class Doctor {
 
         // One final top-down inheritance pass from the root guards against any
         // ordering gaps (indexFolder propagates recursively).
-        this.documents.indexFolder('');
+        await this.documents.indexFolder('');
 
         // Decks + standalone cards from inline snapshots.
-        const deckResult = this.decks.rebuildFromFiles();
+        const deckResult = await this.decks.rebuildFromFiles();
         warnings.push(...deckResult.warnings);
 
         // Media registration.
@@ -351,7 +351,7 @@ export default class Doctor {
             for (const name of fs.readdirSync(absDir)) {
                 if (!fs.lstatSync(path.join(absDir, name)).isFile()) continue;
                 try {
-                    this._registerMediaFile(path.join(dirRel, name));
+                    await this._registerMediaFile(path.join(dirRel, name));
                     mediaRegistered++;
                 } catch (err) {
                     warnings.push(`Media registration failed for ${path.join(dirRel, name)}: ${err.message}`);
@@ -366,9 +366,9 @@ export default class Doctor {
         for (const d of walk.documents) {
             for (const fc of d.meta?.flashcards ?? []) {
                 if (fc.globalHash == null || fc.easeFactor == null) continue;
-                const row = this.query.getFlashcardByHash(fc.globalHash);
+                const row = await this.query.getFlashcardByHash(fc.globalHash);
                 if (row) {
-                    this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0);
+                    await this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0);
                     easeRestored++;
                 }
             }
@@ -378,7 +378,7 @@ export default class Doctor {
             summary: {
                 foldersIndexed,
                 documentsIndexed,
-                flashcards: this.query.getFlashcardCount(),
+                flashcards: await this.query.getFlashcardCount(),
                 decks: deckResult.decks,
                 standaloneCardsRestored: deckResult.restoredCards,
                 mediaRegistered,
@@ -388,22 +388,22 @@ export default class Doctor {
         };
     }
 
-    _ensureCategories(walk, warnings) {
+    async _ensureCategories(walk, warnings) {
         const wanted = new Set();
         for (const d of walk.documents) {
             for (const fc of d.meta?.flashcards ?? []) {
                 if (fc.category) wanted.add(fc.category);
             }
         }
-        for (const f of this.decks.listDeckFiles()) {
+        for (const f of await this.decks.listDeckFiles()) {
             for (const e of f.data?.entries ?? []) {
                 if (e.card?.category) wanted.add(e.card.category);
             }
         }
         for (const name of wanted) {
-            if (!this.query.getCategoryByName(name)) {
+            if (!await this.query.getCategoryByName(name)) {
                 try {
-                    this.query.insertCategory({ name, priority: 1, description: 'Recovered by Vault Doctor' });
+                    await this.query.insertCategory({ name, priority: 1, description: 'Recovered by Vault Doctor' });
                 } catch (err) {
                     warnings.push(`Could not recreate category "${name}": ${err.message}`);
                 }
@@ -411,10 +411,10 @@ export default class Doctor {
         }
     }
 
-    _registerMediaFile(relPath) {
+    async _registerMediaFile(relPath) {
         const abs = this.files.safePath(relPath);
         const hash = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
-        this.query.insertMedia({
+        await this.query.insertMedia({
             hash,
             name: path.basename(relPath),
             relativePath: relPath,

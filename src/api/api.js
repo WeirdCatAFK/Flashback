@@ -99,8 +99,14 @@ class api {
 
     // Vault-switch gate. A switch closes the database and re-points every path resolver;
     // a request served mid-sequence would read a closed handle or, worse, mix the two
-    // vaults. better-sqlite3 is synchronous so no single query can straddle the swap —
-    // this guards the async work (Seal git operations, file IO) that can.
+    // vaults. This refuses NEW requests for the duration.
+    //
+    // It used to be able to lean on better-sqlite3 being synchronous, so that no single
+    // query could straddle the swap and only the async work (Seal git operations, file IO)
+    // needed guarding. The data layer is async now, so that guarantee is gone: a request
+    // already in flight can have queued statements on either side of closeDatabase(). The
+    // gate still closes the door on new work, which is what keeps a switch bounded, but a
+    // request that started before the switch can still fail against a closed handle.
     //
     // Deliberately AFTER the auth guard (an unauthenticated caller learns nothing about
     // vault state) and after /vault's own routes are unreachable — 503 + Retry-After is

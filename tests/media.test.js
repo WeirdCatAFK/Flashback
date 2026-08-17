@@ -35,7 +35,7 @@ describe('Media & Binary Operations', () => {
 
     before(async () => {
         cleanup();
-        db.exec(`
+        await db.exec(`
             PRAGMA foreign_keys = OFF;
             DELETE FROM FlashcardReference;
             DELETE FROM FlashcardContent;
@@ -111,7 +111,7 @@ describe('Media & Binary Operations', () => {
         assert.ok(fs.existsSync(fullPath), "File should be created in the media folder");
         assert.equal(fs.readFileSync(fullPath, 'utf-8'), "fake-image-data-integrity-check", "Content on disk must match");
 
-        const mediaEntry = db.prepare('SELECT * FROM Media WHERE name = ?').get(mediaName);
+        const mediaEntry = await db.prepare('SELECT * FROM Media WHERE name = ?').get(mediaName);
 
         assert.ok(mediaEntry, "Media table should have an entry");
         assert.equal(mediaEntry.hash, expectedHash, "DB Hash should match the SHA256 of the buffer");
@@ -135,7 +135,7 @@ describe('Media & Binary Operations', () => {
         const buffer = Buffer.from("data");
 
         await assert.rejects(
-            docs.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png"),
+            async () => await docs.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png"),
             /Flashcard non-existent-hash not found/
         );
 
@@ -215,9 +215,9 @@ describe('Media & Binary Operations', () => {
         assert.ok(fs.existsSync(mediaPath), "Generated media file should exist on disk");
 
         // Derived layer: media + flashcard rows registered.
-        const mediaEntry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
+        const mediaEntry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
         assert.ok(mediaEntry, "Media table should have an entry for the attached file");
-        const fcRow = db.prepare('SELECT * FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
+        const fcRow = await db.prepare('SELECT * FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
         assert.ok(fcRow, "Flashcard should be synced into the derived layer");
     });
 
@@ -280,7 +280,7 @@ describe('Media Orchestrator', () => {
         assert.equal(meta.flashcards[0].vanillaData.media.front_sound, `./media/${audioName}`, "Sidecar front_sound should be set");
 
         // DB entry
-        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
+        const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
         assert.ok(entry, "Media table should have an entry");
         assert.equal(entry.hash, expectedHash, "DB hash should match SHA256 of the buffer");
         assert.ok(entry.absolute_path.endsWith(audioName), "DB absolute_path should reference the file");
@@ -297,21 +297,23 @@ describe('Media Orchestrator', () => {
         const audioBuffer = Buffer.from("orchestrated-audio-data");
         const hash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
 
-        const entry = media.serve(hash);
+        const entry = await media.serve(hash);
         assert.ok(entry, "serve() should return a DB entry");
         assert.equal(entry.hash, hash, "Returned entry hash must match");
         assert.ok(fs.existsSync(entry.absolute_path), "serve() should only return entries whose file exists on disk");
     });
 
-    it('should throw from serve() when the hash is unknown', () => {
-        assert.throws(
-            () => media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
+    it('should throw from serve() when the hash is unknown', async () => {
+        // assert.rejects, not assert.throws: serve() reads the database, which is async now,
+        // so the failure arrives as a rejected promise rather than a synchronous throw.
+        await assert.rejects(
+            async () => await media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
             /Media not found/
         );
     });
 
     it('should list media files in a folder, including hash for DB-registered files', async () => {
-        const items = media.list(ORCH_ROOT);
+        const items = await media.list(ORCH_ROOT);
         assert.ok(Array.isArray(items), "list() should return an array");
         assert.ok(items.length > 0, "list() should find the audio file added earlier");
 
@@ -342,7 +344,7 @@ describe('Media Orchestrator', () => {
         assert.ok(!meta.flashcards[0].vanillaData?.media?.front_sound, "Sidecar front_sound reference should be removed");
 
         // DB entry gone
-        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
         assert.equal(entry, undefined, "DB entry should be deleted");
 
         // Seal commit
@@ -356,7 +358,7 @@ describe('Media Orchestrator', () => {
         // Register a phantom entry directly in the DB (file never written to disk)
         const phantomHash = "deadbeef".repeat(8);
         const phantomAbs = path.join(getWorkspacePath(),ORCH_ROOT, 'media', 'ghost.png');
-        db.prepare('INSERT INTO Media (hash, name, relative_path, absolute_path) VALUES (?, ?, ?, ?)')
+        await db.prepare('INSERT INTO Media (hash, name, relative_path, absolute_path) VALUES (?, ?, ?, ?)')
             .run(phantomHash, 'ghost.png', path.join(ORCH_ROOT, 'media', 'ghost.png'), phantomAbs);
 
         // Add a real file to the DB so we can confirm it survives reconciliation
@@ -365,15 +367,15 @@ describe('Media Orchestrator', () => {
         const realRelPath = path.join(ORCH_ROOT, "VanillaOrchestrated.md");
         await media.addVanillaMedia(realRelPath, "vo-hash-001", realBuffer, realName, "image", "back");
 
-        const orphans = media.reconcile(ORCH_ROOT);
+        const orphans = await media.reconcile(ORCH_ROOT);
 
         assert.ok(orphans.some(o => o.name === 'ghost.png'), "reconcile() should report the phantom file as an orphan");
 
-        const phantom = db.prepare('SELECT * FROM Media WHERE hash = ?').get(phantomHash);
+        const phantom = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(phantomHash);
         assert.equal(phantom, undefined, "Phantom DB entry should be deleted");
 
         const realHash = crypto.createHash('sha256').update(realBuffer).digest('hex');
-        const real = db.prepare('SELECT * FROM Media WHERE hash = ?').get(realHash);
+        const real = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(realHash);
         assert.ok(real, "Real media DB entry should survive reconciliation");
     });
 });
@@ -568,7 +570,7 @@ describe('Media follows its document across a move or copy', () => {
             fs.existsSync(absMedia(destFolderRel, name)),
             "precondition: the media/ dir travels inside the folder on disk"
         );
-        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
         assert.equal(
             entry.absolute_path, absMedia(destFolderRel, name),
             "Media.absolute_path must follow the folder move"
@@ -583,7 +585,7 @@ describe('Media follows its document across a move or copy', () => {
 
         await docs.move(relPath, path.join(DEST, "Indexed.md"));
 
-        const entry = db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+        const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
         assert.ok(entry, "media must remain registered after the move");
         assert.equal(
             entry.absolute_path, absMedia(DEST, name),

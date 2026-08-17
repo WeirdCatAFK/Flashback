@@ -357,12 +357,12 @@ export class SealTools {
      * @returns {Promise<void>}
      */
     async rollback(ref, keepSrsProgress = true) {
-        const srsSnapshot = keepSrsProgress ? query.getAllFlashcardSrsState() : null;
+        const srsSnapshot = keepSrsProgress ? await query.getAllFlashcardSrsState() : null;
 
         await git.checkout({ fs, dir: dir(), ref, force: true });
 
         if (srsSnapshot) {
-            query.batchRestoreFlashcardSrsState(srsSnapshot);
+            await query.batchRestoreFlashcardSrsState(srsSnapshot);
         }
     }
 

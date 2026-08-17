@@ -101,9 +101,9 @@ class Diary {
     // Computing relative to the date (not wall-clock "now") keeps regeneration of a
     // past summary idempotent. `current` = consecutive active days ending on `date`
     // (0 if `date` itself had no activity); `longest` = longest run among days <= date.
-    _streakAsOf(date) {
+    async _streakAsOf(date) {
         const DAY = 86400000;
-        const days = query.getReviewActivityDays().filter(d => d <= date);
+        const days = (await query.getReviewActivityDays()).filter(d => d <= date);
         const daySet = new Set(days);
         const dateMs = Date.parse(`${date}T00:00:00Z`);
         const asStr = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -125,9 +125,9 @@ class Diary {
     // Assembles the summary object for a date purely from ReviewLogs. No IO beyond
     // reads; returns null when the day has no real reviews (so we never litter the
     // diary with empty summaries).
-    buildSummary(date) {
+    async buildSummary(date) {
         assertDate(date);
-        const totals = query.getDayReviewTotals(date);
+        const totals = await query.getDayReviewTotals(date);
         const reviews = totals?.reviews ?? 0;
         if (reviews === 0) return null;
 
@@ -136,16 +136,16 @@ class Diary {
 
         // Split the day's reviews on the same acquisition/review boundary the Stats
         // view uses: a day spent on new material reads as a low pass rate otherwise.
-        const phase = query.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date);
+        const phase = await query.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date);
         const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
 
-        const byDeck = query.getDayByDeck(date).map(r => ({
+        const byDeck = (await query.getDayByDeck(date)).map(r => ({
             deck: r.deck, reviews: r.reviews, failed: r.failed ?? 0,
         }));
-        const byDocument = query.getDayByDocument(date).map(r => ({
+        const byDocument = (await query.getDayByDocument(date)).map(r => ({
             path: r.path ? r.path.replace(/\\/g, "/") : r.path, reviews: r.reviews,
         }));
-        const struggledCards = query.getDayStruggledCards(date, STRUGGLED_CAP).map(r => ({
+        const struggledCards = (await query.getDayStruggledCards(date, STRUGGLED_CAP)).map(r => ({
             globalHash: r.globalHash,
             front: r.front ?? "(custom card)",
             failCount: r.failCount,
@@ -158,7 +158,7 @@ class Diary {
             totals: {
                 reviews,
                 uniqueCards: totals.uniqueCards ?? 0,
-                newCards: query.getDayNewCards(date),
+                newCards: await query.getDayNewCards(date),
                 failed,
             },
             retention: {
@@ -171,7 +171,7 @@ class Diary {
             byDeck,
             byDocument,
             struggledCards,
-            streak: this._streakAsOf(date),
+            streak: await this._streakAsOf(date),
         };
     }
 
@@ -181,7 +181,7 @@ class Diary {
     // reviews (nothing written).
     async generateSummary(date = todayLocal()) {
         assertDate(date);
-        const summary = this.buildSummary(date);
+        const summary = await this.buildSummary(date);
         if (!summary) return null;
         await this._ensureInit();
         this._atomicWrite(summaryAbs(date), JSON.stringify(summary, null, 2) + "\n");
@@ -191,10 +191,10 @@ class Diary {
 
     // Rebuild every summary from ReviewLogs (the "rebuild diary" command). Idempotent.
     async rebuildAll() {
-        const days = query.getReviewActivityDays();
+        const days = await query.getReviewActivityDays();
         let count = 0;
         for (const day of days) {
-            const summary = this.buildSummary(day);
+            const summary = await this.buildSummary(day);
             if (!summary) continue;
             await this._ensureInit();
             this._atomicWrite(summaryAbs(day), JSON.stringify(summary, null, 2) + "\n");

@@ -70,6 +70,6 @@ export function up(meta, kind) {
  * running in the same session: a Vault Doctor rebuild in between re-derives the old shape
  * from whatever the files said at the time.
  */
-export function derived(query) {
-    return query.backfillTypeAnswerAnswerText();
+export async function derived(query) {
+    return await query.backfillTypeAnswerAnswerText();
 }

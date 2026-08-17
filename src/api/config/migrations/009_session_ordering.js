@@ -46,25 +46,25 @@ const COLUMNS = [
     ['nearest_sibling_lag', 'INTEGER'],
 ];
 
-function existingColumns(db) {
-    return db.prepare("PRAGMA table_info('ReviewLogs')").all().map(c => c.name);
+async function existingColumns(db) {
+    return (await db.prepare("PRAGMA table_info('ReviewLogs')").all()).map(c => c.name);
 }
 
-export function shouldRun(db) {
-    const cols = existingColumns(db);
+export async function shouldRun(db) {
+    const cols = await existingColumns(db);
     return COLUMNS.some(([name]) => !cols.includes(name));
 }
 
-export function up(db) {
+export async function up(db) {
     // Re-read inside up() rather than trusting shouldRun's view: the runner also calls
     // up() for a version that was recorded but whose artifacts went missing, and only
     // some of the four may be absent.
-    const cols = existingColumns(db);
+    const cols = await existingColumns(db);
     for (const [name, type] of COLUMNS) {
         if (!cols.includes(name)) {
-            db.prepare(`ALTER TABLE ReviewLogs ADD COLUMN ${name} ${type}`).run();
+            await db.prepare(`ALTER TABLE ReviewLogs ADD COLUMN ${name} ${type}`).run();
         }
     }
 
-    db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_session ON ReviewLogs (session_id)');
+    await db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_session ON ReviewLogs (session_id)');
 }

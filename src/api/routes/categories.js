@@ -7,15 +7,15 @@ const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(next);
 
 // GET /api/categories
-router.get('/', catchError((req, res) => {
-    res.json(query.getCategories());
+router.get('/', catchError(async (req, res) => {
+    res.json(await query.getCategories());
 }));
 
 // POST /api/categories — { name, priority?, description? }
-router.post('/', catchError((req, res) => {
+router.post('/', catchError(async (req, res) => {
     const { name, priority = 0, description = '' } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-    const id = query.insertCategory({
+    const id = await query.insertCategory({
         name: name.trim(),
         priority: Number(priority) || 0,
         description: description ?? '',
@@ -24,10 +24,10 @@ router.post('/', catchError((req, res) => {
 }));
 
 // PUT /api/categories/:id — { name?, priority?, description? }
-router.put('/:id', catchError((req, res) => {
+router.put('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
     const { name, priority, description } = req.body;
-    query.updateCategory(id, {
+    await query.updateCategory(id, {
         name: name !== undefined ? name.trim() : undefined,
         priority: priority !== undefined ? Number(priority) : undefined,
         description,
@@ -36,11 +36,11 @@ router.put('/:id', catchError((req, res) => {
 }));
 
 // DELETE /api/categories/:id
-router.delete('/:id', catchError((req, res) => {
+router.delete('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
-    const count = query.getCategoryUsageCount(id);
+    const count = await query.getCategoryUsageCount(id);
     if (count > 0) return res.status(409).json({ error: `In use by ${count} flashcard(s)` });
-    query.deleteCategory(id);
+    await query.deleteCategory(id);
     res.json({ ok: true });
 }));
 

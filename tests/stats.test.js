@@ -62,8 +62,8 @@ describe('SRS statistics', () => {
 
     after(() => rmWorkspace());
 
-    it('returns a well-formed stats shape', () => {
-        const s = SRS.getStatistics({ algorithm: 'leitner' });
+    it('returns a well-formed stats shape', async () => {
+        const s = await SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(s.algorithm, 'leitner');
         assert.ok(s.totals && typeof s.totals.cards === 'number');
         assert.ok(s.acquisition && s.acquisition.learningReviews > 0);
@@ -75,14 +75,14 @@ describe('SRS statistics', () => {
     });
 
     it('counts new cards and a review, and schedules the reviewed card', async () => {
-        const before = SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await SRS.getStatistics({ algorithm: 'leitner' });
 
         // Two freshly-imported cards are unreviewed ⇒ both "new".
         assert.ok(before.maturity.new >= 2, 'both new cards counted');
 
         // Review one card (Leitner: outcome/easeFactor/newLevel computed client-side).
         await docs.submitReview(docRel, hashA, 1, 2.5, 1, 'leitner');
-        const after = SRS.getStatistics({ algorithm: 'leitner' });
+        const after = await SRS.getStatistics({ algorithm: 'leitner' });
 
         assert.equal(after.totals.cards - before.totals.cards, 0, 'no cards added by a review');
         assert.equal(after.totals.reviews - before.totals.reviews, 1, 'one more review logged');
@@ -106,7 +106,7 @@ describe('SRS statistics', () => {
     });
 
     it('counts a card toward retention only once it is past the learning phase', async () => {
-        const before = SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await SRS.getStatistics({ algorithm: 'leitner' });
         const n = before.acquisition.learningReviews;
 
         // hashA already has 1 review from the previous test. Take it to exactly n,
@@ -114,13 +114,13 @@ describe('SRS statistics', () => {
         for (let i = 1; i < n; i++) {
             await docs.submitReview(docRel, hashA, 1, 2.5, i + 1, 'leitner');
         }
-        const atThreshold = SRS.getStatistics({ algorithm: 'leitner' });
+        const atThreshold = await SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(atThreshold.acquisition.reviews - before.acquisition.reviews, n - 1,
             'reviews up to the threshold all land in the learning bucket');
         assert.equal(atThreshold.totals.retentionReviews - before.totals.retentionReviews, 0);
 
         await docs.submitReview(docRel, hashA, 1, 2.5, n + 1, 'leitner');
-        const after = SRS.getStatistics({ algorithm: 'leitner' });
+        const after = await SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(after.acquisition.reviews - atThreshold.acquisition.reviews, 0,
             'past the threshold the learning bucket stops growing');
         assert.equal(after.totals.retentionReviews - atThreshold.totals.retentionReviews, 1);
@@ -129,7 +129,7 @@ describe('SRS statistics', () => {
     });
 
     it('measures acquisition cost as attempts to the first correct recall', async () => {
-        const before = SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await SRS.getStatistics({ algorithm: 'leitner' });
         // Sum of attempts across cards — the exact quantity a delta can be read off,
         // unlike the vault-wide average/median.
         const attemptSum = (s) => (s.acquisition.reviewsToRecall.avg ?? 0) * s.acquisition.reviewsToRecall.cards;
@@ -139,7 +139,7 @@ describe('SRS statistics', () => {
         await docs.submitReview(docRel, hashB, 0, 2.4, 1, 'leitner');
         await docs.submitReview(docRel, hashB, 0, 2.3, 1, 'leitner');
 
-        const failing = SRS.getStatistics({ algorithm: 'leitner' });
+        const failing = await SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(failing.acquisition.reviewsToRecall.cards - before.acquisition.reviewsToRecall.cards, 0,
             'a card never yet recalled contributes no acquisition-cost sample');
         assert.equal(Math.round(firstCorrect(failing) - firstCorrect(before)), 0,
@@ -147,7 +147,7 @@ describe('SRS statistics', () => {
         assert.equal(failing.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
 
         await docs.submitReview(docRel, hashB, 1, 2.4, 2, 'leitner');
-        const after = SRS.getStatistics({ algorithm: 'leitner' });
+        const after = await SRS.getStatistics({ algorithm: 'leitner' });
         assert.equal(after.acquisition.reviewsToRecall.cards - failing.acquisition.reviewsToRecall.cards, 1);
         assert.equal(Math.round(attemptSum(after) - attemptSum(failing)), 3,
             'the card took three attempts before it was first recalled');
@@ -189,33 +189,33 @@ describe('SRS algorithm detection', () => {
 
     it('reports the algorithm of the most recent review', async () => {
         await docs.submitReview(docRel, hashL, 1, 2.5, 1, 'leitner');
-        assert.equal(SRS.detectAlgorithm(), 'leitner');
+        assert.equal(await SRS.detectAlgorithm(), 'leitner');
 
         await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
-        assert.equal(SRS.detectAlgorithm(), 'fsrs',
+        assert.equal(await SRS.detectAlgorithm(), 'fsrs',
             'switching to FSRS must be visible to the server without being told');
 
         await docs.submitReview(docRel, hashL, 1, 2.6, 2, 'sm2');
-        assert.equal(SRS.detectAlgorithm(), 'sm2',
+        assert.equal(await SRS.detectAlgorithm(), 'sm2',
             'sm2 is distinguishable from leitner now that the log records it');
     });
 
     it('getStatistics with no algorithm uses the detected one, not a hardcoded default', async () => {
         await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
-        assert.equal(SRS.detectAlgorithm(), 'fsrs');
+        assert.equal(await SRS.detectAlgorithm(), 'fsrs');
 
-        const inferred = SRS.getStatistics();
+        const inferred = await SRS.getStatistics();
         assert.equal(inferred.algorithm, 'fsrs',
             'an MCP client reading `algorithm` back must not be told "leitner"');
 
         // An explicit request still wins — the caller that does know overrides.
-        assert.equal(SRS.getStatistics({ algorithm: 'sm2' }).algorithm, 'sm2');
+        assert.equal((await SRS.getStatistics({ algorithm: 'sm2' })).algorithm, 'sm2');
     });
 
-    it('getDue with no algorithm uses the detected one', () => {
-        assert.equal(SRS.detectAlgorithm(), 'fsrs');
-        assert.equal(SRS.getDue({ folder: ROOT2 }).algorithm, 'fsrs');
-        assert.equal(SRS.getDue({ folder: ROOT2, algorithm: 'leitner' }).algorithm, 'leitner');
+    it('getDue with no algorithm uses the detected one', async () => {
+        assert.equal(await SRS.detectAlgorithm(), 'fsrs');
+        assert.equal((await SRS.getDue({ folder: ROOT2 })).algorithm, 'fsrs');
+        assert.equal((await SRS.getDue({ folder: ROOT2, algorithm: 'leitner' })).algorithm, 'leitner');
     });
 });
 
@@ -254,10 +254,10 @@ describe('Card insights', () => {
         await docs.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
         await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
 
-        const cardId = query.getFlashcardByHash(hashC).id;
-        query.insertSyntheticReviewLog(cardId, 2.5, 1);
+        const cardId = (await query.getFlashcardByHash(hashC)).id;
+        await query.insertSyntheticReviewLog(cardId, 2.5, 1);
 
-        const insights = SRS.getCardInsights(hashC, { algorithm: 'leitner' });
+        const insights = await SRS.getCardInsights(hashC, { algorithm: 'leitner' });
         assert.equal(insights.history.length, 3, 'the ledger shows every stored row');
         assert.equal(insights.history.filter(h => h.synthetic).length, 1);
         assert.equal(insights.srs.syntheticEntries, 1);
@@ -268,7 +268,10 @@ describe('Card insights', () => {
             'rows keep insertion order, and one with neither an algorithm nor a rating is not guessed at');
     });
 
-    it('throws for an unknown card', () => {
-        assert.throws(() => SRS.getCardInsights('no-such-card'), /not found/);
+    it('throws for an unknown card', async () => {
+        // assert.rejects, not assert.throws: getCardInsights reads the database, which is
+        // async now, so the failure arrives as a rejected promise rather than a synchronous
+        // throw. assert.throws would see a promise returned normally and report nothing.
+        await assert.rejects(async () => await SRS.getCardInsights('no-such-card'), /not found/);
     });
 });

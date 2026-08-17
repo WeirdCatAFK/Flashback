@@ -19,17 +19,17 @@ const catchError = fn => (req, res, next) =>
     });
 
 // GET /api/media?hash=
-router.get('/', catchError((req, res) => {
+router.get('/', catchError(async (req, res) => {
     const { hash } = req.query;
     if (!hash) return res.status(400).json({ error: 'hash required' });
-    const entry = media.serve(hash);
+    const entry = await media.serve(hash);
     res.sendFile(entry.absolute_path);
 }));
 
 // GET /api/media/list?path=
-router.get('/list', catchError((req, res) => {
+router.get('/list', catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? '');
-    res.json(media.list(folderPath));
+    res.json(await media.list(folderPath));
 }));
 
 // GET /api/media/file?docPath=&name=
@@ -116,9 +116,9 @@ router.delete('/', catchError(async (req, res) => {
 
 // POST /api/media/reconcile
 // Body: { folderPath }
-router.post('/reconcile', catchError((req, res) => {
+router.post('/reconcile', catchError(async (req, res) => {
     const folderPath = norm(req.body.folderPath ?? '');
-    const orphans = media.reconcile(folderPath);
+    const orphans = await media.reconcile(folderPath);
     res.json({ removed: orphans.length, orphans });
 }));
 
