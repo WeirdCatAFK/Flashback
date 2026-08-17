@@ -31,6 +31,12 @@ contextBridge.exposeInMainWorld('flashback', {
   removeVault:     (id)         => ipcRenderer.invoke('remove-vault', id),
   switchVault:     (id)         => ipcRenderer.invoke('switch-vault', id),
   openVaultFromDisk: ()         => ipcRenderer.invoke('open-vault-from-disk'),
+  // Local user identity — git-style name + email, with an optional per-vault override.
+  // getIdentity returns what is STORED (for the settings form); what is actually stamped
+  // is resolved by the API and read from GET /api/identity.
+  getIdentity:     ()                    => ipcRenderer.invoke('get-identity'),
+  setIdentity:     (identity)            => ipcRenderer.invoke('set-identity', identity),
+  setVaultIdentity: (vaultId, identity)  => ipcRenderer.invoke('set-vault-identity', vaultId, identity),
   // Remote Flashback Server instances. Tokens stay in main (encrypted via safeStorage);
   // these calls never return one.
   listRemotes:     ()           => ipcRenderer.invoke('list-remotes'),

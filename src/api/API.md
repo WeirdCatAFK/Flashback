@@ -951,6 +951,22 @@ That split is also why there is no write endpoint here: storing a token would me
 
 ---
 
+## Identity `/api/identity`
+
+### `GET /api/identity`
+
+Who this server stamps new work as: the local, git-style user identity that goes into a new sidecar's `createdBy` and onto every Seal commit. Before it existed, both were stamped with the *vault name*, so renaming a vault changed the apparent author of all future work.
+
+`source` says where the value came from — `vault` (this vault's override), `global` (the install-wide identity), or `default` (derived from the OS account, `<osuser>@flashback.local`, when nothing has been set). Resolution is override → global → default, and a `{name, email}` pair only counts when both halves are non-empty: a name with no address cannot produce an author line.
+
+**Read-only**, for the same reason as `/api/remotes`: `user` is a `config.json` field the Electron main process owns, and a write route here would put two processes on one key. Editing goes through IPC. It is served over HTTP anyway so clients that are not the Electron renderer — the MCP server, a `dev:web` session — can say whose work they are looking at.
+
+**This is not authentication.** Nothing validates the name or the address and nothing gates on either; a Flashback Server must treat an identity a client asserts as a claim, never as authorization. What authorizes a remote is its access token.
+
+**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>" }`.
+
+---
+
 ## CORS
 
 Not a route, but part of the HTTP contract. The policy is an **allowlist**, replacing the former `Access-Control-Allow-Origin: *`.

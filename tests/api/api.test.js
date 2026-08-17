@@ -270,6 +270,39 @@ describe('Flashback API', () => {
         });
     });
 
+    describe('Identity', () => {
+        it('reports who new work is stamped as, and where that came from', async () => {
+            const res = await fetch(`${baseUrl}/api/identity`);
+            assert.equal(res.status, 200);
+
+            const body = await res.json();
+            assert.equal(typeof body.name, 'string');
+            assert.equal(typeof body.email, 'string');
+            assert.ok(['vault', 'global', 'default'].includes(body.source),
+                `unexpected identity source: ${body.source}`);
+            // The author line is what actually reaches a sidecar and a commit, so it is
+            // built from the same two fields rather than assembled again by the caller.
+            assert.equal(body.author, `${body.name} <${body.email}>`);
+        });
+
+        it('offers no way to write an identity over HTTP', async () => {
+            // config.json's writers are split by ownership — `user` belongs to the Electron
+            // main process. A PUT here would put two processes on one key.
+            for (const method of ['POST', 'PUT', 'PATCH', 'DELETE']) {
+                const res = await fetch(`${baseUrl}/api/identity`, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: method === 'DELETE' ? undefined
+                        : JSON.stringify({ name: 'Someone Else', email: 'x@y.test' }),
+                });
+                assert.equal(res.status, 404, `${method} /api/identity should not be routed`);
+            }
+
+            const after = await (await fetch(`${baseUrl}/api/identity`)).json();
+            assert.notEqual(after.name, 'Someone Else');
+        });
+    });
+
     // ── Documents ─────────────────────────────────────────────────────────
 
     describe('Documents', () => {

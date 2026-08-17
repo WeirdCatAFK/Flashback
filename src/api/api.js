@@ -20,6 +20,7 @@ import diaryRouter from './routes/diary.js';
 import readerRouter from './routes/reader.js';
 import vaultRouter from './routes/vault.js';
 import remotesRouter from './routes/remotes.js';
+import identityRouter from './routes/identity.js';
 import { isSwitching } from './vaultSession.js';
 
 class api {
@@ -126,6 +127,7 @@ class api {
     this.app.use('/api/reader', readerRouter);
     this.app.use('/api/vault', vaultRouter);
     this.app.use('/api/remotes', remotesRouter);
+    this.app.use('/api/identity', identityRouter);
 
     // 404
     this.app.use((req, res) => {

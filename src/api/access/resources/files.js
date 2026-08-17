@@ -20,7 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as getConfig, getWorkspacePath } from "../primitives/config.js";
+import { getAuthorString, getWorkspacePath } from "../primitives/config.js";
 import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 import { LATEST_VERSION } from "../../config/updates/registry.js";
@@ -377,7 +377,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+            metadata.createdBy = metadata.createdBy || getAuthorString();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(fileRel, metadata, false);
@@ -418,7 +418,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFolderMetadata();
             metadata = this._ensureGlobalHash(metadata, true);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+            metadata.createdBy = metadata.createdBy || getAuthorString();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(folderRel, metadata, true);
@@ -452,7 +452,7 @@ _regenerateIdentities(absPath) {
         let metadata = existing || newFolderMetadata();
         metadata = this._ensureGlobalHash(metadata, true);
         metadata.name = name;
-        metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+        metadata.createdBy = metadata.createdBy || getAuthorString();
         metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
         this.writeMetadata(folderRel, metadata, true);

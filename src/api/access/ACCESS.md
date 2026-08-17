@@ -50,6 +50,7 @@ Config reader/writer. `USER_DATA_PATH` locates `config.json` wherever it is set 
 - `reload()` — drops the cache. Needed because `config.json` has two writers (this process and Electron main).
 - `setActiveVault(entry)` — moves the pointer: writes `activeVaultId` *and* the flat `vaultName`/`isCustomPath`/`customPath` projection together, merged into a fresh disk read. Only `vaultSession.js` should call it; closing the old database and re-validating are that module's job, not this one's.
 - `getVaults()` / `getActiveVaultId()` / `getRemotes()` / `getAllowedOrigins()` — registry readers. `getVaults()` synthesizes a single entry from the flat fields when `vaults[]` is absent, so callers never special-case an un-migrated config. `getRemotes()` is credential-free by construction.
+- `getIdentity()` / `getAuthorString()` — the local user identity, git-style. `getIdentity()` returns `{name, email, source}` resolving `user.perVault[activeVaultId]` → `user` → derived from the OS account; `getAuthorString()` renders it as `Name <email>`, which is both a sidecar's `createdBy` and a git author line, deliberately the same string. A `{name, email}` pair only counts when **both** halves are non-empty. Reads through the cached `get()`, so `reload()` on a vault switch is what makes the override per-vault — there is no separate cache to invalidate. Consumed by `files.js` (Tier 2) and `seal.js` (outside the tiers); writes belong to Electron main, which owns the `user` key.
 - `set(config)` — writes and caches a whole config object.
 
 ### `database.js`

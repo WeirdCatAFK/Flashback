@@ -290,6 +290,7 @@ export default function App() {
           customThemes={customThemes}
           onCustomThemesChange={setCustomThemes}
           onReplayTour={() => setTourOpen(true)}
+          connection={connection}
         />
       );
       default: return null;

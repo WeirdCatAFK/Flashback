@@ -39,6 +39,7 @@
     "test:doctor": "node --test tests/doctor.test.js",
     "test:vault": "node --test tests/vault.test.js",
     "test:upgrade": "node --test tests/upgrade.test.js",
+    "test:identity": "node --test tests/identity.test.js",
     "test:updates": "node --test tests/updates.test.js",
     "test:api": "node --test tests/api/api.test.js",
     "test:mcp": "node --test tests/mcp.test.js",

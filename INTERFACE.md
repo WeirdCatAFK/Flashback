@@ -333,7 +333,7 @@ The preload script exposes exactly one namespace: `window.flashback`. New IPC ch
 
 Current channels:
 
-**Vault and connection channels** are the exception to "the renderer talks to the API over HTTP": the vault registry and remote credentials belong to the machine rather than to any one vault, so they live in the main process. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
+**Vault, identity and connection channels** are the exception to "the renderer talks to the API over HTTP": the vault registry, the user identity and remote credentials belong to the machine rather than to any one vault, so they live in the main process. The identity channels are a deliberate split — main **writes** it (it owns the `user` key in `config.json`), while what would actually be *stamped* is resolved by the API and read from `GET /api/identity`, so the override → global → default precedence exists in one place instead of two that drift. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
 
 
 | Channel         | Direction        | Purpose                                                    |
@@ -363,6 +363,9 @@ Current channels:
 | `remove-vault`     | renderer → main | Unregister a vault. Never deletes files                    |
 | `switch-vault`     | renderer → main | Ask the API to open another local vault in-process         |
 | `open-vault-from-disk` | renderer → main | Directory picker; adopts an existing vault where it stands |
+| `get-identity`     | renderer → main | What is **stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
+| `set-identity`     | renderer → main | Set the global `{name, email}`; both halves required. `{ ok, error?, field?, code? }` |
+| `set-vault-identity` | renderer → main | Set or (with `null`) clear this vault's identity override |
 | `list-remotes`     | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token |
 | `add-remote`       | renderer → main | Register a remote; its token is encrypted via `safeStorage` |
 | `remove-remote`    | renderer → main | Unregister a remote                                        |

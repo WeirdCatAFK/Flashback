@@ -1,6 +1,8 @@
 import path from "path";
 import fs from "fs";
+import os from "os";
 import defaultConfig from "../../config/defaults/ConfigJSON.js";
+import { defaultIdentityFrom } from "../../../shared/identity.js";
 
 let cache = null;
 
@@ -51,8 +53,11 @@ export function get() {
  * Drops the cached config so the next get() re-reads from disk.
  *
  * config.json has TWO writers — the Electron main process (which owns the vault registry,
- * the api token and the remotes) and this module — so the cache goes stale whenever main
- * writes. Every path resolver below is a pure per-call function over get(), which is what
+ * the api token, the remotes and the user identity) and this module — so the cache goes
+ * stale whenever main writes. Dropping it is also what makes a per-vault identity override
+ * take effect: getIdentity() reads through get() and has no cache of its own.
+ *
+ * Every path resolver below is a pure per-call function over get(), which is what
  * makes a vault switch a matter of moving the pointer and calling this, rather than
  * restarting the process.
  */
@@ -124,9 +129,12 @@ export function getMcpDiaryAccess() {
 // config.json carries a `vaults[]` registry and an `activeVaultId` pointer, but it ALSO
 // keeps the original flat `vaultName`/`isCustomPath`/`customPath` fields as the projection
 // of whichever vault is active. That redundancy is deliberate and load-bearing: every
-// existing consumer of those fields — getVaultPath() above, the Seal commit author, the
-// diary's author, the `createdBy` stamp on new sidecars — keeps working untouched, and a
-// config.json written by an older build still opens. The registry is purely additive.
+// existing consumer of those fields — getVaultPath() above, getDatabasePath(), the diary's
+// storage root — keeps working untouched, and a config.json written by an older build
+// still opens. The registry is purely additive.
+//
+// Authorship is NOT one of those consumers any more: the Seal commit author and the
+// `createdBy` stamp read getIdentity() below. The vault is a place; those want a person.
 // ---------------------------------------------------------------------------
 
 /**
@@ -209,6 +217,82 @@ export function getRemotes() {
 export function getAllowedOrigins() {
     const origins = get()?.allowedOrigins;
     return Array.isArray(origins) ? origins.filter((o) => typeof o === "string" && o) : [];
+}
+
+// ---------------------------------------------------------------------------
+// Local user identity
+//
+// Who is using this install, in git's terms: a self-asserted name and email under a single
+// `user` key, plus an optional per-vault override keyed by vault id. It mirrors
+// `git config --global user.email` against a repo-local one, and it is deliberately NOT
+// authentication — nothing validates it and nothing gates on it. When remotes arrive they
+// authenticate with access tokens; a server must treat everything here as client-asserted.
+//
+// The override lives under `user`, not on the vaults[] registry entry, because "which
+// address I use where" is a fact about the person. It must also not travel with a copied
+// vault folder to someone else's machine — config.json stays behind, vault.json would not.
+//
+// Read through get(), which reload() already clears on every vault switch, so the override
+// follows the active vault by the same mechanism the path resolvers use.
+// ---------------------------------------------------------------------------
+
+/** A {name, email} pair only counts if BOTH halves are present — half-filled is not set. */
+function usable(identity) {
+    const name = typeof identity?.name === "string" ? identity.name.trim() : "";
+    const email = typeof identity?.email === "string" ? identity.email.trim() : "";
+    return name && email ? { name, email } : null;
+}
+
+/**
+ * Falls back to the OS account. Unlike git we cannot refuse to write a file for want of an
+ * identity, so there is always an answer.
+ *
+ * Shaped by the shared helper rather than here, because the setup wizard pre-fills its
+ * identity step from the same rule via the Electron host — the address it offers and the
+ * one that would be stamped if the user skipped the step must be the same string.
+ */
+function derivedIdentity() {
+    let username = "";
+    try {
+        username = os.userInfo().username || "";
+    } catch { /* no OS user info (some sandboxes) — the helper's own fallback stands */ }
+    return defaultIdentityFrom(username);
+}
+
+/**
+ * The identity to stamp on work done in the active vault.
+ *
+ * Precedence: this vault's override → the global identity → derived from the OS account.
+ *
+ * @returns {{name: string, email: string, source: "vault"|"global"|"default"}}
+ */
+export function getIdentity() {
+    const user = get()?.user;
+    const vaultId = getActiveVaultId();
+
+    if (vaultId && user?.perVault) {
+        const override = usable(user.perVault[vaultId]);
+        if (override) return { ...override, source: "vault" };
+    }
+
+    const global = usable(user);
+    if (global) return { ...global, source: "global" };
+
+    return { ...derivedIdentity(), source: "default" };
+}
+
+/**
+ * The same identity as one string: `Name <email>`.
+ *
+ * This is what a sidecar's `createdBy` records and what a git author line looks like, and
+ * they are deliberately the same value — a file and the commit that created it should not
+ * disagree about who made them.
+ *
+ * @returns {string}
+ */
+export function getAuthorString() {
+    const { name, email } = getIdentity();
+    return `${name} <${email}>`;
 }
 
 export function set(config) {

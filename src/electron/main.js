@@ -9,6 +9,7 @@ import log, { getLogPath } from "./logger.js";
 import { initUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from "./updater.js";
 import { configExists, readConfig, writeConfig, apiBaseUrl } from "./appConfig.js";
 import * as vaults from "./vaults.js";
+import { getStoredIdentity, setIdentity, setVaultIdentity } from "./identity.js";
 
 // Reconstruct __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -244,16 +245,22 @@ ipcMain.handle('get-config', () => readConfig());
 // there and quietly built a blank vault beside the real data. Renaming now goes through
 // `rename-vault`, which closes the database first and moves both together.
 //
+// `user` is on the list for the same reason: it has its own IPC, and Config's `form` is
+// loaded once from get-config. Without this, saving the Server section after editing the
+// identity would write back the name and email the form read on mount.
+//
 // The fields are preserved from disk rather than rejected, so an older renderer (or a
 // stale `form` object in Config) cannot corrupt the pointer by round-tripping a whole
 // config object it read before a vault switch.
-const VAULT_OWNED_FIELDS = ['vaultName', 'isCustomPath', 'customPath', 'activeVaultId', 'vaults', 'remotes'];
+const PROTECTED_FIELDS = [
+  'vaultName', 'isCustomPath', 'customPath', 'activeVaultId', 'vaults', 'remotes', 'user',
+];
 
 ipcMain.handle('set-config', (_event, newConfig) => {
   try {
     const onDisk = readConfig();
     const merged = { ...newConfig };
-    for (const key of VAULT_OWNED_FIELDS) {
+    for (const key of PROTECTED_FIELDS) {
       if (key in onDisk) merged[key] = onDisk[key];
       else delete merged[key];
     }
@@ -300,6 +307,22 @@ ipcMain.handle('open-vault-from-disk', async () => {
   if (picked.canceled || !picked.filePaths?.length) return { ok: false, canceled: true };
   return vaults.adoptVault(picked.filePaths[0]);
 });
+
+// ---------------------------------------------------------------------------
+// IPC: local user identity
+//
+// Writes live here because main owns the `user` key in config.json, the same way it owns
+// apiToken, vaults[] and remotes[]. Reads of what is STORED come from here too; what would
+// actually be stamped is resolved by the API and read over HTTP from GET /api/identity, so
+// the precedence rule exists in exactly one place.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('get-identity', () => getStoredIdentity());
+
+ipcMain.handle('set-identity', (_event, identity) => setIdentity(identity ?? {}));
+
+ipcMain.handle('set-vault-identity', (_event, vaultId, identity) =>
+    setVaultIdentity(vaultId ?? readConfig().activeVaultId, identity ?? null));
 
 // ---------------------------------------------------------------------------
 // IPC: remotes

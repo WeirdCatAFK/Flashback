@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import "./Config.css";
 import KeybindingsEditor from "../components/KeybindingsEditor";
+import IdentitySection from "../components/IdentitySection";
 import ProgressDialog from "../components/shared/ProgressDialog";
 import { getPref, setPref, getNumberPref } from "../prefs.js";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
@@ -822,6 +823,7 @@ export default function ConfigView({
   allThemes,
   onCustomThemesChange,
   onReplayTour,
+  connection,
 }) {
   const { t } = useT();
   const { config, setConfig, loading, error } = useConfig();
@@ -1140,6 +1142,8 @@ export default function ConfigView({
 
       {form && (
         <>
+          <IdentitySection connection={connection} />
+
           <section className="config-section">
             <h2 className="config-heading">{t('Server')}</h2>
             <table className="config-table">
