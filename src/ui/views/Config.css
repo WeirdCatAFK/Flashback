@@ -587,3 +587,10 @@
   font-size: 0.85rem;
   color: var(--color-danger);
 }
+
+/* Settings that are shown but not editable here — the active vault and its custom path.
+   Both are changed in the vault manager, which lives outside any one vault. */
+.config-static-value {
+  font-size: 12px;
+  color: var(--color-fg-secondary);
+}

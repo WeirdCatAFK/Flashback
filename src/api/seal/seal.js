@@ -10,7 +10,7 @@
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
-import { getWorkspacePath, get as getConfig } from "../access/primitives/config.js";
+import { getWorkspacePath, getIdentity } from "../access/primitives/config.js";
 import query from "../access/resources/query.js";
 
 // git.statusMatrix column values for [HEAD, workdir]
@@ -22,9 +22,16 @@ function dir() {
     return getWorkspacePath();
 }
 
+// The person, not the place. This used to author every commit as the vault name with a
+// fixed `seal@flashback.local` address, so renaming a vault changed the apparent author of
+// all future work and two vaults belonging to one person looked like two people.
+//
+// Resolved per call, which is what the vault-switch ordering in vaultSession.js depends on
+// (see the quiesce note on _cancelDebounce below) and is also what makes a per-vault
+// identity override land on the right commit with no further work here.
 function author() {
-    const config = getConfig();
-    return { name: config?.vaultName || "flashback", email: "seal@flashback.local" };
+    const { name, email } = getIdentity();
+    return { name, email };
 }
 
 function normPath(p) {
@@ -152,6 +159,32 @@ export class SealEventEmitter {
             : sidecars.length > 1       ? `${sidecars.length} sidecars`
             : paths[0];
         await git.commit({ fs, dir: workspace, message: `edit: ${label}`, author: author() });
+    }
+
+    /**
+     * Brings the emitter to a complete stop against the CURRENT vault, before the active
+     * vault changes underneath it.
+     *
+     * dir() and author() resolve per call, so a debounce timer armed in vault A but firing
+     * after the switch would stage A's sidecar paths into B's repo and author the commit
+     * with B's name — silently, and only for whoever happened to edit within 2 seconds of
+     * switching. Flushing first (rather than just cancelling) means those edits still land
+     * where they belong instead of being dropped.
+     *
+     * Errors are swallowed on purpose: a vault switch must not be blocked by a repo that
+     * cannot commit, and the Vault Doctor's commitDrift() sweeps up anything left unstaged.
+     *
+     * @returns {Promise<void>}
+     */
+    async quiesce() {
+        try {
+            await this.flushEdits();
+        } catch (err) {
+            console.error("Seal quiesce failed to flush pending edits:", err?.stack || err);
+        } finally {
+            this._cancelDebounce();
+            this._pendingEditPaths.clear();
+        }
     }
 
     /**

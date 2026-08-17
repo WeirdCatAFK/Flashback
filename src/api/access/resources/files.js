@@ -20,7 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
-import { get as getConfig, getWorkspacePath } from "../primitives/config.js";
+import { getAuthorString, getWorkspacePath } from "../primitives/config.js";
 import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 import { LATEST_VERSION } from "../../config/updates/registry.js";
@@ -66,11 +66,29 @@ export default class Files {
      * If the workspace root does not exist, it will be created recursively.
      */
     constructor() {
-        this.workspaceRoot = getWorkspacePath();
+        this._ensureRoot();
+    }
 
-        if (!fs.existsSync(this.workspaceRoot)) {
-            fs.mkdirSync(this.workspaceRoot, { recursive: true });
+    /**
+     * The workspace root of the ACTIVE vault.
+     *
+     * A getter, not a field snapshotted in the constructor, because these instances are
+     * module-scope singletons created at import (routes/documents.js, doctor.js, media.js,
+     * …) and the active vault can change under them when the user switches. Resolving per
+     * access is what keeps safePath() — and every caller that reads `files.workspaceRoot`
+     * to relativize a stored absolute path — pointed at the right vault.
+     */
+    get workspaceRoot() {
+        return getWorkspacePath();
+    }
+
+    /** Creates the workspace directory if the active vault has never been opened. */
+    _ensureRoot() {
+        const root = this.workspaceRoot;
+        if (!fs.existsSync(root)) {
+            fs.mkdirSync(root, { recursive: true });
         }
+        return root;
     }
 
     // ---------- HELPERS ----------
@@ -359,7 +377,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+            metadata.createdBy = metadata.createdBy || getAuthorString();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(fileRel, metadata, false);
@@ -400,7 +418,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFolderMetadata();
             metadata = this._ensureGlobalHash(metadata, true);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+            metadata.createdBy = metadata.createdBy || getAuthorString();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(folderRel, metadata, true);
@@ -434,7 +452,7 @@ _regenerateIdentities(absPath) {
         let metadata = existing || newFolderMetadata();
         metadata = this._ensureGlobalHash(metadata, true);
         metadata.name = name;
-        metadata.createdBy = metadata.createdBy || getConfig().vaultName || "unknown";
+        metadata.createdBy = metadata.createdBy || getAuthorString();
         metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
         this.writeMetadata(folderRel, metadata, true);

@@ -18,9 +18,13 @@ import SearchModal from "./components/search/SearchModal";
 import ShortcutsOverlay from "./components/ShortcutsOverlay";
 import OnboardingTour from "./components/onboarding/OnboardingTour";
 import TitleBar from "./components/TitleBar";
+import VaultManager from "./components/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
+import { invalidateData } from "./utils/dataBus";
 import { useT } from "./translations/index.jsx";
+import useConnection from "./hooks/useConnection.js";
+import { getPref, setPref, setActiveVaultScope } from "./prefs.js";
 
 const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'config'];
 
@@ -97,20 +101,44 @@ export default function App() {
     localStorage.setItem("fb-theme", theme);
   }, [theme]);
 
+  // The vault (or remote server) the app is currently pointed at. Changing it re-points
+  // the API client and bumps connectionId, which is used as a remount key below.
+  const { connection, connectionId } = useConnection();
+
   const [selectedPath, setSelectedPath] = useState(null);
   // Persist which folders are expanded so the tree reopens the way the user
-  // left it on the next launch. Stored as a plain array of paths in localStorage.
+  // left it on the next launch. Stored as a plain array of paths in localStorage,
+  // scoped to the vault — these are vault-relative paths and mean nothing in another one.
   const [openPaths, setOpenPaths] = useState(() => {
     try {
-      const saved = JSON.parse(localStorage.getItem("fb-open-folders") ?? "[]");
+      const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
       return new Set(Array.isArray(saved) ? saved : []);
     } catch {
       return new Set();
     }
   });
   useEffect(() => {
-    localStorage.setItem("fb-open-folders", JSON.stringify([...openPaths]));
+    setPref("fb-open-folders", JSON.stringify([...openPaths]));
   }, [openPaths]);
+
+  // Re-scope preferences and drop anything holding a path from the vault we just left.
+  // The view tree itself is discarded by the connectionId key on AppGate; this covers the
+  // App-level state that lives above it.
+  useEffect(() => {
+    if (!connection) return;
+    setActiveVaultScope(connection.id ?? null);
+    setSelectedPath(null);
+    setPendingSource(null);
+    setPendingDeck(null);
+    setStudySession(null);
+    try {
+      const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
+      setOpenPaths(new Set(Array.isArray(saved) ? saved : []));
+    } catch {
+      setOpenPaths(new Set());
+    }
+    invalidateData();
+  }, [connection?.id, connection?.url]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const [studySession, setStudySession] = useState(null);
   const handleStartStudy = useCallback((session) => {
@@ -120,6 +148,7 @@ export default function App() {
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [vaultManagerOpen, setVaultManagerOpen] = useState(false);
 
   // Feature tour ("onboarding"). Auto-runs once — the first time the app loads
   // after setup, and once for existing users upgrading — then only on demand from
@@ -261,6 +290,7 @@ export default function App() {
           customThemes={customThemes}
           onCustomThemesChange={setCustomThemes}
           onReplayTour={() => setTourOpen(true)}
+          connection={connection}
         />
       );
       default: return null;
@@ -269,9 +299,18 @@ export default function App() {
 
   return (
     <div id="app-shell">
-      <TitleBar onSearch={() => setSearchOpen(true)} />
+      <TitleBar
+        onSearch={() => setSearchOpen(true)}
+        connection={connection}
+        onManageVaults={() => setVaultManagerOpen(true)}
+      />
 
-      <AppGate>
+      {/* Keyed on the connection so switching vault (or connecting to a remote) unmounts
+          every view rather than leaving the previous vault's documents, cards and graph
+          on screen — the view-slot keep-alive below would otherwise preserve them all.
+          Remounting AppGate also resets its latched `ready`, so a local switch waits for
+          the API to finish re-opening instead of firing reads at a closing database. */}
+      <AppGate key={connectionId}>
         <div id="app-body">
           <nav id="activity-bar" aria-label={t("Main navigation")}>
             <div id="activity-top">
@@ -329,6 +368,13 @@ export default function App() {
 
       {shortcutsOpen && (
         <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
+      )}
+
+      {/* Outside AppGate on purpose. Switching vault remounts everything inside the gate;
+          the manager is the thing that ORDERED the switch, so it has to outlive it long
+          enough to report a failure instead of vanishing with the vault it was leaving. */}
+      {vaultManagerOpen && (
+        <VaultManager connection={connection} onClose={() => setVaultManagerOpen(false)} />
       )}
     </div>
   );

@@ -21,6 +21,8 @@ Before the API starts, it undergoes a mandatory validation process to ensure the
 
 Base URL: `http://localhost:3000` (default port, configurable)
 
+`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes`
+
 All request bodies are JSON unless marked **multipart**. All responses are JSON unless noted otherwise. Paths in request bodies or query strings may use forward slashes on any platform; the server normalizes them internally.
 
 ---
@@ -876,3 +878,103 @@ Rolls the canonical sidecar layer back to a given commit. By default, SRS progre
 **Response** `200` — `{ ok: true }`.
 
 **Errors** `400` ref required.
+
+---
+
+## Vault `/api/vault`
+
+Identity and lifecycle of the vault this server is currently serving.
+
+`GET /api/vault` is the **handshake**, and the reason it exists is symmetry: a Flashback Server answers exactly this shape, so a client that can talk to the local API can talk to a remote one without learning which it is. The desktop app *is* a Flashback Server serving one vault.
+
+### `GET /api/vault`
+
+**Response** `200`
+
+| Field                | Type     | Description                                                                    |
+| -------------------- | -------- | ------------------------------------------------------------------------------ |
+| `vaultId`            | string   | Stable UUID from `vault.json`; survives renames, moves and copies.             |
+| `vaultName`          | string   | Current display name (the folder name).                                         |
+| `appVersion`         | string   | Version of the Flashback build answering.                                       |
+| `schemaVersion`      | number   | Highest applied migration — describes this **database**.                        |
+| `canonicalVersion`   | number   | Highest applied canonical update — describes how far the vault's **files** have been brought forward. |
+| `capabilities`       | string[] | Optional features this server offers. Empty today; lets a server announce sync or multi-user without moving either version number. |
+
+The two versions are separate on purpose and are the compatibility contract: a client that understands neither should refuse to write rather than guess.
+
+---
+
+### `GET /api/vault/list`
+
+The registered local vaults and which one is active. Names and paths only — reporting counts would mean opening every other vault's database. Writes to this registry go through the Electron host, never here.
+
+**Response** `200` — `{ activeVaultId, vaults: [{ id, name, isCustomPath, customPath, active }] }`.
+
+---
+
+### `POST /api/vault/switch`
+
+Opens a different local vault **in this process**: quiesce Seal, close the database, move the config pointer, re-run validation/migrations/Seal init/canonical updates. Normally driven by the Electron host, which owns the registry; it is exposed over HTTP because only this process holds the database handle and Seal's pending-edit timer.
+
+While a switch is in flight every other `/api/*` route answers `503 { error, switching: true }` with `Retry-After: 1`. `GET /` stays open and unaffected, so a client can poll for readiness.
+
+| Field          | Type    | Required | Description                          |
+| -------------- | ------- | -------- | ------------------------------------ |
+| `name`         | string  | Yes      | Vault folder name.                   |
+| `id`           | string  | No       | Registry id, recorded as `activeVaultId`. |
+| `isCustomPath` | boolean | No       | Default `false`.                     |
+| `customPath`   | string  | No       | Absolute parent directory when `isCustomPath`. |
+
+**Response** `200` — `{ ok: true, vaultId, vaultName }`.
+
+**Errors** `400` name required · `500` the vault could not be opened (the pointer is left where it was).
+
+---
+
+### `POST /api/vault/release`
+
+Closes the active vault's database (checkpointing the WAL) and stops Seal's debounce timer, without opening another. Exists for renaming: Windows will not rename a directory holding an open file handle, and the WAL/SHM files beside the database are exactly that. There is no matching "resume" — the next database access re-opens lazily against whatever the config points at by then.
+
+**Response** `200` — `{ ok: true }`.
+
+---
+
+## Remotes `/api/remotes`
+
+### `GET /api/remotes`
+
+The remote Flashback Server instances this install has registered. **Read-only, and credential-free by construction** — a remote's token never reaches this process at all. The Electron host holds it encrypted in the OS credential store and attaches it to requests itself, so the most this route can say about a credential is whether one exists.
+
+That split is also why there is no write endpoint here: storing a token would mean writing it into `config.json`, in plain text, inside the user's vault directory, for a server that has nothing to do with this vault. Adding and removing remotes is an Electron IPC concern. The list is still served over HTTP because clients that are not the Electron renderer — the MCP server, a `dev:web` browser session — need to know which remotes exist.
+
+**Response** `200` — `{ remotes: [{ id, label, url, hasToken }] }`.
+
+---
+
+## Identity `/api/identity`
+
+### `GET /api/identity`
+
+Who this server stamps new work as: the local, git-style user identity that goes into a new sidecar's `createdBy` and onto every Seal commit. Before it existed, both were stamped with the *vault name*, so renaming a vault changed the apparent author of all future work.
+
+`source` says where the value came from — `vault` (this vault's override), `global` (the install-wide identity), or `default` (derived from the OS account, `<osuser>@flashback.local`, when nothing has been set). Resolution is override → global → default, and a `{name, email}` pair only counts when both halves are non-empty: a name with no address cannot produce an author line.
+
+**Read-only**, for the same reason as `/api/remotes`: `user` is a `config.json` field the Electron main process owns, and a write route here would put two processes on one key. Editing goes through IPC. It is served over HTTP anyway so clients that are not the Electron renderer — the MCP server, a `dev:web` session — can say whose work they are looking at.
+
+**This is not authentication.** Nothing validates the name or the address and nothing gates on either; a Flashback Server must treat an identity a client asserts as a claim, never as authorization. What authorizes a remote is its access token.
+
+**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>" }`.
+
+---
+
+## CORS
+
+Not a route, but part of the HTTP contract. The policy is an **allowlist**, replacing the former `Access-Control-Allow-Origin: *`.
+
+- **No `Origin` header → passes through, no ACAO set.** Node clients (the MCP server, the test suite, scripts) are not browsers; CORS has nothing to say about them and the API token is their gate.
+- **Allowed origin → echoed**, with `Vary: Origin`.
+- **Anything else → `403`.** The browser would block the response regardless; refusing outright also stops a non-preflighted "simple" cross-origin POST from executing unread, and turns a silent CORS failure into something greppable.
+
+Allowed by default: `"null"` (the packaged renderer loads from `file://`), any loopback origin on any port, and every entry in `config.allowedOrigins[]` — the field a Flashback Server deployment sets to name its own web client.
+
+`OPTIONS` preflights are answered with `204` **ahead of the auth guard**. A preflight is generated by the browser and cannot carry an `Authorization` header, so guarding it would 401 every browser client before its real request was ever sent. `Access-Control-Allow-Headers` covers `Authorization` and `X-Flashback-Client`.

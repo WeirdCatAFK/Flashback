@@ -1,0 +1,153 @@
+/* VaultSwitcher — title-bar vault picker.
+   Sits inside #title-bar, which is a drag region, so every interactive part has to
+   opt out with -webkit-app-region: no-drag or the click never lands. */
+
+.vault-switcher {
+  position: relative;
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+}
+
+.vault-switcher__trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 6px 0 4px;
+  margin-left: -2px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: background 100ms ease, border-color 100ms ease, color 100ms ease;
+}
+
+.vault-switcher__trigger:hover,
+.vault-switcher__trigger[aria-expanded="true"] {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+  color: var(--color-fg-primary);
+}
+
+/* Deliberately NOT uppercased like #app-title beside it. The product name is a fixed
+   label; the vault name is the user's own — "Work notes" should look like the folder they
+   made, and the difference in casing is what stops the two reading as one title. */
+.vault-switcher__name {
+  font-size: 12px;
+  font-weight: 500;
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-switcher__chevron {
+  flex: none;
+  opacity: 0.7;
+}
+
+/* Marks a remote connection. The dot is deliberately the accent colour and always
+   visible: "am I editing my own machine or a server?" is the one thing about this
+   feature that must never be ambiguous. */
+.vault-switcher__badge {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.vault-switcher__menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 60;
+  min-width: 240px;
+  max-width: 340px;
+  padding: 4px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-bg-surface);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.28);
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.vault-switcher__section {
+  padding: 6px 8px 4px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.vault-switcher__item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font-size: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.vault-switcher__item:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+
+.vault-switcher__item:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.vault-switcher__item.is-active {
+  color: var(--color-accent);
+}
+
+/* The "you are here" marker. Always occupies its slot so names stay aligned whether or
+   not the row is the active one; only the fill changes. */
+.vault-switcher__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: transparent;
+}
+
+.vault-switcher__dot.is-on {
+  background: var(--color-accent);
+}
+
+.vault-switcher__label {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.vault-switcher__note {
+  flex: none;
+  font-size: 10px;
+  color: var(--color-fg-secondary);
+}
+
+.vault-switcher__divider {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--color-border);
+}
+
+.vault-switcher__error {
+  margin: 4px 8px;
+  font-size: 11px;
+  color: var(--color-danger);
+}

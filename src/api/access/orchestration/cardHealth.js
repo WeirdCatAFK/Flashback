@@ -622,6 +622,18 @@ class CardHealthService {
         this._baselineCache = null;    // { at, medianTokens }
     }
 
+    /**
+     * Drops both caches. Called on a vault switch: the session index is built from this
+     * vault's ReviewLogs and the baseline is this vault's own median answer length — the
+     * whole point of measuring against the vault rather than an absolute — so carrying
+     * either across a switch would classify the new vault's cards against the old one's
+     * writing style.
+     */
+    onVaultOpened() {
+        this._sessionCache = null;
+        this._baselineCache = null;
+    }
+
     // Test seam: detectors are pure, so a unit test can drive them from a hand-built
     // context without a database.
     runDetectors(ctx) {

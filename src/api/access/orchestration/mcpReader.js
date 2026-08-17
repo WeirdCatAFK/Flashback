@@ -359,6 +359,18 @@ class McpReader {
         this._cache = new Map();
     }
 
+    /**
+     * Drops the extraction cache on a vault switch.
+     *
+     * Not optional hygiene — _cacheKey() is `relativePath|mtime|size` with no vault
+     * component, so two vaults holding a same-named file of identical size and mtime
+     * (a copied vault, a shared import) would collide and serve one vault's text for
+     * the other's document.
+     */
+    onVaultOpened() {
+        this._cache.clear();
+    }
+
     /** The document's format id, or null when the extension is not a known one. */
     _formatOf(relPath) {
         return FORMATS[path.extname(relPath).toLowerCase()] ?? null;

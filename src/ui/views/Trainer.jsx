@@ -10,6 +10,7 @@ import { typeAnswerParts } from '../components/shared/flashcardFields';
 import CardDetailModal from '../components/shared/CardDetailModal';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
+import { getPref, setPref, getNumberPref } from '../prefs.js';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
 import { useT } from '../translations';
 import { toDate } from '../translations/format';
@@ -137,8 +138,8 @@ function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
   useEffect(() => {
     // Read algorithm fresh from localStorage so Config changes are picked up
     // on the next fetch without needing a separate state channel.
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
-    const order = localStorage.getItem('fb-trainer-order') ?? 'interleaved';
+    const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
+    const order = getPref('fb-trainer-order') ?? 'interleaved';
     const tagsArray = tagsKey ? tagsKey.split(',') : undefined;
     getDue({
       algorithm,
@@ -558,11 +559,11 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   const handleGrade = (key) => {
     if (busyRef.current) return;
     busyRef.current = true;
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+    const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
 
     if (algorithm === 'fsrs') {
       const g = FSRS_GRADES[key];
-      const requestRetention = Number(localStorage.getItem('fb-fsrs-retention')) || 0.9;
+      const requestRetention = getNumberPref('fb-fsrs-retention', 0.9) || 0.9;
       // FSRS grading is computed server-side; we only send the rating. Optimistic
       // UI advance; a failed write is surfaced, never silent.
       collectFlags(submitReview(card.documentPath, card.globalHash, null, null, null, algorithm, { rating: g.rating, requestRetention, ...ordering }));
@@ -586,7 +587,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
   const handleSwipe = (dir) => handleGrade(dir === 'right' ? 'good' : 'again');
 
   const gradeWithAnimation = (key) => {
-    const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+    const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
     const g = gradesFor(algorithm, t)[key];
     if (!g) return;
     Promise.resolve(cardRef.current?.flyOut(g.kind)).then((ok) => {
@@ -623,7 +624,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
         }
         return;
       }
-      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+      const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
       for (const [gkey, g] of Object.entries(gradesFor(algorithm, t))) {
         if (hits(g.action)) { e.preventDefault(); gradeWithAnimationRef.current(gkey); break; }
       }
@@ -674,7 +675,7 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
       {flipped && (
         <div className="trainer-grades">
-          {Object.entries(gradesFor(localStorage.getItem('fb-srs-algorithm') ?? 'sm2', t)).map(([key, g]) => (
+          {Object.entries(gradesFor(getPref('fb-srs-algorithm') ?? 'sm2', t)).map(([key, g]) => (
             <button type="button"
               key={key}
               className={`trainer-grade trainer-grade--${key}`}
@@ -722,7 +723,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
       };
     }
     try {
-      const saved = localStorage.getItem('fb-trainer-scope');
+      const saved = getPref('fb-trainer-scope');
       if (saved) return JSON.parse(saved);
     } catch { /* ignore */ }
     return { folder: null, deck: null, deckName: null, tags: null };
@@ -730,12 +731,12 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   // Session settings — read from localStorage, changes persist and reset the session.
   const [maxNew, setMaxNew] = useState(() => {
-    const v = localStorage.getItem('fb-srs-max-new');
+    const v = getPref('fb-srs-max-new');
     return v != null ? parseInt(v, 10) : 20;
   });
   // Separate display value so the input doesn't reset on every keystroke.
   const [maxNewDisplay, setMaxNewDisplay] = useState(() => {
-    const v = localStorage.getItem('fb-srs-max-new');
+    const v = getPref('fb-srs-max-new');
     return v != null ? v : '20';
   });
   // Session queue + status — declared early so all inline guards and handlers can reference setters.
@@ -779,14 +780,14 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     const n = Math.max(0, parseInt(display) || 0);
     setMaxNew(n);
     setMaxNewDisplay(String(n));
-    localStorage.setItem('fb-srs-max-new', String(n));
+    setPref('fb-srs-max-new', String(n));
     setQueue([]);
     setSessionDone(false);
   };
 
   // Persist scope to localStorage so it survives app restarts.
   useEffect(() => {
-    localStorage.setItem('fb-trainer-scope', JSON.stringify(appliedScope));
+    setPref('fb-trainer-scope', JSON.stringify(appliedScope));
   }, [appliedScope]);
 
   // When a study session is launched from the file explorer or decks view, reset scope
@@ -884,7 +885,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   // produces no summary server-side.
   useEffect(() => {
     if (!sessionDone) return;
-    if (localStorage.getItem('fb-diary-enabled') !== '1') return;
+    if (getPref('fb-diary-enabled') !== '1') return;
     generateDiarySummary().catch(() => {});
   }, [sessionDone]);
 
@@ -985,7 +986,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     setSessionDone(false);
     setTurn((t) => t + 1);
     try {
-      const algorithm = localStorage.getItem('fb-srs-algorithm') ?? 'sm2';
+      const algorithm = getPref('fb-srs-algorithm') ?? 'sm2';
       await undoReview(action.card.documentPath, action.card.globalHash, algorithm);
     } catch (err) {
       console.error(err);

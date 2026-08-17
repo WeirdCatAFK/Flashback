@@ -1,13 +1,15 @@
 // src/electron/main.js
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell } from "electron";
 import path from "path";
-import fs from "fs";
 import crypto from "crypto";
 import { fileURLToPath } from "url";
 import { isDev } from "./utils.js";
 import spawn, { killApi } from './api_process.js';
 import log, { getLogPath } from "./logger.js";
 import { initUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from "./updater.js";
+import { configExists, readConfig, writeConfig, apiBaseUrl } from "./appConfig.js";
+import * as vaults from "./vaults.js";
+import { getStoredIdentity, setIdentity, setVaultIdentity } from "./identity.js";
 
 // Reconstruct __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -169,24 +171,8 @@ function createWindow() {
   initUpdater(mainWindow, { isPackaged: app.isPackaged });
 }
 
-function getConfigPath() {
-  return path.join(app.getPath('userData'), 'config.json');
-}
-
-function configExists() {
-  return fs.existsSync(getConfigPath());
-}
-
 function isFirstRun() {
   return forceOnboarding || !configExists();
-}
-
-function readConfig() {
-  try {
-    return JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
-  } catch {
-    return { port: 50500, host: 'localhost', isLocalhost: true, isCustomPath: false, customPath: '', logFormat: 'dev', vaultName: 'default' };
-  }
 }
 
 // The Electron main process owns the API token: it mints one (persisted in
@@ -200,7 +186,7 @@ function ensureApiToken() {
   if (!config.apiToken) {
     config.apiToken = crypto.randomBytes(32).toString('hex');
     try {
-      fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+      writeConfig(config);
     } catch (err) {
       console.error('Failed to persist API token:', err);
     }
@@ -232,11 +218,13 @@ ipcMain.handle('is-first-run', () => isFirstRun());
 // and break the npm-run-all dev setup by killing the Vite server on exit.
 ipcMain.handle('complete-setup', (_event, config) => {
   try {
-    fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
     // Mint the API token into the very first config write so the API process
     // (spawned just below) reads an already-guarded config.
     if (!config.apiToken) config.apiToken = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
+    writeConfig(config);
+    // Register the vault the wizard just described, so the app starts with a registry
+    // rather than acquiring one on its second launch.
+    vaults.ensureRegistry();
     forceOnboarding = false;
   } catch (err) {
     return { ok: false, error: err.message };
@@ -249,30 +237,151 @@ ipcMain.handle('complete-setup', (_event, config) => {
 // IPC: renderer reads the full config object
 ipcMain.handle('get-config', () => readConfig());
 
-// IPC: renderer writes a new config object
+// IPC: renderer writes a new config object.
+//
+// Vault identity fields are NOT writable here any more. This handler used to rename the
+// vault folder when `vaultName` changed — but it renamed only the directory and not the
+// `{vaultName}.db` inside it, so the next launch looked for a database that was no longer
+// there and quietly built a blank vault beside the real data. Renaming now goes through
+// `rename-vault`, which closes the database first and moves both together.
+//
+// `user` is on the list for the same reason: it has its own IPC, and Config's `form` is
+// loaded once from get-config. Without this, saving the Server section after editing the
+// identity would write back the name and email the form read on mount.
+//
+// The fields are preserved from disk rather than rejected, so an older renderer (or a
+// stale `form` object in Config) cannot corrupt the pointer by round-tripping a whole
+// config object it read before a vault switch.
+const PROTECTED_FIELDS = [
+  'vaultName', 'isCustomPath', 'customPath', 'activeVaultId', 'vaults', 'remotes', 'user',
+];
+
 ipcMain.handle('set-config', (_event, newConfig) => {
   try {
-    const oldConfig = readConfig();
-    fs.writeFileSync(getConfigPath(), JSON.stringify(newConfig, null, 2));
-
-    // Rename the vault folder on disk when vaultName changes
-    if (!newConfig.isCustomPath && !oldConfig.isCustomPath) {
-      const oldVault = oldConfig.vaultName || 'default';
-      const newVault = newConfig.vaultName || 'default';
-      if (oldVault !== newVault) {
-        const userData = app.getPath('userData');
-        const oldPath = path.join(userData, oldVault);
-        const newPath = path.join(userData, newVault);
-        if (fs.existsSync(oldPath)) {
-          fs.renameSync(oldPath, newPath);
-        }
-      }
+    const onDisk = readConfig();
+    const merged = { ...newConfig };
+    for (const key of PROTECTED_FIELDS) {
+      if (key in onDisk) merged[key] = onDisk[key];
+      else delete merged[key];
     }
-
+    writeConfig(merged);
     return { ok: true };
   } catch (err) {
     return { ok: false, error: err.message };
   }
+});
+
+// ---------------------------------------------------------------------------
+// IPC: vault management
+//
+// The registry lives here; the switch itself happens in the API process (see
+// electron/vaults.js for why). Every handler returns { ok } so the renderer can render an
+// error inline rather than through an exception.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('list-vaults', () => vaults.listVaults());
+
+ipcMain.handle('create-vault', (_event, name) => vaults.createVault(name));
+
+ipcMain.handle('remove-vault', (_event, id) => vaults.removeVault(id));
+
+ipcMain.handle('rename-vault', async (_event, id, name) => {
+  const result = await vaults.renameVault(id, name);
+  if (result.ok) broadcastConnection();
+  return result;
+});
+
+ipcMain.handle('switch-vault', async (_event, id) => {
+  const result = await vaults.switchVault(id);
+  if (result.ok) broadcastConnection();
+  return result;
+});
+
+// Adopt a vault folder the user picks off disk — a backup, another machine's vault, or
+// one this install has forgotten. The folder is registered where it is, never copied.
+ipcMain.handle('open-vault-from-disk', async () => {
+  const picked = await dialog.showOpenDialog(mainWindow, {
+    title: 'Open a Flashback vault',
+    properties: ['openDirectory'],
+  });
+  if (picked.canceled || !picked.filePaths?.length) return { ok: false, canceled: true };
+  return vaults.adoptVault(picked.filePaths[0]);
+});
+
+// ---------------------------------------------------------------------------
+// IPC: local user identity
+//
+// Writes live here because main owns the `user` key in config.json, the same way it owns
+// apiToken, vaults[] and remotes[]. Reads of what is STORED come from here too; what would
+// actually be stamped is resolved by the API and read over HTTP from GET /api/identity, so
+// the precedence rule exists in exactly one place.
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('get-identity', () => getStoredIdentity());
+
+ipcMain.handle('set-identity', (_event, identity) => setIdentity(identity ?? {}));
+
+ipcMain.handle('set-vault-identity', (_event, vaultId, identity) =>
+    setVaultIdentity(vaultId ?? readConfig().activeVaultId, identity ?? null));
+
+// ---------------------------------------------------------------------------
+// IPC: remotes
+// ---------------------------------------------------------------------------
+
+ipcMain.handle('list-remotes', () => vaults.listRemotes());
+ipcMain.handle('add-remote', (_event, remote) => vaults.addRemote(remote ?? {}));
+ipcMain.handle('remove-remote', (_event, id) => vaults.removeRemote(id));
+ipcMain.handle('test-remote', (_event, id) => vaults.testRemote(id));
+
+// ---------------------------------------------------------------------------
+// IPC: the active connection
+//
+// The renderer talks to EITHER the local API or a remote Flashback Server, and the two
+// are the same shape — a base URL and a token — so one channel describes both. Switching
+// to a remote leaves the local API process running and idle; nothing is torn down.
+// ---------------------------------------------------------------------------
+
+// null = the local vault. Set to a remote's id while the user is working on a remote.
+let activeRemoteId = null;
+
+function currentConnection() {
+  if (activeRemoteId) {
+    const remote = vaults.connectionForRemote(activeRemoteId);
+    if (remote) return remote;
+    activeRemoteId = null;  // the remote was removed underneath us
+  }
+  const config = readConfig();
+  const active = (config.vaults ?? []).find((v) => v.id === config.activeVaultId);
+  return {
+    kind: 'local',
+    id: config.activeVaultId ?? null,
+    label: active?.name ?? config.vaultName ?? null,
+    url: apiBaseUrl(config),
+    token: config.apiToken ?? null,
+  };
+}
+
+function broadcastConnection() {
+  mainWindow?.webContents.send('connection-changed', currentConnection());
+}
+
+ipcMain.handle('get-active-connection', () => currentConnection());
+
+ipcMain.handle('use-local-vault', () => {
+  activeRemoteId = null;
+  broadcastConnection();
+  return { ok: true, connection: currentConnection() };
+});
+
+ipcMain.handle('use-remote', async (_event, id) => {
+  // Handshake before repointing, so a bad URL or a rejected token is reported here
+  // instead of as a wall of failed requests once the renderer has already switched.
+  const probe = await vaults.testRemote(id);
+  if (!probe.ok) return probe;
+
+  activeRemoteId = id;
+  broadcastConnection();
+  return { ok: true, connection: currentConnection(), identity: probe.identity };
 });
 
 // IPC: renderer requests a full app restart
@@ -379,8 +488,9 @@ if (!gotTheLock) {
 
   app.on("ready", () => {
     if (!isFirstRun()) {
-      ensureApiToken(); // mint the token (upgrades from a pre-token install) before the API starts
-      spawn();          // API only runs when there's a config to read
+      ensureApiToken();          // mint the token (upgrades from a pre-token install) before the API starts
+      vaults.ensureRegistry();   // synthesize vaults[] from the flat fields on an upgrading install
+      spawn();                   // API only runs when there's a config to read
       createTray();
     }
     createWindow();

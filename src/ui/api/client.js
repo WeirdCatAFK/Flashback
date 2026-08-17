@@ -1,9 +1,21 @@
 let baseUrl = null;
 let apiToken = null;
 
+// Bumped on every re-init. The app points at either the local API or a remote Flashback
+// Server, and both are just a {url, token} pair — so "switch vault" and "connect to a
+// remote" are the same operation from here, and this counter is how the UI knows the
+// data underneath it belongs to a different vault now. Used as a React key to discard
+// every view's state rather than let the previous vault's documents linger.
+let connectionId = 0;
+
 export function initClient(url, token = null) {
   baseUrl = url;
   apiToken = token || null;
+  connectionId += 1;
+}
+
+export function getConnectionId() {
+  return connectionId;
 }
 
 export function getBaseUrl() {

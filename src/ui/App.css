@@ -25,12 +25,30 @@
   user-select: none;
 }
 
+/* Product name + active vault, grouped so #title-bar's space-between still sees three
+   children (this group, the search button, the window controls). */
+#title-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 #app-title {
+  flex: none;
   font-size: 12px;
   font-weight: 500;
   color: var(--color-fg-secondary);
   letter-spacing: 0.04em;
   text-transform: uppercase;
+}
+
+/* Keeps the app name and the vault name from reading as one string. */
+#title-bar-sep {
+  flex: none;
+  width: 1px;
+  height: 13px;
+  background: var(--color-border);
 }
 
 #window-controls {

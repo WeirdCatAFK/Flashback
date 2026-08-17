@@ -8,6 +8,7 @@
  */
 
 import { useT } from '../translations';
+import VaultSwitcher from './VaultSwitcher.jsx';
 
 function WindowControls() {
   const { t } = useT();
@@ -32,12 +33,24 @@ function WindowControls() {
   );
 }
 
-export default function TitleBar({ onSearch }) {
+export default function TitleBar({ onSearch, connection, onManageVaults }) {
   const { t } = useT();
   return (
     <div id="title-bar">
-      {/* The product name is a proper noun and stays as-is in every language. */}
-      <span id="app-title">Flashback</span>
+      {/* The product name always leads — it is what the window is, and it does not change.
+          The active vault sits beside it, separated, because it is the part that DOES
+          change and has to be visible at all times: separating vaults is the entire point
+          of having them. Setup renders this bar with no connection and shows the name
+          alone. "Flashback" is a proper noun and stays as-is in every language. */}
+      <div id="title-bar-left">
+        <span id="app-title">Flashback</span>
+        {connection && (
+          <>
+            <span id="title-bar-sep" aria-hidden="true" />
+            <VaultSwitcher connection={connection} onManageVaults={onManageVaults} />
+          </>
+        )}
+      </div>
       {onSearch && (
         <button type="button" id="search-btn" title={t('Search (Ctrl+K)')} aria-label={t('Search')} onClick={onSearch}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"

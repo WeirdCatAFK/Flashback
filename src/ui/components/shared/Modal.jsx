@@ -10,6 +10,9 @@
  *   - Tab/Shift+Tab are trapped inside the dialog
  *
  *   <Modal title="Rename deck" onClose={close}>…</Modal>
+ *
+ * `className` lands on the panel, for the rare dialog that owns its own interior layout
+ * and has to undo `.modal__body`'s padding (VaultManager).
  */
 
 import { useEffect, useRef, useId } from 'react';
@@ -26,6 +29,7 @@ export default function Modal({
   onClose,
   dismissible = true,
   size = 'md',
+  className = '',
   children,
   footer,
 }) {
@@ -81,7 +85,7 @@ export default function Modal({
     >
       <div
         ref={dialogRef}
-        className={`modal modal--${size}`}
+        className={`modal modal--${size}${className ? ` ${className}` : ''}`}
         role="dialog"
         aria-modal="true"
         aria-labelledby={title ? titleId : undefined}

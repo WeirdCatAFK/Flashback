@@ -38,6 +38,17 @@ class DocumentQuery {
         this._typeCache = null;
     }
 
+    /**
+     * Drops the type-id cache on a vault switch.
+     *
+     * NodeTypes/ConnectionTypes rows are seeded per database, so their autoincrement ids
+     * are only stable WITHIN one vault. Carrying them across a switch would silently write
+     * the other vault's type ids into this vault's Nodes and Connections.
+     */
+    onVaultOpened() {
+        this._typeCache = null;
+    }
+
     // Lazily resolves stable lookup IDs for NodeTypes/ConnectionTypes that never
     // change at runtime, so callers in hot paths avoid repeated SELECT lookups.
     _typeIds() {
@@ -2171,6 +2182,14 @@ class DocumentQuery {
 
     getCanonicalVersions() {
         return new Set(this.db.prepare('SELECT version FROM CanonicalVersion').all().map(r => r.version));
+    }
+
+    // Highest applied schema migration. Half of the pair a client compares before trusting
+    // a vault it did not open itself (the other half is getCanonicalVersions()); served by
+    // GET /api/vault. Returns 0 on a database whose migrations have never run.
+    getSchemaVersion() {
+        const row = this.db.prepare('SELECT MAX(version) AS version FROM SchemaVersion').get();
+        return row?.version ?? 0;
     }
 
     recordCanonicalVersion(version, description = null) {

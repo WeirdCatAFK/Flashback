@@ -18,17 +18,33 @@ The Flashback system maintains data in **two synchronized layers**:
 
 ## Vault Structure
 
-All user data is scoped to a **vault** — a named, self-contained directory identified by the `vaultName` field in `config.json`. Both data layers for a given vault live inside it.
+All user data is scoped to a **vault** — a named, self-contained directory. An install may hold several; `config.json` carries a `vaults[]` registry and an `activeVaultId` pointer, and keeps the flat `vaultName`/`isCustomPath`/`customPath` fields as the projection of whichever vault is active. Both data layers for a given vault live inside it.
 
 ```
 {baseDir}/                        ← app data directory (or customPath if configured)
-  config.json                     ← server configuration; lives outside vaults
+  config.json                     ← server configuration + vault/remote registries; outside vaults
   {vaultName}/                    ← vault root, e.g. dreams/
+    vault.json                    ← vault identity (a stable UUID); NOT versioned by Seal
     workspace/                    ← canonical layer root (.flashback sidecars and documents)
     {vaultName}.db                ← derived layer (SQLite), e.g. dreams.db
+    diary/                        ← per-day study record, its own git repo (see § Diary)
 ```
 
-`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable. Renaming a vault updates `vaultName` in `config.json` and renames the vault directory and database file on disk. The `workspace/` subdirectory is the root of the Seal git repository.
+### Vault identity — `vault.json`
+
+```json
+{ "id": "<uuid>", "name": "dreams", "createdAt": "<iso>", "manifestVersion": 1 }
+```
+
+`id` is the only field anything should key on. It survives renaming the folder, moving it to another disk, or copying it to another machine — none of which the vault *name* survives, and none of which the derived database can be trusted through, since it is rebuildable by definition.
+
+It sits at the vault root rather than inside `workspace/` on purpose. `workspace/` is the Seal git repo, and a vault's identity is not something to version, roll back, or read out of a diff; keeping it outside also means `UpdateRunner`'s workspace walk never sees it, so it needs no `formatVersion` of its own. `manifestVersion` moves only if this file's own shape changes, and is unrelated to the sidecar `formatVersion` ladder.
+
+`ensureManifest()` is idempotent and runs on every vault open, which is how vaults created before manifests existed acquire an id — on their next launch, with no migration and no schema change.
+
+**A copied vault keeps its id.** That is intended: two copies of the same vault are the same vault as far as a future sync is concerned, and telling them apart is a job for whatever compares their histories, not for the identity itself.
+
+`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable — which the config resolver honours wherever it is set, Electron or not. Renaming a vault updates its registry entry and moves the vault directory **and** the `{vaultName}.db` inside it together, then re-derives the index so the stored `absolute_path` columns stop pointing at the old folder. The `workspace/` subdirectory is the root of the Seal git repository.
 
 ---
 
@@ -56,7 +72,6 @@ wwwInteligencia_Artificial
 │   ├── .flashback
 │   ├── breast_cancer_data.pdf
 │   └── breast_cancer_data.pdf.flashback
-
 ```
 
 ### Canonical file versioning
@@ -77,6 +92,71 @@ still needs, and stamps the new version. A file with no `formatVersion` is versi
 The `CanonicalVersion` table records what the *vault* has finished, purely so a normal
 startup skips the walk. Full spec, including the rules an update must follow, in
 `src/api/config/updates/UPDATES.md`.
+
+### `createdBy` 
+
+Every sidecar records who created it. The value is a **git author line** — `Name <email>` —
+resolved from the local user identity (below) at the moment the file is created:
+
+```json
+{ "createdBy": "Daniel <daniel@example.com>", "createdAt": "2026-08-17T…" }
+```
+
+It is written once and **never rewritten**: every write site is `metadata.createdBy || …`,
+so an edit, a move, or a canonical update leaves it exactly as it was. That is what makes it
+provenance — a claim about the past, which a later change of identity does not falsify.
+
+**A reader must tolerate three shapes.** Files created before this existed carry the *vault
+name* (`"dreams"`, `"work"`), because that was what the stamp reached for when there was no
+concept of a person; those are deliberately left alone rather than backfilled. Files created
+since carry `Name <email>`. A file that arrives from a Flashback Server will carry whatever
+that server stamped. Nothing in the app parses the field or resolves it to anyone, and
+nothing should authorize on it — it is self-asserted text, and on a remote it is text a
+client asserted. Identity resolution is the future `Users` table's job, not this field's.
+
+### Local user identity — `config.json`
+
+Who this install stamps work as, in git's terms. One `user` key, outside any vault:
+
+```jsonc
+{
+  "user": {
+    "name":  "Daniel",
+    "email": "daniel@example.com",
+    "perVault": {                                  // optional, keyed by vault id
+      "<vault-uuid>": { "name": "D. Pineda", "email": "d@acme.example" }
+    }
+  }
+}
+```
+
+Resolution (`access/primitives/config.js` — `getIdentity()`, `getAuthorString()`) is
+`user.perVault[activeVaultId]` → `user` → derived from the OS account
+(`<osuser>@flashback.local`). A pair only counts when **both** halves are non-empty; a name
+with no address cannot produce an author line, so a half-filled entry falls through instead
+of yielding `Daniel <>`. There is always an answer, because unlike git the app cannot refuse
+to write a file for want of one.
+
+Two consumers, and they are deliberately the same value so a file and the commit that
+created it cannot disagree about who made them: a new sidecar's `createdBy`, and the Seal
+commit author.
+
+The per-vault override lives under `user`, **not** on the `vaults[]` registry entry and
+**not** in `vault.json`: "which address I use where" is a fact about the person, and it must
+not travel with a copied vault folder to someone else's machine. Keying by vault id rather
+than by name also means renaming a vault does not orphan its override.
+
+It is asked for once, in the setup wizard's identity step, and editable afterwards in
+Config. Skipping the step writes no `user` key rather than storing the derived default as
+though it were chosen — the resolved value is identical either way, but `source` then
+honestly reports `default`.
+
+**This is not authentication.** Nothing validates the name or the address and nothing gates
+on either. Writes are Electron-IPC-only (main owns the `user` key, as it owns `apiToken`,
+`vaults[]` and `remotes[]`, and `set-config` preserves it from disk so a stale renderer form
+cannot clobber it); `GET /api/identity` is read-only and exists so the MCP server
+and a `dev:web` session can show whose work they are looking at. What authorizes a *remote*
+is its access token, a separate mechanism entirely.
 
 ### Folder-level `.flashback` file
 
@@ -179,25 +259,25 @@ Reference data varies from the types of documents, so the data might change acco
 **Highlight anchor types** (the `type` field on each `highlights[]` entry / the
 `Highlights.type` column — free-text, no migration needed to add more):
 
-| `type`             | Producer                     | Position encoding                                   |
-| ------------------ | ---------------------------- | --------------------------------------------------- |
-| `text_offset`      | `.txt` (default)             | `start`/`end` char offsets, `text` snapshot fallback |
-| *(inline)*         | Markdown                     | `<mark data-hl>` in the body; no offsets            |
-| `pdf_bbox`         | `PdfRenderer`                | `page` + `bbox {x,y,width,height}` in PDF units (scale=1) |
-| `clip_range`       | `ClipRenderer` (web clips)   | `start`/`end` char offsets into rendered `textContent`, `text` fallback |
-| `video_timestamp`  | `YoutubeRenderer`            | `start`/`end` in **seconds** into the video          |
+| `type`            | Producer                     | Position encoding                                                               |
+| ------------------- | ---------------------------- | ------------------------------------------------------------------------------- |
+| `text_offset`     | `.txt` (default)           | `start`/`end` char offsets, `text` snapshot fallback                      |
+| *(inline)*        | Markdown                     | `<mark data-hl>` in the body; no offsets                                      |
+| `pdf_bbox`        | `PdfRenderer`              | `page` + `bbox {x,y,width,height}` in PDF units (scale=1)                   |
+| `clip_range`      | `ClipRenderer` (web clips) | `start`/`end` char offsets into rendered `textContent`, `text` fallback |
+| `video_timestamp` | `YoutubeRenderer`          | `start`/`end` in **seconds** into the video                           |
 
 ## Flashcard Types
 
 Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAULT 'basic'` in the DB). The type drives both the renderer and the form fields used to create or edit the card.
 
-| `cardType`    | Description                                                                                                                                                                                                                                          |
-| --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `basic`       | Standard two-sided flip. Front and back are independent text + media blocks.                                                                                                                                                                         |
-| `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions.                                                                                                                        |
-| `cloze`       | Text with `{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`).                        |
-| `type_answer` | Question in `frontText`; expected answer in `answerText`; optional post-review notes in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to **`answerText` only** (case-insensitive trim) and shows a correct/wrong verdict before grading; the back then shows the answer with the notes underneath, so a card can carry a mnemonic without changing what is graded. |
-| `custom`      | Full HTML stored in `customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty.                                                                                          |
+| `cardType`    | Description                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `basic`       | Standard two-sided flip. Front and back are independent text + media blocks.                                                                                                                                                                                                                                                                                                                                                                 |
+| `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions.                                                                                                                                                                                                                                                                                                                |
+| `cloze`       | Text with`{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`).                                                                                                                                                                                                                 |
+| `type_answer` | Question in`frontText`; expected answer in `answerText`; optional post-review notes in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to **`answerText` only** (case-insensitive trim) and shows a correct/wrong verdict before grading; the back then shows the answer with the notes underneath, so a card can carry a mnemonic without changing what is graded. |
+| `custom`      | Full HTML stored in`customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty.                                                                                                                                                                                                                                                                                   |
 
 ### Sidecar representation per type
 
@@ -340,8 +420,7 @@ Tier 3 — Package import (built on the orchestration tier, loaded on demand by 
   workspace files as part of a larger operation — currently `subscriptions.js` and
   `obsidianImport.js`. (Previously written as a `subscriptions.js`-only exception; no longer
   accurate now that `obsidianImport.js` exists.)
-- Raw `db.prepare()` calls outside `query.js` are not allowed, except a single `PRAGMA
-  table_info(Decks)` schema-introspection check in `decks.js` (not a data query).
+- Raw `db.prepare()` calls outside `query.js` are not allowed, except a single `PRAGMA table_info(Decks)` schema-introspection check in `decks.js` (not a data query).
 - Filesystem access outside `files.js` is not allowed (except temp-dir work in orchestrators).
 
 ---
@@ -390,13 +469,13 @@ src/api/seal/
 
 Each commit message follows the pattern `<action>: <sidecar-path>`:
 
-| Action                             | Trigger                                                                       |
-| ---------------------------------- | ----------------------------------------------------------------------------- |
-| `create: path/file.md.flashback` | `createFile`, `createFolder`, `importFile`                              |
-| `edit: path/file.md.flashback`   | `updateFile`, `updateMetadata`, `submitReview`, `addMediaToFlashcard` |
-| `move: old/path -> new/path`     | `rename`, `move`                                                          |
-| `delete: path/file.md.flashback` | `delete`                                                                    |
-| `reconcile: <path \| N files>`     | `SealTools.commitDrift()` — the Vault Doctor sealing out-of-band changes it reconciled |
+| Action                             | Trigger                                                                                   |
+| ---------------------------------- | ----------------------------------------------------------------------------------------- |
+| `create: path/file.md.flashback` | `createFile`, `createFolder`, `importFile`                                          |
+| `edit: path/file.md.flashback`   | `updateFile`, `updateMetadata`, `submitReview`, `addMediaToFlashcard`             |
+| `move: old/path -> new/path`     | `rename`, `move`                                                                      |
+| `delete: path/file.md.flashback` | `delete`                                                                                |
+| `reconcile: <path \| N files>`    | `SealTools.commitDrift()` — the Vault Doctor sealing out-of-band changes it reconciled |
 
 For folder operations, all contained file and sidecar paths are staged in the same commit so each commit represents one atomic user action.
 
@@ -580,12 +659,12 @@ So graph proximity is used as a **spacing signal, not a grouping one**. Confusab
 
 A real BFS over `Nodes`/`Connections` is more machinery than the signal justifies; what matters is which band a pair falls in. `query.getSessionFacets()` reads each card's `docId`, `folderId`, folder ancestry, tags (direct + inherited), decks and linked documents in a fixed number of statements, and `distance()` derives:
 
-| d | relationship |
-|---|---|
-| 1 | same document, shared tag, or same immediate folder — **confusable** |
-| 2 | shared deck, or their documents are directly linked |
-| 3 | documents share an ancestor folder within two levels |
-| 4 | nothing in common |
+| d | relationship                                                               |
+| - | -------------------------------------------------------------------------- |
+| 1 | same document, shared tag, or same immediate folder —**confusable** |
+| 2 | shared deck, or their documents are directly linked                        |
+| 3 | documents share an ancestor folder within two levels                       |
+| 4 | nothing in common                                                          |
 
 ### Constraints
 
@@ -598,12 +677,12 @@ A real BFS over `Nodes`/`Connections` is more machinery than the signal justifie
 
 Reported as `relaxation` on the `/due` response. **Failure degrades toward randomness, never toward clusters** — a shuffle is already better than blocking.
 
-| rung | trigger |
-|---|---|
-| `none` | the full lag held |
+| rung               | trigger                                                                                                                         |
+| ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
+| `none`           | the full lag held                                                                                                               |
 | `no-folder-edge` | > 40% of pairs read as confusable; the same-folder edge is dropped first (in a flat vault it alone makes everything confusable) |
-| `short-lag` | the tier's geometry can't sustain `MIN_LAG`; the lag drops to what actually fits |
-| `shuffle` | not even adjacent placement fits; plain seeded shuffle |
+| `short-lag`      | the tier's geometry can't sustain`MIN_LAG`; the lag drops to what actually fits                                               |
+| `shuffle`        | not even adjacent placement fits; plain seeded shuffle                                                                          |
 
 The `short-lag` rung is computed, not guessed: spacing *k* cluster-mates *g* apart inside *n* slots requires `(k-1)(g+1)+1 ≤ n`. Honouring an infeasible lag anyway is what strands the remainder in a block at the end of the session — the exact blocking the feature exists to prevent.
 
@@ -615,23 +694,23 @@ Ordering is seeded (`mulberry32`), so a session is reproducible from its seed an
 
 ### Table: Flashcards
 
-| Column       | Type         | Description                                                                                                                                                                      |
-| ------------ | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id           | integer (PK) | Unique identifier for each flashcard.                                                                                                                                            |
-| global_hash  | varchar(500) | Global hash for deduplication and synchronization.                                                                                                                               |
-| node_id      | integer (FK) | Links flashcard into the knowledge graph.                                                                                                                                        |
-| document_id  | integer (FK) | References the source document, if any.**(ON DELETE CASCADE)**                                                                                                             |
-| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                                                                                                                                |
-| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                                                                                                                                 |
-| reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                        |
-| last_recall  | timestamp    | Last time the flashcard was recalled.                                                                                                                                            |
-| name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                      |
-| origin       | varchar(500) | Provenance marker: `'ai'` = created by an AI assistant (via the MCP server); `NULL` = handmade (UI, imports). Set once at creation, never edited afterwards. Mirrored in the sidecar card's `origin` field (canonical). |
-| presence     | float        | Familiarity/strength metric (derived from reviews).                                                                                                                              |
-| level        | integer      | Number of consecutive positive recalls.                                                                                                                                          |
-| fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                |
-| card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent. |
-| sm2_reps     | integer      | Repetition count under the SM-2 algorithm (separate from the Leitner `level`). Defaults to 0.                                                                                    |
+| Column       | Type         | Description                                                                                                                                                                                                                  |
+| ------------ | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id           | integer (PK) | Unique identifier for each flashcard.                                                                                                                                                                                        |
+| global_hash  | varchar(500) | Global hash for deduplication and synchronization.                                                                                                                                                                           |
+| node_id      | integer (FK) | Links flashcard into the knowledge graph.                                                                                                                                                                                    |
+| document_id  | integer (FK) | References the source document, if any.**(ON DELETE CASCADE)**                                                                                                                                                         |
+| category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                                                                                                                                                                            |
+| content_id   | integer (FK) | Points to the flashcard’s content (front/back).                                                                                                                                                                             |
+| reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                                                                    |
+| last_recall  | timestamp    | Last time the flashcard was recalled.                                                                                                                                                                                        |
+| name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                                                                  |
+| origin       | varchar(500) | Provenance marker:`'ai'` = created by an AI assistant (via the MCP server); `NULL` = handmade (UI, imports). Set once at creation, never edited afterwards. Mirrored in the sidecar card's `origin` field (canonical). |
+| presence     | float        | Familiarity/strength metric (derived from reviews).                                                                                                                                                                          |
+| level        | integer      | Number of consecutive positive recalls.                                                                                                                                                                                      |
+| fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                                                            |
+| card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent.                                             |
+| sm2_reps     | integer      | Repetition count under the SM-2 algorithm (separate from the Leitner`level`). Defaults to 0.                                                                                                                               |
 
 `document_id` is nullable — a **standalone card** (created from the Flashcards browser, not anchored to any document) has `document_id = NULL` and lives only in the DB plus an entry in the reserved system deck's JSON file (see `Decks` below).
 
@@ -639,19 +718,19 @@ Ordering is seeded (`mulberry32`), so a session is reproducible from its seed an
 
 ### Table: Highlights
 
-| Column      | Type         | Description                                                                                     |
-| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| id          | integer (PK) | Unique identifier.                                                                                |
-| document_id | integer (FK) | Owning document.**(ON DELETE CASCADE)**                                                    |
-| global_hash | varchar(500) | UUID, unique — the id referenced by a flashcard's `location: { type: 'highlight', id }`.         |
+| Column      | Type         | Description                                                                                                  |
+| ----------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
+| id          | integer (PK) | Unique identifier.                                                                                           |
+| document_id | integer (FK) | Owning document.**(ON DELETE CASCADE)**                                                                |
+| global_hash | varchar(500) | UUID, unique — the id referenced by a flashcard's`location: { type: 'highlight', id }`.                   |
 | type        | varchar(50)  | Anchoring strategy:`text_offset` (default), `pdf_bbox`, `clip_range`, `video_timestamp` (free-text). |
-| start       | float        | Start offset/position (meaning depends on `type`).                                                |
-| end         | float        | End offset/position.                                                                              |
-| page        | integer      | PDF page number, if applicable.                                                                   |
-| bbox        | json         | Bounding box for PDF anchoring (stored as text).                                                  |
-| color       | varchar(20)  | Swatch key (e.g.`amber`/`green`/`blue`/`pink`), defaults to `amber`.                            |
-| note        | text         | Optional free-text note attached to the highlight.                                                |
-| created_at  | timestamp    | Creation time.                                                                                     |
+| start       | float        | Start offset/position (meaning depends on`type`).                                                          |
+| end         | float        | End offset/position.                                                                                         |
+| page        | integer      | PDF page number, if applicable.                                                                              |
+| bbox        | json         | Bounding box for PDF anchoring (stored as text).                                                             |
+| color       | varchar(20)  | Swatch key (e.g.`amber`/`green`/`blue`/`pink`), defaults to `amber`.                               |
+| note        | text         | Optional free-text note attached to the highlight.                                                           |
+| created_at  | timestamp    | Creation time.                                                                                               |
 
 A highlight is a first-class entity independent of any flashcard — it exists as long as its owning document does, and multiple flashcards may anchor to the same one. It is synced from the document's sidecar `highlights[]` array on every save (`highlights.syncFromSidecar`), not written by a flashcard insert. See the "Reference examples" section above for how a flashcard's `location` points at a highlight by its `global_hash`.
 
@@ -659,12 +738,12 @@ A highlight is a first-class entity independent of any flashcard — it exists a
 
 ### Table: DocumentLinks
 
-| Column      | Type         | Description                                                                                     |
-| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| id          | integer (PK) | Unique identifier.                                                                                |
-| source_hash | varchar(500) | `global_hash` of the document containing the link.                                                |
-| target_hash | varchar(500) | `global_hash` of the linked document.                                                             |
-| anchor_text | varchar(500) | The link's visible text at the time it was last synced.                                           |
+| Column      | Type         | Description                                             |
+| ----------- | ------------ | ------------------------------------------------------- |
+| id          | integer (PK) | Unique identifier.                                      |
+| source_hash | varchar(500) | `global_hash` of the document containing the link.    |
+| target_hash | varchar(500) | `global_hash` of the linked document.                 |
+| anchor_text | varchar(500) | The link's visible text at the time it was last synced. |
 
 A hash-based queue, not a graph table — it has no foreign keys, so a link to a not-yet-imported document can be recorded immediately and resolved lazily once the target exists. `(source_hash, target_hash)` is unique. Populated by `documents.syncDocumentLinks()`, which scans saved Markdown for `[text](flashback://hash)` links; the Graph view renders these as toggleable `link`-type edges between Document nodes.
 
@@ -672,16 +751,16 @@ A hash-based queue, not a graph table — it has no foreign keys, so a link to a
 
 ### Table: Decks
 
-| Column      | Type         | Description                                                                                     |
-| ----------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| id          | integer (PK) | Unique identifier.                                                                                |
-| node_id     | integer (FK) | Integration into the graph.                                                                       |
-| global_hash | varchar(500) | UUID, unique — also the filename of the deck's canonical JSON (`_decks/<global_hash>.json`).      |
-| name        | varchar(500) | Deck name.                                                                                         |
-| description | text         | Optional description.                                                                             |
+| Column      | Type         | Description                                                                                                               |
+| ----------- | ------------ | ------------------------------------------------------------------------------------------------------------------------- |
+| id          | integer (PK) | Unique identifier.                                                                                                        |
+| node_id     | integer (FK) | Integration into the graph.                                                                                               |
+| global_hash | varchar(500) | UUID, unique — also the filename of the deck's canonical JSON (`_decks/<global_hash>.json`).                           |
+| name        | varchar(500) | Deck name.                                                                                                                |
+| description | text         | Optional description.                                                                                                     |
 | is_system   | integer      | `1` for the single reserved deck that holds standalone (document-less) cards; `0` otherwise. Protected from deletion. |
-| created_at  | timestamp    | Creation time.                                                                                     |
-| updated_at  | timestamp    | Last-modified time.                                                                                |
+| created_at  | timestamp    | Creation time.                                                                                                            |
+| updated_at  | timestamp    | Last-modified time.                                                                                                       |
 
 This table is a queryable mirror of the canonical `_decks/<uuid>.json` files under `workspace/` — every write goes to the JSON file first, then this row, so the two never drift (a DB write failure rolls back the JSON write). `_decks/` is filtered out of the file explorer's document tree.
 
@@ -689,31 +768,31 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 
 ### Table: DeckEntries
 
-| Column        | Type         | Description                                                                                     |
-| ------------- | ------------ | ------------------------------------------------------------------------------------------------ |
-| id            | integer (PK) | Unique identifier.                                                                                |
-| deck_id       | integer (FK) | Owning deck.**(ON DELETE CASCADE)**                                                         |
-| card_hash     | varchar(500) | `global_hash` of the referenced flashcard — decks link to cards, they don't copy them.            |
-| document_path | varchar(500) | Relative path of the card's source document, if any (denormalized for display without a join).    |
-| position      | integer      | Insertion order within the deck; defaults to 0. No manual reordering UI exists yet.                |
-| inline_card   | text         | JSON snapshot of a standalone (document-less) card's content, written by `decks.createStandaloneCard`/`updateStandaloneCard` alongside the system-deck JSON entry. Cards are still looked up by `card_hash` in normal operation; this snapshot exists so the Vault Doctor's `rebuildIndex()` can restore standalone cards from the canonical files after the derived layer is wiped (their content lives nowhere else on disk). Null for document-sourced cards. |
+| Column        | Type         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id            | integer (PK) | Unique identifier.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| deck_id       | integer (FK) | Owning deck.**(ON DELETE CASCADE)**                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| card_hash     | varchar(500) | `global_hash` of the referenced flashcard — decks link to cards, they don't copy them.                                                                                                                                                                                                                                                                                                                                                                               |
+| document_path | varchar(500) | Relative path of the card's source document, if any (denormalized for display without a join).                                                                                                                                                                                                                                                                                                                                                                          |
+| position      | integer      | Insertion order within the deck; defaults to 0. No manual reordering UI exists yet.                                                                                                                                                                                                                                                                                                                                                                                     |
+| inline_card   | text         | JSON snapshot of a standalone (document-less) card's content, written by`decks.createStandaloneCard`/`updateStandaloneCard` alongside the system-deck JSON entry. Cards are still looked up by `card_hash` in normal operation; this snapshot exists so the Vault Doctor's `rebuildIndex()` can restore standalone cards from the canonical files after the derived layer is wiped (their content lives nowhere else on disk). Null for document-sourced cards. |
 
 ---
 
 ### Table: FlashcardContent
 
-| Column      | Type         | Description                               |
-| ----------- | ------------ | ----------------------------------------- |
-| id          | integer (PK) | Unique identifier for content.            |
-| custom_html | text         | User-provided HTML formatting.            |
-| render_html | text         | Processed HTML for display.               |
-| frontText   | varchar(500) | Text shown on the front of the flashcard. |
-| backText    | varchar(500) | Text shown on the back of the flashcard. On a `type_answer` card this is post-review notes, never compared. |
+| Column      | Type         | Description                                                                                                                                                                                                           |
+| ----------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id          | integer (PK) | Unique identifier for content.                                                                                                                                                                                        |
+| custom_html | text         | User-provided HTML formatting.                                                                                                                                                                                        |
+| render_html | text         | Processed HTML for display.                                                                                                                                                                                           |
+| frontText   | varchar(500) | Text shown on the front of the flashcard.                                                                                                                                                                             |
+| backText    | varchar(500) | Text shown on the back of the flashcard. On a`type_answer` card this is post-review notes, never compared.                                                                                                          |
 | answerText  | varchar(500) | `type_answer` only: the expected answer, the sole value compared to what the reviewer types. NULL on other types, and on a `type_answer` card that predates the split (its answer is then still in `backText`). |
-| front_img   | varchar(500) | Path/URL of image for front side.         |
-| back_img    | varchar(500) | Path/URL of image for back side.          |
-| front_sound | varchar(500) | Path/URL of audio for front side.         |
-| back_sound  | varchar(500) | Path/URL of audio for back side.          |
+| front_img   | varchar(500) | Path/URL of image for front side.                                                                                                                                                                                     |
+| back_img    | varchar(500) | Path/URL of image for back side.                                                                                                                                                                                      |
+| front_sound | varchar(500) | Path/URL of audio for front side.                                                                                                                                                                                     |
+| back_sound  | varchar(500) | Path/URL of audio for back side.                                                                                                                                                                                      |
 
 ---
 
@@ -849,19 +928,19 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 
 ### Table: ReviewLogs
 
-| Column       | Type         | Description                                      |
-| ------------ | ------------ | ------------------------------------------------ |
-| id           | integer (PK) | Unique identifier.                               |
-| flashcard_id | integer (FK) | Reviewed flashcard.**(ON DELETE CASCADE)** |
-| timestamp    | timestamp    | When the review occurred.                        |
-| outcome      | integer      | Result of recall (e.g., success, failure).       |
-| ease_factor  | float        | Spaced repetition ease factor.                   |
-| level        | integer      | Current level/stage in SRS algorithm.            |
-| algorithm    | varchar(20)  | Scheduler that graded this review (`leitner`/`sm2`/`fsrs`). NULL pre-migration 006. |
-| session_id   | varchar(64)  | Groups the reviews of one trainer session. Indexed. NULL pre-migration 009 and for non-trainer callers. |
-| session_position | integer  | 0-based index of this review within its session, counting what was *actually shown* — a re-queued card occupies two positions. |
-| prev_distance | integer     | Approximate graph distance (1–4) to the card presented immediately before. NULL for a session's first review. |
-| nearest_sibling_lag | integer | Items since the nearest *confusable* sibling (same document, shared tag, same parent folder) appeared in this session. NULL when none preceded it. |
+| Column              | Type         | Description                                                                                                                                         |
+| ------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id                  | integer (PK) | Unique identifier.                                                                                                                                  |
+| flashcard_id        | integer (FK) | Reviewed flashcard.**(ON DELETE CASCADE)**                                                                                                    |
+| timestamp           | timestamp    | When the review occurred.                                                                                                                           |
+| outcome             | integer      | Result of recall (e.g., success, failure).                                                                                                          |
+| ease_factor         | float        | Spaced repetition ease factor.                                                                                                                      |
+| level               | integer      | Current level/stage in SRS algorithm.                                                                                                               |
+| algorithm           | varchar(20)  | Scheduler that graded this review (`leitner`/`sm2`/`fsrs`). NULL pre-migration 006.                                                           |
+| session_id          | varchar(64)  | Groups the reviews of one trainer session. Indexed. NULL pre-migration 009 and for non-trainer callers.                                             |
+| session_position    | integer      | 0-based index of this review within its session, counting what was*actually shown* — a re-queued card occupies two positions.                    |
+| prev_distance       | integer      | Approximate graph distance (1–4) to the card presented immediately before. NULL for a session's first review.                                      |
+| nearest_sibling_lag | integer      | Items since the nearest*confusable* sibling (same document, shared tag, same parent folder) appeared in this session. NULL when none preceded it. |
 
 **Session-ordering columns record how a card was PRESENTED, not how it was graded.** They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. **A reader must treat NULL as "not recorded", never as distance 0**: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
 
@@ -873,14 +952,14 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 
 The **analysis watermark**, one row per evaluated card. A card-health flag is a live judgement, not a permanent scar: once the user *addresses* a card, analysis restarts from that moment, so review history from before the fix is never held against the card that replaced it.
 
-| Column              | Type         | Description                                             |
-| ------------------- | ------------ | ------------------------------------------------------- |
-| id                  | integer (PK) | Unique identifier.                                      |
-| flashcard_id        | integer (FK) | The card. UNIQUE. **(ON DELETE CASCADE)**               |
+| Column              | Type         | Description                                                                                                |
+| ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
+| id                  | integer (PK) | Unique identifier.                                                                                         |
+| flashcard_id        | integer (FK) | The card. UNIQUE.**(ON DELETE CASCADE)**                                                             |
 | epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
-| epoch_reason        | varchar(20)  | What moved the watermark: `edit`, `recovered`, `dismissed`. |
-| content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation. |
-| updated_at          | timestamp    | Last write.                                             |
+| epoch_reason        | varchar(20)  | What moved the watermark:`edit`, `recovered`, `dismissed`.                                           |
+| content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation.                                |
+| updated_at          | timestamp    | Last write.                                                                                                |
 
 `content_fingerprint` is how an edit is detected **without an edit hook**. `cardHealth.buildContext()` compares the card's current fingerprint against the stored one and resets the epoch on a mismatch, so an edit arriving through *any* path — the PUT route, the MCP server, a Seal rollback, a Vault Doctor reindex — invalidates the card's flags without those paths knowing the classifier exists.
 
@@ -890,18 +969,18 @@ The **analysis watermark**, one row per evaluated card. A card-health flag is a 
 
 One row per **currently-raised** flag. `UNIQUE(flashcard_id, kind)`: a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
 
-| Column             | Type         | Description                                              |
-| ------------------ | ------------ | -------------------------------------------------------- |
-| id                 | integer (PK) | Unique identifier.                                       |
-| flashcard_id       | integer (FK) | The flagged card. **(ON DELETE CASCADE)**                |
-| kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`. |
-| confidence         | varchar(20)  | `moderate` or `high`.                                    |
-| score              | float        | How strongly the detector fired (0–1).                   |
-| evidence_json      | text         | The numbers behind the verdict — see below.              |
-| level_at_detection | integer      | The card's SRS level when the flag was raised.           |
-| detected_at        | timestamp    | When it was last raised or refreshed.                    |
+| Column             | Type         | Description                                                            |
+| ------------------ | ------------ | ---------------------------------------------------------------------- |
+| id                 | integer (PK) | Unique identifier.                                                     |
+| flashcard_id       | integer (FK) | The flagged card.**(ON DELETE CASCADE)**                         |
+| kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`.       |
+| confidence         | varchar(20)  | `moderate` or `high`.                                              |
+| score              | float        | How strongly the detector fired (0–1).                                |
+| evidence_json      | text         | The numbers behind the verdict — see below.                           |
+| level_at_detection | integer      | The card's SRS level when the flag was raised.                         |
+| detected_at        | timestamp    | When it was last raised or refreshed.                                  |
 | review_log_id      | integer      | The failing review that raised it. Not an FK — the row can be undone. |
-| dismissed_at       | timestamp    | Set when the user rules on it. Suppressed, not deleted.  |
+| dismissed_at       | timestamp    | Set when the user rules on it. Suppressed, not deleted.                |
 
 `evidence_json` is what makes a flag arguable rather than an oracle: the peak-interval series across relearn cycles, the FSRS difficulty slope, the answer's token count against the vault median, overdue ratios, lapse count and window age, plus `memoryModel` (`fsrs` or `approximated`). The UI renders it; the user can disagree with it.
 
@@ -909,14 +988,14 @@ One row per **currently-raised** flag. `UNIQUE(flashcard_id, kind)`: a card eith
 
 Classification runs **only when a card has just failed**. There is no reason to guess at why a card is failing when it isn't, and criticising a card that is working is the failure mode the design exists to avoid.
 
-| Trigger | Effect |
-| --- | --- |
-| Failing review (`outcome = 0`, or FSRS `rating = 1`) | Classify over the epoch window; upsert flags. A dismissed row is refreshed but stays suppressed. |
-| Passing review reaching **level ≥ 3** | Recovery: delete live flags, stamp `epoch_reason = 'recovered'`. |
-| Passing review below level 3 | Nothing. A mouthful passes constantly at a one-day interval — treating any pass as success would make the flag unreachable. |
-| Content edit | Delete **all** flags including dismissed ones; stamp `epoch_reason = 'edit'`. A rewritten card is judged fresh. |
-| Dismiss | Set `dismissed_at` on that one kind (a card can carry both guards); move the watermark. |
-| Undo review | Re-classify against the shortened ledger, so a flag never cites a review that no longer exists. |
+| Trigger                                                  | Effect                                                                                                                       |
+| -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| Failing review (`outcome = 0`, or FSRS `rating = 1`) | Classify over the epoch window; upsert flags. A dismissed row is refreshed but stays suppressed.                             |
+| Passing review reaching**level ≥ 3**              | Recovery: delete live flags, stamp`epoch_reason = 'recovered'`.                                                            |
+| Passing review below level 3                             | Nothing. A mouthful passes constantly at a one-day interval — treating any pass as success would make the flag unreachable. |
+| Content edit                                             | Delete**all** flags including dismissed ones; stamp `epoch_reason = 'edit'`. A rewritten card is judged fresh.       |
+| Dismiss                                                  | Set`dismissed_at` on that one kind (a card can carry both guards); move the watermark.                                     |
+| Undo review                                              | Re-classify against the shortened ledger, so a flag never cites a review that no longer exists.                              |
 
 Both tables are **derived**: absent from `.flashback` sidecars, recomputable from `ReviewLogs` plus card content, and never sealed — a flag written canonically would mean a git commit on every failed review. They are cleared by `query.wipeDerivedContent()`, so a Vault Doctor `rebuildIndex` (which destroys `ReviewLogs` history) takes card health with it and cards re-earn their flags from new review behaviour.
 
@@ -941,10 +1020,10 @@ Detector semantics, the mouthful/probe discriminator and the guard-precedence ru
 
 Which **canonical updates** this vault has finished — the counterpart of `SchemaVersion`, which tracks changes to this derived database. Written by `config/UpdateRunner.js` only after a pass completes with nothing skipped; a pass that skipped a file leaves no row and is retried on the next launch.
 
-| Column      | Type         | Description                                                    |
-| ----------- | ------------ | -------------------------------------------------------------- |
-| version     | integer (PK) | Update version, matching `config/updates/NNN_*.js`.             |
-| applied_at  | timestamp    | When the pass completed.                                        |
-| description | text         | The update's one-line summary.                                  |
+| Column      | Type         | Description                                          |
+| ----------- | ------------ | ---------------------------------------------------- |
+| version     | integer (PK) | Update version, matching`config/updates/NNN_*.js`. |
+| applied_at  | timestamp    | When the pass completed.                             |
+| description | text         | The update's one-line summary.                       |
 
 This table is an **optimisation, not the source of truth**: it is what lets startup skip walking every sidecar when nothing is pending. The authority is the `formatVersion` stamped on each canonical file (see § Canonical file versioning), so losing this table costs one redundant walk, not correctness.

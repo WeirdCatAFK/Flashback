@@ -17,7 +17,7 @@ access/
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
   resources/       Tier 2   query · files
-  primitives/      Tier 1   config · database
+  primitives/      Tier 1   config · database · vault
 ```
 
 Imports within a tier stay relative (`./query.js` from `files.js`); imports downward name the tier (`../primitives/database.js` from `resources/query.js`). Nothing outside `access/` may reach past a tier folder, so callers write `access/orchestration/documents.js`, never `access/documents.js`.
@@ -44,13 +44,26 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 ## Tier 1 — Primitives
 
 ### `config.js`
-Environment-aware config reader/writer. Detects Electron vs. Node.js runtime to locate `config.json`. Exposes:
+Config reader/writer. `USER_DATA_PATH` locates `config.json` wherever it is set — Electron or plain Node; only with the variable absent does it fall back to `<cwd>/data`. Exposes:
 - `get()` — returns the config object (cached after first read; creates default if missing).
-- `getWorkspacePath()` — canonical resolver for `workspaceRoot`; respects `isCustomPath`/`customPath` from config, otherwise falls back to `USER_DATA_PATH/workspace`.
-- `set(config)` — writes and caches a new config object.
+- `getVaultPath()` / `getWorkspacePath()` / `getDatabasePath()` — canonical resolvers. All three are **pure per-call functions over `get()`**, which is what makes switching vaults a matter of moving one pointer.
+- `reload()` — drops the cache. Needed because `config.json` has two writers (this process and Electron main).
+- `setActiveVault(entry)` — moves the pointer: writes `activeVaultId` *and* the flat `vaultName`/`isCustomPath`/`customPath` projection together, merged into a fresh disk read. Only `vaultSession.js` should call it; closing the old database and re-validating are that module's job, not this one's.
+- `getVaults()` / `getActiveVaultId()` / `getRemotes()` / `getAllowedOrigins()` — registry readers. `getVaults()` synthesizes a single entry from the flat fields when `vaults[]` is absent, so callers never special-case an un-migrated config. `getRemotes()` is credential-free by construction.
+- `getIdentity()` / `getAuthorString()` — the local user identity, git-style. `getIdentity()` returns `{name, email, source}` resolving `user.perVault[activeVaultId]` → `user` → derived from the OS account; `getAuthorString()` renders it as `Name <email>`, which is both a sidecar's `createdBy` and a git author line, deliberately the same string. A `{name, email}` pair only counts when **both** halves are non-empty. Reads through the cached `get()`, so `reload()` on a vault switch is what makes the override per-vault — there is no separate cache to invalidate. Consumed by `files.js` (Tier 2) and `seal.js` (outside the tiers); writes belong to Electron main, which owns the `user` key.
+- `set(config)` — writes and caches a whole config object.
 
 ### `database.js`
-SQLite connection singleton via `better-sqlite3`. WAL mode and foreign keys are always enabled. The single exported `db` instance is shared across all modules.
+SQLite connection via `better-sqlite3`; WAL and foreign keys always enabled. `openDatabase()` / `closeDatabase()` (the latter checkpoints the WAL) / `isOpen()`.
+
+The default export is a **stable `Proxy`**, not the connection. Nine modules import it and `query.js` stores the reference in a constructor that runs once at import, so an ESM binding could never be re-pointed — the swap has to happen behind an object whose identity is fixed. Property access forwards to the live handle and functions are bound to it, because the addon is native and needs its real `this`.
+
+This is only safe because **no prepared statement outlives a request**: every `prepare()` in `query.js` is a local `const` used immediately. Never hoist `db.prepare(...)` or `db.transaction(...)` into a module-level constant — a `transaction()` captured at import stays bound to the connection that made it, and after a switch it fails with "the database connection is not open" while validation silently falls through to a rebuild on the same dead handle.
+
+### `vault.js`
+Vault identity. `vault.json` at the vault root — a stable UUID that outlives renames, moves and copies, since the database can be rebuilt and `vaultName` is just a folder name. Deliberately a **sibling of `workspace/`**, not inside it: identity is not something to version or roll back, so Seal never tracks it and `UpdateRunner`'s walk never sees it (hence no `formatVersion`). Imports `config` only.
+- `readManifest()` / `ensureManifest()` / `getVaultId()` — `ensureManifest()` is idempotent, which is how vaults predating it acquire an id on their next launch instead of needing a migration.
+- `inspectVaultDir(dir)` — does an arbitrary directory hold a vault? Tests for `workspace/` + a `*.db`; a manifest is **not** required, or an older vault could never be adopted.
 
 ---
 
