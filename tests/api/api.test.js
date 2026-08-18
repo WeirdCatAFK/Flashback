@@ -155,6 +155,82 @@ describe('Flashback API', () => {
             const res = await rawFetch(`${baseUrl}/api/documents/list?path=&token=${API_TOKEN}`);
             assert.equal(res.status, 200);
         });
+
+        it('resolves the configured token to the Author account', async () => {
+            // The token in config.json is adopted as the Author's on start(), which is what
+            // makes roles invisible on a desktop install: the renderer and the MCP server
+            // keep presenting what they already hold and keep getting everything.
+            const res = await rawFetch(`${baseUrl}/api/accounts`, {
+                headers: { Authorization: `Bearer ${API_TOKEN}` },
+            });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.you.role, 'author');
+        });
+    });
+
+    // ── Roles ─────────────────────────────────────────────────────────────
+    //
+    // The permission table itself is unit-tested in tests/accounts.test.js. What is proved
+    // HERE is that it is actually wired into the running server — that a real request with a
+    // real reader token is refused by a real mount, rather than the table being correct and
+    // mounted nowhere.
+
+    describe('Roles', () => {
+        let readerToken;
+        let readerTokenId;
+
+        before(async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Rita Reader', email: `rita-${Date.now()}@example.com`, role: 'reader',
+            })).json();
+            const issued = await (await post(`${baseUrl}/api/accounts/${created.id}/tokens`, {
+                label: 'test',
+            })).json();
+            readerToken = issued.token;
+            readerTokenId = issued.id;
+            assert.ok(readerToken, 'a token must come back in plaintext exactly once');
+        });
+
+        const asReader = (url, opts = {}) =>
+            rawFetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${readerToken}` } });
+
+        it('lets a reader read a document listing', async () => {
+            const res = await asReader(`${baseUrl}/api/documents/list?path=`);
+            assert.equal(res.status, 200);
+        });
+
+        it('refuses a reader creating a folder → 403 naming the role needed', async () => {
+            const res = await asReader(`${baseUrl}/api/documents/folder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'ReaderShouldNotCreateThis' }),
+            });
+            assert.equal(res.status, 403);
+            const body = await res.json();
+            assert.equal(body.required, 'admin');
+            assert.equal(body.role, 'reader');
+        });
+
+        it('refuses a reader reaching the access panel at all', async () => {
+            const res = await asReader(`${baseUrl}/api/accounts`);
+            assert.equal(res.status, 403);
+        });
+
+        it('refuses a reader rolling the vault back', async () => {
+            const res = await asReader(`${baseUrl}/api/seal/log`);
+            assert.equal(res.status, 403);
+        });
+
+        it('stops accepting a revoked token → 401, not 403', async () => {
+            // Revocation has to fail at authentication, not authorization: a revoked token
+            // identifies nobody, so there is no role to compare.
+            const res = await del(`${baseUrl}/api/accounts/tokens/${readerTokenId}`, {});
+            assert.equal(res.status, 200);
+
+            const after = await asReader(`${baseUrl}/api/documents/list?path=`);
+            assert.equal(after.status, 401);
+        });
     });
 
     // ── CORS ──────────────────────────────────────────────────────────────

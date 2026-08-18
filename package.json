@@ -42,6 +42,8 @@
     "test:identity": "node --test tests/identity.test.js",
     "test:updates": "node --test tests/updates.test.js",
     "test:api": "node --test tests/api/api.test.js",
+    "test:accounts": "node --test tests/accounts.test.js",
+    "pure-token": "node scripts/pure-token.js",
     "test:mcp": "node --test tests/mcp.test.js",
     "test:tags": "node --test tests/tags.test.js",
     "test:imports": "node --test tests/imports.test.js",

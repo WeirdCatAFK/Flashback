@@ -21,9 +21,26 @@ Before the API starts, it undergoes a mandatory validation process to ensure the
 
 Base URL: `http://localhost:3000` (default port, configurable)
 
-`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes`
+`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
 
 All request bodies are JSON unless marked **multipart**. All responses are JSON unless noted otherwise. Paths in request bodies or query strings may use forward slashes on any platform; the server normalizes them internally.
+
+---
+
+## Authentication and roles
+
+Every `/api/*` request resolves to an **account** before it reaches a router. The `GET /` readiness ping stays open.
+
+A token is presented as `Authorization: Bearer <token>` or, for browser-initiated loads that cannot set a header (PDF and media URLs, `<img>`/`<audio>`), as a `?token=` query parameter. It is looked up by SHA-256 hash against the accounts store (`{baseDir}/accounts.db`, outside every vault) and yields `req.account` = `{ id, name, email, role }`.
+
+- **`401`** — `{ error: "Unauthorized: missing or invalid API token" }`. No token, an unknown one, a revoked one, or one belonging to a deactivated account. A revoked token fails *here*, not with a 403: it identifies nobody, so there is no role to compare.
+- **`403`** — `{ error, required, role }`. Authenticated, but the role is not enough. The required role is named on purpose; without it a client cannot tell "you may not" from "this is broken".
+
+With **no token configured at all** — the standalone `dev:api` / `dev:web` flows, which never run Electron, the only process that mints one — an anonymous caller is treated as the Author. That is how those flows have always worked. A server build sets `requireAuth`, which refuses anonymous callers and refuses to boot with no usable token.
+
+Roles form a strict ladder: **reader** (study progress) < **collaborator** (+ annotates existing documents) < **admin** (+ modifies the vault, imports, manages access) < **author** (+ owns the files, holds the pure token). The full endpoint-by-endpoint policy is one table in `src/api/auth/permissions.js`; a router mounted without an entry there resolves to author-only, so the mistake fails closed. `tests/accounts.test.js` asserts the table covers every mounted router.
+
+On a desktop install this is invisible: one Author account is provisioned from the local identity on first start, and the `apiToken` already in `config.json` is adopted as its token.
 
 ---
 
@@ -963,7 +980,41 @@ Who this server stamps new work as: the local, git-style user identity that goes
 
 **This is not authentication.** Nothing validates the name or the address and nothing gates on either; a Flashback Server must treat an identity a client asserts as a claim, never as authorization. What authorizes a remote is its access token.
 
-**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>" }`.
+`account` is the other half of that sentence, and the two must not be confused. The top level is the **install's** self-asserted identity; `account` is **who the caller actually authenticated as**, resolved from their token, and it is the one that is real — it is what stamps their `createdBy` and their Seal commits. On a desktop install they are the same person. It is served here, rather than only on the admin-only `GET /api/accounts`, because every role deserves to be able to ask who it is.
+
+**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>", account: { id, name, email, role } | null }`.
+
+---
+
+## Accounts `/api/accounts`
+
+Who may reach this deployment, and as what. Admin for everything here except `POST /pure-token`, which is the Author's alone.
+
+The store lives **outside every vault** so a copied vault carries no access list, and it is the only data in the app that cannot be rebuilt from the canonical files — back it up. A token's plaintext is returned exactly twice in this API's whole surface (issue and rotate) and is unrecoverable afterwards; only its hash is stored.
+
+Three rules a ladder of roles cannot express are enforced here, where the actor and the target can be compared:
+
+- **An admin may grant only Reader.** Admins run the vault; they do not decide who else runs it. This covers issuing tokens too — otherwise an admin could mint themselves an author token through the back door.
+- **An admin may not revoke their own tokens**, and nobody may revoke the token they are authenticating with. An admin who locks themselves out has no recovery path; the pure token and the terminal both belong to the Author.
+- **The Author cannot be demoted, deactivated or duplicated.** There is one owner, and rotation is the only way to change what proves you are them.
+
+### `GET /api/accounts`
+**Response** `200` — `{ accounts: [{ id, name, email, role, active, createdAt, tokens: [{ id, label, createdAt, lastUsedAt, revokedAt, active }] }], you }`. Never a hash, never a plaintext.
+
+### `POST /api/accounts`
+**Body** `{ name, email, role }` → `201` with the account. `403` if the role exceeds the caller's grant ceiling.
+
+### `PATCH /api/accounts/:id`
+**Body** `{ role?, active? }` → `200` with the updated account.
+
+### `POST /api/accounts/:id/tokens`
+**Body** `{ label? }` → `201` `{ id, token, label, accountId, notice }`. **`token` is the plaintext and is shown once.**
+
+### `DELETE /api/accounts/tokens/:tokenId`
+→ `200` `{ ok: true }`. Idempotent; re-revoking keeps the original timestamp.
+
+### `POST /api/accounts/pure-token`
+Author only. **Body** `{ label? }` → `201` `{ token, accountId, revoked, notice }`. Mints the token that proves ownership and revokes every previous Author token in the same transaction. If the store is unreachable or the token is lost, `npm run pure-token` does the same thing from the terminal against `accounts.db` directly — physical access to the file is the authorization, which is the same bargain every database makes.
 
 ---
 

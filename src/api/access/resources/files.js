@@ -21,6 +21,7 @@ import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
 import { getAuthorString, getWorkspacePath } from "../primitives/config.js";
+import { currentAuthorString } from "../../requestContext.js";
 import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 import { LATEST_VERSION } from "../../config/updates/registry.js";
@@ -48,6 +49,21 @@ const BINARY_EXTENSIONS = new Set([
  * @param {Buffer} sample - the first bytes of the file.
  * @param {string|null} encoding - chardet's guess, if any.
  */
+/**
+ * Who to stamp a new sidecar's `createdBy` with.
+ *
+ * The account behind the current request when there is one, the install's local identity
+ * otherwise. On a desktop install those are the same person, because the Author account is
+ * seeded from that identity — so this changes nothing there. On a server the install is a
+ * machine, and only the request knows who actually created the file.
+ *
+ * Deliberately the same string Seal uses for the commit author: a file and the commit that
+ * created it must not disagree about who made them.
+ */
+function stampedBy() {
+    return currentAuthorString(getAuthorString);
+}
+
 function looksBinary(relPath, sample, encoding) {
     if (BINARY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) return true;
     if (encoding && /^utf-?(16|32)/i.test(encoding)) return false;
@@ -377,7 +393,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getAuthorString();
+            metadata.createdBy = metadata.createdBy || stampedBy();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(fileRel, metadata, false);
@@ -418,7 +434,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFolderMetadata();
             metadata = this._ensureGlobalHash(metadata, true);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getAuthorString();
+            metadata.createdBy = metadata.createdBy || stampedBy();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(folderRel, metadata, true);
@@ -452,7 +468,7 @@ _regenerateIdentities(absPath) {
         let metadata = existing || newFolderMetadata();
         metadata = this._ensureGlobalHash(metadata, true);
         metadata.name = name;
-        metadata.createdBy = metadata.createdBy || getAuthorString();
+        metadata.createdBy = metadata.createdBy || stampedBy();
         metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
         this.writeMetadata(folderRel, metadata, true);

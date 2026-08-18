@@ -25,6 +25,7 @@ const releaseDir = path.join(buildDir, 'Release');
 
 const tests = [
     'tests/dbAdapter.test.js',
+    'tests/accounts.test.js',
     'tests/docs.test.js',
     'tests/graph.test.js',
     'tests/performance.test.js',

@@ -17,7 +17,8 @@ access/
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
   resources/       Tier 2   query · files
-  primitives/      Tier 1   config · database · vault
+  primitives/      Tier 1   config · database · accounts · vault
+                            sqliteAdapter (the async driver both stores are built on)
 ```
 
 Imports within a tier stay relative (`./query.js` from `files.js`); imports downward name the tier (`../primitives/database.js` from `resources/query.js`). Nothing outside `access/` may reach past a tier folder, so callers write `access/orchestration/documents.js`, never `access/documents.js`.
@@ -53,12 +54,33 @@ Config reader/writer. `USER_DATA_PATH` locates `config.json` wherever it is set 
 - `getIdentity()` / `getAuthorString()` — the local user identity, git-style. `getIdentity()` returns `{name, email, source}` resolving `user.perVault[activeVaultId]` → `user` → derived from the OS account; `getAuthorString()` renders it as `Name <email>`, which is both a sidecar's `createdBy` and a git author line, deliberately the same string. A `{name, email}` pair only counts when **both** halves are non-empty. Reads through the cached `get()`, so `reload()` on a vault switch is what makes the override per-vault — there is no separate cache to invalidate. Consumed by `files.js` (Tier 2) and `seal.js` (outside the tiers); writes belong to Electron main, which owns the `user` key.
 - `set(config)` — writes and caches a whole config object.
 
+### `sqliteAdapter.js`
+`createSqliteAdapter({ resolvePath, onOpen })` → `{ db, openDatabase, closeDatabase, isOpen }`. The async data layer, as a factory, because there are now **two** stores behind the same contract: the vault database and the accounts store. A Postgres driver has to satisfy this same interface for both.
+
+`db` is an **explicit surface** — `prepare` / `exec` / `pragma` / `transaction` / `close` / `inTransaction` / `raw` — not a Proxy forwarding whatever better-sqlite3 exposes, because that surface *is* the contract a second driver implements. `prepare()` stays **synchronous** and returns a statement whose `.get`/`.all`/`.run` are async; that is what kept the port of `query.js`'s 221 statements to `await` rather than a rewrite of every call form.
+
+**A transaction takes an exclusive lock against all access to its own store.** On one connection an `await` inside a transaction is a yield, so a statement from another request would otherwise join the open `BEGIN` and vanish with it on rollback — no error, just a row that was written and is gone. Nesting maps to `SAVEPOINT`s. `tests/dbAdapter.test.js` pins this; the interleaving case there fails against a naive promisified wrapper.
+
+**The queue and the `AsyncLocalStorage` are per instance, and that is load-bearing.** A shared context would make a statement on store B, issued inside a transaction on store A, believe it already held B's lock and skip B's queue; a shared queue would deadlock outright the first time a write to B happened inside a transaction on A. Postgres must not inherit the lock at all — it has real MVCC, so a transaction there checks out a dedicated client.
+
 ### `database.js`
-SQLite connection via `better-sqlite3`; WAL and foreign keys always enabled. `openDatabase()` / `closeDatabase()` (the latter checkpoints the WAL) / `isOpen()`.
+One instance of the adapter over `config.getDatabasePath()` — the **vault** database, derived and rebuildable from the canonical files. WAL and foreign keys always on. Re-exports `openDatabase()` / `closeDatabase()` (the latter checkpoints the WAL) / `isOpen()`.
 
-The default export is a **stable `Proxy`**, not the connection. Nine modules import it and `query.js` stores the reference in a constructor that runs once at import, so an ESM binding could never be re-pointed — the swap has to happen behind an object whose identity is fixed. Property access forwards to the live handle and functions are bound to it, because the addon is native and needs its real `this`.
+The default export must keep a fixed identity: nine modules import it and `query.js` stores the reference in a constructor that runs once at import, so an ESM binding could never be re-pointed — the swap has to happen behind an object whose identity never changes.
 
-This is only safe because **no prepared statement outlives a request**: every `prepare()` in `query.js` is a local `const` used immediately. Never hoist `db.prepare(...)` or `db.transaction(...)` into a module-level constant — a `transaction()` captured at import stays bound to the connection that made it, and after a switch it fails with "the database connection is not open" while validation silently falls through to a rebuild on the same dead handle.
+This is only safe because **no prepared statement outlives a request**: every `prepare()` in `query.js` is a local `const` used immediately. Never hoist `db.prepare(...)` or `db.transaction(...)` into a module-level constant.
+
+### `accounts.js`
+The **accounts store** — who may reach this API and as what. The other instance of the adapter, at **`{baseDir}/accounts.db`**, a sibling of `config.json` and outside every vault. Imports `config.js` and the adapter factory only.
+
+Outside the vault deliberately: a vault folder is meant to be copied and handed to someone else, and an access list that travelled with it would grant strangers whatever the original readers had. Two consequences follow — the **Vault Doctor must never touch it** (there is no canonical form of an account, so a rebuild would delete every token in the deployment), and it is **the one store in the app that cannot be reconstructed**, which makes it a backup obligation. It is also *not* re-opened on a vault switch; accounts belong to the install.
+
+Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
+
+Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
+- `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
+- `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
+- `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
 
 ### `vault.js`
 Vault identity. `vault.json` at the vault root — a stable UUID that outlives renames, moves and copies, since the database can be rebuilt and `vaultName` is just a folder name. Deliberately a **sibling of `workspace/`**, not inside it: identity is not something to version or roll back, so Seal never tracks it and `UpdateRunner`'s walk never sees it (hence no `formatVersion`). Imports `config` only.

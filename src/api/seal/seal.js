@@ -11,6 +11,7 @@ import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getWorkspacePath, getIdentity } from "../access/primitives/config.js";
+import { currentAuthor } from "../requestContext.js";
 import query from "../access/resources/query.js";
 
 // git.statusMatrix column values for [HEAD, workdir]
@@ -26,12 +27,16 @@ function dir() {
 // fixed `seal@flashback.local` address, so renaming a vault changed the apparent author of
 // all future work and two vaults belonging to one person looked like two people.
 //
+// It now prefers the ACCOUNT behind the current request, falling back to the install's local
+// identity. On a desktop install those are the same person — the Author account is seeded
+// from that very identity — so nothing changes. On a server they are not: the install is a
+// machine, and the person who made the edit is whoever presented the token.
+//
 // Resolved per call, which is what the vault-switch ordering in vaultSession.js depends on
 // (see the quiesce note on _cancelDebounce below) and is also what makes a per-vault
 // identity override land on the right commit with no further work here.
 function author() {
-    const { name, email } = getIdentity();
-    return { name, email };
+    return currentAuthor(getIdentity);
 }
 
 function normPath(p) {
@@ -116,6 +121,15 @@ async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
 
 const EDIT_DEBOUNCE_MS = 2000;
 
+/** Names a batch of edited paths for the commit message: the sidecar if there is one, a
+ *  count if there are several, otherwise whatever file was touched. */
+function editLabel(paths) {
+    const sidecars = paths.filter(isSidecar);
+    if (sidecars.length === 1) return sidecars[0];
+    if (sidecars.length > 1) return `${sidecars.length} sidecars`;
+    return paths[0];
+}
+
 /**
  * Fired by Documents.js after each canonical write operation.
  * edit() is debounced: rapid calls accumulate dirty paths and flush in a single commit
@@ -125,7 +139,21 @@ const EDIT_DEBOUNCE_MS = 2000;
  */
 export class SealEventEmitter {
     constructor() {
-        this._pendingEditPaths = new Set();
+        // path -> the author who made that edit.
+        //
+        // A Set of paths until the accounts store existed, which was fine while every edit
+        // in a process came from the same person. It does not survive a server: the timer
+        // fires long after the request that armed it has finished, so author() at flush time
+        // would resolve to nobody and attribute the whole batch to the machine's local
+        // identity. Capturing WHO at arm time and committing one batch per author keeps the
+        // history honest.
+        //
+        // This is a stopgap by design. Two people editing the same document within two
+        // seconds still produce two commits in an arbitrary order, and the second one's diff
+        // is whatever the first one left. M3 removes the debounce outright in favour of
+        // version-triggered commits; until then, at least nobody is credited with an edit
+        // they did not make.
+        this._pendingEdits = new Map();
         this._debounceTimer = null;
     }
 
@@ -137,28 +165,40 @@ export class SealEventEmitter {
     }
 
     /**
-     * Immediately commits all accumulated debounced edits as a single batch commit.
+     * Immediately commits all accumulated debounced edits — one batch commit per author.
      * Called automatically by create/move/delete to preserve chronological order.
      * Can also be called explicitly (e.g. in tests or on graceful shutdown) to force a flush.
+     *
+     * On a desktop install every pending edit has the same author, so this is exactly the
+     * single commit it always was.
      * @returns {Promise<void>}
      */
     async flushEdits() {
         this._cancelDebounce();
-        if (this._pendingEditPaths.size === 0) return;
+        if (this._pendingEdits.size === 0) return;
         const workspace = dir();
         // Skip paths that no longer exist on disk — they may have been moved or deleted
         // by a structural operation that ran before the debounce could fire.
-        const paths = [...this._pendingEditPaths].filter(p =>
+        const pending = [...this._pendingEdits].filter(([p]) =>
             fs.existsSync(path.join(workspace, p))
         );
-        this._pendingEditPaths.clear();
-        if (paths.length === 0) return;
-        await stageAll(workspace, paths);
-        const sidecars = paths.filter(p => p.endsWith(".flashback"));
-        const label = sidecars.length === 1 ? sidecars[0]
-            : sidecars.length > 1       ? `${sidecars.length} sidecars`
-            : paths[0];
-        await git.commit({ fs, dir: workspace, message: `edit: ${label}`, author: author() });
+        this._pendingEdits.clear();
+        if (pending.length === 0) return;
+
+        const byAuthor = new Map();
+        for (const [p, who] of pending) {
+            const key = `${who.name} <${who.email}>`;
+            if (!byAuthor.has(key)) byAuthor.set(key, { who, paths: [] });
+            byAuthor.get(key).paths.push(p);
+        }
+
+        // Sequential, not parallel: each commit takes a snapshot of the whole index, so two
+        // running at once would race over what HEAD is. Files already committed by an
+        // earlier author appear unchanged in the later commit and contribute no diff.
+        for (const { who, paths } of byAuthor.values()) {
+            await stageAll(workspace, paths);
+            await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(paths)}`, author: who });
+        }
     }
 
     /**
@@ -183,7 +223,7 @@ export class SealEventEmitter {
             console.error("Seal quiesce failed to flush pending edits:", err?.stack || err);
         } finally {
             this._cancelDebounce();
-            this._pendingEditPaths.clear();
+            this._pendingEdits.clear();
         }
     }
 
@@ -210,8 +250,11 @@ export class SealEventEmitter {
      * @returns {Promise<void>}
      */
     async edit(sidecarRelPath, extraRelPaths = []) {
-        this._pendingEditPaths.add(normPath(sidecarRelPath));
-        for (const p of extraRelPaths) this._pendingEditPaths.add(normPath(p));
+        // Resolve the author NOW, while the request that caused the edit is still in scope.
+        // The timer below fires outside it.
+        const who = author();
+        this._pendingEdits.set(normPath(sidecarRelPath), who);
+        for (const p of extraRelPaths) this._pendingEdits.set(normPath(p), who);
         this._cancelDebounce();
         this._debounceTimer = setTimeout(() => {
             this._debounceTimer = null;
@@ -235,7 +278,7 @@ export class SealEventEmitter {
         const normOldDoc = normPath(oldDocRelPath);
         const normNewDoc = normPath(newDocRelPath);
 
-        for (const p of normRemoved) this._pendingEditPaths.delete(p);
+        for (const p of normRemoved) this._pendingEdits.delete(p);
         await this.flushEdits();
         const workspace = dir();
         await removeAll(workspace, normRemoved);
@@ -254,7 +297,7 @@ export class SealEventEmitter {
     async delete(sidecarRelPath, extraRelPaths = []) {
         const normSidecar = normPath(sidecarRelPath);
         const allRemoved = [...extraRelPaths, sidecarRelPath].map(normPath);
-        for (const p of allRemoved) this._pendingEditPaths.delete(p);
+        for (const p of allRemoved) this._pendingEdits.delete(p);
         await this.flushEdits();
         const workspace = dir();
         await removeAll(workspace, allRemoved);

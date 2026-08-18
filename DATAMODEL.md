@@ -23,6 +23,7 @@ All user data is scoped to a **vault** — a named, self-contained directory. An
 ```
 {baseDir}/                        ← app data directory (or customPath if configured)
   config.json                     ← server configuration + vault/remote registries; outside vaults
+  accounts.db                     ← accounts, roles and token hashes; outside vaults (see § Accounts)
   {vaultName}/                    ← vault root, e.g. dreams/
     vault.json                    ← vault identity (a stable UUID); NOT versioned by Seal
     workspace/                    ← canonical layer root (.flashback sidecars and documents)
@@ -385,11 +386,18 @@ All data operations flow through `src/api/access/`. Modules are organised in thr
 
 ```
 Tier 1 — Primitives
-  config.js     Resolves the config path and owns config.json I/O (cached singleton).
-                Exports getVaultPath(), getWorkspacePath(), and getDatabasePath(),
-                which all derive from vaultName in the active config.
-  database.js   Calls getDatabasePath() at module initialisation, creates the vault
-                directory if absent, and exports the better-sqlite3 connection singleton.
+  config.js        Resolves the config path and owns config.json I/O (cached singleton).
+                   Exports getBaseDir(), getVaultPath(), getWorkspacePath() and
+                   getDatabasePath(), which all derive from the active config.
+  sqliteAdapter.js The async driver contract, as a factory. Both stores below are instances.
+                   prepare() is synchronous, its .get/.all/.run are async; a transaction
+                   holds an exclusive lock on ITS OWN store, and each instance has its own
+                   queue and transaction context.
+  database.js      The vault database — one adapter instance over getDatabasePath().
+                   Re-pointed when the active vault changes.
+  accounts.js      The accounts store at {baseDir}/accounts.db — accounts, roles and token
+                   hashes. Outside every vault; never re-opened on a switch. See § Accounts.
+  vault.js         Vault identity (vault.json). Imports config only.
 
 Tier 2 — Single-resource access
   query.js      All parameterised SQL statements. The only layer allowed to call db.prepare().
@@ -570,6 +578,50 @@ Field notes:
 ### AI-assistant privacy gate
 
 The diary holds personal reflections, so access by the MCP server (a *separate* process — see the MCP server notes) is gated by the **`mcpDiaryAccess`** setting in `config.json` (default off), chosen in Config → AI Assistant. It has three levels: **`none`** closes the whole diary namespace, **`summaries`** exposes the machine-derived study summaries and the day list but keeps the personal written entries (the `/entry` routes) private, and **`full`** opens everything. (The flag used to be a boolean; `true` is still read as `full` and `false` as `none` for back-compat.) Enforcement is server-side: the MCP client tags every request with `X-Flashback-Client: mcp`, and `routes/diary.js` returns `403` for MCP-tagged requests according to the level. The setting is read **fresh from disk** (`config.getMcpDiaryAccess`, fail-closed — any unrecognized value → `none`) so changing it takes effect without an API restart. The React renderer sends no such header, so the in-app Diary view is never gated. The read-only tools are `diary_list`, `diary_get_summary`, and `diary_get_entry` (the last requires `full`).
+
+---
+
+## Accounts — who may reach this install
+
+`{baseDir}/accounts.db`. A third store, alongside the canonical files and the derived vault database, and the only one that belongs to neither layer: it describes **people and access**, not knowledge.
+
+### Why it is outside the vault
+
+A vault folder is meant to be copied, moved, backed up onto a stick and handed to someone else. An access list that travelled with it would grant that person's install whatever the original readers had, on a vault they now own outright — the credentials of one deployment leaking into another. Roles are a fact about *this* deployment; the documents know nothing about them.
+
+Three consequences follow, and each is load-bearing:
+
+- **The Vault Doctor must never touch it.** The Doctor's whole premise is that the derived layer can be thrown away and re-derived from the canonical files. There is no canonical form of an account, so a rebuild that swept this in would delete every token in the deployment with no way back but the terminal.
+- **It cannot be reconstructed.** Everything else in a Flashback install can: sidecars rebuild the index, Seal rebuilds the sidecars. Nothing rebuilds this. **It is a backup obligation**, and the only one in the app.
+- **It is not re-opened on a vault switch.** Accounts belong to the install; a person does not stop being the owner because they opened a different vault.
+
+### Shape
+
+```
+Accounts(id, name, email, role, created_at, active)
+AccountTokens(id, account_id → Accounts.id, token_hash, label, created_at, last_used_at, revoked_at)
+AccountsSchemaVersion(version, applied_at)
+```
+
+Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
+
+`role` is one of `reader` < `collaborator` < `admin` < `author` (`src/shared/roles.js`), a strict ladder where each role can do everything below it. Exactly one Author exists; several Admins may.
+
+Deactivating an **account** and revoking a **token** are deliberately separate: revoking one token leaves that person's other devices working, deactivating the account stops all of them at once.
+
+### Tokens
+
+Only `sha256(token)` is stored. The plaintext is returned exactly once, when the token is issued, and after that nobody — including the Author — can recover it; they rotate instead. Lookup is therefore by hash of the caller's input, which is why no constant-time comparison exists anywhere in the auth path.
+
+`last_used_at` is written at most once per token per minute (throttled in process memory), because writing it per request would mean one write per card in a review session.
+
+The **pure token** is the Author's, and it is what proves ownership of a deployment. Issuing a new one revokes every previous Author token in the same transaction — a rotation that revoked the old and failed to write the new would lock the owner out of their own vault. `npm run pure-token` does the same thing against the file directly, for a deployment whose API is stopped or refusing everyone; physical access to `accounts.db` is the authorization, which is the same bargain every database makes.
+
+### On a desktop install
+
+Nothing above is visible. `Api.start()` provisions one Author from the local identity in `config.json` (§ Local user identity) and adopts the existing `apiToken` as its token, so the renderer and the MCP server present what they always presented. Every request is that Author, and the Author may do everything — which is exactly how Flashback behaved before accounts existed.
+
+Adoption also **re-enables** that token if a rotation had revoked it. `config.apiToken` is a plaintext secret in a file beside the vault database: anyone who can read it can already read every document directly, so refusing to honour it would buy nothing and would brick the desktop app with no in-app way back. A served deployment has no `apiToken` in its config, so the step does nothing there.
 
 ---
 

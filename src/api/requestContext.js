@@ -1,0 +1,64 @@
+/**
+ * Who the current request belongs to, available without threading it through every call.
+ *
+ * Authorship used to be a property of the INSTALL: `config.getIdentity()` answered "who is
+ * using this computer", and a sidecar's `createdBy` and every Seal commit read it. On a
+ * server that answer is wrong — the install is a machine in a datacentre, and the person who
+ * made the edit is whoever presented the token.
+ *
+ * Threading an account object from the auth middleware down to `seal.js`'s `author()` would
+ * mean a parameter on every orchestrator method between them, most of which have nothing to
+ * do with identity. `AsyncLocalStorage` is the right tool for exactly this: the auth
+ * middleware enters the context once, and anything running under that request reads it.
+ *
+ * Deliberately a leaf module — it imports nothing from `access/`, so `config.js`, `seal.js`
+ * and `files.js` can all read it without an import cycle or a tier violation.
+ *
+ * **Background work has no request**, and that is the case the fallback exists for: the
+ * canonical UpdateRunner, the Seal debounce firing after its request finished, the recovery
+ * CLI. Those legitimately act as the install, so they get the local identity.
+ */
+
+import { AsyncLocalStorage } from "node:async_hooks";
+
+const storage = new AsyncLocalStorage();
+
+/**
+ * Runs `fn` with `account` as the current request's actor.
+ * @param {{id: string, name: string, email: string, role: string}|null} account
+ * @param {() => any} fn
+ */
+export function runWithAccount(account, fn) {
+    return storage.run({ account }, fn);
+}
+
+/** @returns {object|null} the current request's account, or null outside a request. */
+export function currentAccount() {
+    return storage.getStore()?.account ?? null;
+}
+
+/**
+ * The `Name <email>` string to stamp on work done right now.
+ *
+ * @param {() => string} fallback  what to use with no request in scope — always
+ *   `config.getAuthorString`. Passed in rather than imported so this module stays a leaf.
+ * @returns {string}
+ */
+export function currentAuthorString(fallback) {
+    const account = currentAccount();
+    if (account?.name && account?.email) return `${account.name} <${account.email}>`;
+    return fallback();
+}
+
+/**
+ * The `{name, email}` pair for a git author line.
+ *
+ * @param {() => {name: string, email: string}} fallback  always `config.getIdentity`.
+ * @returns {{name: string, email: string}}
+ */
+export function currentAuthor(fallback) {
+    const account = currentAccount();
+    if (account?.name && account?.email) return { name: account.name, email: account.email };
+    const { name, email } = fallback();
+    return { name, email };
+}
