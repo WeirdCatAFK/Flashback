@@ -76,7 +76,7 @@ async function ensureVaultDirs() {
  * @returns {Promise<boolean>} false when validation failed and the vault is unusable.
  */
 export async function openVault({ onFatal } = {}) {
-    if (!validate()) {
+    if (!await validate()) {
         onFatal?.("Validation failed.");
         return false;
     }

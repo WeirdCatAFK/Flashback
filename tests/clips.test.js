@@ -10,7 +10,7 @@ import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }

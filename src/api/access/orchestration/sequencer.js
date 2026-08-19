@@ -15,6 +15,7 @@
  */
 import { randomUUID } from 'crypto';
 import query from '../resources/query.js';
+import { currentScope } from '../../requestContext.js';
 import { orderCards, distance, CONFUSABLE_THRESHOLD } from './sequencing.js';
 
 // getDue() hands us raw DB rows (snake_case); the ordering engine speaks the client's
@@ -92,11 +93,14 @@ export async function sequence({ due = [], newCards = [], order = 'interleaved',
  * Returns nulls rather than zeros when there's nothing to measure — a review with no logged
  * ordering must never read as "shown next to its sibling".
  */
-export async function measureOrdering({ sessionId, cardHash, prevCardHash }) {
+export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope = null }) {
     if (!sessionId || !cardHash) return { prevDistance: null, nearestSiblingLag: null };
 
     try {
-        const history = await query.getSessionReviewOrder(sessionId);
+        // A session id is a uuid and so is already unique, but the read is scoped anyway:
+        // "what was shown before this card" is a question about one person's session, and an
+        // unscoped read here would be a scoping bug waiting for the day ids stop being uuids.
+        const history = await query.getSessionReviewOrder(sessionId, scope ?? currentScope());
         const facets = await query.getSessionFacets(
             [...new Set([...history.map(r => r.globalHash), cardHash, prevCardHash].filter(Boolean))],
         );

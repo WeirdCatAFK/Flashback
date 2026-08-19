@@ -6,6 +6,7 @@ import db from '../primitives/database.js';
 import { getWorkspacePath } from '../primitives/config.js';
 import { sealEmitter } from '../../seal/seal.js';
 import { LATEST_VERSION } from '../../config/updates/registry.js';
+import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
 
 const DECKS_DIR = '_decks';
 
@@ -86,7 +87,7 @@ export default class Decks {
             return this._read(globalHash);
         } catch (err) {
             if (err.code !== 'ENOENT') throw err;
-            const entries = (await this.query.getDeckEntries(deckRow.id)).map((e) => {
+            const entries = (await this.query.getDeckEntries(deckRow.id, currentScope())).map((e) => {
                 const entry = { cardHash: e.card_hash, documentPath: e.document_path };
                 if (e.inline_card) {
                     try { entry.card = JSON.parse(e.inline_card); } catch { /* ignore malformed snapshot */ }
@@ -152,7 +153,7 @@ export default class Decks {
     async getDeck(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        const entries = await this.query.getDeckEntries(deck.id);
+        const entries = await this.query.getDeckEntries(deck.id, currentScope());
         const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
         return { ...deck, entries, entry_count: entries.length, tags };
     }
@@ -192,7 +193,7 @@ export default class Decks {
     async _propagateTagsToCards(deck, tagNames) {
         if (!deck.node_id) return;
         const tagIds = await this._tagIdsForNames(tagNames);
-        for (const e of await this.query.getDeckEntries(deck.id)) {
+        for (const e of await this.query.getDeckEntries(deck.id, currentScope())) {
             const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.card_hash);
             if (cardNodeId) await this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
         }
@@ -340,7 +341,7 @@ export default class Decks {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
-        const entries = await this.query.getDeckEntries(deck.id);
+        const entries = await this.query.getDeckEntries(deck.id, currentScope());
         const documents = new Set();
         const otherDecks = new Set();
         let standalone = 0;
@@ -402,7 +403,7 @@ export default class Decks {
         const anchored = [];
         let kept = 0;
 
-        for (const entry of await this.query.getDeckEntries(deck.id)) {
+        for (const entry of await this.query.getDeckEntries(deck.id, currentScope())) {
             const isShared = (await this.query.getDecksContainingCard(entry.card_hash))
                 .some(d => !d.is_system && d.id !== deck.id);
             if (isShared && !includeShared) { kept++; continue; }
@@ -420,7 +421,11 @@ export default class Decks {
 
     /** A card's source document path, or null when it is standalone. */
     async _cardDocumentPath(cardHash) {
-        return (await this.query.getFlashcardContentByHash(cardHash))?.document_path ?? null;
+        // OWNER_SCOPE: only `document_path` is read here. The scope argument is mandatory
+        // because the same statement also returns a level, and there is no way to ask for
+        // half a row — so the honest answer is to name the scope whose level would be
+        // meaningful if anyone did read it.
+        return (await this.query.getFlashcardContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
     }
 
     /**
@@ -451,11 +456,11 @@ export default class Decks {
     // the card browser and the MCP's list_cards get the filter through the one path they
     // already share.
     async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        return await this.query.getAllFlashcards({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset });
+        return await this.query.getAllFlashcards({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset }, currentScope());
     }
 
     async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
-        return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind });
+        return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind }, currentScope());
     }
 
     // Builds the canonical content snapshot stored alongside a standalone card's
@@ -501,7 +506,7 @@ export default class Decks {
                 customData: snapshot.customData,
                 category, cardType, name, origin,
                 level: 0, sm2Reps: 0, fileIndex: 0,
-            });
+            }, OWNER_SCOPE);
             const position = await this.query.getDeckEntryCount(systemDeck.id);
             await this.query.insertDeckEntry({
                 deckId: systemDeck.id, cardHash: globalHash,
@@ -533,7 +538,7 @@ export default class Decks {
     // source document path — the lookup clients need to route an edit to the
     // right layer (sidecar RMW vs. the standalone endpoints).
     async getCard(hash) {
-        const card = await this.query.getFlashcardContentByHash(hash);
+        const card = await this.query.getFlashcardContentByHash(hash, currentScope());
         if (!card) throw new Error(`Card not found: ${hash}`);
         return {
             globalHash: hash,
@@ -569,7 +574,8 @@ export default class Decks {
         }
         // Partial update: fields the caller omits keep their stored values —
         // a bare category or name change must not wipe the card's text.
-        const existing = await this.query.getFlashcardContentByHash(hash);
+        // The read that feeds a canonical `_decks/*.json` snapshot, so: the owner's.
+        const existing = await this.query.getFlashcardContentByHash(hash, OWNER_SCOPE);
         const merged = {
             frontText: frontText !== undefined ? frontText : existing.frontText,
             backText: backText !== undefined ? backText : existing.backText,
@@ -732,7 +738,7 @@ export default class Decks {
             const f = fileByHash.get(d.global_hash);
             if (f.data === null) continue;
             const fileHashes = new Set((f.data.entries ?? []).map(e => e.cardHash));
-            const dbEntries = await this.query.getDeckEntries(d.id);
+            const dbEntries = await this.query.getDeckEntries(d.id, currentScope());
             const dbHashes = new Set(dbEntries.map(e => e.card_hash));
 
             const missingInDb = [...fileHashes].filter(h => !dbHashes.has(h));
@@ -891,7 +897,7 @@ export default class Decks {
                             name: e.card.name ?? null,
                             origin: e.card.origin ?? null,
                             level: 0, sm2Reps: 0, fileIndex: 0,
-                        });
+                        }, OWNER_SCOPE);
                         const deck = await this.query.getDeckByHash(f.globalHash);
                         if (deck?.node_id) {
                             const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.cardHash);

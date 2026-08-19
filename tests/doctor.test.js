@@ -8,7 +8,7 @@ process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_doctor');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
 const { default: validate } = await import('../src/api/config/validate.js');
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -98,7 +98,7 @@ describe('Vault Doctor', () => {
 
             const doc = await query.getDocumentByPath(rel);
             assert.ok(doc, 'Documents row exists');
-            const cards = await query.getFlashcardsByDocument(doc.id);
+            const cards = await query.getFlashcardsByDocument(doc.id, 'owner');
             assert.equal(cards.length, 1);
             assert.equal(cards[0].global_hash, cardHash);
             assert.equal(cards[0].level, 3, 'sidecar level adopted');
@@ -154,7 +154,7 @@ describe('Vault Doctor', () => {
             assert.ok(result.actions.documentsReindexed >= 1);
 
             const doc = await query.getDocumentByPath(rel);
-            const byHash = new Map((await await query.getFlashcardsByDocument(doc.id)).map(c => [c.global_hash, c]));
+            const byHash = new Map((await await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
             assert.equal(byHash.size, 3, 'new card was added');
             assert.equal(byHash.get(keepHash).level, 4, 'raised level adopted');
             assert.equal(byHash.get(regressHash).level, 5, 'lowered level did not regress');
@@ -199,7 +199,7 @@ describe('Vault Doctor', () => {
             assert.equal(await query.getDocumentByPath(fileRel), undefined);
             assert.equal(await query.getFolderByPath(folderRel), undefined);
             assert.equal(await query.getDocumentByPath(nestedRel), undefined, 'nested doc cascaded');
-            assert.equal((await query.getFlashcardsByDocument(nestedDocId)).length, 0, 'nested cards cascaded');
+            assert.equal((await query.getFlashcardsByDocument(nestedDocId, 'owner')).length, 0, 'nested cards cascaded');
 
             assert.ok(result.sealedOid, 'deletions were sealed');
             const drift = await sealTools.inspect();
@@ -247,7 +247,7 @@ describe('Vault Doctor', () => {
             const result = await doctor.syncIndex();
 
             const doc = await query.getDocumentByPath(rel);
-            const cards = await query.getFlashcardsByDocument(doc.id);
+            const cards = await query.getFlashcardsByDocument(doc.id, 'owner');
             assert.equal(cards.length, 1, 'v2 card removed from index');
             assert.equal(cards[0].global_hash, v1Hash);
 
@@ -334,7 +334,7 @@ describe('Vault Doctor', () => {
 
             await doctor.syncIndex();
             const deck = await query.getDeckByHash(deckHash);
-            assert.equal((await query.getDeckEntries(deck.id)).length, 0, 'DB entry removed to match file');
+            assert.equal((await query.getDeckEntries(deck.id, 'owner')).length, 0, 'DB entry removed to match file');
         });
     });
 
@@ -498,7 +498,11 @@ describe('Vault Doctor', () => {
             assert.equal((await query.getAllDecks()).length, snapshot.decks, 'deck count restored');
             assert.ok(summary.documentsIndexed > 0);
 
-            const card = await db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(cardHash);
+            const card = await db.prepare(`
+                SELECT p.level FROM CardProgress p
+                JOIN Flashcards f ON f.id = p.flashcard_id
+                WHERE f.global_hash = ? AND p.account_id = 'owner'
+            `).get(cardHash);
             assert.equal(card.level, 6, 'SRS level recovered from sidecar');
         });
 
@@ -519,7 +523,7 @@ describe('Vault Doctor', () => {
             const doc = await query.getDocumentByPath(docARel);
             assert.equal((await query.getHighlightsByDocumentId(doc.id)).length, 1, 'highlight restored');
 
-            const { edges } = await query.getGraphData();
+            const { edges } = await query.getGraphData('owner');
             const source = await query.getDocumentByPath(docBRel);
             assert.ok(
                 edges.some(e => e.relation === 'link' && e.fromId === source.node_id && e.toId === doc.node_id),
@@ -529,7 +533,7 @@ describe('Vault Doctor', () => {
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
             assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
-            const eases = await query.getLatestEaseFactors();
+            const eases = await query.getLatestEaseFactors('owner');
             assert.equal(eases.get(cardHash), 2.7, 'ease factor recovered via synthetic review log');
         });
 
@@ -546,20 +550,20 @@ describe('Vault Doctor', () => {
             assert.equal(systemCount, 1, 'exactly one system deck');
 
             const deck = await query.getDeckByHash(deckHash);
-            assert.equal((await query.getDeckEntries(deck.id)).length, 1, 'user deck entries restored');
+            assert.equal((await query.getDeckEntries(deck.id, 'owner')).length, 1, 'user deck entries restored');
         });
 
         // The rebuild is the one operation that throws the derived layer away entirely, so if
         // a type_answer card's graded answer and its notes are ever going to collapse back
         // into one field, it happens here.
         it('keeps a type_answer card\'s answer and notes apart through the rebuild', async () => {
-            const anchored = await query.getFlashcardContentByHash(typedHash);
+            const anchored = await query.getFlashcardContentByHash(typedHash, 'owner');
             assert.ok(anchored, 'anchored type_answer card restored');
             assert.equal(anchored.card_type, 'type_answer');
             assert.equal(anchored.answerText, 'rebuild-typed-answer', 'the graded value survives');
             assert.equal(anchored.backText, 'rebuild-typed-notes', 'and so do its notes, separately');
 
-            const standalone = await query.getFlashcardContentByHash(typedStandaloneHash);
+            const standalone = await query.getFlashcardContentByHash(typedStandaloneHash, 'owner');
             assert.ok(standalone, 'standalone type_answer card restored from its inline snapshot');
             assert.equal(standalone.answerText, 'standalone-typed-answer');
             assert.equal(standalone.backText, 'standalone-typed-notes');

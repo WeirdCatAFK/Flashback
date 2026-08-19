@@ -753,11 +753,20 @@ Permanently deletes a card of **either** kind, along with its review history, an
 
 ## SRS `/api/srs`
 
+**Every endpoint here is about the caller's own studying.** Progress, review history, card-health verdicts and fitted FSRS weights are all scoped to the account the request authenticated as (`'owner'` when that account is the Author — see `DATAMODEL.md` § Per-user progress). No endpoint takes an account parameter and none can reach anyone else's schedule: two people reviewing the same card diverge, and one person's grade never moves another's due list or retention numbers.
+
+Two consequences worth stating outright:
+
+- **A non-owner's review writes no file and produces no Seal commit.** Their schedule is durable in the accounts store instead. Reading is not editing, and a reader's study record must not be sealed into a git history that travels with a copy of the vault.
+- **`POST /optimize` is reader-level, not admin-level.** Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see. It was an administrative action only while the weights were a single shared row per vault.
+
 **The `algorithm` parameter.** Which scheduler (`leitner` | `sm2` | `fsrs`) the user reviews with is a browser preference (`localStorage` `fb-srs-algorithm`), so the app sends it explicitly on every request. It is **optional** on the read-only endpoints (`/due`, `/statistics`): when omitted, the server infers it from the vault's own review history — each `ReviewLogs` row records the scheduler that graded it (migration 006) — instead of falling back to a fixed default. Those responses echo the algorithm actually used in their `algorithm` field, so a caller with no browser (the MCP server) can trust what it reads back. A vault with no reviews yet has nothing to infer from and reports `leitner`.
 
 ### `POST /api/srs/review`
 
-Submits a spaced-repetition review result for a flashcard. Updates the card's level and ease factor in both the sidecar and the database, and appends a review log entry.
+Submits a spaced-repetition review result for a flashcard. Updates the caller's level and ease factor for that card and appends a review log entry stamped with their account.
+
+The sidecar is written **only when the caller is the vault's Author** — the sidecar is the owner's record of the owner's progress. Every other account's schedule is mirrored into the accounts store (`AccountProgress`) inside the same transaction, so their review is just as durable while producing no file write and no Seal commit.
 
 | Field             | Type   | Required | Description                                             |
 | ----------------- | ------ | -------- | ------------------------------------------------------- |

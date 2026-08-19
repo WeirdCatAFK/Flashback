@@ -28,6 +28,29 @@
  * issued, and after that nobody — including the author — can recover it; they rotate instead.
  * Lookup is therefore by hash of the caller's input, which is why no constant-time comparison
  * appears here: the hash of an attacker-supplied string leaks nothing by timing.
+ *
+ * ## Why study progress is also here
+ *
+ * `AccountProgress` is the durable home of every NON-OWNER's spaced-repetition schedule, and
+ * it is here for the same reason the access list is: it must not travel with a copied vault.
+ *
+ * The owner's progress has a canonical home already — the `.flashback` sidecar, versioned by
+ * Seal, travelling with the documents it belongs to. Nobody else's can go there. Writing a
+ * reader's schedule into a sidecar would seal one person's study record into everyone's git
+ * history and hand it to whoever received a copy of the folder. So the split is deliberate
+ * and symmetric: owner progress is canonical in the vault, everyone else's is canonical in
+ * the install, and both are projected into `CardProgress` in the vault database for querying.
+ *
+ * Keyed by `card_hash` — the card's `globalHash` — and never by `flashcard_id`, because row
+ * ids are local to one vault database and a Doctor rebuild reassigns them. Keyed by
+ * `vault_id` (from `vault.json`) because this store is install-scoped and an install can hold
+ * several vaults.
+ *
+ * Only the schedule SNAPSHOT is durable. Review logs are not mirrored here, so a lost vault
+ * database still costs everyone their history, their card-health verdicts and their optimizer
+ * input — exactly what a Doctor rebuild has always cost the owner. The contract is unchanged,
+ * not weakened. `ease_factor` is on this table although `CardProgress` has no such column:
+ * SM-2's ease is read back out of the latest review log, and there are no review logs here.
  */
 
 import crypto from "crypto";
@@ -71,6 +94,24 @@ CREATE TABLE IF NOT EXISTS AccountsSchemaVersion (
     version     INTEGER PRIMARY KEY,
     applied_at  TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS AccountProgress (
+    vault_id        TEXT NOT NULL,
+    account_id      TEXT NOT NULL REFERENCES Accounts(id) ON DELETE CASCADE,
+    card_hash       TEXT NOT NULL,
+    level           INTEGER,
+    sm2_reps        INTEGER NOT NULL DEFAULT 0,
+    last_recall     TEXT,
+    ease_factor     REAL,
+    fsrs_stability  REAL,
+    fsrs_difficulty REAL,
+    fsrs_due        TEXT,
+    fsrs_state      INTEGER NOT NULL DEFAULT 0,
+    fsrs_reps       INTEGER NOT NULL DEFAULT 0,
+    fsrs_lapses     INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL,
+    PRIMARY KEY (vault_id, account_id, card_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_account_progress_vault ON AccountProgress(vault_id, account_id);
 `;
 
 const adapter = createSqliteAdapter({
@@ -378,6 +419,87 @@ export async function ensureLocalAuthor(apiToken = null) {
     return author;
 }
 
+// ---------------------------------------------------------------------------
+// Durable per-account progress
+// ---------------------------------------------------------------------------
+//
+// The vault database's CardProgress is derived and rebuildable; this is what it is rebuilt
+// FROM for everyone who is not the owner. Callers are `srs.js` (on every graded review) and
+// `doctor.js` (read-only, when re-projecting after a rebuild).
+//
+// Deliberately dumb: no scheduling logic, no interpretation of the numbers, no knowledge of
+// which algorithm produced them. It stores a snapshot of nine fields and hands them back.
+
+/** The nine schedule fields plus ease, in the order the statements below use them. */
+const PROGRESS_FIELDS = [
+    "level", "sm2_reps", "last_recall", "ease_factor",
+    "fsrs_stability", "fsrs_difficulty", "fsrs_due",
+    "fsrs_state", "fsrs_reps", "fsrs_lapses",
+];
+
+// The counters are NOT NULL in both this table and the vault's CardProgress; the rest are
+// genuinely absent for a card the caller's algorithm has never touched. Writing null into a
+// counter would fail the constraint on a snapshot that is otherwise perfectly valid.
+const PROGRESS_DEFAULTS = { sm2_reps: 0, fsrs_state: 0, fsrs_reps: 0, fsrs_lapses: 0 };
+
+/**
+ * Records one account's schedule for one card. Upsert: a review overwrites the snapshot
+ * rather than appending, because this table holds current state, not history.
+ *
+ * Never call this for the owner — their canonical copy is the sidecar, and a second
+ * canonical copy is how the two drift. `srs.js` guards on the scope before it gets here.
+ *
+ * @param {string} vaultId    from vault.json
+ * @param {string} accountId  a real account id, never OWNER_SCOPE
+ * @param {string} cardHash   the card's globalHash
+ * @param {object} state      any subset of PROGRESS_FIELDS; absent fields reset to defaults
+ */
+export async function saveAccountProgress(vaultId, accountId, cardHash, state = {}) {
+    const values = PROGRESS_FIELDS.map((f) => state[f] ?? PROGRESS_DEFAULTS[f] ?? null);
+    await db.prepare(`
+        INSERT INTO AccountProgress
+            (vault_id, account_id, card_hash, ${PROGRESS_FIELDS.join(", ")}, updated_at)
+        VALUES (?, ?, ?, ${PROGRESS_FIELDS.map(() => "?").join(", ")}, ?)
+        ON CONFLICT(vault_id, account_id, card_hash) DO UPDATE SET
+            ${PROGRESS_FIELDS.map((f) => `${f} = excluded.${f}`).join(", ")},
+            updated_at = excluded.updated_at
+    `).run(vaultId, accountId, cardHash, ...values, now());
+}
+
+/** @returns {Promise<object|null>} one account's snapshot for one card. */
+export async function getAccountProgress(vaultId, accountId, cardHash) {
+    return await db.prepare(
+        "SELECT * FROM AccountProgress WHERE vault_id = ? AND account_id = ? AND card_hash = ?",
+    ).get(vaultId, accountId, cardHash);
+}
+
+/**
+ * Every non-owner snapshot for a vault, for the Doctor to re-project into CardProgress.
+ *
+ * Rows belonging to accounts that no longer exist are excluded rather than deleted: the
+ * cross-store reference carries no foreign key, so nothing cascades, and quietly dropping
+ * a row here on a *read* would turn a temporarily-missing account into permanent data loss.
+ *
+ * @param {string} vaultId
+ * @param {string|null} accountId  restrict to one account, or null for all of them
+ */
+export async function listAccountProgress(vaultId, accountId = null) {
+    const filter = accountId ? " AND p.account_id = ?" : "";
+    const params = accountId ? [vaultId, accountId] : [vaultId];
+    return await db.prepare(`
+        SELECT p.* FROM AccountProgress p
+        JOIN Accounts a ON a.id = p.account_id
+        WHERE p.vault_id = ?${filter}
+    `).all(...params);
+}
+
+/** Forgets one card's snapshot for one account. Used when a review is undone to nothing. */
+export async function deleteAccountProgress(vaultId, accountId, cardHash) {
+    await db.prepare(
+        "DELETE FROM AccountProgress WHERE vault_id = ? AND account_id = ? AND card_hash = ?",
+    ).run(vaultId, accountId, cardHash);
+}
+
 export default {
     ROLES,
     getAccountsPath,
@@ -397,5 +519,9 @@ export default {
     revokeToken,
     rotatePureToken,
     ensureLocalAuthor,
+    saveAccountProgress,
+    getAccountProgress,
+    listAccountProgress,
+    deleteAccountProgress,
     LOCAL_TOKEN_LABEL,
 };

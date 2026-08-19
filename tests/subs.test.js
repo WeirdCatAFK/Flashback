@@ -39,7 +39,7 @@ describe('Subscriptions Integration Tests', () => {
             await db.pragma('foreign_keys = ON');
 
             // Re-initialize DB
-            if (!validate()) {
+            if (!await validate()) {
                 throw new Error("Validation failed during cleanup");
             }
 
@@ -56,7 +56,7 @@ describe('Subscriptions Integration Tests', () => {
     };
 
     before(async () => {
-        if (!validate()) {
+        if (!await validate()) {
             console.error('Validation failed.');
             process.exit(1);
         }
@@ -161,7 +161,11 @@ describe('Subscriptions Integration Tests', () => {
         const fcInitial = await db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(doc.id);
 
         // 2. Simulate user progress
-        await db.prepare('UPDATE Flashcards SET level = 5 WHERE id = ?').run(fcInitial.id);
+        await db.prepare(`
+            INSERT INTO CardProgress (flashcard_id, account_id, level)
+            VALUES (?, 'owner', 5)
+            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+        `).run(fcInitial.id);
 
         // 3. Import updated issue
         const updatedContent = [{
@@ -177,7 +181,13 @@ describe('Subscriptions Integration Tests', () => {
         await subscriptions.importIssue("issue-3", updatedZip, TEST_ROOT);
 
         // 4. Assertions
-        const fc = await db.prepare('SELECT * FROM Flashcards INNER JOIN FlashcardContent ON Flashcards.content_id = FlashcardContent.id WHERE Flashcards.id = ?').get(fcInitial.id);
+        const fc = await db.prepare(`
+            SELECT fc.*, COALESCE(p.level, 0) AS level
+            FROM Flashcards f
+            INNER JOIN FlashcardContent fc ON f.content_id = fc.id
+            LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+            WHERE f.id = ?
+        `).get(fcInitial.id);
         assert.equal(fc.level, 5, "Flashcard level should be preserved");
         assert.equal(fc.frontText, "Q1 Updated", "Flashcard content should be updated");
 

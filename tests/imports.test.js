@@ -15,7 +15,7 @@ import zlib from 'node:zlib';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_imports');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -222,16 +222,16 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare("SELECT * FROM Decks WHERE name = ?").get('Spanish_Vocabulary');
         assert.ok(deck, 'Deck should exist');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1, 'One card per note');
         assert.equal(entries[0].card_type, 'basic');
         assert.equal(entries[0].level, 1); // reps=5 → floor(5/3)=1
 
-        const srsState = (await importer.query.getAllFlashcardSrsState())
+        const srsState = (await importer.query.getAllFlashcardSrsState('owner'))
             .find(s => s.global_hash === entries[0].card_hash);
         assert.ok(srsState);
         assert.equal(srsState.level, 1);
-        assert.equal((await importer.query.getLatestEaseFactors()).get(entries[0].card_hash), 2.5);
+        assert.equal((await importer.query.getLatestEaseFactors('owner')).get(entries[0].card_hash), 2.5);
 
         const media = await importer.query.db.prepare("SELECT * FROM Media").all();
         assert.ok(media.length >= 1, 'Media should be registered');
@@ -270,7 +270,7 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare("SELECT * FROM Decks WHERE name = ?").get('Geography');
         assert.ok(deck, 'Deck should exist');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1, 'One Flashback card per note, not one per Anki card');
         assert.equal(entries[0].card_type, 'reversible');
         assert.equal(entries[0].frontText, 'Capital of France?');
@@ -305,7 +305,7 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare("SELECT * FROM Decks WHERE name = ?").get('TypeAnswer_Deck');
         assert.ok(deck, 'Deck should exist');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].card_type, 'type_answer');
         assert.equal(entries[0].frontText, 'Capital of Germany?');
@@ -347,7 +347,7 @@ describe('Importers Integration Tests', () => {
         assert.ok((await importer.importApkg(zipBuffer, '')).ok);
 
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Kana_Deck');
-        const entry = (await importer.query.getDeckEntries(deck.id))[0];
+        const entry = (await importer.query.getDeckEntries(deck.id, 'owner'))[0];
         assert.equal(entry.card_type, 'type_answer');
         assert.equal(entry.frontText, 'か');
         assert.equal(entry.answerText, 'ka', 'only the {{type:}} field is graded');
@@ -384,7 +384,7 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare("SELECT * FROM Decks WHERE name = ?").get('Biology_Cloze');
         assert.ok(deck, 'Deck should exist');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1, 'One Flashback cloze card per note, not per cloze deletion');
         assert.equal(entries[0].card_type, 'cloze');
         // Anki syntax stripped to Flashback cloze syntax
@@ -427,7 +427,7 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare("SELECT * FROM Decks WHERE name = ?").get('Wrapped_Cloze');
         assert.ok(deck, 'Deck should exist');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].card_type, 'cloze');
         assert.ok(entries[0].frontText.includes('{{mitochondria}}'), 'Real cloze content must survive, not just the addon markup');
@@ -463,7 +463,7 @@ describe('Importers Integration Tests', () => {
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Japanese_Vocabulary');
         assert.ok(deck, 'Nested deck name should round-trip through the \\x1f separator');
 
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].card_type, 'basic');
         assert.equal(entries[0].frontText, '食べる');
@@ -511,7 +511,7 @@ describe('Importers Integration Tests', () => {
         assert.ok((await importer.importApkg(zipBuffer, '')).ok);
 
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Modern_Types');
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 2);
 
         const cloze = entries.find(e => e.card_type === 'cloze');
@@ -629,7 +629,7 @@ describe('Importers Integration Tests', () => {
         assert.equal(applied.imported, 1);
 
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Analyze_Deck');
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].frontText, '食べる');
         // Two fields into one slot concatenate in the order they were mapped.
@@ -728,7 +728,7 @@ describe('Importers Integration Tests', () => {
         assert.ok(result.ok);
 
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Mapping_Deck');
-        const entries = await importer.query.getDeckEntries(deck.id);
+        const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].frontText, 'Ephemeral');
         assert.equal(entries[0].backText, 'Lasting a short time\n\n"a fad is ephemeral"');
@@ -779,7 +779,7 @@ This is the boundary. ![[boundary.png]]
         const contentA = importer.files.readFile(path.join(result.path, 'Mitochondria.md')).content;
         assert.ok(contentA.includes('flashback://'), 'Wiki links should be converted to flashback://');
 
-        const cardsA = await importer.documents.query.getFlashcardsByDocument(docA.id);
+        const cardsA = await importer.documents.query.getFlashcardsByDocument(docA.id, 'owner');
         assert.equal(cardsA.length, 3, 'Mitochondria.md should have 3 flashcards');
         assert.ok(cardsA.some(c => c.card_type === 'basic'));
         assert.ok(cardsA.some(c => c.card_type === 'cloze'));

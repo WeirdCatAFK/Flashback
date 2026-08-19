@@ -23,7 +23,7 @@ import crypto from 'crypto';
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_updates');
 
 const { default: validate } = await import('../src/api/config/validate.js');
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -370,12 +370,12 @@ describe('Canonical updates', () => {
 
         it('brings the derived rows and inline snapshots in line with the files', async () => {
             for (const [hash, answer] of [[docCardHash, 'ka'], [standaloneHash, 'ki']]) {
-                const row = await query.getFlashcardContentByHash(hash);
+                const row = await query.getFlashcardContentByHash(hash, 'owner');
                 assert.equal(row.answerText, answer, `answerText for ${hash}`);
                 assert.equal(row.backText, null, `backText for ${hash}`);
             }
 
-            const entries = await query.getDeckEntries((await query.getSystemDeck()).id);
+            const entries = await query.getDeckEntries((await query.getSystemDeck()).id, 'owner');
             const inline = JSON.parse(entries.find(e => e.card_hash === standaloneHash).inline_card);
             assert.equal(inline.vanillaData.answerText, 'ki');
         });

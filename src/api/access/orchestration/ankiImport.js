@@ -28,6 +28,7 @@ import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import Decks from './decks.js';
 import { openPackage, readCollection, readMediaFile } from './ankiPackage.js';
+import { OWNER_SCOPE } from '../../requestContext.js';
 
 const SESSION_ROOT = path.join(os.tmpdir(), 'flashback_anki_imports');
 const SESSION_TTL_MS = 60 * 60 * 1000; // an abandoned mapping modal must not leak a temp dir
@@ -584,8 +585,14 @@ export default class AnkiImport {
                             ? Math.min(3.0, Math.max(1.3, primaryCard.factor / 1000.0))
                             : 2.5;
                         await db.transaction(async () => {
-                            await this.query.setFlashcardSrsState(cardInDb.id, level, reps);
+                            // OWNER_SCOPE, not the importing admin's: an imported schedule is
+                            // content arriving in the vault, and it is the owner's sidecar that
+                            // will carry it from here on. Filing Anki's history under whoever
+                            // happened to run the import would make the deck's progress vanish
+                            // for everyone else and reappear only for them.
+                            await this.query.setFlashcardSrsState(cardInDb.id, level, reps, OWNER_SCOPE);
                             await this.query.insertReviewLog({
+                                accountId: OWNER_SCOPE,
                                 flashcardId: cardInDb.id,
                                 timestamp: new Date().toISOString(),
                                 outcome: 1,

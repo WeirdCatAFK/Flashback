@@ -19,7 +19,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -51,13 +51,23 @@ describe('FSRS review loop', () => {
 
     after(() => rmWorkspace());
 
-    const cardRow = async () => await db.prepare('SELECT * FROM Flashcards WHERE global_hash = ?').get(hash);
+    // The card's schedule moved to CardProgress in migration 010: it belongs to a person,
+    // not to the card. These tests are the owner's, so they read the owner's row.
+    const cardRow = async () => await db.prepare(`
+        SELECT f.id, f.global_hash, p.level, p.sm2_reps, p.last_recall,
+               p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
+               p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
+        FROM Flashcards f
+        LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+        WHERE f.global_hash = ?
+    `).get(hash);
 
     it('schema migration added the FSRS columns and FsrsParameters table', async () => {
-        const cols = (await await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
+        const cols = (await await db.prepare("PRAGMA table_info('CardProgress')").all()).map(c => c.name);
         for (const c of ['fsrs_stability', 'fsrs_difficulty', 'fsrs_due', 'fsrs_state', 'fsrs_reps', 'fsrs_lapses']) {
-            assert.ok(cols.includes(c), `Flashcards should have ${c}`);
+            assert.ok(cols.includes(c), `CardProgress should have ${c}`);
         }
+        assert.ok(cols.includes('account_id'), 'CardProgress should be keyed by account');
         const rlCols = (await await db.prepare("PRAGMA table_info('ReviewLogs')").all()).map(c => c.name);
         assert.ok(rlCols.includes('rating'));
         const tbl = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'").get();
@@ -94,7 +104,7 @@ describe('FSRS review loop', () => {
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', async () => {
         // Card was just reviewed with a multi-day interval, so it is neither due nor new.
-        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 });
+        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         const inDue = res.due.some(r => r.global_hash === hash);
         const inNew = res.newCards.some(r => r.global_hash === hash);
         assert.equal(inDue, false, 'freshly reviewed card is not due');
@@ -102,7 +112,7 @@ describe('FSRS review loop', () => {
     });
 
     it('nextDue is a valid SQLite-format datetime, not a raw ISO string (NaN-days bug)', async () => {
-        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 });
+        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         assert.ok(res.nextDue, 'the future card sets nextDue');
         // Must be "YYYY-MM-DD HH:MM:SS" (no T/Z) so the frontend can parse it.
         assert.ok(!res.nextDue.includes('T') && !res.nextDue.includes('Z'), `got ${res.nextDue}`);
@@ -117,7 +127,7 @@ describe('FSRS review loop', () => {
         assert.equal(res.optimized, false);
         assert.equal(res.reason, 'insufficient-data');
         // Nothing was written, so the vault is still on default (unfitted) weights.
-        assert.equal(await query.getFsrsWeights(), null, 'no FsrsParameters row persisted');
+        assert.equal(await query.getFsrsWeights('owner'), null, 'no FsrsParameters row persisted');
         assert.equal(info.optimized, false);
     });
 

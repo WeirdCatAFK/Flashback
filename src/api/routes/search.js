@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import query from '../access/resources/query.js';
+import { currentScope } from '../requestContext.js';
 
 const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;
@@ -23,6 +24,9 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'q or at least one filter required' });
     }
 
+    // Search hits carry each card's level, so the results are the CALLER's view of the
+    // vault. This route reaches query.js directly rather than through an orchestrator, so
+    // it is one of the few places that has to name the scope itself.
     const results = await query.superSearch({
         q: q || null,
         tag: tag || null,
@@ -30,7 +34,7 @@ router.get('/', async (req, res) => {
         document: docQ || null,
         folder: folder || null,
         limit,
-    });
+    }, currentScope());
 
     res.json(results);
 });

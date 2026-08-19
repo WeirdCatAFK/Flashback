@@ -11,7 +11,7 @@ import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getWorkspacePath, getIdentity } from "../access/primitives/config.js";
-import { currentAuthor } from "../requestContext.js";
+import { currentAuthor, OWNER_SCOPE } from "../requestContext.js";
 import query from "../access/resources/query.js";
 
 // git.statusMatrix column values for [HEAD, workdir]
@@ -400,12 +400,16 @@ export class SealTools {
      * @returns {Promise<void>}
      */
     async rollback(ref, keepSrsProgress = true) {
-        const srsSnapshot = keepSrsProgress ? await query.getAllFlashcardSrsState() : null;
+        // OWNER_SCOPE. A rollback rewinds the WORKSPACE — the canonical files — and the only
+        // progress those files carry is the owner's. Everyone else's schedule lives in the
+        // accounts store, is not versioned by Seal, and is not what the user asked to undo:
+        // rolling a document back to last Tuesday must not roll a reader's study back with it.
+        const srsSnapshot = keepSrsProgress ? await query.getAllFlashcardSrsState(OWNER_SCOPE) : null;
 
         await git.checkout({ fs, dir: dir(), ref, force: true });
 
         if (srsSnapshot) {
-            await query.batchRestoreFlashcardSrsState(srsSnapshot);
+            await query.batchRestoreFlashcardSrsState(srsSnapshot, OWNER_SCOPE);
         }
     }
 

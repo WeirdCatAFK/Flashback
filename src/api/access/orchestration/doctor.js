@@ -33,6 +33,9 @@ import query from '../resources/query.js';
 import Documents from './documents.js';
 import Decks from './decks.js';
 import { sealEmitter, sealTools } from '../../seal/seal.js';
+import { getVaultId } from '../primitives/vault.js';
+import { listAccountProgress } from '../primitives/accounts.js';
+import { OWNER_SCOPE } from '../../requestContext.js';
 
 // The DB stores relative_path with the platform separator (path.sep), the
 // walker uses path.join (also platform), and git paths use '/'. Everything is
@@ -152,7 +155,10 @@ export default class Doctor {
         const reasons = [];
         if (meta.globalHash && meta.globalHash !== dbDoc.global_hash) reasons.push('hashChanged');
 
-        const dbCards = await this.query.getFlashcardsByDocument(dbDoc.id);
+        // OWNER_SCOPE: this compares the DATABASE against the SIDECAR, and the sidecar holds
+        // the owner's progress. Comparing it against a reader's schedule would report drift on
+        // every document a reader has studied.
+        const dbCards = await this.query.getFlashcardsByDocument(dbDoc.id, OWNER_SCOPE);
         const dbByHash = new Map(dbCards.map(c => [c.global_hash, c]));
         const metaCards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
 
@@ -368,16 +374,29 @@ export default class Doctor {
                 if (fc.globalHash == null || fc.easeFactor == null) continue;
                 const row = await this.query.getFlashcardByHash(fc.globalHash);
                 if (row) {
-                    await this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0);
+                    await this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0, OWNER_SCOPE);
                     easeRestored++;
                 }
             }
         }
 
+        // Everyone else's schedules come back from the accounts store, which is the only
+        // place they exist outside this database. The owner's have already been restored above
+        // by the sidecar walk; this is the other half of that same guarantee, and the reason
+        // AccountProgress is written on every non-owner review in the first place.
+        //
+        // READ-ONLY toward the accounts store, and that limit is not incidental. The Doctor
+        // rebuilds derived data from canonical data; AccountProgress IS canonical, is not
+        // reconstructible from anything on disk, and sits in the one file in the app that a
+        // rebuild must never be able to damage.
+        const { restored: progressRestored, warnings: progressWarnings } = await this._restoreAccountProgress();
+        warnings.push(...progressWarnings);
+
         return {
             summary: {
                 foldersIndexed,
                 documentsIndexed,
+                progressRestored,
                 flashcards: await this.query.getFlashcardCount(),
                 decks: deckResult.decks,
                 standaloneCardsRestored: deckResult.restoredCards,
@@ -409,6 +428,63 @@ export default class Doctor {
                 }
             }
         }
+    }
+
+    /**
+     * Re-projects every non-owner's durable schedule into CardProgress.
+     *
+     * Keyed by card `globalHash` on the way in, because a rebuild reassigns every row id in
+     * this database and only the hash survives it — that is exactly why AccountProgress stores
+     * a hash and not a flashcard_id.
+     *
+     * A snapshot whose card is gone is skipped and kept: the card may be coming back on the
+     * next sync (a sidecar temporarily missing, a rollback mid-flight), and a rebuild is not
+     * the moment to decide somebody's study history is garbage. Nothing here writes to the
+     * accounts store.
+     */
+    async _restoreAccountProgress() {
+        const warnings = [];
+        let restored = 0;
+
+        let snapshots;
+        try {
+            snapshots = await listAccountProgress(getVaultId());
+        } catch (err) {
+            // A vault with no accounts store yet, or an unreadable one, must not abort a
+            // rebuild that has already put the owner's vault back together.
+            warnings.push(`Could not read per-account progress: ${err.message}`);
+            return { restored: 0, warnings };
+        }
+
+        for (const snap of snapshots) {
+            const card = await this.query.getFlashcardByHash(snap.card_hash);
+            if (!card) continue;
+            try {
+                await this.query._upsertProgress(card.id, snap.account_id, {
+                    level: snap.level,
+                    sm2_reps: snap.sm2_reps,
+                    last_recall: snap.last_recall,
+                    fsrs_stability: snap.fsrs_stability,
+                    fsrs_difficulty: snap.fsrs_difficulty,
+                    fsrs_due: snap.fsrs_due,
+                    fsrs_state: snap.fsrs_state,
+                    fsrs_reps: snap.fsrs_reps,
+                    fsrs_lapses: snap.fsrs_lapses,
+                });
+                // SM-2 reads its ease back out of the latest review log, and review logs do
+                // not survive a rebuild for anybody. Re-seed the same synthetic row the owner
+                // gets, so a reader's SM-2 schedule is not silently reset to the 2.5 default.
+                if (snap.ease_factor != null) {
+                    await this.query.insertSyntheticReviewLog(
+                        card.id, snap.ease_factor, snap.level ?? 0, snap.account_id,
+                    );
+                }
+                restored++;
+            } catch (err) {
+                warnings.push(`Could not restore progress for card ${snap.card_hash}: ${err.message}`);
+            }
+        }
+        return { restored, warnings };
     }
 
     async _registerMediaFile(relPath) {

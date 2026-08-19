@@ -21,7 +21,7 @@ import { getVaultPath, getWorkspacePath } from '../src/api/access/primitives/con
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -198,15 +198,15 @@ describe('Diary storage layer', () => {
         ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
 
         try {
-            const totals = await query.getDayReviewTotals(DAY);
+            const totals = await query.getDayReviewTotals(DAY, 'owner');
             assert.equal(totals.reviews, 5, 'the 23:00 review belongs to the day the user was studying');
 
             const utcDay = new Date(localIso(DAY, 23)).toISOString().slice(0, 10);
             if (utcDay !== DAY) {
-                assert.equal((await query.getDayReviewTotals(utcDay)).reviews, 0,
+                assert.equal((await query.getDayReviewTotals(utcDay, 'owner')).reviews, 0,
                     'and must not leak into the adjacent UTC day');
             }
-            assert.ok((await query.getReviewActivityDays()).includes(DAY));
+            assert.ok((await query.getReviewActivityDays('owner')).includes(DAY));
         } finally {
             await db.prepare('DELETE FROM ReviewLogs WHERE flashcard_id = ? AND timestamp = ?')
                 .run(fid, localIso(DAY, 23));
@@ -260,7 +260,7 @@ describe('Diary by-deck breakdown', () => {
     after(async () => await cleanup2());
 
     it('omits the system deck, which is a fallback bucket and not a deck the user built', async () => {
-        const rows = await query.getDayByDeck(D);
+        const rows = await query.getDayByDeck(D, 'owner');
         const systemDeck = await query.getSystemDeck();
         assert.ok(systemDeck, 'precondition: the vault has a system deck');
         assert.ok(rows.every(r => r.deck !== systemDeck.name),
@@ -268,12 +268,12 @@ describe('Diary by-deck breakdown', () => {
     });
 
     it('still lists real decks, and still counts the standalone review in the totals', async () => {
-        const rows = await query.getDayByDeck(D);
+        const rows = await query.getDayByDeck(D, 'owner');
         const real = rows.find(r => r.deck === 'Real Deck');
         assert.ok(real, 'a user-created deck is still reported');
         assert.equal(real.reviews, 1);
 
         // The excluded reviews are hidden from the breakdown, not from the day.
-        assert.equal((await query.getDayReviewTotals(D)).reviews, 2);
+        assert.equal((await query.getDayReviewTotals(D, 'owner')).reviews, 2);
     });
 });

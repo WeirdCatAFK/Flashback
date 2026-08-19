@@ -4,6 +4,7 @@ import Documents from '../access/orchestration/documents.js';
 import SRS from '../access/orchestration/srs.js';
 import cardHealth from '../access/orchestration/cardHealth.js';
 import sequencer from '../access/orchestration/sequencer.js';
+import { currentScope } from '../requestContext.js';
 
 const router = Router();
 const docs = new Documents();
@@ -97,7 +98,7 @@ router.post('/undo', catchError(async (req, res) => {
 
 // GET /api/srs/stats
 router.get('/stats', catchError(async (req, res) => {
-    const boxes = await docs.query.getLeitnerBoxes();
+    const boxes = await docs.query.getLeitnerBoxes(currentScope());
     const total = await docs.query.getFlashcardCount();
     res.json({ boxes, total });
 }));

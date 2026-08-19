@@ -144,7 +144,13 @@ async function validateDatabaseWithMigrations() {
   const ok = await validateDatabase();
   if (ok) {
     try {
-      runMigrations(db);
+      // Awaited. Un-awaited, the runner returned a pending promise, this function resolved
+      // "validated", and the migrations carried on in the background — so a caller's first
+      // query could reach a table a migration had not created yet, and a migration that threw
+      // did it outside this try/catch and surfaced as an unhandled rejection instead of a
+      // fatal startup error. It only ever worked because the migrations happened to finish
+      // first; migration 010 does enough work not to.
+      await runMigrations(db);
     } catch (err) {
       console.error('Migration runner failed:', err.message);
       throw err;

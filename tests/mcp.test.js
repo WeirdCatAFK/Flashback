@@ -69,7 +69,7 @@ describe('MCP tools', () => {
     let highlightHash;
 
     before(async () => {
-        if (!validate()) throw new Error('Validation failed');
+        if (!await validate()) throw new Error('Validation failed');
         await rmWorkspace();
         await sealTools.init();
         api = new Api({ port: 0, logFormat: 'tiny', apiToken: API_TOKEN });

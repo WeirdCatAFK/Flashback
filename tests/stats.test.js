@@ -17,7 +17,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -255,7 +255,7 @@ describe('Card insights', () => {
         await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
 
         const cardId = (await query.getFlashcardByHash(hashC)).id;
-        await query.insertSyntheticReviewLog(cardId, 2.5, 1);
+        await query.insertSyntheticReviewLog(cardId, 2.5, 1, 'owner');
 
         const insights = await SRS.getCardInsights(hashC, { algorithm: 'leitner' });
         assert.equal(insights.history.length, 3, 'the ledger shows every stored row');

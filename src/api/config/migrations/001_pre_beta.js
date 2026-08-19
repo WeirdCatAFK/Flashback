@@ -23,7 +23,16 @@ export async function up(db) {
         ).run();
     }
 
-    if (!flashcardCols.includes('sm2_reps')) {
+    // sm2_reps moved to CardProgress in migration 010 and was dropped from Flashcards.
+    // This migration has no shouldRun() guard, so it re-runs whenever the SchemaVersion row
+    // is absent — which is every rebuilt database, and a rebuilt database is built from the
+    // modern SchemaSQL where the column is gone on purpose. Adding it back would leave a
+    // stale, always-zero column beside the real one in CardProgress.
+    const supersededBy010 = !!await db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
+    ).get();
+
+    if (!supersededBy010 && !flashcardCols.includes('sm2_reps')) {
         await db.prepare(
             "ALTER TABLE Flashcards ADD COLUMN sm2_reps INTEGER NOT NULL DEFAULT 0"
         ).run();

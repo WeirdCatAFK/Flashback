@@ -13,7 +13,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -205,7 +205,11 @@ describe('Documents Orchestrator Integration Tests', () => {
             await docs.updateFile(docPath, "# Test Content", metadata);
 
             // Verify fcHash1 updated
-            const fc1 = await db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash1);
+            const fc1 = await db.prepare(`
+                SELECT p.level FROM CardProgress p
+                JOIN Flashcards f ON f.id = p.flashcard_id
+                WHERE f.global_hash = ? AND p.account_id = 'owner'
+            `).get(fcHash1);
             assert.equal(fc1.level, 1, 'Flashcard 1 level should be updated');
 
             // Verify fcHash2 deleted
@@ -374,7 +378,11 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('should submit a review and update the flashcard level', async () => {
             await docs.submitReview(docPath, fcHash, 5, 2.5, 5);
 
-            const fc = await db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(fcHash);
+            const fc = await db.prepare(`
+                SELECT p.level FROM CardProgress p
+                JOIN Flashcards f ON f.id = p.flashcard_id
+                WHERE f.global_hash = ? AND p.account_id = 'owner'
+            `).get(fcHash);
             assert.equal(fc.level, 5, 'Flashcard level should be updated to 5');
         });
 
@@ -520,8 +528,15 @@ describe('Documents Orchestrator Integration Tests', () => {
             const docEntry = await docs.exists(docRel, true, false);
             assert.ok(docEntry, "Lecture1.md should be indexed");
 
-            const flashcard = await db.prepare('SELECT * FROM Flashcards WHERE document_id = ?').get(docEntry.id);
+            const flashcard = await db.prepare(`
+                SELECT f.*, COALESCE(p.level, 0) AS level
+                FROM Flashcards f
+                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                WHERE f.document_id = ?
+            `).get(docEntry.id);
             assert.ok(flashcard, "Flashcard should be imported");
+            // A sanitized import leaves no progress row at all, which reads identically to
+            // level 0 everywhere in the app — hence the COALESCE rather than an is-null check.
             assert.equal(flashcard.level, 0, "Flashcard level should be reset to 0");
             assert.notEqual(flashcard.global_hash, "original-card-hash", "Flashcard hash should be regenerated");
 
@@ -580,8 +595,15 @@ describe('Documents Orchestrator Integration Tests', () => {
             const fileExists = await docs.exists(fileRel, true, false);
             assert.ok(fileExists, "Nested file from zip should be indexed");
 
-            const dbCard = await db.prepare('SELECT level, global_hash FROM Flashcards WHERE document_id = ?').get(fileExists.id);
+            const dbCard = await db.prepare(`
+                SELECT COALESCE(p.level, 0) AS level, f.global_hash
+                FROM Flashcards f
+                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                WHERE f.document_id = ?
+            `).get(fileExists.id);
             assert.ok(dbCard, "Flashcard from zip should be imported");
+            // No progress row at all is the same statement as level 0 — a sanitized import
+            // must leave the card looking untouched either way.
             assert.equal(dbCard.level, 0, "Flashcard level should be reset to 0");
             assert.notEqual(dbCard.global_hash, "old-card-hash", "Flashcard hash should be regenerated");
         });

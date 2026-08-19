@@ -11,12 +11,26 @@
 export const version = 4;
 export const description = 'FSRS scheduler: card state columns, review snapshot, FsrsParameters';
 
+// Migration 010 moved the per-card FSRS state into CardProgress and dropped these six
+// columns off Flashcards. After it has run their absence is the CORRECT state, not a
+// missing artifact — so this guard must stop asking Flashcards about them, or it reports
+// itself pending on every boot forever and re-adds exactly the columns 010 removed.
+// (That is not hypothetical: it is what happened the first time a real vault was migrated.)
+// The ReviewLogs snapshot columns and the FsrsParameters table are untouched by 010 and are
+// still this migration's business.
+async function supersededBy010(db) {
+    return !!await db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
+    ).get();
+}
+
 export async function shouldRun(db) {
     const cols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
     const hasTable = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'"
     ).get();
-    return !cols.includes('fsrs_stability') || !hasTable;
+    const cardStateMissing = !await supersededBy010(db) && !cols.includes('fsrs_stability');
+    return cardStateMissing || !hasTable;
 }
 
 export async function up(db) {
@@ -30,7 +44,10 @@ export async function up(db) {
     };
 
     // ── Flashcards: FSRS per-card state ───────────────────────────────────────
-    await addColumns('Flashcards', [
+    // Guarded here as well as in shouldRun(): up() also runs when the SchemaVersion row for
+    // this migration is absent, which is every rebuilt database — and a rebuilt database is
+    // built from the modern SchemaSQL, where these columns are gone on purpose.
+    if (!await supersededBy010(db)) await addColumns('Flashcards', [
         ['fsrs_stability', 'fsrs_stability FLOAT'],
         ['fsrs_difficulty', 'fsrs_difficulty FLOAT'],
         ['fsrs_due', 'fsrs_due TIMESTAMP'],

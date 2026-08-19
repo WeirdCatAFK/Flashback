@@ -72,12 +72,12 @@ export const PERMISSIONS = {
     search: [["*", "*", READER]],
     identity: [["*", "*", READER]],
 
-    // A reader's review progress is the one thing a reader is FOR. `optimize` refits the
-    // vault's shared FSRS weights from everyone's history, which is a vault-wide change.
-    srs: [
-        ["POST", "/optimize", ADMIN],
-        ["*", "*", READER],
-    ],
+    // A reader's review progress is the one thing a reader is FOR — and since M2 every
+    // endpoint here operates on the CALLER's own schedule, including `optimize`. Fitted FSRS
+    // weights are a model of one individual's forgetting curve, stored per account, so
+    // refitting them changes nothing anyone else can see. It was admin-only while the weights
+    // were one shared row per vault; it is not an administrative act any more.
+    srs: [["*", "*", READER]],
 
     // Reading a card and dismissing a health flag on it are part of studying. Authoring one
     // is not. The two stars stand for the card hash and the flag kind.

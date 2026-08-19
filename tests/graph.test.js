@@ -11,7 +11,7 @@ import { aggregateMass, haloRadius, HALO_BASE, HALO_MAX } from '../src/ui/views/
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -47,7 +47,11 @@ const addCards = async (docRel, name, folderRel, levels) => {
             cardType: 'basic',
             vanillaData: { frontText: `${name}-Q${i}`, backText: `${name}-A${i}` },
         });
-        await db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
+        await db.prepare(`
+            INSERT INTO CardProgress (flashcard_id, account_id, level)
+            SELECT id, 'owner', ? FROM Flashcards WHERE global_hash = ?
+            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+        `).run(level, saved.globalHash);
     }
 };
 
@@ -138,7 +142,7 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('getGraphData includes inheritance edges', async () => {
-        const { edges } = await docs.query.getGraphData();
+        const { edges } = await docs.query.getGraphData('owner');
         const inheritanceEdges = edges.filter(e => e.relation === 'inheritance');
         assert.ok(inheritanceEdges.length > 0, 'getGraphData returns at least one inheritance edge');
     });
@@ -155,7 +159,11 @@ describe('Graph hierarchy — inheritance edges', () => {
                 cardType: 'basic',
                 vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
             });
-            await db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?').run(level, saved.globalHash);
+            await db.prepare(`
+                INSERT INTO CardProgress (flashcard_id, account_id, level)
+                SELECT id, 'owner', ? FROM Flashcards WHERE global_hash = ?
+                ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+            `).run(level, saved.globalHash);
         }
 
         const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));

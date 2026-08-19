@@ -15,6 +15,7 @@ import AdmZip from 'adm-zip';
 import { sealEmitter } from '../../seal/seal.js';
 import highlightsService from './highlights.js';
 import newFileMetadata from '../../config/defaults/FlashbackFile.js';
+import { OWNER_SCOPE, currentScope, isOwnerScope } from '../../requestContext.js';
 
 /**
  * Extracts the 11-char video id from any common YouTube URL shape
@@ -1700,9 +1701,19 @@ export default class Documents {
         // Persist to the derived layer first. For FSRS the schedule is computed
         // server-side, so we mirror the returned state into the sidecar; for
         // Leitner/SM-2 the client-computed scalar is authoritative.
-        const { documentId, fsrs } = await this.srs.submitReview(
+        const { documentId, fsrs, scope } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
+
+        // ONLY the owner's grade reaches the file. Everyone else's durable copy is already in
+        // the accounts store (srs.js mirrors it inside the same transaction), and writing it
+        // here instead would put one person's study record into a git history that travels
+        // with the folder to whoever gets a copy. It also means a reader's review produces no
+        // Seal commit at all, which is the behaviour you want: reading is not editing.
+        if (!isOwnerScope(scope)) {
+            await this.propagatePresence(documentId);
+            return;
+        }
 
         if (algorithm === 'fsrs' && fsrs) {
             card.fsrsStability = fsrs.stability;
@@ -1728,7 +1739,14 @@ export default class Documents {
     // layer, then mirror the restored SRS state back into the sidecar and seal the
     // change so the canonical layer stays authoritative. Returns the restored state.
     async undoReview(relativePath, flashcardHash, algorithm = 'leitner') {
-        const { document_id, restored } = await this.srs.undoReview(flashcardHash, algorithm);
+        const { document_id, restored, scope } = await this.srs.undoReview(flashcardHash, algorithm);
+
+        // Same rule as submitReview, and for the same reason: a non-owner's undo is already
+        // durable in the accounts store, and the sidecar is not theirs to rewrite.
+        if (!isOwnerScope(scope)) {
+            if (document_id) await this.propagatePresence(document_id);
+            return restored;
+        }
 
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
@@ -1864,8 +1882,13 @@ export default class Documents {
      * that genuinely have no node id (legacy paths) may omit it and get the old
      * cards-only behaviour.
      */
+    // ALWAYS the owner's scope, and not because of who is logged in: this method reconciles
+    // the derived layer with a `.flashback` sidecar, and the sidecar is by definition the
+    // owner's record of the owner's progress. A collaborator editing a document must not have
+    // their own schedule written into the file, and must not have the file's schedule written
+    // over theirs. Everyone else's progress lives in the accounts store and is untouched here.
     async _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
-        const existing = await this.query.getFlashcardsByDocument(documentId);
+        const existing = await this.query.getFlashcardsByDocument(documentId, OWNER_SCOPE);
         const existingMap = new Map(existing.map(f => [f.global_hash, f]));
         const incomingHashes = new Set();
 
@@ -1906,13 +1929,13 @@ export default class Documents {
                     lastRecall: mergedRecall,
                     fileIndex: index,
                     contentId: match.content_id
-                });
+                }, OWNER_SCOPE);
                 if (Array.isArray(fcData.tags)) await this._syncTags(match.node_id, fcData.tags);
             } else {
                 const nodeId = await this.query.createNode('Flashcard');
                 await this.query.insertFlashcard({
                     ...fcData, nodeId, documentId, fileIndex: index
-                });
+                }, OWNER_SCOPE);
                 if (Array.isArray(fcData.tags)) await this._syncTags(nodeId, fcData.tags);
             }
         }
@@ -2187,7 +2210,11 @@ export default class Documents {
 
     async propagatePresence(documentId) {
         await db.transaction(async () => {
-            const stats = await this.query.getFlashcardAvgLevel(documentId);
+            // OWNER_SCOPE deliberately. `presence` is written onto the Documents row and
+            // mirrored into the sidecar, so it is part of what the canonical layer claims
+            // about this document — not a per-reader number. A reader's grade must not
+            // rewrite it. Per-viewer "how well do I know this" is the graph's job.
+            const stats = await this.query.getFlashcardAvgLevel(documentId, OWNER_SCOPE);
             await this.query.updateDocumentPresence(documentId, stats.score || 0);
 
             let currentFolderId = (await this.query.getDocumentFolderIdById(documentId))?.folder_id;
@@ -2258,8 +2285,8 @@ export default class Documents {
     // parts of the vault are actually committed to memory. The per-card score
     // is computed in SQL (CARD_LEARNED_SQL); this only rolls it up per node
     // type and strips the intermediate sums off the payload.
-    async getGraphData() {
-        const { nodes, edges } = await this.query.getGraphData();
+    async getGraphData(scope) {
+        const { nodes, edges } = await this.query.getGraphData(scope ?? currentScope());
         return { nodes: nodes.map(graphNodeLearning), edges };
     }
     async exists(rel, derived, isFolder) {

@@ -14,7 +14,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -79,7 +79,7 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('superSearch tag: filter finds flashcards via InheritedTags', async () => {
-        const results = await query.superSearch({ tag: 'biology', limit: 50 });
+        const results = await query.superSearch({ tag: 'biology', limit: 50 }, 'owner');
         assert.ok(Array.isArray(results.flashcards));
         assert.ok(results.flashcards.length >= 3,
             `Should find ≥3 flashcards; got ${results.flashcards.length}`);
@@ -87,7 +87,7 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('graph edges include inherited tag edges for flashcards', async () => {
-        const { nodes, edges } = await query.getGraphData();
+        const { nodes, edges } = await query.getGraphData('owner');
 
         const biologyTag = nodes.find(n => n.type === 'Tag' && n.label === 'biology');
         assert.ok(biologyTag, '"biology" tag node should be in graph');
@@ -437,14 +437,14 @@ describe('Deck tag propagation — correctness', () => {
     });
 
     it('superSearch tag: finds cards via deck-inherited tags', async () => {
-        const results = await query.superSearch({ tag: 'exam2026', limit: 50 });
+        const results = await query.superSearch({ tag: 'exam2026', limit: 50 }, 'owner');
         assert.ok(results.flashcards.length >= 4,
             `Should find ≥4 cards tagged via deck; got ${results.flashcards.length}`);
         console.log(`  tag:exam2026 search → ${results.flashcards.length} card(s)`);
     });
 
     it('graph shows card→tag edges for deck-inherited tags', async () => {
-        const { nodes, edges } = await query.getGraphData();
+        const { nodes, edges } = await query.getGraphData('owner');
         const tagNode = nodes.find(n => n.type === 'Tag' && n.label === 'exam2026');
         assert.ok(tagNode, '"exam2026" tag node should be in graph');
         const cardNodeIds = new Set(cardRows.map(c => c.node_id));
@@ -530,7 +530,7 @@ describe('Tag propagation — performance', () => {
 
     it('getGraphData stays under 500ms with ~25k inherited tag edges', async () => {
         const t0 = performance.now();
-        const { nodes, edges } = await query.getGraphData();
+        const { nodes, edges } = await query.getGraphData('owner');
         const ms = performance.now() - t0;
 
         const fcNodes = new Set(nodes.filter(n => n.type === 'Flashcard').map(n => n.id));
@@ -545,7 +545,7 @@ describe('Tag propagation — performance', () => {
 
     it('superSearch tag:alpha stays under 100ms across ~25k inherited tag edges', async () => {
         const t0 = performance.now();
-        const results = await query.superSearch({ tag: 'alpha', limit: 200 });
+        const results = await query.superSearch({ tag: 'alpha', limit: 200 }, 'owner');
         const ms = performance.now() - t0;
 
         console.log(`  superSearch tag:alpha → ${results.flashcards.length} results in ${ms.toFixed(1)}ms`);
@@ -555,7 +555,7 @@ describe('Tag propagation — performance', () => {
 
     it('broad tag search (tag:a matches all 5 tags) stays under 200ms', async () => {
         const t0 = performance.now();
-        const results = await query.superSearch({ tag: 'a', limit: 500 });
+        const results = await query.superSearch({ tag: 'a', limit: 500 }, 'owner');
         const ms = performance.now() - t0;
 
         console.log(`  superSearch tag:a (broad) → ${results.flashcards.length} results in ${ms.toFixed(1)}ms`);

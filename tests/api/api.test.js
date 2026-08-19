@@ -54,7 +54,7 @@ import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 describe('Flashback API', () => {
 
     before(async () => {
-        if (!validate()) throw new Error('Validation failed');
+        if (!await validate()) throw new Error('Validation failed');
         await db.exec(`
             PRAGMA foreign_keys = OFF;
             DELETE FROM FlashcardReference;
@@ -2351,8 +2351,13 @@ describe('Flashback API', () => {
                 await insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
                 await insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
-            await db.prepare('UPDATE Flashcards SET level = 3, last_recall = ? WHERE id = ?')
-                .run(ago(4), id);
+            await db.prepare(`
+                INSERT INTO CardProgress (flashcard_id, account_id, level, last_recall)
+                VALUES (?, 'owner', 3, ?)
+                ON CONFLICT(flashcard_id, account_id)
+                DO UPDATE SET level = excluded.level, last_recall = excluded.last_recall
+            `)
+                .run(id, ago(4));
             // Baselines and session segmentation are cached for a minute; the rows above
             // appeared behind the cache's back.
             cardHealth.resetCaches();
