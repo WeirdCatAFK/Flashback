@@ -19,9 +19,15 @@ WORKDIR /app
 # against every source edit.
 COPY package.json package-lock.json ./
 
-# --omit=dev drops electron, electron-builder, vite and eslint: ~none of it is reachable
-# from src/server. `npm rebuild` is explicit rather than relying on the install's own build
-# step, so a failure to compile the addon fails the image build loudly and here.
+# --omit=dev is what keeps the desktop half out of this image. `dependencies` holds only the
+# 17 packages reachable from an entry point that runs outside Electron (13 for the server, 2
+# for the MCP server, 2 for Electron main); everything the RENDERER needs — React, tiptap,
+# epubjs, katex — is a devDependency, because Vite bundles it into `dist-react/` at build
+# time and nothing imports it at runtime. Keep that split when adding a package: a frontend
+# dependency filed under `dependencies` silently ships here and in the desktop installer.
+#
+# `npm rebuild` is explicit rather than relying on the install's own build step, so a failure
+# to compile the native addon fails the image build loudly and here.
 RUN npm ci --omit=dev \
  && npm rebuild better-sqlite3
 

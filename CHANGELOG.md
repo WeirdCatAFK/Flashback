@@ -39,8 +39,30 @@ Measured end to end over HTTP, sustained review throughput went from **166/sec t
 (+58%), and requests stopped failing outright under 200 concurrent studiers. Single-user
 desktop use is unaffected in behaviour and slightly faster.
 
+### Smaller builds
+
+`dependencies` had accumulated the whole frontend. React, tiptap, epubjs, katex, the remark
+and prosemirror trees — all of it is bundled by Vite into `dist-react/` at build time, and
+none of it is imported at runtime by anything. It was nevertheless being installed into both
+shipped products.
+
+Walking the import graph from each entry point gave the real answer: 17 packages are reachable
+outside Electron (13 server, 2 MCP, 2 Electron main). The other 16 moved to `devDependencies`,
+`nodemon` with them, and `npm` — 19 MB that nothing imported — was dropped outright.
+
+- Windows app bundle (`app.asar`): **142.8 MB → 86.1 MB** (−40%)
+- Server container image: **435 MB → 365 MB**
+
+When adding a package, keep the split: a frontend dependency filed under `dependencies` ships
+in the installer and the container without ever being loaded.
+
 ### Fixed
 
+- **The packaged app could not start.** `electron-builder.json` did not include `src/shared`,
+  which `access/primitives/config.js` imports — the module every other module loads first.
+  Verified against a real build: `config.js` was in the bundle and the file it imports was
+  "not found in this archive". Broken since `src/shared/` was introduced, and invisible
+  because development runs from source rather than from a bundle.
 - `port: 0` — "let the OS choose a free port" — was silently turned into port 3000, so two
   API instances in one process collided and the test suite always bound 3000 whether it was
   free or not.
