@@ -51,6 +51,7 @@
     "test:reader": "node --test tests/mcpReader.test.js",
     "test:health": "node --test tests/cardHealth.test.js",
     "test:peruser": "node --test tests/perUserSrs.test.js",
+    "test:conflicts": "node --test tests/conflicts.test.js",
     "test:sequencing": "node --test tests/sequencing.test.js",
     "test:translations": "node --test tests/translations.test.js",
     "doctor": "react-doctor",

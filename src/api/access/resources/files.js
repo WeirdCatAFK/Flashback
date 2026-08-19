@@ -42,6 +42,18 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 /**
+ * The formats whose BODY a user can write — the ones with an editable renderer. Everything
+ * else in the vault is a viewer: `PUT /api/documents/file` refuses a `content` write for it,
+ * and only its sidecar ever changes.
+ *
+ * Exported and shared with `routes/documents.js` on purpose. It used to be declared there
+ * alone, and `etag()` has to draw the line in exactly the same place: a format whose body is
+ * hashed but not writable would report a conflict nobody could have caused, and one that is
+ * writable but not hashed would miss the conflict that matters.
+ */
+export const EDITABLE_BODY_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text"]);
+
+/**
  * True when the file should never be decoded as text.
  * UTF-16/32 text is full of NUL bytes by design, so a chardet verdict of one of
  * those wins over the NUL test.
@@ -254,6 +266,81 @@ _regenerateIdentities(absPath) {
         }
         
         return items;
+    }
+
+    /**
+     * The version of a document, for detecting a write that lost a race.
+     *
+     * Two sha256 digests joined by a dot — `"<body>.<sidecar>"` — because a document is two
+     * files with two different owners, and one combined digest cannot express either of them.
+     * An editor replaces the BODY wholesale while merging the sidecar from a fresh read, so a
+     * card somebody added through the Inspector must not make that save fail; a PDF renderer
+     * writes only the sidecar and never touches the body at all. Callers treat the string as
+     * opaque and `documents._assertFresh` compares the half that the write actually replaces.
+     *
+     * `-` stands in for a half that does not exist: a body never yet written, or one of the
+     * many formats whose body is not editable (`PUT /api/documents/file` refuses a `content`
+     * write outside EDITABLE_BODY_EXTENSIONS, so those bytes cannot go stale under an editor
+     * and hashing a 50 MB PDF on every read would buy nothing).
+     *
+     * Derived on demand and stored nowhere, which is the entire argument for it. A counter —
+     * in the sidecar or in a column — has to be bumped by whoever writes, so it reports
+     * "unchanged" for a Doctor rebuild, a Seal rollback, and an edit made in another program:
+     * the three cases where a client's cached copy is most likely to be wrong. Content can
+     * only ever describe itself.
+     *
+     * Cheap by design: sidecars are kilobytes, and an editable body is text someone is
+     * typing into.
+     *
+     * @param {string} relPath - workspace-relative path of the document.
+     * @param {boolean} [isFolder=false] - hash a folder's own `.flashback` instead.
+     * @returns {string|null} `"<body>.<sidecar>"`, or null when neither half exists.
+     */
+    etag(relPath, isFolder = false) {
+        const digest = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+        let body = null;
+        let sidecar = null;
+
+        const metadataPath = this._metadataPathFor(relPath, isFolder);
+        if (fs.existsSync(metadataPath)) sidecar = digest(fs.readFileSync(metadataPath));
+
+        if (!isFolder && EDITABLE_BODY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) {
+            const abs = this.safePath(relPath);
+            if (fs.existsSync(abs)) body = digest(fs.readFileSync(abs));
+        }
+
+        if (body === null && sidecar === null) return null;
+        return `${body ?? '-'}.${sidecar ?? '-'}`;
+    }
+
+    /**
+     * The version of ONE entity inside a sidecar — a flashcard, a highlight.
+     *
+     * A document's etag changes whenever anything in it does, which is the right answer for a
+     * whole-object write and the wrong one for a patch: two people editing different cards of
+     * one document are not in conflict, and telling them they are would make a shared vault
+     * unusable. A patch names its target by `globalHash`, so it can be checked against that
+     * target alone.
+     *
+     * Keys are sorted before hashing so the digest describes the entity's VALUE, not the
+     * order a particular writer happened to serialize it in.
+     *
+     * @param {object|null|undefined} entity
+     * @returns {string|null} hex digest, or null for a missing entity.
+     */
+    entityEtag(entity) {
+        if (entity == null) return null;
+        const stable = (value) => {
+            if (Array.isArray(value)) return value.map(stable);
+            if (value && typeof value === 'object') {
+                return Object.keys(value).sort().reduce((out, k) => {
+                    out[k] = stable(value[k]);
+                    return out;
+                }, {});
+            }
+            return value;
+        };
+        return crypto.createHash('sha256').update(JSON.stringify(stable(entity))).digest('hex');
     }
 
     /**
@@ -703,7 +790,14 @@ _regenerateIdentities(absPath) {
     updateFile(relPath, content, metadata, encoding = "utf-8") {
         const filePath = this.safePath(relPath);
 
-        if (!this.exists(relPath)) throw new Error("File does not exist");
+        // 404, not a generic failure: the honest answer to "write this document" when the
+        // document is not there. It became reachable in normal use once writes started
+        // queueing behind a move — an edit issued a moment before the move can arrive a
+        // moment after it, addressing a path that has just stopped existing, and the client
+        // needs to be told to re-read rather than shown a server error.
+        if (!this.exists(relPath)) {
+            throw Object.assign(new Error("File does not exist"), { status: 404 });
+        }
 
         try {
             const isBuffer = Buffer.isBuffer(content);

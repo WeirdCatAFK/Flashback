@@ -16,7 +16,7 @@ access/
                             doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
-  resources/       Tier 2   query · files
+  resources/       Tier 2   query · files · pathLock (pure — no DB, no IO)
   primitives/      Tier 1   config · database · accounts · vault
                             sqliteAdapter (the async driver both stores are built on)
 ```
@@ -105,7 +105,33 @@ The **only** layer allowed to read/write `.flashback` sidecar files. Resolves al
 - `readBuffer()` / `statFile()` — raw bytes and size+mtime, for callers that parse a container format themselves (`mcpReader`) or key a cache on file version. They go through `safePath` like everything else, which is why those callers never touch `fs`.
 - `updateFile()` with `content == null` is a **metadata-only** write: the body is left untouched and the sidecar's recorded encoding is preserved.
 - `globalHash` generation on file/folder creation (immutable after first assignment).
+- `etag(relPath)` — the document's **version**, for detecting a write that lost a race. Two sha256 digests joined by a dot, `"<body>.<sidecar>"`, because a document is two files with two different owners: an editor replaces the body wholesale while merging the sidecar from a fresh read, and a PDF renderer writes only the sidecar. `documents._assertFresh` compares the half the write replaces, so a card added through the Inspector never fails an editor's save. The body half exists only for `EDITABLE_BODY_EXTENSIONS` (`.md`/`.markdown`/`.txt`/`.text`) — every other format's body is read-only, so its bytes cannot go stale under an editor, and hashing a 50 MB PDF per read would buy nothing. Derived on demand, **stored nowhere**: a counter has to be bumped by whoever writes, so it would report "unchanged" after a Doctor rebuild, a Seal rollback, or an edit made in another program.
+- `entityEtag(entity)` — the same idea for one card or highlight *inside* a sidecar, with keys sorted before hashing so the digest describes the value rather than a writer's key order. This is what lets a patch conflict only with a patch to the same entity.
 - `walkWorkspace()` — read-only, pre-order recursive walk returning `{folders, documents, mediaDirs, strayItems}`. Each folder/document entry carries `{relPath, meta, sidecarExists, sidecarCorrupt}`; `strayItems` are files with no sidecar (`kind: 'untracked-file'`) or sidecars with no owning file (`kind: 'orphan-sidecar'`). Skips `.git`, root-level `_decks`, and `media/` dirs (recorded in `mediaDirs`, not descended). Used by the Vault Doctor to compare disk against the index.
+
+### `pathLock.js`
+Serializes canonical writes. Pure — imports nothing, holds no path knowledge beyond using the
+string as a key, and is exercised without a SQLite binary in `tests/conflicts.test.js`.
+
+`db.transaction()` already makes the derived index safe from interleaving, but a canonical write
+touches the **filesystem** before it opens that transaction (`documents.updateFile` writes body
+and sidecar, then syncs the index; `move()` moves on disk first and rolls back by hand if the
+transaction throws). The filesystem has no transaction to borrow, so the serialization has to be
+explicit.
+
+- `withDocument(relPath, fn)` — shared on the tree, exclusive on that path. Two writes to one
+  document never overlap; writes to different documents stay fully concurrent, which is the
+  whole point on a shared vault.
+- `withStructure(fn)` — exclusive on the whole tree. Used by `move`/`rename`/`delete`/`copy`,
+  because the paths those invalidate are not knowable from the operation alone (moving a folder
+  renames everything beneath it). Creation deliberately does **not** take it: it only *adds*
+  paths, so it invalidates nothing anyone is holding — and `importPackage` calls
+  `updateMetadata` internally, which would deadlock against a lock it already held.
+
+Lock order is always **path lock first, database lock second**; `highlights.js` follows the same
+order for the same reason. It is an **in-process** lock: right for the desktop app and for a
+server host (one API process each), and explicitly not a file lock — two API processes over one
+vault stay unsupported, and out-of-band writes are the Vault Doctor's problem.
 
 ---
 

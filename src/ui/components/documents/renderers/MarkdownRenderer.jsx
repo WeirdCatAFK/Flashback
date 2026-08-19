@@ -7,6 +7,7 @@ import Typography from '@tiptap/extension-typography';
 import { Markdown } from 'tiptap-markdown';
 import { ThemedHighlight, reconcileHighlights, applyMissingHighlights } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
+import ConflictBanner from '../../shared/ConflictBanner';
 import { getDocumentByHash } from '../../../api/documents';
 import { useT } from '../../../translations';
 import './MarkdownRenderer.css';
@@ -73,7 +74,7 @@ const loadContent = (editor, markdown, meta) => {
 
 export default function MarkdownRenderer({ onNavigate, ...props }) {
   const { t } = useT();
-  const { editor, loading } = useHighlightableRenderer({
+  const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
     editorClass: 'tiptap-editor',
@@ -130,6 +131,7 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
       onDragOver={handleDragOver}
       onDrop={handleDrop}
     >
+      {conflict && <ConflictBanner onReload={reloadFromDisk} onOverwrite={overwrite} />}
       <div className="editor-content-wrapper">
         {loading && (
           <div className="editor-loading-overlay">{t('Loading Editor…')}</div>

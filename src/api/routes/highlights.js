@@ -40,7 +40,7 @@ router.post('/', catchError(async (req, res) => {
 router.put('/:hash', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    const highlight = await highlightsService.updateHighlight(relPath, req.params.hash, req.body);
+    const highlight = await highlightsService.updateHighlight(relPath, req.params.hash, req.body, { ifMatch: req.body.ifMatch });
     res.json({ ok: true, highlight });
 }));
 

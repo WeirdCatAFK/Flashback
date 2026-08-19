@@ -5,6 +5,7 @@ import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
 import Documents from "../access/orchestration/documents.js";
+import { EDITABLE_BODY_EXTENSIONS } from "../access/resources/files.js";
 
 const router = Router();
 const docs = new Documents();
@@ -17,7 +18,10 @@ const norm = (p) => (p ? path.normalize(p) : p);
 // read-only in the app (a viewer), so a body write can only come from outside it,
 // and document bodies are not versioned by Seal: an overwrite is unrecoverable.
 // Clip/YouTube bodies are written by their own routes through documents.js, not here.
-const EDITABLE_EXTENSIONS = new Set(['.md', '.markdown', '.txt', '.text']);
+//
+// The set itself lives in files.js, which also decides what an etag covers — the two have to
+// draw the line in the same place or a conflict is reported for a body nobody could write.
+const EDITABLE_EXTENSIONS = EDITABLE_BODY_EXTENSIONS;
 const isEditableBody = (relPath) => EDITABLE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
 
 const CONFLICT_PHRASES = ['already exists', 'already in use'];
@@ -28,8 +32,15 @@ const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.inclu
 const catchError = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch((err) => {
     // An explicit status on the error (e.g. 404/422 from the access layer) wins over
-    // the message-phrase heuristics below.
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    // the message-phrase heuristics below. A stale write carries the etag the document
+    // actually has, so the client can re-read and retry without a second round trip to
+    // find out what it missed.
+    if (err.status) {
+      const body = { error: err.message };
+      if (err.code) body.code = err.code;
+      if (err.etag !== undefined) body.etag = err.etag;
+      return res.status(err.status).json(body);
+    }
     if (isConflict(err)) return res.status(409).json({ error: err.message });
     if (isClientError(err)) return res.status(400).json({ error: err.message });
     next(err);
@@ -56,7 +67,10 @@ router.get(
     if (!relPath) return res.status(400).json({ error: "path required" });
     const { content, encoding, binary, size } = docs.files.readFile(relPath);
     const metadata = docs.files.getMetadata(relPath);
-    res.json({ content, encoding, binary, size, metadata });
+    // `etag` is the version an editor sends back as `ifMatch` when it saves. Derived from
+    // the bytes on disk, so it is right even when the change came from a Doctor rebuild, a
+    // Seal rollback, or another program — see Files.etag().
+    res.json({ content, encoding, binary, size, metadata, etag: docs.files.etag(relPath) });
   }),
 );
 
@@ -169,6 +183,10 @@ router.get(
     const isFolder = req.query.isFolder === "true";
     const sidecar = docs.files.getMetadata(relPath, isFolder);
     if (!sidecar) return res.status(404).json({ error: "sidecar not found" });
+    // The body is the sidecar verbatim — callers parse it as one — so the version rides in
+    // the header rather than inventing a field that would look like part of the format.
+    const etag = docs.files.etag(relPath, isFolder);
+    if (etag) res.set("ETag", etag);
     res.json(sidecar);
   }),
 );
@@ -209,7 +227,14 @@ router.post(
 );
 
 // PUT /api/documents/file
-// Body: { path, content, metadata? }
+// Body: { path, content, metadata?, ifMatch? }
+//
+// `ifMatch` is the `etag` this document carried when the caller read it. If the document has
+// changed since, the write is refused with 409 { error, code: 'stale', etag } and nothing is
+// written; the caller re-reads and decides. OMITTING it means no check — every caller written
+// before this existed (the MCP server, the test suite, scripts/seed.js) keeps working, and
+// the single-writer desktop case they serve has no conflict to detect. A server build makes
+// it mandatory, because that is the first configuration with a second writer.
 // A `content` write is restricted to editable text formats (see EDITABLE_EXTENSIONS);
 // metadata-only writes are allowed on any document, which is how the PDF/EPUB
 // renderers save their sidecars.
@@ -225,24 +250,26 @@ router.put(
           `Its flashcards, tags and highlights are edited through its sidecar (PUT /api/documents/metadata).`,
       });
     }
-    await docs.updateFile(relPath, req.body.content, req.body.metadata);
-    res.json({ ok: true });
+    const { etag } = await docs.updateFile(
+      relPath, req.body.content, req.body.metadata, { ifMatch: req.body.ifMatch });
+    res.json({ ok: true, etag });
   }),
 );
 
 // PUT /api/documents/metadata
-// Body: { path, metadata, isFolder? }
+// Body: { path, metadata, isFolder?, ifMatch? }   — see PUT /file for the ifMatch contract.
 router.put(
   "/metadata",
   catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    await docs.updateMetadata(
+    const { etag } = await docs.updateMetadata(
       relPath,
       req.body.metadata,
       req.body.isFolder ?? false,
+      { ifMatch: req.body.ifMatch },
     );
-    res.json({ ok: true });
+    res.json({ ok: true, etag });
   }),
 );
 

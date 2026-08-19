@@ -44,6 +44,44 @@ On a desktop install this is invisible: one Author account is provisioned from t
 
 ---
 
+## Concurrent writes
+
+Two people editing one vault must not silently overwrite each other. Two mechanisms, chosen so
+that the common case stays free of false alarms.
+
+**Whole-object writes carry a version.** `GET /api/documents/read` returns an `etag`; send it
+back as `ifMatch` on `PUT /api/documents/file` or `/metadata`. If the document changed in
+between, the write is refused:
+
+```
+409 { "error": "This document changed since you last read it.", "code": "stale", "etag": "…" }
+```
+
+Nothing was written, and the `etag` in the body is the current one, so a client can re-read and
+retry without a second round trip to find out what it missed.
+
+The etag is derived from the bytes on disk, never stored, so it is still right after a Vault
+Doctor rebuild, a Seal rollback, or an edit made in another program. It has two halves —
+`"<body>.<sidecar>"` — and **only the half a request replaces is compared**: a write carrying
+`content` is checked against the body, a metadata-only write against the sidecar. That is what
+lets an editor save while someone else adds a card to the same document; the editor merged that
+sidecar from a fresh read moments earlier, and refusing it would be a conflict about a change it
+had already incorporated.
+
+**Omitting `ifMatch` skips the check entirely.** Deliberate: the MCP server, the test suite and
+every script written before this send no version, and the single-writer desktop case they serve
+has no conflict to detect. A server build makes it mandatory, because that is the first
+configuration where a second writer exists.
+
+**Patches merge instead of conflicting.** `POST|PUT|DELETE /api/flashcards/:hash` and the
+`/api/highlights` routes name their target by `globalHash`. The server re-reads the sidecar,
+applies the change to that entity and puts everything else back, so two people editing different
+cards of one document both succeed. `ifMatch` on those routes is the **entity's** etag (returned
+as `etag` by `GET /api/flashcards/:hash`), so the only thing that can conflict is two edits to
+the same card.
+
+---
+
 ## Documents `/api/documents`
 
 ### `GET /api/documents/list`
@@ -66,7 +104,9 @@ Returns the decoded content and sidecar metadata for a single document.
 | -------- | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ content, encoding, binary, size, metadata }`.
+**Response** `200` — `{ content, encoding, binary, size, metadata, etag }`.
+
+`etag` is this document's **version** — send it back as `ifMatch` when you save and a write that lost a race is refused instead of silently overwriting whoever got there first. See [Concurrent writes](#concurrent-writes).
 
 Binary documents (PDF, EPUB, images, audio, video — recognized by container extension *or* by sniffing the first 8 KB) return `content: null`, `encoding: "binary"`, `binary: true`, and their `metadata` as usual: decoding those bytes as text produces only mojibake. Fetch the bytes from [`GET /api/documents/raw`](#get-apidocumentsraw) — which is what the PDF/EPUB renderers do, using this endpoint purely for the sidecar — or their **text** from [`/api/reader`](#reader-apireader).
 
@@ -178,12 +218,13 @@ Updates the content and/or metadata of an existing document. Also syncs tags, fl
 | `path`     | string | Yes      | Relative path to the document.             |
 | `content`  | string | No       | New file content.                          |
 | `metadata` | object | No       | Sidecar metadata (tags, flashcards, etc.). |
+| `ifMatch`  | string | No       | The `etag` this document carried when you read it. |
 
-**Response** `200` — `{ ok: true }`.
+**Response** `200` — `{ ok: true, etag }` — the version the write produced, to use as the next `ifMatch`.
 
 A `content` write is accepted **only** for `.md` / `.markdown` / `.txt` / `.text` — the formats with an editable renderer in the app. Every other format is a viewer, so a body write to one can only come from outside the app, and bodies are not versioned by Seal (the overwrite is unrecoverable). Metadata-only writes are accepted on any document, which is how the PDF/EPUB renderers save their sidecars. Clip and YouTube bodies are written by their own endpoints, not here.
 
-**Errors** `400` path required; `400` when `content` is present and the target is not an editable text format.
+**Errors** `400` path required; `400` when `content` is present and the target is not an editable text format; `409 { error, code: 'stale', etag }` when `ifMatch` no longer matches — nothing was written, and the `etag` in the body is the current one. See [Concurrent writes](#concurrent-writes).
 
 ---
 
@@ -196,8 +237,11 @@ Updates only the sidecar metadata of a file or folder without touching its conte
 | `path`     | string  | Yes      | Relative path to the item.                           |
 | `metadata` | object  | Yes      | New metadata object.                                 |
 | `isFolder` | boolean | No       | `true` if the path is a folder. Default `false`. |
+| `ifMatch`  | string  | No       | The `etag` this sidecar carried when you read it.    |
 
-**Response** `200` — `{ ok: true }`.
+**Response** `200` — `{ ok: true, etag }`.
+
+**Errors** `409 { error, code: 'stale', etag }` — see [Concurrent writes](#concurrent-writes).
 
 **Errors** `400` path required.
 

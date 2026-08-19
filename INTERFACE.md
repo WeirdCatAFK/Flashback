@@ -289,7 +289,7 @@ lifecycle. They call `useHighlightableRenderer`, which owns all of it (including
 the empty-state save guard and Ctrl+S) and delegates only what differs:
 
 ```js
-const { editor, loading } = useHighlightableRenderer({
+const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
   ...props,
   extensions,                 // the editor's extension list
   editorClass,                // class on the ProseMirror node
@@ -298,6 +298,24 @@ const { editor, loading } = useHighlightableRenderer({
   reconcile:   (editor, existing) => ({ highlights }), // live editor → registry
 });
 ```
+
+### When a save is refused
+
+The hook captures the document's `etag` when it loads content and sends it back as `ifMatch` on
+every save (see API.md § Concurrent writes). If the document changed underneath, the write is
+refused and the hook sets `conflict` — **the draft stays in the editor**, because it is the
+user's typing and losing it is the exact failure this guards against.
+
+A renderer with an editable body renders the shared banner and hands it the two ways out:
+
+```jsx
+{conflict && <ConflictBanner onReload={reloadFromDisk} onOverwrite={overwrite} />}
+```
+
+`reloadFromDisk` discards the draft and takes what is on disk now; `overwrite` re-sends without
+a version, so this draft wins. There is no automatic resolution and there should not be — only
+the person who typed it knows which version matters. A banner rather than a modal, so the draft
+being decided about stays visible behind it.
 
 The caller renders its own `<EditorContent>` wrapper, so markup and CSS stay
 per-renderer. `MarkdownRenderer` and `TextRenderer` are the reference

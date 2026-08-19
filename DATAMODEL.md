@@ -94,6 +94,22 @@ The `CanonicalVersion` table records what the *vault* has finished, purely so a 
 startup skips the walk. Full spec, including the rules an update must follow, in
 `src/api/config/updates/UPDATES.md`.
 
+### Versions for conflict detection are NOT stored
+
+`formatVersion` says which *shape* a file is in. It says nothing about which *revision* it is,
+and the two must not be conflated: a document's version — for "has this changed since I read
+it?" — is computed from the bytes on disk on demand, by `Files.etag()`, and is written nowhere.
+
+That is a deliberate refusal to add a field. A stored counter has to be incremented by whoever
+writes, so it is wrong in exactly the cases that matter most: a Vault Doctor rebuild, a Seal
+rollback to an older commit, or an edit someone made in another program all change the file
+while leaving the counter saying "unchanged". Content is the only thing that can describe
+itself honestly.
+
+The etag has two halves, `"<body>.<sidecar>"`, because a document is two files with two
+different owners — see `src/api/API.md` § Concurrent writes for how a write is checked against
+the half it replaces. Clients treat the string as opaque.
+
 ### `createdBy` 
 
 Every sidecar records who created it. The value is a **git author line** — `Name <email>` —

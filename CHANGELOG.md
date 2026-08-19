@@ -24,6 +24,21 @@ A vault can now be studied by more than one person without them grading each oth
 **On a single-user desktop install nothing above is visible.** There is one account, it is the
 Author, and it may do everything — which is how Flashback has always behaved.
 
+### Concurrent editing
+
+Groundwork for a shared vault, and a real improvement on a single desktop too — two windows on
+one document used to overwrite each other silently.
+
+- A save that lost a race is now **refused rather than applied**. The editor keeps your draft
+  and offers **Reload** (take what is on disk) or **Overwrite** (yours wins). Nothing is
+  resolved automatically, because only the person who typed it knows which version matters.
+- Editing different cards of the same document no longer collides. Card and highlight edits are
+  applied by the server to the entity you named, so only two edits to the *same* card conflict.
+- **Content edits are committed to Seal immediately**, in the order the requests arrived,
+  instead of two seconds later. Grading cards still collapses into one commit per study
+  session — that is the one write whose history nobody rolls back to. Authoring several cards
+  in a row now produces one commit each, so you can roll back to any of them.
+
 ### Fixed
 
 - The diary got slow enough to look broken. Migration 010 indexed `ReviewLogs.account_id` on

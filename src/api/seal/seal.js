@@ -119,7 +119,10 @@ async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
     await git.commit({ fs, dir: workspace, message: `${action}: ${normSidecar}`, author: author() });
 }
 
-const EDIT_DEBOUNCE_MS = 2000;
+// How long a graded card's sidecar write waits for the next one before committing. Only
+// reviews are coalesced now — see the class comment on SealEventEmitter for why they are the
+// one thing that still should be.
+const REVIEW_DEBOUNCE_MS = 2000;
 
 /** Names a batch of edited paths for the commit message: the sidecar if there is one, a
  *  count if there are several, otherwise whatever file was touched. */
@@ -132,29 +135,43 @@ function editLabel(paths) {
 
 /**
  * Fired by Documents.js after each canonical write operation.
- * edit() is debounced: rapid calls accumulate dirty paths and flush in a single commit
- * after EDIT_DEBOUNCE_MS of inactivity. Structural operations (create/move/delete) flush
- * any pending edits first so commit ordering stays chronological.
+ *
+ * ## Two paths in, one queue out
+ *
+ * `edit()` commits immediately. `review()` coalesces. The split is not about volume for its
+ * own sake — it is about what a commit is worth:
+ *
+ *   - An **edit** is someone changing content. Its commit is the record of that change, it is
+ *     what a rollback rewinds to, and the order it lands in is the order the requests
+ *     arrived. Deferring it by two seconds bought nothing and cost correctness: the timer
+ *     fired outside the request that armed it, so two writers raced over one index snapshot,
+ *     and a commit could land after the vault it belonged to had already been closed.
+ *
+ *   - A **review** is a graded card writing its new schedule into a sidecar. Nobody will ever
+ *     roll back to the state of a card between two answers, and a study session produces one
+ *     write per card. That volume is the entire reason the debounce was written, and it is
+ *     the only thing it is still needed for.
+ *
+ * Every commit — edit, review flush, create, move, delete — goes through ONE serial queue.
+ * A commit takes a snapshot of the whole index, so two running at once race over what HEAD
+ * is; the queue is what makes "request order is commit order" true rather than usually true.
+ *
  * All relPath values are relative to workspaceRoot.
  */
 export class SealEventEmitter {
     constructor() {
-        // path -> the author who made that edit.
+        // path -> the author whose review touched it. Coalesced, then committed per author.
         //
-        // A Set of paths until the accounts store existed, which was fine while every edit
-        // in a process came from the same person. It does not survive a server: the timer
-        // fires long after the request that armed it has finished, so author() at flush time
-        // would resolve to nobody and attribute the whole batch to the machine's local
-        // identity. Capturing WHO at arm time and committing one batch per author keeps the
-        // history honest.
-        //
-        // This is a stopgap by design. Two people editing the same document within two
-        // seconds still produce two commits in an arbitrary order, and the second one's diff
-        // is whatever the first one left. M3 removes the debounce outright in favour of
-        // version-triggered commits; until then, at least nobody is credited with an edit
-        // they did not make.
-        this._pendingEdits = new Map();
+        // The author is captured when the path is added, not when the timer fires: the timer
+        // fires long after the request has finished, and author() would resolve to nobody and
+        // attribute the batch to the machine's local identity.
+        this._pendingReviews = new Map();
         this._debounceTimer = null;
+
+        // Tail of the serial commit chain. Every commit awaits its predecessor, and a failed
+        // commit does not poison the ones behind it — the chain continues either way, because
+        // one unwritable path must not stop the vault from ever committing again.
+        this._commitQueue = Promise.resolve();
     }
 
     _cancelDebounce() {
@@ -165,40 +182,62 @@ export class SealEventEmitter {
     }
 
     /**
-     * Immediately commits all accumulated debounced edits — one batch commit per author.
-     * Called automatically by create/move/delete to preserve chronological order.
-     * Can also be called explicitly (e.g. in tests or on graceful shutdown) to force a flush.
+     * Runs `task` after every commit already queued, and resolves with its result.
+     * @param {() => Promise<void>} task
+     * @returns {Promise<void>}
+     */
+    _enqueue(task) {
+        const run = this._commitQueue.then(task, task);
+        this._commitQueue = run.then(() => {}, () => {});
+        return run;
+    }
+
+    /**
+     * Settles everything outstanding: commits the coalesced reviews — one batch per author —
+     * and waits for every queued commit to land.
      *
-     * On a desktop install every pending edit has the same author, so this is exactly the
+     * Called automatically by create/move/delete to preserve chronological order, and
+     * explicitly by the Doctor, by a vault switch and by tests. Keeps its name from when
+     * edits were the debounced thing: what it means to a caller ("nothing of mine is still
+     * pending when this resolves") has not changed.
+     *
+     * On a desktop install every pending review has the same author, so this is exactly the
      * single commit it always was.
      * @returns {Promise<void>}
      */
     async flushEdits() {
         this._cancelDebounce();
-        if (this._pendingEdits.size === 0) return;
-        const workspace = dir();
-        // Skip paths that no longer exist on disk — they may have been moved or deleted
-        // by a structural operation that ran before the debounce could fire.
-        const pending = [...this._pendingEdits].filter(([p]) =>
-            fs.existsSync(path.join(workspace, p))
-        );
-        this._pendingEdits.clear();
-        if (pending.length === 0) return;
 
-        const byAuthor = new Map();
-        for (const [p, who] of pending) {
-            const key = `${who.name} <${who.email}>`;
-            if (!byAuthor.has(key)) byAuthor.set(key, { who, paths: [] });
-            byAuthor.get(key).paths.push(p);
+        if (this._pendingReviews.size > 0) {
+            const pendingByPath = [...this._pendingReviews];
+            this._pendingReviews.clear();
+
+            await this._enqueue(async () => {
+                const workspace = dir();
+                // Skip paths that no longer exist on disk — they may have been moved or
+                // deleted by a structural operation that ran before the timer could fire.
+                const pending = pendingByPath.filter(([p]) => fs.existsSync(path.join(workspace, p)));
+                if (pending.length === 0) return;
+
+                const byAuthor = new Map();
+                for (const [p, who] of pending) {
+                    const key = `${who.name} <${who.email}>`;
+                    if (!byAuthor.has(key)) byAuthor.set(key, { who, paths: [] });
+                    byAuthor.get(key).paths.push(p);
+                }
+
+                // Files already committed by an earlier author appear unchanged in the later
+                // commit and contribute no diff.
+                for (const { who, paths } of byAuthor.values()) {
+                    await stageAll(workspace, paths);
+                    await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(paths)}`, author: who });
+                }
+            });
+            return;
         }
 
-        // Sequential, not parallel: each commit takes a snapshot of the whole index, so two
-        // running at once would race over what HEAD is. Files already committed by an
-        // earlier author appear unchanged in the later commit and contribute no diff.
-        for (const { who, paths } of byAuthor.values()) {
-            await stageAll(workspace, paths);
-            await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(paths)}`, author: who });
-        }
+        // Nothing coalesced, but commits queued by edit() may still be in flight.
+        await this._commitQueue;
     }
 
     /**
@@ -223,7 +262,7 @@ export class SealEventEmitter {
             console.error("Seal quiesce failed to flush pending edits:", err?.stack || err);
         } finally {
             this._cancelDebounce();
-            this._pendingEdits.clear();
+            this._pendingReviews.clear();
         }
     }
 
@@ -238,28 +277,61 @@ export class SealEventEmitter {
      */
     async create(sidecarRelPath, extraRelPaths = []) {
         await this.flushEdits();
-        await stageAndCommit("create", normPath(sidecarRelPath), extraRelPaths.map(normPath));
+        await this._enqueue(() =>
+            stageAndCommit("create", normPath(sidecarRelPath), extraRelPaths.map(normPath)));
     }
 
     /**
-     * Records an edit to a document or its sidecar.
-     * Calls are debounced: paths accumulate and are committed in a single batch after
-     * EDIT_DEBOUNCE_MS of inactivity, so a 30-card review session produces one commit.
+     * Records an edit to a document or its sidecar, and commits it.
+     *
+     * Resolves once the commit has landed, so the request that caused the edit does not
+     * answer before its own history exists, and two requests commit in the order they
+     * arrived rather than in whatever order two timers happened to fire.
+     *
      * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar (used as commit label).
      * @param {string[]} [extraRelPaths=[]] - Additional paths to stage (e.g. the document file if its content changed).
      * @returns {Promise<void>}
      */
     async edit(sidecarRelPath, extraRelPaths = []) {
-        // Resolve the author NOW, while the request that caused the edit is still in scope.
-        // The timer below fires outside it.
         const who = author();
-        this._pendingEdits.set(normPath(sidecarRelPath), who);
-        for (const p of extraRelPaths) this._pendingEdits.set(normPath(p), who);
+        const paths = [normPath(sidecarRelPath), ...extraRelPaths.map(normPath)];
+
+        // This edit captures the file's current state, pending review schedules included, so
+        // a review still waiting on the timer for one of these paths has nothing left to say.
+        // Without this it would flush later into a commit with an empty diff.
+        for (const p of paths) this._pendingReviews.delete(p);
+
+        await this._enqueue(async () => {
+            const workspace = dir();
+            const present = paths.filter(p => fs.existsSync(path.join(workspace, p)));
+            if (present.length === 0) return;
+            await stageAll(workspace, present);
+            await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(present)}`, author: who });
+        });
+    }
+
+    /**
+     * Records a sidecar write caused by GRADING A CARD — a new schedule, nothing else.
+     *
+     * Coalesced, not committed per call: a session is one write per card, and the state of a
+     * card's schedule between two answers is not something anyone will ever roll back to. A
+     * session lands as a single commit, which is what the Seal view has always shown.
+     *
+     * The author is captured here, while the request is still in scope; the timer is not.
+     *
+     * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar.
+     * @param {string[]} [extraRelPaths=[]] - Additional paths to stage.
+     * @returns {Promise<void>}
+     */
+    async review(sidecarRelPath, extraRelPaths = []) {
+        const who = author();
+        this._pendingReviews.set(normPath(sidecarRelPath), who);
+        for (const p of extraRelPaths) this._pendingReviews.set(normPath(p), who);
         this._cancelDebounce();
         this._debounceTimer = setTimeout(() => {
             this._debounceTimer = null;
             this.flushEdits().catch(err => console.error("[seal] flush error:", err));
-        }, EDIT_DEBOUNCE_MS);
+        }, REVIEW_DEBOUNCE_MS);
     }
 
     /**
@@ -278,12 +350,15 @@ export class SealEventEmitter {
         const normOldDoc = normPath(oldDocRelPath);
         const normNewDoc = normPath(newDocRelPath);
 
-        for (const p of normRemoved) this._pendingEdits.delete(p);
+        for (const p of normRemoved) this._pendingReviews.delete(p);
         await this.flushEdits();
-        const workspace = dir();
-        await removeAll(workspace, normRemoved);
-        await stageAll(workspace, normAdded);
-        await git.commit({ fs, dir: workspace, message: `move: ${normOldDoc} -> ${normNewDoc}`, author: author() });
+        const who = author();
+        await this._enqueue(async () => {
+            const workspace = dir();
+            await removeAll(workspace, normRemoved);
+            await stageAll(workspace, normAdded);
+            await git.commit({ fs, dir: workspace, message: `move: ${normOldDoc} -> ${normNewDoc}`, author: who });
+        });
     }
 
     /**
@@ -297,11 +372,14 @@ export class SealEventEmitter {
     async delete(sidecarRelPath, extraRelPaths = []) {
         const normSidecar = normPath(sidecarRelPath);
         const allRemoved = [...extraRelPaths, sidecarRelPath].map(normPath);
-        for (const p of allRemoved) this._pendingEdits.delete(p);
+        for (const p of allRemoved) this._pendingReviews.delete(p);
         await this.flushEdits();
-        const workspace = dir();
-        await removeAll(workspace, allRemoved);
-        await git.commit({ fs, dir: workspace, message: `delete: ${normSidecar}`, author: author() });
+        const who = author();
+        await this._enqueue(async () => {
+            const workspace = dir();
+            await removeAll(workspace, allRemoved);
+            await git.commit({ fs, dir: workspace, message: `delete: ${normSidecar}`, author: who });
+        });
     }
 }
 

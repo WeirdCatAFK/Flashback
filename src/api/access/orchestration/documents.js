@@ -6,6 +6,7 @@
 import path from 'path';
 import fs from 'fs';
 import Files from '../resources/files.js';
+import { withDocument, withStructure } from '../resources/pathLock.js';
 import query from '../resources/query.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
@@ -317,6 +318,79 @@ export default class Documents {
         this.srs = srsService;
     }
 
+    /**
+     * Refuses a write whose caller was working from a version of the document that is no
+     * longer the one on disk. Call it INSIDE the lock — outside one it is a race with a
+     * wider window rather than a check.
+     *
+     * An absent `ifMatch` means "no check", and that is deliberate rather than an oversight:
+     * the MCP server, the test suite, `scripts/seed.js` and every script written before this
+     * existed send no version, and the single-writer desktop case they serve has no conflict
+     * to detect. The renderer always sends one. A server build makes it mandatory, because
+     * that is the first configuration where a second writer exists.
+     *
+     * Only the half of the etag the write REPLACES is compared (see Files.etag for the
+     * `"<body>.<sidecar>"` shape). A write carrying `content` is replacing the body, and its
+     * sidecar — if it sends one — was merged from a fresh read moments earlier, so comparing
+     * the sidecar half there would refuse a save because of a change the writer had already
+     * incorporated. A metadata-only write is the mirror image: it replaces the sidecar and
+     * never looks at the body.
+     *
+     * @param {string} relativePath
+     * @param {string} [ifMatch] - the etag the caller last read.
+     * @param {object} [opts]
+     * @param {boolean} [opts.isFolder=false]
+     * @param {'body'|'sidecar'} [opts.part='sidecar'] - which half this write replaces.
+     * @throws {Error & {status:409, code:'stale', etag:string|null}}
+     */
+    _assertFresh(relativePath, ifMatch, { isFolder = false, part = 'sidecar' } = {}) {
+        if (!ifMatch) return;
+        const current = this.files.etag(relativePath, isFolder);
+        const half = (etag) => (typeof etag === 'string' ? etag.split('.')[part === 'body' ? 0 : 1] : etag);
+        if (half(current) === half(ifMatch)) return;
+        throw Object.assign(
+            new Error('This document changed since you last read it.'),
+            { status: 409, code: 'stale', etag: current },
+        );
+    }
+
+    /**
+     * The etag of one card as it stands in its document's sidecar — what a client sends back
+     * as `ifMatch` when it patches that card.
+     *
+     * Read from the sidecar rather than from the derived row on purpose: the sidecar is what
+     * the patch will be applied to, and a version taken from anywhere else could agree with
+     * the caller while the file it is about to overwrite has moved on.
+     *
+     * @param {string|null} relativePath - null for a standalone card (it lives in a deck file).
+     * @param {string} flashcardHash
+     * @returns {string|null}
+     */
+    cardEtag(relativePath, flashcardHash) {
+        if (!relativePath) return null;
+        const meta = this.files.getMetadata(relativePath) || {};
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        return this.files.entityEtag(cards.find(f => f.globalHash === flashcardHash));
+    }
+
+    /**
+     * The patch counterpart of `_assertFresh`: refuses a patch to an entity somebody else has
+     * changed since the caller read it, while leaving patches to its neighbours alone.
+     *
+     * @param {object} entity - the card/highlight as it currently stands in the sidecar.
+     * @param {string} [ifMatch] - entity etag the caller read.
+     * @throws {Error & {status:409, code:'stale', etag:string|null}}
+     */
+    _assertEntityFresh(entity, ifMatch) {
+        if (!ifMatch) return;
+        const current = this.files.entityEtag(entity);
+        if (current === ifMatch) return;
+        throw Object.assign(
+            new Error('This card changed since you last read it.'),
+            { status: 409, code: 'stale', etag: current },
+        );
+    }
+
     // --- Listing ---
 
     async listFolder(relPath) {
@@ -407,7 +481,19 @@ export default class Documents {
         await sealEmitter.create(path.join(folderRelPath, '.flashback'));
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async rename(relativePath, newName, isFolder = false) {
+        return await withStructure(() => this._renameLocked(relativePath, newName, isFolder));
+    }
+
+    async _renameLocked(relativePath, newName, isFolder = false) {
         const oldAbsPath = this.files.safePath(relativePath);
         const parentDir = path.dirname(relativePath);
         const newRelPath = path.join(parentDir, newName);
@@ -440,7 +526,19 @@ export default class Documents {
         }
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async move(relativePath, newRelativePath, isFolder = false) {
+        return await withStructure(() => this._moveLocked(relativePath, newRelativePath, isFolder));
+    }
+
+    async _moveLocked(relativePath, newRelativePath, isFolder = false) {
         const oldAbsPath = this.files.safePath(relativePath);
         const newAbsPath = this.files.safePath(newRelativePath);
         const oldParentAbsPath = path.dirname(oldAbsPath);
@@ -507,7 +605,35 @@ export default class Documents {
         }
     }
 
-    async updateFile(relativePath, content, metadata) {
+    /**
+     * Writes a document's body and/or its sidecar.
+     *
+     * Whole-object: the caller sends the state it wants the document to be in, so it can only
+     * be applied safely to the state the caller last read. `ifMatch` is that state's etag —
+     * checked INSIDE the lock, because a check outside one is a race with a longer window,
+     * not a guarantee.
+     *
+     * @param {string} relativePath
+     * @param {string|null} [content] - body; undefined/null leaves the body alone.
+     * @param {object} [metadata] - the whole sidecar.
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch] - etag the caller read. Omitted means no check; see
+     *   `routes/documents.js` for why that stays permitted.
+     * @returns {Promise<{etag: string|null}>} the document's etag after the write.
+     */
+    async updateFile(relativePath, content, metadata, { ifMatch } = {}) {
+        return await withDocument(relativePath, async () => {
+            // A body write is checked against the body; a metadata-only write against the
+            // sidecar. Both are "the part I am replacing".
+            const part = (content !== undefined && content !== null) ? 'body' : 'sidecar';
+            this._assertFresh(relativePath, ifMatch, { part });
+            await this._updateFileLocked(relativePath, content, metadata);
+            return { etag: this.files.etag(relativePath) };
+        });
+    }
+
+    /** The body of updateFile, with the lock and the freshness check already applied. */
+    async _updateFileLocked(relativePath, content, metadata) {
         await this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
@@ -643,7 +769,19 @@ export default class Documents {
         await this.indexDocumentLinks(relPath);
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async delete(relativePath, isFolder = false) {
+        return await withStructure(() => this._deleteLocked(relativePath, isFolder));
+    }
+
+    async _deleteLocked(relativePath, isFolder = false) {
         const absPath = this.files.safePath(relativePath);
 
         // 1. Gather seal paths from DB before deleting anything
@@ -668,7 +806,19 @@ export default class Documents {
         await sealEmitter.delete(sealSidecar, sealExtra);
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async copy(relPath, newRelPath, isFolder = false) {
+        return await withStructure(() => this._copyLocked(relPath, newRelPath, isFolder));
+    }
+
+    async _copyLocked(relPath, newRelPath, isFolder = false) {
         const items = await this.files.copy(relPath, newRelPath, isFolder);
 
         await db.transaction(async () => {
@@ -734,7 +884,27 @@ export default class Documents {
 
     // --- Metadata Helpers ---
 
-    async updateMetadata(relativePath, metadata, isFolder = false) {
+    /**
+     * Replaces a document's or folder's whole sidecar. Whole-object, so it takes the same
+     * `ifMatch` treatment as updateFile — see `_assertFresh`.
+     *
+     * @param {string} relativePath
+     * @param {object} metadata
+     * @param {boolean} [isFolder=false]
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch]
+     * @returns {Promise<{etag: string|null}>}
+     */
+    async updateMetadata(relativePath, metadata, isFolder = false, { ifMatch } = {}) {
+        return await withDocument(relativePath, async () => {
+            this._assertFresh(relativePath, ifMatch, { isFolder, part: 'sidecar' });
+            await this._updateMetadataLocked(relativePath, metadata, isFolder);
+            return { etag: this.files.etag(relativePath, isFolder) };
+        });
+    }
+
+    /** The body of updateMetadata, with the lock and the freshness check already applied. */
+    async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
         this.files.writeMetadata(relativePath, metadata, isFolder);
 
         await db.transaction(async () => {
@@ -1501,6 +1671,11 @@ export default class Documents {
      * @returns {object} The persisted card, including its assigned globalHash and media refs.
      */
     async createFlashcard(relativePath, cardData, mediaItems = []) {
+        return await withDocument(relativePath, () =>
+            this._createFlashcardLocked(relativePath, cardData, mediaItems));
+    }
+
+    async _createFlashcardLocked(relativePath, cardData, mediaItems = []) {
         const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
@@ -1577,7 +1752,27 @@ export default class Documents {
      * @param {object} patch - any of { frontText, backText, answerText, name, cardType, category, customHtml, tags }.
      * @returns {object} the updated card as written to the sidecar.
      */
-    async updateFlashcard(relativePath, flashcardHash, patch = {}) {
+    /**
+     * Patches ONE card inside a document's sidecar.
+     *
+     * A patch, not a whole-object write: it names its target by hash, re-reads the sidecar
+     * under the lock and puts back everything it was not asked to change. Two people editing
+     * different cards of the same document therefore both succeed — the conflict that matters
+     * is two people editing the SAME card, which `opts.ifMatch` detects when the caller
+     * supplies the entity etag it read.
+     *
+     * @param {string} relativePath
+     * @param {string} flashcardHash
+     * @param {object} [patch]
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch] - entity etag (see Files.entityEtag) of the card as read.
+     */
+    async updateFlashcard(relativePath, flashcardHash, patch = {}, { ifMatch } = {}) {
+        return await withDocument(relativePath, () =>
+            this._updateFlashcardLocked(relativePath, flashcardHash, patch, ifMatch));
+    }
+
+    async _updateFlashcardLocked(relativePath, flashcardHash, patch = {}, ifMatch = undefined) {
         const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
@@ -1593,6 +1788,7 @@ export default class Documents {
         if (idx === -1) throw new Error(`Flashcard ${flashcardHash} not found in ${relativePath}`);
 
         const ex = cards[idx];
+        this._assertEntityFresh(ex, ifMatch);
         const nextType = patch.cardType ?? ex.cardType ?? 'basic';
         const updated = { ...ex, cardType: nextType };
         if (patch.name !== undefined) updated.name = patch.name;
@@ -1652,6 +1848,11 @@ export default class Documents {
      * @param {string} flashcardHash - globalHash of the card to delete.
      */
     async deleteFlashcard(relativePath, flashcardHash) {
+        return await withDocument(relativePath, () =>
+            this._deleteFlashcardLocked(relativePath, flashcardHash));
+    }
+
+    async _deleteFlashcardLocked(relativePath, flashcardHash) {
         const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
@@ -1732,7 +1933,10 @@ export default class Documents {
         this.files.writeMetadata(relativePath, metadata);
 
         await this.propagatePresence(documentId);
-        await sealEmitter.edit(relativePath + '.flashback');
+        // review(), not edit(): a graded card's new schedule is the one write whose commit
+        // nobody will ever roll back to, and a session produces one per card. See the
+        // SealEventEmitter class comment.
+        await sealEmitter.review(relativePath + '.flashback');
     }
 
     // Reverse the last review of a document-linked card: undo it in the derived
@@ -1780,7 +1984,8 @@ export default class Documents {
                 else delete card.lastRecall;
             }
             this.files.writeMetadata(relativePath, metadata);
-            await sealEmitter.edit(relativePath + '.flashback');
+            // Coalesced like the review it reverses — see submitReview above.
+            await sealEmitter.review(relativePath + '.flashback');
         }
 
         if (document_id) await this.propagatePresence(document_id);

@@ -185,6 +185,18 @@ class api {
       if (err.type === 'entity.too.large') {
         return res.status(413).json({ error: 'Request body too large' });
       }
+      // An explicit 4xx from the access layer is a statement about the REQUEST, not about
+      // the server: a stale write (409), a missing document (404). Several routers already
+      // unwrap this in their own catchError; doing it here as well means a router that
+      // forgot to cannot turn "you are out of date" into "the server broke".
+      // Only 4xx — a stray 5xx from something we called upstream is our failure, not the
+      // client's, and stays a 500.
+      if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+        const body = { error: err.message };
+        if (err.code) body.code = err.code;
+        if (err.etag !== undefined) body.etag = err.etag;
+        return res.status(err.status).json(body);
+      }
       res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }

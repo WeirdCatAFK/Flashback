@@ -21,7 +21,9 @@ const catchError = (fn) => (req, res, next) =>
 // content + source document path, so clients can route edits correctly.
 router.get('/:hash', catchError(async (req, res) => {
     const card = await decks.getCard(req.params.hash);
-    res.json(card);
+    // `etag` is this CARD's version, for PUT /:hash's ifMatch — null for a standalone card,
+    // which lives in a deck file rather than a sidecar.
+    res.json({ ...card, etag: docs.cardEtag(card.documentPath, req.params.hash) });
 }));
 
 // POST /api/flashcards — create standalone card
@@ -90,9 +92,14 @@ router.put('/:hash', catchError(async (req, res) => {
     }
 
     // tags are a sidecar concept — standalone cards inherit theirs from their deck.
-    await docs.updateFlashcard(card.documentPath, hash, {
+    //
+    // `ifMatch` here is the CARD's etag, not the document's: this is a patch to one entity
+    // inside the sidecar, so someone editing another card of the same document is not in
+    // conflict with it and must not be told they are. Omitted means no check, exactly as on
+    // PUT /api/documents/file.
+    const updated = await docs.updateFlashcard(card.documentPath, hash, {
         frontText, backText, answerText, name, cardType, category, customHtml, tags,
-    });
+    }, { ifMatch: req.body.ifMatch });
 
     // The card's flags describe a card that no longer exists, so they go and the
     // analysis window restarts here. cardHealth's own fingerprint check would catch this
@@ -100,7 +107,7 @@ router.put('/:hash', catchError(async (req, res) => {
     // never sees — MCP, a Seal rollback, a Doctor reindex); this is here so the flag
     // disappears the moment the user saves.
     await cardHealth.onCardEdited(hash);
-    res.json({ ok: true, documentPath: card.documentPath });
+    res.json({ ok: true, documentPath: card.documentPath, etag: docs.files.entityEtag(updated) });
 }));
 
 // DELETE /api/flashcards/:hash — delete any card, standalone or document-anchored.
