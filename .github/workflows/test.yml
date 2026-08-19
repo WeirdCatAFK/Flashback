@@ -1,0 +1,111 @@
+# Test CI.
+#
+# The repo had only `release.yml` until now — every check was run by hand on one Windows
+# machine. That was survivable while the only build was the desktop app a developer runs
+# daily; it stops being survivable with a headless server build, which is the first
+# configuration nobody exercises by accident.
+#
+# Three jobs, deliberately separate so a failure names itself:
+#   test    — the suite, on Linux (the platform the server actually deploys to)
+#   lint    — advisory for now, see below
+#   docker  — builds the image, which is what catches a broken native addon compile
+
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A new push to the same branch makes the previous run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test suite (Linux, Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Not `--omit=dev`: the suite needs the dev dependencies.
+      - run: npm ci
+
+      # scripts/run-tests.js hides an Electron-compiled better-sqlite3 and rebuilds for
+      # system Node. On CI there is no Electron build to hide, so the hide step no-ops and
+      # the rebuild is the only thing that happens — which is exactly what we want. Running
+      # the suite through the same script the developer runs means CI cannot diverge from it.
+      - run: npm run tests
+
+  lint:
+    name: Lint (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Advisory ON PURPOSE, and this is not a permanent excuse. The tree has a standing
+      # baseline of 40 problems / 37 errors / 3 warnings that predates this workflow;
+      # failing every build on them would train everyone to ignore a red X, which is worse
+      # than not having the check. The number is recorded here so a future change can hold
+      # the line or lower it deliberately.
+      - run: npm run lint
+        continue-on-error: true
+
+  docker:
+    name: Server image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The real assertion here is that better-sqlite3 compiles against the image's Node.
+      # It is a native addon, and a broken build surfaces at container start as a
+      # NODE_MODULE_VERSION error — far too late to be useful.
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          load: true
+          tags: flashback-server:ci
+
+      # Boot it. An image that builds and then cannot open a vault has told us nothing, so
+      # this starts a real container on a real volume and waits for the unauthenticated
+      # readiness ping — the same one the HEALTHCHECK uses.
+      - name: Boot the server and wait for readiness
+        run: |
+          docker run -d --name flashback-ci \
+            -e FLASHBACK_VAULT_NAME=ci \
+            -p 50500:50500 \
+            flashback-server:ci
+          for i in $(seq 1 30); do
+            if curl -fsS http://127.0.0.1:50500/ >/dev/null 2>&1; then
+              echo "ready after ${i}s"; break
+            fi
+            if [ "$i" = "30" ]; then echo "server never became ready"; docker logs flashback-ci; exit 1; fi
+            sleep 1
+          done
+
+      - name: Require authentication on /api
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:50500/api/documents/list?path=")
+          echo "anonymous /api -> $code"
+          test "$code" = "401" || { docker logs flashback-ci; exit 1; }
+
+      # A clean stop is what checkpoints the WAL; if SIGTERM handling regressed, this is
+      # where it shows up rather than as a corrupted volume in production.
+      - name: Stop cleanly
+        run: |
+          docker stop -t 30 flashback-ci
+          docker logs flashback-ci 2>&1 | tail -20
+          docker logs flashback-ci 2>&1 | grep -q "Shutdown complete" \
+            || { echo "container did not shut down gracefully"; exit 1; }

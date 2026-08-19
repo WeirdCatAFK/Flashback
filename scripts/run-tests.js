@@ -50,6 +50,7 @@ const tests = [
     'tests/stats.test.js',
     'tests/diary.test.js',
     'tests/mcpReader.test.js',
+    'tests/server.test.js',
     'tests/api/api.test.js',
     'tests/mcp.test.js',
 ];

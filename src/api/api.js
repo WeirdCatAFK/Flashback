@@ -68,7 +68,11 @@ class api {
     this.app = express();
 
     //Default options
-    this.port = config.port || 3000;
+    // `??`, not `||`: port 0 means "let the OS pick a free one", which is a real value and
+    // the one the test suite and the benchmark ask for. `||` silently turned it into 3000,
+    // so nothing was ever ephemeral — two Api instances in one process collided with
+    // EADDRINUSE, and a developer with something else on 3000 saw the suite fail to boot.
+    this.port = config.port ?? 3000;
     this.logFormat = config.logFormat || "dev";
 
     //Ip binding options
@@ -86,6 +90,10 @@ class api {
     // never sets this; the headless server entry point (M4) always does, because an open
     // deployment is a very different mistake from an open loopback dev server.
     this.requireAuth = config.requireAuth ?? false;
+
+    // One vault per process. Set by the headless server entry point, never by the desktop
+    // app, where switching vaults is a normal thing to do. See build() for what it removes.
+    this.singleVault = config.singleVault ?? false;
 
     if (!this.isLocalhost && this.host === "localhost") {
       console.warn(
@@ -158,6 +166,23 @@ class api {
       res.set('Retry-After', '1');
       return res.status(503).json({ error: 'Vault switch in progress', switching: true });
     });
+
+    // Single-vault gate. A server serves ONE vault, so switching is not a capability it
+    // has — and it is not merely useless there but actively harmful: a switch closes the
+    // database and re-points every path resolver under every connected user at once.
+    //
+    // Mounted ahead of the router loop below so these two routes are genuinely absent (404)
+    // rather than present-and-refused (403). A client discovering capabilities should see a
+    // server that cannot switch, not one that could if you were more important.
+    // `GET /api/vault` — the identity handshake every remote depends on — and `/list` stay.
+    if (this.singleVault) {
+      this.app.use('/api/vault', (req, res, next) => {
+        if (req.method === 'POST' && (req.path === '/switch' || req.path === '/release')) {
+          return res.status(404).json({ code: 404, message: "Url no encontrada" });
+        }
+        next();
+      });
+    }
 
     // Route mounting.
     //

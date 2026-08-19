@@ -1895,9 +1895,24 @@ export default class Documents {
     // --- SRS Support ---
 
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const metadata = this.files.getMetadata(relativePath);
-        const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
-        if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+        // Whose review this is, resolved exactly the way srs.js resolves it (an explicit
+        // scope wins over the request context), so the two cannot disagree about which of
+        // the branches below runs.
+        const owner = isOwnerScope(opts.scope ?? currentScope());
+
+        // The sidecar is read ONLY on the owner's path, because it exists to be MUTATED
+        // twenty lines down. It is a synchronous whole-file read plus a JSON.parse of every
+        // card, highlight and tag in the document — on a reader's review that was ~40% of
+        // the cost of the whole request, spent producing a value that is then discarded.
+        // The "is this card really in this document" check goes with it: srs.submitReview
+        // resolves the card by hash and throws on its own when it does not exist.
+        let metadata = null;
+        let card = null;
+        if (owner) {
+            metadata = this.files.getMetadata(relativePath);
+            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+        }
 
         // Persist to the derived layer first. For FSRS the schedule is computed
         // server-side, so we mirror the returned state into the sidecar; for
@@ -1911,9 +1926,22 @@ export default class Documents {
         // here instead would put one person's study record into a git history that travels
         // with the folder to whoever gets a copy. It also means a reader's review produces no
         // Seal commit at all, which is the behaviour you want: reading is not editing.
-        if (!isOwnerScope(scope)) {
-            await this.propagatePresence(documentId);
-            return;
+        // And presence is not recomputed either. `propagatePresence` reads
+        // getFlashcardAvgLevel(documentId, OWNER_SCOPE) and walks the folder tree to the
+        // root — but a reader's grade cannot have moved an owner-scoped average, so every
+        // one of those writes puts back the value it just read. It is not merely redundant:
+        // it is a second store-wide transaction plus ~3 queries per folder level on the
+        // hottest path a multi-user vault has. See propagatePresence's own comment for why
+        // the number is owner-scoped in the first place.
+        if (!isOwnerScope(scope)) return;
+
+        // Belt and braces: `owner` above and `scope` here come from the same expression, so
+        // they cannot differ — but reading the sidecar lazily rather than trusting that is
+        // one line, and the alternative failure is writing `null` over a document.
+        if (!card) {
+            metadata = this.files.getMetadata(relativePath);
+            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
         }
 
         if (algorithm === 'fsrs' && fsrs) {
@@ -1946,11 +1974,9 @@ export default class Documents {
         const { document_id, restored, scope } = await this.srs.undoReview(flashcardHash, algorithm);
 
         // Same rule as submitReview, and for the same reason: a non-owner's undo is already
-        // durable in the accounts store, and the sidecar is not theirs to rewrite.
-        if (!isOwnerScope(scope)) {
-            if (document_id) await this.propagatePresence(document_id);
-            return restored;
-        }
+        // durable in the accounts store, the sidecar is not theirs to rewrite, and presence
+        // is an owner-scoped number their grade cannot have moved.
+        if (!isOwnerScope(scope)) return restored;
 
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);

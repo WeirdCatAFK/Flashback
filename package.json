@@ -55,7 +55,11 @@
     "test:sequencing": "node --test tests/sequencing.test.js",
     "test:translations": "node --test tests/translations.test.js",
     "doctor": "react-doctor",
-    "mcp": "node src/mcp/server.js"
+    "mcp": "node src/mcp/server.js",
+    "bench:reviews": "node scripts/with-system-sqlite.js node scripts/bench-reviews.js",
+    "server": "node src/server/main.js",
+    "server:dev": "npm run rebuild && node src/server/main.js",
+    "test:server": "node --test tests/server.test.js"
   },
   "repository": {
     "type": "git",

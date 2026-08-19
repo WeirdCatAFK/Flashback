@@ -616,6 +616,13 @@ Three consequences follow, and each is load-bearing:
 
 - **The Vault Doctor must never touch it.** The Doctor's whole premise is that the derived layer can be thrown away and re-derived from the canonical files. There is no canonical form of an account, so a rebuild that swept this in would delete every token in the deployment with no way back but the terminal.
 - **It cannot be reconstructed.** Everything else in a Flashback install can: sidecars rebuild the index, Seal rebuilds the sidecars. Nothing rebuilds this. **It is a backup obligation**, and the only one in the app.
+
+  On a **server** deployment that obligation is the whole backup story in one sentence, and it
+  is worth stating in deployment terms rather than leaving to inference: the volume holds
+  `config.json`, `accounts.db` and the vault. `accounts.db` sits *outside* the vault, so a
+  vault backup does not contain it — and it is the only copy of both the access list and every
+  non-owner's schedule. The workspace is canonical and must be backed up too; the derived
+  database is the one thing a Vault Doctor rebuild can reproduce. See `docs/SERVER.md`.
 - **It is not re-opened on a vault switch.** Accounts belong to the install; a person does not stop being the owner because they opened a different vault.
 
 ### Shape

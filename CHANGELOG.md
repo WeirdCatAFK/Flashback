@@ -2,6 +2,49 @@
 
 ## Unreleased
 
+### Flashback Server (new)
+
+Flashback can now run headless: one vault, several people, reached over HTTP by desktop
+clients that register it as a remote. It is the same backend the desktop app runs — not a
+fork — with authentication made mandatory and vault switching removed.
+
+- **`npm run server`**, plus a `Dockerfile` and `docker-compose.yml`. Configured entirely by
+  environment variables, merged non-destructively into the vault's `config.json`, so
+  hand-editing that file on a mounted volume keeps working.
+- On a fresh volume it bootstraps itself: creates the config, builds the vault, and prints an
+  **author token once**. Supply your own with `FLASHBACK_AUTHOR_TOKEN` instead if you prefer.
+- **Anonymous callers are refused.** On the desktop, a request with no token is treated as the
+  Author — a convenience that is an open door on a network. The server also refuses to start
+  when no usable token exists at all.
+- `POST /api/vault/switch` and `/release` return **404** on a server build. One vault per
+  server; a switch would close the database under every connected user at once.
+- `SIGTERM` shuts down cleanly — stop accepting, flush Seal's pending commits, checkpoint the
+  WAL — so a container restart does not lose recent writes.
+- Deployment, TLS, CORS and the backup obligation are documented in **`docs/SERVER.md`**.
+
+Nothing here changes the desktop app. Both switches are off unless the server entry point
+sets them, and the full suite passes unchanged.
+
+### Faster reviews on a shared vault
+
+Two pieces of work a reader's review was doing and then throwing away:
+
+- It read the **entire `.flashback` sidecar** off disk and parsed it, to validate a card that
+  the database had already resolved. That was ~40% of the cost of the request.
+- It recomputed and rewrote the document's **presence** score and every ancestor folder's —
+  a second whole-database transaction — to store the value it had just read. Presence is the
+  owner's number about the document; a reader's grade cannot move it.
+
+Measured end to end over HTTP, sustained review throughput went from **166/sec to 262/sec**
+(+58%), and requests stopped failing outright under 200 concurrent studiers. Single-user
+desktop use is unaffected in behaviour and slightly faster.
+
+### Fixed
+
+- `port: 0` — "let the OS choose a free port" — was silently turned into port 3000, so two
+  API instances in one process collided and the test suite always bound 3000 whether it was
+  free or not.
+
 ### Per-user spaced repetition
 
 A vault can now be studied by more than one person without them grading each other's cards.

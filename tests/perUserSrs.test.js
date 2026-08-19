@@ -362,4 +362,66 @@ describe('Per-user SRS', () => {
                 'account-scoped reads still need an index led by account_id');
         });
     });
+
+    // --- 5. What a reader's review does NOT touch ---------------------------------
+
+    describe('a reader\'s review leaves the owner\'s document alone', () => {
+        // `presence` is a STORED, sidecar-mirrored number about the document — the owner's
+        // claim about how well this material is known, not a per-viewer score. So a reader's
+        // grade must not move it, and `documents.submitReview` returns before
+        // propagatePresence for exactly that reason.
+        //
+        // Worth being exact about what this does and does not catch. It passed BEFORE
+        // propagatePresence was skipped for readers too, because that call recomputed an
+        // owner-scoped average the reader had not moved and wrote back the value it had
+        // just read. So this pins the invariant; it does not guard the saving. The saving —
+        // a second store-wide transaction plus ~3 queries per folder level on the hottest
+        // path a multi-user vault has — is guarded by `scripts/bench-reviews.js`, which is
+        // where a regression in it would actually show up.
+        const snapshot = async () => ({
+            documents: await db.prepare('SELECT id, presence FROM Documents ORDER BY id').all(),
+            folders: await db.prepare('SELECT id, presence FROM Folders ORDER BY id').all(),
+        });
+
+        it('does not move Documents.presence or any ancestor folder', async () => {
+            // Give presence a non-trivial value to move away from first.
+            await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 5));
+            const before = await snapshot();
+
+            await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 1));
+            await asAccount(rita, () => docs.submitReview(docRel, cardB, 1, 2.5, 5));
+
+            assert.deepEqual(await snapshot(), before,
+                "a reader's grade rewrote a number that belongs to the owner's document");
+        });
+
+        it('still records the reader\'s own progress while doing so', async () => {
+            // The guard above must not have been achieved by skipping the review itself.
+            const state = await query.getFlashcardSrsStateByHash(cardB, rita.id);
+            assert.equal(state.level, 5);
+        });
+
+        it('does not read the sidecar on the reader\'s path', async () => {
+            // The sidecar is read only to be mutated, which a reader never does. Proven by
+            // removing it: the owner's review needs the file and fails without it, a
+            // reader's does not. This is the property, not the timing — a future refactor
+            // that reintroduces the read would still pass every other test in this file.
+            const abs = docs.files.safePath(docRel) + '.flashback';
+            const saved = fs.readFileSync(abs);
+            fs.rmSync(abs);
+            try {
+                await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
+                assert.equal(
+                    (await query.getFlashcardSrsStateByHash(cardA, rita.id)).level, 4,
+                    'the reader\'s review should not depend on the sidecar at all',
+                );
+                await assert.rejects(
+                    () => asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 4)),
+                    'the owner\'s review DOES need the sidecar, and must still say so',
+                );
+            } finally {
+                fs.writeFileSync(abs, saved);
+            }
+        });
+    });
 });

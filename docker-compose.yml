@@ -1,0 +1,60 @@
+# Flashback Server — a minimal, complete deployment.
+#
+#   docker compose up --build
+#
+# On the FIRST start the log prints an author token, once. Copy it: the store keeps only its
+# SHA-256, so it cannot be shown again. Then add the server as a remote in the desktop app.
+#
+# This file deliberately publishes on loopback only. Putting a TLS-terminating reverse proxy
+# in front is not an optional hardening step — the API authenticates with a bearer token, and
+# a token sent over plain HTTP across a network is a token you have given away. See
+# docs/SERVER.md.
+
+services:
+  flashback:
+    build: .
+    image: flashback-server:local
+    restart: unless-stopped
+
+    # 127.0.0.1 on the host side: reachable by a reverse proxy on this machine, not by the
+    # network. Drop the prefix only if something else is terminating TLS in front of it.
+    ports:
+      - "127.0.0.1:50500:50500"
+
+    environment:
+      FLASHBACK_PORT: "50500"
+      FLASHBACK_HOST: "0.0.0.0"          # inside the container; the port mapping is the boundary
+      FLASHBACK_VAULT_NAME: "shared"
+
+      # Who this server stamps its own work as. Set these BEFORE the first start: without
+      # them the identity comes from the container's unix user, so documents and Seal
+      # commits are authored by "node <node@flashback.local>" forever after.
+      FLASHBACK_USER_NAME: "Flashback Server"
+      FLASHBACK_USER_EMAIL: "server@example.com"
+
+      # Browser origins allowed to call the API. Node clients (the MCP server, scripts) send
+      # no Origin header and are gated by the token instead, so this list is only about
+      # browsers. Loopback and the packaged renderer's `file://` origin are always allowed.
+      # FLASHBACK_ALLOWED_ORIGINS: "https://flashback.example.com"
+
+      # Supply your own author token instead of having one minted on first start. Prefer a
+      # secrets mechanism over a literal here — anything in this file is in your repo.
+      # FLASHBACK_AUTHOR_TOKEN: "${FLASHBACK_AUTHOR_TOKEN}"
+
+      FLASHBACK_LOG_FORMAT: "combined"
+
+    # Everything the deployment owns lives here: config.json, accounts.db, and the vault
+    # (workspace/, its git repo, the derived database, the diary).
+    #
+    # Back this up. `accounts.db` is the one store in the app that cannot be rebuilt from
+    # anything — it holds who may reach this install AND every non-owner's study schedule.
+    # The vault database is rebuildable by the Vault Doctor; the workspace is not.
+    volumes:
+      - flashback-data:/data
+
+    # The default 10s is not enough: shutdown flushes Seal's pending commits and checkpoints
+    # the WAL, and being killed mid-checkpoint is how a restart loses recent writes.
+    stop_grace_period: 30s
+
+volumes:
+  flashback-data:

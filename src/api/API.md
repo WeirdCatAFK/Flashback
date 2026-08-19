@@ -957,6 +957,8 @@ Identity and lifecycle of the vault this server is currently serving.
 
 `GET /api/vault` is the **handshake**, and the reason it exists is symmetry: a Flashback Server answers exactly this shape, so a client that can talk to the local API can talk to a remote one without learning which it is. The desktop app *is* a Flashback Server serving one vault.
 
+**On a server build (`config.singleVault`), `POST /switch` and `POST /release` are unmounted and answer `404`.** Not `403`: a client probing what a host can do should see a server that *cannot* switch vaults, rather than one that would if the caller had a better role. One vault per server is the model, and a switch closes the database and re-points every path resolver under every connected user at once. `GET /api/vault` and `GET /api/vault/list` are unaffected, so the handshake a remote depends on still works. See `docs/SERVER.md`.
+
 ### `GET /api/vault`
 
 **Response** `200`
