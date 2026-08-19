@@ -127,10 +127,10 @@ const GraphView      = lazy(() => import('./views/GraphView'));
 
 `App.jsx` also owns app zoom (Ctrl `+`/`−`/`0`, persisted as `fb-zoom`): it writes `--ui-zoom` on `<html>`, and `App.css` applies it as `#app-shell { zoom: var(--ui-zoom, 1) }`. That one declaration splits the renderer into two coordinate spaces, and mixing them is the single easiest geometry bug to write:
 
-| space | what reports it |
-|---|---|
-| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`) |
-| **layout** (unzoomed CSS px) | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
+| space                                | what reports it                                                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`)                                                          |
+| **layout** (unzoomed CSS px)   | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
 
 **The rule: position every floating overlay in layout space.** An overlay inside `#app-shell` needs nothing extra. One portaled to `document.body` carries `zoom: var(--ui-zoom, 1)` in its own CSS so it scales with the document it annotates (`SelectionToolbar.css`). Geometry arriving in viewport space is converted at the point of **capture**, never at render — that way every placement constant downstream stays plain layout px and no call site has to know any of this.
 
@@ -262,18 +262,18 @@ selection.
 
 Every renderer receives the same props from `DocumentEditor`:
 
-| Prop                 | Direction        | Purpose                                                                 |
-| -------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `path`               | in               | Active file path; changing it loads a new document.                     |
-| `draftContent`       | in               | Unsaved body to restore, or `undefined` to load from disk.              |
-| `saveRef`            | out (ref)        | Set to `(metaTransform?) => Promise` so the parent can trigger a save.  |
-| `highlightRef`       | out (ref)        | Set to the highlight command object (see below), or `null` if unsupported. |
-| `onDirtyChange`      | callback         | `(path, isDirty)` — drives the tab's dirty dot.                         |
-| `onDraftChange`      | callback         | `(path, body \| undefined)` — body on edit, `undefined` once saved.     |
-| `onHighlightsChange` | callback         | `(path, highlights[])` — registry after load and after each save.       |
-| `onSidecarRefresh`   | callback         | `(path, metadata)` — full sidecar after load/save (cards, tags, …).     |
-| `onExternalSelection`| callback         | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
-| `onImagePick`        | callback         | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it. |
+| Prop                    | Direction | Purpose                                                                                                                                  |
+| ----------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`                | in        | Active file path; changing it loads a new document.                                                                                      |
+| `draftContent`        | in        | Unsaved body to restore, or`undefined` to load from disk.                                                                              |
+| `saveRef`             | out (ref) | Set to`(metaTransform?) => Promise` so the parent can trigger a save.                                                                  |
+| `highlightRef`        | out (ref) | Set to the highlight command object (see below), or`null` if unsupported.                                                              |
+| `onDirtyChange`       | callback  | `(path, isDirty)` — drives the tab's dirty dot.                                                                                       |
+| `onDraftChange`       | callback  | `(path, body \| undefined)` — body on edit, `undefined` once saved.                                                                  |
+| `onHighlightsChange`  | callback  | `(path, highlights[])` — registry after load and after each save.                                                                     |
+| `onSidecarRefresh`    | callback  | `(path, metadata)` — full sidecar after load/save (cards, tags, …).                                                                  |
+| `onExternalSelection` | callback  | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
+| `onImagePick`         | callback  | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it.                  |
 
 A renderer that supports highlighting also exposes a **static** flag so the
 parent can enable the highlight toolbar without knowing the renderer's identity:
@@ -330,13 +330,13 @@ plain object, not a TipTap reference. `createHighlightCommands(editor)` in
 `highlights.js` is the TipTap implementation; a non-TipTap renderer (PDF,
 CodeMirror, …) can supply its own object of the same shape:
 
-| Method               | Returns                                              | Used by                  |
-| -------------------- | --------------------------------------------------- | ------------------------ |
-| `toggle(color)`      | `{ kind: 'created'\|'recolored'\|'removed', id }`   | color dots               |
-| `unset()`            | `{ kind: 'removed', id }` \| `null`                 | the ✕ button             |
-| `ensure(color?)`     | `{ kind: 'existing'\|'created', id }` \| `null`     | Card / Ref buttons       |
-| `currentId()`        | the highlight id under the selection, or `null`     | orphan-removal check     |
-| `scrollTo(id)`       | scrolls the view to that highlight                  | Highlights tab jump      |
+| Method             | Returns                                            | Used by              |
+| ------------------ | -------------------------------------------------- | -------------------- |
+| `toggle(color)`  | `{ kind: 'created'\|'recolored'\|'removed', id }`  | color dots           |
+| `unset()`        | `{ kind: 'removed', id }` \| `null`            | the ✕ button        |
+| `ensure(color?)` | `{ kind: 'existing'\|'created', id }` \| `null` | Card / Ref buttons   |
+| `currentId()`    | the highlight id under the selection, or`null`   | orphan-removal check |
+| `scrollTo(id)`   | scrolls the view to that highlight                 | Highlights tab jump  |
 
 The sidecar `highlights[]` registry shape is documented in `DATAMODEL.md`; it is
 uniform across anchoring strategies (offset fields are simply absent for inline
@@ -353,45 +353,44 @@ Current channels:
 
 **Vault, identity and connection channels** are the exception to "the renderer talks to the API over HTTP": the vault registry, the user identity and remote credentials belong to the machine rather than to any one vault, so they live in the main process. The identity channels are a deliberate split — main **writes** it (it owns the `user` key in `config.json`), while what would actually be *stamped* is resolved by the API and read from `GET /api/identity`, so the override → global → default precedence exists in one place instead of two that drift. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
 
-
-| Channel         | Direction        | Purpose                                                    |
-| --------------- | ---------------- | ---------------------------------------------------------- |
-| `get-api-url`      | renderer → main | Get the API base URL derived from config.json              |
-| `get-api-token`    | renderer → main | Get the API bearer token from config.json (for `initClient`) |
-| `get-config`       | renderer → main | Read the full config.json object                           |
-| `set-config`       | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
-| `is-first-run`     | renderer → main | True when config.json is absent or `--onboarding` was passed |
-| `complete-setup`   | renderer → main | Write initial config, mint token, spawn API; returns `{ ok, error? }` |
-| `restart-app`      | renderer → main | Relaunch the app                                           |
-| `get-user-data-path` | renderer → main | Electron userData path (onboarding path preview)         |
-| `get-mcp-config`   | renderer → main | Ready-to-paste MCP server config snippet                   |
-| `get-app-version`  | renderer → main | Running app version (Config → About)                       |
-| `updater-check`    | renderer → main | Check GitHub for a newer version; `{ ok, version?, dev?, error? }` |
-| `updater-download` | renderer → main | Download the available update; `{ ok, error? }`            |
-| `updater-install`  | renderer → main | Quit and install the downloaded update                     |
-| `update-status`    | main → renderer | Update lifecycle events (`checking`/`available`/`downloading`/`downloaded`/`none`/`error`); subscribe via `onUpdateStatus` |
-| `renderer-error`   | renderer → main | Forward an uncaught renderer error into the main log file  |
-| `flashback-navigate` | main → renderer | `flashback://` link that reached `will-navigate` (safety net) |
-| `window-minimize`  | renderer → main | Minimize the window                                        |
-| `window-maximize`  | renderer → main | Maximize or unmaximize the window                          |
-| `window-close`     | renderer → main | Close the window (hides to tray unless quitting)           |
-| `list-vaults`      | renderer → main | Registered local vaults + `activeVaultId`, each with resolved `path`/`active`/`missing` |
-| `create-vault`     | renderer → main | Create and register an empty vault; `{ ok, vault?, error? }` |
-| `rename-vault`     | renderer → main | Release the DB, move folder **and** `{name}.db`, switch back, repair the index |
-| `remove-vault`     | renderer → main | Unregister a vault. Never deletes files                    |
-| `switch-vault`     | renderer → main | Ask the API to open another local vault in-process         |
-| `open-vault-from-disk` | renderer → main | Directory picker; adopts an existing vault where it stands |
-| `get-identity`     | renderer → main | What is **stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
-| `set-identity`     | renderer → main | Set the global `{name, email}`; both halves required. `{ ok, error?, field?, code? }` |
-| `set-vault-identity` | renderer → main | Set or (with `null`) clear this vault's identity override |
-| `list-remotes`     | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token |
-| `add-remote`       | renderer → main | Register a remote; its token is encrypted via `safeStorage` |
-| `remove-remote`    | renderer → main | Unregister a remote                                        |
-| `test-remote`      | renderer → main | Handshake `GET <url>/api/vault`; `{ ok, identity?, error? }` |
-| `get-active-connection` | renderer → main | `{ kind: 'local'\|'remote', id, label, url, token }` — what `initClient` needs |
-| `use-local-vault`  | renderer → main | Point the app back at the local API                        |
-| `use-remote`       | renderer → main | Handshake, then point the app at a remote                  |
-| `connection-changed` | main → renderer | The active connection moved; subscribe via `onConnectionChange` |
+| Channel                   | Direction        | Purpose                                                                                                                                                                                                 |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-api-url`           | renderer → main | Get the API base URL derived from config.json                                                                                                                                                           |
+| `get-api-token`         | renderer → main | Get the API bearer token from config.json (for`initClient`)                                                                                                                                           |
+| `get-config`            | renderer → main | Read the full config.json object                                                                                                                                                                        |
+| `set-config`            | renderer → main | Write a new config.json object; returns`{ ok, error? }`                                                                                                                                               |
+| `is-first-run`          | renderer → main | True when config.json is absent or`--onboarding` was passed                                                                                                                                           |
+| `complete-setup`        | renderer → main | Write initial config, mint token, spawn API; returns`{ ok, error? }`                                                                                                                                  |
+| `restart-app`           | renderer → main | Relaunch the app                                                                                                                                                                                        |
+| `get-user-data-path`    | renderer → main | Electron userData path (onboarding path preview)                                                                                                                                                        |
+| `get-mcp-config`        | renderer → main | Ready-to-paste MCP server config snippet                                                                                                                                                                |
+| `get-app-version`       | renderer → main | Running app version (Config → About)                                                                                                                                                                   |
+| `updater-check`         | renderer → main | Check GitHub for a newer version;`{ ok, version?, dev?, error? }`                                                                                                                                     |
+| `updater-download`      | renderer → main | Download the available update;`{ ok, error? }`                                                                                                                                                        |
+| `updater-install`       | renderer → main | Quit and install the downloaded update                                                                                                                                                                  |
+| `update-status`         | main → renderer | Update lifecycle events (`checking`/`available`/`downloading`/`downloaded`/`none`/`error`); subscribe via `onUpdateStatus`                                                                |
+| `renderer-error`        | renderer → main | Forward an uncaught renderer error into the main log file                                                                                                                                               |
+| `flashback-navigate`    | main → renderer | `flashback://` link that reached `will-navigate` (safety net)                                                                                                                                       |
+| `window-minimize`       | renderer → main | Minimize the window                                                                                                                                                                                     |
+| `window-maximize`       | renderer → main | Maximize or unmaximize the window                                                                                                                                                                       |
+| `window-close`          | renderer → main | Close the window (hides to tray unless quitting)                                                                                                                                                        |
+| `list-vaults`           | renderer → main | Registered local vaults +`activeVaultId`, each with resolved `path`/`active`/`missing`                                                                                                          |
+| `create-vault`          | renderer → main | Create and register an empty vault;`{ ok, vault?, error? }`                                                                                                                                           |
+| `rename-vault`          | renderer → main | Release the DB, move folder**and** `{name}.db`, switch back, repair the index                                                                                                                   |
+| `remove-vault`          | renderer → main | Unregister a vault. Never deletes files                                                                                                                                                                 |
+| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process                                                                                                                                                      |
+| `open-vault-from-disk`  | renderer → main | Directory picker; adopts an existing vault where it stands                                                                                                                                              |
+| `get-identity`          | renderer → main | What is**stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
+| `set-identity`          | renderer → main | Set the global`{name, email}`; both halves required. `{ ok, error?, field?, code? }`                                                                                                                |
+| `set-vault-identity`    | renderer → main | Set or (with`null`) clear this vault's identity override                                                                                                                                              |
+| `list-remotes`          | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token                                                                                                                          |
+| `add-remote`            | renderer → main | Register a remote; its token is encrypted via`safeStorage`                                                                                                                                            |
+| `remove-remote`         | renderer → main | Unregister a remote                                                                                                                                                                                     |
+| `test-remote`           | renderer → main | Handshake`GET <url>/api/vault`; `{ ok, identity?, error? }`                                                                                                                                         |
+| `get-active-connection` | renderer → main | `{ kind: 'local'\|'remote', id, label, url, token }` — what `initClient` needs                                                                                                                      |
+| `use-local-vault`       | renderer → main | Point the app back at the local API                                                                                                                                                                     |
+| `use-remote`            | renderer → main | Handshake, then point the app at a remote                                                                                                                                                               |
+| `connection-changed`    | main → renderer | The active connection moved; subscribe via`onConnectionChange`                                                                                                                                        |
 
 ---
 
@@ -417,25 +416,25 @@ switch themes; every component inherits the new palette automatically via CSS ca
 
 All variables are declared in `src/ui/index.css`. Every theme must define all of them.
 
-| Variable | Semantic meaning |
-|---|---|
-| `--color-bg-base` | Window / outermost background |
-| `--color-bg-sidebar` | Activity bar background |
-| `--color-bg-surface` | Panels, cards, content areas |
-| `--color-bg-hover` | Hover state on interactive elements |
-| `--color-fg-primary` | Primary text |
-| `--color-fg-secondary` | Muted / secondary text |
-| `--color-fg-icon` | Inactive icon tint |
-| `--color-accent` | Active indicator, links, focus rings |
-| `--color-border` | Dividers and outlines |
-| `--color-title-bar` | Drag region background |
-| `--color-accent-subtle` | Very low-opacity accent tint — selected item backgrounds, drag targets |
-| `--color-tree-indent` | File tree indentation line — can be accent-tinted per theme |
-| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body) |
-| `--color-hl-amber` | Document highlight — amber swatch |
-| `--color-hl-green` | Document highlight — green swatch |
-| `--color-hl-blue` | Document highlight — blue swatch |
-| `--color-hl-pink` | Document highlight — pink swatch |
+| Variable                   | Semantic meaning                                                        |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `--color-bg-base`        | Window / outermost background                                           |
+| `--color-bg-sidebar`     | Activity bar background                                                 |
+| `--color-bg-surface`     | Panels, cards, content areas                                            |
+| `--color-bg-hover`       | Hover state on interactive elements                                     |
+| `--color-fg-primary`     | Primary text                                                            |
+| `--color-fg-secondary`   | Muted / secondary text                                                  |
+| `--color-fg-icon`        | Inactive icon tint                                                      |
+| `--color-accent`         | Active indicator, links, focus rings                                    |
+| `--color-border`         | Dividers and outlines                                                   |
+| `--color-title-bar`      | Drag region background                                                  |
+| `--color-accent-subtle`  | Very low-opacity accent tint — selected item backgrounds, drag targets |
+| `--color-tree-indent`    | File tree indentation line — can be accent-tinted per theme            |
+| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body)           |
+| `--color-hl-amber`       | Document highlight — amber swatch                                      |
+| `--color-hl-green`       | Document highlight — green swatch                                      |
+| `--color-hl-blue`        | Document highlight — blue swatch                                       |
+| `--color-hl-pink`        | Document highlight — pink swatch                                       |
 
 ### Built-in themes
 
