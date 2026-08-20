@@ -39,6 +39,22 @@ Measured end to end over HTTP, sustained review throughput went from **166/sec t
 (+58%), and requests stopped failing outright under 200 concurrent studiers. Single-user
 desktop use is unaffected in behaviour and slightly faster.
 
+### Standalone server zip
+
+`npm run package:server` builds a self-contained Flashback Server: one bundled, minified ESM
+file plus the three packages that resolve their own files at runtime. **7.8 MB zipped**, or
+about 35 MB with the Node runtime embedded (`npm run package:server:standalone`), against
+365 MB for the container image.
+
+A single executable is not available: Node's SEA feature runs the embedded entry point as
+CommonJS only, and the server needs top-level await. esbuild's ESM output has no such limit,
+which is what makes the bundle possible at all.
+
+Artifacts are platform-specific because `better-sqlite3` is a compiled addon, and the build
+refuses to package one that the current Node cannot load — which is what stops a zip built
+straight after `npm run dist:win` (where the addon is compiled for Electron) from shipping
+broken.
+
 ### Smaller builds
 
 `dependencies` had accumulated the whole frontend. React, tiptap, epubjs, katex, the remark
@@ -66,6 +82,9 @@ in the installer and the container without ever being loaded.
 - `port: 0` — "let the OS choose a free port" — was silently turned into port 3000, so two
   API instances in one process collided and the test suite always bound 3000 whether it was
   free or not.
+- The `GET /api/vault` handshake reported `appVersion: null` when the API ran from a bundle,
+  because the version was read from a path relative to the route module. That field is half
+  the compatibility contract a client checks.
 
 ### Per-user spaced repetition
 

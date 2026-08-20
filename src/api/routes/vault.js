@@ -12,13 +12,21 @@ const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next))
 
 // Read once at import — package.json is inside app.asar in a packaged build, where it is
 // readable but never changes for the life of the process.
+//
+// Two candidate locations, because this module does not always sit three levels below the
+// manifest. In the repo and inside app.asar it is `src/api/routes/`, so `../../..` is right.
+// In the bundled standalone server the whole API is one file with its manifest beside it, and
+// `../../..` resolves outside the artifact — which silently reported `appVersion: null` in the
+// handshake, a field clients use as half the compatibility contract.
 const APP_VERSION = (() => {
-    try {
-        const here = path.dirname(fileURLToPath(import.meta.url));
-        return JSON.parse(readFileSync(path.join(here, '../../../package.json'), 'utf-8')).version;
-    } catch {
-        return null;
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    for (const candidate of ['../../../package.json', './package.json']) {
+        try {
+            const { version } = JSON.parse(readFileSync(path.join(here, candidate), 'utf-8'));
+            if (version) return version;
+        } catch { /* try the next location */ }
     }
+    return null;
 })();
 
 /**

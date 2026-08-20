@@ -33,11 +33,43 @@ Copy it. The accounts store keeps only its SHA-256, so it genuinely cannot be sh
 if you lose it, mint a new one with `npm run pure-token` (below). Then add the server in the
 desktop app as a remote, using that token.
 
-To run it without Docker:
+To run it without Docker, from a checkout:
 
 ```bash
 USER_DATA_PATH=/srv/flashback FLASHBACK_VAULT_NAME=shared npm run server
 ```
+
+### Standalone zip
+
+**Docker is the recommended deployment.** It pins the Node version, handles the native build,
+gets `SIGTERM` right, and makes upgrading two commands (see Upgrading). The zip exists for
+people who will not run containers.
+
+`npm run package:server` produces a self-contained artifact in `dist-server/` — one bundled
+file plus the few packages that resolve their own files at runtime:
+
+```
+flashback-server-<version>-<platform>/
+  server.mjs                 the whole API, bundled and minified (~8 MB)
+  node_modules/              better-sqlite3 (native), pdfjs-dist, jsdom
+  flashback-server.sh        launcher (.cmd on a Windows build)
+  README.txt
+```
+
+Only the launcher for the build platform is included — the artifact is platform-specific
+anyway, so shipping the other one only invites running the wrong thing.
+
+About 7.8 MB zipped; requires Node 22 on PATH. `npm run package:server:standalone` embeds the
+Node runtime as well (~35 MB zipped, no prerequisite at all).
+
+**The artifact is platform-specific**, because `better-sqlite3` is a compiled addon — build
+each platform's zip on that platform. The build refuses to package an addon this Node cannot
+load, which is what stops a zip built right after `npm run dist:win` (where the addon is
+compiled for Electron) from shipping broken.
+
+The source map is written *outside* the artifact, as `dist-server/<name>.server.mjs.map`. Keep
+it: it is how a minified stack trace from a customer becomes readable. Minification is a speed
+bump for casual reading, not secrecy — anyone with the bytes can recover the logic.
 
 ---
 
@@ -235,13 +267,31 @@ Two structural limits behind that number, worth knowing before you plan around i
 
 ## Upgrading
 
-Schema migrations and canonical updates run automatically at startup. Two cautions:
+**Docker is the reason to prefer the container over the zip.** An upgrade is two commands,
+nothing on the server is edited by hand, and only changed layers are transferred:
+
+```bash
+docker compose pull
+docker compose up -d
+```
+
+The volume persists, migrations run at boot, and the server prints what it applied. Rolling
+back is pinning the previous tag — subject to the caution below.
+
+Upgrading the **zip** is manual by comparison: stop the service, replace `server.mjs` and
+`node_modules/`, keep `data/`, start it again. Workable, but every step is yours to get right,
+which is why the container is the recommended deployment on Linux.
+
+Three cautions either way:
 
 - **Migrations are one-way.** Migration 010 (per-account progress) drops columns an older
-  build still reads. Rolling a container image *back* past it will fail loudly against an
-  already-migrated vault. See `CHANGELOG.md`.
-- Take a volume snapshot before a major upgrade. The migrations are tested, but the vault is
-  the only copy of the documents.
+  build still reads. Rolling an image *back* past it will fail loudly against an
+  already-migrated vault — loudly is the good case. See `CHANGELOG.md`.
+- **Snapshot the volume before a major upgrade.** The migrations are tested, but the vault is
+  the only copy of the documents, and `accounts.db` is the only copy of the access list.
+- **Migrations run at boot, for every instance.** If you operate several servers, a bad
+  migration reaches all of them the moment they restart. Roll a new tag out to one instance
+  first and let it run for a day before the rest.
 
 ---
 
