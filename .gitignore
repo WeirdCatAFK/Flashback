@@ -143,5 +143,7 @@ Backlog.md
 Features.md
 RELEASING.md
 OldBacklog.md
+docs/superpowers
+docs/SERVER.md
 # Standalone server artifacts (scripts/package-server.js)
 dist-server
