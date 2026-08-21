@@ -135,6 +135,12 @@ dist-react
 #Standalone api data
 /data/
 
+# Test scratch vaults. Each tests/*.test.js points USER_DATA_PATH at one of these and its
+# teardown removes it — but a crashed run leaves one behind, and a committed one poisons CI:
+# its DB holds this machine's absolute paths and a checkout gets the index without the files.
+/data_test_*/
+/data_bench/
+
 #Vibecoding
 CLAUDE.md
 .claudeignore
