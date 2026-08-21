@@ -15,6 +15,11 @@ import zlib from 'node:zlib';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_imports');
 
+// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
+// crashed run leaves it behind and the next run then imports into a vault that already has
+// the documents it is about to assert on.
+fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
+
 if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);

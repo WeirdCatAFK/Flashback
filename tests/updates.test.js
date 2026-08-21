@@ -22,6 +22,11 @@ import crypto from 'crypto';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_updates');
 
+// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
+// crashed run leaves it behind — including a CanonicalVersion row and already-stamped
+// sidecars, which would make the pending-work assertions pass for the wrong reason.
+fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
+
 const { default: validate } = await import('../src/api/config/validate.js');
 if (!await validate()) {
     console.error('Validation failed.');
