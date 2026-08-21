@@ -11,16 +11,19 @@ name: Release
 # Requires no extra secrets: the built-in GITHUB_TOKEN can create releases and
 # upload assets for this repo.
 #
-# Three jobs:
-#   release      — the desktop installers, one per platform (matrix)
-#   server-image — builds the Docker image and boots a real container; publishes nothing
-#   server-zip   — builds the standalone Linux server zip, boots it, exercises the API,
-#                  and attaches it to the same draft release
+# Four jobs:
+#   release            — the desktop installers, one per platform (matrix)
+#   server-image       — builds the Docker image and boots a real container; publishes nothing
+#   server-zip         — builds the standalone Linux server zip, boots it, exercises the API,
+#                        and attaches it to the same draft release
+#   server-zip-windows — the same for Windows, in PowerShell, and in two variants (with and
+#                        without an embedded node.exe). It asserts recovery from a hard kill
+#                        rather than a graceful stop, because Windows has no signals to send.
 #
-# The two server jobs ran on every push until now (`test.yml`). They are release-cadence
-# because what they protect is a release artifact. `server-zip` therefore `needs: release`:
-# the draft it uploads into is created by electron-builder, so the installers must land
-# first. A failed installer build skips the server zip — on a tag that is not shipping
+# The server jobs ran on every push until now (`test.yml`). They are release-cadence
+# because what they protect is a release artifact. Both zip jobs therefore `need: release`:
+# the draft they upload into is created by electron-builder, so the installers must land
+# first. A failed installer build skips the server zips — on a tag that is not shipping
 # anyway, which is the right coupling to accept.
 
 on:
@@ -234,3 +237,164 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$GITHUB_REF_NAME" dist-server/flashback-server-*-linux-x64.zip --clobber
+
+  server-zip-windows:
+    name: Standalone zip (Windows)
+    runs-on: windows-latest
+    # Same reason as the Linux job: the draft it uploads into is created by electron-builder.
+    needs: release
+    # PowerShell throughout rather than the runner's Git Bash. The bash job's three load-bearing
+    # verbs — `unzip`, `nohup`, `kill -TERM` — are exactly the ones that do not mean the same
+    # thing on Windows, so copying its steps would look portable and behave differently.
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Both variants, because a Windows box is far less likely to have Node 22 on PATH than a
+      # Linux server is. They differ only in the embedded runtime and are named apart
+      # (`-standalone`) so neither overwrites the other.
+      - name: Build both zips
+        run: |
+          npm run package:server
+          npm run package:server:standalone
+
+      - name: Unpack and check what shipped
+        run: |
+          Set-Location dist-server
+          $zip = (Get-ChildItem 'flashback-server-*-win32-x64.zip' | Where-Object { $_.Name -notlike '*standalone*' })[0]
+          Expand-Archive -Path $zip.FullName -DestinationPath extracted
+          # Fixed path so every later step can address it literally, exactly as the Linux job does.
+          Move-Item (Get-ChildItem extracted -Directory)[0].FullName app
+          Get-ChildItem app | Select-Object Name, Length
+
+          # The mirror of the Linux job's assertion: one launcher, and it is this platform's.
+          if (-not (Test-Path 'app/flashback-server.cmd')) { throw 'flashback-server.cmd is missing' }
+          if (Test-Path 'app/flashback-server.sh') { throw 'the shell launcher should not be in a Windows artifact' }
+
+          # The standalone variant's whole promise is that it needs nothing installed.
+          $std = (Get-ChildItem 'flashback-server-*-win32-x64-standalone.zip')[0]
+          Expand-Archive -Path $std.FullName -DestinationPath standalone
+          $exe = Get-ChildItem standalone -Recurse -Filter node.exe
+          if (-not $exe) { throw 'the standalone zip does not embed node.exe' }
+          '  standalone embeds node.exe ({0:N1} MB)' -f ($exe[0].Length / 1MB)
+
+      # PDF and EPUB are the formats that resolve package files at RUNTIME (pdfjs needs its
+      # worker and standard_fonts; jsdom needs its own stylesheet from __dirname). Both pass a
+      # markdown-only smoke test while being completely broken, so they are built here.
+      - name: Build reader fixtures
+        run: |
+          New-Item -ItemType Directory -Force dist-server/app/data/ci/workspace | Out-Null
+          node --input-type=module -e "
+            import fs from 'fs';
+            const { buildPdf, buildEpub } = await import('./tests/fixtures.js');
+            const dir = 'dist-server/app/data/ci/workspace/';
+            fs.writeFileSync(dir + 't.pdf', buildPdf([['Hello Flashback','page one']]));
+            fs.writeFileSync(dir + 't.epub', buildEpub([
+              { href: 'c1.xhtml', title: 'Chapter One', body: '<h1>Chapter One</h1><p>readable</p>' },
+            ]));
+          "
+
+      - name: Boot it via the .cmd launcher
+        run: |
+          $app = Resolve-Path dist-server/app
+          $env:FLASHBACK_PORT = '50500'
+          $env:FLASHBACK_HOST = '127.0.0.1'
+          $env:FLASHBACK_VAULT_NAME = 'ci'
+          $p = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot.log" -RedirectStandardError "$app/boot.err.log"
+          $p.Id | Out-File "$app/pid.txt"
+          foreach ($i in 1..60) {
+            try {
+              Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 2 | Out-Null
+              "ready after ${i}s"
+              break
+            } catch {
+              if ($i -eq 60) { Get-Content "$app/boot.log", "$app/boot.err.log"; throw 'never became ready' }
+              Start-Sleep -Seconds 1
+            }
+          }
+
+      - name: Exercise the API
+        run: |
+          $app = Resolve-Path dist-server/app
+          $m = Select-String -Path "$app/boot.log" -Pattern '^\s*([0-9a-f]{64})\s*$'
+          if (-not $m) { Get-Content "$app/boot.log"; throw 'no token was minted' }
+          $token = $m.Matches[0].Groups[1].Value
+          $H = @{ Authorization = "Bearer $token" }
+
+          function Check($name, $expected, $method, $url, $headers) {
+            try { $code = (Invoke-WebRequest -Uri $url -Method $method -Headers $headers -UseBasicParsing -TimeoutSec 60).StatusCode }
+            catch { $code = $_.Exception.Response.StatusCode.value__ }
+            '  {0,-34} {1}' -f $name, $code
+            if ("$code" -ne "$expected") { throw "$name expected $expected, got $code" }
+          }
+          Check 'anonymous /api'      401 GET  'http://127.0.0.1:50500/api/documents/list?path=' @{}
+          Check 'authenticated /api'  200 GET  'http://127.0.0.1:50500/api/documents/list?path=' $H
+          Check 'vault/switch absent' 404 POST 'http://127.0.0.1:50500/api/vault/switch'        $H
+          Check 'seal log'            200 GET  'http://127.0.0.1:50500/api/seal/log?depth=1'    $H
+
+          foreach ($fmt in 'pdf', 'epub') {
+            $body = (Invoke-WebRequest "http://127.0.0.1:50500/api/reader/read?path=t.$fmt" -Headers $H -UseBasicParsing -TimeoutSec 120).Content
+            if ($body -match '"error"') { throw "$fmt extraction failed: $body" }
+            "  $fmt extraction ok"
+          }
+
+      # Windows has no signals. `Stop-Process` and `taskkill` map to TerminateProcess, so no
+      # SIGTERM handler runs and "Shutdown complete" can never be asserted from outside the
+      # console — Ctrl+C reaches the handler, but that is not drivable from CI. So this asserts
+      # the property that actually matters after an ungraceful stop on Windows: the vault
+      # recovers. The kill leaves the whole database in an unread WAL (ci.db stays at 4 KB), so
+      # a second boot that lists both documents has genuinely replayed it.
+      - name: Survive a hard kill and reopen
+        run: |
+          $app = Resolve-Path dist-server/app
+          taskkill /PID (Get-Content "$app/pid.txt").Trim() /T /F
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path "$app/data/ci/ci.db-wal")) { throw 'expected an unchecked WAL after a hard kill' }
+
+          $env:FLASHBACK_PORT = '50500'
+          $env:FLASHBACK_HOST = '127.0.0.1'
+          $env:FLASHBACK_VAULT_NAME = 'ci'
+          $p = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot2.log" -RedirectStandardError "$app/boot2.err.log"
+          foreach ($i in 1..60) {
+            try {
+              Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 2 | Out-Null
+              "reopened after ${i}s"
+              break
+            } catch {
+              if ($i -eq 60) { Get-Content "$app/boot2.log", "$app/boot2.err.log"; throw 'never reopened' }
+              Start-Sleep -Seconds 1
+            }
+          }
+
+          # accounts.db is outside the vault and is the one store nothing can rebuild: the first
+          # token must still work, and no second one may be minted.
+          $token = (Select-String -Path "$app/boot.log" -Pattern '^\s*([0-9a-f]{64})\s*$').Matches[0].Groups[1].Value
+          $body = (Invoke-WebRequest 'http://127.0.0.1:50500/api/documents/list?path=' -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing).Content
+          foreach ($doc in 't.pdf', 't.epub') {
+            if ($body -notmatch [regex]::Escape($doc)) { throw "$doc did not survive the hard kill: $body" }
+          }
+          if (Select-String -Path "$app/boot2.log" -Pattern 'AUTHOR TOKEN') { throw 'a second token was minted — the accounts store did not persist' }
+          '  vault and access list both survived'
+          taskkill /PID $p.Id /T /F
+
+      # Both variants go to the SAME draft the installers and the Linux zip went to.
+      # Pinned to this version rather than globbed loosely: `*-win32-x64*.zip` also matches an
+      # older build sitting in dist-server, which is not possible on a fresh runner but is
+      # exactly what happens when someone runs these steps locally. The count check turns a
+      # renamed artifact into a failure here rather than a release that quietly ships one zip.
+      - name: Attach the zips to the draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $v = (Get-Content package.json -Raw | ConvertFrom-Json).version
+          $zips = @(Get-ChildItem "dist-server/flashback-server-$v-win32-x64*.zip")
+          $zips | ForEach-Object { '  {0}  {1:N1} MB' -f $_.Name, ($_.Length / 1MB) }
+          if ($zips.Count -ne 2) { throw "expected 2 Windows zips for $v, found $($zips.Count)" }
+          gh release upload "$env:GITHUB_REF_NAME" $zips.FullName --clobber

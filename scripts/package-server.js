@@ -31,7 +31,8 @@
  *
  * Usage:
  *   node scripts/package-server.js                 # bundle + zip for this platform
- *   node scripts/package-server.js --with-node     # embed the Node runtime (no prerequisite)
+ *   node scripts/package-server.js --with-node     # embed the Node runtime (no prerequisite);
+ *                                                 #   named <…>-standalone.zip so both can coexist
  *   node scripts/package-server.js --no-minify     # readable output, for debugging
  *   node scripts/package-server.js --no-zip        # leave the staging directory only
  */
@@ -54,7 +55,11 @@ const WITH_NODE = has('--with-node');
 const ZIP = !has('--no-zip');
 
 const platform = `${process.platform}-${process.arch}`;
-const name = `flashback-server-${pkg.version}-${platform}`;
+// `--with-node` produces a DIFFERENT artifact for the same version and platform — four times
+// the size, no prerequisite — so it needs a different name. Both used to be called the same
+// thing, which meant building both in one checkout silently overwrote the first with the
+// second, and a release page could only ever carry one of them.
+const name = `flashback-server-${pkg.version}-${platform}${WITH_NODE ? '-standalone' : ''}`;
 const outRoot = path.join(root, 'dist-server');
 const stage = path.join(outRoot, name);
 

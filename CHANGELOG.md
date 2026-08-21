@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+### Added — Flashback Server for Windows
+
+The headless server was published for Linux only. Every release now also carries two Windows
+builds, attached to the same GitHub Release as the desktop installers:
+`flashback-server-<version>-win32-x64.zip` needs Node 22 on PATH, and
+`…-win32-x64-standalone.zip` embeds `node.exe` and needs nothing installed at all. Both are
+built and smoke-tested on a Windows runner — booted through their `.cmd` launcher, with the
+API, PDF extraction and EPUB extraction exercised against the real artifact.
+
+One caveat worth knowing before you run one as a service: Windows has no signals. `Ctrl+C` in
+the console shuts down cleanly, but `taskkill` and every service wrapper terminate the process
+outright, so the WAL is not checkpointed. Nothing is lost — SQLite replays it on the next
+start, and CI asserts that it does — but Docker remains the recommended deployment.
+
 ### Fixed — tags typed on a standalone card went nowhere
 
 A card made outside a document — the "New standalone card" button, or an AI assistant
