@@ -73,7 +73,7 @@ function upgradeItem(meta, kind, updates, target) {
  */
 export default async function runUpdates({ updates = UPDATES, force = false, seal = true } = {}) {
     const target = updates.reduce((max, u) => Math.max(max, u.version), 0);
-    const applied = query.getCanonicalVersions();
+    const applied = await query.getCanonicalVersions();
     const pending = updates.filter(u => !applied.has(u.version)).map(u => u.version).sort((a, b) => a - b);
 
     const result = {
@@ -88,6 +88,12 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     result.walked = true;
     const files = new Files();
     const decks = new Decks();
+    // The walk below reads `_decks/*.json`, and the system deck's file is created lazily.
+    // It used to be materialized as a side effect of `new Decks()`; that check reads the
+    // schema, so it moved to an awaited call when the data layer became async. Without
+    // this the deck pass silently walks nothing on a vault whose system deck has never
+    // been written.
+    await decks.onVaultOpened();
 
     const walk = files.walkWorkspace();
 
@@ -124,7 +130,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     }
 
     // Standalone cards live in _decks/*.json, whose IO stays inside the Decks module.
-    const deckResult = decks.mapDeckFiles((file) => upgradeItem(file, 'deck', updates, target).changed);
+    const deckResult = await decks.mapDeckFiles((file) => upgradeItem(file, 'deck', updates, target).changed);
     result.decks = deckResult.filesRewritten;
     for (const hash of deckResult.corruptFiles) {
         result.warnings.push(`Unreadable deck file, left untouched: _decks/${hash}.json`);
@@ -138,7 +144,9 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     for (const update of updates) {
         if (typeof update.derived !== 'function') continue;
         try {
-            result.derivedRows += update.derived(query) ?? 0;
+            // Awaited: a derived fix-up reads and writes the index, so it is async now.
+            // Without the await this adds a Promise to a number and reports NaN rows.
+            result.derivedRows += await update.derived(query) ?? 0;
         } catch (err) {
             result.warnings.push(`Derived fix-up failed for update ${update.version}: ${err.message}`);
         }
@@ -154,7 +162,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     // the next launch walks again and picks it up.
     if (result.warnings.length === 0) {
         for (const update of updates) {
-            if (!applied.has(update.version)) query.recordCanonicalVersion(update.version, update.description);
+            if (!applied.has(update.version)) await query.recordCanonicalVersion(update.version, update.description);
         }
         result.recorded = true;
     }

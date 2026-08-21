@@ -130,7 +130,12 @@ export default function VaultSwitcher({ connection, onManageVaults }) {
               className={`vault-switcher__item${v.active && !isRemote ? ' is-active' : ''}`}
               aria-current={v.active && !isRemote ? 'true' : undefined}
               disabled={!!busy || v.missing}
-              onClick={() => (v.active && !isRemote ? handleUseLocal() : handleSwitchVault(v.id))}
+              // `v.active` means the local API already has this vault OPEN, which is true
+              // whether or not the renderer is currently pointed at a remote. So going to it
+              // is a pure re-point — no database work, and nothing that can fail. That
+              // matters most in the case this is usually used for: getting off a server that
+              // is misconfigured or not answering. Only a DIFFERENT vault needs a real switch.
+              onClick={() => (v.active ? handleUseLocal() : handleSwitchVault(v.id))}
             >
               {/* A dot, not a tick. A tick reads as "done"; the question this menu answers
                   is "which one am I in", which is a state, not a completed action. */}

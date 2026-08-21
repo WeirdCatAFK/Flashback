@@ -2,9 +2,14 @@ import { useState, useEffect, useCallback } from 'react';
 import { getTags, getEntityTags } from '../../../api/documents';
 import TagChipInput from '../../shared/TagChipInput';
 import { useT } from '../../../translations';
+import { useSession } from '../../../sessionContext.js';
 
 export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChange }) {
   const { t } = useT();
+  // Tagging writes the sidecar, so it is an annotation. The tags themselves stay readable
+  // without the role — they are how a document is filed, and a Reader needs to see that.
+  const { can } = useSession();
+  const mayEdit = can('annotate');
   const [directTags, setDirectTags]     = useState(propTags);
   const [inheritedTags, setInheritedTags] = useState([]);
   const [allKnownTags, setAllKnownTags] = useState([]);
@@ -88,14 +93,22 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
 
       <div className="tags-section">
         <div className="tags-section-label">{t('Direct tags')}</div>
-        <TagChipInput
-          tags={directTags}
-          onAdd={addTag}
-          onRemove={removeTag}
-          allKnownTags={allKnownTags}
-          placeholder={t('Add tag…')}
-          chipClass="tag-chip--direct"
-        />
+        {mayEdit ? (
+          <TagChipInput
+            tags={directTags}
+            onAdd={addTag}
+            onRemove={removeTag}
+            allKnownTags={allKnownTags}
+            placeholder={t('Add tag…')}
+            chipClass="tag-chip--direct"
+          />
+        ) : (
+          <div className="tags-chip-row">
+            {directTags.map(tag => (
+              <span key={tag} className="tag-chip tag-chip--direct">{tag}</span>
+            ))}
+          </div>
+        )}
       </div>
 
       {error && <p className="tags-error">{error}</p>}
@@ -111,7 +124,9 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
 
       {!dirty && directTags.length === 0 && inheritedTags.length === 0 && (
         <p className="inspector-placeholder" style={{ marginTop: 12 }}>
-          {t('No tags yet. Add a direct tag above, or assign tags to a parent folder.')}
+          {mayEdit
+            ? t('No tags yet. Add a direct tag above, or assign tags to a parent folder.')
+            : t('No tags on this document.')}
         </p>
       )}
     </div>

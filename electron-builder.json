@@ -1,7 +1,7 @@
 {
   "appId": "com.dpineda.flashback",
   "productName": "Flashback",
-  "files": ["dist-react", "src/api", "src/electron", "src/mcp"],
+  "files": ["dist-react", "src/api", "src/electron", "src/mcp", "src/shared"],
   "icon": "flashback.ico",
   "extraResources": ["flashback.ico", "flashback.png"],
   "publish": [

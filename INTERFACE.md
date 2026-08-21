@@ -91,6 +91,59 @@ Server state (data fetched from the API) lives in TanStack Query hooks. Local UI
 
 **Do not lift server state into a parent component or React Context.** Each view fetches its own data. This scopes re-renders and makes views independently loadable.
 
+#### The one exception: session identity
+
+`src/ui/session.jsx` provides `SessionProvider`, and `src/ui/sessionContext.js` the
+`useSession()` / `useCan()` hooks that read it. It holds **who you are on the connected vault
+and what that lets you do** — nothing else.
+
+The rule above is about *vault data*: documents, cards, decks, statistics. Lifting those into a
+provider is how a React app ends up with one god-object and no idea what refetches when, and
+that stands. The caller's account is a different kind of value — it is session identity, the
+sibling of `connection` in `hooks/useConnection.js`: one object, fetched once from
+`GET /api/identity`, changing only when the app is pointed somewhere else. And it is needed at
+the *leaves* — the delete item inside a file-tree context menu, the edit button on a card — so
+the alternative is drilling a prop through Documents → tree → node → menu in most views.
+
+The boundary is the whole point: **identity and permission, nothing else.** Anything describing
+the vault's contents still belongs to the view that shows it.
+
+Two properties worth knowing:
+
+- On a local vault the account resolves to the Author, every capability answers true, and the
+  desktop UI is unchanged. That is what made this safe to add everywhere at once.
+- It **fails closed, but not silently.** If the identity call fails there is no optimistic
+  fallback to the Author: `role` stays null, every capability answers false, and `error` is set
+  so the title bar can say "Role unknown" rather than leaving someone in front of an app that
+  has quietly lost half its buttons. A 401 is an answer and is not retried; anything else is
+  retried five times at one-second intervals, because this provider sits *outside* `AppGate`
+  and a local vault switch restarts the database underneath it.
+
+#### Hiding versus disabling a control
+
+Capabilities come from `src/shared/roles.js` (`CAPABILITIES`, `can(role, capability)`), which
+`tests/capabilities.test.js` pins against the API's real permission table — so a control cannot
+drift from the guard that would refuse it. Two rules, because either one alone gets it wrong in
+a different direction:
+
+- **Hide** a control that is categorically not this person's: New document, Delete, Import,
+  Rollback, Rebuild, the authoring tabs. A Reader's app should read as a *reading* app, not an
+  authoring one with half its buttons broken.
+- **Disable, with the reason in the `title`**, where the control sits beside something they
+  *can* do and its absence would be mysterious — the Edit button at the foot of a card's
+  statistics panel, say. Use `capabilityHint(t, capability)` from `src/ui/roleLabels.js`, which
+  names the role required.
+
+Navigation is never hidden by role. A Reader keeps Documents, Trainer, Stats and Logs; what
+changes is what they can *do* there. The one exception is the **Server** tab, which is absent on
+a local vault because there is nothing behind it — see `remoteOnly` in `App.jsx`'s `NAV_ITEMS`.
+
+Where a control is an editor rather than a button, prefer **read-only over hidden**: the
+Inspector's tag list, a deck's tags and the Manage tab's categories all still render their
+values without the role, because the values are information even to someone who cannot change
+them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
+whose save is refused invites someone to type a page and lose it.
+
 ### TanStack Query conventions
 
 ```js
@@ -127,10 +180,10 @@ const GraphView      = lazy(() => import('./views/GraphView'));
 
 `App.jsx` also owns app zoom (Ctrl `+`/`−`/`0`, persisted as `fb-zoom`): it writes `--ui-zoom` on `<html>`, and `App.css` applies it as `#app-shell { zoom: var(--ui-zoom, 1) }`. That one declaration splits the renderer into two coordinate spaces, and mixing them is the single easiest geometry bug to write:
 
-| space | what reports it |
-|---|---|
-| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`) |
-| **layout** (unzoomed CSS px) | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
+| space                                | what reports it                                                                                                                                                                                                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`)                                                          |
+| **layout** (unzoomed CSS px)   | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
 
 **The rule: position every floating overlay in layout space.** An overlay inside `#app-shell` needs nothing extra. One portaled to `document.body` carries `zoom: var(--ui-zoom, 1)` in its own CSS so it scales with the document it annotates (`SelectionToolbar.css`). Geometry arriving in viewport space is converted at the point of **capture**, never at render — that way every placement constant downstream stays plain layout px and no call site has to know any of this.
 
@@ -262,18 +315,27 @@ selection.
 
 Every renderer receives the same props from `DocumentEditor`:
 
-| Prop                 | Direction        | Purpose                                                                 |
-| -------------------- | ---------------- | ----------------------------------------------------------------------- |
-| `path`               | in               | Active file path; changing it loads a new document.                     |
-| `draftContent`       | in               | Unsaved body to restore, or `undefined` to load from disk.              |
-| `saveRef`            | out (ref)        | Set to `(metaTransform?) => Promise` so the parent can trigger a save.  |
-| `highlightRef`       | out (ref)        | Set to the highlight command object (see below), or `null` if unsupported. |
-| `onDirtyChange`      | callback         | `(path, isDirty)` — drives the tab's dirty dot.                         |
-| `onDraftChange`      | callback         | `(path, body \| undefined)` — body on edit, `undefined` once saved.     |
-| `onHighlightsChange` | callback         | `(path, highlights[])` — registry after load and after each save.       |
-| `onSidecarRefresh`   | callback         | `(path, metadata)` — full sidecar after load/save (cards, tags, …).     |
-| `onExternalSelection`| callback         | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
-| `onImagePick`        | callback         | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it. |
+| Prop                    | Direction | Purpose                                                                                                                                  |
+| ----------------------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `path`                | in        | Active file path; changing it loads a new document.                                                                                      |
+| `draftContent`        | in        | Unsaved body to restore, or`undefined` to load from disk.                                                                              |
+| `saveRef`             | out (ref) | Set to`(metaTransform?) => Promise` so the parent can trigger a save.                                                                  |
+| `highlightRef`        | out (ref) | Set to the highlight command object (see below), or`null` if unsupported.                                                              |
+| `onDirtyChange`       | callback  | `(path, isDirty)` — drives the tab's dirty dot.                                                                                       |
+| `onDraftChange`       | callback  | `(path, body \| undefined)` — body on edit, `undefined` once saved.                                                                  |
+| `onHighlightsChange`  | callback  | `(path, highlights[])` — registry after load and after each save.                                                                     |
+| `onSidecarRefresh`    | callback  | `(path, metadata)` — full sidecar after load/save (cards, tags, …).                                                                  |
+| `onExternalSelection` | callback  | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
+| `onImagePick`         | callback  | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it.                  |
+| `readOnly`            | in        | The caller may not write this document's body. Editor-backed renderers pass it to`useHighlightableRenderer`, which makes the editor non-editable. |
+
+`readOnly` is set by `DocumentEditor` from the `editDocumentBody` capability, and it applies to
+exactly the renderers with `editable = true` (Markdown and text). Those two are the formats
+whose highlights live **in the body** as marks in the prose, so annotating one is the same
+`PUT /api/documents/file` as editing it — admin. Every other renderer persists highlights
+through `PUT /metadata` (collaborator) and is unaffected, which is why a Collaborator can
+annotate a PDF but not a note. That is a fact about where the data lives, not a gap in the
+permission table.
 
 A renderer that supports highlighting also exposes a **static** flag so the
 parent can enable the highlight toolbar without knowing the renderer's identity:
@@ -289,7 +351,7 @@ lifecycle. They call `useHighlightableRenderer`, which owns all of it (including
 the empty-state save guard and Ctrl+S) and delegates only what differs:
 
 ```js
-const { editor, loading } = useHighlightableRenderer({
+const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
   ...props,
   extensions,                 // the editor's extension list
   editorClass,                // class on the ProseMirror node
@@ -298,6 +360,24 @@ const { editor, loading } = useHighlightableRenderer({
   reconcile:   (editor, existing) => ({ highlights }), // live editor → registry
 });
 ```
+
+### When a save is refused
+
+The hook captures the document's `etag` when it loads content and sends it back as `ifMatch` on
+every save (see API.md § Concurrent writes). If the document changed underneath, the write is
+refused and the hook sets `conflict` — **the draft stays in the editor**, because it is the
+user's typing and losing it is the exact failure this guards against.
+
+A renderer with an editable body renders the shared banner and hands it the two ways out:
+
+```jsx
+{conflict && <ConflictBanner onReload={reloadFromDisk} onOverwrite={overwrite} />}
+```
+
+`reloadFromDisk` discards the draft and takes what is on disk now; `overwrite` re-sends without
+a version, so this draft wins. There is no automatic resolution and there should not be — only
+the person who typed it knows which version matters. A banner rather than a modal, so the draft
+being decided about stays visible behind it.
 
 The caller renders its own `<EditorContent>` wrapper, so markup and CSS stay
 per-renderer. `MarkdownRenderer` and `TextRenderer` are the reference
@@ -312,13 +392,13 @@ plain object, not a TipTap reference. `createHighlightCommands(editor)` in
 `highlights.js` is the TipTap implementation; a non-TipTap renderer (PDF,
 CodeMirror, …) can supply its own object of the same shape:
 
-| Method               | Returns                                              | Used by                  |
-| -------------------- | --------------------------------------------------- | ------------------------ |
-| `toggle(color)`      | `{ kind: 'created'\|'recolored'\|'removed', id }`   | color dots               |
-| `unset()`            | `{ kind: 'removed', id }` \| `null`                 | the ✕ button             |
-| `ensure(color?)`     | `{ kind: 'existing'\|'created', id }` \| `null`     | Card / Ref buttons       |
-| `currentId()`        | the highlight id under the selection, or `null`     | orphan-removal check     |
-| `scrollTo(id)`       | scrolls the view to that highlight                  | Highlights tab jump      |
+| Method             | Returns                                            | Used by              |
+| ------------------ | -------------------------------------------------- | -------------------- |
+| `toggle(color)`  | `{ kind: 'created'\|'recolored'\|'removed', id }`  | color dots           |
+| `unset()`        | `{ kind: 'removed', id }` \| `null`            | the ✕ button        |
+| `ensure(color?)` | `{ kind: 'existing'\|'created', id }` \| `null` | Card / Ref buttons   |
+| `currentId()`    | the highlight id under the selection, or`null`   | orphan-removal check |
+| `scrollTo(id)`   | scrolls the view to that highlight                 | Highlights tab jump  |
 
 The sidecar `highlights[]` registry shape is documented in `DATAMODEL.md`; it is
 uniform across anchoring strategies (offset fields are simply absent for inline
@@ -335,45 +415,52 @@ Current channels:
 
 **Vault, identity and connection channels** are the exception to "the renderer talks to the API over HTTP": the vault registry, the user identity and remote credentials belong to the machine rather than to any one vault, so they live in the main process. The identity channels are a deliberate split — main **writes** it (it owns the `user` key in `config.json`), while what would actually be *stamped* is resolved by the API and read from `GET /api/identity`, so the override → global → default precedence exists in one place instead of two that drift. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
 
+| Channel                   | Direction        | Purpose                                                                                                                                                                                                 |
+| ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `get-api-url`           | renderer → main | Get the API base URL derived from config.json                                                                                                                                                           |
+| `get-api-token`         | renderer → main | Get the API bearer token from config.json (for`initClient`)                                                                                                                                           |
+| `get-config`            | renderer → main | Read the full config.json object                                                                                                                                                                        |
+| `set-config`            | renderer → main | Write a new config.json object; returns`{ ok, error? }`                                                                                                                                               |
+| `is-first-run`          | renderer → main | True when config.json is absent or`--onboarding` was passed                                                                                                                                           |
+| `complete-setup`        | renderer → main | Write initial config, mint token, spawn API; returns`{ ok, error? }`                                                                                                                                  |
+| `restart-app`           | renderer → main | Relaunch the app                                                                                                                                                                                        |
+| `get-user-data-path`    | renderer → main | Electron userData path (onboarding path preview)                                                                                                                                                        |
+| `get-mcp-config`        | renderer → main | Ready-to-paste MCP server config snippet                                                                                                                                                                |
+| `get-app-version`       | renderer → main | Running app version (Config → About)                                                                                                                                                                   |
+| `updater-check`         | renderer → main | Check GitHub for a newer version;`{ ok, version?, dev?, error? }`                                                                                                                                     |
+| `updater-download`      | renderer → main | Download the available update;`{ ok, error? }`                                                                                                                                                        |
+| `updater-install`       | renderer → main | Quit and install the downloaded update                                                                                                                                                                  |
+| `update-status`         | main → renderer | Update lifecycle events (`checking`/`available`/`downloading`/`downloaded`/`none`/`error`); subscribe via `onUpdateStatus`                                                                |
+| `renderer-error`        | renderer → main | Forward an uncaught renderer error into the main log file                                                                                                                                               |
+| `flashback-navigate`    | main → renderer | `flashback://` link that reached `will-navigate` (safety net)                                                                                                                                       |
+| `window-minimize`       | renderer → main | Minimize the window                                                                                                                                                                                     |
+| `window-maximize`       | renderer → main | Maximize or unmaximize the window                                                                                                                                                                       |
+| `window-close`          | renderer → main | Close the window (hides to tray unless quitting)                                                                                                                                                        |
+| `list-vaults`           | renderer → main | Registered local vaults +`activeVaultId`, each with resolved `path`/`active`/`missing`                                                                                                          |
+| `create-vault`          | renderer → main | Create and register an empty vault;`{ ok, vault?, error? }`                                                                                                                                           |
+| `rename-vault`          | renderer → main | Release the DB, move folder**and** `{name}.db`, switch back, repair the index                                                                                                                   |
+| `remove-vault`          | renderer → main | Unregister a vault. Never deletes files                                                                                                                                                                 |
+| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process, **and point the app at the local API** — it is a local-vault action, so it also leaves any remote                                                    |
+| `open-vault-from-disk`  | renderer → main | Directory picker; adopts an existing vault where it stands                                                                                                                                              |
+| `get-identity`          | renderer → main | What is**stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
+| `set-identity`          | renderer → main | Set the global`{name, email}`; both halves required. `{ ok, error?, field?, code? }`                                                                                                                |
+| `set-vault-identity`    | renderer → main | Set or (with`null`) clear this vault's identity override                                                                                                                                              |
+| `list-remotes`          | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token                                                                                                                          |
+| `add-remote`            | renderer → main | Register a remote; its token is encrypted via`safeStorage`                                                                                                                                            |
+| `remove-remote`         | renderer → main | Unregister a remote                                                                                                                                                                                     |
+| `test-remote`           | renderer → main | Handshake`GET <url>/api/vault`; `{ ok, identity?, error? }`                                                                                                                                         |
+| `get-active-connection` | renderer → main | `{ kind: 'local'\|'remote', id, label, url, token }` — what `initClient` needs                                                                                                                      |
+| `use-local-vault`       | renderer → main | Point the app back at the local API                                                                                                                                                                     |
+| `use-remote`            | renderer → main | Handshake, then point the app at a remote                                                                                                                                                               |
+| `connection-changed`    | main → renderer | The active connection moved; subscribe via`onConnectionChange`                                                                                                                                        |
 
-| Channel         | Direction        | Purpose                                                    |
-| --------------- | ---------------- | ---------------------------------------------------------- |
-| `get-api-url`      | renderer → main | Get the API base URL derived from config.json              |
-| `get-api-token`    | renderer → main | Get the API bearer token from config.json (for `initClient`) |
-| `get-config`       | renderer → main | Read the full config.json object                           |
-| `set-config`       | renderer → main | Write a new config.json object; returns `{ ok, error? }` |
-| `is-first-run`     | renderer → main | True when config.json is absent or `--onboarding` was passed |
-| `complete-setup`   | renderer → main | Write initial config, mint token, spawn API; returns `{ ok, error? }` |
-| `restart-app`      | renderer → main | Relaunch the app                                           |
-| `get-user-data-path` | renderer → main | Electron userData path (onboarding path preview)         |
-| `get-mcp-config`   | renderer → main | Ready-to-paste MCP server config snippet                   |
-| `get-app-version`  | renderer → main | Running app version (Config → About)                       |
-| `updater-check`    | renderer → main | Check GitHub for a newer version; `{ ok, version?, dev?, error? }` |
-| `updater-download` | renderer → main | Download the available update; `{ ok, error? }`            |
-| `updater-install`  | renderer → main | Quit and install the downloaded update                     |
-| `update-status`    | main → renderer | Update lifecycle events (`checking`/`available`/`downloading`/`downloaded`/`none`/`error`); subscribe via `onUpdateStatus` |
-| `renderer-error`   | renderer → main | Forward an uncaught renderer error into the main log file  |
-| `flashback-navigate` | main → renderer | `flashback://` link that reached `will-navigate` (safety net) |
-| `window-minimize`  | renderer → main | Minimize the window                                        |
-| `window-maximize`  | renderer → main | Maximize or unmaximize the window                          |
-| `window-close`     | renderer → main | Close the window (hides to tray unless quitting)           |
-| `list-vaults`      | renderer → main | Registered local vaults + `activeVaultId`, each with resolved `path`/`active`/`missing` |
-| `create-vault`     | renderer → main | Create and register an empty vault; `{ ok, vault?, error? }` |
-| `rename-vault`     | renderer → main | Release the DB, move folder **and** `{name}.db`, switch back, repair the index |
-| `remove-vault`     | renderer → main | Unregister a vault. Never deletes files                    |
-| `switch-vault`     | renderer → main | Ask the API to open another local vault in-process         |
-| `open-vault-from-disk` | renderer → main | Directory picker; adopts an existing vault where it stands |
-| `get-identity`     | renderer → main | What is **stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
-| `set-identity`     | renderer → main | Set the global `{name, email}`; both halves required. `{ ok, error?, field?, code? }` |
-| `set-vault-identity` | renderer → main | Set or (with `null`) clear this vault's identity override |
-| `list-remotes`     | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token |
-| `add-remote`       | renderer → main | Register a remote; its token is encrypted via `safeStorage` |
-| `remove-remote`    | renderer → main | Unregister a remote                                        |
-| `test-remote`      | renderer → main | Handshake `GET <url>/api/vault`; `{ ok, identity?, error? }` |
-| `get-active-connection` | renderer → main | `{ kind: 'local'\|'remote', id, label, url, token }` — what `initClient` needs |
-| `use-local-vault`  | renderer → main | Point the app back at the local API                        |
-| `use-remote`       | renderer → main | Handshake, then point the app at a remote                  |
-| `connection-changed` | main → renderer | The active connection moved; subscribe via `onConnectionChange` |
+Which of the two places the app is pointed at lives in `src/electron/connection.js`, not in
+`main.js` — one flag, and `useLocalVault()` is the only thing that clears it by intent, so
+every route home goes through the same call. `connectionForRemote` reads the registry and
+never the network, so an **unreachable remote resolves forever**: nothing times out and drops
+you back to a local vault, which is why the deliberate route has to work. It is pinned by
+`tests/connection.test.js`, which runs under plain Node because the module takes its
+dependencies as arguments and imports no Electron.
 
 ---
 
@@ -399,25 +486,25 @@ switch themes; every component inherits the new palette automatically via CSS ca
 
 All variables are declared in `src/ui/index.css`. Every theme must define all of them.
 
-| Variable | Semantic meaning |
-|---|---|
-| `--color-bg-base` | Window / outermost background |
-| `--color-bg-sidebar` | Activity bar background |
-| `--color-bg-surface` | Panels, cards, content areas |
-| `--color-bg-hover` | Hover state on interactive elements |
-| `--color-fg-primary` | Primary text |
-| `--color-fg-secondary` | Muted / secondary text |
-| `--color-fg-icon` | Inactive icon tint |
-| `--color-accent` | Active indicator, links, focus rings |
-| `--color-border` | Dividers and outlines |
-| `--color-title-bar` | Drag region background |
-| `--color-accent-subtle` | Very low-opacity accent tint — selected item backgrounds, drag targets |
-| `--color-tree-indent` | File tree indentation line — can be accent-tinted per theme |
-| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body) |
-| `--color-hl-amber` | Document highlight — amber swatch |
-| `--color-hl-green` | Document highlight — green swatch |
-| `--color-hl-blue` | Document highlight — blue swatch |
-| `--color-hl-pink` | Document highlight — pink swatch |
+| Variable                   | Semantic meaning                                                        |
+| -------------------------- | ----------------------------------------------------------------------- |
+| `--color-bg-base`        | Window / outermost background                                           |
+| `--color-bg-sidebar`     | Activity bar background                                                 |
+| `--color-bg-surface`     | Panels, cards, content areas                                            |
+| `--color-bg-hover`       | Hover state on interactive elements                                     |
+| `--color-fg-primary`     | Primary text                                                            |
+| `--color-fg-secondary`   | Muted / secondary text                                                  |
+| `--color-fg-icon`        | Inactive icon tint                                                      |
+| `--color-accent`         | Active indicator, links, focus rings                                    |
+| `--color-border`         | Dividers and outlines                                                   |
+| `--color-title-bar`      | Drag region background                                                  |
+| `--color-accent-subtle`  | Very low-opacity accent tint — selected item backgrounds, drag targets |
+| `--color-tree-indent`    | File tree indentation line — can be accent-tinted per theme            |
+| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body)           |
+| `--color-hl-amber`       | Document highlight — amber swatch                                      |
+| `--color-hl-green`       | Document highlight — green swatch                                      |
+| `--color-hl-blue`        | Document highlight — blue swatch                                       |
+| `--color-hl-pink`        | Document highlight — pink swatch                                       |
 
 ### Built-in themes
 

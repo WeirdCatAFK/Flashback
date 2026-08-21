@@ -63,8 +63,8 @@ export default class Subscriptions {
                             metadata = {};
                         }
 
-                        const existingFolder = this.documents.query.getFolderByHash(metadata.globalHash) 
-                                            || this.documents.query.getFolderByPath(entryRelPath);
+                        const existingFolder = await this.documents.query.getFolderByHash(metadata.globalHash) 
+                                            || await this.documents.query.getFolderByPath(entryRelPath);
 
                         if (existingFolder) {
                             await this.documents.updateMetadata(existingFolder.relative_path, metadata, true);
@@ -72,7 +72,7 @@ export default class Subscriptions {
                         } else {
                             await this.documents.createFolder(entry.name, destRelPath);
                             await this.documents.updateMetadata(entryRelPath, metadata, true);
-                            const newFolder = this.documents.query.getFolderByPath(entryRelPath);
+                            const newFolder = await this.documents.query.getFolderByPath(entryRelPath);
                             if (newFolder) processedPaths.add(newFolder.absolute_path);
                         }
                         await crawl(srcPath, entryRelPath);
@@ -87,8 +87,8 @@ export default class Subscriptions {
                         }
                         const content = await fs.readFile(srcPath, 'utf-8');
 
-                        const existingDoc = this.documents.query.getDocumentByHash(metadata.globalHash)
-                                         || this.documents.query.getDocumentByPath(entryRelPath);
+                        const existingDoc = await this.documents.query.getDocumentByHash(metadata.globalHash)
+                                         || await this.documents.query.getDocumentByPath(entryRelPath);
 
                         if (existingDoc) {
                             await this.documents.updateFile(existingDoc.relative_path, content, metadata);
@@ -96,7 +96,7 @@ export default class Subscriptions {
                         } else {
                             await this.documents.createFile(entry.name, destRelPath);
                             await this.documents.updateFile(entryRelPath, content, metadata);
-                            const newDoc = this.documents.query.getDocumentByPath(entryRelPath);
+                            const newDoc = await this.documents.query.getDocumentByPath(entryRelPath);
                             if (newDoc) processedPaths.add(newDoc.absolute_path);
                         }
                     }
@@ -108,7 +108,7 @@ export default class Subscriptions {
             // 4. Update Subscriptions table & Root Metadata
             if (issueMetadata && issueMetadata.subscription) {
                 const sub = issueMetadata.subscription;
-                this.documents.query.upsertSubscription({
+                await this.documents.query.upsertSubscription({
                     magazineId: sub.magazineId,
                     issueId: sub.issueId,
                     version: sub.version,
@@ -121,11 +121,11 @@ export default class Subscriptions {
             }
 
             // 5. Deletion of removed content
-            const targetFolder = this.documents.query.getFolderByPath(targetRelPath);
+            const targetFolder = await this.documents.query.getFolderByPath(targetRelPath);
             if (targetFolder) {
                 const prefix = targetFolder.absolute_path + path.sep;
-                const existingDocs = this.documents.query.getDocumentsByAbsPathPrefix(prefix);
-                const existingFolders = this.documents.query.getFoldersByAbsPathPrefix(prefix, targetFolder.absolute_path);
+                const existingDocs = await this.documents.query.getDocumentsByAbsPathPrefix(prefix);
+                const existingFolders = await this.documents.query.getFoldersByAbsPathPrefix(prefix, targetFolder.absolute_path);
 
                 for (const doc of existingDocs) {
                     if (!processedPaths.has(doc.absolute_path)) {
@@ -135,7 +135,7 @@ export default class Subscriptions {
                 existingFolders.sort((a, b) => b.absolute_path.length - a.absolute_path.length);
                 for (const folder of existingFolders) {
                     if (!processedPaths.has(folder.absolute_path)) {
-                        const stillThere = this.documents.query.getFolderByPath(folder.relative_path);
+                        const stillThere = await this.documents.query.getFolderByPath(folder.relative_path);
                         if (stillThere) await this.documents.delete(folder.relative_path, true);
                     }
                 }

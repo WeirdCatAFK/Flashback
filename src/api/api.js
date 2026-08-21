@@ -2,7 +2,6 @@
  can be called on it's own or as a module on the backend, the spawn.js
  file creates a child process and the main.js file runs it on it's own*/
 import express from "express";
-import crypto from "crypto";
 import cors from './config/cors.js';
 import morgan from "morgan";
 import documentsRouter from './routes/documents.js';
@@ -21,7 +20,39 @@ import readerRouter from './routes/reader.js';
 import vaultRouter from './routes/vault.js';
 import remotesRouter from './routes/remotes.js';
 import identityRouter from './routes/identity.js';
+import accountsRouter from './routes/accounts.js';
+import { authenticate } from './auth/authenticate.js';
+import { guard } from './auth/permissions.js';
+import { ensureLocalAuthor, hasUsableToken } from './access/primitives/accounts.js';
 import { isSwitching } from './vaultSession.js';
+
+/**
+ * Every router this API serves, keyed by its mount name under `/api/`.
+ *
+ * A map rather than seventeen `app.use` lines because that key is used twice: once to build
+ * the URL, and once as the lookup into the permission table. Exported so
+ * `tests/accounts.test.js` can assert the two never drift — a router added here with no rule
+ * in `auth/permissions.js` fails the suite instead of silently resolving to author-only.
+ */
+export const ROUTERS = {
+  documents: documentsRouter,
+  media: mediaRouter,
+  srs: srsRouter,
+  subscriptions: subscriptionsRouter,
+  seal: sealRouter,
+  decks: decksRouter,
+  highlights: highlightsRouter,
+  categories: categoriesRouter,
+  search: searchRouter,
+  flashcards: flashcardsRouter,
+  doctor: doctorRouter,
+  diary: diaryRouter,
+  reader: readerRouter,
+  vault: vaultRouter,
+  remotes: remotesRouter,
+  identity: identityRouter,
+  accounts: accountsRouter,
+};
 
 class api {
 /**
@@ -37,18 +68,32 @@ class api {
     this.app = express();
 
     //Default options
-    this.port = config.port || 3000;
+    // `??`, not `||`: port 0 means "let the OS pick a free one", which is a real value and
+    // the one the test suite and the benchmark ask for. `||` silently turned it into 3000,
+    // so nothing was ever ephemeral — two Api instances in one process collided with
+    // EADDRINUSE, and a developer with something else on 3000 saw the suite fail to boot.
+    this.port = config.port ?? 3000;
     this.logFormat = config.logFormat || "dev";
 
     //Ip binding options
     this.host = config.host || "localhost";
     this.isLocalhost = config.isLocalhost ?? true;
 
-    // Bearer/query-param token guarding every /api route. When no token is
-    // configured (standalone dev without the Electron app, which is the only
-    // process that mints one) auth is disabled — the packaged app always has a
-    // token, so production is always guarded.
+    // The install's own token. It is no longer a shared secret compared byte-for-byte:
+    // start() adopts it as the Author account's token, so a request carrying it resolves
+    // to a person with a role like any other. When none is configured (standalone dev
+    // without the Electron app, the only process that mints one) an anonymous caller is
+    // treated as the Author — see auth/authenticate.js.
     this.apiToken = config.apiToken || null;
+
+    // Refuse to serve anonymous callers even with no token configured. The desktop app
+    // never sets this; the headless server entry point (M4) always does, because an open
+    // deployment is a very different mistake from an open loopback dev server.
+    this.requireAuth = config.requireAuth ?? false;
+
+    // One vault per process. Set by the headless server entry point, never by the desktop
+    // app, where switching vaults is a normal thing to do. See build() for what it removes.
+    this.singleVault = config.singleVault ?? false;
 
     if (!this.isLocalhost && this.host === "localhost") {
       console.warn(
@@ -93,14 +138,25 @@ class api {
       res.send(renderYoutubeEmbed(videoId));
     });
 
-    // Auth guard for everything under /api. Browser-initiated loads that can't
-    // set headers (PDF/media URLs, <img>/<audio>) pass the token as ?token=.
-    this.app.use('/api', (req, res, next) => this.authenticate(req, res, next));
+    // Auth guard for everything under /api: resolves the presented token to an account and
+    // attaches it as `req.account`, which the role guards below compare against. Browser-
+    // initiated loads that can't set headers (PDF/media URLs, <img>/<audio>) pass the token
+    // as ?token=.
+    this.app.use('/api', authenticate({
+      tokenConfigured: !!this.apiToken,
+      requireAuth: this.requireAuth,
+    }));
 
     // Vault-switch gate. A switch closes the database and re-points every path resolver;
     // a request served mid-sequence would read a closed handle or, worse, mix the two
-    // vaults. better-sqlite3 is synchronous so no single query can straddle the swap —
-    // this guards the async work (Seal git operations, file IO) that can.
+    // vaults. This refuses NEW requests for the duration.
+    //
+    // It used to be able to lean on better-sqlite3 being synchronous, so that no single
+    // query could straddle the swap and only the async work (Seal git operations, file IO)
+    // needed guarding. The data layer is async now, so that guarantee is gone: a request
+    // already in flight can have queued statements on either side of closeDatabase(). The
+    // gate still closes the door on new work, which is what keeps a switch bounded, but a
+    // request that started before the switch can still fail against a closed handle.
     //
     // Deliberately AFTER the auth guard (an unauthenticated caller learns nothing about
     // vault state) and after /vault's own routes are unreachable — 503 + Retry-After is
@@ -111,23 +167,34 @@ class api {
       return res.status(503).json({ error: 'Vault switch in progress', switching: true });
     });
 
-    // Route mounting
-    this.app.use('/api/documents', documentsRouter);
-    this.app.use('/api/media', mediaRouter);
-    this.app.use('/api/srs', srsRouter);
-    this.app.use('/api/subscriptions', subscriptionsRouter);
-    this.app.use('/api/seal', sealRouter);
-    this.app.use('/api/decks', decksRouter);
-    this.app.use('/api/highlights', highlightsRouter);
-    this.app.use('/api/categories', categoriesRouter);
-    this.app.use('/api/search', searchRouter);
-    this.app.use('/api/flashcards', flashcardsRouter);
-    this.app.use('/api/doctor', doctorRouter);
-    this.app.use('/api/diary', diaryRouter);
-    this.app.use('/api/reader', readerRouter);
-    this.app.use('/api/vault', vaultRouter);
-    this.app.use('/api/remotes', remotesRouter);
-    this.app.use('/api/identity', identityRouter);
+    // Single-vault gate. A server serves ONE vault, so switching is not a capability it
+    // has — and it is not merely useless there but actively harmful: a switch closes the
+    // database and re-points every path resolver under every connected user at once.
+    //
+    // Mounted ahead of the router loop below so these two routes are genuinely absent (404)
+    // rather than present-and-refused (403). A client discovering capabilities should see a
+    // server that cannot switch, not one that could if you were more important.
+    // `GET /api/vault` — the identity handshake every remote depends on — and `/list` stay.
+    if (this.singleVault) {
+      this.app.use('/api/vault', (req, res, next) => {
+        if (req.method === 'POST' && (req.path === '/switch' || req.path === '/release')) {
+          return res.status(404).json({ code: 404, message: "Url no encontrada" });
+        }
+        next();
+      });
+    }
+
+    // Route mounting.
+    //
+    // Every router carries a guard('<mount>') in front of it, and the mount name is the key
+    // into the one permission table in auth/permissions.js. Keeping the check here rather
+    // than inside handlers means the whole access policy is readable in one file, and a
+    // router mounted WITHOUT an entry in that table resolves to `author` — it fails closed
+    // and loudly instead of quietly serving everyone. tests/accounts.test.js asserts that
+    // every name below has a rule.
+    for (const [mount, router] of Object.entries(ROUTERS)) {
+      this.app.use(`/api/${mount}`, guard(mount), router);
+    }
 
     // 404
     this.app.use((req, res) => {
@@ -143,36 +210,44 @@ class api {
       if (err.type === 'entity.too.large') {
         return res.status(413).json({ error: 'Request body too large' });
       }
+      // An explicit 4xx from the access layer is a statement about the REQUEST, not about
+      // the server: a stale write (409), a missing document (404). Several routers already
+      // unwrap this in their own catchError; doing it here as well means a router that
+      // forgot to cannot turn "you are out of date" into "the server broke".
+      // Only 4xx — a stray 5xx from something we called upstream is our failure, not the
+      // client's, and stays a 500.
+      if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
+        const body = { error: err.message };
+        if (err.code) body.code = err.code;
+        if (err.etag !== undefined) body.etag = err.etag;
+        return res.status(err.status).json(body);
+      }
       res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }
-  /* Express middleware: rejects any /api request without a valid token.
-     Accepts `Authorization: Bearer <token>` or a `?token=` query param.
-     No-ops when no token is configured (see constructor). */
-  authenticate(req, res, next) {
-    if (!this.apiToken) return next();
-    const provided = this._extractToken(req);
-    if (provided && this._tokenMatches(provided)) return next();
-    return res.status(401).json({ error: 'Unauthorized: missing or invalid API token' });
-  }
-
-  _extractToken(req) {
-    const auth = req.headers['authorization'];
-    if (auth && auth.startsWith('Bearer ')) return auth.slice(7).trim();
-    if (typeof req.query.token === 'string') return req.query.token;
-    return null;
-  }
-
-  // Constant-time comparison so a caller can't probe the token byte-by-byte.
-  _tokenMatches(provided) {
-    const a = Buffer.from(provided);
-    const b = Buffer.from(this.apiToken);
-    if (a.length !== b.length) return false;
-    return crypto.timingSafeEqual(a, b);
-  }
-
-  /*Starts the api after being built*/
+  /**
+   * Provisions the accounts store, then listens.
+   *
+   * The provisioning lives here rather than in `vaultSession.openVault()` on purpose: the
+   * accounts store is scoped to the INSTALL, not to a vault, so it must not be re-derived
+   * every time the active vault changes. `start()` is the one path every real boot, every
+   * test and any embedder already takes, and it runs exactly once.
+   */
   async start() {
+    // Adopts this install's `apiToken` as the Author's token, creating the Author from the
+    // local identity if the store is new. This is what makes the milestone invisible on a
+    // desktop install: the renderer and the MCP server keep presenting the token they
+    // already hold, and it keeps working.
+    await ensureLocalAuthor(this.apiToken);
+
+    // A served deployment with no way to authenticate is an open deployment. Desktop never
+    // sets requireAuth, so this can only fire where it is meant to.
+    if (this.requireAuth && !(await hasUsableToken())) {
+      throw new Error(
+        'requireAuth is set but no usable token exists. Mint one with `npm run pure-token` before starting.',
+      );
+    }
+
     return new Promise((resolve, reject) => {
       this.server = this.app
         .listen(this.port, () => {

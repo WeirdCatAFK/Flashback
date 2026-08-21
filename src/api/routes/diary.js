@@ -59,10 +59,10 @@ router.post('/rebuild', catchError(async (req, res) => {
 
 // GET /api/diary?from=YYYY-MM-DD&to=YYYY-MM-DD
 // Date-descending list of days that have a summary and/or entry.
-router.get('/', catchError((req, res) => {
+router.get('/', catchError(async (req, res) => {
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    res.json(diary.list({ from, to }));
+    res.json(await diary.list({ from, to }));
 }));
 
 // GET /api/diary/summary/:date  → the rendered-from-JSON summary, or 404.

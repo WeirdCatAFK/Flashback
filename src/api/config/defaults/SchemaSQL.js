@@ -92,6 +92,39 @@ addTable('Flashcards', (table) => {
     table.integer('category_id').references('id').inTable('PedagogicalCategories');
     table.integer('content_id').notNullable().references('id').inTable('FlashcardContent');
     table.integer('reference_id').references('id').inTable('FlashcardReference');
+    // NO SRS STATE HERE. A card's schedule belongs to a PERSON, not to the card — see
+    // CardProgress below and migration 010, which moved `level`, `sm2_reps`, `last_recall`
+    // and the six `fsrs_*` columns off this table. Do not reintroduce them: a column that
+    // still reads is worse than one that throws, and the whole point of dropping them was
+    // that a query which forgets to scope itself must fail loudly rather than quietly
+    // serve one person another person's schedule.
+    table.string('name', 255).index();
+    table.string('origin', 500);
+    table.float('presence').index();
+    table.integer('fileIndex');
+    table.string('card_type', 50).notNullable().defaultTo('basic');
+});
+
+// One person's schedule for one card. Split off Flashcards by migration 010 so that several
+// people can study one vault without grading each other's cards.
+//
+// `account_id` is an account id from the accounts store, or the literal 'owner'. There is no
+// foreign key and there cannot be one: accounts live in `{baseDir}/accounts.db`, a different
+// database file entirely, deliberately outside the vault so a copied vault carries no access
+// list. 'owner' is the Author, stored as a sentinel rather than their uuid for exactly the
+// same reason — a vault copied to another install must keep its owner progress instead of
+// orphaning every row. See requestContext.js OWNER_SCOPE.
+//
+// A missing row means "never reviewed by this person", which is already what a zero level and
+// a NULL last_recall meant. So every read COALESCEs and no backfill-on-first-review is needed.
+//
+// Derived, like everything else in this database. The owner's copy of it is canonical in the
+// `.flashback` sidecar; everyone else's is canonical in the accounts store's AccountProgress.
+addTable('CardProgress', (table) => {
+    table.increments('id').primary();
+    table.integer('flashcard_id').notNullable()
+        .references('id').inTable('Flashcards').onDelete('CASCADE');
+    table.string('account_id', 64).notNullable().defaultTo('owner');
     table.integer('level');
     table.integer('sm2_reps').notNullable().defaultTo(0);
     table.timestamp('last_recall').index();
@@ -102,11 +135,7 @@ addTable('Flashcards', (table) => {
     table.integer('fsrs_state').notNullable().defaultTo(0);
     table.integer('fsrs_reps').notNullable().defaultTo(0);
     table.integer('fsrs_lapses').notNullable().defaultTo(0);
-    table.string('name', 255).index();
-    table.string('origin', 500);
-    table.float('presence').index();
-    table.integer('fileIndex');
-    table.string('card_type', 50).notNullable().defaultTo('basic');
+    table.unique(['flashcard_id', 'account_id']);
 });
 
 // 6. Highlights
@@ -128,6 +157,16 @@ addTable('Highlights', (table) => {
 addTable('ReviewLogs', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable().references('id').inTable('Flashcards').onDelete('CASCADE');
+    // WHOSE review this was: an account id, or 'owner' for the vault's Author (see
+    // requestContext.js OWNER_SCOPE). NOT NULL with a default rather than nullable, because
+    // NULL already means "not recorded" for the ordering columns below and an ambiguous
+    // sentinel here would silently fold one person's history into everyone's statistics.
+    // Indexed as (account_id, flashcard_id) down in the index block, NEVER on its own: a
+    // vault has one account per person and most have exactly one, so an index on this column
+    // alone matches nearly every row — and SQLite's planner, seeing an equality match on an
+    // indexed column, will take it and abandon a far better join order. It did: the diary's
+    // per-deck rollup went from 24ms to 500ms on a real vault the day the scope column landed.
+    table.string('account_id', 64).notNullable().defaultTo('owner');
     table.timestamp('timestamp').index();
     table.integer('outcome').index();
     table.float('ease_factor').index();
@@ -152,13 +191,20 @@ addTable('ReviewLogs', (table) => {
     table.integer('nearest_sibling_lag');
 });
 
-// Active FSRS weight vector for this vault (single row; seeded lazily with
-// published defaults on first read). Derived data, so it lives in the DB.
+// Active FSRS weight vector, ONE ROW PER ACCOUNT (seeded lazily with published defaults on
+// first read). Derived data, so it lives in the DB.
+//
+// Per-account and not per-vault because the weights are a fitted model of one person's
+// forgetting curve. Applying the owner's fitted weights to a reader's schedule would not be
+// a small inaccuracy — it would schedule that reader against someone else's memory. This is
+// also why /api/srs/optimize is a reader-level action rather than an administrative one.
 addTable('FsrsParameters', (table) => {
     table.increments('id').primary();
+    table.string('account_id', 64).notNullable().defaultTo('owner');
     table.text('weights_json').notNullable();
     table.timestamp('optimized_at');
     table.integer('review_count');
+    table.unique(['account_id']);
 });
 
 // Card health — derived failure-signature classification (see migration 007 and
@@ -172,12 +218,19 @@ addTable('FsrsParameters', (table) => {
 // fix is never held against the card that replaced it.
 addTable('CardHealth', (table) => {
     table.increments('id').primary();
-    table.integer('flashcard_id').notNullable().unique()
+    table.integer('flashcard_id').notNullable()
         .references('id').inTable('Flashcards').onDelete('CASCADE');
+    // Per (card, account): the verdict is about how the card is built, but the evidence is
+    // one person's interval trajectory, so two people can be mid-analysis on the same card
+    // at different watermarks. An edit needs no cross-account bump — each row compares
+    // against the card's CURRENT content_fingerprint on its own next evaluation, so a
+    // rewritten card invalidates everyone's analysis lazily and for free.
+    table.string('account_id', 64).notNullable().defaultTo('owner');
     table.timestamp('epoch_at');
     table.string('epoch_reason', 20);      // 'edit' | 'recovered' | 'dismissed'
     table.string('content_fingerprint', 64);
     table.timestamp('updated_at');
+    table.unique(['flashcard_id', 'account_id']);
 });
 
 // One row per currently-raised flag. UNIQUE(flashcard_id, kind) because a card either
@@ -188,6 +241,7 @@ addTable('CardFlags', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable()
         .references('id').inTable('Flashcards').onDelete('CASCADE');
+    table.string('account_id', 64).notNullable().defaultTo('owner');
     table.string('kind', 40).notNullable().index();
     table.string('confidence', 20).notNullable();
     table.float('score');
@@ -196,7 +250,7 @@ addTable('CardFlags', (table) => {
     table.timestamp('detected_at');
     table.integer('review_log_id');
     table.timestamp('dismissed_at');
-    table.unique(['flashcard_id', 'kind']);
+    table.unique(['flashcard_id', 'account_id', 'kind']);
 });
 
 addTable('Tags', (table) => {
@@ -347,6 +401,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(globa
 CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id);
 CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash);
 CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash);
+CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id);
+CREATE INDEX IF NOT EXISTS idx_reviewlogs_account_card ON ReviewLogs(account_id, flashcard_id);
 CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id);
 CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id);
 `;

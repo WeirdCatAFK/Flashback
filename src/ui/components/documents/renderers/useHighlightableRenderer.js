@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useEditor } from '@tiptap/react';
 import { readFile, updateFile } from '../../../api/documents';
+import { isStale } from '../../../api/client';
 import { createHighlightCommands } from './highlights';
 
 // Shared lifecycle for every editor-backed renderer that participates in the
@@ -36,6 +37,7 @@ export function useHighlightableRenderer({
   onSidecarRefresh,
   draftContent,
   onDraftChange,
+  readOnly = false,
 }) {
   const [loading, setLoading] = useState(true);
 
@@ -62,10 +64,21 @@ export function useHighlightableRenderer({
   // Guards against writing the editor's empty initial state back over a real
   // file when the load failed (API not ready / mid-session blip).
   const loadedPathRef = useRef(null);
+  // The document version this editor's body is based on — captured when the
+  // content was loaded, NOT re-read at save time, because the whole question a
+  // save asks is "has anything changed since I started typing?". Sent back as
+  // ifMatch; the server compares only the body half, so a card someone added
+  // through the Inspector meanwhile is merged rather than treated as a clash.
+  const loadedEtagRef = useRef(null);
+  const [conflict, setConflict] = useState(null);
 
   const editor = useEditor({
     extensions,
     content: '',
+    // Read-only when the caller's role cannot write a document body. Enforced here rather
+    // than by hiding the Save button alone: a writable editor whose save is refused invites
+    // someone to type a page and lose it.
+    editable: !readOnly,
     editorProps: { attributes: { class: editorClass } },
     onUpdate: ({ editor }) => {
       if (loadingIntoEditorRef.current) return;
@@ -92,7 +105,7 @@ export function useHighlightableRenderer({
   // metaTransform mutate that base (e.g. delete cards on highlight removal),
   // reconcile the highlight registry from the live editor, then write.
   const handleSaveRef = useRef(null);
-  handleSaveRef.current = async (metaTransform) => {
+  handleSaveRef.current = async (metaTransform, { force = false } = {}) => {
     if (!editor) return;
     const savedPath = pathRef.current;
     // Never persist if this file's content never loaded — the editor would be
@@ -105,14 +118,22 @@ export function useHighlightableRenderer({
       if (metaTransform) baseMeta = metaTransform(baseMeta);
       const { highlights } = reconcile(editor, baseMeta.highlights ?? []);
       const nextMeta = { ...baseMeta, highlights };
-      await updateFile(savedPath, body, nextMeta);
+      const res = await updateFile(savedPath, body, nextMeta, {
+        // `force` skips the check: it is how Overwrite below deliberately wins.
+        ifMatch: force ? undefined : loadedEtagRef.current,
+      });
+      loadedEtagRef.current = res?.etag ?? null;
+      setConflict(null);
       isDirtyRef.current = false;
       onDirtyChange?.(savedPath, false);
       onDraftChange?.(savedPath, undefined);
       onHighlightsChange?.(savedPath, highlights);
       onSidecarRefresh?.(savedPath, nextMeta);
-    } catch {
-      // dirty dot stays; user can retry with Ctrl+S
+    } catch (err) {
+      // The draft stays in the editor either way — it is the user's typing, and
+      // losing it to a failed save would be the very thing this guards against.
+      if (isStale(err)) setConflict({ path: savedPath, etag: err.etag ?? null });
+      // Otherwise the dirty dot stays and the user can retry with Ctrl+S.
     }
   };
 
@@ -122,6 +143,27 @@ export function useHighlightableRenderer({
     if (saveRef) saveRef.current = (metaTransform) => handleSaveRef.current?.(metaTransform);
     return () => { if (saveRef) saveRef.current = null; };
   });
+
+  // Reload: throw this editor's draft away and take what is on disk now.
+  const reloadFromDisk = async () => {
+    const targetPath = pathRef.current;
+    if (!editor || !targetPath) return;
+    const data = await readFile(targetPath).catch(() => null);
+    if (!data || pathRef.current !== targetPath) return;
+    loadingIntoEditorRef.current = true;
+    loadContentRef.current(editor, data.content ?? '', data.metadata ?? {});
+    loadingIntoEditorRef.current = false;
+    loadedEtagRef.current = data.etag ?? null;
+    isDirtyRef.current = false;
+    setConflict(null);
+    onDirtyChangeRef.current?.(targetPath, false);
+    onDraftChange?.(targetPath, undefined);
+    onSidecarRefreshRef.current?.(targetPath, data.metadata ?? {});
+  };
+
+  // Overwrite: the user has decided their version wins. Re-send without a
+  // version, which is the same unchecked write every pre-M3 client makes.
+  const overwrite = () => handleSaveRef.current?.(undefined, { force: true });
 
   // Expose highlight commands to the parent (the SelectionToolbar lives in
   // DocumentEditor, which only ever talks to this command object).
@@ -142,9 +184,11 @@ export function useHighlightableRenderer({
     // already-loaded tab still relies on the prior load.)
     if (loadedPathRef.current === targetPath) loadedPathRef.current = null;
 
-    const apply = (body, isDraft, metadata) => {
+    const apply = (body, isDraft, metadata, etag = null) => {
       if (!isMounted || pathRef.current !== targetPath) return;
       const meta = metadata ?? {};
+      loadedEtagRef.current = etag;
+      setConflict(null);
       loadingIntoEditorRef.current = true;
       loadContentRef.current(editor, body, meta);
       loadingIntoEditorRef.current = false;
@@ -160,13 +204,13 @@ export function useHighlightableRenderer({
       // Restoring an unsaved draft: the draft is real user content, so apply it
       // even if the sidecar read fails. Read sidecar fresh for highlights/cards.
       readFile(targetPath)
-        .then((data) => apply(draft, true, data.metadata))
-        .catch(() => apply(draft, true, {}));
+        .then((data) => apply(draft, true, data.metadata, data.etag))
+        .catch(() => apply(draft, true, {}, null));
       return;
     }
 
     readFile(targetPath)
-      .then((data) => apply(data.content ?? '', false, data.metadata))
+      .then((data) => apply(data.content ?? '', false, data.metadata, data.etag))
       .catch(() => { if (isMounted) setLoading(false); });
 
     return () => { isMounted = false; };
@@ -184,5 +228,5 @@ export function useHighlightableRenderer({
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
-  return { editor, loading };
+  return { editor, loading, conflict, reloadFromDisk, overwrite };
 }

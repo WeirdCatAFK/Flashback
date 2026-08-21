@@ -32,15 +32,15 @@
 export const version = 7;
 export const description = 'Card health: CardHealth watermark + CardFlags failure signatures';
 
-export function shouldRun(db) {
-    const has = (name) => db.prepare(
+export async function shouldRun(db) {
+    const has = async (name) => await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name = ?"
     ).get(name);
-    return !has('CardHealth') || !has('CardFlags');
+    return !await has('CardHealth') || !await has('CardFlags');
 }
 
-export function up(db) {
-    db.exec(`CREATE TABLE IF NOT EXISTS CardHealth (
+export async function up(db) {
+    await db.exec(`CREATE TABLE IF NOT EXISTS CardHealth (
         id                  INTEGER PRIMARY KEY AUTOINCREMENT,
         flashcard_id        INTEGER NOT NULL UNIQUE REFERENCES Flashcards(id) ON DELETE CASCADE,
         epoch_at            TIMESTAMP,
@@ -49,7 +49,7 @@ export function up(db) {
         updated_at          TIMESTAMP
     )`);
 
-    db.exec(`CREATE TABLE IF NOT EXISTS CardFlags (
+    await db.exec(`CREATE TABLE IF NOT EXISTS CardFlags (
         id                 INTEGER PRIMARY KEY AUTOINCREMENT,
         flashcard_id       INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
         kind               TEXT NOT NULL,
@@ -63,7 +63,7 @@ export function up(db) {
         UNIQUE(flashcard_id, kind)
     )`);
 
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)`);
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id)`);
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id)`);
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)`);
 }

@@ -12,7 +12,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -99,9 +99,9 @@ describe('Performance: Import Throughput', () => {
         assert.notEqual(afterHead, beforeHead, 'importFile should produce a Seal commit');
 
         // All cards persisted
-        const doc = docs.exists(path.join(TEST_ROOT, 'large_size.bin'), true, false);
+        const doc = await docs.exists(path.join(TEST_ROOT, 'large_size.bin'), true, false);
         assert.ok(doc, 'Document should be in DB');
-        const fcCount = db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id).c;
+        const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;
         assert.equal(fcCount, 100, 'All 100 flashcards should be stored');
     });
 
@@ -140,9 +140,9 @@ describe('Performance: Import Throughput', () => {
         );
 
         // All cards persisted
-        const doc = docs.exists(path.join(TEST_ROOT, 'large_cards.md'), true, false);
+        const doc = await docs.exists(path.join(TEST_ROOT, 'large_cards.md'), true, false);
         assert.ok(doc, 'Document should be in DB');
-        const fcCount = db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id).c;
+        const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;
         assert.equal(fcCount, LARGE_CARDS, `All ${LARGE_CARDS} flashcards should be stored`);
     });
 });

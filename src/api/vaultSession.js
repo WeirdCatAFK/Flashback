@@ -38,22 +38,24 @@ export function isSwitching() {
  * explicitly rather than discovered, so adding a new cache to a singleton is a visible
  * decision to add it here too.
  */
-function resetVaultScopedCaches() {
-    query.onVaultOpened();       // NodeTypes/ConnectionTypes ids — per-database autoincrements
-    cardHealth.onVaultOpened();  // session index + the vault's own median answer length
-    mcpReader.onVaultOpened();   // extraction cache keyed by relative path, no vault component
+async function resetVaultScopedCaches() {
+    await query.onVaultOpened();       // NodeTypes/ConnectionTypes ids — per-database autoincrements
+    await cardHealth.onVaultOpened();  // session index + the vault's own median answer length
+    await mcpReader.onVaultOpened();   // extraction cache keyed by relative path, no vault component
 }
 
 /**
  * Creates the directories and canonical files a vault cannot answer a request without.
  * A brand-new vault reaches here with nothing but an empty database.
  *
- * Both constructors do the work as a side effect, which is also how UpdateRunner already
- * bootstraps itself. Must run after validate(), because Decks queries the schema.
+ * `Files` still does its work in the constructor — it only touches the filesystem, which is
+ * synchronous. `Decks` cannot: it reads the schema to decide whether the system deck exists,
+ * and the data layer is async now, so its setup is an awaited call rather than a constructor
+ * side effect. Must run after validate(), because Decks queries the schema.
  */
-function ensureVaultDirs() {
-    new Files();   // workspace/
-    new Decks();   // workspace/_decks/ + the system deck's JSON
+async function ensureVaultDirs() {
+    new Files();                          // workspace/
+    await new Decks().onVaultOpened();    // workspace/_decks/ + the system deck's JSON
 }
 
 /**
@@ -74,13 +76,13 @@ function ensureVaultDirs() {
  * @returns {Promise<boolean>} false when validation failed and the vault is unusable.
  */
 export async function openVault({ onFatal } = {}) {
-    if (!validate()) {
+    if (!await validate()) {
         onFatal?.("Validation failed.");
         return false;
     }
 
     ensureManifest();
-    resetVaultScopedCaches();
+    await resetVaultScopedCaches();
 
     await sealTools.init();
     console.log("Seal initialized.");
@@ -101,7 +103,7 @@ export async function openVault({ onFatal } = {}) {
         console.error("Canonical updates failed (continuing; will retry next launch):", err?.stack || err);
     }
 
-    ensureVaultDirs();
+    await ensureVaultDirs();
     return true;
 }
 

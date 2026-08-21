@@ -541,6 +541,7 @@
   "Server address": "Dirección del servidor",
   "Access token": "Token de acceso",
   "The token is stored with your operating system’s secure credential store, never in a plain file.": "El token se guarda en el almacén de credenciales seguro de tu sistema operativo, nunca en un archivo sin cifrar.",
+  "Give the same server a different name to connect as a second account.": "Da un nombre distinto al mismo servidor para conectarte como otra cuenta.",
   "Adding…": "Añadiendo…",
   "Add remote": "Añadir servidor remoto",
   "Local vault": "Bóveda local",

@@ -4,13 +4,20 @@ import validateDatabase from './validators/database.js';
 
 
 /**
- * Checks if the config file exists and is valid, and if the database is valid and has all required tables.
- * Returns true if the config file is valid and the database is valid, false otherwise.
- * @returns {boolean} True if the config file is valid and the database is valid, false otherwise.
+ * Checks that the config file exists and is valid, and that the database is valid, has every
+ * required table, and has had every pending migration applied.
+ *
+ * ASYNC, AND EVERY CALLER MUST AWAIT IT. `validateDatabase` became async when the data layer
+ * did; while this function was synchronous it evaluated `validateDatabase()` as a promise —
+ * always truthy — and so returned `true` before the database had been so much as opened.
+ * Nothing caught it because the validation invariably finished during whatever the caller did
+ * next. It stopped finishing in time once migration 010 had real work to do.
+ *
+ * @returns {Promise<boolean>} true when the config and the database are both usable.
  */
-function validate() {
-    if (validateConfig() && validateDatabase()) return true
-    return false
+async function validate() {
+    if (!validateConfig()) return false;
+    return await validateDatabase();
 }
 export default validate;
 

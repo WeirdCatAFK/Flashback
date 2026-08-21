@@ -1,0 +1,228 @@
+/* Server view — see Server.jsx.
+ *
+ * Every colour is a token; nothing here branches on theme name. The view is dense with facts
+ * rather than decorated, because what it mostly does is answer questions: which server is
+ * this, who am I here, who else is there.
+ */
+
+.srv-view {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6);
+  max-width: 900px;
+}
+
+.srv-section {
+  margin-bottom: var(--space-6);
+}
+
+.srv-section__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.srv-h2 {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+.srv-section__head .srv-h2 { margin-bottom: 0; }
+
+.srv-h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.srv-dim   { color: var(--color-fg-secondary); }
+.srv-sub   { font-size: var(--text-xs); }
+.srv-mono  { font-family: var(--font-mono, ui-monospace, monospace); font-size: var(--text-sm); }
+.srv-you   { color: var(--color-fg-secondary); font-weight: 400; }
+.srv-note  { margin-top: var(--space-3); font-size: var(--text-sm); }
+
+.srv-error {
+  margin: var(--space-2) 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+/* --- facts list ---------------------------------------------------------- */
+
+.srv-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  align-items: baseline;
+}
+.srv-facts dt {
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+}
+.srv-facts dd {
+  margin: 0;
+  color: var(--color-fg-primary);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* --- role chip ----------------------------------------------------------- */
+
+.srv-role {
+  display: inline-block;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+/* Only the Author is accented — the one role for which "anything goes" is worth saying. */
+.srv-role--author {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+.srv-role__blurb {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* --- the token, shown once ----------------------------------------------- */
+
+.srv-token {
+  margin: var(--space-3) 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  color: var(--color-fg-primary);
+}
+.srv-token__notice { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
+.srv-token__value {
+  display: block;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--text-sm);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.srv-token__actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
+
+/* --- table --------------------------------------------------------------- */
+
+.srv-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+.srv-table th {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border-strong);
+  color: var(--color-fg-secondary);
+  font-weight: 500;
+}
+.srv-table td {
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-fg-primary);
+  vertical-align: top;
+}
+/* Deactivated, not deleted: their progress is kept and reactivating resumes it. Faded
+   rather than hidden, so an admin can see they still exist. */
+.srv-row--inactive { opacity: 0.55; }
+
+.srv-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  justify-content: flex-end;
+}
+
+/* --- controls ------------------------------------------------------------ */
+
+.srv-btn {
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+}
+.srv-btn:hover:not(:disabled) { border-color: var(--color-accent); }
+.srv-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.srv-btn--sm { padding: 2px var(--space-2); font-size: var(--text-xs); }
+.srv-btn--primary {
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+  color: var(--color-on-accent);
+}
+.srv-btn--danger { border-color: var(--color-border-strong); }
+.srv-btn--danger:hover:not(:disabled) { border-color: var(--color-danger, var(--color-accent)); }
+
+.srv-input, .srv-select {
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.srv-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* --- progress ------------------------------------------------------------ */
+
+.srv-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: var(--space-3);
+}
+.srv-stat {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+.srv-stat__n {
+  display: block;
+  color: var(--color-fg-primary);
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+/* --- the irreversible corner --------------------------------------------- */
+
+.srv-danger {
+  margin-top: var(--space-5);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+.srv-danger .srv-dim { font-size: var(--text-sm); margin: 0 0 var(--space-2); }

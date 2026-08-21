@@ -79,8 +79,19 @@ function readFresh() {
     }
 }
 
-function _baseDir() {
+/**
+ * The install's data directory — where `config.json` lives, and the parent of every vault.
+ *
+ * Exported because it is not only a step on the way to a vault path any more: the accounts
+ * store sits HERE rather than inside a vault, so that copying a vault folder to someone else
+ * carries no access list with it.
+ */
+export function getBaseDir() {
     return process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
+}
+
+function _baseDir() {
+    return getBaseDir();
 }
 
 export function getVaultPath() {

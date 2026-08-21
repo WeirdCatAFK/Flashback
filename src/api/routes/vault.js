@@ -12,13 +12,21 @@ const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next))
 
 // Read once at import — package.json is inside app.asar in a packaged build, where it is
 // readable but never changes for the life of the process.
+//
+// Two candidate locations, because this module does not always sit three levels below the
+// manifest. In the repo and inside app.asar it is `src/api/routes/`, so `../../..` is right.
+// In the bundled standalone server the whole API is one file with its manifest beside it, and
+// `../../..` resolves outside the artifact — which silently reported `appVersion: null` in the
+// handshake, a field clients use as half the compatibility contract.
 const APP_VERSION = (() => {
-    try {
-        const here = path.dirname(fileURLToPath(import.meta.url));
-        return JSON.parse(readFileSync(path.join(here, '../../../package.json'), 'utf-8')).version;
-    } catch {
-        return null;
+    const here = path.dirname(fileURLToPath(import.meta.url));
+    for (const candidate of ['../../../package.json', './package.json']) {
+        try {
+            const { version } = JSON.parse(readFileSync(path.join(here, candidate), 'utf-8'));
+            if (version) return version;
+        } catch { /* try the next location */ }
     }
+    return null;
 })();
 
 /**
@@ -34,8 +42,18 @@ const APP_VERSION = (() => {
  * how far the vault's FILES have been brought forward. A client that understands neither
  * should refuse rather than write.
  *
- * `capabilities` is empty today and exists so a server can announce optional features
- * (sync, multi-user) without a version bump on either ladder.
+ * `capabilities` announces optional features so a client can adapt without a version bump on
+ * either ladder. It carries what the client cannot otherwise find out:
+ *
+ *   accounts      this deployment has an accounts store to manage (always true today, but a
+ *                 future embedder need not)
+ *   requireAuth   anonymous callers are refused — this is a served deployment, not a loopback
+ *                 dev API, which is what tells the renderer to offer a Server view at all
+ *   singleVault   /switch and /release are unmounted; do not offer to move this server
+ *
+ * It deliberately does NOT carry the caller's role. The role is already on
+ * `GET /api/identity`, which resolves it from the same `req.account` the guard uses — putting
+ * it here as well would be a second source for one fact, and the two would eventually differ.
  */
 router.get('/', catchError(async (req, res) => {
     const config = getConfig() || {};
@@ -44,9 +62,13 @@ router.get('/', catchError(async (req, res) => {
         vaultId: manifest.id,
         vaultName: config.vaultName ?? null,
         appVersion: APP_VERSION,
-        schemaVersion: query.getSchemaVersion(),
-        canonicalVersion: Math.max(0, ...query.getCanonicalVersions(), 0),
-        capabilities: [],
+        schemaVersion: await query.getSchemaVersion(),
+        canonicalVersion: Math.max(0, ...await query.getCanonicalVersions(), 0),
+        capabilities: [
+            'accounts',
+            ...(config.requireAuth ? ['requireAuth'] : []),
+            ...(config.singleVault ? ['singleVault'] : []),
+        ],
     });
 }));
 

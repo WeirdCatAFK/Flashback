@@ -20,6 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { readConfig, updateConfig, apiBaseUrl } from "./appConfig.js";
 import { vaultNameError } from "../shared/vaultName.js";
+import { unusableUrlReason } from "../shared/remoteUrl.js";
 
 const MANIFEST_NAME = "vault.json";
 
@@ -331,6 +332,7 @@ function normalizeUrl(url) {
     return trimmed;
 }
 
+
 /**
  * Registers a remote Flashback Server.
  *
@@ -343,6 +345,9 @@ export function addRemote({ label, url, token }) {
     const normalized = normalizeUrl(url);
     if (!normalized) return { ok: false, error: "Enter a full URL, including http:// or https://." };
 
+    const unusable = unusableUrlReason(normalized);
+    if (unusable) return { ok: false, error: unusable };
+
     let tokenEnc = null;
     if (token) {
         if (!safeStorage.isEncryptionAvailable()) {
@@ -354,9 +359,19 @@ export function addRemote({ label, url, token }) {
         tokenEnc = safeStorage.encryptString(token).toString("base64");
     }
 
-    const entry = { id: crypto.randomUUID(), label: (label || normalized).trim(), url: normalized, tokenEnc };
+    // A remote is a server AND a credential, not a server. Two entries on one address are
+    // the ordinary case for a shared vault, not a mistake to collapse: an Author token and a
+    // Reader token are two different people on the same server, and the entire point of a
+    // role is that they see different things. Keying the registry by URL alone made the
+    // second one silently overwrite the first.
+    //
+    // So the NAME identifies an entry and only an exact (address, name) repeat replaces —
+    // which is still exactly what re-adding to update an expired token looks like, since the
+    // name defaults to the address when the field is left blank.
+    const name = (label || normalized).trim();
+    const entry = { id: crypto.randomUUID(), label: name, url: normalized, tokenEnc };
     updateConfig((c) => {
-        c.remotes = (c.remotes ?? []).filter((r) => r.url !== normalized);
+        c.remotes = (c.remotes ?? []).filter((r) => !(r.url === normalized && r.label === name));
         c.remotes.push(entry);
     });
     return { ok: true, remote: { id: entry.id, label: entry.label, url: entry.url, hasToken: !!tokenEnc } };
@@ -386,6 +401,12 @@ function remoteToken(id) {
 export async function testRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return { ok: false, error: "No such remote." };
+
+    // Checked here too, not only at registration: a remote saved before this existed would
+    // otherwise still pass the probe and strand the renderer. `useRemote` calls this before
+    // repointing, so refusing here is what keeps a bad URL from being switched to at all.
+    const unusable = unusableUrlReason(remote.url);
+    if (unusable) return { ok: false, error: unusable };
 
     const token = remoteToken(id);
     try {

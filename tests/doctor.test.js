@@ -7,8 +7,13 @@ import crypto from 'crypto';
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_doctor');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
+// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
+// crashed run leaves it behind — and a stale index reads back as out-of-band drift, which is
+// precisely what these tests assert the absence of.
+fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
+
 const { default: validate } = await import('../src/api/config/validate.js');
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -96,14 +101,14 @@ describe('Vault Doctor', () => {
             assert.ok(result.actions.documentsIndexed >= 1, 'document should be indexed');
             assert.ok(result.actions.foldersIndexed >= 1, 'ghost folder should be indexed');
 
-            const doc = query.getDocumentByPath(rel);
+            const doc = await query.getDocumentByPath(rel);
             assert.ok(doc, 'Documents row exists');
-            const cards = query.getFlashcardsByDocument(doc.id);
+            const cards = await query.getFlashcardsByDocument(doc.id, 'owner');
             assert.equal(cards.length, 1);
             assert.equal(cards[0].global_hash, cardHash);
             assert.equal(cards[0].level, 3, 'sidecar level adopted');
-            assert.ok(query.getDirectTagNames(doc.node_id).includes('oob-tag'));
-            assert.ok(query.getFolderByPath(path.join(TEST_ROOT, 'OobFolder')), 'ghost folder registered');
+            assert.ok((await query.getDirectTagNames(doc.node_id)).includes('oob-tag'));
+            assert.ok(await query.getFolderByPath(path.join(TEST_ROOT, 'OobFolder')), 'ghost folder registered');
 
             assert.ok(result.sealedOid, 'drift was sealed');
             const log = await sealTools.log();
@@ -153,8 +158,8 @@ describe('Vault Doctor', () => {
             const result = await doctor.syncIndex();
             assert.ok(result.actions.documentsReindexed >= 1);
 
-            const doc = query.getDocumentByPath(rel);
-            const byHash = new Map(query.getFlashcardsByDocument(doc.id).map(c => [c.global_hash, c]));
+            const doc = await query.getDocumentByPath(rel);
+            const byHash = new Map((await await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
             assert.equal(byHash.size, 3, 'new card was added');
             assert.equal(byHash.get(keepHash).level, 4, 'raised level adopted');
             assert.equal(byHash.get(regressHash).level, 5, 'lowered level did not regress');
@@ -190,16 +195,16 @@ describe('Vault Doctor', () => {
         });
 
         it('syncIndex removes the rows (folder cascade included) and seals the deletions', async () => {
-            const nestedDocId = query.getDocumentByPath(nestedRel)?.id;
+            const nestedDocId = (await query.getDocumentByPath(nestedRel))?.id;
             assert.ok(nestedDocId, 'nested doc indexed before sync');
 
             const result = await doctor.syncIndex();
             assert.ok(result.actions.documentsRemoved >= 1 || result.actions.foldersRemoved >= 1);
 
-            assert.equal(query.getDocumentByPath(fileRel), undefined);
-            assert.equal(query.getFolderByPath(folderRel), undefined);
-            assert.equal(query.getDocumentByPath(nestedRel), undefined, 'nested doc cascaded');
-            assert.equal(query.getFlashcardsByDocument(nestedDocId).length, 0, 'nested cards cascaded');
+            assert.equal(await query.getDocumentByPath(fileRel), undefined);
+            assert.equal(await query.getFolderByPath(folderRel), undefined);
+            assert.equal(await query.getDocumentByPath(nestedRel), undefined, 'nested doc cascaded');
+            assert.equal((await query.getFlashcardsByDocument(nestedDocId, 'owner')).length, 0, 'nested cards cascaded');
 
             assert.ok(result.sealedOid, 'deletions were sealed');
             const drift = await sealTools.inspect();
@@ -246,8 +251,8 @@ describe('Vault Doctor', () => {
             const logBefore = (await sealTools.log()).length;
             const result = await doctor.syncIndex();
 
-            const doc = query.getDocumentByPath(rel);
-            const cards = query.getFlashcardsByDocument(doc.id);
+            const doc = await query.getDocumentByPath(rel);
+            const cards = await query.getFlashcardsByDocument(doc.id, 'owner');
             assert.equal(cards.length, 1, 'v2 card removed from index');
             assert.equal(cards[0].global_hash, v1Hash);
 
@@ -274,7 +279,7 @@ describe('Vault Doctor', () => {
             assert.ok(result.actions.mediaRegistered >= 1);
 
             const expected = crypto.createHash('sha256').update(Buffer.from('fake-png-bytes')).digest('hex');
-            assert.ok(query.getMediaByHash(expected), 'row exists with correct hash');
+            assert.ok(await query.getMediaByHash(expected), 'row exists with correct hash');
         });
 
         it('syncIndex drops the row once the file disappears', async () => {
@@ -285,7 +290,7 @@ describe('Vault Doctor', () => {
             const result = await doctor.syncIndex();
             assert.ok(result.actions.mediaRowsRemoved >= 1);
             const expected = crypto.createHash('sha256').update(Buffer.from('fake-png-bytes')).digest('hex');
-            assert.equal(query.getMediaByHash(expected), undefined);
+            assert.equal(await query.getMediaByHash(expected), undefined);
         });
     });
 
@@ -293,15 +298,15 @@ describe('Vault Doctor', () => {
     describe('deck reconciliation', () => {
         it('reimports a deck whose DB row vanished (file wins)', async () => {
             const hash = await decks.createDeck('LostRow', 'db row will vanish');
-            query.deleteDeck(query.getDeckByHash(hash).id);
-            assert.equal(query.getDeckByHash(hash), undefined);
+            await query.deleteDeck((await query.getDeckByHash(hash)).id);
+            assert.equal(await query.getDeckByHash(hash), undefined);
 
             const report = await doctor.checkIndex();
             assert.ok(report.decks.fileWithoutDb.includes(hash));
 
             await doctor.syncIndex();
-            assert.ok(query.getDeckByHash(hash), 'deck row restored from file');
-            assert.equal(query.getDeckByHash(hash).name, 'LostRow');
+            assert.ok(await query.getDeckByHash(hash), 'deck row restored from file');
+            assert.equal((await query.getDeckByHash(hash)).name, 'LostRow');
         });
 
         it('self-heals a deck file that vanished (DB is next-best truth)', async () => {
@@ -333,8 +338,8 @@ describe('Vault Doctor', () => {
             assert.ok(mm && mm.missingInFile.includes(cardHash));
 
             await doctor.syncIndex();
-            const deck = query.getDeckByHash(deckHash);
-            assert.equal(query.getDeckEntries(deck.id).length, 0, 'DB entry removed to match file');
+            const deck = await query.getDeckByHash(deckHash);
+            assert.equal((await query.getDeckEntries(deck.id, 'owner')).length, 0, 'DB entry removed to match file');
         });
     });
 
@@ -364,8 +369,8 @@ describe('Vault Doctor', () => {
             const conflict = result.skipped.hashConflicts.find(c => c.hash === sharedHash);
             assert.ok(conflict, 'conflict reported');
             assert.equal(conflict.paths.length, 2);
-            assert.equal(query.getDocumentByPath(relA), undefined, 'conflicting file A not indexed');
-            assert.equal(query.getDocumentByPath(relB), undefined, 'conflicting file B not indexed');
+            assert.equal(await query.getDocumentByPath(relA), undefined, 'conflicting file A not indexed');
+            assert.equal(await query.getDocumentByPath(relB), undefined, 'conflicting file B not indexed');
         });
     });
 
@@ -390,7 +395,7 @@ describe('Vault Doctor', () => {
 
             const result = await doctor.syncIndex();
             assert.ok(result.skipped.corruptSidecars.some(p => p.includes('Corrupt.md')));
-            assert.equal(query.getDocumentByPath(rel), undefined);
+            assert.equal(await query.getDocumentByPath(rel), undefined);
         });
     });
 
@@ -431,7 +436,7 @@ describe('Vault Doctor', () => {
             // Folder with a tag (inheritance), a doc with a leveled+eased card,
             // a second doc linking to the first, a highlight, a custom category,
             // a user deck, and a standalone card.
-            query.insertCategory({ name: 'doctor-test-cat', priority: 2, description: 'test' });
+            await query.insertCategory({ name: 'doctor-test-cat', priority: 2, description: 'test' });
 
             await docs.createFolder('RebuildZone', TEST_ROOT);
             await docs.updateMetadata(folderRel, { ...readFolderSidecar(folderRel), tags: ['inherited-tag'] }, true);
@@ -473,16 +478,16 @@ describe('Vault Doctor', () => {
             await doctor.syncIndex(); // register media, settle everything
 
             snapshot = {
-                documents: query.getAllDocuments().length,
-                flashcards: query.getFlashcardCount(),
-                decks: query.getAllDecks().length,
+                documents: (await query.getAllDocuments()).length,
+                flashcards: await query.getFlashcardCount(),
+                decks: (await query.getAllDecks()).length,
             };
 
             // Simulate a recovered-from-corruption DB: category rows lost too.
-            const cat = query.getCategoryByName('doctor-test-cat');
-            query.wipeDerivedContent();
-            query.deleteCategory(cat.id);
-            assert.equal(query.getFlashcardCount(), 0, 'index is empty before rebuild');
+            const cat = await query.getCategoryByName('doctor-test-cat');
+            await query.wipeDerivedContent();
+            await query.deleteCategory(cat.id);
+            assert.equal(await query.getFlashcardCount(), 0, 'index is empty before rebuild');
         });
 
         function readFolderSidecar(relPath) {
@@ -493,73 +498,77 @@ describe('Vault Doctor', () => {
             const { summary, warnings } = await doctor.rebuildIndex();
             assert.deepEqual(warnings.filter(w => !w.includes('System deck')), [], `unexpected warnings: ${warnings}`);
 
-            assert.equal(query.getAllDocuments().length, snapshot.documents, 'document count restored');
-            assert.equal(query.getFlashcardCount(), snapshot.flashcards, 'flashcard count restored (incl. standalone)');
-            assert.equal(query.getAllDecks().length, snapshot.decks, 'deck count restored');
+            assert.equal((await query.getAllDocuments()).length, snapshot.documents, 'document count restored');
+            assert.equal(await query.getFlashcardCount(), snapshot.flashcards, 'flashcard count restored (incl. standalone)');
+            assert.equal((await query.getAllDecks()).length, snapshot.decks, 'deck count restored');
             assert.ok(summary.documentsIndexed > 0);
 
-            const card = db.prepare('SELECT level FROM Flashcards WHERE global_hash = ?').get(cardHash);
+            const card = await db.prepare(`
+                SELECT p.level FROM CardProgress p
+                JOIN Flashcards f ON f.id = p.flashcard_id
+                WHERE f.global_hash = ? AND p.account_id = 'owner'
+            `).get(cardHash);
             assert.equal(card.level, 6, 'SRS level recovered from sidecar');
         });
 
-        it('recreates the missing category and links the card to it', () => {
-            const cat = query.getCategoryByName('doctor-test-cat');
+        it('recreates the missing category and links the card to it', async () => {
+            const cat = await query.getCategoryByName('doctor-test-cat');
             assert.ok(cat, 'category recreated');
-            const row = db.prepare('SELECT category_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
+            const row = await db.prepare('SELECT category_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
             assert.equal(row.category_id, cat.id);
         });
 
-        it('recomputes tag inheritance', () => {
-            const doc = query.getDocumentByPath(docARel);
-            assert.ok(query.getDirectTagNames(doc.node_id).includes('direct-tag'));
-            assert.ok(query.getInheritedTagNames(doc.node_id).includes('inherited-tag'));
+        it('recomputes tag inheritance', async () => {
+            const doc = await query.getDocumentByPath(docARel);
+            assert.ok((await query.getDirectTagNames(doc.node_id)).includes('direct-tag'));
+            assert.ok((await query.getInheritedTagNames(doc.node_id)).includes('inherited-tag'));
         });
 
-        it('restores highlights, links, media, and ease factors', () => {
-            const doc = query.getDocumentByPath(docARel);
-            assert.equal(query.getHighlightsByDocumentId(doc.id).length, 1, 'highlight restored');
+        it('restores highlights, links, media, and ease factors', async () => {
+            const doc = await query.getDocumentByPath(docARel);
+            assert.equal((await query.getHighlightsByDocumentId(doc.id)).length, 1, 'highlight restored');
 
-            const { edges } = query.getGraphData();
-            const source = query.getDocumentByPath(docBRel);
+            const { edges } = await query.getGraphData('owner');
+            const source = await query.getDocumentByPath(docBRel);
             assert.ok(
                 edges.some(e => e.relation === 'link' && e.fromId === source.node_id && e.toId === doc.node_id),
                 'flashback:// link edge restored'
             );
 
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
-            assert.ok(query.getMediaByHash(mediaHash), 'media re-registered');
+            assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
-            const eases = query.getLatestEaseFactors();
+            const eases = await query.getLatestEaseFactors('owner');
             assert.equal(eases.get(cardHash), 2.7, 'ease factor recovered via synthetic review log');
         });
 
-        it('restores the standalone card from its inline snapshot and keeps one system deck', () => {
-            const restored = query.getFlashcardByHash(standaloneHash);
+        it('restores the standalone card from its inline snapshot and keeps one system deck', async () => {
+            const restored = await query.getFlashcardByHash(standaloneHash);
             assert.ok(restored, 'standalone card restored');
-            const content = db.prepare(`
+            const content = await db.prepare(`
                 SELECT c.frontText FROM Flashcards f JOIN FlashcardContent c ON c.id = f.content_id
                 WHERE f.global_hash = ?
             `).get(standaloneHash);
             assert.equal(content.frontText, 'standalone-rebuild');
 
-            const systemCount = db.prepare('SELECT COUNT(*) as c FROM Decks WHERE is_system = 1').get().c;
+            const systemCount = (await db.prepare('SELECT COUNT(*) as c FROM Decks WHERE is_system = 1').get()).c;
             assert.equal(systemCount, 1, 'exactly one system deck');
 
-            const deck = query.getDeckByHash(deckHash);
-            assert.equal(query.getDeckEntries(deck.id).length, 1, 'user deck entries restored');
+            const deck = await query.getDeckByHash(deckHash);
+            assert.equal((await query.getDeckEntries(deck.id, 'owner')).length, 1, 'user deck entries restored');
         });
 
         // The rebuild is the one operation that throws the derived layer away entirely, so if
         // a type_answer card's graded answer and its notes are ever going to collapse back
         // into one field, it happens here.
-        it('keeps a type_answer card\'s answer and notes apart through the rebuild', () => {
-            const anchored = query.getFlashcardContentByHash(typedHash);
+        it('keeps a type_answer card\'s answer and notes apart through the rebuild', async () => {
+            const anchored = await query.getFlashcardContentByHash(typedHash, 'owner');
             assert.ok(anchored, 'anchored type_answer card restored');
             assert.equal(anchored.card_type, 'type_answer');
             assert.equal(anchored.answerText, 'rebuild-typed-answer', 'the graded value survives');
             assert.equal(anchored.backText, 'rebuild-typed-notes', 'and so do its notes, separately');
 
-            const standalone = query.getFlashcardContentByHash(typedStandaloneHash);
+            const standalone = await query.getFlashcardContentByHash(typedStandaloneHash, 'owner');
             assert.ok(standalone, 'standalone type_answer card restored from its inline snapshot');
             assert.equal(standalone.answerText, 'standalone-typed-answer');
             assert.equal(standalone.backText, 'standalone-typed-notes');

@@ -11,26 +11,43 @@
 export const version = 4;
 export const description = 'FSRS scheduler: card state columns, review snapshot, FsrsParameters';
 
-export function shouldRun(db) {
-    const cols = db.prepare("PRAGMA table_info('Flashcards')").all().map(c => c.name);
-    const hasTable = db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'"
+// Migration 010 moved the per-card FSRS state into CardProgress and dropped these six
+// columns off Flashcards. After it has run their absence is the CORRECT state, not a
+// missing artifact — so this guard must stop asking Flashcards about them, or it reports
+// itself pending on every boot forever and re-adds exactly the columns 010 removed.
+// (That is not hypothetical: it is what happened the first time a real vault was migrated.)
+// The ReviewLogs snapshot columns and the FsrsParameters table are untouched by 010 and are
+// still this migration's business.
+async function supersededBy010(db) {
+    return !!await db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
     ).get();
-    return !cols.includes('fsrs_stability') || !hasTable;
 }
 
-export function up(db) {
-    const addColumns = (tableName, additions) => {
-        const existing = db.prepare(`PRAGMA table_info('${tableName}')`).all().map(c => c.name);
+export async function shouldRun(db) {
+    const cols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
+    const hasTable = await db.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'"
+    ).get();
+    const cardStateMissing = !await supersededBy010(db) && !cols.includes('fsrs_stability');
+    return cardStateMissing || !hasTable;
+}
+
+export async function up(db) {
+    const addColumns = async (tableName, additions) => {
+        const existing = (await db.prepare(`PRAGMA table_info('${tableName}')`).all()).map(c => c.name);
         for (const [name, ddl] of additions) {
             if (!existing.includes(name)) {
-                db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`).run();
+                await db.prepare(`ALTER TABLE ${tableName} ADD COLUMN ${ddl}`).run();
             }
         }
     };
 
     // ── Flashcards: FSRS per-card state ───────────────────────────────────────
-    addColumns('Flashcards', [
+    // Guarded here as well as in shouldRun(): up() also runs when the SchemaVersion row for
+    // this migration is absent, which is every rebuilt database — and a rebuilt database is
+    // built from the modern SchemaSQL, where these columns are gone on purpose.
+    if (!await supersededBy010(db)) await addColumns('Flashcards', [
         ['fsrs_stability', 'fsrs_stability FLOAT'],
         ['fsrs_difficulty', 'fsrs_difficulty FLOAT'],
         ['fsrs_due', 'fsrs_due TIMESTAMP'],
@@ -40,7 +57,7 @@ export function up(db) {
     ]);
 
     // ── ReviewLogs: real rating + post-review FSRS snapshot ───────────────────
-    addColumns('ReviewLogs', [
+    await addColumns('ReviewLogs', [
         ['rating', 'rating INTEGER'],
         ['fsrs_stability', 'fsrs_stability FLOAT'],
         ['fsrs_difficulty', 'fsrs_difficulty FLOAT'],
@@ -49,7 +66,7 @@ export function up(db) {
     ]);
 
     // ── FsrsParameters: active weight vector for the vault ────────────────────
-    db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
+    await db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         weights_json TEXT NOT NULL,
         optimized_at TIMESTAMP,

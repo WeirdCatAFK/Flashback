@@ -61,11 +61,11 @@ const docs = new Documents();
 /** State that must be identical either side of the upgrade. */
 async function snapshot() {
     return {
-        schemaVersion: query.getSchemaVersion(),
-        canonicalVersion: Math.max(0, ...query.getCanonicalVersions(), 0),
-        documents: query.db.prepare('SELECT name FROM Documents ORDER BY name').all().map((r) => r.name),
-        cards: query.db.prepare('SELECT COUNT(*) AS n FROM Flashcards').get().n,
-        categories: query.db.prepare('SELECT COUNT(*) AS n FROM PedagogicalCategories').get().n,
+        schemaVersion: await query.getSchemaVersion(),
+        canonicalVersion: Math.max(0, ...await query.getCanonicalVersions(), 0),
+        documents: (await await query.db.prepare('SELECT name FROM Documents ORDER BY name').all()).map((r) => r.name),
+        cards: (await query.db.prepare('SELECT COUNT(*) AS n FROM Flashcards').get()).n,
+        categories: (await query.db.prepare('SELECT COUNT(*) AS n FROM PedagogicalCategories').get()).n,
         commits: (await sealTools.log(200)).map((c) => c.oid),
     };
 }

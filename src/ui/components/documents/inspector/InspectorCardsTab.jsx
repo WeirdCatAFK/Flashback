@@ -5,9 +5,14 @@ import { useConfirm } from '../../shared/ConfirmDialog';
 import FlashcardEditor from '../../FlashcardEditor';
 import { typeAnswerParts, cardTypeShortLabel } from '../../shared/flashcardFields';
 import { useT } from '../../../translations';
+import { useSession } from '../../../sessionContext.js';
 
 function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
   const { t } = useT();
+  // Hidden rather than disabled: a row of dead ✎/✕ glyphs on every card reads as breakage,
+  // and the row still carries "↗ source", which is what a Reader came here for.
+  const { can } = useSession();
+  const mayEdit = can('editCards');
   const cardType     = card.cardType ?? (card.isCustom ? 'custom' : 'basic');
   const front        = card.vanillaData?.frontText ?? card.name ?? '—';
   // For a type_answer card the preview line is the compared answer, not the notes that
@@ -35,8 +40,10 @@ function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
               {t('↗ source')}
             </button>
           )}
-          <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title={t('Edit card')}>✎</button>
-          <button type="button" className="card-item-delete" onClick={() => onDelete(card)} title={t('Delete card')}>✕</button>
+          {mayEdit && (<>
+            <button type="button" className="card-item-edit" onClick={() => onEdit(card)} title={t('Edit card')}>✎</button>
+            <button type="button" className="card-item-delete" onClick={() => onDelete(card)} title={t('Delete card')}>✕</button>
+          </>)}
         </div>
       </div>
 
@@ -59,6 +66,7 @@ function CardItem({ card, index, onEdit, onDelete, onJumpToHighlight }) {
 
 export default function InspectorCardsTab({ path, flashcards: flashcardsProp, onNewCard, onJumpToHighlight }) {
   const { t, tp } = useT();
+  const { can } = useSession();
   // Post-edit snapshot: after the user saves an inline edit we re-fetch fresh
   // data here. Null means "no local fetch yet — use parent's flashcardsProp."
   const [postEditCards, setPostEditCards] = useState(null);
@@ -138,7 +146,9 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
         <span className="cards-tab-count">
           {loading ? '…' : tp('{n} card', '{n} cards', cards.length)}
         </span>
-        <button type="button" className="cards-new-btn" onClick={onNewCard}>{t('+ New')}</button>
+        {can('editCards') && (
+          <button type="button" className="cards-new-btn" onClick={onNewCard}>{t('+ New')}</button>
+        )}
       </div>
 
       {!loading && cards.length === 0 && (

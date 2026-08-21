@@ -15,6 +15,7 @@
  */
 import { randomUUID } from 'crypto';
 import query from '../resources/query.js';
+import { currentScope } from '../../requestContext.js';
 import { orderCards, distance, CONFUSABLE_THRESHOLD } from './sequencing.js';
 
 // getDue() hands us raw DB rows (snake_case); the ordering engine speaks the client's
@@ -43,7 +44,7 @@ const normalize = (cards) => cards.map(c => ({
  * Never throws on account of the graph: if facets can't be read, the session falls back to
  * a shuffle and the user still gets to study.
  */
-export function sequence({ due = [], newCards = [], order = 'interleaved', seed = null } = {}) {
+export async function sequence({ due = [], newCards = [], order = 'interleaved', seed = null } = {}) {
     const cards = normalize([...due, ...newCards]);
     const sessionId = randomUUID();
     const effectiveSeed = seed ?? (Date.now() & 0x7fffffff);
@@ -65,7 +66,7 @@ export function sequence({ due = [], newCards = [], order = 'interleaved', seed 
 
     let facets;
     try {
-        facets = query.getSessionFacets(cards.map(hashOf));
+        facets = await query.getSessionFacets(cards.map(hashOf));
     } catch (err) {
         console.error('session facets unavailable, falling back to shuffle:', err);
         return {
@@ -92,12 +93,15 @@ export function sequence({ due = [], newCards = [], order = 'interleaved', seed 
  * Returns nulls rather than zeros when there's nothing to measure — a review with no logged
  * ordering must never read as "shown next to its sibling".
  */
-export function measureOrdering({ sessionId, cardHash, prevCardHash }) {
+export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope = null }) {
     if (!sessionId || !cardHash) return { prevDistance: null, nearestSiblingLag: null };
 
     try {
-        const history = query.getSessionReviewOrder(sessionId);
-        const facets = query.getSessionFacets(
+        // A session id is a uuid and so is already unique, but the read is scoped anyway:
+        // "what was shown before this card" is a question about one person's session, and an
+        // unscoped read here would be a scoping bug waiting for the day ids stop being uuids.
+        const history = await query.getSessionReviewOrder(sessionId, scope ?? currentScope());
+        const facets = await query.getSessionFacets(
             [...new Set([...history.map(r => r.globalHash), cardHash, prevCardHash].filter(Boolean))],
         );
 

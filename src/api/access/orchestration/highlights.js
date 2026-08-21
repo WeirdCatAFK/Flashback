@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import Files from '../resources/files.js';
+import { withDocument } from '../resources/pathLock.js';
 import query from '../resources/query.js';
 import db from '../primitives/database.js';
 
@@ -28,8 +29,8 @@ class Highlights {
      * @param {boolean} [opts.uncardedOnly] Only highlights no flashcard anchors to yet.
      * @returns {Array<object>} Newest first.
      */
-    listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
-        const paths = path ? [path] : this.query.getHighlightedDocumentPaths();
+    async listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
+        const paths = path ? [path] : await this.query.getHighlightedDocumentPaths();
         const results = [];
 
         for (const relPath of paths) {
@@ -112,7 +113,18 @@ class Highlights {
         return { text, context };
     }
 
-    createHighlight(relPath, data) {
+    // Every one of these is a read-modify-write of the document's sidecar, so each takes the
+    // document lock before its database transaction. Consistent order with documents.js —
+    // path lock first, database lock second — which is what keeps the two from deadlocking.
+    //
+    // A highlight is an ENTITY inside the sidecar, not the sidecar itself: two people
+    // highlighting different passages of one document both succeed, and only the same
+    // highlight can conflict.
+    async createHighlight(relPath, data) {
+        return await withDocument(relPath, () => this._createHighlightLocked(relPath, data));
+    }
+
+    async _createHighlightLocked(relPath, data) {
         const globalHash = data.globalHash ?? crypto.randomUUID();
         const highlight = {
             id: globalHash,
@@ -130,14 +142,14 @@ class Highlights {
             createdAt: data.createdAt ?? new Date().toISOString(),
         };
 
-        return db.transaction(() => {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             const highlights = [...(sidecar.highlights ?? []), highlight];
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
 
-            const doc = this.query.getDocumentByPath(relPath);
+            const doc = await this.query.getDocumentByPath(relPath);
             if (doc) {
-                this.query.insertHighlight({
+                await this.query.insertHighlight({
                     documentId: doc.id,
                     globalHash: highlight.id,
                     type: highlight.type,
@@ -154,35 +166,51 @@ class Highlights {
         })();
     }
 
-    updateHighlight(relPath, hash, data) {
-        return db.transaction(() => {
+    async updateHighlight(relPath, hash, data, { ifMatch } = {}) {
+        return await withDocument(relPath, () => this._updateHighlightLocked(relPath, hash, data, ifMatch));
+    }
+
+    async _updateHighlightLocked(relPath, hash, data, ifMatch) {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             let updated = null;
             const highlights = (sidecar.highlights ?? []).map(h => {
                 if (h.id !== hash) return h;
+                // Same-entity conflict check: the caller may pass the etag of the highlight
+                // it read (Files.entityEtag). Omitted means no check, as everywhere else.
+                if (ifMatch && this.files.entityEtag(h) !== ifMatch) {
+                    throw Object.assign(
+                        new Error('This highlight changed since you last read it.'),
+                        { status: 409, code: 'stale', etag: this.files.entityEtag(h) },
+                    );
+                }
                 updated = { ...h, color: data.color ?? h.color, note: data.note ?? h.note };
                 return updated;
             });
             if (!updated) throw new Error(`Highlight not found: ${hash}`);
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
-            this.query.updateHighlight(hash, { color: updated.color, note: updated.note });
+            await this.query.updateHighlight(hash, { color: updated.color, note: updated.note });
             return updated;
         })();
     }
 
-    deleteHighlight(relPath, hash) {
-        return db.transaction(() => {
+    async deleteHighlight(relPath, hash) {
+        return await withDocument(relPath, () => this._deleteHighlightLocked(relPath, hash));
+    }
+
+    async _deleteHighlightLocked(relPath, hash) {
+        return await db.transaction(async () => {
             const sidecar = this.files.getMetadata(relPath, false) ?? {};
             const highlights = (sidecar.highlights ?? []).filter(h => h.id !== hash);
             this.files.writeMetadata(relPath, { ...sidecar, highlights }, false);
-            this.query.deleteHighlight(hash);
+            await this.query.deleteHighlight(hash);
         })();
     }
 
     // Called from Documents._syncDocumentHighlights when a file is imported.
-    syncFromSidecar(documentId, highlightsData) {
+    async syncFromSidecar(documentId, highlightsData) {
         if (!Array.isArray(highlightsData) || highlightsData.length === 0) return;
-        this.query.syncDocumentHighlights(documentId, highlightsData);
+        await this.query.syncDocumentHighlights(documentId, highlightsData);
     }
 }
 

@@ -39,7 +39,7 @@ export function registerWriteTools(server) {
         customHtml: z.string().optional().describe('Raw HTML body, only used when cardType is "custom".'),
         name: z.string().optional().describe('Optional descriptive name for the card.'),
         category: z.string().optional().describe('Pedagogical category name. Call list_categories first to see valid values — an unrecognized name is rejected with an error, not silently dropped.'),
-        tags: z.array(z.string()).optional().describe('Tags to apply to the card. Only used for document-anchored cards.'),
+        tags: z.array(z.string()).optional().describe('Tags to apply to the card. Works with or without `path`: an anchored card keeps them in its sidecar, a standalone card on the card itself.'),
         highlightHash: z.string().optional().describe('The `id` of a highlight in the same document to anchor this card to (returned by create_highlight, listed in the sidecar\'s highlights[]). Requires `path`.'),
       },
     },
@@ -84,7 +84,7 @@ export function registerWriteTools(server) {
           // sidecar card object under `card`, that one returns a bare { globalHash }.
           return asText({ globalHash: data.card?.globalHash, documentPath: path, cardType, category: category ?? null });
         }
-        const data = await request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, origin: 'ai' });
+        const data = await request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, tags, origin: 'ai' });
         return asText({ globalHash: data.globalHash, documentPath: null, cardType, category: category ?? null });
       } catch (err) {
         return asError(err);
@@ -138,7 +138,7 @@ export function registerWriteTools(server) {
         cardType: z.enum(CARD_TYPES).optional(),
         category: z.string().optional().describe('Call list_categories first — an unrecognized name is rejected, not silently dropped.'),
         customHtml: z.string().optional().describe('Raw HTML body for "custom" cards.'),
-        tags: z.array(z.string()).optional().describe('Replaces the card\'s tags. Document-anchored cards only.'),
+        tags: z.array(z.string()).optional().describe('Replaces the card\'s own tags — not what it inherits from a document, folder or deck. Works on standalone cards too.'),
       },
     },
     // One call: PUT /api/flashcards/:hash resolves whether the card lives in a

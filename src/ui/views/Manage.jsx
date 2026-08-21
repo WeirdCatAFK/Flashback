@@ -9,6 +9,7 @@ import {
 import { getTagUsage } from "../api/tags";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { useT } from "../translations";
+import { useSession } from "../sessionContext.js";
 
 /**
  * Manage — the knowledge-environment tab. Unlike a document or a card, the things
@@ -20,7 +21,7 @@ import { useT } from "../translations";
 
 // ── Pedagogical categories ────────────────────────────────────────────────────
 
-function CategoryRow({ cat, onSave, onDelete }) {
+function CategoryRow({ cat, onSave, onDelete, readOnly }) {
   const { t } = useT();
   const [name, setName] = useState(cat.name);
   const [priority, setPriority] = useState(cat.priority);
@@ -42,6 +43,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
           onChange={(e) => setPriority(e.target.value)}
           onBlur={() => onSave(cat.id, { priority: Number(priority) })}
           aria-label={t('Priority')}
+          readOnly={readOnly}
         />
       </td>
       <td>
@@ -53,6 +55,7 @@ function CategoryRow({ cat, onSave, onDelete }) {
           onBlur={() => onSave(cat.id, { name })}
           aria-label={t('Category name')}
           maxLength={200}
+          readOnly={readOnly}
         />
       </td>
       <td>
@@ -64,18 +67,21 @@ function CategoryRow({ cat, onSave, onDelete }) {
           onBlur={() => onSave(cat.id, { description })}
           aria-label={t('Description')}
           maxLength={500}
+          readOnly={readOnly}
         />
       </td>
       <td>
-        <button
-          type="button"
-          className="mng-delete-btn"
-          onClick={() => onDelete(cat.id)}
-          title={t('Delete category')}
-          aria-label={t('Delete {name}', { name: cat.name })}
-        >
-          ×
-        </button>
+        {!readOnly && (
+          <button
+            type="button"
+            className="mng-delete-btn"
+            onClick={() => onDelete(cat.id)}
+            title={t('Delete category')}
+            aria-label={t('Delete {name}', { name: cat.name })}
+          >
+            ×
+          </button>
+        )}
       </td>
     </tr>
   );
@@ -83,6 +89,11 @@ function CategoryRow({ cat, onSave, onDelete }) {
 
 function CategoriesPanel({ refreshKey }) {
   const { t } = useT();
+  // Categories stay VISIBLE without the role — they classify the cards a Reader studies, so
+  // the list is information. What goes away is the ability to change it: read-only inputs,
+  // no delete, no add row.
+  const { can } = useSession();
+  const mayEdit = can('manageCategories');
   const [categories, setCategories] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -157,8 +168,9 @@ function CategoriesPanel({ refreshKey }) {
           </thead>
           <tbody>
             {categories.map((cat) => (
-              <CategoryRow key={cat.id} cat={cat} onSave={handleSave} onDelete={handleDelete} />
+              <CategoryRow key={cat.id} cat={cat} onSave={handleSave} onDelete={handleDelete} readOnly={!mayEdit} />
             ))}
+            {mayEdit && (
             <tr className="mng-cat-row mng-add-row">
               <td>
                 <input
@@ -206,6 +218,7 @@ function CategoriesPanel({ refreshKey }) {
                 </button>
               </td>
             </tr>
+            )}
           </tbody>
         </table>
       )}

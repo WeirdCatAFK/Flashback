@@ -37,8 +37,8 @@ export default class Media {
      * @returns {{ id, hash, name, relative_path, absolute_path }}
      * @throws if the hash is unknown or the file is missing on disk
      */
-    serve(hash) {
-        const entry = this.query.getMediaByHash(hash);
+    async serve(hash) {
+        const entry = await this.query.getMediaByHash(hash);
         if (!entry) throw new Error(`Media not found: ${hash}`);
         if (!fs.existsSync(entry.absolute_path)) {
             throw new Error(`Media file missing on disk: ${entry.absolute_path}`);
@@ -71,15 +71,15 @@ export default class Media {
      * @param {string} folderRelPath - relative path to the parent folder
      * @returns {Array<{ name, relativePath, absolutePath, hash|null }>}
      */
-    list(folderRelPath) {
+    async list(folderRelPath) {
         const absDir = path.join(this.files.workspaceRoot, folderRelPath, 'media');
         if (!fs.existsSync(absDir)) return [];
 
         const prefix = absDir + path.sep;
-        const dbEntries = this.query.getMediaByAbsPathPrefix(prefix);
+        const dbEntries = await this.query.getMediaByAbsPathPrefix(prefix);
         const byAbsPath = new Map(dbEntries.map(e => [e.absolute_path, e]));
 
-        return fs.readdirSync(absDir).map(name => {
+        return await fs.readdirSync(absDir).map(name => {
             const absolutePath = path.join(absDir, name);
             const relativePath = path.join(folderRelPath, 'media', name);
             const entry = byAbsPath.get(absolutePath);
@@ -111,8 +111,8 @@ export default class Media {
         const mediaAbs = this.files.safePath(mediaRel);
         const hash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-        db.transaction(() => {
-            this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+        await db.transaction(async () => {
+            await this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
 
         await sealEmitter.edit(relDocPath + '.flashback', [mediaRel]);
@@ -133,8 +133,8 @@ export default class Media {
         this.files.removeCustomMedia(relDocPath, mediaName);
 
         // DB cleanup
-        db.transaction(() => {
-            this.query.deleteMediaByAbsPath(mediaAbs);
+        await db.transaction(async () => {
+            await this.query.deleteMediaByAbsPath(mediaAbs);
         })();
 
         await sealEmitter.edit(relDocPath + '.flashback', []);
@@ -146,15 +146,15 @@ export default class Media {
      * @param {string} folderRelPath
      * @returns {Array} orphaned entries that were removed from the DB
      */
-    reconcile(folderRelPath) {
+    async reconcile(folderRelPath) {
         const absDir = path.join(this.files.workspaceRoot, folderRelPath, 'media');
         const prefix = absDir + path.sep;
-        const entries = this.query.getMediaByAbsPathPrefix(prefix);
+        const entries = await this.query.getMediaByAbsPathPrefix(prefix);
         const orphans = entries.filter(e => !fs.existsSync(e.absolute_path));
 
-        db.transaction(() => {
+        await db.transaction(async () => {
             for (const orphan of orphans) {
-                this.query.deleteMediaByAbsPath(orphan.absolute_path);
+                await this.query.deleteMediaByAbsPath(orphan.absolute_path);
             }
         })();
 

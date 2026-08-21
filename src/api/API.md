@@ -21,9 +21,64 @@ Before the API starts, it undergoes a mandatory validation process to ensure the
 
 Base URL: `http://localhost:3000` (default port, configurable)
 
-`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes`
+`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
 
 All request bodies are JSON unless marked **multipart**. All responses are JSON unless noted otherwise. Paths in request bodies or query strings may use forward slashes on any platform; the server normalizes them internally.
+
+---
+
+## Authentication and roles
+
+Every `/api/*` request resolves to an **account** before it reaches a router. The `GET /` readiness ping stays open.
+
+A token is presented as `Authorization: Bearer <token>` or, for browser-initiated loads that cannot set a header (PDF and media URLs, `<img>`/`<audio>`), as a `?token=` query parameter. It is looked up by SHA-256 hash against the accounts store (`{baseDir}/accounts.db`, outside every vault) and yields `req.account` = `{ id, name, email, role }`.
+
+- **`401`** — `{ error: "Unauthorized: missing or invalid API token" }`. No token, an unknown one, a revoked one, or one belonging to a deactivated account. A revoked token fails *here*, not with a 403: it identifies nobody, so there is no role to compare.
+- **`403`** — `{ error, required, role }`. Authenticated, but the role is not enough. The required role is named on purpose; without it a client cannot tell "you may not" from "this is broken".
+
+With **no token configured at all** — the standalone `dev:api` / `dev:web` flows, which never run Electron, the only process that mints one — an anonymous caller is treated as the Author. That is how those flows have always worked. A server build sets `requireAuth`, which refuses anonymous callers and refuses to boot with no usable token.
+
+Roles form a strict ladder: **reader** (study progress) < **collaborator** (+ annotates existing documents) < **admin** (+ modifies the vault, imports, manages access) < **author** (+ owns the files, holds the pure token). The full endpoint-by-endpoint policy is one table in `src/api/auth/permissions.js`; a router mounted without an entry there resolves to author-only, so the mistake fails closed. `tests/accounts.test.js` asserts the table covers every mounted router.
+
+On a desktop install this is invisible: one Author account is provisioned from the local identity on first start, and the `apiToken` already in `config.json` is adopted as its token.
+
+---
+
+## Concurrent writes
+
+Two people editing one vault must not silently overwrite each other. Two mechanisms, chosen so
+that the common case stays free of false alarms.
+
+**Whole-object writes carry a version.** `GET /api/documents/read` returns an `etag`; send it
+back as `ifMatch` on `PUT /api/documents/file` or `/metadata`. If the document changed in
+between, the write is refused:
+
+```
+409 { "error": "This document changed since you last read it.", "code": "stale", "etag": "…" }
+```
+
+Nothing was written, and the `etag` in the body is the current one, so a client can re-read and
+retry without a second round trip to find out what it missed.
+
+The etag is derived from the bytes on disk, never stored, so it is still right after a Vault
+Doctor rebuild, a Seal rollback, or an edit made in another program. It has two halves —
+`"<body>.<sidecar>"` — and **only the half a request replaces is compared**: a write carrying
+`content` is checked against the body, a metadata-only write against the sidecar. That is what
+lets an editor save while someone else adds a card to the same document; the editor merged that
+sidecar from a fresh read moments earlier, and refusing it would be a conflict about a change it
+had already incorporated.
+
+**Omitting `ifMatch` skips the check entirely.** Deliberate: the MCP server, the test suite and
+every script written before this send no version, and the single-writer desktop case they serve
+has no conflict to detect. A server build makes it mandatory, because that is the first
+configuration where a second writer exists.
+
+**Patches merge instead of conflicting.** `POST|PUT|DELETE /api/flashcards/:hash` and the
+`/api/highlights` routes name their target by `globalHash`. The server re-reads the sidecar,
+applies the change to that entity and puts everything else back, so two people editing different
+cards of one document both succeed. `ifMatch` on those routes is the **entity's** etag (returned
+as `etag` by `GET /api/flashcards/:hash`), so the only thing that can conflict is two edits to
+the same card.
 
 ---
 
@@ -49,7 +104,9 @@ Returns the decoded content and sidecar metadata for a single document.
 | -------- | ----- | ------ | -------- | ------------------------------ |
 | `path` | query | string | Yes      | Relative path to the document. |
 
-**Response** `200` — `{ content, encoding, binary, size, metadata }`.
+**Response** `200` — `{ content, encoding, binary, size, metadata, etag }`.
+
+`etag` is this document's **version** — send it back as `ifMatch` when you save and a write that lost a race is refused instead of silently overwriting whoever got there first. See [Concurrent writes](#concurrent-writes).
 
 Binary documents (PDF, EPUB, images, audio, video — recognized by container extension *or* by sniffing the first 8 KB) return `content: null`, `encoding: "binary"`, `binary: true`, and their `metadata` as usual: decoding those bytes as text produces only mojibake. Fetch the bytes from [`GET /api/documents/raw`](#get-apidocumentsraw) — which is what the PDF/EPUB renderers do, using this endpoint purely for the sidecar — or their **text** from [`/api/reader`](#reader-apireader).
 
@@ -161,12 +218,13 @@ Updates the content and/or metadata of an existing document. Also syncs tags, fl
 | `path`     | string | Yes      | Relative path to the document.             |
 | `content`  | string | No       | New file content.                          |
 | `metadata` | object | No       | Sidecar metadata (tags, flashcards, etc.). |
+| `ifMatch`  | string | No       | The `etag` this document carried when you read it. |
 
-**Response** `200` — `{ ok: true }`.
+**Response** `200` — `{ ok: true, etag }` — the version the write produced, to use as the next `ifMatch`.
 
 A `content` write is accepted **only** for `.md` / `.markdown` / `.txt` / `.text` — the formats with an editable renderer in the app. Every other format is a viewer, so a body write to one can only come from outside the app, and bodies are not versioned by Seal (the overwrite is unrecoverable). Metadata-only writes are accepted on any document, which is how the PDF/EPUB renderers save their sidecars. Clip and YouTube bodies are written by their own endpoints, not here.
 
-**Errors** `400` path required; `400` when `content` is present and the target is not an editable text format.
+**Errors** `400` path required; `400` when `content` is present and the target is not an editable text format; `409 { error, code: 'stale', etag }` when `ifMatch` no longer matches — nothing was written, and the `etag` in the body is the current one. See [Concurrent writes](#concurrent-writes).
 
 ---
 
@@ -179,8 +237,11 @@ Updates only the sidecar metadata of a file or folder without touching its conte
 | `path`     | string  | Yes      | Relative path to the item.                           |
 | `metadata` | object  | Yes      | New metadata object.                                 |
 | `isFolder` | boolean | No       | `true` if the path is a folder. Default `false`. |
+| `ifMatch`  | string  | No       | The `etag` this sidecar carried when you read it.    |
 
-**Response** `200` — `{ ok: true }`.
+**Response** `200` — `{ ok: true, etag }`.
+
+**Errors** `409 { error, code: 'stale', etag }` — see [Concurrent writes](#concurrent-writes).
 
 **Errors** `400` path required.
 
@@ -736,11 +797,20 @@ Permanently deletes a card of **either** kind, along with its review history, an
 
 ## SRS `/api/srs`
 
+**Every endpoint here is about the caller's own studying.** Progress, review history, card-health verdicts and fitted FSRS weights are all scoped to the account the request authenticated as (`'owner'` when that account is the Author — see `DATAMODEL.md` § Per-user progress). No endpoint takes an account parameter and none can reach anyone else's schedule: two people reviewing the same card diverge, and one person's grade never moves another's due list or retention numbers.
+
+Two consequences worth stating outright:
+
+- **A non-owner's review writes no file and produces no Seal commit.** Their schedule is durable in the accounts store instead. Reading is not editing, and a reader's study record must not be sealed into a git history that travels with a copy of the vault.
+- **`POST /optimize` is reader-level, not admin-level.** Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see. It was an administrative action only while the weights were a single shared row per vault.
+
 **The `algorithm` parameter.** Which scheduler (`leitner` | `sm2` | `fsrs`) the user reviews with is a browser preference (`localStorage` `fb-srs-algorithm`), so the app sends it explicitly on every request. It is **optional** on the read-only endpoints (`/due`, `/statistics`): when omitted, the server infers it from the vault's own review history — each `ReviewLogs` row records the scheduler that graded it (migration 006) — instead of falling back to a fixed default. Those responses echo the algorithm actually used in their `algorithm` field, so a caller with no browser (the MCP server) can trust what it reads back. A vault with no reviews yet has nothing to infer from and reports `leitner`.
 
 ### `POST /api/srs/review`
 
-Submits a spaced-repetition review result for a flashcard. Updates the card's level and ease factor in both the sidecar and the database, and appends a review log entry.
+Submits a spaced-repetition review result for a flashcard. Updates the caller's level and ease factor for that card and appends a review log entry stamped with their account.
+
+The sidecar is written **only when the caller is the vault's Author** — the sidecar is the owner's record of the owner's progress. Every other account's schedule is mirrored into the accounts store (`AccountProgress`) inside the same transaction, so their review is just as durable while producing no file write and no Seal commit.
 
 | Field             | Type   | Required | Description                                             |
 | ----------------- | ------ | -------- | ------------------------------------------------------- |
@@ -887,6 +957,8 @@ Identity and lifecycle of the vault this server is currently serving.
 
 `GET /api/vault` is the **handshake**, and the reason it exists is symmetry: a Flashback Server answers exactly this shape, so a client that can talk to the local API can talk to a remote one without learning which it is. The desktop app *is* a Flashback Server serving one vault.
 
+**On a server build (`config.singleVault`), `POST /switch` and `POST /release` are unmounted and answer `404`.** Not `403`: a client probing what a host can do should see a server that *cannot* switch vaults, rather than one that would if the caller had a better role. One vault per server is the model, and a switch closes the database and re-points every path resolver under every connected user at once. `GET /api/vault` and `GET /api/vault/list` are unaffected, so the handshake a remote depends on still works. See `docs/SERVER.md`.
+
 ### `GET /api/vault`
 
 **Response** `200`
@@ -898,9 +970,19 @@ Identity and lifecycle of the vault this server is currently serving.
 | `appVersion`         | string   | Version of the Flashback build answering.                                       |
 | `schemaVersion`      | number   | Highest applied migration — describes this **database**.                        |
 | `canonicalVersion`   | number   | Highest applied canonical update — describes how far the vault's **files** have been brought forward. |
-| `capabilities`       | string[] | Optional features this server offers. Empty today; lets a server announce sync or multi-user without moving either version number. |
+| `capabilities`       | string[] | Optional features this deployment offers, so a client can decide what to show without probing. |
 
 The two versions are separate on purpose and are the compatibility contract: a client that understands neither should refuse to write rather than guess.
+
+`capabilities` carries **server features, not roles** — the caller's own role is already on `GET /api/identity`, and repeating it here would put the same fact in two places. Three values are emitted today:
+
+| Value | Meaning |
+| --- | --- |
+| `accounts` | `/api/accounts` is mounted, so a client may offer a people-management panel. Always present. |
+| `requireAuth` | An anonymous caller is refused rather than treated as the Author. Set by a server build; absent on a desktop install. |
+| `singleVault` | One vault per process: `POST /api/vault/switch` and `/release` are unmounted and answer `404`. |
+
+The renderer uses these to decide whether to show its **Server** tab at all, which is why they describe the deployment rather than the person.
 
 ---
 
@@ -963,7 +1045,48 @@ Who this server stamps new work as: the local, git-style user identity that goes
 
 **This is not authentication.** Nothing validates the name or the address and nothing gates on either; a Flashback Server must treat an identity a client asserts as a claim, never as authorization. What authorizes a remote is its access token.
 
-**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>" }`.
+`account` is the other half of that sentence, and the two must not be confused. The top level is the **install's** self-asserted identity; `account` is **who the caller actually authenticated as**, resolved from their token, and it is the one that is real — it is what stamps their `createdBy` and their Seal commits. On a desktop install they are the same person. It is served here, rather than only on the admin-only `GET /api/accounts`, because every role deserves to be able to ask who it is.
+
+**Response** `200` — `{ name, email, source: "vault"|"global"|"default", author: "Name <email>", account: { id, name, email, role } | null }`.
+
+---
+
+## Accounts `/api/accounts`
+
+Who may reach this deployment, and as what. Admin for everything here except `POST /pure-token`, which is the Author's alone.
+
+The store lives **outside every vault** so a copied vault carries no access list, and it is the only data in the app that cannot be rebuilt from the canonical files — back it up. A token's plaintext is returned exactly twice in this API's whole surface (issue and rotate) and is unrecoverable afterwards; only its hash is stored.
+
+Three rules a ladder of roles cannot express are enforced here, where the actor and the target can be compared:
+
+- **An admin may grant only Reader.** Admins run the vault; they do not decide who else runs it. This covers issuing tokens too — otherwise an admin could mint themselves an author token through the back door.
+- **An admin may not revoke their own tokens**, and nobody may revoke the token they are authenticating with. An admin who locks themselves out has no recovery path; the pure token and the terminal both belong to the Author.
+- **The Author cannot be demoted, deactivated or duplicated.** There is one owner, and rotation is the only way to change what proves you are them.
+
+### `GET /api/accounts`
+**Response** `200` — `{ accounts: [{ id, name, email, role, active, createdAt, tokens: [{ id, label, createdAt, lastUsedAt, revokedAt, active }] }], you }`. Never a hash, never a plaintext.
+
+### `POST /api/accounts`
+**Body** `{ name, email, role }` → `201` with the account.
+
+Two refusals, and the status distinguishes them: a `role` that is **not a role** (missing, misspelled) is `400`, because the request is malformed; a role the caller **may not grant** is `403`, because that is a permission decision. Answering `403` to both told a client it lacked a permission when its payload was simply wrong.
+
+### `PATCH /api/accounts/:id`
+**Body** `{ role?, active? }` → `200` with the updated account.
+
+### `POST /api/accounts/:id/tokens`
+**Body** `{ label? }` → `201` `{ id, token, label, accountId, notice }`. **`token` is the plaintext and is shown once.**
+
+### `DELETE /api/accounts/tokens/:tokenId`
+→ `200` `{ ok: true }`. Idempotent; re-revoking keeps the original timestamp.
+
+### `GET /api/accounts/:id/progress`
+Admin. **Query** `?algorithm=` (optional) → `200` `{ account, scope, statistics }`. The study summary for **one other person** — the only endpoint in the API that reads a schedule that is not the caller's, which is why it lives under `accounts` (where the role guard already is) rather than under `srs` (where every route is deliberately about yourself).
+
+`scope` is the account id, or the literal `'owner'` when the target is the Author — the sentinel from `requestContext.js`, surfaced so a caller can see which store the numbers came from. `statistics` is the same shape `GET /api/srs/statistics` returns. `404` for an account that does not exist.
+
+### `POST /api/accounts/pure-token`
+Author only. **Body** `{ label? }` → `201` `{ token, accountId, revoked, notice }`. Mints the token that proves ownership and revokes every previous Author token in the same transaction. If the store is unreachable or the token is lost, `npm run pure-token` does the same thing from the terminal against `accounts.db` directly — physical access to the file is the authorization, which is the same bargain every database makes.
 
 ---
 

@@ -62,9 +62,28 @@ export async function request(method, path, body = null) {
   const res = await fetch(`${baseUrl}${path}`, options);
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+    // `code` and `etag` come from a refused write: the document changed since this client
+    // read it (see documents._assertFresh). They ride on the error so a caller can tell
+    // "you are out of date, here is the current version" apart from a generic failure —
+    // isStale() below is the only thing a view should need to check.
+    throw Object.assign(new Error(err.error ?? res.statusText), {
+      status: res.status,
+      code: err.code,
+      etag: err.etag,
+    });
   }
   return res.json();
+}
+
+/**
+ * True when a write was refused because someone else got there first.
+ *
+ * Not the same as any other 409 the API returns (a name collision, say), which is why it
+ * tests the code rather than the status: a stale write is recoverable by re-reading, and
+ * nothing else with that status is.
+ */
+export function isStale(err) {
+  return err?.status === 409 && err?.code === 'stale';
 }
 
 export async function upload(path, formData) {

@@ -6,6 +6,7 @@ import {
   applyHighlightsToText,
 } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
+import ConflictBanner from '../../shared/ConflictBanner';
 import { useT } from '../../../translations';
 import './Renderer.css';
 
@@ -58,7 +59,7 @@ const loadContent = (editor, text, meta) => {
 
 export default function TextRenderer(props) {
   const { t } = useT();
-  const { editor, loading } = useHighlightableRenderer({
+  const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
     editorClass: 'text-tiptap',
@@ -69,6 +70,7 @@ export default function TextRenderer(props) {
 
   return (
     <div className="text-tiptap-container">
+      {conflict && <ConflictBanner onReload={reloadFromDisk} onOverwrite={overwrite} />}
       {loading && <div className="renderer-loading">{t('Loading…')}</div>}
       <EditorContent editor={editor} className="text-tiptap-wrapper" />
     </div>

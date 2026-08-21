@@ -5,10 +5,55 @@
  */
 
 import db from '../primitives/database.js';
+import { OWNER_SCOPE } from '../../requestContext.js';
+
+/**
+ * SPACED-REPETITION PROGRESS IS SCOPED TO A PERSON.
+ *
+ * Every method below that reads or writes a schedule, a review log, a health verdict or a
+ * fitted weight vector takes a `scope`: an account id, or the literal 'owner' for the vault's
+ * Author (requestContext.js OWNER_SCOPE). It is always an explicit argument and is never read
+ * from ambient state here — `query.js` is the data layer, and whose data a statement returns
+ * is not something a call site should have to go somewhere else to find out.
+ *
+ * `scoped()` refuses a missing one rather than defaulting. Defaulting to the owner would make
+ * a forgotten argument return the owner's schedule to whoever asked, which is precisely the
+ * bug this whole layer exists to prevent, and it would do it silently.
+ */
+function scoped(scope) {
+    if (typeof scope !== 'string' || scope.length === 0) {
+        throw new Error(
+            'query: this call needs an account scope (an account id, or OWNER_SCOPE). '
+            + 'Resolve it once at the orchestrator boundary with requestContext.currentScope().'
+        );
+    }
+    return scope;
+}
+
+/**
+ * The join that turns a Flashcards row into one person's view of that card.
+ *
+ * A missing CardProgress row means "never reviewed by this person", which is exactly what a
+ * zero level and a NULL last_recall meant when these columns lived on Flashcards — so every
+ * reader COALESCEs and nothing has to be seeded on card creation.
+ *
+ * The `?` binds the scope, and it binds at the position where the join appears in the
+ * statement. Callers must push the scope onto their parameter list at the same point.
+ */
+/** The camelCase names a caller (sidecar data, a scheduler result) uses for schedule state. */
+const PROGRESS_KEYS = [
+    'level', 'sm2Reps', 'lastRecall', 'fsrsStability', 'fsrsDifficulty',
+    'fsrsDue', 'fsrsState', 'fsrsReps', 'fsrsLapses',
+];
+
+const PROGRESS_JOIN = (cardAlias = 'f', progressAlias = 'p') =>
+    `LEFT JOIN CardProgress ${progressAlias} ON ${progressAlias}.flashcard_id = ${cardAlias}.id AND ${progressAlias}.account_id = ?`;
 
 /**
  * Per-card "how well learned is this" score in 0..1, as a SQL expression over a
- * Flashcards row aliased as `t`.
+ * CardProgress row aliased as `t` — one PERSON's grasp of the card, not the card's own
+ * property. `t` may be an outer-joined alias, in which case every arm reads NULL and the
+ * COALESCE at the bottom returns 0: a card nobody has reviewed is a card nobody has learned.
  *
  * FSRS stability is the truest memory-strength number the app has, so it wins
  * when present; cards scheduled under Leitner/SM-2 have none and fall back to
@@ -51,14 +96,14 @@ class DocumentQuery {
 
     // Lazily resolves stable lookup IDs for NodeTypes/ConnectionTypes that never
     // change at runtime, so callers in hot paths avoid repeated SELECT lookups.
-    _typeIds() {
+    async _typeIds() {
         if (!this._typeCache) {
-            const tagNodeType  = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
-            const deckNodeType = this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Deck'").get();
-            const inheritType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
-            const tagConnType  = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
-            const deckConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'deck'").get();
-            const linkConnType = this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'link'").get();
+            const tagNodeType  = await this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Tag'").get();
+            const deckNodeType = await this.db.prepare("SELECT id FROM NodeTypes WHERE name = 'Deck'").get();
+            const inheritType  = await this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'inheritance'").get();
+            const tagConnType  = await this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'tag'").get();
+            const deckConnType = await this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'deck'").get();
+            const linkConnType = await this.db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'link'").get();
             this._typeCache = {
                 tagNodeTypeId:  tagNodeType?.id,
                 deckNodeTypeId: deckNodeType?.id,
@@ -76,92 +121,98 @@ class DocumentQuery {
      * @param {string} typeName - e.g., 'Folder', 'Document', 'Flashcard', 'Tag'
      * @returns {number} The node ID.
      */
-    createNode(typeName) {
-        const type = this.db.prepare('SELECT id FROM NodeTypes WHERE name = ?').get(typeName);
+    async createNode(typeName) {
+        const type = await this.db.prepare('SELECT id FROM NodeTypes WHERE name = ?').get(typeName);
         if (!type) throw new Error(`${typeName} node type missing.`);
-        const info = this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(type.id);
+        const info = await this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(type.id);
         return info.lastInsertRowid;
     }
 
     // --- Folders ---
 
-    getFolderByHash(hash) {
-        return this.db.prepare('SELECT * FROM Folders WHERE global_hash = ?').get(hash);
+    async getFolderByHash(hash) {
+        return await this.db.prepare('SELECT * FROM Folders WHERE global_hash = ?').get(hash);
     }
 
-    getFolderByPath(relPath) {
-        return this.db.prepare('SELECT * FROM Folders WHERE relative_path = ?').get(relPath);
+    async getFolderByPath(relPath) {
+        return await this.db.prepare('SELECT * FROM Folders WHERE relative_path = ?').get(relPath);
     }
 
-    insertFolder(data) {
+    async insertFolder(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Folders (node_id, global_hash, parent_id, relative_path, absolute_path, name, presence)
             VALUES (?, ?, ?, ?, ?, ?, 0)
         `);
-        return stmt.run(data.nodeId, data.globalHash, data.parentId ?? null, data.relativePath, data.absolutePath, data.name);
+        return await stmt.run(data.nodeId, data.globalHash, data.parentId ?? null, data.relativePath, data.absolutePath, data.name);
     }
 
-    getFolderByAbsolutePath(absPath) {
-        return this.db.prepare('SELECT * FROM Folders WHERE absolute_path = ?').get(absPath);
+    async getFolderByAbsolutePath(absPath) {
+        return await this.db.prepare('SELECT * FROM Folders WHERE absolute_path = ?').get(absPath);
     }
 
-    getFolderByNodeId(nodeId) {
-        return this.db.prepare('SELECT * FROM Folders WHERE node_id = ?').get(nodeId);
+    async getFolderByNodeId(nodeId) {
+        return await this.db.prepare('SELECT * FROM Folders WHERE node_id = ?').get(nodeId);
     }
 
-    getFolderParentId(folderId) {
-        return this.db.prepare('SELECT parent_id FROM Folders WHERE id = ?').get(folderId);
+    async getFolderParentId(folderId) {
+        return await this.db.prepare('SELECT parent_id FROM Folders WHERE id = ?').get(folderId);
     }
 
-    getChildDocuments(folderId) {
-        return this.db.prepare('SELECT id, node_id, relative_path FROM Documents WHERE folder_id = ?').all(folderId);
+    async getChildDocuments(folderId) {
+        return await this.db.prepare('SELECT id, node_id, relative_path FROM Documents WHERE folder_id = ?').all(folderId);
     }
 
-    getChildFolders(parentId) {
-        return this.db.prepare('SELECT id, node_id, relative_path, absolute_path FROM Folders WHERE parent_id = ?').all(parentId);
+    async getChildFolders(parentId) {
+        return await this.db.prepare('SELECT id, node_id, relative_path, absolute_path FROM Folders WHERE parent_id = ?').all(parentId);
     }
 
-    updateFolderMetadata(id, data) {
+    async updateFolderMetadata(id, data) {
         if (data.globalHash) {
-            this.db.prepare('UPDATE Folders SET global_hash = ? WHERE id = ?').run(data.globalHash, id);
+            await this.db.prepare('UPDATE Folders SET global_hash = ? WHERE id = ?').run(data.globalHash, id);
         }
     }
 
     // --- Documents ---
 
-    getDocumentByPath(relPath) {
-        return this.db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(relPath);
+    async getDocumentByPath(relPath) {
+        return await this.db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(relPath);
     }
 
-    insertDocument(data) {
+    async insertDocument(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Documents (folder_id, node_id, global_hash, relative_path, absolute_path, name, encoding, presence)
             VALUES (?, ?, ?, ?, ?, ?, ?, 0)
         `);
-        const info = stmt.run(data.folderId, data.nodeId, data.globalHash, data.relativePath, data.absolutePath, data.name, data.encoding ?? null);
+        const info = await stmt.run(data.folderId, data.nodeId, data.globalHash, data.relativePath, data.absolutePath, data.name, data.encoding ?? null);
         return info;
     }
 
-    updateDocumentMetadata(id, data) {
+    async updateDocumentMetadata(id, data) {
         if (data.globalHash) {
-            this.db.prepare('UPDATE Documents SET global_hash = ? WHERE id = ?').run(data.globalHash, id);
+            await this.db.prepare('UPDATE Documents SET global_hash = ? WHERE id = ?').run(data.globalHash, id);
         }
     }
 
-    deleteDocument(id) {
-        this.db.prepare('DELETE FROM Documents WHERE id = ?').run(id);
+    async deleteDocument(id) {
+        await this.db.prepare('DELETE FROM Documents WHERE id = ?').run(id);
     }
 
     // --- Flashcards ---
 
-    getFlashcardsByDocument(documentId) {
-        return this.db.prepare(`SELECT id, node_id, global_hash, level, sm2_reps, last_recall,
-            fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
-            content_id, card_type FROM Flashcards WHERE document_id = ?`).all(documentId);
+    async getFlashcardsByDocument(documentId, scope) {
+        return await this.db.prepare(`
+            SELECT f.id, f.node_id, f.global_hash, f.content_id, f.card_type,
+                   p.level, p.sm2_reps, p.last_recall,
+                   p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
+                   p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+            WHERE f.document_id = ?
+        `).all(scoped(scope), documentId);
     }
 
-    getFlashcardCountsByFolder(folderId) {
-        return this.db.prepare(`
+    async getFlashcardCountsByFolder(folderId) {
+        return await this.db.prepare(`
             SELECT d.name, COUNT(fc.id) AS count
             FROM Documents d
             LEFT JOIN Flashcards fc ON fc.document_id = d.id
@@ -170,8 +221,8 @@ class DocumentQuery {
         `).all(folderId);
     }
 
-    getFlashcardCountInFolderTree(folderId) {
-        return this.db.prepare(`
+    async getFlashcardCountInFolderTree(folderId) {
+        return (await this.db.prepare(`
             WITH RECURSIVE folder_tree AS (
                 SELECT id FROM Folders WHERE id = ?
                 UNION ALL
@@ -182,20 +233,20 @@ class DocumentQuery {
             FROM Documents d
             JOIN folder_tree ft ON d.folder_id = ft.id
             LEFT JOIN Flashcards fc ON fc.document_id = d.id
-        `).get(folderId).count;
+        `).get(folderId)).count;
     }
 
-    getFoldersByPaths(relPaths) {
+    async getFoldersByPaths(relPaths) {
         if (relPaths.length === 0) return [];
         const placeholders = relPaths.map(() => '?').join(', ');
-        return this.db.prepare(`SELECT * FROM Folders WHERE relative_path IN (${placeholders})`).all(...relPaths);
+        return await this.db.prepare(`SELECT * FROM Folders WHERE relative_path IN (${placeholders})`).all(...relPaths);
     }
 
     // Returns a Map<folderId, count> covering each root and its entire subtree.
-    getFlashcardCountsInFolderTrees(folderIds) {
+    async getFlashcardCountsInFolderTrees(folderIds) {
         if (folderIds.length === 0) return new Map();
         const placeholders = folderIds.map(() => '?').join(', ');
-        const rows = this.db.prepare(`
+        const rows = await this.db.prepare(`
             WITH RECURSIVE folder_tree AS (
                 SELECT id, id AS root_id FROM Folders WHERE id IN (${placeholders})
                 UNION ALL
@@ -211,7 +262,7 @@ class DocumentQuery {
         return new Map(rows.map(r => [r.root_id, r.count]));
     }
 
-    insertFlashcard(data) {
+    async insertFlashcard(data, scope) {
         let customHtml = data.customData?.html || null;
         let frontText = null, backText = null, answerText = null;
         let fImg = null, bImg = null, fSnd = null, bSnd = null;
@@ -233,7 +284,7 @@ class DocumentQuery {
             INSERT INTO FlashcardContent (custom_html, frontText, backText, answerText, front_img, back_img, front_sound, back_sound)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
-        const contentInfo = contentStmt.run(customHtml, frontText, backText, answerText, fImg, bImg, fSnd, bSnd);
+        const contentInfo = await contentStmt.run(customHtml, frontText, backText, answerText, fImg, bImg, fSnd, bSnd);
 
         // 2. Reference
         let referenceId = null;
@@ -244,51 +295,51 @@ class DocumentQuery {
             const refStmt = this.db.prepare(`
                 INSERT INTO FlashcardReference (type, start, end, page, bbox) VALUES (?, ?, ?, ?, ?)
             `);
-            const refInfo = refStmt.run(loc.type, d.start || null, d.end || null, d.page || null, bboxJson);
+            const refInfo = await refStmt.run(loc.type, d.start || null, d.end || null, d.page || null, bboxJson);
             referenceId = refInfo.lastInsertRowid;
         }
 
         let categoryId = null;
         if (data.category) {
-            const cat = this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(data.category);
+            const cat = await this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(data.category);
             if (cat) categoryId = cat.id;
         }
 
         // 3. Main Entry
         const stmt = this.db.prepare(`
-            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id, last_recall, level, sm2_reps,
-                fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
+            INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id,
                 name, fileIndex, presence, card_type, origin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
         `);
-        return stmt.run(
+        const info = await stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
-            contentInfo.lastInsertRowid, referenceId, data.lastRecall || null, data.level || 0, data.sm2Reps || 0,
-            data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
-            data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
+            contentInfo.lastInsertRowid, referenceId,
             data.name || null, data.fileIndex || 0, data.cardType || 'basic', data.origin || null
         );
+
+        // Any schedule carried on `data` is the SCOPE's, not the card's. In practice that
+        // scope is always the owner: this data comes from a `.flashback` sidecar, and the
+        // sidecar is the owner's record of their own progress.
+        await this._writeProgress(info.lastInsertRowid, scope, data);
+        return info;
     }
 
-    updateFlashcard(id, data) {
+    async updateFlashcard(id, data, scope) {
         let categoryId = null;
         if (data.category) {
-            const cat = this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(data.category);
+            const cat = await this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(data.category);
             if (cat) categoryId = cat.id;
         }
 
-        this.db.prepare(`
+        await this.db.prepare(`
             UPDATE Flashcards
-            SET last_recall = ?, level = ?, sm2_reps = ?,
-                fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?,
-                category_id = ?, name = ?, fileIndex = ?, card_type = ?, origin = ?
+            SET category_id = ?, name = ?, fileIndex = ?, card_type = ?, origin = ?
             WHERE id = ?
         `).run(
-            data.lastRecall, data.level ?? 0, data.sm2Reps ?? 0,
-            data.fsrsStability ?? null, data.fsrsDifficulty ?? null, data.fsrsDue ?? null,
-            data.fsrsState ?? 0, data.fsrsReps ?? 0, data.fsrsLapses ?? 0,
             categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', data.origin || null, id,
         );
+
+        await this._writeProgress(id, scope, data);
 
         // Content
         const contentUpdates = [];
@@ -323,121 +374,249 @@ class DocumentQuery {
         
         if (contentUpdates.length > 0) {
             params.push(data.contentId);
-            this.db.prepare(`UPDATE FlashcardContent SET ${contentUpdates.join(', ')} WHERE id = ?`).run(...params);
+            await this.db.prepare(`UPDATE FlashcardContent SET ${contentUpdates.join(', ')} WHERE id = ?`).run(...params);
         }
     }
 
-    deleteFlashcard(id) {
-        this.db.prepare('DELETE FROM Flashcards WHERE id = ?').run(id);
+    async deleteFlashcard(id) {
+        await this.db.prepare('DELETE FROM Flashcards WHERE id = ?').run(id);
         // Triggers handle: Nodes, FlashcardContent, FlashcardReference
     }
 
-    getFlashcardByHash(hash) {
-        return this.db.prepare('SELECT id, document_id FROM Flashcards WHERE global_hash = ?').get(hash);
+    async getFlashcardByHash(hash) {
+        return await this.db.prepare('SELECT id, document_id FROM Flashcards WHERE global_hash = ?').get(hash);
     }
 
-    getFlashcardContentByHash(hash) {
-        return this.db.prepare(`
-            SELECT f.id, f.document_id, f.name, f.card_type, f.level, f.origin,
+    async getFlashcardContentByHash(hash, scope) {
+        return await this.db.prepare(`
+            SELECT f.id, f.node_id, f.document_id, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
                    c.frontText, c.backText, c.answerText, c.custom_html,
                    c.front_img, c.back_img, c.front_sound, c.back_sound,
                    pc.name AS category,
                    d.relative_path AS document_path
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
+            ${PROGRESS_JOIN()}
             LEFT JOIN PedagogicalCategories pc ON pc.id = f.category_id
             LEFT JOIN Documents d ON d.id = f.document_id
             WHERE f.global_hash = ?
-        `).get(hash);
+        `).get(scoped(scope), hash);
     }
 
-    setFlashcardSrsState(id, level, sm2Reps) {
-        this.db.prepare('UPDATE Flashcards SET level = ?, sm2_reps = ? WHERE id = ?').run(level, sm2Reps, id);
+    // --- CardProgress primitives ---
+    //
+    // Everything below that changes a schedule funnels through _upsertProgress, so there is
+    // exactly one statement in the app that creates a progress row and exactly one place that
+    // decides what an absent field means.
+
+    /**
+     * Creates or replaces one person's schedule for one card.
+     *
+     * `state` is snake_case and complete: every column is written, because a partial upsert
+     * would leave a card half-scheduled under one algorithm and half under another. Callers
+     * that only know part of the state read the row first.
+     */
+    async _upsertProgress(flashcardId, scope, state) {
+        await this.db.prepare(`
+            INSERT INTO CardProgress
+                (flashcard_id, account_id, level, sm2_reps, last_recall,
+                 fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
+                level = excluded.level, sm2_reps = excluded.sm2_reps,
+                last_recall = excluded.last_recall,
+                fsrs_stability = excluded.fsrs_stability, fsrs_difficulty = excluded.fsrs_difficulty,
+                fsrs_due = excluded.fsrs_due, fsrs_state = excluded.fsrs_state,
+                fsrs_reps = excluded.fsrs_reps, fsrs_lapses = excluded.fsrs_lapses
+        `).run(
+            flashcardId, scoped(scope),
+            state.level ?? null, state.sm2_reps ?? 0, state.last_recall ?? null,
+            state.fsrs_stability ?? null, state.fsrs_difficulty ?? null, state.fsrs_due ?? null,
+            state.fsrs_state ?? 0, state.fsrs_reps ?? 0, state.fsrs_lapses ?? 0,
+        );
     }
 
-    getAllFlashcardSrsState() {
-        return this.db.prepare(
-            'SELECT global_hash, level, sm2_reps, last_recall, fsrs_stability, fsrs_due, fsrs_state FROM Flashcards'
-        ).all();
+    /** One person's raw progress row for one card, or null. */
+    async getCardProgress(flashcardId, scope) {
+        return await this.db.prepare(
+            'SELECT * FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+        ).get(flashcardId, scoped(scope)) ?? null;
+    }
+
+    /** Forgets one person's schedule for one card — an undo back past the first review. */
+    async deleteCardProgress(flashcardId, scope) {
+        await this.db.prepare(
+            'DELETE FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+        ).run(flashcardId, scoped(scope));
+    }
+
+    /**
+     * Applies whatever schedule a caller's camelCase payload carries — sidecar data on import,
+     * a merge result on sync.
+     *
+     * Two guards, answering different questions. If the payload mentions no schedule field at
+     * all it is a metadata-only write and must leave the schedule alone: a caller that never
+     * spoke about progress has not asked for it to be erased. If it mentions only defaults AND
+     * there is no row yet, the card is simply new, and writing a row of zeros for every card
+     * in the vault would fill the table with rows indistinguishable from absence — which is
+     * what every reader's COALESCE already treats them as.
+     */
+    async _writeProgress(flashcardId, scope, data) {
+        if (!PROGRESS_KEYS.some(k => data[k] !== undefined)) return;
+
+        const state = {
+            level: data.level ?? null,
+            sm2_reps: data.sm2Reps ?? 0,
+            last_recall: data.lastRecall ?? null,
+            fsrs_stability: data.fsrsStability ?? null,
+            fsrs_difficulty: data.fsrsDifficulty ?? null,
+            fsrs_due: data.fsrsDue ?? null,
+            fsrs_state: data.fsrsState ?? 0,
+            fsrs_reps: data.fsrsReps ?? 0,
+            fsrs_lapses: data.fsrsLapses ?? 0,
+        };
+        const carriesState = (state.level ?? 0) !== 0 || state.sm2_reps !== 0 || state.last_recall != null
+            || state.fsrs_stability != null || state.fsrs_due != null
+            || state.fsrs_state !== 0 || state.fsrs_reps !== 0 || state.fsrs_lapses !== 0;
+
+        if (!carriesState && !await this.getCardProgress(flashcardId, scope)) return;
+        await this._upsertProgress(flashcardId, scope, state);
+    }
+
+    async setFlashcardSrsState(id, level, sm2Reps, scope) {
+        const current = await this.getCardProgress(id, scope);
+        await this._upsertProgress(id, scope, { ...current, level, sm2_reps: sm2Reps });
+    }
+
+    async getAllFlashcardSrsState(scope) {
+        return await this.db.prepare(`
+            SELECT f.global_hash, p.level, p.sm2_reps, p.last_recall,
+                   p.fsrs_stability, p.fsrs_due, p.fsrs_state
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+        `).all(scoped(scope));
     }
 
     // Batch-seed FSRS state during an algorithm migration (keyed by global_hash).
     // Also sets `level` (display-strength scalar) from the seeded interval so
     // level-based UI is correct immediately after switching into FSRS.
-    batchSetFsrsState(cards) {
-        const stmt = this.db.prepare(`
-            UPDATE Flashcards SET
-                fsrs_stability = ?, fsrs_difficulty = ?, fsrs_due = ?,
-                fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?, last_recall = ?, level = ?
-            WHERE global_hash = ?
-        `);
-        this.db.transaction((rows) => {
+    async batchSetFsrsState(cards, scope) {
+        const account = scoped(scope);
+        const stmt = this._batchProgressStmt(
+            `level = excluded.level, last_recall = excluded.last_recall,
+             fsrs_stability = excluded.fsrs_stability, fsrs_difficulty = excluded.fsrs_difficulty,
+             fsrs_due = excluded.fsrs_due, fsrs_state = excluded.fsrs_state,
+             fsrs_reps = excluded.fsrs_reps, fsrs_lapses = excluded.fsrs_lapses`,
+            '?, COALESCE(p.sm2_reps, 0), ?, ?, ?, ?, ?, ?, ?');
+        await this.db.transaction(async (rows) => {
             for (const c of rows) {
-                stmt.run(
+                await stmt.run(
+                    account, c.level ?? 0, c.lastRecall ?? null,
                     c.fsrsStability ?? null, c.fsrsDifficulty ?? null, c.fsrsDue ?? null,
-                    c.fsrsState ?? 0, c.fsrsReps ?? 0, c.fsrsLapses ?? 0, c.lastRecall ?? null,
-                    c.level ?? 0, c.global_hash,
+                    c.fsrsState ?? 0, c.fsrsReps ?? 0, c.fsrsLapses ?? 0,
+                    account, c.global_hash,
                 );
             }
         })(cards);
     }
 
-    getLatestEaseFactors() {
-        const rows = this.db.prepare(`
+    async getLatestEaseFactors(scope) {
+        const account = scoped(scope);
+        const rows = await this.db.prepare(`
             SELECT f.global_hash, lr.ease_factor
             FROM Flashcards f
             JOIN ReviewLogs lr ON lr.flashcard_id = f.id
-            WHERE lr.id IN (SELECT MAX(id) FROM ReviewLogs GROUP BY flashcard_id)
-        `).all();
+            WHERE lr.account_id = ?
+              AND lr.id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
+        `).all(account, account);
         return new Map(rows.map(r => [r.global_hash, r.ease_factor]));
     }
 
-    batchSetSm2Reps(cards) {
-        const stmt = this.db.prepare('UPDATE Flashcards SET sm2_reps = ? WHERE global_hash = ?');
-        this.db.transaction((rows) => {
-            for (const c of rows) stmt.run(c.sm2_reps, c.global_hash);
+    /**
+     * The shape shared by every batch writer that sets SOME columns of a progress row, by
+     * card hash, leaving the rest of that person's state alone.
+     *
+     * An INSERT ... SELECT rather than an UPDATE, because the card may be one this person has
+     * never reviewed: there is no row to update, and an UPDATE would match nothing and report
+     * success. The SELECT list carries the untouched columns forward from the outer-joined
+     * `p`, so a first write lands defaults and a later one preserves what is there.
+     *
+     * Parameter order is: account, then the SELECT list's own binds, then account again (for
+     * the join), then the card hash.
+     */
+    _batchProgressStmt(assignments, selectColumns) {
+        return this.db.prepare(`
+            INSERT INTO CardProgress
+                (flashcard_id, account_id, level, sm2_reps, last_recall,
+                 fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
+            SELECT f.id, ?, ${selectColumns}
+            FROM Flashcards f
+            LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = ?
+            WHERE f.global_hash = ?
+            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET ${assignments}
+        `);
+    }
+
+    async batchSetSm2Reps(cards, scope) {
+        const account = scoped(scope);
+        const stmt = this._batchProgressStmt('sm2_reps = excluded.sm2_reps',
+            `p.level, ?, p.last_recall, p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
+             COALESCE(p.fsrs_state, 0), COALESCE(p.fsrs_reps, 0), COALESCE(p.fsrs_lapses, 0)`);
+        await this.db.transaction(async (rows) => {
+            for (const c of rows) await stmt.run(account, c.sm2_reps, account, c.global_hash);
         })(cards);
     }
 
-    batchSetLeitnerLevel(cards) {
-        const stmt = this.db.prepare('UPDATE Flashcards SET level = ? WHERE global_hash = ?');
-        this.db.transaction((rows) => {
-            for (const c of rows) stmt.run(c.level, c.global_hash);
+    async batchSetLeitnerLevel(cards, scope) {
+        const account = scoped(scope);
+        const stmt = this._batchProgressStmt('level = excluded.level',
+            `?, COALESCE(p.sm2_reps, 0), p.last_recall, p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
+             COALESCE(p.fsrs_state, 0), COALESCE(p.fsrs_reps, 0), COALESCE(p.fsrs_lapses, 0)`);
+        await this.db.transaction(async (rows) => {
+            for (const c of rows) await stmt.run(account, c.level, account, c.global_hash);
         })(cards);
     }
 
-    batchRestoreFlashcardSrsState(states) {
-        const stmt = this.db.prepare('UPDATE Flashcards SET level = ?, sm2_reps = ?, last_recall = ? WHERE global_hash = ?');
-        this.db.transaction((rows) => {
-            for (const s of rows) stmt.run(s.level ?? 0, s.sm2_reps ?? 0, s.last_recall, s.global_hash);
+    async batchRestoreFlashcardSrsState(states, scope) {
+        const account = scoped(scope);
+        const stmt = this._batchProgressStmt(
+            'level = excluded.level, sm2_reps = excluded.sm2_reps, last_recall = excluded.last_recall',
+            `?, ?, ?, p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
+             COALESCE(p.fsrs_state, 0), COALESCE(p.fsrs_reps, 0), COALESCE(p.fsrs_lapses, 0)`);
+        await this.db.transaction(async (rows) => {
+            for (const s of rows) {
+                await stmt.run(account, s.level ?? 0, s.sm2_reps ?? 0, s.last_recall, account, s.global_hash);
+            }
         })(states);
     }
 
-    updateFlashcardReview(id, timestamp, newValue, algorithm = 'leitner') {
-        if (algorithm === 'sm2') {
-            this.db.prepare('UPDATE Flashcards SET last_recall = ?, sm2_reps = ? WHERE id = ?')
-                .run(timestamp, newValue, id);
-        } else {
-            this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
-                .run(timestamp, newValue, id);
-        }
+    // Records a graded review against ONE PERSON's schedule. `newValue` is that algorithm's
+    // own progress scalar — SM-2's rep count, or the Leitner box — and only that column moves;
+    // the other algorithm's state is carried forward untouched so switching back and forth
+    // does not erase either.
+    async updateFlashcardReview(id, timestamp, newValue, algorithm = 'leitner', scope) {
+        const current = await this.getCardProgress(id, scope) ?? {};
+        const next = { ...current, last_recall: timestamp };
+        if (algorithm === 'sm2') next.sm2_reps = newValue;
+        else next.level = newValue;
+        await this._upsertProgress(id, scope, next);
     }
 
-    insertReviewLog(data) {
+    async insertReviewLog(data) {
         // FSRS fields (rating + post-review snapshot) default to null so the
         // existing Leitner/SM-2 callers keep working unchanged.
         // Session-ordering columns record how the card was PRESENTED (see
         // migrations/009_session_ordering.js). They default to null so every caller
         // without a trainer session — the MCP server, scripts, tests — keeps working,
         // and so "not recorded" stays distinguishable from "distance 0".
-        this.db.prepare(`
+        await this.db.prepare(`
             INSERT INTO ReviewLogs
-                (flashcard_id, timestamp, outcome, ease_factor, level, algorithm,
+                (flashcard_id, account_id, timestamp, outcome, ease_factor, level, algorithm,
                  rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state,
                  session_id, session_position, prev_distance, nearest_sibling_lag)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
-            data.flashcardId, data.timestamp, data.outcome, data.easeFactor, data.level,
+            data.flashcardId, scoped(data.accountId), data.timestamp, data.outcome, data.easeFactor, data.level,
             data.algorithm ?? null,
             data.rating ?? null,
             data.fsrsStability ?? null,
@@ -459,14 +638,14 @@ class DocumentQuery {
     // Returns Map<globalHash, { docId, folderId, ancestorIds, tags:Set, deckIds:Set,
     // linkedDocIds:Set }>. A standalone card (no document) has docId/folderId null and
     // still carries its tags and decks, so it is never confusable by location alone.
-    getSessionFacets(hashes) {
+    async getSessionFacets(hashes) {
         const facets = new Map();
         if (!hashes?.length) return facets;
 
-        const { tagConnTypeId, linkConnTypeId, inheritanceTypeId, deckConnTypeId } = this._typeIds();
+        const { tagConnTypeId, linkConnTypeId, inheritanceTypeId, deckConnTypeId } = await this._typeIds();
         const marks = (arr) => arr.map(() => '?').join(', ');
 
-        const base = this.db.prepare(`
+        const base = await this.db.prepare(`
             SELECT f.global_hash AS globalHash, f.node_id AS nodeId,
                    f.document_id AS docId, d.node_id AS docNodeId, d.folder_id AS folderId
             FROM Flashcards f
@@ -493,13 +672,13 @@ class DocumentQuery {
         const byNode = new Map(base.map(r => [r.nodeId, r.globalHash]));
         if (nodeIds.length > 0) {
             const nodeMarks = marks(nodeIds);
-            const direct = this.db.prepare(`
+            const direct = await this.db.prepare(`
                 SELECT c.origin_id AS nodeId, t.name AS name
                 FROM Connections c
                 JOIN Tags t ON t.node_id = c.destiny_id
                 WHERE c.origin_id IN (${nodeMarks}) AND c.type_id = ?
             `).all(...nodeIds, tagConnTypeId);
-            const inherited = this.db.prepare(`
+            const inherited = await this.db.prepare(`
                 SELECT c.destiny_id AS nodeId, t.name AS name
                 FROM InheritedTags it
                 JOIN Connections c ON it.connection_id = c.id
@@ -512,7 +691,7 @@ class DocumentQuery {
         }
 
         // --- Decks
-        const deckRows = this.db.prepare(`
+        const deckRows = await this.db.prepare(`
             SELECT de.card_hash AS globalHash, de.deck_id AS deckId
             FROM DeckEntries de
             WHERE de.card_hash IN (${marks(hashes)})
@@ -524,7 +703,7 @@ class DocumentQuery {
         const docNodeIds = [...new Set(base.map(r => r.docNodeId).filter(id => id != null))];
         if (docNodeIds.length > 0 && linkConnTypeId) {
             const docNodeMarks = marks(docNodeIds);
-            const links = this.db.prepare(`
+            const links = await this.db.prepare(`
                 SELECT c.origin_id AS fromNode, c.destiny_id AS toNode
                 FROM Connections c
                 WHERE c.type_id = ?
@@ -537,7 +716,7 @@ class DocumentQuery {
                 links.flatMap(l => [l.fromNode, l.toNode]).filter(n => !docIdOfNode.has(n))
             )];
             if (unknown.length > 0) {
-                for (const row of this.db.prepare(
+                for (const row of await this.db.prepare(
                     `SELECT id, node_id AS nodeId FROM Documents WHERE node_id IN (${marks(unknown)})`
                 ).all(...unknown)) docIdOfNode.set(row.nodeId, row.id);
             }
@@ -561,7 +740,7 @@ class DocumentQuery {
         // --- Folder ancestry, two levels up. The whole Folders table is a few hundred
         // rows at most, so one read beats a recursive CTE per distinct folder.
         const parentOf = new Map(
-            this.db.prepare('SELECT id, parent_id AS parentId FROM Folders').all()
+            (await this.db.prepare('SELECT id, parent_id AS parentId FROM Folders').all())
                 .map(r => [r.id, r.parentId])
         );
         for (const facet of facets.values()) {
@@ -581,62 +760,73 @@ class DocumentQuery {
     // the nearest-confusable-sibling lag on the next review: the server recomputes it
     // from what was actually shown rather than trusting a client-side count, so a card
     // re-queued after a failed grade is counted at both of its positions.
-    getSessionReviewOrder(sessionId) {
-        return this.db.prepare(`
+    async getSessionReviewOrder(sessionId, scope) {
+        return await this.db.prepare(`
             SELECT rl.session_position AS position, f.global_hash AS globalHash
             FROM ReviewLogs rl
             JOIN Flashcards f ON f.id = rl.flashcard_id
-            WHERE rl.session_id = ?
+            WHERE rl.session_id = ? AND rl.account_id = ?
             ORDER BY rl.session_position ASC, rl.id ASC
-        `).all(sessionId);
+        `).all(sessionId, scoped(scope));
     }
 
     // The most recent real review's algorithm marker plus the fields that betray a
     // scheduler on rows written before ReviewLogs.algorithm existed. Feeds
     // srs.detectAlgorithm(), which is how the server answers "which scheduler does
     // this vault use?" without a browser to ask.
-    getLatestReviewAlgorithm() {
-        return this.db.prepare(`
+    async getLatestReviewAlgorithm(scope) {
+        return await this.db.prepare(`
             SELECT algorithm, rating
             FROM ReviewLogs
-            WHERE outcome IS NOT NULL
+            WHERE outcome IS NOT NULL AND account_id = ?
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
-        `).get() ?? null;
+        `).get(scoped(scope)) ?? null;
     }
 
     // --- FSRS per-card state ---
 
     // Load a card's FSRS record shaped for access/orchestration/fsrs.js (last_recall aliased to
     // last_review). Fields are null for a card never reviewed under FSRS.
-    getFlashcardFsrsState(id) {
-        return this.db.prepare(`
+    async getFlashcardFsrsState(id, scope) {
+        return await this.db.prepare(`
             SELECT fsrs_stability AS stability, fsrs_difficulty AS difficulty,
                    fsrs_due AS due, fsrs_state AS state,
                    fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
-            FROM Flashcards WHERE id = ?
-        `).get(id);
+            FROM CardProgress WHERE flashcard_id = ? AND account_id = ?
+        `).get(id, scoped(scope)) ?? null;
     }
 
     // Persist a computed FSRS state (from fsrs.nextState) back onto the card.
     // Also writes `level` — the app-wide display-strength scalar every algorithm
     // maintains (LevelDot, box histogram, mastery counts) — derived by the caller
     // from the FSRS interval so level-based UI stays meaningful under FSRS.
-    updateFlashcardFsrs(id, s) {
-        this.db.prepare(`
-            UPDATE Flashcards SET
-                last_recall = ?, level = ?, fsrs_stability = ?, fsrs_difficulty = ?,
-                fsrs_due = ?, fsrs_state = ?, fsrs_reps = ?, fsrs_lapses = ?
-            WHERE id = ?
-        `).run(s.last_review, s.level ?? 0, s.stability, s.difficulty, s.due, s.state, s.reps, s.lapses, id);
+    async updateFlashcardFsrs(id, s, scope) {
+        const current = await this.getCardProgress(id, scope) ?? {};
+        await this._upsertProgress(id, scope, {
+            ...current,
+            last_recall: s.last_review,
+            level: s.level ?? 0,
+            fsrs_stability: s.stability,
+            fsrs_difficulty: s.difficulty,
+            fsrs_due: s.due,
+            fsrs_state: s.state,
+            fsrs_reps: s.reps,
+            fsrs_lapses: s.lapses,
+        });
     }
 
-    // --- FSRS weight vector (single-row FsrsParameters) ---
+    // --- FSRS weight vector (one row per account) ---
+    //
+    // Per-account because the weights ARE the person: they are fitted to one individual's
+    // rated history and describe how fast that individual forgets. A reader scheduled against
+    // the owner's fitted weights is being scheduled against someone else's memory, which is
+    // why /api/srs/optimize is a reader-level action rather than an administrative one.
 
-    getFsrsWeights() {
-        const row = this.db.prepare(
-            'SELECT weights_json, review_count, optimized_at FROM FsrsParameters ORDER BY id DESC LIMIT 1'
-        ).get();
+    async getFsrsWeights(scope) {
+        const row = await this.db.prepare(
+            'SELECT weights_json, review_count, optimized_at FROM FsrsParameters WHERE account_id = ?'
+        ).get(scoped(scope));
         if (!row) return null;
         return {
             weights: JSON.parse(row.weights_json),
@@ -645,34 +835,36 @@ class DocumentQuery {
         };
     }
 
-    setFsrsWeights(weightsJson, reviewCount) {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM FsrsParameters').run();
-            this.db.prepare(
-                "INSERT INTO FsrsParameters (weights_json, optimized_at, review_count) VALUES (?, datetime('now'), ?)"
-            ).run(weightsJson, reviewCount);
-        })();
+    async setFsrsWeights(weightsJson, reviewCount, scope) {
+        await this.db.prepare(`
+            INSERT INTO FsrsParameters (account_id, weights_json, optimized_at, review_count)
+            VALUES (?, ?, datetime('now'), ?)
+            ON CONFLICT(account_id) DO UPDATE SET
+                weights_json = excluded.weights_json,
+                optimized_at = excluded.optimized_at,
+                review_count = excluded.review_count
+        `).run(scoped(scope), weightsJson, reviewCount);
     }
 
     // Every FSRS-rated review across the vault, grouped/ordered per card, for the
     // parameter optimizer. Excludes pre-FSRS logs (rating IS NULL).
-    getAllReviewHistories() {
-        return this.db.prepare(`
+    async getAllReviewHistories(scope) {
+        return await this.db.prepare(`
             SELECT flashcard_id, timestamp, rating
             FROM ReviewLogs
-            WHERE rating IS NOT NULL
+            WHERE rating IS NOT NULL AND account_id = ?
             ORDER BY flashcard_id ASC, id ASC
-        `).all();
+        `).all(scoped(scope));
     }
 
     // Undo support: drop a card's most recent review so a misgraded result can be
     // taken back. Returns true if a row was removed, false if the card had no logs.
-    deleteLatestReviewLog(flashcardId) {
-        const row = this.db.prepare(
-            'SELECT id FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1'
-        ).get(flashcardId);
+    async deleteLatestReviewLog(flashcardId, scope) {
+        const row = await this.db.prepare(
+            'SELECT id FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1'
+        ).get(flashcardId, scoped(scope));
         if (!row) return false;
-        this.db.prepare('DELETE FROM ReviewLogs WHERE id = ?').run(row.id);
+        await this.db.prepare('DELETE FROM ReviewLogs WHERE id = ?').run(row.id);
         return true;
     }
 
@@ -686,65 +878,79 @@ class DocumentQuery {
     // the two writers don't agree on a format — reviews store an ISO string while
     // insertSyntheticReviewLog uses SQLite's datetime('now'), which sorts before every
     // ISO stamp of the same day (' ' < 'T'). id is the same ordering undo relies on.
-    getFlashcardReviewHistory(flashcardId) {
-        return this.db.prepare(`
+    async getFlashcardReviewHistory(flashcardId, scope) {
+        return await this.db.prepare(`
             SELECT id, timestamp, outcome, ease_factor, level, algorithm, rating,
                    fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
             FROM ReviewLogs
-            WHERE flashcard_id = ?
+            WHERE flashcard_id = ? AND account_id = ?
             ORDER BY id ASC
-        `).all(flashcardId);
+        `).all(flashcardId, scoped(scope));
     }
 
     // Everything the schedulers need to place one card on its curve. The ease-factor
     // subselect deliberately does NOT skip synthetic rows: after a Doctor rebuild that
     // row is the only carrier of the card's SM-2 ease (see getLatestEaseFactors and the
     // latest_ef CTE in getDueFlashcards, which both read it the same way).
-    getFlashcardSrsStateByHash(hash) {
-        return this.db.prepare(`
-            SELECT f.id, f.global_hash, f.level, f.sm2_reps, f.last_recall,
-                   f.fsrs_stability, f.fsrs_difficulty, f.fsrs_state, f.fsrs_due,
-                   f.fsrs_reps, f.fsrs_lapses,
+    async getFlashcardSrsStateByHash(hash, scope) {
+        const account = scoped(scope);
+        return await this.db.prepare(`
+            SELECT f.id, f.global_hash,
+                   COALESCE(p.level, 0) AS level, COALESCE(p.sm2_reps, 0) AS sm2_reps,
+                   p.last_recall, p.fsrs_stability, p.fsrs_difficulty,
+                   COALESCE(p.fsrs_state, 0) AS fsrs_state, p.fsrs_due,
+                   COALESCE(p.fsrs_reps, 0) AS fsrs_reps, COALESCE(p.fsrs_lapses, 0) AS fsrs_lapses,
                    (SELECT rl.ease_factor FROM ReviewLogs rl
-                     WHERE rl.flashcard_id = f.id ORDER BY rl.id DESC LIMIT 1) AS ease_factor
+                     WHERE rl.flashcard_id = f.id AND rl.account_id = ?
+                     ORDER BY rl.id DESC LIMIT 1) AS ease_factor
             FROM Flashcards f
+            ${PROGRESS_JOIN()}
             WHERE f.global_hash = ?
-        `).get(hash);
+        `).get(account, account, hash);
     }
 
     // The card's now-latest review after an undo — the state to restore it to.
     // Null when no reviews remain (the card is new again).
-    getLatestReviewLog(flashcardId) {
-        return this.db.prepare(`
+    async getLatestReviewLog(flashcardId, scope) {
+        return await this.db.prepare(`
             SELECT timestamp, outcome, ease_factor, level,
                    rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
-            FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1
-        `).get(flashcardId) ?? null;
+            FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1
+        `).get(flashcardId, scoped(scope)) ?? null;
     }
 
     // Restore a card's SRS state after an undo. Mirrors updateFlashcardReview but
     // allows a null last_recall (card reverts to never-reviewed) and touches only
     // the algorithm's own progress column.
-    undoFlashcardReview(id, value, lastRecall, algorithm = 'leitner') {
-        if (algorithm === 'sm2') {
-            this.db.prepare('UPDATE Flashcards SET last_recall = ?, sm2_reps = ? WHERE id = ?')
-                .run(lastRecall, value, id);
-        } else {
-            this.db.prepare('UPDATE Flashcards SET last_recall = ?, level = ? WHERE id = ?')
-                .run(lastRecall, value, id);
-        }
+    async undoFlashcardReview(id, value, lastRecall, algorithm = 'leitner', scope) {
+        const current = await this.getCardProgress(id, scope) ?? {};
+        const next = { ...current, last_recall: lastRecall };
+        if (algorithm === 'sm2') next.sm2_reps = value;
+        else next.level = value;
+        await this._upsertProgress(id, scope, next);
     }
 
-    getLeitnerBoxes() {
-        return this.db.prepare('SELECT level, COUNT(*) as count FROM Flashcards GROUP BY level ORDER BY level ASC').all();
+    // Every card in the vault falls in exactly one box for this person, and a card they have
+    // never reviewed is in box 0 — hence the outer join and the COALESCE rather than a
+    // GROUP BY over CardProgress, which would omit the entire new-card pile.
+    async getLeitnerBoxes(scope) {
+        return await this.db.prepare(`
+            SELECT COALESCE(p.level, 0) AS level, COUNT(*) AS count
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+            GROUP BY COALESCE(p.level, 0)
+            ORDER BY level ASC
+        `).all(scoped(scope));
     }
 
-    getFlashcardCount() {
-        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get().c;
+    async getFlashcardCount() {
+        return (await this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get()).c;
     }
 
-    getMasteredFlashcardCount(threshold) {
-        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE level >= ?').get(threshold).c;
+    async getMasteredFlashcardCount(threshold, scope) {
+        return (await this.db.prepare(
+            'SELECT COUNT(*) as c FROM CardProgress WHERE account_id = ? AND level >= ?'
+        ).get(scoped(scope), threshold)).c;
     }
 
     // Per-day review counts for the Stats activity heatmap and retention. Real
@@ -753,10 +959,10 @@ class DocumentQuery {
     // 'YYYY-MM-DD' local day. Days are the user's local calendar days, not UTC ones —
     // see the note above the diary aggregates for why, and keep every day-keyed query
     // on the same boundary.
-    getReviewActivity(sinceIso = null) {
+    async getReviewActivity(sinceIso = null, scope) {
         const clause = sinceIso
-            ? "WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') >= ?"
-            : 'WHERE outcome IS NOT NULL';
+            ? "WHERE outcome IS NOT NULL AND account_id = ? AND date(timestamp, 'localtime') >= ?"
+            : 'WHERE outcome IS NOT NULL AND account_id = ?';
         const stmt = this.db.prepare(`
             SELECT date(timestamp, 'localtime') AS day,
                    COUNT(*) AS total,
@@ -766,22 +972,24 @@ class DocumentQuery {
             GROUP BY day
             ORDER BY day ASC
         `);
-        return sinceIso ? stmt.all(sinceIso) : stmt.all();
+        const account = scoped(scope);
+        return sinceIso ? await stmt.all(account, sinceIso) : await stmt.all(account);
     }
 
     // Total / correct review counts for the retention headline. `sinceIso` bounds
     // the window (null = all time). Excludes synthetic (NULL-outcome) logs.
-    getReviewTotals(sinceIso = null) {
+    async getReviewTotals(sinceIso = null, scope) {
         const clause = sinceIso
-            ? "WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') >= ?"
-            : 'WHERE outcome IS NOT NULL';
+            ? "WHERE outcome IS NOT NULL AND account_id = ? AND date(timestamp, 'localtime') >= ?"
+            : 'WHERE outcome IS NOT NULL AND account_id = ?';
         const stmt = this.db.prepare(`
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
             FROM ReviewLogs
             ${clause}
         `);
-        return sinceIso ? stmt.get(sinceIso) : stmt.get();
+        const account = scoped(scope);
+        return sinceIso ? await stmt.get(account, sinceIso) : await stmt.get(account);
     }
 
     // ---------- Phase-aware review totals ----------
@@ -794,6 +1002,10 @@ class DocumentQuery {
     // window is applied afterwards, so a 30-day view never renumbers a card's reps.
     // Synthetic rebuild logs (NULL outcome) are excluded, as everywhere else.
 
+    // Emits a leading `?` for the account scope. Because the CTE opens the statement, that
+    // bind is always parameter 1 — which is why every caller below passes the scope first.
+    // Numbering a person's reps over everyone's reviews would put a reader's first sight of a
+    // card at rep 40 and file it under the review phase.
     _orderedReviewsCte() {
         return `
             WITH ordered AS (
@@ -802,14 +1014,14 @@ class DocumentQuery {
                            PARTITION BY flashcard_id ORDER BY timestamp ASC, id ASC
                        ) AS rep
                 FROM ReviewLogs
-                WHERE outcome IS NOT NULL
+                WHERE outcome IS NOT NULL AND account_id = ?
             )
         `;
     }
 
     // → { learning: { total, correct }, review: { total, correct } } (zeroed when a
     // phase has no reviews, so callers never have to null-check the buckets).
-    getReviewTotalsByPhase(learningReviews, sinceIso = null) {
+    async getReviewTotalsByPhase(learningReviews, sinceIso = null, scope) {
         const stmt = this.db.prepare(`
             ${this._orderedReviewsCte()}
             SELECT CASE WHEN rep <= ? THEN 'learning' ELSE 'review' END AS phase,
@@ -819,7 +1031,10 @@ class DocumentQuery {
             ${sinceIso ? "WHERE date(timestamp, 'localtime') >= ?" : ''}
             GROUP BY phase
         `);
-        const rows = sinceIso ? stmt.all(learningReviews, sinceIso) : stmt.all(learningReviews);
+        const account = scoped(scope);
+        const rows = sinceIso
+            ? await stmt.all(account, learningReviews, sinceIso)
+            : await stmt.all(account, learningReviews);
         const out = { learning: { total: 0, correct: 0 }, review: { total: 0, correct: 0 } };
         for (const r of rows) out[r.phase] = { total: r.total ?? 0, correct: r.correct ?? 0 };
         return out;
@@ -827,7 +1042,7 @@ class DocumentQuery {
 
     // Outcomes of each card's very first review — how much material lands on first
     // contact. One row per card, so `total` here counts cards, not reviews.
-    getFirstExposureTotals(sinceIso = null) {
+    async getFirstExposureTotals(sinceIso = null, scope) {
         const stmt = this.db.prepare(`
             ${this._orderedReviewsCte()}
             SELECT COUNT(*) AS total,
@@ -835,7 +1050,8 @@ class DocumentQuery {
             FROM ordered
             WHERE rep = 1 ${sinceIso ? "AND date(timestamp, 'localtime') >= ?" : ''}
         `);
-        const row = sinceIso ? stmt.get(sinceIso) : stmt.get();
+        const account = scoped(scope);
+        const row = sinceIso ? await stmt.get(account, sinceIso) : await stmt.get(account);
         return { total: row?.total ?? 0, correct: row?.correct ?? 0 };
     }
 
@@ -843,14 +1059,14 @@ class DocumentQuery {
     // correctly (1 = right on first sight). Cards never yet recalled are absent — they
     // have no answer yet, and counting their attempts so far would bias the average.
     // Returns raw rows; the averaging/median lives in srs.js.
-    getReviewsToFirstRecall() {
-        return this.db.prepare(`
+    async getReviewsToFirstRecall(scope) {
+        return await this.db.prepare(`
             ${this._orderedReviewsCte()}
             SELECT flashcard_id, MIN(rep) AS attempts
             FROM ordered
             WHERE outcome = 1
             GROUP BY flashcard_id
-        `).all();
+        `).all(scoped(scope));
     }
 
     // ---------- Diary: per-day review aggregates ----------
@@ -865,21 +1081,21 @@ class DocumentQuery {
     // day-keyed reader here and in srs.js/diary.js must use the same boundary or the
     // Stats heatmap, the streak, and the diary date will disagree with each other.
 
-    getDayReviewTotals(dayIso) {
-        return this.db.prepare(`
+    async getDayReviewTotals(dayIso, scope) {
+        return await this.db.prepare(`
             SELECT COUNT(*) AS reviews,
                    COUNT(DISTINCT flashcard_id) AS uniqueCards,
                    SUM(CASE WHEN outcome = 0 THEN 1 ELSE 0 END) AS failed
             FROM ReviewLogs
-            WHERE outcome IS NOT NULL AND date(timestamp, 'localtime') = ?
-        `).get(dayIso);
+            WHERE outcome IS NOT NULL AND account_id = ? AND date(timestamp, 'localtime') = ?
+        `).get(scoped(scope), dayIso);
     }
 
     // The day's reviews split into acquisition (a card's first `learningReviews`
     // reviews, ever — not just today's) and review phase. Same shape and rationale as
     // getReviewTotalsByPhase; the day filter is applied after the numbering.
-    getDayReviewTotalsByPhase(learningReviews, dayIso) {
-        const rows = this.db.prepare(`
+    async getDayReviewTotalsByPhase(learningReviews, dayIso, scope) {
+        const rows = await this.db.prepare(`
             ${this._orderedReviewsCte()}
             SELECT CASE WHEN rep <= ? THEN 'learning' ELSE 'review' END AS phase,
                    COUNT(*) AS total,
@@ -887,7 +1103,7 @@ class DocumentQuery {
             FROM ordered
             WHERE date(timestamp, 'localtime') = ?
             GROUP BY phase
-        `).all(learningReviews, dayIso);
+        `).all(scoped(scope), learningReviews, dayIso);
         const out = { learning: { total: 0, correct: 0 }, review: { total: 0, correct: 0 } };
         for (const r of rows) out[r.phase] = { total: r.total ?? 0, correct: r.correct ?? 0 };
         return out;
@@ -895,16 +1111,16 @@ class DocumentQuery {
 
     // Cards whose earliest-ever real review falls on this day — i.e. cards first
     // seen (in review terms) on `dayIso`. Idempotent: depends only on log history.
-    getDayNewCards(dayIso) {
-        return this.db.prepare(`
+    async getDayNewCards(dayIso, scope) {
+        return (await this.db.prepare(`
             SELECT COUNT(*) AS newCards FROM (
                 SELECT flashcard_id, MIN(date(timestamp, 'localtime')) AS firstDay
                 FROM ReviewLogs
-                WHERE outcome IS NOT NULL
+                WHERE outcome IS NOT NULL AND account_id = ?
                 GROUP BY flashcard_id
                 HAVING firstDay = ?
             )
-        `).get(dayIso).newCards;
+        `).get(scoped(scope), dayIso)).newCards;
     }
 
     // Reviews grouped by deck for the day. A card in multiple decks (rare) counts
@@ -915,8 +1131,8 @@ class DocumentQuery {
     // breakdown it reads as a real grouping when it carries no intent. Its reviews are
     // still in the day's totals, exactly as standalone cards are absent from
     // getDayByDocument but counted there too.
-    getDayByDeck(dayIso) {
-        return this.db.prepare(`
+    async getDayByDeck(dayIso, scope) {
+        return await this.db.prepare(`
             SELECT d.name AS deck,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
@@ -925,67 +1141,79 @@ class DocumentQuery {
             JOIN DeckEntries de ON de.card_hash = f.global_hash
             JOIN Decks d ON d.id = de.deck_id
             WHERE rl.outcome IS NOT NULL
+              AND rl.account_id = ?
               AND date(rl.timestamp, 'localtime') = ?
               AND COALESCE(d.is_system, 0) = 0
             GROUP BY d.id
             ORDER BY reviews DESC, d.name ASC
-        `).all(dayIso);
+        `).all(scoped(scope), dayIso);
     }
 
     // Reviews grouped by source document for the day (document-anchored cards only;
     // standalone cards have no document_id and are excluded here).
-    getDayByDocument(dayIso) {
-        return this.db.prepare(`
+    async getDayByDocument(dayIso, scope) {
+        return await this.db.prepare(`
             SELECT doc.relative_path AS path,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
             FROM ReviewLogs rl
             JOIN Flashcards f ON f.id = rl.flashcard_id
             JOIN Documents doc ON doc.id = f.document_id
-            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp, 'localtime') = ?
+            WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY doc.id
             ORDER BY reviews DESC, doc.relative_path ASC
-        `).all(dayIso);
+        `).all(scoped(scope), dayIso);
     }
 
     // Cards that were failed at least once on the day, most-failed first. `front`
     // is the vanilla front text (NULL for custom-HTML cards — caller substitutes).
-    getDayStruggledCards(dayIso, limit = 10) {
-        return this.db.prepare(`
+    async getDayStruggledCards(dayIso, limit = 10, scope) {
+        return await this.db.prepare(`
             SELECT f.global_hash AS globalHash,
                    fc.frontText AS front,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failCount
             FROM ReviewLogs rl
             JOIN Flashcards f ON f.id = rl.flashcard_id
             LEFT JOIN FlashcardContent fc ON fc.id = f.content_id
-            WHERE rl.outcome IS NOT NULL AND date(rl.timestamp, 'localtime') = ?
+            WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY f.id
             HAVING failCount > 0
             ORDER BY failCount DESC, f.id ASC
             LIMIT ?
-        `).all(dayIso, limit);
+        `).all(scoped(scope), dayIso, limit);
     }
 
     // Distinct local-calendar days that carry at least one real review, ascending.
     // Drives the diary "rebuild all summaries" command and streak computation.
-    getReviewActivityDays() {
-        return this.db.prepare(`
+    async getReviewActivityDays(scope) {
+        return (await this.db.prepare(`
             SELECT date(timestamp, 'localtime') AS day
             FROM ReviewLogs
-            WHERE outcome IS NOT NULL
+            WHERE outcome IS NOT NULL AND account_id = ?
             GROUP BY day
             ORDER BY day ASC
-        `).all().map(r => r.day);
+        `).all(scoped(scope))).map(r => r.day);
     }
 
-    getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
-        const params = [];
+    async getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}, scope) {
+        const account = scoped(scope);
         const cteParts = [];
         const whereConditions = [];
 
-        // Folder CTE is pushed first so its ? aligns with params[0].
-        // The folder_tree CTE appears before the cards CTE in the SQL string,
-        // so the bind order must match: folder → deck → tags → minPriority.
+        // Binds are grouped by WHERE THEY APPEAR in the finished statement, because that is
+        // the only thing that decides their order, and this statement is assembled from
+        // optional pieces. Three groups, concatenated at the bottom in exactly this sequence:
+        //
+        //   folderParams — the folder_tree CTE, which is emitted first
+        //   efParams     — the latest_ef CTE (SM-2 only), emitted second
+        //   cardsParams  — the cards CTE: its progress join first, then its WHERE filters
+        //
+        // A single flat array worked while only the WHERE clause had binds. It stopped
+        // working the moment the account scope had to appear inside two of the CTEs.
+        const folderParams = [];
+        const efParams = [];
+        const cardsParams = [];
+
         if (folder !== null) {
             cteParts.push(`folder_tree AS (
                 SELECT id FROM Folders WHERE relative_path = ?
@@ -993,7 +1221,7 @@ class DocumentQuery {
                 SELECT fo.id FROM Folders fo
                 JOIN folder_tree ft ON fo.parent_id = ft.id
             )`);
-            params.push(folder);
+            folderParams.push(folder);
             whereConditions.push('d.folder_id IN (SELECT id FROM folder_tree)');
         }
 
@@ -1003,14 +1231,19 @@ class DocumentQuery {
                 JOIN Decks dk ON dk.id = de.deck_id
                 WHERE dk.global_hash = ?
             )`);
-            params.push(deck);
+            cardsParams.push(deck);
         }
 
         if (algorithm === 'sm2') {
+            // One person's latest ease per card. Scoped twice: the inner MAX(id) has to be
+            // taken over this person's rows too, or a busier reader's newer log id would
+            // decide which row the outer filter never finds.
             cteParts.push(`latest_ef AS (
                 SELECT flashcard_id, ease_factor FROM ReviewLogs
-                WHERE id IN (SELECT MAX(id) FROM ReviewLogs GROUP BY flashcard_id)
+                WHERE account_id = ?
+                  AND id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
             )`);
+            efParams.push(account, account);
         }
 
         if (tags && tags.length > 0) {
@@ -1042,12 +1275,12 @@ class DocumentQuery {
                       AND tgi.name IN (${placeholders})
                 )
             )`);
-            params.push(...tags, ...tags);
+            cardsParams.push(...tags, ...tags);
         }
 
         if (minPriority > 0) {
             whereConditions.push('COALESCE(pc.priority, 0) >= ?');
-            params.push(minPriority);
+            cardsParams.push(minPriority);
         }
 
         const extraWhere = whereConditions.length > 0
@@ -1069,13 +1302,13 @@ class DocumentQuery {
         // Both capped at 365 days — no card should be hidden for more than a year.
         const intervalExpr = algorithm === 'sm2'
             ? `CASE
-                WHEN COALESCE(f.sm2_reps, 0) <= 1 THEN 1
-                WHEN f.sm2_reps = 2 THEN 6
-                ELSE min(365, CAST(ROUND(6.0 * pow(${easeFactorExpr}, CAST(f.sm2_reps - 2 AS REAL))) AS INTEGER))
+                WHEN COALESCE(p.sm2_reps, 0) <= 1 THEN 1
+                WHEN p.sm2_reps = 2 THEN 6
+                ELSE min(365, CAST(ROUND(6.0 * pow(${easeFactorExpr}, CAST(p.sm2_reps - 2 AS REAL))) AS INTEGER))
                END`
             : `CASE
-                WHEN COALESCE(f.level, 0) <= 0 THEN 0
-                ELSE min(365, CAST(pow(2.0, CAST(COALESCE(f.level, 0) - 1 AS REAL)) AS INTEGER))
+                WHEN COALESCE(p.level, 0) <= 0 THEN 0
+                ELSE min(365, CAST(pow(2.0, CAST(COALESCE(p.level, 0) - 1 AS REAL)) AS INTEGER))
                END`;
 
         const isFsrs = algorithm === 'fsrs';
@@ -1084,18 +1317,18 @@ class DocumentQuery {
         // meaningful number regardless of which algorithm is active. For FSRS the
         // stability (rounded, in days) is the natural "strength" number.
         const levelExpr = isFsrs
-            ? 'CAST(ROUND(COALESCE(f.fsrs_stability, 0)) AS INTEGER)'
+            ? 'CAST(ROUND(COALESCE(p.fsrs_stability, 0)) AS INTEGER)'
             : algorithm === 'sm2'
-                ? 'COALESCE(f.sm2_reps, 0)'
-                : 'COALESCE(f.level, 0)';
+                ? 'COALESCE(p.sm2_reps, 0)'
+                : 'COALESCE(p.level, 0)';
 
         cteParts.push(`cards AS (
             SELECT
                 f.global_hash,
                 ${levelExpr} AS level,
-                f.last_recall,
-                f.fsrs_due,
-                f.fsrs_state,
+                p.last_recall,
+                p.fsrs_due,
+                COALESCE(p.fsrs_state, 0) AS fsrs_state,
                 f.name,
                 f.card_type,
                 d.relative_path AS document_path,
@@ -1113,6 +1346,7 @@ class DocumentQuery {
                 ${easeFactorExpr} AS ease_factor,
                 ${intervalExpr} AS interval_days
             FROM Flashcards f
+            ${PROGRESS_JOIN()}
             LEFT JOIN Documents d ON d.id = f.document_id
             JOIN FlashcardContent fc ON fc.id = f.content_id
             LEFT JOIN PedagogicalCategories pc ON pc.id = f.category_id
@@ -1120,6 +1354,8 @@ class DocumentQuery {
             WHERE 1=1
             ${extraWhere}
         )`);
+        // The progress join opens the cards CTE, so its bind leads that CTE's group.
+        cardsParams.unshift(account);
 
         // Due-date & status are derived from a formula over last_recall for
         // Leitner/SM-2, but FSRS stores an explicit next-due datetime (fsrs_due),
@@ -1148,13 +1384,13 @@ class DocumentQuery {
                 ELSE 'future'
               END`;
 
-        const allRows = this.db.prepare(`
+        const allRows = await this.db.prepare(`
             WITH RECURSIVE ${cteParts.join(',\n')}
             SELECT *,
               ${dueDateExpr} AS due_date,
               ${statusExpr} AS _status
             FROM cards
-        `).all(...params);
+        `).all(...folderParams, ...efParams, ...cardsParams);
 
         // Sort by category_priority ASC (lower = more foundational = study first),
         // then by due_date for due cards to surface the most overdue within each priority.
@@ -1176,16 +1412,16 @@ class DocumentQuery {
 
     // --- Tags ---
 
-    getAllTags() {
-        return this.db.prepare('SELECT DISTINCT name FROM Tags ORDER BY name ASC').all().map(r => r.name);
+    async getAllTags() {
+        return (await this.db.prepare('SELECT DISTINCT name FROM Tags ORDER BY name ASC').all()).map(r => r.name);
     }
 
     // Every tag with how many entities apply it directly (a 'tag' connection
     // pointing at the tag's node). Inherited occurrences are derived elsewhere and
     // deliberately not counted here — this is "where is this tag actually set".
-    getTagsWithCounts() {
-        const { tagConnTypeId } = this._typeIds();
-        return this.db.prepare(`
+    async getTagsWithCounts() {
+        const { tagConnTypeId } = await this._typeIds();
+        return await this.db.prepare(`
             SELECT t.name AS name, COUNT(c.id) AS count
             FROM Tags t
             LEFT JOIN Connections c
@@ -1195,18 +1431,18 @@ class DocumentQuery {
         `).all(tagConnTypeId);
     }
 
-    getTagByName(name) {
-        return this.db.prepare('SELECT * FROM Tags WHERE name = ?').get(name);
+    async getTagByName(name) {
+        return await this.db.prepare('SELECT * FROM Tags WHERE name = ?').get(name);
     }
 
-    insertTag(name, nodeId) {
-        return this.db.prepare('INSERT INTO Tags (name, node_id, presence) VALUES (?, ?, 0)').run(name, nodeId);
+    async insertTag(name, nodeId) {
+        return await this.db.prepare('INSERT INTO Tags (name, node_id, presence) VALUES (?, ?, 0)').run(name, nodeId);
     }
 
-    syncNodeTags(nodeId, tagNodeIds) {
-        const { tagNodeTypeId, tagConnTypeId } = this._typeIds();
+    async syncNodeTags(nodeId, tagNodeIds) {
+        const { tagNodeTypeId, tagConnTypeId } = await this._typeIds();
 
-        const currentConns = this.db.prepare(`
+        const currentConns = await this.db.prepare(`
             SELECT c.id, c.destiny_id FROM Connections c
             JOIN Nodes n ON c.destiny_id = n.id
             WHERE c.origin_id = ? AND n.type_id = ? AND c.type_id = ?
@@ -1217,13 +1453,13 @@ class DocumentQuery {
 
         for (const tid of tagNodeIds) {
             if (!currentTagIdSet.has(tid)) {
-                this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)").run(nodeId, tid, tagConnTypeId);
+                await this.db.prepare("INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)").run(nodeId, tid, tagConnTypeId);
             }
         }
         for (const conn of currentConns) {
             if (!tagNodeIdSet.has(conn.destiny_id)) {
-                this.db.prepare("DELETE FROM Connections WHERE id = ?").run(conn.id);
-                this.deleteTagIfOrphaned(conn.destiny_id);
+                await this.db.prepare("DELETE FROM Connections WHERE id = ?").run(conn.id);
+                await this.deleteTagIfOrphaned(conn.destiny_id);
             }
         }
     }
@@ -1232,19 +1468,19 @@ class DocumentQuery {
     // so tags with zero references stop showing up in getAllTags()/list_tags.
     // Deleting the Tags row cascades to its Node (AFTER DELETE trigger) and to any
     // InheritedTags via tag_id ON DELETE CASCADE.
-    deleteTagIfOrphaned(tagNodeId) {
-        const { tagConnTypeId } = this._typeIds();
-        const remaining = this.db.prepare(
+    async deleteTagIfOrphaned(tagNodeId) {
+        const { tagConnTypeId } = await this._typeIds();
+        const remaining = await this.db.prepare(
             "SELECT 1 FROM Connections WHERE destiny_id = ? AND type_id = ? LIMIT 1"
         ).get(tagNodeId, tagConnTypeId);
         if (!remaining) {
-            this.db.prepare("DELETE FROM Tags WHERE node_id = ?").run(tagNodeId);
+            await this.db.prepare("DELETE FROM Tags WHERE node_id = ?").run(tagNodeId);
         }
     }
 
     // --- Media ---
 
-    insertMedia(data) {
+    async insertMedia(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Media (hash, name, relative_path, absolute_path)
             VALUES (?, ?, ?, ?)
@@ -1252,25 +1488,25 @@ class DocumentQuery {
                 relative_path=excluded.relative_path,
                 absolute_path=excluded.absolute_path
         `);
-        return stmt.run(data.hash, data.name, data.relativePath, data.absolutePath);
+        return await stmt.run(data.hash, data.name, data.relativePath, data.absolutePath);
     }
 
-    getMediaByHash(hash) {
-        return this.db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
+    async getMediaByHash(hash) {
+        return await this.db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
     }
 
-    deleteMediaByAbsPath(absolutePath) {
-        return this.db.prepare('DELETE FROM Media WHERE absolute_path = ?').run(absolutePath);
+    async deleteMediaByAbsPath(absolutePath) {
+        return await this.db.prepare('DELETE FROM Media WHERE absolute_path = ?').run(absolutePath);
     }
 
-    getMediaByAbsPathPrefix(prefix) {
-        return this.db.prepare('SELECT * FROM Media WHERE absolute_path LIKE ?').all(prefix + '%');
+    async getMediaByAbsPathPrefix(prefix) {
+        return await this.db.prepare('SELECT * FROM Media WHERE absolute_path LIKE ?').all(prefix + '%');
     }
 
     // Re-points a single media row after its file has been carried to another
     // folder. Keyed on the old absolute path because the hash is unchanged by a
     // move — the bytes are identical, only the location moved.
-    updateMediaPath(oldAbsPath, newRelPath, newAbsPath) {
+    async updateMediaPath(oldAbsPath, newRelPath, newAbsPath) {
         return this.db.prepare('UPDATE Media SET relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
             .run(newRelPath, newAbsPath, oldAbsPath);
     }
@@ -1278,18 +1514,18 @@ class DocumentQuery {
     // Prefix-rewrites every media row beneath a folder that was moved or renamed.
     // A folder carries its own media/ dir along on disk, so the files are fine —
     // it is only the derived index that would otherwise keep the stale paths.
-    cascadeMediaPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+    async cascadeMediaPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
         this.db.prepare(`UPDATE Media SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
     }
 
     // --- Subscriptions ---
 
-    getSubscription(magazineId) {
-        return this.db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(magazineId);
+    async getSubscription(magazineId) {
+        return await this.db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(magazineId);
     }
 
-    upsertSubscription(data) {
+    async upsertSubscription(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Subscriptions (magazine_id, issue_id, version, target_path, last_sync)
             VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -1299,17 +1535,17 @@ class DocumentQuery {
                 target_path = excluded.target_path,
                 last_sync = CURRENT_TIMESTAMP
         `);
-        return stmt.run(data.magazineId, data.issueId, data.version, data.targetPath);
+        return await stmt.run(data.magazineId, data.issueId, data.version, data.targetPath);
     }
 
     // --- Path Mutations ---
 
-    renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
+    async renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
         this.db.prepare('UPDATE Folders SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
             .run(newName, newRelPath, newAbsPath, oldAbsPath);
     }
 
-    renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
+    async renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath) {
         this.db.prepare('UPDATE Documents SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
             .run(newName, newRelPath, newAbsPath, oldAbsPath);
     }
@@ -1318,134 +1554,135 @@ class DocumentQuery {
         return str.replace(/\\/g, '\\\\').replace(/%/g, '\\%').replace(/_/g, '\\_');
     }
 
-    cascadeRenameDocumentPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+    async cascadeRenameDocumentPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
         this.db.prepare(`UPDATE Documents SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
     }
 
-    cascadeRenameFolderPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
+    async cascadeRenameFolderPaths(oldRelPath, newRelPath, oldAbsPath, newAbsPath) {
         this.db.prepare(`UPDATE Folders SET relative_path = ? || substr(relative_path, length(?) + 1), absolute_path = ? || substr(absolute_path, length(?) + 1) WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .run(newRelPath, oldRelPath, newAbsPath, oldAbsPath, this._escapeLike(oldAbsPath));
     }
 
-    moveDocumentRecord(newFolderId, newRelPath, newAbsPath, oldAbsPath) {
+    async moveDocumentRecord(newFolderId, newRelPath, newAbsPath, oldAbsPath) {
         this.db.prepare('UPDATE Documents SET folder_id = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
             .run(newFolderId, newRelPath, newAbsPath, oldAbsPath);
     }
 
-    moveFolderRecord(newRelPath, newAbsPath, oldAbsPath, newParentId) {
+    async moveFolderRecord(newRelPath, newAbsPath, oldAbsPath, newParentId) {
         this.db.prepare('UPDATE Folders SET relative_path = ?, absolute_path = ?, parent_id = ? WHERE absolute_path = ?')
             .run(newRelPath, newAbsPath, newParentId ?? null, oldAbsPath);
     }
 
-    deleteFolderTree(absPath, sep) {
+    async deleteFolderTree(absPath, sep) {
         this.db.prepare(`DELETE FROM Folders WHERE absolute_path = ? OR absolute_path LIKE ? ESCAPE '\\'`)
             .run(absPath, this._escapeLike(absPath) + sep + '%');
     }
 
-    deleteDocumentByAbsPath(absPath) {
-        this.db.prepare('DELETE FROM Documents WHERE absolute_path = ?').run(absPath);
+    async deleteDocumentByAbsPath(absPath) {
+        await this.db.prepare('DELETE FROM Documents WHERE absolute_path = ?').run(absPath);
     }
 
-    getDocumentsByAbsPathPrefix(absPrefix) {
+    async getDocumentsByAbsPathPrefix(absPrefix) {
         return this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .all(this._escapeLike(absPrefix));
     }
 
-    getFoldersByAbsPathPrefix(absPrefix, excludeAbsPath) {
+    async getFoldersByAbsPathPrefix(absPrefix, excludeAbsPath) {
         return this.db.prepare(`SELECT absolute_path, relative_path FROM Folders WHERE absolute_path LIKE ? || '%' ESCAPE '\\' AND absolute_path != ?`)
             .all(this._escapeLike(absPrefix), excludeAbsPath);
     }
 
     // --- Connections ---
 
-    insertInheritance(parentNodeId, childNodeId) {
-        const typeId = this._typeIds().inheritanceTypeId;
+    async insertInheritance(parentNodeId, childNodeId) {
+        const typeId = (await this._typeIds()).inheritanceTypeId;
         if (!typeId) throw new Error('inheritance connection type missing');
-        return this.db.prepare(
+        return await this.db.prepare(
             'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
         ).run(parentNodeId, childNodeId, typeId);
     }
 
-    deleteInheritance(parentNodeId, childNodeId) {
-        const typeId = this._typeIds().inheritanceTypeId;
+    async deleteInheritance(parentNodeId, childNodeId) {
+        const typeId = (await this._typeIds()).inheritanceTypeId;
         if (!typeId) return;
-        this.db.prepare(
+        await this.db.prepare(
             'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
         ).run(parentNodeId, childNodeId, typeId);
     }
 
-    getNodeIdByFolderAbsPath(absPath) {
-        const row = this.db.prepare('SELECT node_id FROM Folders WHERE absolute_path = ?').get(absPath);
+    async getNodeIdByFolderAbsPath(absPath) {
+        const row = await this.db.prepare('SELECT node_id FROM Folders WHERE absolute_path = ?').get(absPath);
         return row ? row.node_id : null;
     }
 
-    getDocumentByAbsolutePath(absPath) {
-        return this.db.prepare('SELECT * FROM Documents WHERE absolute_path = ?').get(absPath);
+    async getDocumentByAbsolutePath(absPath) {
+        return await this.db.prepare('SELECT * FROM Documents WHERE absolute_path = ?').get(absPath);
     }
 
-    getNodeIdByDocumentAbsPath(absPath) {
-        const row = this.db.prepare('SELECT node_id FROM Documents WHERE absolute_path = ?').get(absPath);
+    async getNodeIdByDocumentAbsPath(absPath) {
+        const row = await this.db.prepare('SELECT node_id FROM Documents WHERE absolute_path = ?').get(absPath);
         return row ? row.node_id : null;
     }
 
     // --- Search & Graph ---
 
-    search(query) {
+    async search(query) {
         const term = `%${query}%`;
-        const docs = this.db.prepare(`SELECT 'document' as type, name, relative_path, global_hash FROM Documents WHERE name LIKE ?`).all(term);
-        const cards = this.db.prepare(`
+        const docs = await this.db.prepare(`SELECT 'document' as type, name, relative_path, global_hash FROM Documents WHERE name LIKE ?`).all(term);
+        const cards = await this.db.prepare(`
             SELECT 'flashcard' as type, f.global_hash, c.frontText, c.backText, c.answerText
             FROM Flashcards f JOIN FlashcardContent c ON f.content_id = c.id
             WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.global_hash = ? OR f.name LIKE ?
         `).all(term, term, term, query, term);
-        const tags = this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText, null as answerText FROM Tags t WHERE t.name LIKE ?`).all(term);
+        const tags = await this.db.prepare(`SELECT 'tag' as type, t.name, null as frontText, null as backText, null as answerText FROM Tags t WHERE t.name LIKE ?`).all(term);
         return [...docs, ...cards, ...tags];
     }
 
     // Unified search across all entity types.
     // - Global mode (only q): returns { folders, documents, flashcards, tags, decks }
     // - Filter mode (tag/deck/document/folder): returns { flashcards } matching all supplied filters
-    superSearch({ q = null, tag = null, deck = null, document: docQ = null, folder = null, limit = 20 } = {}) {
+    async superSearch({ q = null, tag = null, deck = null, document: docQ = null, folder = null, limit = 20 } = {}, scope) {
         const hasFilter = tag || deck || docQ || folder;
         if (hasFilter) {
-            return { flashcards: this._searchFlashcards({ q, tag, deck, docQ, folder, limit }) };
+            return { flashcards: await this._searchFlashcards({ q, tag, deck, docQ, folder, limit }, scope) };
         }
 
         if (!q || !q.trim()) return { folders: [], documents: [], flashcards: [], tags: [], decks: [] };
         const term = `%${q.trim()}%`;
 
-        const folders = this.db.prepare(
+        const folders = await this.db.prepare(
             `SELECT name, relative_path as path, global_hash FROM Folders WHERE name LIKE ? LIMIT ?`
         ).all(term, limit);
 
-        const documents = this.db.prepare(
+        const documents = await this.db.prepare(
             `SELECT name, relative_path as path, global_hash FROM Documents WHERE name LIKE ? LIMIT ?`
         ).all(term, limit);
 
-        const flashcards = this.db.prepare(`
-            SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
+        const flashcards = await this.db.prepare(`
+            SELECT f.global_hash, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
                    c.frontText, c.backText, c.answerText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
+            ${PROGRESS_JOIN()}
             JOIN FlashcardContent c ON f.content_id = c.id
             LEFT JOIN Documents d ON d.id = f.document_id
             WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
             LIMIT ?
-        `).all(term, term, term, term, limit);
+        `).all(scoped(scope), term, term, term, term, limit);
 
-        const tags = this.db.prepare(
+        const tags = await this.db.prepare(
             `SELECT name FROM Tags WHERE name LIKE ? LIMIT ?`
         ).all(term, limit);
 
-        const decks = this.db.prepare(
+        const decks = await this.db.prepare(
             `SELECT name, global_hash FROM Decks WHERE name LIKE ? LIMIT ?`
         ).all(term, limit);
 
         return { folders, documents, flashcards, tags, decks };
     }
 
-    _searchFlashcards({ q = null, tag = null, deck = null, docQ = null, folder = null, limit = 50 } = {}) {
+    async _searchFlashcards({ q = null, tag = null, deck = null, docQ = null, folder = null, limit = 50 } = {}, scope) {
         const conditions = [];
         const cteParams = [];
         const condParams = [];
@@ -1507,14 +1744,17 @@ class DocumentQuery {
         }
 
         const whereSQL = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
-        const allParams = [...cteParams, ...condParams, limit];
+        // The progress join sits in the FROM clause, so its bind falls between the CTEs and
+        // the WHERE filters.
+        const allParams = [...cteParams, scoped(scope), ...condParams, limit];
 
-        return this.db.prepare(`
+        return await this.db.prepare(`
             ${cteSQL}
-            SELECT f.global_hash, f.name, f.card_type, f.level, f.origin,
+            SELECT f.global_hash, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
                    c.frontText, c.backText, c.answerText,
                    d.relative_path as document_path, d.name as document_name
             FROM Flashcards f
+            ${PROGRESS_JOIN()}
             JOIN FlashcardContent c ON f.content_id = c.id
             LEFT JOIN Documents d ON d.id = f.document_id
             ${whereSQL}
@@ -1524,38 +1764,48 @@ class DocumentQuery {
 
     // --- Presence ---
 
-    getFlashcardAvgLevel(documentId) {
-        return this.db.prepare('SELECT AVG(level) as score FROM Flashcards WHERE document_id = ?').get(documentId);
+    // Feeds Documents.presence, which is a STORED, sidecar-mirrored field and therefore the
+    // owner's: `presence` travels with the document and is part of what the canonical layer
+    // says about it. So this one takes a scope like everything else but its caller always
+    // passes the owner — a reader's grade must not rewrite what the sidecar claims.
+    // The live graph rollups below are the per-caller counterpart.
+    async getFlashcardAvgLevel(documentId, scope) {
+        return await this.db.prepare(`
+            SELECT AVG(COALESCE(p.level, 0)) as score
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+            WHERE f.document_id = ?
+        `).get(scoped(scope), documentId);
     }
 
-    getDocumentFolderIdById(documentId) {
-        return this.db.prepare('SELECT folder_id FROM Documents WHERE id = ?').get(documentId);
+    async getDocumentFolderIdById(documentId) {
+        return await this.db.prepare('SELECT folder_id FROM Documents WHERE id = ?').get(documentId);
     }
 
-    getFolderById(folderId) {
-        return this.db.prepare('SELECT * FROM Folders WHERE id = ?').get(folderId);
+    async getFolderById(folderId) {
+        return await this.db.prepare('SELECT * FROM Folders WHERE id = ?').get(folderId);
     }
 
-    getDocumentPresenceStats(folderId) {
-        return this.db.prepare('SELECT count(*) as cnt, sum(presence) as total FROM Documents WHERE folder_id = ?').get(folderId);
+    async getDocumentPresenceStats(folderId) {
+        return await this.db.prepare('SELECT count(*) as cnt, sum(presence) as total FROM Documents WHERE folder_id = ?').get(folderId);
     }
 
-    getChildFolderPresences(parentId) {
-        return this.db.prepare('SELECT presence FROM Folders WHERE parent_id = ?').all(parentId);
+    async getChildFolderPresences(parentId) {
+        return await this.db.prepare('SELECT presence FROM Folders WHERE parent_id = ?').all(parentId);
     }
 
-    updateDocumentPresence(documentId, score) {
-        return this.db.prepare('UPDATE Documents SET presence = ? WHERE id = ?').run(score, documentId);
+    async updateDocumentPresence(documentId, score) {
+        return await this.db.prepare('UPDATE Documents SET presence = ? WHERE id = ?').run(score, documentId);
     }
 
-    updateFolderPresence(folderId, presence) {
-        return this.db.prepare('UPDATE Folders SET presence = ? WHERE id = ?').run(presence, folderId);
+    async updateFolderPresence(folderId, presence) {
+        return await this.db.prepare('UPDATE Folders SET presence = ? WHERE id = ?').run(presence, folderId);
     }
 
     // --- Inheritance ---
 
-    getHierarchyTypeId() {
-        return { id: this._typeIds().inheritanceTypeId };
+    async getHierarchyTypeId() {
+        return { id: (await this._typeIds()).inheritanceTypeId };
     }
 
     // Inherited tags reach a node through two connection types: 'inheritance'
@@ -1563,48 +1813,61 @@ class DocumentQuery {
     // are ever the destiny of a 'deck' connection, so broadening the filter never
     // adds tags to documents/folders — it just lets a deck's tags flow to its
     // cards. DISTINCT dedupes a tag a card inherits from both its document and a deck.
-    getInheritedTagNames(nodeId) {
-        return this.db.prepare(`
+    async getInheritedTagNames(nodeId) {
+        return (await this.db.prepare(`
             SELECT DISTINCT t.name FROM InheritedTags it
             JOIN Connections c ON it.connection_id = c.id
             JOIN Tags t ON t.id = it.tag_id
             WHERE c.destiny_id = ?
               AND c.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
-        `).all(nodeId).map(t => t.name);
+        `).all(nodeId)).map(t => t.name);
     }
 
-    getDirectTagNames(nodeId) {
-        const { tagConnTypeId } = this._typeIds();
-        return this.db.prepare(`
+    async getDirectTagNames(nodeId) {
+        const { tagConnTypeId } = await this._typeIds();
+        return (await this.db.prepare(`
             SELECT t.name FROM Connections c
             JOIN Tags t ON t.node_id = c.destiny_id
             WHERE c.origin_id = ? AND c.type_id = ?
-        `).all(nodeId, tagConnTypeId).map(r => r.name);
+        `).all(nodeId, tagConnTypeId)).map(r => r.name);
     }
 
-    getOrCreateConnection(originId, destId, typeId) {
-        let conn = this.db.prepare('SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?').get(originId, destId, typeId);
+    async getOrCreateConnection(originId, destId, typeId) {
+        let conn = await this.db.prepare('SELECT id FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?').get(originId, destId, typeId);
         if (!conn) {
-            const info = this.db.prepare('INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)').run(originId, destId, typeId);
+            const info = await this.db.prepare('INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)').run(originId, destId, typeId);
             conn = { id: info.lastInsertRowid };
         }
         return conn;
     }
 
-    clearInheritedTags(connectionId) {
-        return this.db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(connectionId);
+    async clearInheritedTags(connectionId) {
+        return await this.db.prepare('DELETE FROM InheritedTags WHERE connection_id = ?').run(connectionId);
     }
 
-    insertInheritedTag(connectionId, tagId) {
-        return this.db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)').run(connectionId, tagId);
+    async insertInheritedTag(connectionId, tagId) {
+        return await this.db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)').run(connectionId, tagId);
     }
 
-    getFlashcardNodeIds(documentId) {
-        return this.db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(documentId);
+    async getFlashcardNodeIds(documentId) {
+        return await this.db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(documentId);
     }
 
-    getGraphData() {
-        const nodes = this.db.prepare(`
+    // The graph shades every node by how well it is known, which is a fact about the VIEWER,
+    // not about the vault — so all three CARD_LEARNED_SQL rollups read that person's progress.
+    //
+    // `presence` is the exception on this same query and stays as it is: it is a stored,
+    // sidecar-mirrored field belonging to the document itself (see getFlashcardAvgLevel).
+    // The live rollups answer "how well do I know this"; presence answers "what does the
+    // canonical layer record about it".
+    //
+    // Three binds, in the order the joins appear in the statement: the folder_rollup CTE,
+    // then the per-card join, then the per-document subquery. All three are the same value,
+    // so the order is documentation rather than a trap — but it stops being the same value
+    // the day someone adds a second scope to this query.
+    async getGraphData(scope) {
+        const account = scoped(scope);
+        const nodes = await this.db.prepare(`
             WITH RECURSIVE folder_tree AS (
                 SELECT id, id AS root_id FROM Folders
                 UNION ALL
@@ -1620,10 +1883,11 @@ class DocumentQuery {
             folder_rollup AS (
                 SELECT ft.root_id,
                        COUNT(ffc.id)                                 AS cardCount,
-                       COALESCE(SUM(${CARD_LEARNED_SQL('ffc')}), 0)  AS learnedSum
+                       COALESCE(SUM(${CARD_LEARNED_SQL('ffp')}), 0)  AS learnedSum
                 FROM folder_tree ft
                 JOIN Documents fd ON fd.folder_id = ft.id
                 LEFT JOIN Flashcards ffc ON ffc.document_id = fd.id
+                ${PROGRESS_JOIN('ffc', 'ffp')}
                 GROUP BY ft.root_id
             )
             SELECT n.id, nt.name as type,
@@ -1638,23 +1902,25 @@ class DocumentQuery {
                    dl.learnedSum     as learnedSum,
                    fr.cardCount      as folderCardCount,
                    fr.learnedSum     as folderLearnedSum,
-                   ${CARD_LEARNED_SQL('fc')} as flashcardLearned
+                   ${CARD_LEARNED_SQL('fcp')} as flashcardLearned
             FROM Nodes n
             JOIN NodeTypes nt ON n.type_id = nt.id
             LEFT JOIN Documents d   ON d.node_id   = n.id
             LEFT JOIN Folders f     ON f.node_id   = n.id
             LEFT JOIN Tags t        ON t.node_id   = n.id
             LEFT JOIN Flashcards fc ON fc.node_id  = n.id
+            ${PROGRESS_JOIN('fc', 'fcp')}
             LEFT JOIN FlashcardContent fcc ON fcc.id = fc.content_id
             LEFT JOIN Documents fcd        ON fcd.id = fc.document_id
             LEFT JOIN Decks dk ON dk.node_id = n.id
             LEFT JOIN (
-                SELECT document_id,
-                       COUNT(*)                            as cardCount,
-                       SUM(${CARD_LEARNED_SQL('Flashcards')}) as learnedSum
-                FROM Flashcards
-                WHERE document_id IS NOT NULL
-                GROUP BY document_id
+                SELECT dfc.document_id,
+                       COUNT(*)                        as cardCount,
+                       SUM(${CARD_LEARNED_SQL('dfp')}) as learnedSum
+                FROM Flashcards dfc
+                ${PROGRESS_JOIN('dfc', 'dfp')}
+                WHERE dfc.document_id IS NOT NULL
+                GROUP BY dfc.document_id
             ) dl ON dl.document_id = d.id
             LEFT JOIN folder_rollup fr ON fr.root_id = f.id
             WHERE NOT (
@@ -1664,9 +1930,9 @@ class DocumentQuery {
                     WHERE c2.origin_id = n.id AND ct2.name = 'deck'
                 )
             )
-        `).all();
+        `).all(account, account, account);
 
-        const edges = this.db.prepare(`
+        const edges = await this.db.prepare(`
             SELECT source.id as fromId, target.id as toId, ct.name as relation
             FROM Connections c
             JOIN Nodes source ON c.origin_id = source.id
@@ -1692,54 +1958,54 @@ class DocumentQuery {
 
     // --- Document Links ---
 
-    getDocumentByHash(hash) {
-        return this.db.prepare('SELECT id, node_id, relative_path, name FROM Documents WHERE global_hash = ?').get(hash);
+    async getDocumentByHash(hash) {
+        return await this.db.prepare('SELECT id, node_id, relative_path, name FROM Documents WHERE global_hash = ?').get(hash);
     }
 
-    upsertDocumentLinkQueue(sourceHash, targetHash, anchorText) {
-        return this.db.prepare(
+    async upsertDocumentLinkQueue(sourceHash, targetHash, anchorText) {
+        return await this.db.prepare(
             'INSERT OR IGNORE INTO DocumentLinks (source_hash, target_hash, anchor_text) VALUES (?, ?, ?)'
         ).run(sourceHash, targetHash, anchorText ?? '');
     }
 
-    getPendingLinksForTarget(targetHash) {
-        return this.db.prepare('SELECT * FROM DocumentLinks WHERE target_hash = ?').all(targetHash);
+    async getPendingLinksForTarget(targetHash) {
+        return await this.db.prepare('SELECT * FROM DocumentLinks WHERE target_hash = ?').all(targetHash);
     }
 
-    getPendingLinksFromSource(sourceHash) {
-        return this.db.prepare('SELECT * FROM DocumentLinks WHERE source_hash = ?').all(sourceHash);
+    async getPendingLinksFromSource(sourceHash) {
+        return await this.db.prepare('SELECT * FROM DocumentLinks WHERE source_hash = ?').all(sourceHash);
     }
 
-    deleteDocumentLinkQueueBySource(sourceHash) {
-        return this.db.prepare('DELETE FROM DocumentLinks WHERE source_hash = ?').run(sourceHash);
+    async deleteDocumentLinkQueueBySource(sourceHash) {
+        return await this.db.prepare('DELETE FROM DocumentLinks WHERE source_hash = ?').run(sourceHash);
     }
 
-    deleteDocumentLinkConnections(nodeId) {
-        const { linkConnTypeId } = this._typeIds();
+    async deleteDocumentLinkConnections(nodeId) {
+        const { linkConnTypeId } = await this._typeIds();
         if (!linkConnTypeId) return;
-        return this.db.prepare(
+        return await this.db.prepare(
             'DELETE FROM Connections WHERE origin_id = ? AND type_id = ?'
         ).run(nodeId, linkConnTypeId);
     }
 
-    insertDocumentLinkConnection(sourceNodeId, targetNodeId) {
-        const { linkConnTypeId } = this._typeIds();
+    async insertDocumentLinkConnection(sourceNodeId, targetNodeId) {
+        const { linkConnTypeId } = await this._typeIds();
         if (!linkConnTypeId) throw new Error('link ConnectionType missing — run migrations');
-        return this.db.prepare(
+        return await this.db.prepare(
             'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
         ).run(sourceNodeId, targetNodeId, linkConnTypeId);
     }
 
     // Resolved flashback:// link edges for one document, both directions.
-    getDocumentLinkEdges(nodeId) {
-        const { linkConnTypeId } = this._typeIds();
+    async getDocumentLinkEdges(nodeId) {
+        const { linkConnTypeId } = await this._typeIds();
         if (!linkConnTypeId) return { outgoing: [], backlinks: [] };
-        const outgoing = this.db.prepare(`
+        const outgoing = await this.db.prepare(`
             SELECT d.name, d.relative_path AS path, d.global_hash
             FROM Connections c JOIN Documents d ON d.node_id = c.destiny_id
             WHERE c.origin_id = ? AND c.type_id = ?
         `).all(nodeId, linkConnTypeId);
-        const backlinks = this.db.prepare(`
+        const backlinks = await this.db.prepare(`
             SELECT d.name, d.relative_path AS path, d.global_hash
             FROM Connections c JOIN Documents d ON d.node_id = c.origin_id
             WHERE c.destiny_id = ? AND c.type_id = ?
@@ -1749,43 +2015,43 @@ class DocumentQuery {
 
     // --- Decks ---
 
-    insertDeck(data) {
-        const { deckNodeTypeId } = this._typeIds();
+    async insertDeck(data) {
+        const { deckNodeTypeId } = await this._typeIds();
         if (!deckNodeTypeId) throw new Error('Deck node type missing — run migrations');
-        const nodeInfo = this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(deckNodeTypeId);
+        const nodeInfo = await this.db.prepare('INSERT INTO Nodes (type_id) VALUES (?)').run(deckNodeTypeId);
         const nodeId = nodeInfo.lastInsertRowid;
-        const info = this.db.prepare(`
+        const info = await this.db.prepare(`
             INSERT INTO Decks (node_id, global_hash, name, description, is_system)
             VALUES (?, ?, ?, ?, ?)
         `).run(nodeId, data.globalHash, data.name, data.description ?? null, data.isSystem ?? 0);
         return info.lastInsertRowid;
     }
 
-    getDeckByHash(hash) {
-        return this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE global_hash = ?').get(hash);
+    async getDeckByHash(hash) {
+        return await this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE global_hash = ?').get(hash);
     }
 
-    getSystemDeck() {
-        return this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE is_system = 1 LIMIT 1').get();
+    async getSystemDeck() {
+        return await this.db.prepare('SELECT id, node_id, global_hash, name, description, is_system, created_at, updated_at FROM Decks WHERE is_system = 1 LIMIT 1').get();
     }
 
-    getFlashcardNodeIdByHash(cardHash) {
-        const row = this.db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
+    async getFlashcardNodeIdByHash(cardHash) {
+        const row = await this.db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
         return row?.node_id ?? null;
     }
 
-    insertDeckConnection(deckNodeId, cardNodeId) {
-        const { deckConnTypeId } = this._typeIds();
+    async insertDeckConnection(deckNodeId, cardNodeId) {
+        const { deckConnTypeId } = await this._typeIds();
         if (!deckConnTypeId) return;
-        this.db.prepare(
+        await this.db.prepare(
             'INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)'
         ).run(deckNodeId, cardNodeId, deckConnTypeId);
     }
 
-    deleteDeckConnection(deckNodeId, cardNodeId) {
-        const { deckConnTypeId } = this._typeIds();
+    async deleteDeckConnection(deckNodeId, cardNodeId) {
+        const { deckConnTypeId } = await this._typeIds();
         if (!deckConnTypeId) return;
-        this.db.prepare(
+        await this.db.prepare(
             'DELETE FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
         ).run(deckNodeId, cardNodeId, deckConnTypeId);
     }
@@ -1794,16 +2060,16 @@ class DocumentQuery {
     // flow to the card via getInheritedTagNames without touching the card's own
     // document-inheritance connection. Removing the card from the deck (or deleting
     // the deck) drops the connection, and InheritedTags cascades on connection_id.
-    setDeckConnectionInheritedTags(deckNodeId, cardNodeId, tagIds) {
-        const { deckConnTypeId } = this._typeIds();
+    async setDeckConnectionInheritedTags(deckNodeId, cardNodeId, tagIds) {
+        const { deckConnTypeId } = await this._typeIds();
         if (!deckConnTypeId) return;
-        const conn = this.getOrCreateConnection(deckNodeId, cardNodeId, deckConnTypeId);
-        this.clearInheritedTags(conn.id);
-        for (const tagId of tagIds) this.insertInheritedTag(conn.id, tagId);
+        const conn = await this.getOrCreateConnection(deckNodeId, cardNodeId, deckConnTypeId);
+        await this.clearInheritedTags(conn.id);
+        for (const tagId of tagIds) await this.insertInheritedTag(conn.id, tagId);
     }
 
-    getAllDecks() {
-        return this.db.prepare(`
+    async getAllDecks() {
+        return await this.db.prepare(`
             SELECT d.*, COUNT(e.id) as entry_count
             FROM Decks d
             LEFT JOIN DeckEntries e ON e.deck_id = d.id
@@ -1812,46 +2078,47 @@ class DocumentQuery {
         `).all();
     }
 
-    updateDeck(id, data) {
-        this.db.prepare(`
+    async updateDeck(id, data) {
+        await this.db.prepare(`
             UPDATE Decks SET name = ?, description = ?, updated_at = datetime('now')
             WHERE id = ?
         `).run(data.name, data.description ?? null, id);
     }
 
-    deleteDeck(id) {
-        this.db.prepare('DELETE FROM Decks WHERE id = ?').run(id);
+    async deleteDeck(id) {
+        await this.db.prepare('DELETE FROM Decks WHERE id = ?').run(id);
     }
 
-    insertDeckEntry(data) {
-        return this.db.prepare(`
+    async insertDeckEntry(data) {
+        return await this.db.prepare(`
             INSERT INTO DeckEntries (deck_id, card_hash, document_path, position, inline_card)
             VALUES (?, ?, ?, ?, ?)
         `).run(data.deckId, data.cardHash, data.documentPath ?? null, data.position ?? 0, data.inlineCard ?? null);
     }
 
-    getDeckEntries(deckId) {
-        return this.db.prepare(`
-            SELECT e.*, f.level, f.last_recall, f.card_type, f.name as card_name,
+    async getDeckEntries(deckId, scope) {
+        return await this.db.prepare(`
+            SELECT e.*, p.level, p.last_recall, f.card_type, f.name as card_name,
                    c.frontText, c.backText, c.answerText, c.custom_html
             FROM DeckEntries e
             LEFT JOIN Flashcards f ON f.global_hash = e.card_hash
+            ${PROGRESS_JOIN()}
             LEFT JOIN FlashcardContent c ON c.id = f.content_id
             WHERE e.deck_id = ?
             ORDER BY e.position ASC, e.id ASC
-        `).all(deckId);
+        `).all(scoped(scope), deckId);
     }
 
-    getDeckEntryByCardHash(deckId, cardHash) {
-        return this.db.prepare('SELECT id FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').get(deckId, cardHash);
+    async getDeckEntryByCardHash(deckId, cardHash) {
+        return await this.db.prepare('SELECT id FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').get(deckId, cardHash);
     }
 
-    deleteDeckEntry(deckId, cardHash) {
-        this.db.prepare('DELETE FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').run(deckId, cardHash);
+    async deleteDeckEntry(deckId, cardHash) {
+        await this.db.prepare('DELETE FROM DeckEntries WHERE deck_id = ? AND card_hash = ?').run(deckId, cardHash);
     }
 
-    getDeckEntryCount(deckId) {
-        return this.db.prepare('SELECT COUNT(*) as c FROM DeckEntries WHERE deck_id = ?').get(deckId).c;
+    async getDeckEntryCount(deckId) {
+        return (await this.db.prepare('SELECT COUNT(*) as c FROM DeckEntries WHERE deck_id = ?').get(deckId)).c;
     }
 
     // --- Card Browser ---
@@ -1869,7 +2136,8 @@ class DocumentQuery {
     // The card-health filter is an EXISTS subquery rather than a join, so a card
     // carrying two flags still counts once. Dismissed flags are excluded everywhere:
     // a flag the user has already ruled on is suppressed, not deleted.
-    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind }) {
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, scope) {
+        const account = scoped(scope);
         const params = [];
         const conditions = [];
 
@@ -1879,7 +2147,9 @@ class DocumentQuery {
             params.push(term, term, term, term);
         }
         if (level !== null && level !== undefined) {
-            conditions.push('f.level = ?');
+            // COALESCE, not `p.level = ?`: filtering for box 0 must return the new-card pile,
+            // and those cards have no progress row for this person at all.
+            conditions.push('COALESCE(p.level, 0) = ?');
             params.push(level);
         }
         if (cardType) {
@@ -1891,64 +2161,66 @@ class DocumentQuery {
         if (flagged || flagKind) {
             const kindClause = flagKind ? ' AND cf.kind = ?' : '';
             conditions.push(`EXISTS (SELECT 1 FROM CardFlags cf
-                WHERE cf.flashcard_id = f.id AND cf.dismissed_at IS NULL${kindClause})`);
+                WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL${kindClause})`);
+            params.push(account);
             if (flagKind) params.push(flagKind);
         }
 
         return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
     }
 
-    getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind });
+    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
         const sortCols = {
-            level: 'f.level', name: 'f.name', last_recall: 'f.last_recall',
-            lapses: 'f.fsrs_lapses', difficulty: 'f.fsrs_difficulty',
+            level: 'p.level', name: 'f.name', last_recall: 'p.last_recall',
+            lapses: 'p.fsrs_lapses', difficulty: 'p.fsrs_difficulty',
         };
-        const sortCol = sortCols[sortBy] ?? 'f.level';
+        const sortCol = sortCols[sortBy] ?? 'p.level';
         const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
         // fsrs_difficulty is only set once a card has been rated under FSRS, so
         // sorting by it must sink the unrated cards to the bottom in BOTH
         // directions — SQLite would otherwise float every NULL to the top of the
         // ascending ("easiest first") page and bury the real answer.
-        const nullsLast = sortCol === 'f.fsrs_difficulty' ? `${sortCol} IS NULL, ` : '';
+        const nullsLast = sortCol === 'p.fsrs_difficulty' ? `${sortCol} IS NULL, ` : '';
 
-        params.push(limit, offset);
-
-        return this.db.prepare(`
-            SELECT f.global_hash, f.name, f.level, f.last_recall, f.card_type,
-                   f.fsrs_lapses as lapses, f.fsrs_difficulty as difficulty, f.origin,
+        return await this.db.prepare(`
+            SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
+                   p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
                    c.frontText, c.backText, c.answerText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
                    pc.name as category,
                    -- Scalar subquery, not a join: the browser renders a flag chip per
                    -- row without an N+1, and a twice-flagged card stays one row.
                    (SELECT GROUP_CONCAT(cf.kind) FROM CardFlags cf
-                     WHERE cf.flashcard_id = f.id AND cf.dismissed_at IS NULL) AS flags
+                     WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
             FROM Flashcards f
+            ${PROGRESS_JOIN()}
             JOIN FlashcardContent c ON f.content_id = c.id
             LEFT JOIN Documents d ON f.document_id = d.id
             LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
             ${where}
             ORDER BY ${nullsLast}${sortCol} ${dir}, f.name ASC
             LIMIT ? OFFSET ?
-        `).all(...params);
+        `).all(account, account, ...params, limit, offset);
     }
 
-    getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind });
+    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}, scope) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
-        return this.db.prepare(`
-            SELECT COUNT(*) as c FROM Flashcards f ${contentJoin} ${where}
-        `).get(...params).c;
+        return (await this.db.prepare(`
+            SELECT COUNT(*) as c FROM Flashcards f ${PROGRESS_JOIN()} ${contentJoin} ${where}
+        `).get(account, ...params)).c;
     }
 
-    updateFlashcardContentByHash(hash, { frontText, backText, answerText, name, cardType, category, customHtml }) {
-        const card = this.db.prepare('SELECT id, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
+    async updateFlashcardContentByHash(hash, { frontText, backText, answerText, name, cardType, category, customHtml }) {
+        const card = await this.db.prepare('SELECT id, content_id FROM Flashcards WHERE global_hash = ?').get(hash);
         if (!card) return false;
         let categoryId = null;
         if (category) {
-            const cat = this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(category);
+            const cat = await this.db.prepare("SELECT id FROM PedagogicalCategories WHERE name = ?").get(category);
             if (cat) categoryId = cat.id;
         }
         this.db.prepare('UPDATE Flashcards SET name = ?, card_type = ?, category_id = ? WHERE id = ?')
@@ -1958,8 +2230,8 @@ class DocumentQuery {
         return true;
     }
 
-    deleteFlashcardDeckEntries(cardHash) {
-        return this.db.prepare('DELETE FROM DeckEntries WHERE card_hash = ?').run(cardHash);
+    async deleteFlashcardDeckEntries(cardHash) {
+        return await this.db.prepare('DELETE FROM DeckEntries WHERE card_hash = ?').run(cardHash);
     }
 
     // Every deck holding this card. DeckEntries key on card_hash rather than a
@@ -1969,8 +2241,8 @@ class DocumentQuery {
     // `is_system` matters to callers deciding whether a card is "shared": every
     // standalone card lives in the system deck by definition, so counting it as a
     // second owner would make every imported card look shared.
-    getDecksContainingCard(cardHash) {
-        return this.db.prepare(`
+    async getDecksContainingCard(cardHash) {
+        return await this.db.prepare(`
             SELECT d.id, d.global_hash, d.name, d.is_system
             FROM DeckEntries e
             JOIN Decks d ON d.id = e.deck_id
@@ -1990,8 +2262,8 @@ class DocumentQuery {
     // same function it applies to the card under test, so the comparison is like-for-like;
     // that matters more than scanning every row, hence the cap. An absolute character
     // threshold would be meaningless across a kana vault and a case-law vault.
-    getFlashcardAnswerSamples(limit = 2000) {
-        return this.db.prepare(`
+    async getFlashcardAnswerSamples(limit = 2000) {
+        return await this.db.prepare(`
             SELECT f.card_type, c.backText, c.answerText, c.custom_html
             FROM Flashcards f
             JOIN FlashcardContent c ON f.content_id = c.id
@@ -2004,57 +2276,63 @@ class DocumentQuery {
     // ReviewLogs has no session id). Synthetic rebuild rows are excluded: the Doctor
     // writes one per card at a single instant, which would otherwise read as one
     // enormous session and poison every session-position measure.
-    getRecentReviewSessionRows(since) {
-        return this.db.prepare(`
+    async getRecentReviewSessionRows(since, scope) {
+        return await this.db.prepare(`
             SELECT id, flashcard_id, timestamp, outcome
             FROM ReviewLogs
-            WHERE outcome IS NOT NULL AND timestamp >= ?
+            WHERE outcome IS NOT NULL AND account_id = ? AND timestamp >= ?
             ORDER BY timestamp ASC, id ASC
-        `).all(since);
+        `).all(scoped(scope), since);
     }
 
-    getCardHealth(flashcardId) {
-        return this.db.prepare(
-            'SELECT * FROM CardHealth WHERE flashcard_id = ?'
-        ).get(flashcardId) ?? null;
+    // A verdict is about how the card is BUILT, but its evidence is one person's interval
+    // trajectory — so the watermark and the flags are per (card, person). Two people can be at
+    // different points in the same card's analysis, and one person's dismissal is not
+    // everyone's. An edit needs no cross-account bump: each row compares against the card's
+    // current content_fingerprint on its own next evaluation.
+    async getCardHealth(flashcardId, scope) {
+        return await this.db.prepare(
+            'SELECT * FROM CardHealth WHERE flashcard_id = ? AND account_id = ?'
+        ).get(flashcardId, scoped(scope)) ?? null;
     }
 
-    upsertCardHealth(flashcardId, { epochAt = null, epochReason = null, contentFingerprint = null }) {
-        return this.db.prepare(`
-            INSERT INTO CardHealth (flashcard_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            ON CONFLICT(flashcard_id) DO UPDATE SET
+    async upsertCardHealth(flashcardId, { epochAt = null, epochReason = null, contentFingerprint = null }, scope) {
+        return await this.db.prepare(`
+            INSERT INTO CardHealth (flashcard_id, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
                 epoch_at            = excluded.epoch_at,
                 epoch_reason        = excluded.epoch_reason,
                 content_fingerprint = excluded.content_fingerprint,
                 updated_at          = excluded.updated_at
-        `).run(flashcardId, epochAt, epochReason, contentFingerprint, new Date().toISOString());
+        `).run(flashcardId, scoped(scope), epochAt, epochReason, contentFingerprint, new Date().toISOString());
     }
 
     // Only the fingerprint changed (the card was re-evaluated without being addressed).
-    setCardHealthFingerprint(flashcardId, contentFingerprint) {
-        return this.db.prepare(
-            'UPDATE CardHealth SET content_fingerprint = ?, updated_at = ? WHERE flashcard_id = ?'
-        ).run(contentFingerprint, new Date().toISOString(), flashcardId);
+    async setCardHealthFingerprint(flashcardId, contentFingerprint, scope) {
+        return await this.db.prepare(
+            'UPDATE CardHealth SET content_fingerprint = ?, updated_at = ? WHERE flashcard_id = ? AND account_id = ?'
+        ).run(contentFingerprint, new Date().toISOString(), flashcardId, scoped(scope));
     }
 
-    getCardFlags(flashcardId, { includeDismissed = false } = {}) {
+    async getCardFlags(flashcardId, { includeDismissed = false } = {}, scope) {
         const filter = includeDismissed ? '' : ' AND dismissed_at IS NULL';
-        return this.db.prepare(
-            `SELECT * FROM CardFlags WHERE flashcard_id = ?${filter} ORDER BY detected_at DESC`
-        ).all(flashcardId);
+        return await this.db.prepare(
+            `SELECT * FROM CardFlags WHERE flashcard_id = ? AND account_id = ?${filter} ORDER BY detected_at DESC`
+        ).all(flashcardId, scoped(scope));
     }
 
     // Re-raising refreshes a flag's evidence in place rather than stacking duplicates
-    // (UNIQUE(flashcard_id, kind)). `dismissed_at` is deliberately NOT overwritten: a
-    // flag the user has already ruled on stays suppressed while its numbers stay current.
-    upsertCardFlag({ flashcardId, kind, confidence, score, evidence, levelAtDetection, reviewLogId }) {
-        return this.db.prepare(`
+    // (UNIQUE(flashcard_id, account_id, kind)). `dismissed_at` is deliberately NOT
+    // overwritten: a flag the user has already ruled on stays suppressed while its numbers
+    // stay current.
+    async upsertCardFlag({ flashcardId, kind, confidence, score, evidence, levelAtDetection, reviewLogId }, scope) {
+        return await this.db.prepare(`
             INSERT INTO CardFlags
-                (flashcard_id, kind, confidence, score, evidence_json,
+                (flashcard_id, account_id, kind, confidence, score, evidence_json,
                  level_at_detection, detected_at, review_log_id, dismissed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(flashcard_id, kind) DO UPDATE SET
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(flashcard_id, account_id, kind) DO UPDATE SET
                 confidence         = excluded.confidence,
                 score              = excluded.score,
                 evidence_json      = excluded.evidence_json,
@@ -2062,7 +2340,7 @@ class DocumentQuery {
                 detected_at        = excluded.detected_at,
                 review_log_id      = excluded.review_log_id
         `).run(
-            flashcardId, kind, confidence, score ?? null,
+            flashcardId, scoped(scope), kind, confidence, score ?? null,
             evidence ? JSON.stringify(evidence) : null,
             levelAtDetection ?? null, new Date().toISOString(), reviewLogId ?? null,
         );
@@ -2070,50 +2348,76 @@ class DocumentQuery {
 
     // `kinds` limits the delete to specific signatures (used when a guard fires and the
     // now-unsupported mouthful/probe verdicts must be withdrawn). Omit it to clear all.
-    deleteCardFlags(flashcardId, { kinds = null, includeDismissed = false } = {}) {
-        const params = [flashcardId];
-        let sql = 'DELETE FROM CardFlags WHERE flashcard_id = ?';
+    async deleteCardFlags(flashcardId, { kinds = null, includeDismissed = false } = {}, scope) {
+        const params = [flashcardId, scoped(scope)];
+        let sql = 'DELETE FROM CardFlags WHERE flashcard_id = ? AND account_id = ?';
         if (!includeDismissed) sql += ' AND dismissed_at IS NULL';
         if (kinds?.length) {
             sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
             params.push(...kinds);
         }
-        return this.db.prepare(sql).run(...params).changes;
+        return (await this.db.prepare(sql).run(...params)).changes;
     }
 
-    dismissCardFlag(flashcardId, kind) {
-        return this.db.prepare(
-            'UPDATE CardFlags SET dismissed_at = ? WHERE flashcard_id = ? AND kind = ?'
-        ).run(new Date().toISOString(), flashcardId, kind).changes;
+    // --- Deliberately cross-account ---
+    //
+    // The two below take NO scope, and that is the point: they are the edit hook. When a
+    // card's content changes, every account's verdict about it is about a card that no longer
+    // exists, so every account's flags go and every account's watermark moves. The fingerprint
+    // check in buildContext would reach the same state one failure at a time; these make it
+    // happen the moment the user saves, for everyone, instead of leaving a reader staring at a
+    // verdict on text they can see has been rewritten.
+    async deleteAllCardFlags(flashcardId) {
+        return (await this.db.prepare('DELETE FROM CardFlags WHERE flashcard_id = ?').run(flashcardId)).changes;
+    }
+
+    // Stamps a new epoch and fingerprint on every account that has ever been analysed on this
+    // card, and seeds the owner's row when there is none — so a card edited before anyone
+    // reviewed it still records the fingerprint it was edited to.
+    async resetAllCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }) {
+        const changed = (await this.db.prepare(`
+            UPDATE CardHealth SET epoch_at = ?, epoch_reason = ?, content_fingerprint = ?, updated_at = ?
+            WHERE flashcard_id = ?
+        `).run(epochAt, epochReason, contentFingerprint, new Date().toISOString(), flashcardId)).changes;
+        if (changed === 0) {
+            await this.upsertCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }, OWNER_SCOPE);
+        }
+        return changed;
+    }
+
+    async dismissCardFlag(flashcardId, kind, scope) {
+        return (await this.db.prepare(
+            'UPDATE CardFlags SET dismissed_at = ? WHERE flashcard_id = ? AND account_id = ? AND kind = ?'
+        ).run(new Date().toISOString(), flashcardId, scoped(scope), kind)).changes;
     }
 
     // --- Doctor / Reconciliation ---
 
-    integrityCheck() {
-        return this.db.prepare('PRAGMA integrity_check').get().integrity_check;
+    async integrityCheck() {
+        return (await this.db.prepare('PRAGMA integrity_check').get()).integrity_check;
     }
 
-    getAllDocuments() {
-        return this.db.prepare('SELECT id, folder_id, node_id, global_hash, relative_path, absolute_path, name, encoding FROM Documents').all();
+    async getAllDocuments() {
+        return await this.db.prepare('SELECT id, folder_id, node_id, global_hash, relative_path, absolute_path, name, encoding FROM Documents').all();
     }
 
-    getAllFolders() {
-        return this.db.prepare('SELECT id, parent_id, node_id, global_hash, relative_path, absolute_path, name FROM Folders').all();
+    async getAllFolders() {
+        return await this.db.prepare('SELECT id, parent_id, node_id, global_hash, relative_path, absolute_path, name FROM Folders').all();
     }
 
-    getAllMedia() {
-        return this.db.prepare('SELECT id, hash, name, relative_path, absolute_path FROM Media').all();
+    async getAllMedia() {
+        return await this.db.prepare('SELECT id, hash, name, relative_path, absolute_path FROM Media').all();
     }
 
-    getStandaloneCardCount() {
-        return this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id IS NULL').get().c;
+    async getStandaloneCardCount() {
+        return (await this.db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id IS NULL').get()).c;
     }
 
-    getPendingLinkCount() {
-        return this.db.prepare('SELECT COUNT(*) as c FROM DocumentLinks').get().c;
+    async getPendingLinkCount() {
+        return (await this.db.prepare('SELECT COUNT(*) as c FROM DocumentLinks').get()).c;
     }
 
-    updateDeckEntryInlineCard(deckId, cardHash, inlineCard) {
+    async updateDeckEntryInlineCard(deckId, cardHash, inlineCard) {
         this.db.prepare('UPDATE DeckEntries SET inline_card = ? WHERE deck_id = ? AND card_hash = ?')
             .run(inlineCard, deckId, cardHash);
     }
@@ -2121,11 +2425,11 @@ class DocumentQuery {
     // Rebuild only: a card's SM-2 ease factor lives in its latest ReviewLogs row
     // (see getLatestEaseFactors), so recovery re-seeds one synthetic log entry per
     // card. outcome is NULL to mark it as synthetic rather than a real review.
-    insertSyntheticReviewLog(flashcardId, easeFactor, level) {
-        this.db.prepare(`
-            INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level)
-            VALUES (?, datetime('now'), NULL, ?, ?)
-        `).run(flashcardId, easeFactor, level ?? 0);
+    async insertSyntheticReviewLog(flashcardId, easeFactor, level, scope) {
+        await this.db.prepare(`
+            INSERT INTO ReviewLogs (flashcard_id, account_id, timestamp, outcome, ease_factor, level)
+            VALUES (?, ?, datetime('now'), NULL, ?, ?)
+        `).run(flashcardId, scoped(scope), easeFactor, level ?? 0);
     }
 
     // Deletes all rows derived from the canonical layer, keeping reference data
@@ -2133,27 +2437,32 @@ class DocumentQuery {
     // Subscriptions. Order respects FKs; entity-delete triggers clean up
     // FlashcardContent/FlashcardReference, and the final Nodes sweep is safe
     // because every table referencing node_id has just been emptied.
-    wipeDerivedContent() {
-        this.db.transaction(() => {
-            this.db.prepare('DELETE FROM DeckEntries').run();
-            this.db.prepare('DELETE FROM InheritedTags').run();
+    async wipeDerivedContent() {
+        await this.db.transaction(async () => {
+            await this.db.prepare('DELETE FROM DeckEntries').run();
+            await this.db.prepare('DELETE FROM InheritedTags').run();
             // Card health is derived from ReviewLogs, which this wipe destroys — so the
             // flags must go with it rather than outlive the evidence that earned them.
             // Cards re-earn them from new review behaviour. (The FK would cascade from
             // Flashcards anyway; explicit here so the ordering is intentional.)
-            this.db.prepare('DELETE FROM CardFlags').run();
-            this.db.prepare('DELETE FROM CardHealth').run();
-            this.db.prepare('DELETE FROM ReviewLogs').run();
-            this.db.prepare('DELETE FROM DocumentLinks').run();
-            this.db.prepare('DELETE FROM Highlights').run();
-            this.db.prepare('DELETE FROM Flashcards').run();
-            this.db.prepare('DELETE FROM Documents').run();
-            this.db.prepare('DELETE FROM Folders').run();
-            this.db.prepare('DELETE FROM Decks').run();
-            this.db.prepare('DELETE FROM Tags').run();
-            this.db.prepare('DELETE FROM Media').run();
-            this.db.prepare('DELETE FROM Connections').run();
-            this.db.prepare('DELETE FROM Nodes').run();
+            await this.db.prepare('DELETE FROM CardFlags').run();
+            await this.db.prepare('DELETE FROM CardHealth').run();
+            await this.db.prepare('DELETE FROM ReviewLogs').run();
+            // Every schedule in the vault, everybody's. Derived by definition — the owner's
+            // comes back from the sidecars during the rebuild, and every other account's is
+            // re-projected from the accounts store's AccountProgress. This is exactly the
+            // step that makes those two canonical homes load-bearing rather than decorative.
+            await this.db.prepare('DELETE FROM CardProgress').run();
+            await this.db.prepare('DELETE FROM DocumentLinks').run();
+            await this.db.prepare('DELETE FROM Highlights').run();
+            await this.db.prepare('DELETE FROM Flashcards').run();
+            await this.db.prepare('DELETE FROM Documents').run();
+            await this.db.prepare('DELETE FROM Folders').run();
+            await this.db.prepare('DELETE FROM Decks').run();
+            await this.db.prepare('DELETE FROM Tags').run();
+            await this.db.prepare('DELETE FROM Media').run();
+            await this.db.prepare('DELETE FROM Connections').run();
+            await this.db.prepare('DELETE FROM Nodes').run();
         })();
     }
 
@@ -2170,48 +2479,48 @@ class DocumentQuery {
     // — after a Vault Doctor rebuild the derived rows are re-derived from whatever the files
     // said at the time, and the two layers have to end up agreeing either way.
     // Idempotent: a row that already has an answerText is left alone.
-    backfillTypeAnswerAnswerText() {
-        return this.db.prepare(`
+    async backfillTypeAnswerAnswerText() {
+        return (await this.db.prepare(`
             UPDATE FlashcardContent
                SET answerText = backText,
                    backText   = NULL
              WHERE answerText IS NULL
                AND id IN (SELECT content_id FROM Flashcards WHERE card_type = 'type_answer')
-        `).run().changes;
+        `).run()).changes;
     }
 
-    getCanonicalVersions() {
-        return new Set(this.db.prepare('SELECT version FROM CanonicalVersion').all().map(r => r.version));
+    async getCanonicalVersions() {
+        return new Set((await this.db.prepare('SELECT version FROM CanonicalVersion').all()).map(r => r.version));
     }
 
     // Highest applied schema migration. Half of the pair a client compares before trusting
     // a vault it did not open itself (the other half is getCanonicalVersions()); served by
     // GET /api/vault. Returns 0 on a database whose migrations have never run.
-    getSchemaVersion() {
-        const row = this.db.prepare('SELECT MAX(version) AS version FROM SchemaVersion').get();
+    async getSchemaVersion() {
+        const row = await this.db.prepare('SELECT MAX(version) AS version FROM SchemaVersion').get();
         return row?.version ?? 0;
     }
 
-    recordCanonicalVersion(version, description = null) {
-        this.db.prepare(
+    async recordCanonicalVersion(version, description = null) {
+        await this.db.prepare(
             'INSERT OR REPLACE INTO CanonicalVersion (version, description) VALUES (?, ?)'
         ).run(version, description);
     }
 
     // --- Highlights ---
 
-    getHighlightsByDocumentId(documentId) {
-        return this.db.prepare(
+    async getHighlightsByDocumentId(documentId) {
+        return await this.db.prepare(
             'SELECT * FROM Highlights WHERE document_id = ? ORDER BY start ASC'
         ).all(documentId);
     }
 
-    getHighlightByHash(hash) {
-        return this.db.prepare('SELECT * FROM Highlights WHERE global_hash = ?').get(hash);
+    async getHighlightByHash(hash) {
+        return await this.db.prepare('SELECT * FROM Highlights WHERE global_hash = ?').get(hash);
     }
 
-    insertHighlight(data) {
-        return this.db.prepare(`
+    async insertHighlight(data) {
+        return await this.db.prepare(`
             INSERT INTO Highlights (document_id, global_hash, type, start, end, page, bbox, color, note, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
@@ -2222,37 +2531,37 @@ class DocumentQuery {
         );
     }
 
-    updateHighlight(hash, data) {
-        return this.db.prepare(
+    async updateHighlight(hash, data) {
+        return await this.db.prepare(
             'UPDATE Highlights SET color = ?, note = ? WHERE global_hash = ?'
         ).run(data.color, data.note ?? '', hash);
     }
 
-    deleteHighlight(hash) {
-        return this.db.prepare('DELETE FROM Highlights WHERE global_hash = ?').run(hash);
+    async deleteHighlight(hash) {
+        return await this.db.prepare('DELETE FROM Highlights WHERE global_hash = ?').run(hash);
     }
 
     // Distinct workspace documents that currently have at least one highlight —
     // the vault-wide entry point for highlight listings (the per-document
     // detail always comes from the sidecar, the canonical layer).
-    getHighlightedDocumentPaths() {
-        return this.db.prepare(`
+    async getHighlightedDocumentPaths() {
+        return (await this.db.prepare(`
             SELECT DISTINCT d.relative_path
             FROM Highlights h
             JOIN Documents d ON h.document_id = d.id
             ORDER BY d.relative_path ASC
-        `).all().map(r => r.relative_path);
+        `).all()).map(r => r.relative_path);
     }
 
-    syncDocumentHighlights(documentId, highlightsData) {
-        const existing = this.getHighlightsByDocumentId(documentId);
+    async syncDocumentHighlights(documentId, highlightsData) {
+        const existing = await this.getHighlightsByDocumentId(documentId);
         const existingMap = new Map(existing.map(h => [h.global_hash, h]));
         const incoming = new Set();
 
         for (const h of highlightsData) {
             incoming.add(h.id);
             if (!existingMap.has(h.id)) {
-                this.insertHighlight({
+                await this.insertHighlight({
                     documentId,
                     globalHash: h.id,
                     type: h.type,
@@ -2268,35 +2577,35 @@ class DocumentQuery {
         }
 
         for (const [hash] of existingMap) {
-            if (!incoming.has(hash)) this.deleteHighlight(hash);
+            if (!incoming.has(hash)) await this.deleteHighlight(hash);
         }
     }
 
     // --- Pedagogical Categories ---
 
-    getCategories() {
-        return this.db.prepare(
+    async getCategories() {
+        return await this.db.prepare(
             'SELECT id, name, priority, description FROM PedagogicalCategories ORDER BY priority ASC, name ASC'
         ).all();
     }
 
-    getCategoryByName(name) {
-        return this.db.prepare('SELECT id, name, priority, description FROM PedagogicalCategories WHERE name = ?').get(name);
+    async getCategoryByName(name) {
+        return await this.db.prepare('SELECT id, name, priority, description FROM PedagogicalCategories WHERE name = ?').get(name);
     }
 
-    getCategoryUsageCount(id) {
-        return this.db.prepare(
+    async getCategoryUsageCount(id) {
+        return (await this.db.prepare(
             'SELECT COUNT(*) as c FROM Flashcards WHERE category_id = ?'
-        ).get(id).c;
+        ).get(id)).c;
     }
 
-    insertCategory({ name, priority = 0, description = '' }) {
-        return this.db.prepare(
+    async insertCategory({ name, priority = 0, description = '' }) {
+        return (await this.db.prepare(
             'INSERT INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)'
-        ).run(name, priority, description).lastInsertRowid;
+        ).run(name, priority, description)).lastInsertRowid;
     }
 
-    updateCategory(id, data) {
+    async updateCategory(id, data) {
         const fields = [];
         const params = [];
         if (data.name !== undefined)        { fields.push('name = ?');        params.push(data.name); }
@@ -2304,11 +2613,11 @@ class DocumentQuery {
         if (data.description !== undefined) { fields.push('description = ?'); params.push(data.description); }
         if (!fields.length) return;
         params.push(id);
-        this.db.prepare(`UPDATE PedagogicalCategories SET ${fields.join(', ')} WHERE id = ?`).run(...params);
+        await this.db.prepare(`UPDATE PedagogicalCategories SET ${fields.join(', ')} WHERE id = ?`).run(...params);
     }
 
-    deleteCategory(id) {
-        this.db.prepare('DELETE FROM PedagogicalCategories WHERE id = ?').run(id);
+    async deleteCategory(id) {
+        await this.db.prepare('DELETE FROM PedagogicalCategories WHERE id = ?').run(id);
     }
 }
 

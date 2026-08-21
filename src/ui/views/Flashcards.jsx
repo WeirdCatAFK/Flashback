@@ -7,6 +7,7 @@ import { typeAnswerParts, cardTypes, cardTypeLabel } from '../components/shared/
 import { ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { useDataInvalidation } from '../utils/dataBus';
+import { useSession } from '../sessionContext.js';
 import { useT } from '../translations';
 import './Flashcards.css';
 
@@ -82,6 +83,7 @@ function RelativeTime({ iso }) {
 
 export default function FlashcardsView() {
     const { t, tp } = useT();
+    const { can } = useSession();
     const { stats, refreshStats } = useStats();
 
     const [query, setQuery]         = useState('');
@@ -264,13 +266,15 @@ export default function FlashcardsView() {
                             <option key={o.value} value={o.value}>{o.label}</option>
                         ))}
                     </select>
-                    <button
-                        className="fc-new-card-btn"
-                        onClick={() => setShowNewCard(true)}
-                        title={t('Create a standalone card')}
-                    >
-                        {t('+ New card')}
-                    </button>
+                    {can('editCards') && (
+                        <button
+                            className="fc-new-card-btn"
+                            onClick={() => setShowNewCard(true)}
+                            title={t('Create a standalone card')}
+                        >
+                            {t('+ New card')}
+                        </button>
+                    )}
                 </div>
 
                 {/* Card-type filter pills */}
@@ -369,15 +373,17 @@ export default function FlashcardsView() {
                                     <span className="fc-card-standalone" title={t('Standalone card')}>{t('standalone')}</span>
                                 )}
                                 <RelativeTime iso={card.last_recall} />
-                                <button
-                                    className="fc-card-delete"
-                                    title={card.document_name
-                                        ? t('Delete card from {document}', { document: card.document_name })
-                                        : t('Delete card')}
-                                    onClick={(e) => { e.stopPropagation(); handleDeleteCard(card); }}
-                                >
-                                    ✕
-                                </button>
+                                {can('editCards') && (
+                                    <button
+                                        className="fc-card-delete"
+                                        title={card.document_name
+                                            ? t('Delete card from {document}', { document: card.document_name })
+                                            : t('Delete card')}
+                                        onClick={(e) => { e.stopPropagation(); handleDeleteCard(card); }}
+                                    >
+                                        ✕
+                                    </button>
+                                )}
                             </div>
                         </div>
                     ))}

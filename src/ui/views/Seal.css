@@ -849,3 +849,12 @@
   outline: none;
   border-color: var(--color-accent);
 }
+
+/* Shown to an admin who can see index drift but cannot repair it — repairing is the
+   Author's, because a rebuild discards everyone's review history. Quiet: it is an
+   explanation, not a warning. */
+.seal-doctor-note {
+    margin: var(--space-2) 0 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--text-sm);
+}

@@ -28,6 +28,7 @@ import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import Decks from './decks.js';
 import { openPackage, readCollection, readMediaFile } from './ankiPackage.js';
+import { OWNER_SCOPE } from '../../requestContext.js';
 
 const SESSION_ROOT = path.join(os.tmpdir(), 'flashback_anki_imports');
 const SESSION_TTL_MS = 60 * 60 * 1000; // an abandoned mapping modal must not leak a temp dir
@@ -374,7 +375,7 @@ export default class AnkiImport {
      *  - a field in a *media* slot contributes only its first asset; its text is dropped
      *  - a field in no slot is dropped
      */
-    _applyMapping(primaryCard, model, mapping, ctx) {
+    async _applyMapping(primaryCard, model, mapping, ctx) {
         const noteFields = String(primaryCard.note_fields).split('\x1f');
         const byName = {};
         (model.flds || []).forEach(f => { byName[f.name] = noteFields[f.ord] ?? ''; });
@@ -382,7 +383,7 @@ export default class AnkiImport {
         const cardType = mapping.cardType;
         const slots = { ...emptySlots(), ...(mapping.slots || {}) };
 
-        const resolve = (name) => this._copyMedia(name, ctx)?.fileHash ?? null;
+        const resolve = async (name) => (await this._copyMedia(name, ctx))?.fileHash ?? null;
         const joinFields = (names) => (names || [])
             .map(n => byName[n] ?? '')
             .filter(v => v.trim())
@@ -413,27 +414,27 @@ export default class AnkiImport {
 
         // Explicit media slots win over media that merely happened to sit inside a
         // text field, which is the whole point of dragging a field onto a media zone.
-        const mediaFor = (slot) => {
+        const mediaFor = async (slot) => {
             const kind = MEDIA_SLOTS[slot];
             const raw = joinFields(slots[slot]);
             if (raw) {
                 const refs = extractMediaRefs(raw);
                 const explicit = (kind === 'img' ? refs.imgs : refs.snds)[0];
-                if (explicit) return resolve(explicit);
+                if (explicit) return await resolve(explicit);
                 // Some decks store a bare filename with no <img>/[sound:] wrapper.
                 const bare = htmlToMarkdown(refs.stripped).trim();
-                if (bare && Object.values(ctx.mediaMap).includes(bare)) return resolve(bare);
+                if (bare && Object.values(ctx.mediaMap).includes(bare)) return await resolve(bare);
             }
             const side = slot.startsWith('front') ? front : back;
             const inline = (kind === 'img' ? side.imgs : side.snds)[0];
-            return inline ? resolve(inline) : null;
+            return inline ? await resolve(inline) : null;
         };
 
         const media = {
-            front_img: mediaFor('front_img'),
-            front_sound: mediaFor('front_sound'),
-            back_img: mediaFor('back_img'),
-            back_sound: mediaFor('back_sound'),
+            front_img: await mediaFor('front_img'),
+            front_sound: await mediaFor('front_sound'),
+            back_img: await mediaFor('back_img'),
+            back_sound: await mediaFor('back_sound'),
         };
 
         if (cardType === 'cloze') {
@@ -551,7 +552,7 @@ export default class AnkiImport {
             let imported = 0;
 
             for (const [deckName, primaryCards] of notesByDeck.entries()) {
-                const allDecks = this.query.getAllDecks();
+                const allDecks = await this.query.getAllDecks();
                 const existingDeck = allDecks.find(d => d.name === deckName);
                 const deckHash = existingDeck
                     ? existingDeck.global_hash
@@ -559,7 +560,7 @@ export default class AnkiImport {
 
                 for (const primaryCard of primaryCards) {
                     const model = models[primaryCard.model_id] || { name: 'Basic', flds: [], tmpls: [] };
-                    const content = this._applyMapping(primaryCard, model, mappingFor(primaryCard.model_id, model), ctx);
+                    const content = await this._applyMapping(primaryCard, model, mappingFor(primaryCard.model_id, model), ctx);
 
                     const globalHash = await this.decksService.createStandaloneCard({
                         name: content.name,
@@ -576,16 +577,22 @@ export default class AnkiImport {
                     imported++;
 
                     // Replay Anki SRS history onto the new card
-                    const cardInDb = this.query.getFlashcardByHash(globalHash);
+                    const cardInDb = await this.query.getFlashcardByHash(globalHash);
                     if (cardInDb) {
                         const reps = primaryCard.reps || 0;
                         const level = Math.min(5, Math.floor(reps / 3));
                         const easeFactor = primaryCard.factor
                             ? Math.min(3.0, Math.max(1.3, primaryCard.factor / 1000.0))
                             : 2.5;
-                        db.transaction(() => {
-                            this.query.setFlashcardSrsState(cardInDb.id, level, reps);
-                            this.query.insertReviewLog({
+                        await db.transaction(async () => {
+                            // OWNER_SCOPE, not the importing admin's: an imported schedule is
+                            // content arriving in the vault, and it is the owner's sidecar that
+                            // will carry it from here on. Filing Anki's history under whoever
+                            // happened to run the import would make the deck's progress vanish
+                            // for everyone else and reappear only for them.
+                            await this.query.setFlashcardSrsState(cardInDb.id, level, reps, OWNER_SCOPE);
+                            await this.query.insertReviewLog({
+                                accountId: OWNER_SCOPE,
                                 flashcardId: cardInDb.id,
                                 timestamp: new Date().toISOString(),
                                 outcome: 1,
@@ -659,7 +666,7 @@ export default class AnkiImport {
      * The bytes are hashed *after* decompression, so the same asset imported from a
      * legacy package and from a zstd one resolves to a single `Media` row.
      */
-    _copyMedia(originalName, ctx) {
+    async _copyMedia(originalName, ctx) {
         const { mediaMap, tempRoot, mediaDirAbs, mediaDirRel } = ctx;
         const decodedName = decodeURIComponent(originalName)
             .replace(/&amp;/g, '&')
@@ -681,7 +688,7 @@ export default class AnkiImport {
 
         const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
 
-        const existing = this.query.getMediaByHash(fileHash);
+        const existing = await this.query.getMediaByHash(fileHash);
         if (existing) return { copiedName: existing.name, fileHash };
 
         const ext = path.extname(decodedName);
@@ -690,8 +697,8 @@ export default class AnkiImport {
         const destPath = path.join(mediaDirAbs, copiedName);
 
         fs.writeFileSync(destPath, fileBuf);
-        db.transaction(() => {
-            this.query.insertMedia({
+        await db.transaction(async () => {
+            await this.query.insertMedia({
                 hash: fileHash,
                 name: copiedName,
                 relativePath: path.join(mediaDirRel, copiedName),

@@ -22,8 +22,13 @@ import crypto from 'crypto';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_updates');
 
+// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
+// crashed run leaves it behind — including a CanonicalVersion row and already-stamped
+// sidecars, which would make the pending-work assertions pass for the wrong reason.
+fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
+
 const { default: validate } = await import('../src/api/config/validate.js');
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -51,7 +56,7 @@ const deckFilePath = (hash) => abs('_decks', `${hash}.json`);
 const readDeckFile = (hash) => JSON.parse(fs.readFileSync(deckFilePath(hash), 'utf-8'));
 
 // Forces the vault back to "nothing has ever run" so a test can drive a pass from scratch.
-const forgetVaultVersions = () => db.prepare('DELETE FROM CanonicalVersion').run();
+const forgetVaultVersions = async () => await db.prepare('DELETE FROM CanonicalVersion').run();
 
 // Rewrites a sidecar the way a build that predates versioning would have left it.
 const deVersion = (relPath) => {
@@ -121,7 +126,7 @@ describe('Canonical updates', () => {
             try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch { /* clean slate */ }
             await docs.createFolder(ROOT);
             await docs.createFile('Note.md', ROOT);
-            forgetVaultVersions();
+            await forgetVaultVersions();
         });
 
         it('stamps a brand-new sidecar at creation, without any update running', () => {
@@ -178,7 +183,7 @@ describe('Canonical updates', () => {
         });
 
         it('records the vault version and then skips the walk entirely', async () => {
-            assert.deepEqual([...query.getCanonicalVersions()].sort(), [1, 2]);
+            assert.deepEqual([...await query.getCanonicalVersions()].sort(), [1, 2]);
 
             const r = await runUpdates({ updates, seal: false });
             assert.equal(r.walked, false, 'the steady state costs one indexed read, not a walk');
@@ -210,7 +215,7 @@ describe('Canonical updates', () => {
                 'a failed transform never half-writes the file');
             assert.ok(r.warnings.some(w => w.includes('synthetic failure')), 'the failure is reported');
             assert.equal(r.recorded, false, 'an incomplete pass is not recorded as done');
-            assert.ok(!query.getCanonicalVersions().has(9), 'so the next launch tries again');
+            assert.ok(!(await await query.getCanonicalVersions()).has(9), 'so the next launch tries again');
         });
 
         it('skips an unparseable sidecar without overwriting it', async () => {
@@ -261,7 +266,7 @@ describe('Canonical updates', () => {
 
         it(`reads and stamps ${COUNT} sidecars in a reasonable time`, async () => {
             const noop = [{ version: 1, description: 'noop', up: () => false }];
-            forgetVaultVersions();
+            await forgetVaultVersions();
 
             const started = Date.now();
             const r = await runUpdates({ updates: noop, seal: false });
@@ -302,7 +307,7 @@ describe('Canonical updates', () => {
         after(async () => {
             try { await docs.delete(ROOT, true); } catch { /* best effort */ }
             fs.rmSync(abs(ROOT), { recursive: true, force: true });
-            forgetVaultVersions();
+            await forgetVaultVersions();
         });
     });
 
@@ -334,7 +339,7 @@ describe('Canonical updates', () => {
             standaloneHash = await decks.createStandaloneCard({
                 frontText: 'き', backText: 'ki', cardType: 'type_answer', name: 'き',
             });
-            systemDeckHash = query.getSystemDeck().global_hash;
+            systemDeckHash = (await query.getSystemDeck()).global_hash;
 
             const deckFile = readDeckFile(systemDeckHash);
             delete deckFile.formatVersion;
@@ -342,13 +347,13 @@ describe('Canonical updates', () => {
             delete entry.card.vanillaData.answerText;
             entry.card.vanillaData.backText = 'ki';
             fs.writeFileSync(deckFilePath(systemDeckHash), JSON.stringify(deckFile, null, 2));
-            query.updateDeckEntryInlineCard(query.getSystemDeck().id, standaloneHash, JSON.stringify(entry.card));
-            db.prepare(`
+            await query.updateDeckEntryInlineCard((await query.getSystemDeck()).id, standaloneHash, JSON.stringify(entry.card));
+            await db.prepare(`
                 UPDATE FlashcardContent SET backText = 'ki', answerText = NULL
                  WHERE id = (SELECT content_id FROM Flashcards WHERE global_hash = ?)
             `).run(standaloneHash);
 
-            forgetVaultVersions();
+            await forgetVaultVersions();
             result = await runUpdates();
         });
 
@@ -368,14 +373,14 @@ describe('Canonical updates', () => {
             assert.equal(file.formatVersion, LATEST_VERSION);
         });
 
-        it('brings the derived rows and inline snapshots in line with the files', () => {
+        it('brings the derived rows and inline snapshots in line with the files', async () => {
             for (const [hash, answer] of [[docCardHash, 'ka'], [standaloneHash, 'ki']]) {
-                const row = query.getFlashcardContentByHash(hash);
+                const row = await query.getFlashcardContentByHash(hash, 'owner');
                 assert.equal(row.answerText, answer, `answerText for ${hash}`);
                 assert.equal(row.backText, null, `backText for ${hash}`);
             }
 
-            const entries = query.getDeckEntries(query.getSystemDeck().id);
+            const entries = await query.getDeckEntries((await query.getSystemDeck()).id, 'owner');
             const inline = JSON.parse(entries.find(e => e.card_hash === standaloneHash).inline_card);
             assert.equal(inline.vanillaData.answerText, 'ki');
         });
@@ -387,17 +392,17 @@ describe('Canonical updates', () => {
             assert.equal(commits[0].oid, result.sealedOid);
         });
 
-        it('records the vault version and leaves nothing pending', () => {
+        it('records the vault version and leaves nothing pending', async () => {
             assert.equal(result.recorded, true);
             assert.deepEqual(result.warnings, []);
-            assert.ok(query.getCanonicalVersions().has(u001.version));
+            assert.ok((await await query.getCanonicalVersions()).has(u001.version));
         });
 
         it('is idempotent per card, even forced back over the same files', async () => {
             const sidecarBefore = fs.readFileSync(abs(docRel + '.flashback'), 'utf-8');
             const deckBefore = fs.readFileSync(deckFilePath(systemDeckHash), 'utf-8');
 
-            forgetVaultVersions();
+            await forgetVaultVersions();
             const again = await runUpdates({ force: true });
 
             assert.equal(fs.readFileSync(abs(docRel + '.flashback'), 'utf-8'), sidecarBefore,

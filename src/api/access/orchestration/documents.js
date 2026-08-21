@@ -6,6 +6,7 @@
 import path from 'path';
 import fs from 'fs';
 import Files from '../resources/files.js';
+import { withDocument, withStructure } from '../resources/pathLock.js';
 import query from '../resources/query.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
@@ -15,6 +16,7 @@ import AdmZip from 'adm-zip';
 import { sealEmitter } from '../../seal/seal.js';
 import highlightsService from './highlights.js';
 import newFileMetadata from '../../config/defaults/FlashbackFile.js';
+import { OWNER_SCOPE, currentScope, isOwnerScope } from '../../requestContext.js';
 
 /**
  * Extracts the 11-char video id from any common YouTube URL shape
@@ -316,26 +318,99 @@ export default class Documents {
         this.srs = srsService;
     }
 
+    /**
+     * Refuses a write whose caller was working from a version of the document that is no
+     * longer the one on disk. Call it INSIDE the lock — outside one it is a race with a
+     * wider window rather than a check.
+     *
+     * An absent `ifMatch` means "no check", and that is deliberate rather than an oversight:
+     * the MCP server, the test suite, `scripts/seed.js` and every script written before this
+     * existed send no version, and the single-writer desktop case they serve has no conflict
+     * to detect. The renderer always sends one. A server build makes it mandatory, because
+     * that is the first configuration where a second writer exists.
+     *
+     * Only the half of the etag the write REPLACES is compared (see Files.etag for the
+     * `"<body>.<sidecar>"` shape). A write carrying `content` is replacing the body, and its
+     * sidecar — if it sends one — was merged from a fresh read moments earlier, so comparing
+     * the sidecar half there would refuse a save because of a change the writer had already
+     * incorporated. A metadata-only write is the mirror image: it replaces the sidecar and
+     * never looks at the body.
+     *
+     * @param {string} relativePath
+     * @param {string} [ifMatch] - the etag the caller last read.
+     * @param {object} [opts]
+     * @param {boolean} [opts.isFolder=false]
+     * @param {'body'|'sidecar'} [opts.part='sidecar'] - which half this write replaces.
+     * @throws {Error & {status:409, code:'stale', etag:string|null}}
+     */
+    _assertFresh(relativePath, ifMatch, { isFolder = false, part = 'sidecar' } = {}) {
+        if (!ifMatch) return;
+        const current = this.files.etag(relativePath, isFolder);
+        const half = (etag) => (typeof etag === 'string' ? etag.split('.')[part === 'body' ? 0 : 1] : etag);
+        if (half(current) === half(ifMatch)) return;
+        throw Object.assign(
+            new Error('This document changed since you last read it.'),
+            { status: 409, code: 'stale', etag: current },
+        );
+    }
+
+    /**
+     * The etag of one card as it stands in its document's sidecar — what a client sends back
+     * as `ifMatch` when it patches that card.
+     *
+     * Read from the sidecar rather than from the derived row on purpose: the sidecar is what
+     * the patch will be applied to, and a version taken from anywhere else could agree with
+     * the caller while the file it is about to overwrite has moved on.
+     *
+     * @param {string|null} relativePath - null for a standalone card (it lives in a deck file).
+     * @param {string} flashcardHash
+     * @returns {string|null}
+     */
+    cardEtag(relativePath, flashcardHash) {
+        if (!relativePath) return null;
+        const meta = this.files.getMetadata(relativePath) || {};
+        const cards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
+        return this.files.entityEtag(cards.find(f => f.globalHash === flashcardHash));
+    }
+
+    /**
+     * The patch counterpart of `_assertFresh`: refuses a patch to an entity somebody else has
+     * changed since the caller read it, while leaving patches to its neighbours alone.
+     *
+     * @param {object} entity - the card/highlight as it currently stands in the sidecar.
+     * @param {string} [ifMatch] - entity etag the caller read.
+     * @throws {Error & {status:409, code:'stale', etag:string|null}}
+     */
+    _assertEntityFresh(entity, ifMatch) {
+        if (!ifMatch) return;
+        const current = this.files.entityEtag(entity);
+        if (current === ifMatch) return;
+        throw Object.assign(
+            new Error('This card changed since you last read it.'),
+            { status: 409, code: 'stale', etag: current },
+        );
+    }
+
     // --- Listing ---
 
-    listFolder(relPath) {
-        const items = this.files.listFolder(relPath);
-        const folder = this.query.getFolderByPath(relPath);
+    async listFolder(relPath) {
+        const items = await this.files.listFolder(relPath);
+        const folder = await this.query.getFolderByPath(relPath);
 
         let fileCountMap = new Map();
         let folderCountMap = new Map();
 
         if (folder) {
-            const counts = this.query.getFlashcardCountsByFolder(folder.id);
+            const counts = await this.query.getFlashcardCountsByFolder(folder.id);
             fileCountMap = new Map(counts.map(r => [r.name, r.count]));
 
             const subfolderNames = [];
             for (const i of items) { if (i.type === 'folder') subfolderNames.push(i.name); }
             if (subfolderNames.length > 0) {
                 const childRelPaths = subfolderNames.map(n => path.join(relPath, n));
-                const childFolders = this.query.getFoldersByPaths(childRelPaths);
+                const childFolders = await this.query.getFoldersByPaths(childRelPaths);
                 if (childFolders.length > 0) {
-                    const countsByRootId = this.query.getFlashcardCountsInFolderTrees(childFolders.map(f => f.id));
+                    const countsByRootId = await this.query.getFlashcardCountsInFolderTrees(childFolders.map(f => f.id));
                     for (const cf of childFolders) {
                         folderCountMap.set(cf.relative_path, countsByRootId.get(cf.id) ?? 0);
                     }
@@ -355,27 +430,27 @@ export default class Documents {
     // --- Core Operations ---
 
     async createFile(name, relativePath = "") {
-        const { globalHash, name: resolvedName } = this.files.createFile(relativePath, name);
+        const { globalHash, name: resolvedName } = await this.files.createFile(relativePath, name);
         const fileRelPath = path.join(relativePath, resolvedName);
 
         try {
             const absPath = this.files.safePath(fileRelPath);
-            db.transaction(() => {
-                const nodeId = this.query.createNode('Document');
-                const folderId = this._ensureFolderPath(relativePath);
-                this.query.insertDocument({
+            await db.transaction(async () => {
+                const nodeId = await this.query.createNode('Document');
+                const folderId = await this._ensureFolderPath(relativePath);
+                await this.query.insertDocument({
                     folderId, nodeId, globalHash,
                     relativePath: fileRelPath, absolutePath: absPath, name: resolvedName,
                     encoding: 'UTF-8'
                 });
-                const parentFolder = this.query.getFolderById(folderId);
+                const parentFolder = await this.query.getFolderById(folderId);
                 if (parentFolder?.node_id) {
-                    this.query.insertInheritance(parentFolder.node_id, nodeId);
-                    this._seedFromParentFolder(parentFolder, nodeId);
+                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await this._seedFromParentFolder(parentFolder, nodeId);
                 }
             })();
         } catch (err) {
-            this.files.delete(fileRelPath, false);
+            await this.files.delete(fileRelPath, false);
             throw err;
         }
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
@@ -383,53 +458,65 @@ export default class Documents {
 
     async createFolder(name, relativePath = "") {
         const folderRelPath = path.join(relativePath, name);
-        const globalHash = this.files.createFolder(relativePath, name);
+        const globalHash = await this.files.createFolder(relativePath, name);
 
         try {
             const absPath = this.files.safePath(folderRelPath);
-            db.transaction(() => {
-                const nodeId = this.query.createNode('Folder');
-                const parentId = this._ensureFolderPath(relativePath);
-                this.query.insertFolder({
+            await db.transaction(async () => {
+                const nodeId = await this.query.createNode('Folder');
+                const parentId = await this._ensureFolderPath(relativePath);
+                await this.query.insertFolder({
                     nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
-                const parentFolder = this.query.getFolderById(parentId);
+                const parentFolder = await this.query.getFolderById(parentId);
                 if (parentFolder?.node_id) {
-                    this.query.insertInheritance(parentFolder.node_id, nodeId);
-                    this._seedFromParentFolder(parentFolder, nodeId);
+                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await this._seedFromParentFolder(parentFolder, nodeId);
                 }
             })();
         } catch (err) {
-            this.files.delete(folderRelPath, true);
+            await this.files.delete(folderRelPath, true);
             throw err;
         }
         await sealEmitter.create(path.join(folderRelPath, '.flashback'));
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async rename(relativePath, newName, isFolder = false) {
+        return await withStructure(() => this._renameLocked(relativePath, newName, isFolder));
+    }
+
+    async _renameLocked(relativePath, newName, isFolder = false) {
         const oldAbsPath = this.files.safePath(relativePath);
         const parentDir = path.dirname(relativePath);
         const newRelPath = path.join(parentDir, newName);
         const newAbsPath = this.files.safePath(newRelPath);
 
-        this.files.rename(relativePath, newName, isFolder);
+        await this.files.rename(relativePath, newName, isFolder);
 
         try {
-            db.transaction(() => {
+            await db.transaction(async () => {
                 if (isFolder) {
-                    this.query.renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath);
-                    this.query.cascadeRenameDocumentPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
-                    this.query.cascadeRenameFolderPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                    await this.query.renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath);
+                    await this.query.cascadeRenameDocumentPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                    await this.query.cascadeRenameFolderPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
                 } else {
-                    this.query.renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath);
+                    await this.query.renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath);
                 }
             })();
         } catch (err) {
-            this.files.rename(newRelPath, path.basename(relativePath), isFolder);
+            await this.files.rename(newRelPath, path.basename(relativePath), isFolder);
             throw err;
         }
         if (isFolder) {
-            const { removed, added } = this._buildMovePaths(relativePath, newRelPath, newAbsPath);
+            const { removed, added } = await this._buildMovePaths(relativePath, newRelPath, newAbsPath);
             await sealEmitter.move(relativePath, newRelPath, removed, added);
         } else {
             await sealEmitter.move(relativePath, newRelPath,
@@ -439,66 +526,78 @@ export default class Documents {
         }
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async move(relativePath, newRelativePath, isFolder = false) {
+        return await withStructure(() => this._moveLocked(relativePath, newRelativePath, isFolder));
+    }
+
+    async _moveLocked(relativePath, newRelativePath, isFolder = false) {
         const oldAbsPath = this.files.safePath(relativePath);
         const newAbsPath = this.files.safePath(newRelativePath);
         const oldParentAbsPath = path.dirname(oldAbsPath);
         const newParentAbsPath = path.dirname(newAbsPath);
 
-        this.files.move(relativePath, newRelativePath, isFolder);
+        await this.files.move(relativePath, newRelativePath, isFolder);
 
         try {
-            db.transaction(() => {
+            await db.transaction(async () => {
                 if (!isFolder) {
-                    const newFolderId = this._getParentFolderId(newAbsPath);
-                    this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
-                    const moved = this.query.getDocumentByAbsolutePath(newAbsPath);
+                    const newFolderId = await this._getParentFolderId(newAbsPath);
+                    await this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
+                    const moved = await this.query.getDocumentByAbsolutePath(newAbsPath);
                     if (moved?.node_id) {
-                        const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentFolder = this.query.getFolderByAbsolutePath(newParentAbsPath);
-                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, moved.node_id);
+                        const oldParentNodeId = await this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
+                        const newParentFolder = await this.query.getFolderByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) await this.query.deleteInheritance(oldParentNodeId, moved.node_id);
                         if (newParentFolder?.node_id) {
-                            this.query.insertInheritance(newParentFolder.node_id, moved.node_id);
-                            this._seedFromParentFolder(newParentFolder, moved.node_id);
+                            await this.query.insertInheritance(newParentFolder.node_id, moved.node_id);
+                            await this._seedFromParentFolder(newParentFolder, moved.node_id);
                         }
                         // The document's cards inherit through it, so they follow the move too.
-                        this._propagateTagsToFlashcards(
-                            moved.id, moved.node_id, this._tagsPassedDownByDocument(moved.node_id));
+                        await this._propagateTagsToFlashcards(
+                            moved.id, moved.node_id, await this._tagsPassedDownByDocument(moved.node_id));
                     }
                 } else {
-                    const newParentId = this._getParentFolderId(newAbsPath);
-                    this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
-                    this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    const newParentId = await this._getParentFolderId(newAbsPath);
+                    await this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
+                    await this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    await this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
                     // media/ dirs ride along inside the folder on disk; only the index needs catching up.
-                    this.query.cascadeMediaPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    const movedFolder = this.query.getFolderByAbsolutePath(newAbsPath);
+                    await this.query.cascadeMediaPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    const movedFolder = await this.query.getFolderByAbsolutePath(newAbsPath);
                     if (movedFolder?.node_id) {
-                        const oldParentNodeId = this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentFolder = this.query.getFolderByAbsolutePath(newParentAbsPath);
-                        if (oldParentNodeId) this.query.deleteInheritance(oldParentNodeId, movedFolder.node_id);
+                        const oldParentNodeId = await this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
+                        const newParentFolder = await this.query.getFolderByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) await this.query.deleteInheritance(oldParentNodeId, movedFolder.node_id);
                         if (newParentFolder?.node_id) {
-                            this.query.insertInheritance(newParentFolder.node_id, movedFolder.node_id);
-                            this._seedFromParentFolder(newParentFolder, movedFolder.node_id);
+                            await this.query.insertInheritance(newParentFolder.node_id, movedFolder.node_id);
+                            await this._seedFromParentFolder(newParentFolder, movedFolder.node_id);
                         }
                         // Re-push the whole subtree: everything under the moved folder now
                         // inherits from a different branch of the tree.
                         const movedMeta = this.files.getMetadata(newRelativePath, true) || {};
-                        this._propagateFolderTags(movedFolder.id, movedFolder.node_id, movedMeta);
+                        await this._propagateFolderTags(movedFolder.id, movedFolder.node_id, movedMeta);
                     }
                 }
             })();
         } catch (err) {
-            this.files.move(newRelativePath, relativePath, isFolder);
+            await this.files.move(newRelativePath, relativePath, isFolder);
             throw err;
         }
         if (isFolder) {
-            const { removed, added } = this._buildMovePaths(relativePath, newRelativePath, newAbsPath);
+            const { removed, added } = await this._buildMovePaths(relativePath, newRelativePath, newAbsPath);
             await sealEmitter.move(relativePath, newRelativePath, removed, added);
         } else {
             // The document changed folder, so its folder-relative media refs have to
             // be re-grounded — otherwise every one of them points at an empty dir.
-            const media = this._carryMediaAfterMove(relativePath, newRelativePath);
+            const media = await this._carryMediaAfterMove(relativePath, newRelativePath);
             await sealEmitter.move(relativePath, newRelativePath,
                 [relativePath, relativePath + '.flashback', ...media.removed],
                 [newRelativePath, newRelativePath + '.flashback', ...media.added]
@@ -506,25 +605,53 @@ export default class Documents {
         }
     }
 
-    async updateFile(relativePath, content, metadata) {
-        this.files.updateFile(relativePath, content, metadata);
+    /**
+     * Writes a document's body and/or its sidecar.
+     *
+     * Whole-object: the caller sends the state it wants the document to be in, so it can only
+     * be applied safely to the state the caller last read. `ifMatch` is that state's etag —
+     * checked INSIDE the lock, because a check outside one is a race with a longer window,
+     * not a guarantee.
+     *
+     * @param {string} relativePath
+     * @param {string|null} [content] - body; undefined/null leaves the body alone.
+     * @param {object} [metadata] - the whole sidecar.
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch] - etag the caller read. Omitted means no check; see
+     *   `routes/documents.js` for why that stays permitted.
+     * @returns {Promise<{etag: string|null}>} the document's etag after the write.
+     */
+    async updateFile(relativePath, content, metadata, { ifMatch } = {}) {
+        return await withDocument(relativePath, async () => {
+            // A body write is checked against the body; a metadata-only write against the
+            // sidecar. Both are "the part I am replacing".
+            const part = (content !== undefined && content !== null) ? 'body' : 'sidecar';
+            this._assertFresh(relativePath, ifMatch, { part });
+            await this._updateFileLocked(relativePath, content, metadata);
+            return { etag: this.files.etag(relativePath) };
+        });
+    }
+
+    /** The body of updateFile, with the lock and the freshness check already applied. */
+    async _updateFileLocked(relativePath, content, metadata) {
+        await this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
-            const doc = this.query.getDocumentByPath(relativePath);
+            const doc = await this.query.getDocumentByPath(relativePath);
             if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
-            db.transaction(() => {
-                if (metadata.tags) this._syncTags(doc.node_id, metadata.tags);
-                if (metadata.flashcards) this._syncDocumentFlashcards(doc.id, metadata.flashcards, doc.node_id);
-                if (metadata.highlights) highlightsService.syncFromSidecar(doc.id, metadata.highlights);
+            await db.transaction(async () => {
+                if (metadata.tags) await this._syncTags(doc.node_id, metadata.tags);
+                if (metadata.flashcards) await this._syncDocumentFlashcards(doc.id, metadata.flashcards, doc.node_id);
+                if (metadata.highlights) await highlightsService.syncFromSidecar(doc.id, metadata.highlights);
 
                 const folderId = doc.folder_id;
                 if (folderId) {
-                    const folder = this.query.getFolderById(folderId);
+                    const folder = await this.query.getFolderById(folderId);
                     if (folder) {
                         const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
                         const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
-                        this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
+                        await this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
                     }
                 }
             })();
@@ -578,16 +705,16 @@ export default class Documents {
     // Materializes a document's outbound links in the derived layer: resolved
     // targets become Connections, unresolved ones queue in DocumentLinks for lazy
     // resolution on a future import. DB-only — never touches disk.
-    _writeLinkConnections(doc, links) {
-        db.transaction(() => {
-            this.query.deleteDocumentLinkConnections(doc.node_id);
-            this.query.deleteDocumentLinkQueueBySource(doc.global_hash);
+    async _writeLinkConnections(doc, links) {
+        await db.transaction(async () => {
+            await this.query.deleteDocumentLinkConnections(doc.node_id);
+            await this.query.deleteDocumentLinkQueueBySource(doc.global_hash);
             for (const { anchorText, targetHash } of (links ?? [])) {
-                const target = this.query.getDocumentByHash(targetHash);
+                const target = await this.query.getDocumentByHash(targetHash);
                 if (target) {
-                    this.query.insertDocumentLinkConnection(doc.node_id, target.node_id);
+                    await this.query.insertDocumentLinkConnection(doc.node_id, target.node_id);
                 } else {
-                    this.query.upsertDocumentLinkQueue(doc.global_hash, targetHash, anchorText);
+                    await this.query.upsertDocumentLinkQueue(doc.global_hash, targetHash, anchorText);
                 }
             }
         })();
@@ -603,17 +730,17 @@ export default class Documents {
         if (this._writeSidecarLinks(relPath, links)) {
             await sealEmitter.edit(relPath + '.flashback');
         }
-        const doc = this.query.getDocumentByPath(relPath);
-        if (doc) this._writeLinkConnections(doc, links);
+        const doc = await this.query.getDocumentByPath(relPath);
+        if (doc) await this._writeLinkConnections(doc, links);
     }
 
     // Read-only path (Vault Doctor): re-derive a document's link Connections from
     // its content without writing the sidecar or emitting a Seal event.
-    indexDocumentLinks(relPath) {
+    async indexDocumentLinks(relPath) {
         const links = this._extractLinks(relPath);
         if (links === null) return;
-        const doc = this.query.getDocumentByPath(relPath);
-        if (doc) this._writeLinkConnections(doc, links);
+        const doc = await this.query.getDocumentByPath(relPath);
+        if (doc) await this._writeLinkConnections(doc, links);
     }
 
     // When a document is indexed, resolve any pending DocumentLinks that were
@@ -621,63 +748,87 @@ export default class Documents {
     // the sidecar's links write (importFile does it before sealing; a live save
     // goes through syncDocumentLinks).
     async _resolvePendingLinks(globalHash, nodeId, relPath) {
-        const pending = this.query.getPendingLinksForTarget(globalHash);
+        const pending = await this.query.getPendingLinksForTarget(globalHash);
         if (pending.length > 0) {
-            db.transaction(() => {
+            await db.transaction(async () => {
                 for (const row of pending) {
-                    const sourceDoc = this.query.getDocumentByHash(row.source_hash);
+                    const sourceDoc = await this.query.getDocumentByHash(row.source_hash);
                     if (sourceDoc) {
-                        this.query.insertDocumentLinkConnection(sourceDoc.node_id, nodeId);
-                        this.query.deleteDocumentLinkQueueBySource(row.source_hash);
+                        await this.query.insertDocumentLinkConnection(sourceDoc.node_id, nodeId);
+                        await this.query.deleteDocumentLinkQueueBySource(row.source_hash);
                         // Re-queue remaining entries from this source that are still unresolved
-                        const remaining = this.query.getPendingLinksFromSource(row.source_hash);
+                        const remaining = await this.query.getPendingLinksFromSource(row.source_hash);
                         for (const r of remaining) {
-                            this.query.upsertDocumentLinkQueue(r.source_hash, r.target_hash, r.anchor_text);
+                            await this.query.upsertDocumentLinkQueue(r.source_hash, r.target_hash, r.anchor_text);
                         }
                     }
                 }
             })();
         }
         // Index this document's own outbound links into the derived layer (DB-only).
-        this.indexDocumentLinks(relPath);
+        await this.indexDocumentLinks(relPath);
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async delete(relativePath, isFolder = false) {
+        return await withStructure(() => this._deleteLocked(relativePath, isFolder));
+    }
+
+    async _deleteLocked(relativePath, isFolder = false) {
         const absPath = this.files.safePath(relativePath);
 
         // 1. Gather seal paths from DB before deleting anything
         const sealExtra = isFolder
-            ? this._gatherFolderContents(relativePath, absPath)
+            ? await this._gatherFolderContents(relativePath, absPath)
             : [relativePath];
 
         // 2. Delete from DB first — if this fails, FS is still intact
-        db.transaction(() => {
+        await db.transaction(async () => {
             if (isFolder) {
-                this.query.deleteFolderTree(absPath, path.sep);
+                await this.query.deleteFolderTree(absPath, path.sep);
             } else {
-                this.query.deleteDocumentByAbsPath(absPath);
+                await this.query.deleteDocumentByAbsPath(absPath);
             }
         })();
 
         // 3. Delete from FS — DB is already clean; any FS orphan is recoverable via inspect()
-        this.files.delete(relativePath, isFolder);
+        await this.files.delete(relativePath, isFolder);
 
         // 4. Commit to Seal
         const sealSidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
         await sealEmitter.delete(sealSidecar, sealExtra);
     }
 
+    // Structural: it changes which paths exist, so it takes the tree exclusively. An edit
+    // already in flight anywhere finishes first, and one queued behind it waits — otherwise a
+    // writer holds a path that this operation is in the middle of invalidating, and the index
+    // ends up describing a tree that is not on disk.
+    //
+    // Creation (createFile/createFolder/importPackage) deliberately does NOT take this lock:
+    // it only ADDS paths, so it invalidates nothing anyone is holding — and importPackage
+    // calls updateMetadata internally, which would deadlock against a lock it already held.
     async copy(relPath, newRelPath, isFolder = false) {
-        const items = this.files.copy(relPath, newRelPath, isFolder);
+        return await withStructure(() => this._copyLocked(relPath, newRelPath, isFolder));
+    }
 
-        db.transaction(() => {
+    async _copyLocked(relPath, newRelPath, isFolder = false) {
+        const items = await this.files.copy(relPath, newRelPath, isFolder);
+
+        await db.transaction(async () => {
             for (const item of items) {
                 const sidecar = this.files.getMetadata(item.relativePath, item.type === 'folder');
 
                 if (item.type === 'folder') {
-                    const nodeId = this.query.createNode('Folder');
-                    const parentId = this._getParentFolderId(item.absolutePath);
-                    this.query.insertFolder({
+                    const nodeId = await this.query.createNode('Folder');
+                    const parentId = await this._getParentFolderId(item.absolutePath);
+                    await this.query.insertFolder({
                         nodeId,
                         globalHash: item.globalHash,
                         parentId,
@@ -685,11 +836,11 @@ export default class Documents {
                         absolutePath: item.absolutePath,
                         name: item.name,
                     });
-                    if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
+                    if (sidecar?.tags) await this._syncTags(nodeId, sidecar.tags);
                 } else {
-                    const nodeId = this.query.createNode('Document');
-                    const folderId = this._getParentFolderId(item.absolutePath);
-                    const info = this.query.insertDocument({
+                    const nodeId = await this.query.createNode('Document');
+                    const folderId = await this._getParentFolderId(item.absolutePath);
+                    const info = await this.query.insertDocument({
                         folderId,
                         nodeId,
                         globalHash: item.globalHash,
@@ -697,9 +848,9 @@ export default class Documents {
                         absolutePath: item.absolutePath,
                         name: item.name,
                     });
-                    if (sidecar?.tags) this._syncTags(nodeId, sidecar.tags);
-                    if (sidecar?.flashcards) this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards, nodeId);
-                    if (sidecar?.highlights) highlightsService.syncFromSidecar(info.lastInsertRowid, sidecar.highlights);
+                    if (sidecar?.tags) await this._syncTags(nodeId, sidecar.tags);
+                    if (sidecar?.flashcards) await this._syncDocumentFlashcards(info.lastInsertRowid, sidecar.flashcards, nodeId);
+                    if (sidecar?.highlights) await highlightsService.syncFromSidecar(info.lastInsertRowid, sidecar.highlights);
                 }
             }
         })();
@@ -733,28 +884,48 @@ export default class Documents {
 
     // --- Metadata Helpers ---
 
-    async updateMetadata(relativePath, metadata, isFolder = false) {
+    /**
+     * Replaces a document's or folder's whole sidecar. Whole-object, so it takes the same
+     * `ifMatch` treatment as updateFile — see `_assertFresh`.
+     *
+     * @param {string} relativePath
+     * @param {object} metadata
+     * @param {boolean} [isFolder=false]
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch]
+     * @returns {Promise<{etag: string|null}>}
+     */
+    async updateMetadata(relativePath, metadata, isFolder = false, { ifMatch } = {}) {
+        return await withDocument(relativePath, async () => {
+            this._assertFresh(relativePath, ifMatch, { isFolder, part: 'sidecar' });
+            await this._updateMetadataLocked(relativePath, metadata, isFolder);
+            return { etag: this.files.etag(relativePath, isFolder) };
+        });
+    }
+
+    /** The body of updateMetadata, with the lock and the freshness check already applied. */
+    async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
         this.files.writeMetadata(relativePath, metadata, isFolder);
 
-        db.transaction(() => {
-            const entity = isFolder ? this.query.getFolderByPath(relativePath) : this.query.getDocumentByPath(relativePath);
+        await db.transaction(async () => {
+            const entity = isFolder ? await this.query.getFolderByPath(relativePath) : await this.query.getDocumentByPath(relativePath);
             if (!entity) throw new Error(`Entity ${relativePath} not found`);
 
-            if (isFolder) this.query.updateFolderMetadata(entity.id, metadata);
-            else this.query.updateDocumentMetadata(entity.id, metadata);
+            if (isFolder) await this.query.updateFolderMetadata(entity.id, metadata);
+            else await this.query.updateDocumentMetadata(entity.id, metadata);
 
-            if (metadata.tags) this._syncTags(entity.node_id, metadata.tags);
-            if (!isFolder && metadata.flashcards) this._syncDocumentFlashcards(entity.id, metadata.flashcards, entity.node_id);
-            if (!isFolder && metadata.highlights) highlightsService.syncFromSidecar(entity.id, metadata.highlights);
+            if (metadata.tags) await this._syncTags(entity.node_id, metadata.tags);
+            if (!isFolder && metadata.flashcards) await this._syncDocumentFlashcards(entity.id, metadata.flashcards, entity.node_id);
+            if (!isFolder && metadata.highlights) await highlightsService.syncFromSidecar(entity.id, metadata.highlights);
 
             if (!isFolder && metadata.tags !== undefined) {
                 // Propagate to flashcards: document's own tags + any inherited from parent folders.
-                const inherited = this.query.getInheritedTagNames(entity.node_id);
+                const inherited = await this.query.getInheritedTagNames(entity.node_id);
                 const effective = [...new Set([...inherited, ...(metadata.tags || [])])];
-                this._propagateTagsToFlashcards(entity.id, entity.node_id, effective);
+                await this._propagateTagsToFlashcards(entity.id, entity.node_id, effective);
             }
 
-            if (isFolder) this._propagateFolderTags(entity.id, entity.node_id, metadata);
+            if (isFolder) await this._propagateFolderTags(entity.id, entity.node_id, metadata);
         })();
 
         const sidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
@@ -764,9 +935,9 @@ export default class Documents {
     // --- Import / Export ---
 
     async importFile(name, relativePath, content, metadata) {
-        const { name: resolvedName } = this.files.createFile(relativePath, name);
+        const { name: resolvedName } = await this.files.createFile(relativePath, name);
         const fileRelPath = path.join(relativePath, resolvedName);
-        const encoding = this.files.updateFile(fileRelPath, content, metadata);
+        const encoding = await this.files.updateFile(fileRelPath, content, metadata);
 
         try {
             const absPath = this.files.safePath(fileRelPath);
@@ -777,9 +948,9 @@ export default class Documents {
             const registerMeta = metadata?.globalHash
                 ? metadata
                 : { ...metadata, globalHash: this.files.getMetadata(fileRelPath)?.globalHash };
-            this._registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata: registerMeta });
+            await this._registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata: registerMeta });
         } catch (err) {
-            this.files.delete(fileRelPath, false);
+            await this.files.delete(fileRelPath, false);
             throw err;
         }
 
@@ -790,7 +961,7 @@ export default class Documents {
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
 
         // Resolve any pending DocumentLinks targeting this doc, and index its own outbound links.
-        const imported = this.query.getDocumentByPath(fileRelPath);
+        const imported = await this.query.getDocumentByPath(fileRelPath);
         if (imported) {
             await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
         }
@@ -804,27 +975,27 @@ export default class Documents {
     // flashcards, highlights) from its sidecar payload in one transaction. The
     // DB-only core of importFile, shared with the Vault Doctor's ingest path —
     // it never touches the filesystem and never emits Seal events.
-    _registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata }) {
+    async _registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata }) {
         const parentAbsPath = path.dirname(absPath);
-        return db.transaction(() => {
-            const nodeId = this.query.createNode('Document');
-            const folderId = this._getParentFolderId(absPath);
-            const info = this.query.insertDocument({
+        return await db.transaction(async () => {
+            const nodeId = await this.query.createNode('Document');
+            const folderId = await this._getParentFolderId(absPath);
+            const info = await this.query.insertDocument({
                 folderId, nodeId, globalHash: metadata.globalHash,
                 relativePath: fileRelPath, absolutePath: absPath, name,
                 encoding
             });
             const docId = info.lastInsertRowid;
 
-            const parentFolder = this.query.getFolderByAbsolutePath(parentAbsPath);
+            const parentFolder = await this.query.getFolderByAbsolutePath(parentAbsPath);
             if (parentFolder?.node_id) {
-                this.query.insertInheritance(parentFolder.node_id, nodeId);
-                this._seedFromParentFolder(parentFolder, nodeId);
+                await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                await this._seedFromParentFolder(parentFolder, nodeId);
             }
 
-            if (metadata.tags) this._syncTags(nodeId, metadata.tags);
-            if (metadata.flashcards) this._syncDocumentFlashcards(docId, metadata.flashcards, nodeId);
-            if (metadata.highlights) highlightsService.syncFromSidecar(docId, metadata.highlights);
+            if (metadata.tags) await this._syncTags(nodeId, metadata.tags);
+            if (metadata.flashcards) await this._syncDocumentFlashcards(docId, metadata.flashcards, nodeId);
+            if (metadata.highlights) await highlightsService.syncFromSidecar(docId, metadata.highlights);
             return docId;
         })();
     }
@@ -872,7 +1043,7 @@ export default class Documents {
         const { videoId, title, body, source } = await this._buildYoutubeDoc(url);
         const metadata = { ...newFileMetadata(), source };
         const name = slugifyName(title || videoId) + ".youtube";
-        return this.importFile(name, relativePath, body, metadata);
+        return await this.importFile(name, relativePath, body, metadata);
     }
 
     /**
@@ -884,10 +1055,10 @@ export default class Documents {
      * @param {string} url
      */
     async setYoutubeSource(relPath, url) {
-        if (!this.files.exists(relPath)) throw new Error("File not found");
+        if (!await this.files.exists(relPath)) throw new Error("File not found");
         const { body, source } = await this._buildYoutubeDoc(url);
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
-        this.files.updateFile(relPath, body, { ...existing, source });
+        await this.files.updateFile(relPath, body, { ...existing, source });
         await sealEmitter.edit(relPath + '.flashback', [relPath]);
         return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
     }
@@ -951,7 +1122,7 @@ export default class Documents {
      * @throws {Error & {status:422}} when the video has no usable captions
      */
     async fetchYoutubeTranscript(relPath, { lang } = {}) {
-        if (!this.files.exists(relPath)) throw Object.assign(new Error("File not found"), { status: 404 });
+        if (!await this.files.exists(relPath)) throw Object.assign(new Error("File not found"), { status: 404 });
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
 
         // videoId lives in the sidecar source, but fall back to the body descriptor
@@ -1034,8 +1205,8 @@ export default class Documents {
         const mediaAbs = this.files.safePath(mediaRel);
         fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
         fs.writeFileSync(mediaAbs, buf);
-        db.transaction(() => {
-            this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+        await db.transaction(async () => {
+            await this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
 
         return {
@@ -1103,7 +1274,7 @@ export default class Documents {
         const { html, source, title } = await this._buildClipDoc(url);
         const metadata = { ...newFileMetadata(), source };
         const name = slugifyName(title) + ".clip";
-        return this.importFile(name, relativePath, html, metadata);
+        return await this.importFile(name, relativePath, html, metadata);
     }
 
     /**
@@ -1115,10 +1286,10 @@ export default class Documents {
      * @param {string} url
      */
     async setClipSource(relPath, url) {
-        if (!this.files.exists(relPath)) throw new Error("File not found");
+        if (!await this.files.exists(relPath)) throw new Error("File not found");
         const { html, source } = await this._buildClipDoc(url);
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
-        this.files.updateFile(relPath, html, { ...existing, source });
+        await this.files.updateFile(relPath, html, { ...existing, source });
         await sealEmitter.edit(relPath + '.flashback', [relPath]);
         return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
     }
@@ -1151,7 +1322,7 @@ export default class Documents {
      */
     async saveClipAsset(relPath, href) {
         if (!/\.clip$/i.test(relPath)) throw new Error("Not a web clip");
-        if (!this.files.exists(relPath)) throw new Error("File not found");
+        if (!await this.files.exists(relPath)) throw new Error("File not found");
         const wanted = String(href ?? '').trim();
         if (!wanted) throw new Error("No asset given");
 
@@ -1225,7 +1396,7 @@ export default class Documents {
         }
 
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
-        this.files.updateFile(relPath, cdoc.body.innerHTML, existing);
+        await this.files.updateFile(relPath, cdoc.body.innerHTML, existing);
         await sealEmitter.edit(relPath + '.flashback', [relPath, saved.mediaRel]);
 
         return {
@@ -1251,7 +1422,7 @@ export default class Documents {
      * @returns {Promise<number>} the document's DB id.
      */
     async indexDocument(relPath) {
-        if (this.query.getDocumentByPath(relPath)) return this.reindexDocument(relPath);
+        if (await this.query.getDocumentByPath(relPath)) return await this.reindexDocument(relPath);
 
         const metadata = this.files.getMetadata(relPath, false);
         if (!metadata?.globalHash) throw new Error(`No valid sidecar for ${relPath}`);
@@ -1260,15 +1431,15 @@ export default class Documents {
         const parentDir = path.dirname(relPath);
         // _ensureFolderPath registers every missing ancestor folder (DB row +
         // sidecar backfill for ghost directories) so _getParentFolderId resolves.
-        this._ensureFolderPath(parentDir === '.' ? '' : parentDir);
-        const docId = this._registerDocumentDerived({
+        await this._ensureFolderPath(parentDir === '.' ? '' : parentDir);
+        const docId = await this._registerDocumentDerived({
             name: path.basename(relPath),
             fileRelPath: relPath,
             absPath,
             encoding: metadata.encoding ?? null,
             metadata,
         });
-        await this._resolvePendingLinks(metadata.globalHash, this.query.getDocumentByPath(relPath).node_id, relPath);
+        await this._resolvePendingLinks(metadata.globalHash, (await this.query.getDocumentByPath(relPath)).node_id, relPath);
         return docId;
     }
 
@@ -1282,36 +1453,36 @@ export default class Documents {
      * @returns {Promise<number>} the document's DB id.
      */
     async reindexDocument(relPath) {
-        const doc = this.query.getDocumentByPath(relPath);
-        if (!doc) return this.indexDocument(relPath);
+        const doc = await this.query.getDocumentByPath(relPath);
+        if (!doc) return await this.indexDocument(relPath);
 
         const metadata = this.files.getMetadata(relPath, false);
         if (!metadata) throw new Error(`No readable sidecar for ${relPath}`);
 
-        db.transaction(() => {
+        await db.transaction(async () => {
             if (metadata.globalHash && metadata.globalHash !== doc.global_hash) {
-                this.query.updateDocumentMetadata(doc.id, { globalHash: metadata.globalHash });
+                await this.query.updateDocumentMetadata(doc.id, { globalHash: metadata.globalHash });
             }
-            this._syncTags(doc.node_id, metadata.tags ?? []);
-            this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? [], doc.node_id);
+            await this._syncTags(doc.node_id, metadata.tags ?? []);
+            await this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? [], doc.node_id);
             // query-level sync (not highlightsService.syncFromSidecar, which
             // no-ops on an empty array): out-of-band highlight deletions must
             // clear the derived rows as well.
-            this.query.syncDocumentHighlights(doc.id, metadata.highlights ?? []);
+            await this.query.syncDocumentHighlights(doc.id, metadata.highlights ?? []);
 
             if (doc.folder_id) {
-                const folder = this.query.getFolderById(doc.folder_id);
+                const folder = await this.query.getFolderById(doc.folder_id);
                 if (folder) {
                     const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
                     const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
-                    this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
+                    await this._propagateFolderTags(folder.id, folder.node_id, folderMeta);
                 }
             }
         })();
 
         // Read-only: re-derive link Connections from content without rewriting the
         // sidecar or sealing — the Doctor reconciles the index, it doesn't mutate files.
-        this.indexDocumentLinks(relPath);
+        await this.indexDocumentLinks(relPath);
         return doc.id;
     }
 
@@ -1322,17 +1493,17 @@ export default class Documents {
      * @param {string} relPath - folder path relative to the workspace root ('' = root).
      * @returns {number} the folder's DB id.
      */
-    indexFolder(relPath) {
-        const folderId = this._ensureFolderPath(relPath);
-        const folder = this.query.getFolderById(folderId);
+    async indexFolder(relPath) {
+        const folderId = await this._ensureFolderPath(relPath);
+        const folder = await this.query.getFolderById(folderId);
         const metadata = this.files.getMetadata(relPath, true) || {};
 
-        db.transaction(() => {
+        await db.transaction(async () => {
             if (metadata.globalHash && metadata.globalHash !== folder.global_hash) {
-                this.query.updateFolderMetadata(folder.id, { globalHash: metadata.globalHash });
+                await this.query.updateFolderMetadata(folder.id, { globalHash: metadata.globalHash });
             }
-            if (folder.node_id) this._syncTags(folder.node_id, metadata.tags ?? []);
-            this._propagateFolderTags(folder.id, folder.node_id, metadata);
+            if (folder.node_id) await this._syncTags(folder.node_id, metadata.tags ?? []);
+            await this._propagateFolderTags(folder.id, folder.node_id, metadata);
         })();
         return folderId;
     }
@@ -1344,13 +1515,13 @@ export default class Documents {
      * @param {string} relPath - path relative to the workspace root.
      * @param {boolean} [isFolder=false]
      */
-    removeFromIndex(relPath, isFolder = false) {
+    async removeFromIndex(relPath, isFolder = false) {
         const absPath = this.files.safePath(relPath);
-        db.transaction(() => {
+        await db.transaction(async () => {
             if (isFolder) {
-                this.query.deleteFolderTree(absPath, path.sep);
+                await this.query.deleteFolderTree(absPath, path.sep);
             } else {
-                this.query.deleteDocumentByAbsPath(absPath);
+                await this.query.deleteDocumentByAbsPath(absPath);
             }
         })();
     }
@@ -1359,14 +1530,14 @@ export default class Documents {
         const folderName = path.basename(externalPath);
         const folderRelPath = path.join(targetRelPath, folderName);
         
-        const nodeId = this.query.createNode('Folder');
+        const nodeId = await this.query.createNode('Folder');
         const absPath = this.files.safePath(folderRelPath);
         const globalHash = crypto.randomUUID();
-        const parentId = this._getParentFolderId(absPath);
+        const parentId = await this._getParentFolderId(absPath);
 
         if (!fs.existsSync(absPath)) fs.mkdirSync(absPath, { recursive: true });
 
-        this.query.insertFolder({
+        await this.query.insertFolder({
             nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name: folderName
         });
 
@@ -1407,17 +1578,17 @@ export default class Documents {
                                 fs.copyFileSync(mSrc, mDest);
                                 const mBuf = fs.readFileSync(mDest);
                                 const mHash = crypto.createHash('sha256').update(mBuf).digest('hex');
-                                this.query.insertMedia({
+                                await this.query.insertMedia({
                                     hash: mHash, name: mFile, relativePath: path.join(entryRel, mFile), absolutePath: mDest
                                 });
                             }
                         }
                     } else {
-                        const subNodeId = this.query.createNode('Folder');
+                        const subNodeId = await this.query.createNode('Folder');
                         const subAbs = this.files.safePath(entryRel);
                         if (!fs.existsSync(subAbs)) fs.mkdirSync(subAbs, { recursive: true });
-                        const subParentId = this._getParentFolderId(subAbs);
-                        this.query.insertFolder({
+                        const subParentId = await this._getParentFolderId(subAbs);
+                        await this.query.insertFolder({
                             nodeId: subNodeId, globalHash: crypto.randomUUID(), parentId: subParentId, relativePath: entryRel, absolutePath: subAbs, name: entry.name
                         });
 
@@ -1500,14 +1671,19 @@ export default class Documents {
      * @returns {object} The persisted card, including its assigned globalHash and media refs.
      */
     async createFlashcard(relativePath, cardData, mediaItems = []) {
-        const doc = this.query.getDocumentByPath(relativePath);
+        return await withDocument(relativePath, () =>
+            this._createFlashcardLocked(relativePath, cardData, mediaItems));
+    }
+
+    async _createFlashcardLocked(relativePath, cardData, mediaItems = []) {
+        const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
         // Reject an unrecognized category up front rather than silently writing it
         // to the sidecar with no matching category_id in the DB — a mismatch here
         // used to persist as a split-brain (sidecar keeps the literal string forever,
         // the derived layer silently links to no category) with no error surfaced.
-        if (cardData.category && !this.query.getCategoryByName(cardData.category)) {
+        if (cardData.category && !await this.query.getCategoryByName(cardData.category)) {
             throw new Error(`Unknown category: "${cardData.category}". Call GET /api/categories for valid values.`);
         }
 
@@ -1542,11 +1718,11 @@ export default class Documents {
         // 3. Sync the derived layer (tags + flashcards + media) in one transaction.
         const finalMeta = this.files.getMetadata(relativePath);
         const savedCard = finalMeta.flashcards[cardIndex];
-        db.transaction(() => {
-            if (finalMeta.tags) this._syncTags(doc.node_id, finalMeta.tags);
-            this._syncDocumentFlashcards(doc.id, finalMeta.flashcards, doc.node_id);
+        await db.transaction(async () => {
+            if (finalMeta.tags) await this._syncTags(doc.node_id, finalMeta.tags);
+            await this._syncDocumentFlashcards(doc.id, finalMeta.flashcards, doc.node_id);
             for (const r of registered) {
-                this.query.insertMedia({
+                await this.query.insertMedia({
                     hash: r.hash, name: r.name,
                     relativePath: r.mediaRel, absolutePath: this.files.safePath(r.mediaRel),
                 });
@@ -1576,13 +1752,33 @@ export default class Documents {
      * @param {object} patch - any of { frontText, backText, answerText, name, cardType, category, customHtml, tags }.
      * @returns {object} the updated card as written to the sidecar.
      */
-    async updateFlashcard(relativePath, flashcardHash, patch = {}) {
-        const doc = this.query.getDocumentByPath(relativePath);
+    /**
+     * Patches ONE card inside a document's sidecar.
+     *
+     * A patch, not a whole-object write: it names its target by hash, re-reads the sidecar
+     * under the lock and puts back everything it was not asked to change. Two people editing
+     * different cards of the same document therefore both succeed — the conflict that matters
+     * is two people editing the SAME card, which `opts.ifMatch` detects when the caller
+     * supplies the entity etag it read.
+     *
+     * @param {string} relativePath
+     * @param {string} flashcardHash
+     * @param {object} [patch]
+     * @param {object} [opts]
+     * @param {string} [opts.ifMatch] - entity etag (see Files.entityEtag) of the card as read.
+     */
+    async updateFlashcard(relativePath, flashcardHash, patch = {}, { ifMatch } = {}) {
+        return await withDocument(relativePath, () =>
+            this._updateFlashcardLocked(relativePath, flashcardHash, patch, ifMatch));
+    }
+
+    async _updateFlashcardLocked(relativePath, flashcardHash, patch = {}, ifMatch = undefined) {
+        const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
         // Same up-front rejection as createFlashcard: an unrecognized category would
         // otherwise persist in the sidecar with no matching category_id in the DB.
-        if (patch.category && !this.query.getCategoryByName(patch.category)) {
+        if (patch.category && !await this.query.getCategoryByName(patch.category)) {
             throw new Error(`Unknown category: "${patch.category}". Call GET /api/categories for valid values.`);
         }
 
@@ -1592,6 +1788,7 @@ export default class Documents {
         if (idx === -1) throw new Error(`Flashcard ${flashcardHash} not found in ${relativePath}`);
 
         const ex = cards[idx];
+        this._assertEntityFresh(ex, ifMatch);
         const nextType = patch.cardType ?? ex.cardType ?? 'basic';
         const updated = { ...ex, cardType: nextType };
         if (patch.name !== undefined) updated.name = patch.name;
@@ -1623,10 +1820,10 @@ export default class Documents {
         meta.flashcards[idx] = updated;
         this.files.writeMetadata(relativePath, meta, false);
 
-        db.transaction(() => {
+        await db.transaction(async () => {
             // Re-syncs content, tags and category; SRS columns are max-merged there,
             // so editing a card can never roll its progress back.
-            this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
+            await this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
         })();
 
         await sealEmitter.edit(relativePath + '.flashback');
@@ -1651,7 +1848,12 @@ export default class Documents {
      * @param {string} flashcardHash - globalHash of the card to delete.
      */
     async deleteFlashcard(relativePath, flashcardHash) {
-        const doc = this.query.getDocumentByPath(relativePath);
+        return await withDocument(relativePath, () =>
+            this._deleteFlashcardLocked(relativePath, flashcardHash));
+    }
+
+    async _deleteFlashcardLocked(relativePath, flashcardHash) {
+        const doc = await this.query.getDocumentByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
         const meta = this.files.getMetadata(relativePath) || {};
@@ -1663,9 +1865,9 @@ export default class Documents {
         meta.flashcards = cards.filter(f => f.globalHash !== flashcardHash);
         this.files.writeMetadata(relativePath, meta, false);
 
-        db.transaction(() => {
+        await db.transaction(async () => {
             // Any card whose hash is no longer in the incoming array is deleted.
-            this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
+            await this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
         })();
 
         await sealEmitter.edit(relativePath + '.flashback');
@@ -1684,8 +1886,8 @@ export default class Documents {
         const mediaAbs = this.files.safePath(mediaRel);
         const hash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
 
-        db.transaction(() => {
-            this.query.insertMedia({ hash, name: mediaName, relativePath: mediaRel, absolutePath: mediaAbs });
+        await db.transaction(async () => {
+            await this.query.insertMedia({ hash, name: mediaName, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
         await sealEmitter.edit(relativePath + '.flashback', [mediaRel]);
     }
@@ -1693,16 +1895,54 @@ export default class Documents {
     // --- SRS Support ---
 
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const metadata = this.files.getMetadata(relativePath);
-        const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
-        if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+        // Whose review this is, resolved exactly the way srs.js resolves it (an explicit
+        // scope wins over the request context), so the two cannot disagree about which of
+        // the branches below runs.
+        const owner = isOwnerScope(opts.scope ?? currentScope());
+
+        // The sidecar is read ONLY on the owner's path, because it exists to be MUTATED
+        // twenty lines down. It is a synchronous whole-file read plus a JSON.parse of every
+        // card, highlight and tag in the document — on a reader's review that was ~40% of
+        // the cost of the whole request, spent producing a value that is then discarded.
+        // The "is this card really in this document" check goes with it: srs.submitReview
+        // resolves the card by hash and throws on its own when it does not exist.
+        let metadata = null;
+        let card = null;
+        if (owner) {
+            metadata = this.files.getMetadata(relativePath);
+            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+        }
 
         // Persist to the derived layer first. For FSRS the schedule is computed
         // server-side, so we mirror the returned state into the sidecar; for
         // Leitner/SM-2 the client-computed scalar is authoritative.
-        const { documentId, fsrs } = this.srs.submitReview(
+        const { documentId, fsrs, scope } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
+
+        // ONLY the owner's grade reaches the file. Everyone else's durable copy is already in
+        // the accounts store (srs.js mirrors it inside the same transaction), and writing it
+        // here instead would put one person's study record into a git history that travels
+        // with the folder to whoever gets a copy. It also means a reader's review produces no
+        // Seal commit at all, which is the behaviour you want: reading is not editing.
+        // And presence is not recomputed either. `propagatePresence` reads
+        // getFlashcardAvgLevel(documentId, OWNER_SCOPE) and walks the folder tree to the
+        // root — but a reader's grade cannot have moved an owner-scoped average, so every
+        // one of those writes puts back the value it just read. It is not merely redundant:
+        // it is a second store-wide transaction plus ~3 queries per folder level on the
+        // hottest path a multi-user vault has. See propagatePresence's own comment for why
+        // the number is owner-scoped in the first place.
+        if (!isOwnerScope(scope)) return;
+
+        // Belt and braces: `owner` above and `scope` here come from the same expression, so
+        // they cannot differ — but reading the sidecar lazily rather than trusting that is
+        // one line, and the alternative failure is writing `null` over a document.
+        if (!card) {
+            metadata = this.files.getMetadata(relativePath);
+            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
+            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
+        }
 
         if (algorithm === 'fsrs' && fsrs) {
             card.fsrsStability = fsrs.stability;
@@ -1720,15 +1960,23 @@ export default class Documents {
         }
         this.files.writeMetadata(relativePath, metadata);
 
-        this.propagatePresence(documentId);
-        await sealEmitter.edit(relativePath + '.flashback');
+        await this.propagatePresence(documentId);
+        // review(), not edit(): a graded card's new schedule is the one write whose commit
+        // nobody will ever roll back to, and a session produces one per card. See the
+        // SealEventEmitter class comment.
+        await sealEmitter.review(relativePath + '.flashback');
     }
 
     // Reverse the last review of a document-linked card: undo it in the derived
     // layer, then mirror the restored SRS state back into the sidecar and seal the
     // change so the canonical layer stays authoritative. Returns the restored state.
     async undoReview(relativePath, flashcardHash, algorithm = 'leitner') {
-        const { document_id, restored } = this.srs.undoReview(flashcardHash, algorithm);
+        const { document_id, restored, scope } = await this.srs.undoReview(flashcardHash, algorithm);
+
+        // Same rule as submitReview, and for the same reason: a non-owner's undo is already
+        // durable in the accounts store, the sidecar is not theirs to rewrite, and presence
+        // is an owner-scoped number their grade cannot have moved.
+        if (!isOwnerScope(scope)) return restored;
 
         const metadata = this.files.getMetadata(relativePath);
         const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
@@ -1762,10 +2010,11 @@ export default class Documents {
                 else delete card.lastRecall;
             }
             this.files.writeMetadata(relativePath, metadata);
-            await sealEmitter.edit(relativePath + '.flashback');
+            // Coalesced like the review it reverses — see submitReview above.
+            await sealEmitter.review(relativePath + '.flashback');
         }
 
-        if (document_id) this.propagatePresence(document_id);
+        if (document_id) await this.propagatePresence(document_id);
         return restored;
     }
 
@@ -1781,15 +2030,15 @@ export default class Documents {
     // tag inheritance, invisible to folder-scoped search/due-card queries, and a 404
     // from any route that reads their metadata (e.g. update_tags). Returns the deepest
     // segment's folder id.
-    _ensureFolderPath(relativePath) {
-        let root = this.query.getFolderByPath("");
+    async _ensureFolderPath(relativePath) {
+        let root = await this.query.getFolderByPath("");
         let parentId;
         let parentAbs = this.files.workspaceRoot;
         if (root) {
             parentId = root.id;
         } else {
-            const nodeId = this.query.createNode('Folder');
-            const info = this.query.insertFolder({
+            const nodeId = await this.query.createNode('Folder');
+            const info = await this.query.insertFolder({
                 nodeId, globalHash: crypto.randomUUID(), parentId: null,
                 relativePath: "", absolutePath: parentAbs, name: path.basename(parentAbs),
             });
@@ -1802,18 +2051,18 @@ export default class Documents {
         for (const seg of segments) {
             const priorRel = builtRel;
             builtRel = builtRel ? path.join(builtRel, seg) : seg;
-            let folder = this.query.getFolderByPath(builtRel);
+            let folder = await this.query.getFolderByPath(builtRel);
             if (!folder) {
                 const globalHash = this.files.ensureFolderMetadata(priorRel, seg);
                 const absPath = this.files.safePath(builtRel);
-                const nodeId = this.query.createNode('Folder');
-                const info = this.query.insertFolder({
+                const nodeId = await this.query.createNode('Folder');
+                const info = await this.query.insertFolder({
                     nodeId, globalHash, parentId, relativePath: builtRel, absolutePath: absPath, name: seg,
                 });
-                const parentFolder = this.query.getFolderByAbsolutePath(parentAbs);
+                const parentFolder = await this.query.getFolderByAbsolutePath(parentAbs);
                 if (parentFolder?.node_id) {
-                    this.query.insertInheritance(parentFolder.node_id, nodeId);
-                    this._seedFromParentFolder(parentFolder, nodeId);
+                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await this._seedFromParentFolder(parentFolder, nodeId);
                 }
                 folder = { id: info.lastInsertRowid };
             }
@@ -1823,36 +2072,36 @@ export default class Documents {
         return parentId;
     }
 
-    _getParentFolderId(absolutePath) {
+    async _getParentFolderId(absolutePath) {
         const parentDir = path.dirname(absolutePath);
         if (parentDir === this.files.workspaceRoot) {
-            const root = this.query.getFolderByPath("");
+            const root = await this.query.getFolderByPath("");
             if (root) return root.id;
 
-            const nodeId = this.query.createNode('Folder');
-            const info = this.query.insertFolder({
+            const nodeId = await this.query.createNode('Folder');
+            const info = await this.query.insertFolder({
                 nodeId, globalHash: crypto.randomUUID(), parentId: null,
                 relativePath: "", absolutePath: parentDir, name: path.basename(parentDir)
             });
             return info.lastInsertRowid;
         }
-        const folder = this.query.getFolderByAbsolutePath(parentDir);
+        const folder = await this.query.getFolderByAbsolutePath(parentDir);
         return folder ? folder.id : null;
     }
 
-    _syncTags(nodeId, tagNames) {
+    async _syncTags(nodeId, tagNames) {
         const tagNodeIds = [];
         for (const name of tagNames) {
-            let tag = this.query.getTagByName(name);
+            let tag = await this.query.getTagByName(name);
             if (!tag) {
-                const tNodeId = this.query.createNode('Tag');
-                this.query.insertTag(name, tNodeId);
+                const tNodeId = await this.query.createNode('Tag');
+                await this.query.insertTag(name, tNodeId);
                 tagNodeIds.push(tNodeId);
             } else {
                 tagNodeIds.push(tag.node_id);
             }
         }
-        this.query.syncNodeTags(nodeId, tagNodeIds);
+        await this.query.syncNodeTags(nodeId, tagNodeIds);
     }
 
     /**
@@ -1864,12 +2113,20 @@ export default class Documents {
      * that genuinely have no node id (legacy paths) may omit it and get the old
      * cards-only behaviour.
      */
-    _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
-        const existing = this.query.getFlashcardsByDocument(documentId);
+    // ALWAYS the owner's scope, and not because of who is logged in: this method reconciles
+    // the derived layer with a `.flashback` sidecar, and the sidecar is by definition the
+    // owner's record of the owner's progress. A collaborator editing a document must not have
+    // their own schedule written into the file, and must not have the file's schedule written
+    // over theirs. Everyone else's progress lives in the accounts store and is untouched here.
+    async _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
+        const existing = await this.query.getFlashcardsByDocument(documentId, OWNER_SCOPE);
         const existingMap = new Map(existing.map(f => [f.global_hash, f]));
         const incomingHashes = new Set();
 
-        flashcardsData.forEach((fcData, index) => {
+        // for...of rather than forEach: the body writes through the data layer, which is
+        // async, and an async forEach callback would fire every iteration concurrently and
+        // return before any of them finished.
+        for (const [index, fcData] of flashcardsData.entries()) {
             incomingHashes.add(fcData.globalHash);
             const match = existingMap.get(fcData.globalHash);
 
@@ -1895,7 +2152,7 @@ export default class Documents {
                     fsrsLapses: match.fsrs_lapses,
                 };
 
-                this.query.updateFlashcard(match.id, {
+                await this.query.updateFlashcard(match.id, {
                     ...fcData,
                     ...fsrsFromDb,
                     level: mergedLevel,
@@ -1903,23 +2160,23 @@ export default class Documents {
                     lastRecall: mergedRecall,
                     fileIndex: index,
                     contentId: match.content_id
-                });
-                if (Array.isArray(fcData.tags)) this._syncTags(match.node_id, fcData.tags);
+                }, OWNER_SCOPE);
+                if (Array.isArray(fcData.tags)) await this._syncTags(match.node_id, fcData.tags);
             } else {
-                const nodeId = this.query.createNode('Flashcard');
-                this.query.insertFlashcard({
+                const nodeId = await this.query.createNode('Flashcard');
+                await this.query.insertFlashcard({
                     ...fcData, nodeId, documentId, fileIndex: index
-                });
-                if (Array.isArray(fcData.tags)) this._syncTags(nodeId, fcData.tags);
+                }, OWNER_SCOPE);
+                if (Array.isArray(fcData.tags)) await this._syncTags(nodeId, fcData.tags);
             }
-        });
+        }
 
         for (const [hash, fc] of existingMap) {
-            if (!incomingHashes.has(hash)) this.query.deleteFlashcard(fc.id);
+            if (!incomingHashes.has(hash)) await this.query.deleteFlashcard(fc.id);
         }
 
         if (docNodeId) {
-            this._propagateTagsToFlashcards(documentId, docNodeId, this._tagsPassedDownByDocument(docNodeId));
+            await this._propagateTagsToFlashcards(documentId, docNodeId, await this._tagsPassedDownByDocument(docNodeId));
         }
     }
 
@@ -1930,11 +2187,11 @@ export default class Documents {
      * created* child can be given it immediately instead of waiting for someone to
      * re-save the parent's tags.
      */
-    _tagsPassedDownByFolder(folderNodeId, folderRelPath) {
+    async _tagsPassedDownByFolder(folderNodeId, folderRelPath) {
         const meta = this.files.getMetadata(folderRelPath, true) || {};
         const excluded = new Set(meta.excludedTags || []);
-        const inherited = this.query.getInheritedTagNames(folderNodeId).filter(t => !excluded.has(t));
-        const direct = this.query.getDirectTagNames(folderNodeId);
+        const inherited = (await this.query.getInheritedTagNames(folderNodeId)).filter(t => !excluded.has(t));
+        const direct = await this.query.getDirectTagNames(folderNodeId);
         return [...new Set([...inherited, ...direct])];
     }
 
@@ -1947,75 +2204,75 @@ export default class Documents {
      * document) inherits nothing, and the tag only "arrives" the next time the parent's
      * own tags are written. Idempotent: clears the edge before refilling it.
      */
-    _seedInheritedTags(parentNodeId, childNodeId, tagNames) {
+    async _seedInheritedTags(parentNodeId, childNodeId, tagNames) {
         if (!parentNodeId || !childNodeId) return;
-        const hierarchyType = this.query.getHierarchyTypeId();
-        const conn = this.query.getOrCreateConnection(parentNodeId, childNodeId, hierarchyType.id);
-        this.query.clearInheritedTags(conn.id);
+        const hierarchyType = await this.query.getHierarchyTypeId();
+        const conn = await this.query.getOrCreateConnection(parentNodeId, childNodeId, hierarchyType.id);
+        await this.query.clearInheritedTags(conn.id);
         for (const tagName of tagNames) {
-            const tag = this.query.getTagByName(tagName);
-            if (tag) this.query.insertInheritedTag(conn.id, tag.id);
+            const tag = await this.query.getTagByName(tagName);
+            if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
         }
     }
 
     // Seeds a new child edge from its parent folder, looked up by folder row.
-    _seedFromParentFolder(parentFolder, childNodeId) {
+    async _seedFromParentFolder(parentFolder, childNodeId) {
         if (!parentFolder?.node_id) return;
-        this._seedInheritedTags(
+        await this._seedInheritedTags(
             parentFolder.node_id,
             childNodeId,
-            this._tagsPassedDownByFolder(parentFolder.node_id, parentFolder.relative_path),
+            await this._tagsPassedDownByFolder(parentFolder.node_id, parentFolder.relative_path),
         );
     }
 
     // A document's effective tags — what it hands down to its own flashcards.
-    _tagsPassedDownByDocument(docNodeId) {
-        const inherited = this.query.getInheritedTagNames(docNodeId);
-        const direct = this.query.getDirectTagNames(docNodeId);
+    async _tagsPassedDownByDocument(docNodeId) {
+        const inherited = await this.query.getInheritedTagNames(docNodeId);
+        const direct = await this.query.getDirectTagNames(docNodeId);
         return [...new Set([...inherited, ...direct])];
     }
 
-    _propagateFolderTags(folderId, parentNodeId, metadata) {
-        const childDocs = this.query.getChildDocuments(folderId);
-        const childFolders = this.query.getChildFolders(folderId);
+    async _propagateFolderTags(folderId, parentNodeId, metadata) {
+        const childDocs = await this.query.getChildDocuments(folderId);
+        const childFolders = await this.query.getChildFolders(folderId);
 
-        const inheritedFromAbove = this.query.getInheritedTagNames(parentNodeId);
+        const inheritedFromAbove = await this.query.getInheritedTagNames(parentNodeId);
         const myDirectTags = new Set(metadata.tags || []);
         const myExclusions = new Set(metadata.excludedTags || []);
         const effectiveInherited = inheritedFromAbove.filter(t => !myExclusions.has(t));
         const effectiveToChildren = [...new Set([...effectiveInherited, ...myDirectTags])];
 
-        const hierarchyType = this.query.getHierarchyTypeId();
+        const hierarchyType = await this.query.getHierarchyTypeId();
 
-        const syncInheritance = (targetNodeId) => {
-            const conn = this.query.getOrCreateConnection(parentNodeId, targetNodeId, hierarchyType.id);
-            this.query.clearInheritedTags(conn.id);
+        const syncInheritance = async (targetNodeId) => {
+            const conn = await this.query.getOrCreateConnection(parentNodeId, targetNodeId, hierarchyType.id);
+            await this.query.clearInheritedTags(conn.id);
             for (const tagName of effectiveToChildren) {
-                const tag = this.query.getTagByName(tagName);
-                if (tag) this.query.insertInheritedTag(conn.id, tag.id);
+                const tag = await this.query.getTagByName(tagName);
+                if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
             }
         };
 
         for (const doc of childDocs) {
-            syncInheritance(doc.node_id);
-            this._propagateTagsToFlashcards(doc.id, doc.node_id, effectiveToChildren);
+            await syncInheritance(doc.node_id);
+            await this._propagateTagsToFlashcards(doc.id, doc.node_id, effectiveToChildren);
         }
 
         for (const folder of childFolders) {
-            syncInheritance(folder.node_id);
+            await syncInheritance(folder.node_id);
             const subMeta = this.files.getMetadata(folder.relative_path, true) || {};
-            this._propagateFolderTags(folder.id, folder.node_id, subMeta);
+            await this._propagateFolderTags(folder.id, folder.node_id, subMeta);
         }
     }
 
-    _propagateTagsToFlashcards(docId, docNodeId, tags) {
-        const hierarchyType = this.query.getHierarchyTypeId();
-        for (const fc of this.query.getFlashcardNodeIds(docId)) {
-            const conn = this.query.getOrCreateConnection(docNodeId, fc.node_id, hierarchyType.id);
-            this.query.clearInheritedTags(conn.id);
+    async _propagateTagsToFlashcards(docId, docNodeId, tags) {
+        const hierarchyType = await this.query.getHierarchyTypeId();
+        for (const fc of await this.query.getFlashcardNodeIds(docId)) {
+            const conn = await this.query.getOrCreateConnection(docNodeId, fc.node_id, hierarchyType.id);
+            await this.query.clearInheritedTags(conn.id);
             for (const tagName of tags) {
-                const tag = this.query.getTagByName(tagName);
-                if (tag) this.query.insertInheritedTag(conn.id, tag.id);
+                const tag = await this.query.getTagByName(tagName);
+                if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
             }
         }
     }
@@ -2060,10 +2317,10 @@ export default class Documents {
 
     // The union of media names still referenced by the documents sitting directly
     // in `folderRel`. Only direct children matter: a sub-folder has its own media/.
-    _mediaNamesStillNeededIn(folderRel, excludeRelDocPath) {
+    async _mediaNamesStillNeededIn(folderRel, excludeRelDocPath) {
         const folderAbs = this.files.safePath(folderRel);
         const needed = new Set();
-        for (const doc of this.query.getDocumentsByAbsPathPrefix(folderAbs + path.sep)) {
+        for (const doc of await this.query.getDocumentsByAbsPathPrefix(folderAbs + path.sep)) {
             if (doc.relative_path === excludeRelDocPath) continue;
             if (path.dirname(doc.relative_path) !== folderRel) continue;
             for (const name of this._mediaNamesReferencedBy(doc.relative_path)) needed.add(name);
@@ -2103,7 +2360,7 @@ export default class Documents {
     //
     // Returns the media rel-paths touched, so the caller can fold them into the
     // one Seal commit that records the move.
-    _carryMediaAfterMove(oldRelDocPath, newRelDocPath) {
+    async _carryMediaAfterMove(oldRelDocPath, newRelDocPath) {
         const oldFolder = path.dirname(oldRelDocPath);
         const newFolder = path.dirname(newRelDocPath);
         if (oldFolder === newFolder) return { added: [], removed: [] };
@@ -2111,7 +2368,7 @@ export default class Documents {
         const { added, carried } = this._replicateMedia(newRelDocPath, oldFolder, newFolder);
         if (carried.length === 0) return { added, removed: [] };
 
-        const stillNeeded = this._mediaNamesStillNeededIn(oldFolder, newRelDocPath);
+        const stillNeeded = await this._mediaNamesStillNeededIn(oldFolder, newRelDocPath);
         const removed = [];
 
         for (const name of carried) {
@@ -2126,7 +2383,7 @@ export default class Documents {
             const destRel = path.join(newFolder, 'media', name);
             fs.rmSync(srcAbs, { force: true });
             removed.push(srcRel);
-            this.query.updateMediaPath(srcAbs, destRel, this.files.safePath(destRel));
+            await this.query.updateMediaPath(srcAbs, destRel, this.files.safePath(destRel));
         }
 
         // Drop the source media/ dir once it has gone empty, so reorganising does
@@ -2143,10 +2400,10 @@ export default class Documents {
 
     // Returns { removed, added } path arrays for a folder rename/move.
     // Queries the DB after the rename so new paths are already stored; derives old paths by replacing the prefix.
-    _buildMovePaths(oldRelPath, newRelPath, newAbsPath) {
+    async _buildMovePaths(oldRelPath, newRelPath, newAbsPath) {
         const prefix = newAbsPath + path.sep;
-        const docs = this.query.getDocumentsByAbsPathPrefix(prefix);
-        const folders = this.query.getFoldersByAbsPathPrefix(prefix, newAbsPath);
+        const docs = await this.query.getDocumentsByAbsPathPrefix(prefix);
+        const folders = await this.query.getFoldersByAbsPathPrefix(prefix, newAbsPath);
 
         const removed = [path.join(oldRelPath, '.flashback')];
         const added = [path.join(newRelPath, '.flashback')];
@@ -2167,10 +2424,10 @@ export default class Documents {
     }
 
     // Returns all file + sidecar paths inside a folder, queried before deletion.
-    _gatherFolderContents(folderRelPath, folderAbsPath) {
+    async _gatherFolderContents(folderRelPath, folderAbsPath) {
         const prefix = folderAbsPath + path.sep;
-        const docs = this.query.getDocumentsByAbsPathPrefix(prefix);
-        const folders = this.query.getFoldersByAbsPathPrefix(prefix, folderAbsPath);
+        const docs = await this.query.getDocumentsByAbsPathPrefix(prefix);
+        const folders = await this.query.getFoldersByAbsPathPrefix(prefix, folderAbsPath);
 
         const paths = [];
         for (const doc of docs) {
@@ -2182,38 +2439,42 @@ export default class Documents {
         return paths;
     }
 
-    propagatePresence(documentId) {
-        db.transaction(() => {
-            const stats = this.query.getFlashcardAvgLevel(documentId);
-            this.query.updateDocumentPresence(documentId, stats.score || 0);
+    async propagatePresence(documentId) {
+        await db.transaction(async () => {
+            // OWNER_SCOPE deliberately. `presence` is written onto the Documents row and
+            // mirrored into the sidecar, so it is part of what the canonical layer claims
+            // about this document — not a per-reader number. A reader's grade must not
+            // rewrite it. Per-viewer "how well do I know this" is the graph's job.
+            const stats = await this.query.getFlashcardAvgLevel(documentId, OWNER_SCOPE);
+            await this.query.updateDocumentPresence(documentId, stats.score || 0);
 
-            let currentFolderId = this.query.getDocumentFolderIdById(documentId)?.folder_id;
+            let currentFolderId = (await this.query.getDocumentFolderIdById(documentId))?.folder_id;
             while (currentFolderId) {
-                const docStats = this.query.getDocumentPresenceStats(currentFolderId);
-                const childFolders = this.query.getChildFolderPresences(currentFolderId);
+                const docStats = await this.query.getDocumentPresenceStats(currentFolderId);
+                const childFolders = await this.query.getChildFolderPresences(currentFolderId);
 
                 const totalCount = (docStats.cnt || 0) + childFolders.length;
                 const totalPresence = (docStats.total || 0) + childFolders.reduce((acc, f) => acc + (f.presence || 0), 0);
                 const avg = totalCount > 0 ? (totalPresence / totalCount) : 0;
 
-                this.query.updateFolderPresence(currentFolderId, avg);
+                await this.query.updateFolderPresence(currentFolderId, avg);
 
-                currentFolderId = this.query.getFolderParentId(currentFolderId)?.parent_id ?? null;
+                currentFolderId = (await this.query.getFolderParentId(currentFolderId))?.parent_id ?? null;
             }
         })();
     }
 
-    search(q) { return this.query.search(q); }
+    async search(q) { return await this.query.search(q); }
 
     // Case-insensitive substring search across text document BODIES. Name/card
     // matching lives in query.search / superSearch — bodies exist only on disk,
     // so this reads each text document (same whitelist as _extractLinks) and
     // returns per-document match counts with context snippets.
-    searchContent(q, limit = 20) {
+    async searchContent(q, limit = 20) {
         const needle = String(q ?? '').toLowerCase();
         if (!needle) return [];
         const results = [];
-        for (const doc of this.query.getAllDocuments()) {
+        for (const doc of await this.query.getAllDocuments()) {
             if (results.length >= limit) break;
             const ext = path.extname(doc.relative_path).toLowerCase();
             if (!['.md', '.txt', '.markdown'].includes(ext)) continue;
@@ -2242,11 +2503,11 @@ export default class Documents {
     // Outgoing flashback:// links and backlinks for one document. Resolved edges
     // come from the graph Connections; unresolved outgoing targets (a linked
     // hash whose document doesn't exist yet) come from the DocumentLinks queue.
-    getLinks(relPath) {
-        const doc = this.query.getDocumentByPath(relPath);
+    async getLinks(relPath) {
+        const doc = await this.query.getDocumentByPath(relPath);
         if (!doc) throw new Error(`Document ${relPath} not found`);
-        const { outgoing, backlinks } = this.query.getDocumentLinkEdges(doc.node_id);
-        const pending = this.query.getPendingLinksFromSource(doc.global_hash)
+        const { outgoing, backlinks } = await this.query.getDocumentLinkEdges(doc.node_id);
+        const pending = (await this.query.getPendingLinksFromSource(doc.global_hash))
             .map((l) => ({ targetHash: l.target_hash, anchorText: l.anchor_text }));
         return { outgoing, backlinks, pending };
     }
@@ -2255,12 +2516,12 @@ export default class Documents {
     // parts of the vault are actually committed to memory. The per-card score
     // is computed in SQL (CARD_LEARNED_SQL); this only rolls it up per node
     // type and strips the intermediate sums off the payload.
-    getGraphData() {
-        const { nodes, edges } = this.query.getGraphData();
+    async getGraphData(scope) {
+        const { nodes, edges } = await this.query.getGraphData(scope ?? currentScope());
         return { nodes: nodes.map(graphNodeLearning), edges };
     }
-    exists(rel, derived, isFolder) {
-        if (derived) return isFolder ? this.query.getFolderByPath(rel) : this.query.getDocumentByPath(rel);
-        return this.files.exists(rel);
+    async exists(rel, derived, isFolder) {
+        if (derived) return isFolder ? await this.query.getFolderByPath(rel) : await this.query.getDocumentByPath(rel);
+        return await this.files.exists(rel);
     }
 }

@@ -9,6 +9,7 @@ import log, { getLogPath } from "./logger.js";
 import { initUpdater, checkForUpdates, downloadUpdate, quitAndInstall } from "./updater.js";
 import { configExists, readConfig, writeConfig, apiBaseUrl } from "./appConfig.js";
 import * as vaults from "./vaults.js";
+import { createConnectionState } from "./connection.js";
 import { getStoredIdentity, setIdentity, setVaultIdentity } from "./identity.js";
 
 // Reconstruct __dirname for ES Modules
@@ -291,9 +292,18 @@ ipcMain.handle('rename-vault', async (_event, id, name) => {
   return result;
 });
 
+// Switching vault is a LOCAL-VAULT action, so it also lands the app on the local API. That
+// second half used to be missing: `vaults.switchVault()` really did move the local API onto
+// the chosen vault, but the connection still reported the remote, so the broadcast carried
+// the place the renderer was already on and nothing re-pointed. Because both the title-bar
+// switcher and the vault manager route here while you are on a remote, that made a
+// misconfigured server impossible to leave without restarting the app.
 ipcMain.handle('switch-vault', async (_event, id) => {
   const result = await vaults.switchVault(id);
-  if (result.ok) broadcastConnection();
+  if (result.ok) {
+    connection.useLocalVault();
+    broadcastConnection();
+  }
   return result;
 });
 
@@ -341,24 +351,17 @@ ipcMain.handle('test-remote', (_event, id) => vaults.testRemote(id));
 // to a remote leaves the local API process running and idle; nothing is torn down.
 // ---------------------------------------------------------------------------
 
-// null = the local vault. Set to a remote's id while the user is working on a remote.
-let activeRemoteId = null;
+// Which place the renderer is pointed at. Lives in its own module so the rule that gets you
+// BACK to a local vault is in one testable place — see connection.js for the bug that
+// scattering it caused, and tests/connection.test.js.
+const connection = createConnectionState({
+  readConfig,
+  connectionForRemote: vaults.connectionForRemote,
+  apiBaseUrl,
+});
 
 function currentConnection() {
-  if (activeRemoteId) {
-    const remote = vaults.connectionForRemote(activeRemoteId);
-    if (remote) return remote;
-    activeRemoteId = null;  // the remote was removed underneath us
-  }
-  const config = readConfig();
-  const active = (config.vaults ?? []).find((v) => v.id === config.activeVaultId);
-  return {
-    kind: 'local',
-    id: config.activeVaultId ?? null,
-    label: active?.name ?? config.vaultName ?? null,
-    url: apiBaseUrl(config),
-    token: config.apiToken ?? null,
-  };
+  return connection.current();
 }
 
 function broadcastConnection() {
@@ -368,7 +371,7 @@ function broadcastConnection() {
 ipcMain.handle('get-active-connection', () => currentConnection());
 
 ipcMain.handle('use-local-vault', () => {
-  activeRemoteId = null;
+  connection.useLocalVault();
   broadcastConnection();
   return { ok: true, connection: currentConnection() };
 });
@@ -379,7 +382,7 @@ ipcMain.handle('use-remote', async (_event, id) => {
   const probe = await vaults.testRemote(id);
   if (!probe.ok) return probe;
 
-  activeRemoteId = id;
+  connection.useRemote(id);
   broadcastConnection();
   return { ok: true, connection: currentConnection(), identity: probe.identity };
 });

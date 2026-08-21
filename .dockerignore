@@ -1,0 +1,43 @@
+# Keep the build context small and, more importantly, keep local state OUT of the image.
+# `data/` is a real vault on a developer machine — copying it into an image would ship
+# somebody's notes, and `accounts.db` with them.
+
+node_modules
+dist
+dist-react
+dist-electron
+release
+build
+
+# Local and test vaults — never belong in an image.
+data
+data_*
+*.db
+*.db-wal
+*.db-shm
+
+.git
+.github
+.vscode
+.idea
+
+# Desktop-only surface: the server runs src/api + src/server and nothing else here.
+src/electron
+src/ui
+plugin-packages
+
+*.log
+logs
+npm-debug.log*
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Docs and tooling that the runtime never reads.
+tests
+docs
+*.md
+eslint.config.js
+vite.config.js
+electron-builder.yml

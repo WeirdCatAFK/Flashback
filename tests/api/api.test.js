@@ -54,8 +54,8 @@ import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 describe('Flashback API', () => {
 
     before(async () => {
-        if (!validate()) throw new Error('Validation failed');
-        db.exec(`
+        if (!await validate()) throw new Error('Validation failed');
+        await db.exec(`
             PRAGMA foreign_keys = OFF;
             DELETE FROM FlashcardReference;
             DELETE FROM FlashcardContent;
@@ -154,6 +154,82 @@ describe('Flashback API', () => {
         it('accepts a valid ?token= query param → 200', async () => {
             const res = await rawFetch(`${baseUrl}/api/documents/list?path=&token=${API_TOKEN}`);
             assert.equal(res.status, 200);
+        });
+
+        it('resolves the configured token to the Author account', async () => {
+            // The token in config.json is adopted as the Author's on start(), which is what
+            // makes roles invisible on a desktop install: the renderer and the MCP server
+            // keep presenting what they already hold and keep getting everything.
+            const res = await rawFetch(`${baseUrl}/api/accounts`, {
+                headers: { Authorization: `Bearer ${API_TOKEN}` },
+            });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.you.role, 'author');
+        });
+    });
+
+    // ── Roles ─────────────────────────────────────────────────────────────
+    //
+    // The permission table itself is unit-tested in tests/accounts.test.js. What is proved
+    // HERE is that it is actually wired into the running server — that a real request with a
+    // real reader token is refused by a real mount, rather than the table being correct and
+    // mounted nowhere.
+
+    describe('Roles', () => {
+        let readerToken;
+        let readerTokenId;
+
+        before(async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Rita Reader', email: `rita-${Date.now()}@example.com`, role: 'reader',
+            })).json();
+            const issued = await (await post(`${baseUrl}/api/accounts/${created.id}/tokens`, {
+                label: 'test',
+            })).json();
+            readerToken = issued.token;
+            readerTokenId = issued.id;
+            assert.ok(readerToken, 'a token must come back in plaintext exactly once');
+        });
+
+        const asReader = (url, opts = {}) =>
+            rawFetch(url, { ...opts, headers: { ...(opts.headers || {}), Authorization: `Bearer ${readerToken}` } });
+
+        it('lets a reader read a document listing', async () => {
+            const res = await asReader(`${baseUrl}/api/documents/list?path=`);
+            assert.equal(res.status, 200);
+        });
+
+        it('refuses a reader creating a folder → 403 naming the role needed', async () => {
+            const res = await asReader(`${baseUrl}/api/documents/folder`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: 'ReaderShouldNotCreateThis' }),
+            });
+            assert.equal(res.status, 403);
+            const body = await res.json();
+            assert.equal(body.required, 'admin');
+            assert.equal(body.role, 'reader');
+        });
+
+        it('refuses a reader reaching the access panel at all', async () => {
+            const res = await asReader(`${baseUrl}/api/accounts`);
+            assert.equal(res.status, 403);
+        });
+
+        it('refuses a reader rolling the vault back', async () => {
+            const res = await asReader(`${baseUrl}/api/seal/log`);
+            assert.equal(res.status, 403);
+        });
+
+        it('stops accepting a revoked token → 401, not 403', async () => {
+            // Revocation has to fail at authentication, not authorization: a revoked token
+            // identifies nobody, so there is no role to compare.
+            const res = await del(`${baseUrl}/api/accounts/tokens/${readerTokenId}`, {});
+            assert.equal(res.status, 200);
+
+            const after = await asReader(`${baseUrl}/api/documents/list?path=`);
+            assert.equal(after.status, 401);
         });
     });
 
@@ -820,7 +896,7 @@ describe('Flashback API', () => {
 
             // The columns must actually be written — the whole point of the migration is
             // being able to tell an interleaving dip apart from a regression later.
-            const rows = db.prepare(
+            const rows = await db.prepare(
                 'SELECT session_position, prev_distance FROM ReviewLogs WHERE session_id = ? ORDER BY session_position ASC',
             ).all(sessionId);
 
@@ -907,16 +983,16 @@ describe('Flashback API', () => {
             // because tags get applied to folders, documents and decks, not to single cards.
             // So the inherited row is written here directly, at the derived layer the filter
             // actually reads.
-            const tagRow = db.prepare('SELECT id FROM Tags WHERE name = ?').get(SCOPE_TAG);
-            const cardNode = db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(SCOPE_HASH);
+            const tagRow = await db.prepare('SELECT id FROM Tags WHERE name = ?').get(SCOPE_TAG);
+            const cardNode = await db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(SCOPE_HASH);
             assert.ok(tagRow && cardNode?.node_id, 'precondition: tagged document and its card exist');
-            const inheritEdge = db.prepare(`
+            const inheritEdge = await db.prepare(`
                 SELECT id FROM Connections
                 WHERE destiny_id = ?
                   AND type_id = (SELECT id FROM ConnectionTypes WHERE name = 'inheritance')
             `).get(cardNode.node_id);
             assert.ok(inheritEdge, 'precondition: the card inherits from its document');
-            db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)')
+            await db.prepare('INSERT INTO InheritedTags (connection_id, tag_id) VALUES (?, ?)')
                 .run(inheritEdge.id, tagRow.id);
 
             const tagged = await fetchScoped(`tag=${encodeURIComponent(SCOPE_TAG)}`);
@@ -937,8 +1013,8 @@ describe('Flashback API', () => {
         const isNonDecreasing = (xs) => xs.every((x, i) => i === 0 || xs[i - 1] <= x);
 
         for (const order of ['interleaved', 'shuffle']) {
-            it(`sequencer.sequence(order=${order}) → keeps pedagogical tiers in priority order`, () => {
-                const { queue } = sequence({ due: tierFixture(), order, seed: 7 });
+            it(`sequencer.sequence(order=${order}) → keeps pedagogical tiers in priority order`, async () => {
+                const { queue } = await sequence({ due: tierFixture(), order, seed: 7 });
                 const priorities = queue.map(c => c.category_priority);
                 assert.equal(queue.length, 12, 'every card must survive sequencing');
                 assert.ok(
@@ -1807,6 +1883,33 @@ describe('Flashback API', () => {
             assert.equal(solo.documentPath, null, 'a standalone card reports no document');
         });
 
+        // The route layer is where a standalone card's tags used to be dropped: the form
+        // collected them, and every layer under it discarded the field silently.
+        it('POST/PUT /api/flashcards → a standalone card keeps its own tags', async () => {
+            const created = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Tagged Q', backText: 'A', cardType: 'basic', tags: ['http-tag', 'solo'],
+            });
+            assert.equal(created.status, 201);
+            const { globalHash } = await created.json();
+
+            const read = await (await fetch(`${baseUrl}/api/flashcards/${globalHash}`)).json();
+            assert.deepEqual(read.tags.slice().sort(), ['http-tag', 'solo']);
+
+            const put = await fetch(`${baseUrl}/api/flashcards/${globalHash}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags: ['solo'] }),
+            });
+            assert.equal(put.status, 200);
+            const after = await (await fetch(`${baseUrl}/api/flashcards/${globalHash}`)).json();
+            assert.deepEqual(after.tags, ['solo']);
+
+            const found = await (await fetch(
+                `${baseUrl}/api/search?tag=${encodeURIComponent('solo')}`)).json();
+            assert.ok(JSON.stringify(found).includes(globalHash),
+                'a standalone card should be findable by its own tag');
+        });
+
         it('DELETE /api/flashcards/:hash → 404 for an unknown hash', async () => {
             const res = await del(`${baseUrl}/api/flashcards/no-such-card-hash`);
             assert.equal(res.status, 404);
@@ -2261,8 +2364,8 @@ describe('Flashback API', () => {
         // falling over again — the mouthful shape: an oscillating floor that never
         // leaves the learning band. Reviews land ON schedule so `overdue_drift` (which
         // would rightly suppress the verdict) has nothing to fire on.
-        const seedOscillatingHistory = (cardHash) => {
-            const id = db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash).id;
+        const seedOscillatingHistory = async (cardHash) => {
+            const id = (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash)).id;
             const insert = db.prepare(`
                 INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level, algorithm)
                 VALUES (?, ?, ?, 2.5, ?, 'leitner')
@@ -2270,13 +2373,18 @@ describe('Flashback API', () => {
             const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
             for (let c = 0; c < 4; c++) {
                 const base = 44 - c * 11;
-                insert.run(id, ago(base), 0, 1);        // lapse → box 1
-                insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
-                insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
-                insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
+                await insert.run(id, ago(base), 0, 1);        // lapse → box 1
+                await insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
+                await insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
+                await insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
-            db.prepare('UPDATE Flashcards SET level = 3, last_recall = ? WHERE id = ?')
-                .run(ago(4), id);
+            await db.prepare(`
+                INSERT INTO CardProgress (flashcard_id, account_id, level, last_recall)
+                VALUES (?, 'owner', 3, ?)
+                ON CONFLICT(flashcard_id, account_id)
+                DO UPDATE SET level = excluded.level, last_recall = excluded.last_recall
+            `)
+                .run(id, ago(4));
             // Baselines and session segmentation are cached for a minute; the rows above
             // appeared behind the cache's back.
             cardHealth.resetCaches();
@@ -2290,7 +2398,7 @@ describe('Flashback API', () => {
         });
         const flagsOf = async () =>
             (await (await fetch(`${baseUrl}/api/flashcards/${hash}/detail`)).json()).flags;
-        const healthRow = () => db.prepare(`
+        const healthRow = async () => await db.prepare(`
             SELECT ch.* FROM CardHealth ch
             JOIN Flashcards f ON f.id = ch.flashcard_id WHERE f.global_hash = ?
         `).get(hash);
@@ -2301,7 +2409,7 @@ describe('Flashback API', () => {
                 frontText: 'What are the sixty terms?', backText: LONG_ANSWER, cardType: 'basic',
             });
             hash = (await res.json()).globalHash;
-            seedOscillatingHistory(hash);
+            await seedOscillatingHistory(hash);
         };
 
         it('raises a flag on a failing review and reports it in the same response', async () => {
@@ -2351,8 +2459,8 @@ describe('Flashback API', () => {
         it('a passing review that reaches the recovery level clears it and restarts the window', async () => {
             await pass(3);
             assert.deepEqual(await flagsOf(), []);
-            assert.equal(healthRow().epoch_reason, 'recovered');
-            assert.ok(healthRow().epoch_at, 'the analysis window is stamped, not just cleared');
+            assert.equal((await healthRow()).epoch_reason, 'recovered');
+            assert.ok((await healthRow()).epoch_at, 'the analysis window is stamped, not just cleared');
         });
 
         it('does not re-raise from history that predates the recovery', async () => {
@@ -2370,16 +2478,16 @@ describe('Flashback API', () => {
             const res = await put(`${baseUrl}/api/flashcards/${hash}`, { backText: 'short' });
             assert.equal(res.status, 200);
             assert.deepEqual(await flagsOf(), []);
-            assert.equal(healthRow().epoch_reason, 'edit');
+            assert.equal((await healthRow()).epoch_reason, 'edit');
         });
 
         it('undoing a review re-classifies against what is left of the ledger', async () => {
             await freshCard();
             await fail();
-            const raisedBy = db.prepare(`
+            const raisedBy = (await db.prepare(`
                 SELECT cf.review_log_id FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
-            `).get(hash).review_log_id;
+            `).get(hash)).review_log_id;
 
             await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
 
@@ -2389,12 +2497,12 @@ describe('Flashback API', () => {
             // longer exists.
             const [flag] = await flagsOf();
             assert.equal(flag.kind, 'mouthful');
-            const now = db.prepare(`
+            const now = (await db.prepare(`
                 SELECT cf.review_log_id FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
-            `).get(hash).review_log_id;
+            `).get(hash)).review_log_id;
             assert.notEqual(now, raisedBy, 're-evaluated rather than left stale');
-            assert.ok(db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
+            assert.ok(await db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
                 'the flag cites a review that still exists');
         });
 
@@ -2429,7 +2537,7 @@ describe('Flashback API', () => {
             // Still suppressed after the card fails again — that is what "sticky" means.
             const again = await (await fail()).json();
             assert.deepEqual(again.flags, []);
-            const row = db.prepare(`
+            const row = await db.prepare(`
                 SELECT cf.dismissed_at FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id
                 WHERE f.global_hash = ? AND cf.kind = 'mouthful'
@@ -2439,7 +2547,7 @@ describe('Flashback API', () => {
 
         it('editing a dismissed card un-suppresses it — a rewrite gets judged fresh', async () => {
             await put(`${baseUrl}/api/flashcards/${hash}`, { backText: `${LONG_ANSWER} extra` });
-            const row = db.prepare(`
+            const row = await db.prepare(`
                 SELECT COUNT(*) AS c FROM CardFlags cf
                 JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
             `).get(hash);
@@ -2457,7 +2565,7 @@ describe('Flashback API', () => {
                 frontText: 'Healthy card', backText: LONG_ANSWER, cardType: 'basic',
             });
             const healthy = (await res.json()).globalHash;
-            seedOscillatingHistory(healthy);   // an identically ugly history…
+            await seedOscillatingHistory(healthy);   // an identically ugly history…
             // …but the card passes, so nothing is computed and nothing is said.
             const body = await (await post(`${baseUrl}/api/srs/review`, {
                 flashcardHash: healthy, outcome: 1, easeFactor: 2.5, newLevel: 2, algorithm: 'leitner',
@@ -2487,6 +2595,79 @@ describe('Flashback API', () => {
 
             const probes = await (await fetch(`${baseUrl}/api/decks/cards?flagKind=probe&limit=200`)).json();
             assert.equal(probes.total, 0);
+        });
+    });
+
+    // ── Accounts: reading somebody else's progress ────────────────────────
+    //
+    // `GET /api/accounts/:id/progress` is the ONE endpoint that reads a schedule belonging to
+    // another person, and it exists for the Server view's admin panel. The interesting part is
+    // not the role gate — the table already covers that — but the scope translation.
+    describe('Account progress', () => {
+        let authorId;
+
+        before(async () => {
+            const { accounts } = await (await fetch(`${baseUrl}/api/accounts`)).json();
+            authorId = accounts.find(a => a.role === 'author')?.id;
+            assert.ok(authorId, 'the suite authenticates as the Author');
+        });
+
+        it("reports the Author's progress under the owner sentinel, not their account id", async () => {
+            // The trap this pins: progress is keyed by SCOPE, and the Author's scope is the
+            // literal 'owner' rather than their id — because an id from accounts.db would
+            // orphan every row the moment the vault folder was copied elsewhere. Ask for the
+            // Author by id without translating and the panel reports an empty schedule for
+            // the one person who has been studying longest, with no error to notice.
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/progress`);
+            assert.equal(res.status, 200);
+
+            const body = await res.json();
+            assert.equal(body.scope, 'owner');
+            assert.equal(body.account.id, authorId);
+            assert.equal(body.account.role, 'author');
+            assert.ok(body.statistics?.totals, 'it carries a real statistics payload');
+        });
+
+        it('reports everyone else under their own account id', async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Progress Probe', email: `probe+${Date.now()}@example.invalid`, role: 'reader',
+            })).json();
+
+            const body = await (await fetch(`${baseUrl}/api/accounts/${created.id}/progress`)).json();
+            assert.equal(body.scope, created.id, 'a non-owner is keyed by their id');
+            assert.equal(body.statistics.totals.reviews, 0, 'a fresh reader has studied nothing');
+        });
+
+        it('404s for an account that does not exist', async () => {
+            const res = await fetch(`${baseUrl}/api/accounts/not-a-real-id/progress`);
+            assert.equal(res.status, 404);
+        });
+    });
+
+    // A refusal has to say WHICH kind it is. Creating an account with a role that is not a
+    // role is a malformed request; creating one the caller is not allowed to grant is a
+    // permission decision. Both used to answer 403, which told a client it lacked a
+    // permission when its payload was simply wrong.
+    describe('Account creation refusals', () => {
+        it('400s a role that is not a role, rather than 403', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, {
+                name: 'Bad Role', email: 'bad@example.invalid', role: 'superuser',
+            });
+            assert.equal(res.status, 400);
+            assert.match((await res.json()).error, /Unknown role/);
+        });
+
+        it('400s a missing role for the same reason', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, { name: 'No Role', email: 'n@example.invalid' });
+            assert.equal(res.status, 400);
+        });
+
+        it('still 403s a grant the caller may not make', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, {
+                name: 'Second Author', email: 'second@example.invalid', role: 'author',
+            });
+            assert.equal(res.status, 403);
+            assert.match((await res.json()).error, /exactly one Author/);
         });
     });
 

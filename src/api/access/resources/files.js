@@ -21,6 +21,7 @@ import crypto from "crypto";
 import iconv from "iconv-lite";
 import chardet from "chardet";
 import { getAuthorString, getWorkspacePath } from "../primitives/config.js";
+import { currentAuthorString } from "../../requestContext.js";
 import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 import { LATEST_VERSION } from "../../config/updates/registry.js";
@@ -41,6 +42,18 @@ const BINARY_EXTENSIONS = new Set([
 ]);
 
 /**
+ * The formats whose BODY a user can write — the ones with an editable renderer. Everything
+ * else in the vault is a viewer: `PUT /api/documents/file` refuses a `content` write for it,
+ * and only its sidecar ever changes.
+ *
+ * Exported and shared with `routes/documents.js` on purpose. It used to be declared there
+ * alone, and `etag()` has to draw the line in exactly the same place: a format whose body is
+ * hashed but not writable would report a conflict nobody could have caused, and one that is
+ * writable but not hashed would miss the conflict that matters.
+ */
+export const EDITABLE_BODY_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text"]);
+
+/**
  * True when the file should never be decoded as text.
  * UTF-16/32 text is full of NUL bytes by design, so a chardet verdict of one of
  * those wins over the NUL test.
@@ -48,6 +61,21 @@ const BINARY_EXTENSIONS = new Set([
  * @param {Buffer} sample - the first bytes of the file.
  * @param {string|null} encoding - chardet's guess, if any.
  */
+/**
+ * Who to stamp a new sidecar's `createdBy` with.
+ *
+ * The account behind the current request when there is one, the install's local identity
+ * otherwise. On a desktop install those are the same person, because the Author account is
+ * seeded from that identity — so this changes nothing there. On a server the install is a
+ * machine, and only the request knows who actually created the file.
+ *
+ * Deliberately the same string Seal uses for the commit author: a file and the commit that
+ * created it must not disagree about who made them.
+ */
+function stampedBy() {
+    return currentAuthorString(getAuthorString);
+}
+
 function looksBinary(relPath, sample, encoding) {
     if (BINARY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) return true;
     if (encoding && /^utf-?(16|32)/i.test(encoding)) return false;
@@ -241,6 +269,81 @@ _regenerateIdentities(absPath) {
     }
 
     /**
+     * The version of a document, for detecting a write that lost a race.
+     *
+     * Two sha256 digests joined by a dot — `"<body>.<sidecar>"` — because a document is two
+     * files with two different owners, and one combined digest cannot express either of them.
+     * An editor replaces the BODY wholesale while merging the sidecar from a fresh read, so a
+     * card somebody added through the Inspector must not make that save fail; a PDF renderer
+     * writes only the sidecar and never touches the body at all. Callers treat the string as
+     * opaque and `documents._assertFresh` compares the half that the write actually replaces.
+     *
+     * `-` stands in for a half that does not exist: a body never yet written, or one of the
+     * many formats whose body is not editable (`PUT /api/documents/file` refuses a `content`
+     * write outside EDITABLE_BODY_EXTENSIONS, so those bytes cannot go stale under an editor
+     * and hashing a 50 MB PDF on every read would buy nothing).
+     *
+     * Derived on demand and stored nowhere, which is the entire argument for it. A counter —
+     * in the sidecar or in a column — has to be bumped by whoever writes, so it reports
+     * "unchanged" for a Doctor rebuild, a Seal rollback, and an edit made in another program:
+     * the three cases where a client's cached copy is most likely to be wrong. Content can
+     * only ever describe itself.
+     *
+     * Cheap by design: sidecars are kilobytes, and an editable body is text someone is
+     * typing into.
+     *
+     * @param {string} relPath - workspace-relative path of the document.
+     * @param {boolean} [isFolder=false] - hash a folder's own `.flashback` instead.
+     * @returns {string|null} `"<body>.<sidecar>"`, or null when neither half exists.
+     */
+    etag(relPath, isFolder = false) {
+        const digest = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
+        let body = null;
+        let sidecar = null;
+
+        const metadataPath = this._metadataPathFor(relPath, isFolder);
+        if (fs.existsSync(metadataPath)) sidecar = digest(fs.readFileSync(metadataPath));
+
+        if (!isFolder && EDITABLE_BODY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) {
+            const abs = this.safePath(relPath);
+            if (fs.existsSync(abs)) body = digest(fs.readFileSync(abs));
+        }
+
+        if (body === null && sidecar === null) return null;
+        return `${body ?? '-'}.${sidecar ?? '-'}`;
+    }
+
+    /**
+     * The version of ONE entity inside a sidecar — a flashcard, a highlight.
+     *
+     * A document's etag changes whenever anything in it does, which is the right answer for a
+     * whole-object write and the wrong one for a patch: two people editing different cards of
+     * one document are not in conflict, and telling them they are would make a shared vault
+     * unusable. A patch names its target by `globalHash`, so it can be checked against that
+     * target alone.
+     *
+     * Keys are sorted before hashing so the digest describes the entity's VALUE, not the
+     * order a particular writer happened to serialize it in.
+     *
+     * @param {object|null|undefined} entity
+     * @returns {string|null} hex digest, or null for a missing entity.
+     */
+    entityEtag(entity) {
+        if (entity == null) return null;
+        const stable = (value) => {
+            if (Array.isArray(value)) return value.map(stable);
+            if (value && typeof value === 'object') {
+                return Object.keys(value).sort().reduce((out, k) => {
+                    out[k] = stable(value[k]);
+                    return out;
+                }, {});
+            }
+            return value;
+        };
+        return crypto.createHash('sha256').update(JSON.stringify(stable(entity))).digest('hex');
+    }
+
+    /**
      * Reads the metadata associated with the given relative path.
      * If the path is interpreted as a folder, the metadata path is inside the folder with the name ".flashback".
      * If the path is interpreted as a file, the metadata path is the file path with ".flashback" appended.
@@ -377,7 +480,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getAuthorString();
+            metadata.createdBy = metadata.createdBy || stampedBy();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(fileRel, metadata, false);
@@ -418,7 +521,7 @@ _regenerateIdentities(absPath) {
             let metadata = newFolderMetadata();
             metadata = this._ensureGlobalHash(metadata, true);
             metadata.name = name;
-            metadata.createdBy = metadata.createdBy || getAuthorString();
+            metadata.createdBy = metadata.createdBy || stampedBy();
             metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
             this.writeMetadata(folderRel, metadata, true);
@@ -452,7 +555,7 @@ _regenerateIdentities(absPath) {
         let metadata = existing || newFolderMetadata();
         metadata = this._ensureGlobalHash(metadata, true);
         metadata.name = name;
-        metadata.createdBy = metadata.createdBy || getAuthorString();
+        metadata.createdBy = metadata.createdBy || stampedBy();
         metadata.createdAt = metadata.createdAt || new Date().toISOString();
 
         this.writeMetadata(folderRel, metadata, true);
@@ -687,7 +790,14 @@ _regenerateIdentities(absPath) {
     updateFile(relPath, content, metadata, encoding = "utf-8") {
         const filePath = this.safePath(relPath);
 
-        if (!this.exists(relPath)) throw new Error("File does not exist");
+        // 404, not a generic failure: the honest answer to "write this document" when the
+        // document is not there. It became reachable in normal use once writes started
+        // queueing behind a move — an edit issued a moment before the move can arrive a
+        // moment after it, addressing a path that has just stopped existing, and the client
+        // needs to be told to re-read rather than shown a server error.
+        if (!this.exists(relPath)) {
+            throw Object.assign(new Error("File does not exist"), { status: 404 });
+        }
 
         try {
             const isBuffer = Buffer.isBuffer(content);

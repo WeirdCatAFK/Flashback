@@ -16,8 +16,9 @@ access/
                             doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
-  resources/       Tier 2   query · files
-  primitives/      Tier 1   config · database · vault
+  resources/       Tier 2   query · files · pathLock (pure — no DB, no IO)
+  primitives/      Tier 1   config · database · accounts · vault
+                            sqliteAdapter (the async driver both stores are built on)
 ```
 
 Imports within a tier stay relative (`./query.js` from `files.js`); imports downward name the tier (`../primitives/database.js` from `resources/query.js`). Nothing outside `access/` may reach past a tier folder, so callers write `access/orchestration/documents.js`, never `access/documents.js`.
@@ -27,6 +28,7 @@ Imports within a tier stay relative (`./query.js` from `files.js`); imports down
 Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.js`, `documents.js`, `srs.js`, `subscriptions.js`, `media.js`, `decks.js`, `highlights.js`, `doctor.js`, `diary.js`, `mcpReader.js`, `ankiImport.js`, `obsidianImport.js`) — module *class* names inside them are capitalized (e.g. `class Documents`, `class Decks`), which is the source of the mixed casing seen in imports elsewhere in the codebase.
 
 **Import rules:**
+- **Spaced-repetition reads and writes take an explicit `scope`.** An account id, or the literal `'owner'` for the vault's Author (`requestContext.js` `OWNER_SCOPE`). Resolve it **once** at the orchestrator's entry point with `currentScope()` — `srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js` and `decks.js` all do — and pass it down. `query.js` never reads it ambiently and **throws on a missing one** rather than defaulting: whose data a statement returns is not something a call site should have to go somewhere else to find out, and a default would answer that question wrongly in silence. A handful of sites name `OWNER_SCOPE` outright and each says why in a comment — reconciling against a sidecar, writing a canonical file, or Seal's rollback snapshot. See `DATAMODEL.md` § Per-user progress.
 - `query.js` and `files.js` never import each other.
 - `srs.js` and `documents.js` never import each other.
 - `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
@@ -53,12 +55,33 @@ Config reader/writer. `USER_DATA_PATH` locates `config.json` wherever it is set 
 - `getIdentity()` / `getAuthorString()` — the local user identity, git-style. `getIdentity()` returns `{name, email, source}` resolving `user.perVault[activeVaultId]` → `user` → derived from the OS account; `getAuthorString()` renders it as `Name <email>`, which is both a sidecar's `createdBy` and a git author line, deliberately the same string. A `{name, email}` pair only counts when **both** halves are non-empty. Reads through the cached `get()`, so `reload()` on a vault switch is what makes the override per-vault — there is no separate cache to invalidate. Consumed by `files.js` (Tier 2) and `seal.js` (outside the tiers); writes belong to Electron main, which owns the `user` key.
 - `set(config)` — writes and caches a whole config object.
 
+### `sqliteAdapter.js`
+`createSqliteAdapter({ resolvePath, onOpen })` → `{ db, openDatabase, closeDatabase, isOpen }`. The async data layer, as a factory, because there are now **two** stores behind the same contract: the vault database and the accounts store. A Postgres driver has to satisfy this same interface for both.
+
+`db` is an **explicit surface** — `prepare` / `exec` / `pragma` / `transaction` / `close` / `inTransaction` / `raw` — not a Proxy forwarding whatever better-sqlite3 exposes, because that surface *is* the contract a second driver implements. `prepare()` stays **synchronous** and returns a statement whose `.get`/`.all`/`.run` are async; that is what kept the port of `query.js`'s 221 statements to `await` rather than a rewrite of every call form.
+
+**A transaction takes an exclusive lock against all access to its own store.** On one connection an `await` inside a transaction is a yield, so a statement from another request would otherwise join the open `BEGIN` and vanish with it on rollback — no error, just a row that was written and is gone. Nesting maps to `SAVEPOINT`s. `tests/dbAdapter.test.js` pins this; the interleaving case there fails against a naive promisified wrapper.
+
+**The queue and the `AsyncLocalStorage` are per instance, and that is load-bearing.** A shared context would make a statement on store B, issued inside a transaction on store A, believe it already held B's lock and skip B's queue; a shared queue would deadlock outright the first time a write to B happened inside a transaction on A. Postgres must not inherit the lock at all — it has real MVCC, so a transaction there checks out a dedicated client.
+
 ### `database.js`
-SQLite connection via `better-sqlite3`; WAL and foreign keys always enabled. `openDatabase()` / `closeDatabase()` (the latter checkpoints the WAL) / `isOpen()`.
+One instance of the adapter over `config.getDatabasePath()` — the **vault** database, derived and rebuildable from the canonical files. WAL and foreign keys always on. Re-exports `openDatabase()` / `closeDatabase()` (the latter checkpoints the WAL) / `isOpen()`.
 
-The default export is a **stable `Proxy`**, not the connection. Nine modules import it and `query.js` stores the reference in a constructor that runs once at import, so an ESM binding could never be re-pointed — the swap has to happen behind an object whose identity is fixed. Property access forwards to the live handle and functions are bound to it, because the addon is native and needs its real `this`.
+The default export must keep a fixed identity: nine modules import it and `query.js` stores the reference in a constructor that runs once at import, so an ESM binding could never be re-pointed — the swap has to happen behind an object whose identity never changes.
 
-This is only safe because **no prepared statement outlives a request**: every `prepare()` in `query.js` is a local `const` used immediately. Never hoist `db.prepare(...)` or `db.transaction(...)` into a module-level constant — a `transaction()` captured at import stays bound to the connection that made it, and after a switch it fails with "the database connection is not open" while validation silently falls through to a rebuild on the same dead handle.
+This is only safe because **no prepared statement outlives a request**: every `prepare()` in `query.js` is a local `const` used immediately. Never hoist `db.prepare(...)` or `db.transaction(...)` into a module-level constant.
+
+### `accounts.js`
+The **accounts store** — who may reach this API and as what. The other instance of the adapter, at **`{baseDir}/accounts.db`**, a sibling of `config.json` and outside every vault. Imports `config.js` and the adapter factory only.
+
+Outside the vault deliberately: a vault folder is meant to be copied and handed to someone else, and an access list that travelled with it would grant strangers whatever the original readers had. Two consequences follow — the **Vault Doctor must never touch it** (there is no canonical form of an account, so a rebuild would delete every token in the deployment), and it is **the one store in the app that cannot be reconstructed**, which makes it a backup obligation. It is also *not* re-opened on a vault switch; accounts belong to the install.
+
+Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
+
+Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
+- `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
+- `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
+- `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
 
 ### `vault.js`
 Vault identity. `vault.json` at the vault root — a stable UUID that outlives renames, moves and copies, since the database can be rebuilt and `vaultName` is just a folder name. Deliberately a **sibling of `workspace/`**, not inside it: identity is not something to version or roll back, so Seal never tracks it and `UpdateRunner`'s walk never sees it (hence no `formatVersion`). Imports `config` only.
@@ -82,7 +105,33 @@ The **only** layer allowed to read/write `.flashback` sidecar files. Resolves al
 - `readBuffer()` / `statFile()` — raw bytes and size+mtime, for callers that parse a container format themselves (`mcpReader`) or key a cache on file version. They go through `safePath` like everything else, which is why those callers never touch `fs`.
 - `updateFile()` with `content == null` is a **metadata-only** write: the body is left untouched and the sidecar's recorded encoding is preserved.
 - `globalHash` generation on file/folder creation (immutable after first assignment).
+- `etag(relPath)` — the document's **version**, for detecting a write that lost a race. Two sha256 digests joined by a dot, `"<body>.<sidecar>"`, because a document is two files with two different owners: an editor replaces the body wholesale while merging the sidecar from a fresh read, and a PDF renderer writes only the sidecar. `documents._assertFresh` compares the half the write replaces, so a card added through the Inspector never fails an editor's save. The body half exists only for `EDITABLE_BODY_EXTENSIONS` (`.md`/`.markdown`/`.txt`/`.text`) — every other format's body is read-only, so its bytes cannot go stale under an editor, and hashing a 50 MB PDF per read would buy nothing. Derived on demand, **stored nowhere**: a counter has to be bumped by whoever writes, so it would report "unchanged" after a Doctor rebuild, a Seal rollback, or an edit made in another program.
+- `entityEtag(entity)` — the same idea for one card or highlight *inside* a sidecar, with keys sorted before hashing so the digest describes the value rather than a writer's key order. This is what lets a patch conflict only with a patch to the same entity.
 - `walkWorkspace()` — read-only, pre-order recursive walk returning `{folders, documents, mediaDirs, strayItems}`. Each folder/document entry carries `{relPath, meta, sidecarExists, sidecarCorrupt}`; `strayItems` are files with no sidecar (`kind: 'untracked-file'`) or sidecars with no owning file (`kind: 'orphan-sidecar'`). Skips `.git`, root-level `_decks`, and `media/` dirs (recorded in `mediaDirs`, not descended). Used by the Vault Doctor to compare disk against the index.
+
+### `pathLock.js`
+Serializes canonical writes. Pure — imports nothing, holds no path knowledge beyond using the
+string as a key, and is exercised without a SQLite binary in `tests/conflicts.test.js`.
+
+`db.transaction()` already makes the derived index safe from interleaving, but a canonical write
+touches the **filesystem** before it opens that transaction (`documents.updateFile` writes body
+and sidecar, then syncs the index; `move()` moves on disk first and rolls back by hand if the
+transaction throws). The filesystem has no transaction to borrow, so the serialization has to be
+explicit.
+
+- `withDocument(relPath, fn)` — shared on the tree, exclusive on that path. Two writes to one
+  document never overlap; writes to different documents stay fully concurrent, which is the
+  whole point on a shared vault.
+- `withStructure(fn)` — exclusive on the whole tree. Used by `move`/`rename`/`delete`/`copy`,
+  because the paths those invalidate are not knowable from the operation alone (moving a folder
+  renames everything beneath it). Creation deliberately does **not** take it: it only *adds*
+  paths, so it invalidates nothing anyone is holding — and `importPackage` calls
+  `updateMetadata` internally, which would deadlock against a lock it already held.
+
+Lock order is always **path lock first, database lock second**; `highlights.js` follows the same
+order for the same reason. It is an **in-process** lock: right for the desktop app and for a
+server host (one API process each), and explicitly not a file lock — two API processes over one
+vault stay unsupported, and out-of-band writes are the Vault Doctor's problem.
 
 ---
 

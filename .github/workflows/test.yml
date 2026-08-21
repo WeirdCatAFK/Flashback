@@ -1,0 +1,68 @@
+# Test CI.
+#
+# The repo had only `release.yml` until now — every check was run by hand on one Windows
+# machine. That was survivable while the only build was the desktop app a developer runs
+# daily; it stops being survivable with a headless server build, which is the first
+# configuration nobody exercises by accident.
+#
+# Two jobs, deliberately separate so a failure names itself:
+#   test    — the suite, on Linux (the platform the server actually deploys to)
+#   lint    — advisory for now, see below
+#
+# The server BUILD is not checked here. The Docker image and the standalone Linux zip are
+# built and booted by `release.yml` on a `v*` tag instead: both are slow, both give the same
+# answer for every commit on a branch, and what they protect is a release artifact rather
+# than the code a commit changes. The tradeoff is deliberate and worth stating plainly — a
+# commit that breaks the container or the zip now stays green until someone cuts a tag.
+
+name: Tests
+
+on:
+  push:
+    branches: ['**']
+  pull_request:
+
+# A new push to the same branch makes the previous run's answer irrelevant.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test suite (Linux, Node 22)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      # Not `--omit=dev`: the suite needs the dev dependencies.
+      - run: npm ci
+
+      # scripts/run-tests.js hides an Electron-compiled better-sqlite3 and rebuilds for
+      # system Node. On CI there is no Electron build to hide, so the hide step no-ops and
+      # the rebuild is the only thing that happens — which is exactly what we want. Running
+      # the suite through the same script the developer runs means CI cannot diverge from it.
+      - run: npm run tests
+
+  lint:
+    name: Lint (advisory)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+
+      # Advisory ON PURPOSE, and this is not a permanent excuse. The tree has a standing
+      # baseline of 40 problems / 37 errors / 3 warnings that predates this workflow;
+      # failing every build on them would train everyone to ignore a red X, which is worse
+      # than not having the check. The number is recorded here so a future change can hold
+      # the line or lower it deliberately.
+      - run: npm run lint
+        continue-on-error: true

@@ -20,24 +20,24 @@
 export const version = 8;
 export const description = 'type_answer: FlashcardContent.answerText + CanonicalVersion table';
 
-export function shouldRun(db) {
-    const hasTable = db.prepare(
+export async function shouldRun(db) {
+    const hasTable = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name = 'CanonicalVersion'"
     ).get();
-    const cols = db.prepare("PRAGMA table_info('FlashcardContent')").all().map(c => c.name);
+    const cols = (await db.prepare("PRAGMA table_info('FlashcardContent')").all()).map(c => c.name);
     return !hasTable || !cols.includes('answerText');
 }
 
-export function up(db) {
-    const cols = db.prepare("PRAGMA table_info('FlashcardContent')").all().map(c => c.name);
+export async function up(db) {
+    const cols = (await db.prepare("PRAGMA table_info('FlashcardContent')").all()).map(c => c.name);
     if (!cols.includes('answerText')) {
-        db.prepare('ALTER TABLE FlashcardContent ADD COLUMN answerText TEXT').run();
+        await db.prepare('ALTER TABLE FlashcardContent ADD COLUMN answerText TEXT').run();
     }
 
     // The canonical layer's own version ledger. Created here rather than by the update
     // runner so the runner can assume it exists, exactly as MigrationRunner assumes
     // SchemaVersion does.
-    db.exec(`CREATE TABLE IF NOT EXISTS CanonicalVersion (
+    await db.exec(`CREATE TABLE IF NOT EXISTS CanonicalVersion (
         version     INTEGER PRIMARY KEY,
         applied_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         description TEXT
@@ -45,7 +45,7 @@ export function up(db) {
 
     // Idempotent: a card whose answerText is already set is left alone, so re-running
     // can never push a migrated answer back into the notes field.
-    db.prepare(`
+    await db.prepare(`
         UPDATE FlashcardContent
            SET answerText = backText,
                backText   = NULL

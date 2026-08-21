@@ -9,21 +9,21 @@ export const description = 'Inter-document links: DocumentLinks queue table + li
 // Re-run this migration even if SchemaVersion shows it as applied, as long as
 // its artifacts are missing (e.g. DocumentLinks was manually dropped, or the
 // migration ran on a process that died before the app was restarted properly).
-export function shouldRun(db) {
-    const hasTable = db.prepare(
+export async function shouldRun(db) {
+    const hasTable = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='DocumentLinks'"
     ).get();
-    const hasLinkType = db.prepare(
+    const hasLinkType = await db.prepare(
         "SELECT id FROM ConnectionTypes WHERE name='link'"
     ).get();
     return !hasTable || !hasLinkType;
 }
 
-export function up(db) {
+export async function up(db) {
 
     // ── DocumentLinks queue ───────────────────────────────────────────────────
 
-    db.exec(`
+    await db.exec(`
         CREATE TABLE IF NOT EXISTS DocumentLinks (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
             source_hash TEXT NOT NULL,
@@ -33,12 +33,12 @@ export function up(db) {
         )
     `);
 
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash)`);
-    db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash)`);
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash)`);
+    await db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash)`);
 
     // ── "link" ConnectionType ─────────────────────────────────────────────────
 
-    db.prepare(
+    await db.prepare(
         `INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES ('link', 1)`
     ).run();
 }

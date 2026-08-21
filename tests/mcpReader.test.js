@@ -17,7 +17,7 @@ import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
-if (!validate()) {
+if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
@@ -183,7 +183,7 @@ describe('mcpReader', () => {
 
         it('rejects an out-of-range page with a 400', async () => {
             await assert.rejects(
-                () => reader.read(rel('book.pdf'), { index: 99 }),
+                async () => await reader.read(rel('book.pdf'), { index: 99 }),
                 (e) => e.status === 400 && /out of range/.test(e.message),
             );
         });
@@ -216,7 +216,7 @@ describe('mcpReader', () => {
 
         it('rejects an unknown href with a 400', async () => {
             await assert.rejects(
-                () => reader.read(rel('book.epub'), { index: 'nope.xhtml' }),
+                async () => await reader.read(rel('book.epub'), { index: 'nope.xhtml' }),
                 (e) => e.status === 400 && /No section/.test(e.message),
             );
         });
@@ -242,7 +242,7 @@ describe('mcpReader', () => {
     });
 
     describe('EPUB images', () => {
-        const list = () => reader.images(rel('illustrated.epub'));
+        const list = async () => await reader.images(rel('illustrated.epub'));
 
         it('lists declared images in reading order, manifest-only ones last', async () => {
             const { total, images } = await list();
@@ -320,7 +320,7 @@ describe('mcpReader', () => {
 
         it('refuses to guess between two images with the same name', async () => {
             await assert.rejects(
-                () => reader.imageBuffer(rel('illustrated.epub'), 'fig1.png'),
+                async () => await reader.imageBuffer(rel('illustrated.epub'), 'fig1.png'),
                 (e) => e.status === 400
                     && /matches 2 images/.test(e.message)
                     && /plates\/fig1\.png/.test(e.message),
@@ -332,7 +332,7 @@ describe('mcpReader', () => {
             // in the archive, and `..` walks out of it.
             for (const href of ['OEBPS/images/ghost.png', '../../../etc/passwd', 'META-INF/container.xml']) {
                 await assert.rejects(
-                    () => reader.imageBuffer(rel('illustrated.epub'), href),
+                    async () => await reader.imageBuffer(rel('illustrated.epub'), href),
                     (e) => e.status === 400 && /No image/.test(e.message),
                     `${href} must not be readable`,
                 );
@@ -341,7 +341,7 @@ describe('mcpReader', () => {
 
         it('refuses a format that has no images to declare', async () => {
             await assert.rejects(
-                () => reader.images(rel('book.pdf')),
+                async () => await reader.images(rel('book.pdf')),
                 (e) => e.status === 415 && /only EPUBs/.test(e.message),
             );
         });
@@ -439,7 +439,7 @@ describe('mcpReader', () => {
             // This module does no network IO on a caller's behalf, whatever the caller
             // wants; saving one is documents.saveClipAsset, which is a write and says so.
             await assert.rejects(
-                () => reader.mediaBuffer(rel('article.clip'), 'https://example.test/too-big.png'),
+                async () => await reader.mediaBuffer(rel('article.clip'), 'https://example.test/too-big.png'),
                 (e) => e.status === 400 && /not in the vault/.test(e.message),
             );
         });
@@ -449,7 +449,7 @@ describe('mcpReader', () => {
             // without it, a clip becomes a way to read any file in the vault.
             for (const href of ['./media/secret.png', '../../notes.md', '../../../etc/passwd']) {
                 await assert.rejects(
-                    () => reader.mediaBuffer(rel('article.clip'), href),
+                    async () => await reader.mediaBuffer(rel('article.clip'), href),
                     (e) => e.status === 400 && /No media/.test(e.message),
                     `${href} must not be readable`,
                 );
@@ -470,7 +470,7 @@ describe('mcpReader', () => {
 
         it('refuses a format that carries no media at all', async () => {
             await assert.rejects(
-                () => reader.media(rel('notes.md')),
+                async () => await reader.media(rel('notes.md')),
                 (e) => e.status === 415 && /EPUBs and saved web clips/.test(e.message),
             );
         });
@@ -510,7 +510,7 @@ describe('mcpReader', () => {
 
         it('rejects an offset past the end with a 400', async () => {
             await assert.rejects(
-                () => reader.read(rel('notes.md'), { offset: MD_BODY.length + 10 }),
+                async () => await reader.read(rel('notes.md'), { offset: MD_BODY.length + 10 }),
                 (e) => e.status === 400 && /past the end/.test(e.message),
             );
         });
@@ -588,20 +588,20 @@ describe('mcpReader', () => {
     describe('refusals', () => {
         it('415s a format with no readable text', async () => {
             await assert.rejects(
-                () => reader.read(rel('pic.png')),
+                async () => await reader.read(rel('pic.png')),
                 (e) => e.status === 415 && /no readable text/.test(e.message),
             );
         });
 
         it('404s a document that does not exist', async () => {
             await assert.rejects(
-                () => reader.info(rel('ghost.pdf')),
+                async () => await reader.info(rel('ghost.pdf')),
                 (e) => e.status === 404,
             );
         });
 
         it('refuses to escape the workspace', async () => {
-            await assert.rejects(() => reader.read('../../../etc/passwd'));
+            await assert.rejects(async () => await reader.read('../../../etc/passwd'));
         });
     });
 

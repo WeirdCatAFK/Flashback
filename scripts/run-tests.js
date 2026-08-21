@@ -24,6 +24,8 @@ const electronDir = path.join(buildDir, 'Debug.electron');
 const releaseDir = path.join(buildDir, 'Release');
 
 const tests = [
+    'tests/dbAdapter.test.js',
+    'tests/accounts.test.js',
     'tests/docs.test.js',
     'tests/graph.test.js',
     'tests/performance.test.js',
@@ -41,11 +43,16 @@ const tests = [
     'tests/fsrs.test.js',
     'tests/fsrs.api.test.js',
     'tests/cardHealth.test.js',
+    'tests/perUserSrs.test.js',
+    'tests/conflicts.test.js',
     'tests/sequencing.test.js',
+    'tests/capabilities.test.js',
+    'tests/connection.test.js',
     'tests/translations.test.js',
     'tests/stats.test.js',
     'tests/diary.test.js',
     'tests/mcpReader.test.js',
+    'tests/server.test.js',
     'tests/api/api.test.js',
     'tests/mcp.test.js',
 ];

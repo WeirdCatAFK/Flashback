@@ -1,90 +1,37 @@
-import BetterSQLite from "better-sqlite3";
-import path from "path";
-import fs from "fs";
+/**
+ * The VAULT database — the derived layer, rebuildable from the canonical `.flashback` files.
+ *
+ * All of the machinery lives in `sqliteAdapter.js`; this module is one instance of it,
+ * pointed at whatever vault `config.js` currently resolves. It stayed a module of its own
+ * because its default export is the object nine modules import and query.js stores in a
+ * constructor — that identity must never change, whatever happens to the connection behind
+ * it.
+ *
+ * The path is resolved PER CALL rather than captured, which is the whole reason an
+ * in-process vault switch is possible: `openDatabase()` after `config.reload()` opens the
+ * new vault with no importer noticing.
+ *
+ * The accounts store (`accounts.js`) is the OTHER instance of the same factory. The two
+ * share no connection, no queue and no transaction context — see the factory's header for
+ * why that separation is load-bearing rather than tidy.
+ */
+
+import { createSqliteAdapter } from "./sqliteAdapter.js";
 import { getDatabasePath } from "./config.js";
 
-// The live handle. Swapped by openDatabase() when the active vault changes; never
-// exported directly, because a module binding cannot be re-pointed in an importer.
-let handle = null;
-
-function open() {
-    const dbPath = getDatabasePath();
-    fs.mkdirSync(path.dirname(dbPath), { recursive: true });
-    const db = new BetterSQLite(dbPath);
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    return db;
-}
+const adapter = createSqliteAdapter({ resolvePath: getDatabasePath });
 
 /**
  * Opens (or re-opens) the connection for whatever vault config.js currently points at.
  * Closes any previous handle first, so callers cannot leak a connection by mistake.
  * @returns {import('better-sqlite3').Database} the raw handle, for callers that need it.
  */
-export function openDatabase() {
-    if (handle) closeDatabase();
-    handle = open();
-    return handle;
-}
+export const openDatabase = adapter.openDatabase;
 
-/**
- * Closes the connection, truncating the WAL on the way out.
- *
- * The checkpoint matters: with `journal_mode = WAL` the vault carries `-wal` and `-shm`
- * files beside the `.db`, and a rename or a switch that leaves un-checkpointed pages
- * behind is how a vault loses its most recent writes. SQLite checkpoints on the last
- * connection closing anyway; doing it explicitly means a failure here surfaces as an
- * error rather than as silently missing data.
- */
-export function closeDatabase() {
-    if (!handle) return;
-    try {
-        handle.pragma("wal_checkpoint(TRUNCATE)");
-    } catch {
-        // A corrupt or already-detached DB should not block the close below.
-    }
-    try {
-        handle.close();
-    } finally {
-        handle = null;
-    }
-}
+/** Closes the connection, truncating the WAL on the way out. */
+export const closeDatabase = adapter.closeDatabase;
 
 /** @returns {boolean} whether a connection is currently open. */
-export function isOpen() {
-    return !!handle && handle.open;
-}
+export const isOpen = adapter.isOpen;
 
-// The default export is a stable Proxy rather than the connection itself.
-//
-// Nine modules do `import db from './database.js'`, and query.js additionally stores the
-// reference (`this.db = db`) in a constructor that runs once at import. An ESM binding is
-// immutable and that stored reference would outlive any swap, so re-pointing the handle
-// has to happen BEHIND an object whose identity never changes. Every property access is
-// forwarded to the live connection, and functions are bound to it because better-sqlite3
-// is a native addon that needs its real `this`.
-//
-// Safe to do here specifically because nothing in the codebase caches a prepared
-// statement: every `prepare()` in query.js is a local `const stmt` used immediately, so
-// no statement can outlive the connection it was compiled against.
-const db = new Proxy(
-    {},
-    {
-        get(_target, prop) {
-            if (!handle) openDatabase();
-            const value = handle[prop];
-            return typeof value === "function" ? value.bind(handle) : value;
-        },
-        set(_target, prop, value) {
-            if (!handle) openDatabase();
-            handle[prop] = value;
-            return true;
-        },
-        has(_target, prop) {
-            if (!handle) openDatabase();
-            return prop in handle;
-        },
-    }
-);
-
-export default db;
+export default adapter.db;

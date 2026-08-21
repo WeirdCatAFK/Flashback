@@ -180,7 +180,13 @@ export default function VaultManager({ connection, onClose }) {
   // Opening anything closes the manager on success. A vault switch remounts the app under
   // the overlay anyway, so leaving it up would hide the vault it just opened.
   async function handleOpenVault(v) {
-    if (v.active && !onRemote) { onClose(); return; }
+    // Already the vault the local API has open: re-point rather than switch. On a remote
+    // that is the way home and involves no database work — see the note in VaultSwitcher.
+    if (v.active) {
+      if (onRemote) await window.flashback?.useLocalVault?.();
+      onClose();
+      return;
+    }
     const result = await run(`switch-${v.id}`, () => switchVault(v.id));
     if (result?.ok !== false) onClose();
   }
@@ -387,6 +393,12 @@ export default function VaultManager({ connection, onClose }) {
                 <div className="vm-form__buttons">
                   <p className="vm-hint">
                     {t('The token is stored with your operating system’s secure credential store, never in a plain file.')}
+                    {' '}
+                    {/* Two entries on one address are a normal thing to want — a second
+                        account on the same server — and the name is what tells them apart.
+                        Said here because the alternative is discovering it by watching the
+                        first one disappear. */}
+                    {t('Give the same server a different name to connect as a second account.')}
                   </p>
                   <button type="button" className="vm-btn vm-btn--primary" onClick={handleAddRemote}
                     disabled={!!busy || !remoteForm.url.trim()}>

@@ -5,6 +5,9 @@
 
 import query from '../resources/query.js';
 import db from '../primitives/database.js';
+import { getVaultId } from '../primitives/vault.js';
+import { saveAccountProgress, deleteAccountProgress } from '../primitives/accounts.js';
+import { currentScope, isOwnerScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
 
 // A card's first N reviews are its acquisition phase — new material normally takes
@@ -118,6 +121,51 @@ function dueDateOfCard(card, algorithm, easeFactor = 2.5) {
 
 class SRSService {
     /**
+     * Whose schedule this call is about.
+     *
+     * Resolved once, here, at the boundary — `query.js` is handed the answer and never looks
+     * it up. An explicit argument wins so the Doctor, the CLI and the tests can act for a
+     * named account without faking a request context.
+     */
+    _scope(explicit) {
+        return explicit ?? currentScope();
+    }
+
+    /**
+     * Mirrors a non-owner's freshly-written schedule into the accounts store.
+     *
+     * Called INSIDE the vault transaction and AFTER the vault write, which is what makes the
+     * pair safe in the only direction that matters. If this throws, the vault write rolls back
+     * with it, so the derived layer can never be ahead of the durable one. If the commit fails
+     * after this succeeds, the durable copy is ahead — and a Doctor rebuild re-projects it,
+     * which is exactly what it is there for. Losing a graded review is the failure worth
+     * preventing; replaying one is not.
+     *
+     * The owner is skipped because their durable copy is the `.flashback` sidecar, written by
+     * documents.js. A second durable copy is how two of them drift.
+     */
+    async _mirrorProgress(scope, cardId, cardHash, easeFactor = null) {
+        if (isOwnerScope(scope)) return;
+        const row = await query.getCardProgress(cardId, scope);
+        if (!row) {
+            await deleteAccountProgress(getVaultId(), scope, cardHash);
+            return;
+        }
+        await saveAccountProgress(getVaultId(), scope, cardHash, {
+            level: row.level,
+            sm2_reps: row.sm2_reps,
+            last_recall: row.last_recall,
+            ease_factor: easeFactor,
+            fsrs_stability: row.fsrs_stability,
+            fsrs_difficulty: row.fsrs_difficulty,
+            fsrs_due: row.fsrs_due,
+            fsrs_state: row.fsrs_state,
+            fsrs_reps: row.fsrs_reps,
+            fsrs_lapses: row.fsrs_lapses,
+        });
+    }
+
+    /**
      * The scheduler this vault is actually being reviewed with.
      *
      * The active algorithm is a browser preference (`fb-srs-algorithm` in localStorage),
@@ -134,31 +182,34 @@ class SRSService {
      *
      * A vault with no reviews yet has no answer to give; DEFAULT_ALGORITHM stands in.
      */
-    detectAlgorithm() {
-        const last = query.getLatestReviewAlgorithm();
+    async detectAlgorithm(scope) {
+        const last = await query.getLatestReviewAlgorithm(this._scope(scope));
         if (!last) return DEFAULT_ALGORITHM;
         if (last.algorithm) return last.algorithm;
         return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
     }
 
-    // The vault's active FSRS weight vector, falling back to published defaults
-    // until the optimizer has run (Phase B seeds FsrsParameters).
-    getWeights() {
-        return query.getFsrsWeights()?.weights ?? fsrs.DEFAULT_WEIGHTS;
+    // ONE PERSON's active FSRS weight vector, falling back to published defaults until they
+    // have run the optimizer. Per-account because the weights are a fitted model of how fast
+    // a particular individual forgets; handing a reader the owner's fitted curve would
+    // schedule them against someone else's memory.
+    async getWeights(scope) {
+        return (await query.getFsrsWeights(this._scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
     }
 
     // Compute + persist one FSRS review. Returns the new FSRS state so callers
     // (documents.js) can mirror it into the sidecar. Must run inside a transaction.
-    _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}) {
-        const current = query.getFlashcardFsrsState(cardId);
-        const next = fsrs.nextState(current, rating, new Date(timestamp), this.getWeights(), requestRetention);
+    async _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}, scope) {
+        const current = await query.getFlashcardFsrsState(cardId, scope);
+        const next = fsrs.nextState(current, rating, new Date(timestamp), await this.getWeights(scope), requestRetention);
         // Keep the app-wide `level` scalar in step with FSRS strength: map the new
         // interval to the nearest Leitner box so LevelDot, the box histogram, and
         // mastery counts stay meaningful regardless of the active algorithm.
         next.level = intervalToLeitnerLevel(next.interval);
-        query.updateFlashcardFsrs(cardId, next);
-        query.insertReviewLog({
+        await query.updateFlashcardFsrs(cardId, next, scope);
+        await query.insertReviewLog({
             flashcardId: cardId,
+            accountId: scope,
             timestamp,
             outcome: rating > 1 ? 1 : 0,   // keep the binary flag for legacy stats
             easeFactor: null,
@@ -182,24 +233,27 @@ class SRSService {
     // ignorant of the graph, exactly as it stays ignorant of the card-health classifier.
     // Absent for every non-trainer caller, and stored as NULL rather than 0 (see
     // migrations/009_session_ordering.js).
-    submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
+    async submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const timestamp = new Date().toISOString();
         const ordering = opts.ordering ?? {};
+        const scope = this._scope(opts.scope);
 
-        return db.transaction(() => {
-            const fc = query.getFlashcardByHash(flashcardHash);
+        return await db.transaction(async () => {
+            const fc = await query.getFlashcardByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
 
             if (algorithm === 'fsrs') {
-                const next = this._applyFsrs(
-                    fc.id, opts.rating, timestamp, opts.requestRetention, ordering,
+                const next = await this._applyFsrs(
+                    fc.id, opts.rating, timestamp, opts.requestRetention, ordering, scope,
                 );
-                return { documentId: fc.document_id, fsrs: next };
+                await this._mirrorProgress(scope, fc.id, flashcardHash);
+                return { documentId: fc.document_id, fsrs: next, scope };
             }
 
-            query.updateFlashcardReview(fc.id, timestamp, newLevel, algorithm);
-            query.insertReviewLog({
+            await query.updateFlashcardReview(fc.id, timestamp, newLevel, algorithm, scope);
+            await query.insertReviewLog({
                 flashcardId: fc.id,
+                accountId: scope,
                 timestamp,
                 outcome,
                 easeFactor,
@@ -207,8 +261,9 @@ class SRSService {
                 algorithm,
                 ...ordering,
             });
+            await this._mirrorProgress(scope, fc.id, flashcardHash, easeFactor);
 
-            return { documentId: fc.document_id, fsrs: null };
+            return { documentId: fc.document_id, fsrs: null, scope };
         })();
     }
 
@@ -217,21 +272,22 @@ class SRSService {
     // to a never-reviewed state when no reviews remain. Returns the document id
     // and the restored state ({ value, easeFactor, lastRecall }) so the caller can
     // mirror it into the sidecar; `restored` is null when there was nothing to undo.
-    undoReview(flashcardHash, algorithm = 'leitner') {
-        return db.transaction(() => {
-            const fc = query.getFlashcardByHash(flashcardHash);
+    async undoReview(flashcardHash, algorithm = 'leitner', scopeArg) {
+        const scope = this._scope(scopeArg);
+        return await db.transaction(async () => {
+            const fc = await query.getFlashcardByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
 
-            const removed = query.deleteLatestReviewLog(fc.id);
-            if (!removed) return { document_id: fc.document_id, restored: null };
+            const removed = await query.deleteLatestReviewLog(fc.id, scope);
+            if (!removed) return { document_id: fc.document_id, restored: null, scope };
 
-            const prev = query.getLatestReviewLog(fc.id);
+            const prev = await query.getLatestReviewLog(fc.id, scope);
 
             if (algorithm === 'fsrs') {
                 // Restore the FSRS state snapshotted on the now-latest log; if none
                 // remain the card reverts to new. reps/lapses aren't snapshotted per
                 // log, so reps is decremented best-effort (they don't affect scheduling).
-                const cur = query.getFlashcardFsrsState(fc.id);
+                const cur = await query.getFlashcardFsrsState(fc.id, scope);
                 const reps = Math.max(0, (cur?.reps ?? 1) - 1);
                 const restored = prev ? {
                     stability: prev.fsrs_stability,
@@ -243,10 +299,12 @@ class SRSService {
                     level: prev.level ?? 0,   // restore the display-strength scalar too
                     lastRecall: prev.timestamp,
                 } : null;
-                query.updateFlashcardFsrs(fc.id, restored
+                await query.updateFlashcardFsrs(fc.id, restored
                     ? { ...restored, last_review: restored.lastRecall }
-                    : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null });
-                return { document_id: fc.document_id, restored };
+                    : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null },
+                    scope);
+                await this._mirrorProgress(scope, fc.id, flashcardHash);
+                return { document_id: fc.document_id, restored, scope };
             }
 
             const restored = {
@@ -254,16 +312,18 @@ class SRSService {
                 easeFactor: prev ? prev.ease_factor : 2.5,
                 lastRecall: prev ? prev.timestamp : null,
             };
-            query.undoFlashcardReview(fc.id, restored.value, restored.lastRecall, algorithm);
+            await query.undoFlashcardReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
+            await this._mirrorProgress(scope, fc.id, flashcardHash, restored.easeFactor);
 
-            return { document_id: fc.document_id, restored };
+            return { document_id: fc.document_id, restored, scope };
         })();
     }
 
-    getLeitnerStats() {
-        const boxes = query.getLeitnerBoxes();
-        const total = query.getFlashcardCount();
-        const mastered = query.getMasteredFlashcardCount(5);
+    async getLeitnerStats(scopeArg) {
+        const scope = this._scope(scopeArg);
+        const boxes = await query.getLeitnerBoxes(scope);
+        const total = await query.getFlashcardCount();
+        const mastered = await query.getMasteredFlashcardCount(5, scope);
 
         return {
             boxes,
@@ -277,11 +337,12 @@ class SRSService {
     // caller can show before/after loss and review counts. requestRetention does
     // not affect the fit (the loss depends only on stability/difficulty), so it is
     // accepted for API symmetry but ignored by the math.
-    optimizeParameters() {
-        const histories = query.getAllReviewHistories();
+    async optimizeParameters(scopeArg) {
+        const scope = this._scope(scopeArg);
+        const histories = await query.getAllReviewHistories(scope);
         const result = fsrs.optimize(histories);
         if (result.optimized) {
-            query.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount);
+            await query.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount, scope);
         }
         return result;
     }
@@ -289,13 +350,14 @@ class SRSService {
     // Optimizer status for the Config panel: how many rated reviews exist, whether
     // the weights have been fitted, and when. optimizedAt === null ⇒ still on the
     // published defaults.
-    getFsrsInfo() {
-        const stored = query.getFsrsWeights();
+    async getFsrsInfo(scopeArg) {
+        const scope = this._scope(scopeArg);
+        const stored = await query.getFsrsWeights(scope);
         return {
             optimized: !!stored?.optimizedAt,
             optimizedAt: stored?.optimizedAt ?? null,
             weightReviewCount: stored?.reviewCount ?? null,
-            reviewCount: query.getAllReviewHistories().length,
+            reviewCount: (await query.getAllReviewHistories(scope)).length,
             minReviews: fsrs.MIN_OPTIMIZE_REVIEWS,
         };
     }
@@ -309,14 +371,15 @@ class SRSService {
     // streak }. `totals.retention*` covers the review phase only; `acquisition` reports
     // the learning phase separately (see LEARNING_REVIEWS). The returned `algorithm` is
     // the one actually used, so an MCP client can trust what it reads back.
-    getStatistics({ algorithm: requested = null } = {}) {
-        const algorithm = requested ?? this.detectAlgorithm();
+    async getStatistics({ algorithm: requested = null, scope: scopeArg = null } = {}) {
+        const scope = this._scope(scopeArg);
+        const algorithm = requested ?? await this.detectAlgorithm(scope);
         const DAY = 86400000;
         const MATURE_DAYS = 21;      // Anki's convention: interval ≥ 21d ⇒ "mature"
         const FORECAST_DAYS = 14;
 
-        const cards = query.getAllFlashcardSrsState();
-        const efMap = algorithm === 'sm2' ? query.getLatestEaseFactors() : null;
+        const cards = await query.getAllFlashcardSrsState(scope);
+        const efMap = algorithm === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
 
         // Scheduled interval / due date for a card under the active algorithm
         // (shared with getCardInsights — see the module-scope helpers).
@@ -355,21 +418,21 @@ class SRSService {
 
         const since30 = dayStr(-30);
         const since365 = dayStr(-364);
-        const allTotals = query.getReviewTotals();
-        const activity = query.getReviewActivity(since365);
+        const allTotals = await query.getReviewTotals(null, scope);
+        const activity = await query.getReviewActivity(since365, scope);
         const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
 
         // Retention is measured on the review phase only; the learning phase is
         // reported separately as acquisition (see LEARNING_REVIEWS).
-        const phaseAll = query.getReviewTotalsByPhase(LEARNING_REVIEWS);
-        const phase30 = query.getReviewTotalsByPhase(LEARNING_REVIEWS, since30);
-        const firstAll = query.getFirstExposureTotals();
-        const first30 = query.getFirstExposureTotals(since30);
+        const phaseAll = await query.getReviewTotalsByPhase(LEARNING_REVIEWS, null, scope);
+        const phase30 = await query.getReviewTotalsByPhase(LEARNING_REVIEWS, since30, scope);
+        const firstAll = await query.getFirstExposureTotals(null, scope);
+        const first30 = await query.getFirstExposureTotals(since30, scope);
 
         // Attempts each card needed before its first correct recall — the cost of
         // acquiring one card. Median alongside the mean because the distribution is
         // long-tailed (a handful of stubborn cards would otherwise dominate).
-        const attempts = query.getReviewsToFirstRecall().map(r => r.attempts).sort((a, b) => a - b);
+        const attempts = (await query.getReviewsToFirstRecall(scope)).map(r => r.attempts).sort((a, b) => a - b);
         const median = attempts.length === 0 ? null
             : attempts.length % 2
                 ? attempts[(attempts.length - 1) / 2]
@@ -437,16 +500,17 @@ class SRSService {
      * Returns { algorithm, srs, history, curve }; `curve` is null for a card that
      * has never been reviewed (there is no memory state to model yet).
      */
-    getCardInsights(hash, { algorithm: requested = null } = {}) {
-        const algorithm = requested ?? this.detectAlgorithm();
-        const state = query.getFlashcardSrsStateByHash(hash);
+    async getCardInsights(hash, { algorithm: requested = null, scope: scopeArg = null } = {}) {
+        const scope = this._scope(scopeArg);
+        const algorithm = requested ?? await this.detectAlgorithm(scope);
+        const state = await query.getFlashcardSrsStateByHash(hash, scope);
         if (!state) throw new Error(`Card not found: ${hash}`);
 
         // Same guard as the SQL: a missing or degenerate ease factor means 2.5.
         const easeFactor = state.ease_factor != null && state.ease_factor >= 1.3
             ? state.ease_factor : 2.5;
 
-        const history = query.getFlashcardReviewHistory(state.id).map(r => ({
+        const history = (await query.getFlashcardReviewHistory(state.id, scope)).map(r => ({
             id: r.id,
             at: r.timestamp,
             // Pre-migration-006 rows carry no algorithm. FSRS is still identifiable
@@ -496,7 +560,7 @@ class SRSService {
                 syntheticEntries: history.length - real.length,
             },
             history,
-            curve: this._buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt),
+            curve: await this._buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope),
         };
     }
 
@@ -513,7 +577,7 @@ class SRSService {
      * equivalence migrateProgress uses to seed FSRS stability, so a card migrated
      * into FSRS keeps the curve it had. `model` tells the UI to say so.
      */
-    _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt) {
+    async _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope) {
         if (!reviewed) return null;
 
         const originAt = state.last_recall
@@ -527,7 +591,7 @@ class SRSService {
             : Math.max(intervalDays, 1);
         if (!(stabilityDays > 0)) return null;
 
-        const weights = this.getWeights();
+        const weights = await this.getWeights(scope);
         const elapsedNow = Math.max(0, (Date.now() - new Date(originAt).getTime()) / DAY_MS);
         const horizonDays = Math.max(intervalDays * 2, elapsedNow * 1.15, 1);
 
@@ -555,10 +619,14 @@ class SRSService {
         };
     }
 
-    migrateProgress(from, to) {
+    // Translates ONE PERSON's progress from one algorithm's scale to another. Everyone
+    // studying the vault picks their own scheduler and migrates their own history; nothing
+    // here touches anyone else's rows.
+    async migrateProgress(from, to, scopeArg) {
+        const scope = this._scope(scopeArg);
         if (from === to) return 0;
 
-        const cards = query.getAllFlashcardSrsState();
+        const cards = await query.getAllFlashcardSrsState(scope);
         if (cards.length === 0) return 0;
 
         if (from === 'leitner' && to === 'sm2') {
@@ -566,17 +634,17 @@ class SRSService {
                 global_hash: c.global_hash,
                 sm2_reps: leitnerToSm2Reps(c.level ?? 0),
             }));
-            query.batchSetSm2Reps(translated);
+            await query.batchSetSm2Reps(translated, scope);
             return translated.length;
         }
 
         if (from === 'sm2' && to === 'leitner') {
-            const efMap = query.getLatestEaseFactors();
+            const efMap = await query.getLatestEaseFactors(scope);
             const translated = cards.map(c => ({
                 global_hash: c.global_hash,
                 level: sm2RepsToLeitnerLevel(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5),
             }));
-            query.batchSetLeitnerLevel(translated);
+            await query.batchSetLeitnerLevel(translated, scope);
             return translated.length;
         }
 
@@ -584,7 +652,7 @@ class SRSService {
         // previous algorithm (stability ≈ the interval that yields ~90% retention),
         // difficulty at a neutral default. Best-effort — the optimizer refines later.
         if (to === 'fsrs') {
-            const efMap = from === 'sm2' ? query.getLatestEaseFactors() : null;
+            const efMap = from === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
             const seeded = cards.map(c => {
                 const interval = from === 'sm2'
                     ? sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5)
@@ -603,7 +671,7 @@ class SRSService {
                     lastRecall: c.last_recall ?? null,
                 };
             });
-            query.batchSetFsrsState(seeded);
+            await query.batchSetFsrsState(seeded, scope);
             return seeded.length;
         }
 
@@ -617,7 +685,7 @@ class SRSService {
                     global_hash: c.global_hash,
                     level: intervalToLeitnerLevel(toInterval(c)),
                 }));
-                query.batchSetLeitnerLevel(translated);
+                await query.batchSetLeitnerLevel(translated, scope);
                 return translated.length;
             }
             if (to === 'sm2') {
@@ -625,7 +693,7 @@ class SRSService {
                     global_hash: c.global_hash,
                     sm2_reps: intervalToSm2Reps(toInterval(c)),
                 }));
-                query.batchSetSm2Reps(translated);
+                await query.batchSetSm2Reps(translated, scope);
                 return translated.length;
             }
         }
@@ -636,9 +704,10 @@ class SRSService {
     // `algorithm` decides how dueness is computed; when the caller can't supply it
     // (no browser, so no localStorage) it's inferred from review history rather than
     // assumed — see detectAlgorithm. The echoed `algorithm` is the one actually used.
-    getDue({ algorithm: requested = null, folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}) {
-        const algorithm = requested ?? this.detectAlgorithm();
-        const result = query.getDueFlashcards({ algorithm, folder, deck, tags, maxNew, minPriority });
+    async getDue({ algorithm: requested = null, folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0, scope: scopeArg = null } = {}) {
+        const scope = this._scope(scopeArg);
+        const algorithm = requested ?? await this.detectAlgorithm(scope);
+        const result = await query.getDueFlashcards({ algorithm, folder, deck, tags, maxNew, minPriority }, scope);
         return {
             algorithm,
             due: result.due,

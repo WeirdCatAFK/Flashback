@@ -21,10 +21,24 @@ const router = Router();
  * NOT authentication. Nothing validates any of this and nothing gates on it; a Flashback
  * Server must treat an identity a client asserts as exactly that. What authorizes a remote
  * is its access token.
+ *
+ * `account` is the other half of that sentence, and the two must not be confused. The top
+ * level is the INSTALL's self-asserted identity; `account` is who the caller actually
+ * authenticated as, resolved from their token, and it is the one that is real. On a desktop
+ * install they are the same person and always will be. On a server they are not: the install
+ * is a machine, and what gets stamped on the caller's work is their account, not the
+ * machine's identity. It is here rather than only on `GET /api/accounts` because that route
+ * is admin-only, and every role deserves to be able to ask who it is.
  */
 router.get('/', (req, res) => {
     const { name, email, source } = getIdentity();
-    res.json({ name, email, source, author: getAuthorString() });
+    res.json({
+        name, email, source,
+        author: getAuthorString(),
+        account: req.account
+            ? { id: req.account.id, name: req.account.name, email: req.account.email, role: req.account.role }
+            : null,
+    });
 });
 
 export default router;

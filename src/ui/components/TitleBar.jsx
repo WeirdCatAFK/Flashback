@@ -9,6 +9,7 @@
 
 import { useT } from '../translations';
 import VaultSwitcher from './VaultSwitcher.jsx';
+import RoleBadge from './RoleBadge.jsx';
 
 function WindowControls() {
   const { t } = useT();
@@ -48,6 +49,10 @@ export default function TitleBar({ onSearch, connection, onManageVaults }) {
           <>
             <span id="title-bar-sep" aria-hidden="true" />
             <VaultSwitcher connection={connection} onManageVaults={onManageVaults} />
+            {/* And after the vault, your role on it — the other thing that changes when you
+                move between places, and the reason the UI looks different here. Renders
+                nothing on a local vault. */}
+            <RoleBadge connection={connection} />
           </>
         )}
       </div>

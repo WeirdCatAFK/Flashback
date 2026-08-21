@@ -25,8 +25,8 @@ const catchError = (fn) => (req, res, next) =>
     });
 
 // GET /api/decks
-router.get('/', catchError((req, res) => {
-    res.json(decks.listDecks());
+router.get('/', catchError(async (req, res) => {
+    res.json(await decks.listDecks());
 }));
 
 // POST /api/decks
@@ -44,7 +44,7 @@ router.post('/', catchError(async (req, res) => {
 // signature. This is the vault-wide view of what the classifier has raised — a filter on
 // the card browser rather than a separate inbox, so flagged cards stay in the one place
 // cards are already hunted down. Each row's `flags` is a comma-joined kind list.
-router.get('/cards', catchError((req, res) => {
+router.get('/cards', catchError(async (req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
     const cardType = req.query.cardType || null;
@@ -57,14 +57,14 @@ router.get('/cards', catchError((req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 200);
     const offset = parseInt(req.query.offset) || 0;
     const filters = { search, level, cardType, origin, flagged, flagKind };
-    const cards = decks.searchCards({ ...filters, sortBy, sortDir, limit, offset });
-    const total = decks.getCardCount(filters);
+    const cards = await decks.searchCards({ ...filters, sortBy, sortDir, limit, offset });
+    const total = await decks.getCardCount(filters);
     res.json({ cards, total, limit, offset });
 }));
 
 // GET /api/decks/:hash
-router.get('/:hash', catchError((req, res) => {
-    res.json(decks.getDeck(req.params.hash));
+router.get('/:hash', catchError(async (req, res) => {
+    res.json(await decks.getDeck(req.params.hash));
 }));
 
 // PUT /api/decks/:hash
@@ -86,8 +86,8 @@ router.delete('/:hash', catchError(async (req, res) => {
 // What erasing this deck *and its cards* would destroy — counts split by standalone
 // vs document-anchored, plus how many cards another (non-system) deck also holds.
 // Read-only; exists so a client can say exactly what it is about to delete.
-router.get('/:hash/contents', catchError((req, res) => {
-    res.json(decks.getContentsSummary(req.params.hash));
+router.get('/:hash/contents', catchError(async (req, res) => {
+    res.json(await decks.getContentsSummary(req.params.hash));
 }));
 
 // POST /api/decks/:hash/purge
@@ -103,7 +103,7 @@ router.post('/:hash/purge', catchError(async (req, res) => {
     const includeShared = req.body?.includeShared === true;
     const { hash } = req.params;
 
-    const { standalone, anchored, kept } = decks.getPurgeTargets(hash, { includeShared });
+    const { standalone, anchored, kept } = await decks.getPurgeTargets(hash, { includeShared });
 
     for (const cardHash of standalone) {
         await decks.deleteStandaloneCard(cardHash);
