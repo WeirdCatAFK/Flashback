@@ -46,6 +46,8 @@ const tests = [
     'tests/perUserSrs.test.js',
     'tests/conflicts.test.js',
     'tests/sequencing.test.js',
+    'tests/capabilities.test.js',
+    'tests/connection.test.js',
     'tests/translations.test.js',
     'tests/stats.test.js',
     'tests/diary.test.js',

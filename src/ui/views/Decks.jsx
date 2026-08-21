@@ -11,6 +11,7 @@ import { LoadingState, ErrorState } from '../components/shared/StateView';
 import { useConfirm } from '../components/shared/ConfirmDialog';
 import { useDataInvalidation, invalidateData } from '../utils/dataBus';
 import { Rich, useT } from '../translations';
+import { useSession } from '../sessionContext.js';
 import './Decks.css';
 
 // ── Hooks ────────────────────────────────────────────────────────────────────
@@ -160,6 +161,7 @@ function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
 
 function CardRow({ entry, onRemove }) {
     const { t } = useT();
+    const { can } = useSession();
     const front = entry.frontText || entry.card_name || t('(untitled)');
     // A type_answer card's second line is what it asks you to produce, not the notes
     // shown afterwards (and on a card predating that split, backText IS the answer).
@@ -182,7 +184,9 @@ function CardRow({ entry, onRemove }) {
                 )}
                 {docName && <span className="card-doc-badge" title={entry.document_path}>{docName}</span>}
             </div>
-            <button type="button" className="card-row-remove" title={t('Remove from deck')} onClick={onRemove}>×</button>
+            {can('manageDecks') && (
+                <button type="button" className="card-row-remove" title={t('Remove from deck')} onClick={onRemove}>×</button>
+            )}
         </div>
     );
 }
@@ -191,6 +195,8 @@ function CardRow({ entry, onRemove }) {
 
 function DeckTags({ deckHash, tags, onChanged }) {
     const { t } = useT();
+    const { can } = useSession();
+    const mayEdit = can('manageDecks');
     const [allTags, setAllTags] = useState([]);
     const [saving, setSaving] = useState(false);
 
@@ -211,14 +217,24 @@ function DeckTags({ deckHash, tags, onChanged }) {
     return (
         <div className="deck-tags" aria-busy={saving}>
             <span className="deck-tags-label">{t('Tags')}</span>
-            <TagChipInput
-                tags={tags}
-                onAdd={addTag}
-                onRemove={removeTag}
-                allKnownTags={allTags}
-                placeholder={t('Add a tag…')}
-                chipClass="tag-chip--direct"
-            />
+            {mayEdit ? (
+                <TagChipInput
+                    tags={tags}
+                    onAdd={addTag}
+                    onRemove={removeTag}
+                    allKnownTags={allTags}
+                    placeholder={t('Add a tag…')}
+                    chipClass="tag-chip--direct"
+                />
+            ) : (
+                // Read-only: the tags still matter to a Reader (they flow down to the cards
+                // they study), so they are shown — just not as an editor.
+                <div className="tags-chip-row">
+                    {tags.length === 0
+                        ? <span className="deck-tags-hint">{t('No tags.')}</span>
+                        : tags.map(tag => <span key={tag} className="tag-chip tag-chip--direct">{tag}</span>)}
+                </div>
+            )}
             <span className="deck-tags-hint">{t('Tags flow down to every card in this deck.')}</span>
         </div>
     );
@@ -228,6 +244,7 @@ function DeckTags({ deckHash, tags, onChanged }) {
 
 function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
     const { t, tp } = useT();
+    const { can } = useSession();
     const confirm = useConfirm();
     const [deck, setDeck] = useState(null);
     const [loading, setLoading] = useState(true);
@@ -343,7 +360,9 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                         </form>
                     ) : (
                         <>
-                            <h2 className="deck-detail-name" onDoubleClick={startEditMeta} title={t('Double-click to edit')}>
+                            <h2 className="deck-detail-name"
+                                onDoubleClick={can('manageDecks') ? startEditMeta : undefined}
+                                title={can('manageDecks') ? t('Double-click to edit') : undefined}>
                                 {deck.name}
                             </h2>
                             <div className="deck-detail-meta">
@@ -353,10 +372,10 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                                     placeholder is rendered rather than the line collapsing. */}
                                 <span
                                     className={`deck-detail-desc${deck.description ? '' : ' deck-detail-desc--empty'}`}
-                                    onDoubleClick={startEditMeta}
-                                    title={t('Double-click to edit')}
+                                    onDoubleClick={can('manageDecks') ? startEditMeta : undefined}
+                                    title={can('manageDecks') ? t('Double-click to edit') : undefined}
                                 >
-                                    {deck.description || t('Add a description…')}
+                                    {deck.description || (can('manageDecks') ? t('Add a description…') : '')}
                                 </span>
                                 {!!deck.is_system && <span className="deck-system-badge deck-system-badge--detail">{t('Standalone cards live here')}</span>}
                             </div>
@@ -367,11 +386,13 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
                     {deck.entries?.length > 0 && (
                         <button type="button" className="deck-btn primary" onClick={() => onStudy(deck)}>{t('▶ Study')}</button>
                     )}
-                    {!!deck.is_system && (
+                    {!!deck.is_system && can('editCards') && (
                         <button type="button" className="deck-btn" onClick={() => setShowNewCard(true)}>{t('+ New card')}</button>
                     )}
-                    <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>{t('+ Add cards')}</button>
-                    {!deck.is_system && (
+                    {can('manageDecks') && (
+                        <button type="button" className="deck-btn" onClick={() => setShowAddPanel(v => !v)}>{t('+ Add cards')}</button>
+                    )}
+                    {!deck.is_system && can('manageDecks') && (
                         <>
                             <button type="button" className="deck-btn danger" onClick={handleDelete}>{t('Delete')}</button>
                             {/* Separate action, not a variant of Delete: this one destroys
@@ -432,6 +453,7 @@ function DeckDetail({ deckHash, onDeleted, onRefreshList, onStudy }) {
 
 export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed }) {
     const { t, tp } = useT();
+    const { can } = useSession();
     const { decks, loading, error, refresh } = useDecks();
     const [activeDeck, setActiveDeck] = useState(null);
 
@@ -516,15 +538,19 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                 <div className="decks-panel-header">
                     <span className="decks-panel-title">{t('Decks')}</span>
                     <div className="decks-panel-actions">
-                        <button type="button" className="decks-panel-import" title={t('Import an Anki deck (.apkg) or Obsidian vault (.zip)')}
-                            onClick={() => importInputRef.current?.click()} aria-label={t('Import deck')}>
-                            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                                <path d="M12 12L8 8L4 12"/>
-                                <line x1="8" y1="8" x2="8" y2="15"/>
-                                <rect x="2" y="2" width="12" height="4" rx="1"/>
-                            </svg>
-                        </button>
-                        <button type="button" className="decks-panel-new" title={t('New deck')} onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                        {can('importDocuments') && (
+                            <button type="button" className="decks-panel-import" title={t('Import an Anki deck (.apkg) or Obsidian vault (.zip)')}
+                                onClick={() => importInputRef.current?.click()} aria-label={t('Import deck')}>
+                                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
+                                    <path d="M12 12L8 8L4 12"/>
+                                    <line x1="8" y1="8" x2="8" y2="15"/>
+                                    <rect x="2" y="2" width="12" height="4" rx="1"/>
+                                </svg>
+                            </button>
+                        )}
+                        {can('manageDecks') && (
+                            <button type="button" className="decks-panel-new" title={t('New deck')} onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+                        )}
                     </div>
                     <input
                         ref={importInputRef}
@@ -544,7 +570,10 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
                         </div>
                     )}
                     {!loading && !error && decks.length === 0 && !creating && (
-                        <div className="decks-empty">{t('No decks yet.')}<br />{t('Click + to create one.')}</div>
+                        <div className="decks-empty">
+                            {t('No decks yet.')}
+                            {can('manageDecks') && <><br />{t('Click + to create one.')}</>}
+                        </div>
                     )}
                     {decks.map(deck => (
                         <div key={deck.global_hash}

@@ -8,7 +8,12 @@ import IconDiary from "../components/icons/IconDiary";
 import { useT } from "../translations";
 
 /**
- * Diary — a per-day study record living OUTSIDE the workspace (see DATAMODEL.md § Diary).
+ * Logs — a per-day study record living OUTSIDE the workspace (see DATAMODEL.md § Diary).
+ *
+ * Called "Diary" everywhere below the UI — the route is `/api/diary`, the directory is
+ * `diary/`, the preference is `fb-diary-enabled` — and renaming any of those would be a
+ * migration that bought nothing and silently reset everyone's opt-in. The LABEL changed
+ * because on a shared server the name was misleading: see the privacy note rendered below.
  * Two pieces per date: a machine-written summary (rendered read-only from JSON) and
  * an optional user-written markdown entry. This view deliberately offers no flashcard
  * creation or highlighting — the diary is metadata about studying, not study material,
@@ -86,7 +91,7 @@ function SummaryPanel({ state, summary }) {
     return (
       <EmptyState
         title={t('No summary for this day')}
-        message={t('Summaries are written automatically when you finish a study session (with the diary enabled). Use “Rebuild from history” above to re-derive them from your review log.')}
+        message={t('Summaries are written automatically when you finish a study session (with logging enabled). Use “Rebuild from history” above to re-derive them from your review log.')}
       />
     );
   }
@@ -216,8 +221,11 @@ function EntryEditor({ date, loading, content, onSaved }) {
 
 // ── View ───────────────────────────────────────────────────────────────────────
 
-export default function DiaryView({ isActive }) {
+export default function DiaryView({ isActive, connection }) {
   const { t, locale } = useT();
+  // Only on a remote. On a local vault the warning would be false — there is one account and
+  // nobody else to read anything — and a false warning teaches people to ignore true ones.
+  const shared = connection?.kind === 'remote';
   const today = useMemo(() => todayIso(), []);
   const [selectedDate, setSelectedDate] = useState(today);
 
@@ -290,14 +298,14 @@ export default function DiaryView({ isActive }) {
     return [{ date: today, hasSummary: false, hasEntry: false }, ...list];
   }, [dates, today]);
 
-  if (dates === null) return <LoadingState message={t('Loading diary…')} />;
+  if (dates === null) return <LoadingState message={t('Loading logs…')} />;
 
   return (
     <div className="diary">
       <aside className="diary-rail">
         <div className="diary-rail-head">
           <IconDiary size={18} />
-          <span>{t('Diary')}</span>
+          <span>{t('Logs')}</span>
         </div>
         {datesError && <p className="diary-rail-error">{t('Couldn’t load dates.')}</p>}
         <ul className="diary-date-list">
@@ -337,6 +345,12 @@ export default function DiaryView({ isActive }) {
             </button>
           </div>
         </header>
+
+        {shared && (
+          <p className="diary-privacy-note" role="note">
+            {t('These logs are stored in this server’s vault, in one history shared with everyone else studying here. An administrator can read your summaries and anything you write. Keep private reflections elsewhere.')}
+          </p>
+        )}
 
         <SummaryPanel state={summaryState} summary={summary} />
         <EntryEditor date={selectedDate} loading={entryLoading} content={entry} onSaved={onEntrySaved} />

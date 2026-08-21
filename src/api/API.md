@@ -970,9 +970,19 @@ Identity and lifecycle of the vault this server is currently serving.
 | `appVersion`         | string   | Version of the Flashback build answering.                                       |
 | `schemaVersion`      | number   | Highest applied migration — describes this **database**.                        |
 | `canonicalVersion`   | number   | Highest applied canonical update — describes how far the vault's **files** have been brought forward. |
-| `capabilities`       | string[] | Optional features this server offers. Empty today; lets a server announce sync or multi-user without moving either version number. |
+| `capabilities`       | string[] | Optional features this deployment offers, so a client can decide what to show without probing. |
 
 The two versions are separate on purpose and are the compatibility contract: a client that understands neither should refuse to write rather than guess.
+
+`capabilities` carries **server features, not roles** — the caller's own role is already on `GET /api/identity`, and repeating it here would put the same fact in two places. Three values are emitted today:
+
+| Value | Meaning |
+| --- | --- |
+| `accounts` | `/api/accounts` is mounted, so a client may offer a people-management panel. Always present. |
+| `requireAuth` | An anonymous caller is refused rather than treated as the Author. Set by a server build; absent on a desktop install. |
+| `singleVault` | One vault per process: `POST /api/vault/switch` and `/release` are unmounted and answer `404`. |
+
+The renderer uses these to decide whether to show its **Server** tab at all, which is why they describe the deployment rather than the person.
 
 ---
 
@@ -1057,7 +1067,9 @@ Three rules a ladder of roles cannot express are enforced here, where the actor 
 **Response** `200` — `{ accounts: [{ id, name, email, role, active, createdAt, tokens: [{ id, label, createdAt, lastUsedAt, revokedAt, active }] }], you }`. Never a hash, never a plaintext.
 
 ### `POST /api/accounts`
-**Body** `{ name, email, role }` → `201` with the account. `403` if the role exceeds the caller's grant ceiling.
+**Body** `{ name, email, role }` → `201` with the account.
+
+Two refusals, and the status distinguishes them: a `role` that is **not a role** (missing, misspelled) is `400`, because the request is malformed; a role the caller **may not grant** is `403`, because that is a permission decision. Answering `403` to both told a client it lacked a permission when its payload was simply wrong.
 
 ### `PATCH /api/accounts/:id`
 **Body** `{ role?, active? }` → `200` with the updated account.
@@ -1067,6 +1079,11 @@ Three rules a ladder of roles cannot express are enforced here, where the actor 
 
 ### `DELETE /api/accounts/tokens/:tokenId`
 → `200` `{ ok: true }`. Idempotent; re-revoking keeps the original timestamp.
+
+### `GET /api/accounts/:id/progress`
+Admin. **Query** `?algorithm=` (optional) → `200` `{ account, scope, statistics }`. The study summary for **one other person** — the only endpoint in the API that reads a schedule that is not the caller's, which is why it lives under `accounts` (where the role guard already is) rather than under `srs` (where every route is deliberately about yourself).
+
+`scope` is the account id, or the literal `'owner'` when the target is the Author — the sentinel from `requestContext.js`, surfaced so a caller can see which store the numbers came from. `statistics` is the same shape `GET /api/srs/statistics` returns. `404` for an account that does not exist.
 
 ### `POST /api/accounts/pure-token`
 Author only. **Body** `{ label? }` → `201` `{ token, accountId, revoked, notice }`. Mints the token that proves ownership and revokes every previous Author token in the same transaction. If the store is unreachable or the token is lost, `npm run pure-token` does the same thing from the terminal against `accounts.db` directly — physical access to the file is the authorization, which is the same bargain every database makes.

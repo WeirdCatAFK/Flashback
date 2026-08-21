@@ -118,7 +118,10 @@
   transition: background var(--dur-fast) var(--ease-out);
 }
 
-.cd-edit-btn:hover { background: var(--color-bg-hover); }
+.cd-edit-btn:hover:not(:disabled) { background: var(--color-bg-hover); }
+/* Disabled because the role forbids it, not because the app is busy — the tooltip says which
+   role, so the control stays legible instead of just going dead. */
+.cd-edit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 /* ── Sections ───────────────────────────────────────────────────────────────── */
 

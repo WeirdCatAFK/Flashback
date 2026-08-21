@@ -832,6 +832,8 @@ export default function ConfigView({
   const [restartPending, setRestartPending] = useState(false);
   const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder } = useSrsPrefs();
   const { enabled: diaryEnabled, setEnabled: setDiaryEnabled } = useDiaryPref();
+  // The privacy half of the Logs copy is true only where other people can read it.
+  const isRemote = connection?.kind === 'remote';
 
   // Algorithm migration confirm state.
   const [pendingAlgo, setPendingAlgo] = useState(null); // algorithm the user selected but hasn't confirmed
@@ -1094,13 +1096,15 @@ export default function ConfigView({
         </table>
       </section>
 
+      {/* "Logs" here, `fb-diary-enabled` and /api/diary underneath — see the note on
+          navLabels() in App.jsx for why only the label moved. */}
       <section className="config-section">
-        <h2 className="config-heading">{t('Diary')}</h2>
+        <h2 className="config-heading">{t('Logs')}</h2>
         <table className="config-table">
           <tbody>
             <tr>
               <td>
-                <label htmlFor="diary-enabled">{t('Study diary')}</label>
+                <label htmlFor="diary-enabled">{t('Study log')}</label>
               </td>
               <td>
                 <label className="config-checkbox">
@@ -1113,7 +1117,9 @@ export default function ConfigView({
                   <span>{t('Record a daily summary when a study session finishes')}</span>
                 </label>
                 <p className="config-hint">
-                  {t('Writes a per-day summary of your reviews (counts, pass rate, streak) to a private diary kept outside your workspace — never in the graph, search, or flashcards. You can also add your own written reflections. Off by default.')}
+                  {isRemote
+                    ? t('Writes a per-day summary of your reviews (counts, pass rate, streak) to this server’s vault, outside its workspace — never in the graph, search, or flashcards. You can also add your own written reflections. One shared history holds every studier’s entries, and an administrator can read yours, so keep private reflections elsewhere. Off by default.')
+                    : t('Writes a per-day summary of your reviews (counts, pass rate, streak) to a private diary kept outside your workspace — never in the graph, search, or flashcards. You can also add your own written reflections. Off by default.')}
                 </p>
               </td>
             </tr>

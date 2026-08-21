@@ -341,27 +341,44 @@ const IS_WINDOWS = process.platform === 'win32';
 const RUNTIME = path.basename(process.execPath);   // node.exe | node
 const LAUNCHER = IS_WINDOWS ? 'flashback-server.cmd' : 'flashback-server.sh';
 
+// `.env` is resolved against the LAUNCHER's directory, not the shell's — `--env-file` takes a
+// path relative to the working directory, so a bare `.env` would silently find nothing when
+// someone runs the server from anywhere but the extracted folder. `$DIR`/`%~dp0` is the same
+// anchor the launcher already uses for `server.mjs` and the default `USER_DATA_PATH`.
+//
+// `-if-exists` rather than plain `--env-file`: the file is optional here, and plain
+// `--env-file` turns a missing one into a hard startup failure. A real environment variable
+// still wins over a line in the file, so the file is a set of defaults, not an override.
+const ENV_FILE_WIN = '--env-file-if-exists="%~dp0.env"';
+const ENV_FILE_SH  = '--env-file-if-exists="$DIR/.env"';
+
 if (IS_WINDOWS) {
     fs.writeFileSync(path.join(stage, LAUNCHER),
         '@echo off\r\n' +
-        'REM Flashback Server. Set FLASHBACK_* variables here or in the environment;\r\n' +
-        'REM see README.txt. USER_DATA_PATH decides where the vault lives.\r\n' +
+        'REM the environment (which wins). See README.txt and .env.example.\r\n' +
+        'REM USER_DATA_PATH decides where the vault lives.\r\n' +
         'if "%USER_DATA_PATH%"=="" set USER_DATA_PATH=%~dp0data\r\n' +
-        `${WITH_NODE ? `"%~dp0${RUNTIME}"` : 'node'} "%~dp0server.mjs" %*\r\n`);
+        `${WITH_NODE ? `"%~dp0${RUNTIME}"` : 'node'} ${ENV_FILE_WIN} "%~dp0server.mjs" %*\r\n`);
 } else {
     // LF line endings, necessarily: a CRLF shebang gives "bad interpreter: /bin/sh^M".
     // The executable bit is stamped into the zip entry rather than taken from disk — see
     // the zip step, and note that setting it here does nothing at all on Windows.
     fs.writeFileSync(path.join(stage, LAUNCHER),
         '#!/bin/sh\n' +
-        '# Flashback Server. Set FLASHBACK_* variables here or in the environment;\n' +
-        '# see README.txt. USER_DATA_PATH decides where the vault lives.\n' +
+        '# Flashback Server. Set FLASHBACK_* variables in .env beside this file, or in the\n' +
+        '# environment (which wins). See README.txt and .env.example.\n' +
+        '# USER_DATA_PATH decides where the vault lives.\n' +
         'DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)\n' +
         ': "${USER_DATA_PATH:=$DIR/data}"\n' +
         'export USER_DATA_PATH\n' +
-        `exec ${WITH_NODE ? `"$DIR/${RUNTIME}"` : 'node'} "$DIR/server.mjs" "$@"\n`,
+        `exec ${WITH_NODE ? `"$DIR/${RUNTIME}"` : 'node'} ${ENV_FILE_SH} "$DIR/server.mjs" "$@"\n`,
         { mode: 0o755 });
 }
+
+// The template ships INSIDE the zip; a real `.env` never does. Someone copies it, edits it,
+// and the launcher picks it up — and an upgrade that replaces the folder does not carry
+// their secrets along with it.
+fs.copyFileSync(path.join(root, '.env.example'), path.join(stage, '.env.example'));
 
 fs.writeFileSync(path.join(stage, 'README.txt'),
 `Flashback Server ${pkg.version}  (${platform})
@@ -374,7 +391,9 @@ ${WITH_NODE
 On the FIRST start an author token is printed once. Copy it — only its SHA-256 is stored,
 so it cannot be shown again. Use it to add this server as a remote in the desktop app.
 
-CONFIGURE (environment variables)
+CONFIGURE
+  Copy .env.example to .env beside this file, or set these in the environment (which wins).
+
   USER_DATA_PATH              where the vault lives      (default: ./data beside this file)
   FLASHBACK_PORT              port to listen on          (default: 50500)
   FLASHBACK_HOST              interface to bind          (default: 0.0.0.0)

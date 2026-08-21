@@ -15,6 +15,7 @@ import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
 import { toLayoutRect, useUiZoomChange } from '../../utils/uiZoom';
 import { useT } from '../../translations';
+import { useSession } from '../../sessionContext.js';
 import './DocumentEditor.css';
 
 function pickRenderer(path) {
@@ -33,6 +34,7 @@ const DEFAULT_HL_COLOR = 'amber';
 
 export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate, relocation }) {
   const { t } = useT();
+  const { can } = useSession();
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -64,9 +66,16 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   // `supportsHighlight` flag (see useHighlightableRenderer). DocumentEditor
   // stays agnostic about which renderers those are.
   const activeRenderer = pickRenderer(activeTab);
-  const supportsHighlight = !!activeRenderer?.supportsHighlight;
-  // Editable renderers (markdown/text) get a visible Save button in the tab bar.
-  const editable = !!activeRenderer?.editable;
+  // Editable renderers (markdown/text) get a visible Save button in the tab bar — but only
+  // for someone who may write a body. For those two formats the highlights ARE the body
+  // (marks in the prose), so annotating one is the same `PUT /file` as editing it; see the
+  // `editDocumentBody` note in shared/roles.js. Every other renderer persists its highlights
+  // through the sidecar and is unaffected — which is why `supportsHighlight` below has to be
+  // computed AFTER this pair, not before it.
+  const writesBody = !!activeRenderer?.editable;
+  const mayWriteBody = !writesBody || can('editDocumentBody');
+  const editable = writesBody && mayWriteBody;
+  const supportsHighlight = !!activeRenderer?.supportsHighlight && mayWriteBody;
   const isActiveDirty = dirtyPaths.has(activeTab);
 
   // Reset selection and inspector panel inline when the active file changes.
@@ -440,6 +449,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
               <Renderer
                 key={`${activeTab}:${dataVersion}`}
                 path={activeTab}
+                readOnly={!mayWriteBody}
                 onDirtyChange={handleDirtyChange}
                 saveRef={saveRef}
                 highlightRef={highlightRef}

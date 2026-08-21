@@ -74,4 +74,11 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # Not `npm start`: npm swallows SIGTERM, so the container would be killed after the grace
 # period instead of shutting down cleanly — and a clean shutdown is what checkpoints the WAL
 # and flushes Seal's pending commits (see src/server/main.js).
-CMD ["node", "src/server/main.js"]
+#
+# `--env-file-if-exists` reads /data/.env when there is one — on the VOLUME, not in the image,
+# because the volume is the only place a deployment can put a file. It is a convenience for
+# `docker run -v`; under Compose, `environment:` and `env_file:` are the idiomatic route and
+# reach the process as real environment variables. Either way the real environment WINS over
+# the file, so a value passed with -e is never shadowed by a stale line on the volume. The
+# `-if-exists` form matters: plain `--env-file` makes a missing file a hard startup failure.
+CMD ["node", "--env-file-if-exists=/data/.env", "src/server/main.js"]

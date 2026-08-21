@@ -57,11 +57,13 @@
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js",
     "bench:reviews": "node scripts/with-system-sqlite.js node scripts/bench-reviews.js",
-    "server": "node src/server/main.js",
+    "server": "node --env-file-if-exists=.env src/server/main.js",
     "server:dev": "npm run rebuild && node src/server/main.js",
     "test:server": "node --test tests/server.test.js",
     "package:server": "node scripts/package-server.js",
-    "package:server:standalone": "node scripts/package-server.js --with-node"
+    "package:server:standalone": "node scripts/package-server.js --with-node",
+    "test:capabilities": "node --test tests/capabilities.test.js",
+    "test:connection": "node --test tests/connection.test.js"
   },
   "repository": {
     "type": "git",

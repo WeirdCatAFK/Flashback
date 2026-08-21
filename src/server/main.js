@@ -125,6 +125,9 @@ async function shutdown(api, signal) {
     }
 }
 
+/** Bind addresses that mean "every interface" and are never a destination. */
+const UNSPECIFIED_HOSTS = new Set(['0.0.0.0', '::', '[::]']);
+
 export default async function main() {
     const opened = await openVault({
         onFatal: (msg) => console.error(`${msg} Shutting down.`),
@@ -136,7 +139,17 @@ export default async function main() {
     const api = new Api({ ...config, apiToken: authorToken ?? null });
     await api.start();
 
-    console.log(`Flashback Server — vault "${config.vaultName}" on ${config.host}:${config.port}`);
+    console.log(`Flashback Server — vault "${config.vaultName}", listening on ${config.host}:${config.port}`);
+    // 0.0.0.0 and :: are BIND addresses — "every interface" — and are not addresses anything
+    // connects to. Printing one as though it were a destination is how it ends up pasted into
+    // a client: Node's fetch will happily resolve it, so the handshake passes, and then the
+    // renderer (Chromium, which refuses the unspecified address outright) cannot reach the
+    // server at all. Say what to connect to instead.
+    if (UNSPECIFIED_HOSTS.has(config.host)) {
+        console.log(`  Connect clients to  http://<this machine>:${config.port}  ` +
+                    `(http://localhost:${config.port} from this computer).`);
+        console.log('  Do not use the bind address above as a client URL.');
+    }
     console.log('Authentication is required for every /api route.');
 
     for (const signal of ['SIGTERM', 'SIGINT']) {

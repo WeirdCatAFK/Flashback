@@ -2,6 +2,67 @@
 
 ## Unreleased
 
+### Fixed — `0.0.0.0` accepted as a server address
+
+The server printed the interface it bound to (`0.0.0.0:50501`) as though it were an address
+to connect to, and the client accepted it: the handshake runs in Electron's main process,
+where Node resolves the unspecified address, so it passed. The renderer is Chromium, which
+refuses it — so the app switched to a server it could never reach and sat on the loading
+screen with the role showing as unknown.
+
+The server now prints what to connect to, and a bind address is refused when adding a remote
+and when connecting to one — so a remote saved before this is caught too, rather than
+switched to.
+
+### Fixed — stuck on a server you cannot leave
+
+Connecting to a Flashback Server that turned out to be misconfigured, or that stopped
+answering afterwards, left the app with no way back to a local vault. Choosing one from the
+title bar or the vault manager appeared to do nothing: the local API really did open the vault
+you picked, but the app stayed pointed at the remote, so nothing on screen changed. Restarting
+the app was the only way out.
+
+Opening a local vault now also leaves the remote, which is what it always looked like it did.
+Returning to the vault the app already had open is a pure re-point that does no database work
+and cannot fail — so getting home works even when other things do not.
+
+### Roles in the app
+
+Connecting to a server as a Reader used to look exactly like being the Author: every
+"New document", "Delete", "Rollback" and "Rebuild" button was there, and each one produced a
+403 when pressed. The app now shows what your role can actually do.
+
+- **A role badge in the title bar**, beside the vault name — shown only on a remote, because on
+  your own vault there is nobody to be distinguished from. It is the answer to "why is there no
+  New Document button?" before anyone has to go looking.
+- **Controls follow the role.** Creating, importing, deleting, moving, rolling back and
+  rebuilding disappear for those who cannot do them; controls that sit beside something you
+  *can* do are disabled with a tooltip naming the role required. Lists that are still worth
+  reading — a document's tags, a deck's tags, the card categories — stay visible and go
+  read-only rather than vanishing. Navigation never changes: a Reader keeps Documents, Trainer,
+  Stats and Logs.
+- **A new Server tab**, on a remote only: which server this is, which vault, its versions, and
+  who you are on it. Admins also get the people table — create an account, change a role, issue
+  or revoke a token, and see each person's study progress — and the Author gets pure-token
+  rotation.
+- Markdown and text documents are **read-only without the Admin role**, and so is highlighting
+  them. Their highlights live in the body as marks in the prose, so annotating one rewrites the
+  whole file. A PDF's or an EPUB's highlights live in the sidecar and are open to Collaborators
+  as before.
+- **The Diary is now called Logs.** Only the name changed — the route, the directory and your
+  opt-in are untouched. On a server it now says plainly that one shared history holds every
+  studier's entries and that an administrator can read yours; on a local vault, where that
+  would be false, it says nothing.
+
+The desktop app is unchanged: a local vault resolves to the Author and every control behaves
+exactly as before.
+
+Two fixes found while verifying this against a real server: `POST /api/accounts` answered
+**403 for a malformed role** where it should have answered 400 — telling a client it lacked a
+permission when its payload was simply wrong — and the packaged renderer's capability map is
+now pinned to the API's permission table by a test, so a control can no longer drift into
+offering what the server would refuse.
+
 ### Flashback Server (new)
 
 Flashback can now run headless: one vault, several people, reached over HTTP by desktop

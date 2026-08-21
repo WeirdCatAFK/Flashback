@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getLog, inspectDrift, rollback, getCommitFiles } from '../api/seal';
 import { checkIndex, syncIndex, rebuildIndex } from '../api/doctor';
+import { useCan } from '../sessionContext.js';
 import Modal from '../components/shared/Modal';
 import { invalidateData } from '../utils/dataBus';
 import { Rich, useT } from '../translations';
@@ -404,6 +405,10 @@ function FileGroup({ label, rows, showAll, transform }) {
 }
 
 function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
+    // Restoring rewinds the workspace for EVERYONE on this server and is not undoable from
+    // inside the app, so it is the Author's alone. Hidden rather than disabled: on a shared
+    // vault it is not a thing a reader is nearly allowed to do.
+    const canRollback = useCan('rollbackHistory');
     const tr = useT();
     const { t } = tr;
     const actionLabel = useActionLabel();
@@ -437,7 +442,7 @@ function SealEntry({ commit, isCurrent, isLast, isHighlighted, onRollback }) {
                     <StatsLine stats={commit.stats} />
                 </div>
                 <ChangedFiles oid={commit.oid} stats={commit.stats} />
-                {!isCurrent && (
+                {!isCurrent && canRollback && (
                     <div className="seal-card-actions">
                         <button type="button" className="seal-entry-rollback" onClick={() => onRollback(commit)}>
                             {t('Restore this version')}
@@ -862,6 +867,7 @@ function DoctorResult({ result }) {
 
 function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt }) {
     const { t } = useT();
+    const canRepair = useCan('rebuildIndex');   // sync and rebuild are both the Author's
     const [modal, setModal] = useState(null); // 'sync' | 'rebuild' | null
     const [result, setResult] = useState(null);
 
@@ -928,20 +934,32 @@ function VaultDoctorPanel({ report, loading, error, onCheck, onSynced, onRebuilt
 
                         <DoctorResult result={result} />
 
-                        <div className="seal-doctor-actions">
-                            <button
-                                type="button"
-                                className="seal-btn seal-btn--primary"
-                                onClick={() => setModal('sync')}
-                                disabled={!integrityOk}
-                                title={integrityOk ? undefined : t('Integrity check failed — rebuild the index instead')}
-                            >
-                                {t('Sync index now')}
-                            </button>
-                            <button type="button" className="seal-btn seal-btn--danger-quiet" onClick={() => setModal('rebuild')}>
-                                {t('Rebuild index from files')}
-                            </button>
-                        </div>
+                        {/* Diagnosis is an admin's job; repair is the Author's. A rebuild
+                            discards everyone's review history, so an admin gets to SEE the
+                            drift and gets to say so — but the button that acts on it is not
+                            theirs. Explained rather than silently absent, because an admin
+                            reading a drift report and finding no way to fix it deserves to
+                            know who can. */}
+                        {canRepair ? (
+                            <div className="seal-doctor-actions">
+                                <button
+                                    type="button"
+                                    className="seal-btn seal-btn--primary"
+                                    onClick={() => setModal('sync')}
+                                    disabled={!integrityOk}
+                                    title={integrityOk ? undefined : t('Integrity check failed — rebuild the index instead')}
+                                >
+                                    {t('Sync index now')}
+                                </button>
+                                <button type="button" className="seal-btn seal-btn--danger-quiet" onClick={() => setModal('rebuild')}>
+                                    {t('Rebuild index from files')}
+                                </button>
+                            </div>
+                        ) : (
+                            <p className="seal-doctor-note">
+                                {t('Repairing the index is the vault owner’s to do — ask them to run a sync or a rebuild.')}
+                            </p>
+                        )}
                     </>
                 )}
             </div>

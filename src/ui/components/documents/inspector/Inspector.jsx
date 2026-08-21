@@ -5,13 +5,17 @@ import InspectorNewCardTab    from './InspectorNewCardTab';
 import InspectorTagsTab       from './InspectorTagsTab';
 import InspectorHighlightsTab from './InspectorHighlightsTab';
 import { useT } from '../../../translations';
+import { useSession } from '../../../sessionContext.js';
 
 // A function of `t`, not a module constant: a constant is evaluated once at import
 // and would keep the old language after a switch. `id` is never translated.
-const tabsFor = (t) => [
+// `can` filters rather than disables: an inspector tab that opens onto a form nobody may
+// submit is worse than a tab bar with three entries. Cards, Highlights and Tags all stay —
+// they are readable — and only the authoring tab goes.
+const tabsFor = (t, can) => [
   { id: 'cards',      label: t('Cards') },
   { id: 'highlights', label: t('Highlights') },
-  { id: 'new-card',   label: t('New Card') },
+  ...(can('editCards') ? [{ id: 'new-card', label: t('New Card') }] : []),
   { id: 'tags',       label: t('Tags') },
 ];
 
@@ -20,6 +24,10 @@ const MAX_WIDTH = 520;
 
 export default function Inspector({ path, activeTab, onTabChange, cardDraft, onSelectionClear, open, onToggle, highlights, flashcards, tags, excludedTags, onTagsChange, onJumpToHighlight, onHighlightCardRequest, onHighlightDeleteRequest, onCardSaved }) {
   const { t } = useT();
+  const { can } = useSession();
+  // A card draft can arrive from a selection made before the role was known, or from a tab
+  // left open across a connection change, so the active tab is resolved rather than trusted.
+  const resolvedTab = activeTab === 'new-card' && !can('editCards') ? 'cards' : activeTab;
   const handleSaved  = () => { onCardSaved ? onCardSaved() : (onSelectionClear(), onTabChange('cards')); };
   const handleCancel = () => { onSelectionClear(); onTabChange('cards'); };
 
@@ -52,10 +60,10 @@ export default function Inspector({ path, activeTab, onTabChange, cardDraft, onS
       {open && <div className="inspector-resize-handle" onMouseDown={startResize} aria-hidden="true" />}
 
       <div className="inspector-tabs">
-        {open && tabsFor(t).map(({ id, label }) => (
+        {open && tabsFor(t, can).map(({ id, label }) => (
           <button type="button"
             key={id}
-            className={`inspector-tab${activeTab === id ? ' inspector-tab--active' : ''}`}
+            className={`inspector-tab${resolvedTab === id ? ' inspector-tab--active' : ''}`}
             onClick={() => onTabChange(id)}
           >
             {label}
@@ -72,9 +80,9 @@ export default function Inspector({ path, activeTab, onTabChange, cardDraft, onS
 
       {open && (
         <div className="inspector-content">
-          {activeTab === 'cards'      && <InspectorCardsTab path={path} flashcards={flashcards} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
-          {activeTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} onDelete={onHighlightDeleteRequest} />}
-          {activeTab === 'new-card'   && (
+          {resolvedTab === 'cards'      && <InspectorCardsTab path={path} flashcards={flashcards} onNewCard={() => onTabChange('new-card')} onJumpToHighlight={onJumpToHighlight} />}
+          {resolvedTab === 'highlights' && <InspectorHighlightsTab highlights={highlights} flashcards={flashcards} onJump={onJumpToHighlight} onAddCard={onHighlightCardRequest} onDelete={onHighlightDeleteRequest} />}
+          {resolvedTab === 'new-card'   && (
             <InspectorNewCardTab
               // Remount when the anchor changes so the form re-seeds from the
               // new draft instead of keeping the previous passage's fields.
@@ -85,7 +93,7 @@ export default function Inspector({ path, activeTab, onTabChange, cardDraft, onS
               onCancel={handleCancel}
             />
           )}
-          {activeTab === 'tags'       && <InspectorTagsTab path={path} tags={tags ?? []} excludedTags={excludedTags ?? []} onTagsChange={onTagsChange} />}
+          {resolvedTab === 'tags'       && <InspectorTagsTab path={path} tags={tags ?? []} excludedTags={excludedTags ?? []} onTagsChange={onTagsChange} />}
         </div>
       )}
     </aside>

@@ -24,6 +24,8 @@ import {
     createAccount, updateAccount, issueToken, revokeToken, rotatePureToken,
 } from '../access/primitives/accounts.js';
 import { ROLES, isRole, atLeast } from '../../shared/roles.js';
+import SRS from '../access/orchestration/srs.js';
+import { OWNER_SCOPE } from '../requestContext.js';
 
 const router = Router();
 
@@ -46,15 +48,23 @@ function grantCeiling(actor) {
     return ROLES.READER;
 }
 
-/** @returns {string|null} why this grant is refused, or null when it is allowed. */
+/**
+ * @returns {{status: number, error: string}|null} why this grant is refused, or null when it
+ * is allowed.
+ *
+ * The status matters, and 403 is not the answer to every refusal. A role that is not a role
+ * is a malformed request — `catchError` above already maps the thrown form of it to 400, and
+ * answering 403 here told a client "you lack permission" when the truth was "your payload is
+ * wrong". Everything below it IS a permission decision and stays 403.
+ */
 function grantRefusal(actor, role) {
-    if (!isRole(role)) return `Unknown role: ${role}.`;
+    if (!isRole(role)) return { status: 400, error: `Unknown role: ${role}.` };
     if (role === ROLES.AUTHOR) {
-        return 'There is exactly one Author. Transfer ownership by rotating the pure token, not by granting the role.';
+        return { status: 403, error: 'There is exactly one Author. Transfer ownership by rotating the pure token, not by granting the role.' };
     }
     const ceiling = grantCeiling(actor);
     if (!atLeast(ceiling, role)) {
-        return `An ${actor.role} may grant no more than the ${ceiling} role.`;
+        return { status: 403, error: `An ${actor.role} may grant no more than the ${ceiling} role.` };
     }
     return null;
 }
@@ -69,7 +79,7 @@ router.get('/', catchError(async (req, res) => {
 router.post('/', catchError(async (req, res) => {
     const { name, email, role } = req.body ?? {};
     const refusal = grantRefusal(req.account, role);
-    if (refusal) return res.status(403).json({ error: refusal });
+    if (refusal) return res.status(refusal.status).json({ error: refusal.error });
 
     res.status(201).json(await createAccount({ name, email, role }));
 }));
@@ -87,7 +97,7 @@ router.patch('/:id', catchError(async (req, res) => {
     }
     if (role !== undefined) {
         const refusal = grantRefusal(req.account, role);
-        if (refusal) return res.status(403).json({ error: refusal });
+        if (refusal) return res.status(refusal.status).json({ error: refusal.error });
     }
     // Deactivating an account kills every token it holds at once, so it is the same
     // self-lockout as revoking a token and is refused for the same reason.
@@ -96,6 +106,32 @@ router.patch('/:id', catchError(async (req, res) => {
     }
 
     res.json(await updateAccount(target.id, { role, active }));
+}));
+
+// GET /api/accounts/:id/progress — one account's study record, for the Server view's
+// admin panel. Admin-gated by the role table, like everything else on this router.
+//
+// This is the ONE place in the app that reads a schedule belonging to somebody else, and it
+// exists because a shared vault's admin has to be able to answer "is anyone actually using
+// this?". It is a summary — reviews, retention, streak, due count — not a second Stats view.
+//
+// The scope translation is the part worth reading twice. Progress is keyed by an account
+// SCOPE, and the Author's scope is the literal 'owner' rather than their account id (see
+// requestContext.js: an id from accounts.db would orphan every row the moment the vault
+// folder was copied). So asking for the Author's progress by their id has to be translated,
+// or it silently reports an empty schedule for the one person who has been studying longest.
+router.get('/:id/progress', catchError(async (req, res) => {
+    const target = await getAccount(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such account.' });
+
+    const scope = target.role === ROLES.AUTHOR ? OWNER_SCOPE : target.id;
+    const statistics = await SRS.getStatistics({ algorithm: req.query.algorithm ?? null, scope });
+
+    res.json({
+        account: { id: target.id, name: target.name, email: target.email, role: target.role },
+        scope,
+        statistics,
+    });
 }));
 
 // POST /api/accounts/:id/tokens

@@ -9,6 +9,8 @@ import { getCardDetail, updateCard, dismissCardFlag } from '../../api/decks';
 import { getPref } from '../../prefs.js';
 import { mediaFileSrc } from '../../api/media';
 import { useT } from '../../translations';
+import { useSession } from '../../sessionContext.js';
+import { capabilityHint } from '../../roleLabels.js';
 import './CardDetailModal.css';
 
 /**
@@ -112,6 +114,10 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
   const [saveError, setSaveError] = useState(null);
   const [face, setFace]       = useState('front');
   const { t, formatRelative } = useT();
+  // Disabled rather than hidden: this button sits at the end of a panel of stats a Reader is
+  // welcome to read, so its absence would look like a rendering bug. See INTERFACE.md.
+  const { can } = useSession();
+  const mayEdit = can('editCards');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -261,7 +267,13 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
                 )}
               </dl>
 
-              <button type="button" className="cd-edit-btn" onClick={() => setEditing(true)}>
+              <button
+                type="button"
+                className="cd-edit-btn"
+                onClick={() => setEditing(true)}
+                disabled={!mayEdit}
+                title={mayEdit ? undefined : capabilityHint(t, 'editCards')}
+              >
                 {t('Edit card')}
               </button>
             </div>

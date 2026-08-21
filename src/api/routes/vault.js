@@ -42,8 +42,18 @@ const APP_VERSION = (() => {
  * how far the vault's FILES have been brought forward. A client that understands neither
  * should refuse rather than write.
  *
- * `capabilities` is empty today and exists so a server can announce optional features
- * (sync, multi-user) without a version bump on either ladder.
+ * `capabilities` announces optional features so a client can adapt without a version bump on
+ * either ladder. It carries what the client cannot otherwise find out:
+ *
+ *   accounts      this deployment has an accounts store to manage (always true today, but a
+ *                 future embedder need not)
+ *   requireAuth   anonymous callers are refused — this is a served deployment, not a loopback
+ *                 dev API, which is what tells the renderer to offer a Server view at all
+ *   singleVault   /switch and /release are unmounted; do not offer to move this server
+ *
+ * It deliberately does NOT carry the caller's role. The role is already on
+ * `GET /api/identity`, which resolves it from the same `req.account` the guard uses — putting
+ * it here as well would be a second source for one fact, and the two would eventually differ.
  */
 router.get('/', catchError(async (req, res) => {
     const config = getConfig() || {};
@@ -54,7 +64,11 @@ router.get('/', catchError(async (req, res) => {
         appVersion: APP_VERSION,
         schemaVersion: await query.getSchemaVersion(),
         canonicalVersion: Math.max(0, ...await query.getCanonicalVersions(), 0),
-        capabilities: [],
+        capabilities: [
+            'accounts',
+            ...(config.requireAuth ? ['requireAuth'] : []),
+            ...(config.singleVault ? ['singleVault'] : []),
+        ],
     });
 }));
 

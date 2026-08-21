@@ -20,6 +20,7 @@ import fs from "fs";
 import crypto from "crypto";
 import { readConfig, updateConfig, apiBaseUrl } from "./appConfig.js";
 import { vaultNameError } from "../shared/vaultName.js";
+import { unusableUrlReason } from "../shared/remoteUrl.js";
 
 const MANIFEST_NAME = "vault.json";
 
@@ -331,6 +332,7 @@ function normalizeUrl(url) {
     return trimmed;
 }
 
+
 /**
  * Registers a remote Flashback Server.
  *
@@ -342,6 +344,9 @@ function normalizeUrl(url) {
 export function addRemote({ label, url, token }) {
     const normalized = normalizeUrl(url);
     if (!normalized) return { ok: false, error: "Enter a full URL, including http:// or https://." };
+
+    const unusable = unusableUrlReason(normalized);
+    if (unusable) return { ok: false, error: unusable };
 
     let tokenEnc = null;
     if (token) {
@@ -386,6 +391,12 @@ function remoteToken(id) {
 export async function testRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return { ok: false, error: "No such remote." };
+
+    // Checked here too, not only at registration: a remote saved before this existed would
+    // otherwise still pass the probe and strand the renderer. `useRemote` calls this before
+    // repointing, so refusing here is what keeps a bad URL from being switched to at all.
+    const unusable = unusableUrlReason(remote.url);
+    if (unusable) return { ok: false, error: unusable };
 
     const token = remoteToken(id);
     try {

@@ -1,5 +1,6 @@
 import { createPortal } from 'react-dom';
 import { useT } from '../../translations';
+import { useSession } from '../../sessionContext.js';
 import './SelectionToolbar.css';
 
 // A function of `t` rather than a module constant, so a language switch re-renders
@@ -18,6 +19,12 @@ const highlightColors = (t) => [
 // Renderers that can't persist highlights only get the Card verb.
 export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhighlight, onClear }) {
   const { t } = useT();
+  // The two halves of this toolbar are two different permissions. A Reader gets neither, and
+  // then the toolbar itself is nothing but a popup that appears on every selection and does
+  // nothing — so it does not appear at all.
+  const { can } = useSession();
+  const mayHighlight = can('annotate');
+  const mayMakeCard  = can('editCards');
   const top = rect.top - 42;
   const left = rect.left + rect.width / 2;
 
@@ -26,13 +33,15 @@ export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhi
     else onClear?.();
   };
 
+  if (!mayHighlight && !mayMakeCard) return null;
+
   return createPortal(
     <div
       className="selection-toolbar"
       style={{ top, left }}
       onMouseDown={(e) => e.preventDefault()}
     >
-      {onHighlight && (
+      {onHighlight && mayHighlight && (
         <>
           {highlightColors(t).map(({ key, cssVar, label }) => (
             <button type="button"
@@ -57,9 +66,11 @@ export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhi
           <div className="sel-divider" />
         </>
       )}
-      <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>
-        {t('+ Card')}
-      </button>
+      {mayMakeCard && (
+        <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>
+          {t('+ Card')}
+        </button>
+      )}
     </div>,
     document.body
   );

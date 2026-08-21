@@ -91,6 +91,59 @@ Server state (data fetched from the API) lives in TanStack Query hooks. Local UI
 
 **Do not lift server state into a parent component or React Context.** Each view fetches its own data. This scopes re-renders and makes views independently loadable.
 
+#### The one exception: session identity
+
+`src/ui/session.jsx` provides `SessionProvider`, and `src/ui/sessionContext.js` the
+`useSession()` / `useCan()` hooks that read it. It holds **who you are on the connected vault
+and what that lets you do** — nothing else.
+
+The rule above is about *vault data*: documents, cards, decks, statistics. Lifting those into a
+provider is how a React app ends up with one god-object and no idea what refetches when, and
+that stands. The caller's account is a different kind of value — it is session identity, the
+sibling of `connection` in `hooks/useConnection.js`: one object, fetched once from
+`GET /api/identity`, changing only when the app is pointed somewhere else. And it is needed at
+the *leaves* — the delete item inside a file-tree context menu, the edit button on a card — so
+the alternative is drilling a prop through Documents → tree → node → menu in most views.
+
+The boundary is the whole point: **identity and permission, nothing else.** Anything describing
+the vault's contents still belongs to the view that shows it.
+
+Two properties worth knowing:
+
+- On a local vault the account resolves to the Author, every capability answers true, and the
+  desktop UI is unchanged. That is what made this safe to add everywhere at once.
+- It **fails closed, but not silently.** If the identity call fails there is no optimistic
+  fallback to the Author: `role` stays null, every capability answers false, and `error` is set
+  so the title bar can say "Role unknown" rather than leaving someone in front of an app that
+  has quietly lost half its buttons. A 401 is an answer and is not retried; anything else is
+  retried five times at one-second intervals, because this provider sits *outside* `AppGate`
+  and a local vault switch restarts the database underneath it.
+
+#### Hiding versus disabling a control
+
+Capabilities come from `src/shared/roles.js` (`CAPABILITIES`, `can(role, capability)`), which
+`tests/capabilities.test.js` pins against the API's real permission table — so a control cannot
+drift from the guard that would refuse it. Two rules, because either one alone gets it wrong in
+a different direction:
+
+- **Hide** a control that is categorically not this person's: New document, Delete, Import,
+  Rollback, Rebuild, the authoring tabs. A Reader's app should read as a *reading* app, not an
+  authoring one with half its buttons broken.
+- **Disable, with the reason in the `title`**, where the control sits beside something they
+  *can* do and its absence would be mysterious — the Edit button at the foot of a card's
+  statistics panel, say. Use `capabilityHint(t, capability)` from `src/ui/roleLabels.js`, which
+  names the role required.
+
+Navigation is never hidden by role. A Reader keeps Documents, Trainer, Stats and Logs; what
+changes is what they can *do* there. The one exception is the **Server** tab, which is absent on
+a local vault because there is nothing behind it — see `remoteOnly` in `App.jsx`'s `NAV_ITEMS`.
+
+Where a control is an editor rather than a button, prefer **read-only over hidden**: the
+Inspector's tag list, a deck's tags and the Manage tab's categories all still render their
+values without the role, because the values are information even to someone who cannot change
+them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
+whose save is refused invites someone to type a page and lose it.
+
 ### TanStack Query conventions
 
 ```js
@@ -274,6 +327,15 @@ Every renderer receives the same props from `DocumentEditor`:
 | `onSidecarRefresh`    | callback  | `(path, metadata)` — full sidecar after load/save (cards, tags, …).                                                                  |
 | `onExternalSelection` | callback  | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
 | `onImagePick`         | callback  | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it.                  |
+| `readOnly`            | in        | The caller may not write this document's body. Editor-backed renderers pass it to`useHighlightableRenderer`, which makes the editor non-editable. |
+
+`readOnly` is set by `DocumentEditor` from the `editDocumentBody` capability, and it applies to
+exactly the renderers with `editable = true` (Markdown and text). Those two are the formats
+whose highlights live **in the body** as marks in the prose, so annotating one is the same
+`PUT /api/documents/file` as editing it — admin. Every other renderer persists highlights
+through `PUT /metadata` (collaborator) and is unaffected, which is why a Collaborator can
+annotate a PDF but not a note. That is a fact about where the data lives, not a gap in the
+permission table.
 
 A renderer that supports highlighting also exposes a **static** flag so the
 parent can enable the highlight toolbar without knowing the renderer's identity:
@@ -378,7 +440,7 @@ Current channels:
 | `create-vault`          | renderer → main | Create and register an empty vault;`{ ok, vault?, error? }`                                                                                                                                           |
 | `rename-vault`          | renderer → main | Release the DB, move folder**and** `{name}.db`, switch back, repair the index                                                                                                                   |
 | `remove-vault`          | renderer → main | Unregister a vault. Never deletes files                                                                                                                                                                 |
-| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process                                                                                                                                                      |
+| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process, **and point the app at the local API** — it is a local-vault action, so it also leaves any remote                                                    |
 | `open-vault-from-disk`  | renderer → main | Directory picker; adopts an existing vault where it stands                                                                                                                                              |
 | `get-identity`          | renderer → main | What is**stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
 | `set-identity`          | renderer → main | Set the global`{name, email}`; both halves required. `{ ok, error?, field?, code? }`                                                                                                                |
@@ -391,6 +453,14 @@ Current channels:
 | `use-local-vault`       | renderer → main | Point the app back at the local API                                                                                                                                                                     |
 | `use-remote`            | renderer → main | Handshake, then point the app at a remote                                                                                                                                                               |
 | `connection-changed`    | main → renderer | The active connection moved; subscribe via`onConnectionChange`                                                                                                                                        |
+
+Which of the two places the app is pointed at lives in `src/electron/connection.js`, not in
+`main.js` — one flag, and `useLocalVault()` is the only thing that clears it by intent, so
+every route home goes through the same call. `connectionForRemote` reads the registry and
+never the network, so an **unreachable remote resolves forever**: nothing times out and drops
+you back to a local vault, which is why the deliberate route has to work. It is pinned by
+`tests/connection.test.js`, which runs under plain Node because the module takes its
+dependencies as arguments and imports no Electron.
 
 ---
 

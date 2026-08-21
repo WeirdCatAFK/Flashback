@@ -2571,4 +2571,77 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Accounts: reading somebody else's progress ────────────────────────
+    //
+    // `GET /api/accounts/:id/progress` is the ONE endpoint that reads a schedule belonging to
+    // another person, and it exists for the Server view's admin panel. The interesting part is
+    // not the role gate — the table already covers that — but the scope translation.
+    describe('Account progress', () => {
+        let authorId;
+
+        before(async () => {
+            const { accounts } = await (await fetch(`${baseUrl}/api/accounts`)).json();
+            authorId = accounts.find(a => a.role === 'author')?.id;
+            assert.ok(authorId, 'the suite authenticates as the Author');
+        });
+
+        it("reports the Author's progress under the owner sentinel, not their account id", async () => {
+            // The trap this pins: progress is keyed by SCOPE, and the Author's scope is the
+            // literal 'owner' rather than their id — because an id from accounts.db would
+            // orphan every row the moment the vault folder was copied elsewhere. Ask for the
+            // Author by id without translating and the panel reports an empty schedule for
+            // the one person who has been studying longest, with no error to notice.
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/progress`);
+            assert.equal(res.status, 200);
+
+            const body = await res.json();
+            assert.equal(body.scope, 'owner');
+            assert.equal(body.account.id, authorId);
+            assert.equal(body.account.role, 'author');
+            assert.ok(body.statistics?.totals, 'it carries a real statistics payload');
+        });
+
+        it('reports everyone else under their own account id', async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Progress Probe', email: `probe+${Date.now()}@example.invalid`, role: 'reader',
+            })).json();
+
+            const body = await (await fetch(`${baseUrl}/api/accounts/${created.id}/progress`)).json();
+            assert.equal(body.scope, created.id, 'a non-owner is keyed by their id');
+            assert.equal(body.statistics.totals.reviews, 0, 'a fresh reader has studied nothing');
+        });
+
+        it('404s for an account that does not exist', async () => {
+            const res = await fetch(`${baseUrl}/api/accounts/not-a-real-id/progress`);
+            assert.equal(res.status, 404);
+        });
+    });
+
+    // A refusal has to say WHICH kind it is. Creating an account with a role that is not a
+    // role is a malformed request; creating one the caller is not allowed to grant is a
+    // permission decision. Both used to answer 403, which told a client it lacked a
+    // permission when its payload was simply wrong.
+    describe('Account creation refusals', () => {
+        it('400s a role that is not a role, rather than 403', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, {
+                name: 'Bad Role', email: 'bad@example.invalid', role: 'superuser',
+            });
+            assert.equal(res.status, 400);
+            assert.match((await res.json()).error, /Unknown role/);
+        });
+
+        it('400s a missing role for the same reason', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, { name: 'No Role', email: 'n@example.invalid' });
+            assert.equal(res.status, 400);
+        });
+
+        it('still 403s a grant the caller may not make', async () => {
+            const res = await post(`${baseUrl}/api/accounts`, {
+                name: 'Second Author', email: 'second@example.invalid', role: 'author',
+            });
+            assert.equal(res.status, 403);
+            assert.match((await res.json()).error, /exactly one Author/);
+        });
+    });
+
 });

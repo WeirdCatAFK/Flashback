@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { cardTypeShortLabel } from '../../shared/flashcardFields';
 import { useT } from '../../../translations';
+import { useSession } from '../../../sessionContext.js';
 
 const EMPTY = [];
 
@@ -13,6 +14,7 @@ const COLOR_VAR = {
 
 export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards = EMPTY, onJump, onAddCard, onDelete }) {
   const { t, tp } = useT();
+  const { can } = useSession();
   const [expandedId, setExpandedId] = useState(null);
 
   // Newest first, matching the Cards tab and the /api/highlights listing: the
@@ -82,14 +84,16 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                 >
                   ↗
                 </button>
-                <button type="button"
-                  className="hl-delete-btn"
-                  title={t('Remove highlight')}
-                  aria-label={t('Remove highlight')}
-                  onClick={(e) => { e.stopPropagation(); onDelete?.(h.id); }}
-                >
-                  ×
-                </button>
+                {can('annotate') && (
+                  <button type="button"
+                    className="hl-delete-btn"
+                    title={t('Remove highlight')}
+                    aria-label={t('Remove highlight')}
+                    onClick={(e) => { e.stopPropagation(); onDelete?.(h.id); }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
             </div>
 
@@ -110,12 +114,14 @@ export default function InspectorHighlightsTab({ highlights = EMPTY, flashcards 
                     </div>
                   );
                 })}
-                <button type="button"
-                  className="hl-add-card-btn"
-                  onClick={() => onAddCard?.(h.id)}
-                >
-                  {t('+ Add card')}
-                </button>
+                {can('editCards') && (
+                  <button type="button"
+                    className="hl-add-card-btn"
+                    onClick={() => onAddCard?.(h.id)}
+                  >
+                    {t('+ Add card')}
+                  </button>
+                )}
               </div>
             )}
           </div>

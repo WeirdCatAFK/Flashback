@@ -37,6 +37,7 @@ export function useHighlightableRenderer({
   onSidecarRefresh,
   draftContent,
   onDraftChange,
+  readOnly = false,
 }) {
   const [loading, setLoading] = useState(true);
 
@@ -74,6 +75,10 @@ export function useHighlightableRenderer({
   const editor = useEditor({
     extensions,
     content: '',
+    // Read-only when the caller's role cannot write a document body. Enforced here rather
+    // than by hiding the Save button alone: a writable editor whose save is refused invites
+    // someone to type a page and lose it.
+    editable: !readOnly,
     editorProps: { attributes: { class: editorClass } },
     onUpdate: ({ editor }) => {
       if (loadingIntoEditorRef.current) return;

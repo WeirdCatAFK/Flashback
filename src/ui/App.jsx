@@ -11,6 +11,7 @@ import IconSeal from "./components/icons/IconSeal";
 import IconManage from "./components/icons/IconManage";
 import IconStats from "./components/icons/IconStats";
 import IconDiary from "./components/icons/IconDiary";
+import IconServer from "./components/icons/IconServer";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
 import AppGate from "./components/AppGate";
@@ -24,9 +25,10 @@ import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { invalidateData } from "./utils/dataBus";
 import { useT } from "./translations/index.jsx";
 import useConnection from "./hooks/useConnection.js";
+import { SessionProvider } from "./session.jsx";
 import { getPref, setPref, setActiveVaultScope } from "./prefs.js";
 
-const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'config'];
+const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'server', 'config'];
 
 const DocumentsView  = lazy(() => import("./views/Documents"));
 const FlashcardsView = lazy(() => import("./views/Flashcards"));
@@ -38,6 +40,7 @@ const SealView       = lazy(() => import("./views/Seal"));
 const ManageView     = lazy(() => import("./views/Manage"));
 const StatsView      = lazy(() => import("./views/Stats"));
 const DiaryView      = lazy(() => import("./views/Diary"));
+const ServerView     = lazy(() => import("./views/Server"));
 
 const NAV_ITEMS = [
   { id: "documents",  Icon: IconDocuments },
@@ -49,6 +52,9 @@ const NAV_ITEMS = [
   { id: "diary",      Icon: IconDiary },
   { id: "seal",       Icon: IconSeal },
   { id: "manage",     Icon: IconManage },
+  // Remote-only — filtered in the nav below. A local vault has one account, it is the
+  // Author, and there is nobody to manage.
+  { id: "server",     Icon: IconServer, remoteOnly: true },
 ];
 
 /**
@@ -71,9 +77,14 @@ function navLabels(t) {
     graph:      t("Graph"),
     trainer:    t("Trainer"),
     stats:      t("Statistics"),
-    diary:      t("Diary"),
+    // "Logs", not "Diary". On a shared server the entries sit in one git repo alongside
+    // everyone else's and an admin can read them, so the private-journal name would be a
+    // lie. The routes, the directory and the `fb-diary-enabled` pref keep their names —
+    // renaming those would be a migration that silently reset everyone's opt-in.
+    diary:      t("Logs"),
     seal:       t("Seal"),
     manage:     t("Manage"),
+    server:     t("Server"),
     config:     t("Config"),
   };
 }
@@ -127,6 +138,12 @@ export default function App() {
   useEffect(() => {
     if (!connection) return;
     setActiveVaultScope(connection.id ?? null);
+    // A remote-only view has to be left behind when the app goes local, or the nav button
+    // disappears while its panel stays on screen with nothing to show.
+    setActiveView((current) => {
+      const item = NAV_ITEMS.find((n) => n.id === current);
+      return item?.remoteOnly && connection.kind !== 'remote' ? 'documents' : current;
+    });
     setSelectedPath(null);
     setPendingSource(null);
     setPendingDeck(null);
@@ -281,7 +298,8 @@ export default function App() {
       case "seal":       return <SealView isActive={activeView === 'seal'} />;
       case "manage":     return <ManageView isActive={activeView === 'manage'} />;
       case "stats":      return <StatsView isActive={activeView === 'stats'} />;
-      case "diary":      return <DiaryView isActive={activeView === 'diary'} />;
+      case "diary":      return <DiaryView isActive={activeView === 'diary'} connection={connection} />;
+      case "server":     return <ServerView connection={connection} />;
       case "config":     return (
         <ConfigView
           theme={theme}
@@ -298,6 +316,11 @@ export default function App() {
   }
 
   return (
+    /* Wraps the WHOLE shell, title bar included: the role badge lives up there, and every
+       view below asks `can()` before drawing a destructive control. Keyed on the connection
+       so pointing the app somewhere else re-asks who you are there — the provider retries a
+       few times, because a local vault switch restarts the API underneath it. */
+    <SessionProvider key={`session-${connectionId}`} connectionId={connectionId}>
     <div id="app-shell">
       <TitleBar
         onSearch={() => setSearchOpen(true)}
@@ -314,7 +337,9 @@ export default function App() {
         <div id="app-body">
           <nav id="activity-bar" aria-label={t("Main navigation")}>
             <div id="activity-top">
-              {NAV_ITEMS.map(({ id, Icon }) => (
+              {NAV_ITEMS
+                .filter(({ remoteOnly }) => !remoteOnly || connection?.kind === 'remote')
+                .map(({ id, Icon }) => (
                 <button type="button"
                   key={id}
                   data-tour={`nav-${id}`}
@@ -377,5 +402,6 @@ export default function App() {
         <VaultManager connection={connection} onClose={() => setVaultManagerOpen(false)} />
       )}
     </div>
+    </SessionProvider>
   );
 }

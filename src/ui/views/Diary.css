@@ -111,6 +111,19 @@
   margin-bottom: 20px;
 }
 
+/* Shown only on a remote — see DiaryView. A left rule rather than a coloured alert box:
+   it is a standing fact about where this data lives, not an error to be dismissed. */
+.diary-privacy-note {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-sm, 4px);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm, 13px);
+  line-height: 1.5;
+}
+
 .diary-main-title {
   font-size: var(--text-lg, 18px);
   font-weight: 600;

@@ -6,6 +6,7 @@ import IconFolderOpen from '../icons/IconFolderOpen';
 import IconFile from '../icons/IconFile';
 import getFileIcon from '../icons/fileIconMap';
 import ContextMenu from '../shared/ContextMenu';
+import { useSession } from '../../sessionContext.js';
 import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
@@ -22,6 +23,19 @@ const sortItems = (items) =>
 
 // Strip characters Windows forbids in filenames: \ / : * ? " < > |
 const sanitizeName = (s) => s.replace(/[\\/:*?"<>|]/g, '');
+
+// The context menu is assembled from role-gated groups, each ending in a separator. Drop the
+// ones that no longer divide anything — a Reader would otherwise get a menu made mostly of
+// rules. Collapses runs and trims both ends, so the groups themselves stay declarative.
+const dropDanglingSeparators = (items) => {
+  const out = [];
+  for (const item of items) {
+    if (!item?.separator) { out.push(item); continue; }
+    if (out.length && !out[out.length - 1].separator) out.push(item);
+  }
+  while (out.length && out[out.length - 1].separator) out.pop();
+  return out;
+};
 
 // Names reserved by the data model (see DATAMODEL.md): the per-folder `media`
 // asset directory and `.flashback` metadata sidecars are managed automatically
@@ -673,6 +687,7 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
 
 export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
   const { t } = useT();
+  const { can } = useSession();
   const [items, setItems]       = useState([]);
   const [loading, setLoading]   = useState(true);
   const [rootError, setRootError] = useState(false);
@@ -794,10 +809,13 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     const isFolder = e.dataTransfer.getData('fb-is-folder') === 'true';
 
     if (!srcPath) {
+      if (!can('importDocuments')) return;
       const files = Array.from(e.dataTransfer.files);
       await handleImportFiles(files, '');
       return;
     }
+    // A drop is a move; a drag that only reordered the view would be a lie about what landed.
+    if (!can('changeVaultShape')) return;
 
     const srcName = srcPath.replace(/\\/g, '/').split('/').pop();
     if (srcPath.replace(/\\/g, '/') === srcName) return;
@@ -817,40 +835,48 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
     });
   };
 
-  const ctxItems = ctxMenu ? [
+  // Gated by role. On a local vault every capability answers true, so this is the same menu
+  // it has always been; on a server a Reader is left with "Study folder" and nothing that
+  // would 403. Hidden rather than disabled — a context menu of dead entries is worse than a
+  // short one (see the hide/disable rule in the M5 plan).
+  const ctxItems = ctxMenu ? dropDanglingSeparators([
     ...(ctxMenu.isFolder ? [
       { label: t('Study folder'), action: () => onStudyFolder?.(ctxMenu.folderPath) },
-      { label: t('Edit tags'),    action: () => setTagsTarget(ctxMenu.folderPath) },
-      { label: t('Set color'),    action: () => {
-          swatchRefreshRef.current = ctxMenu.doRefreshOnColorSave;
-          setSwatchTarget({ path: ctxMenu.folderPath, color: ctxMenu.folderColor ?? '' });
-        }
-      },
-      { label: t('Import to folder'), action: () => {
-          ctxMenuTargetRef.current = ctxMenu.folderPath;
-          fileInputRef.current?.click();
-        }
-      },
+      ...(can('annotate') ? [
+        { label: t('Edit tags'),    action: () => setTagsTarget(ctxMenu.folderPath) },
+        { label: t('Set color'),    action: () => {
+            swatchRefreshRef.current = ctxMenu.doRefreshOnColorSave;
+            setSwatchTarget({ path: ctxMenu.folderPath, color: ctxMenu.folderColor ?? '' });
+          }
+        },
+      ] : []),
+      ...(can('importDocuments') ? [
+        { label: t('Import to folder'), action: () => {
+            ctxMenuTargetRef.current = ctxMenu.folderPath;
+            fileInputRef.current?.click();
+          }
+        },
+      ] : []),
       { separator: true },
     ] : []),
-    ...(ctxMenu.isFolder || ctxMenu.isRoot ? [
+    ...((ctxMenu.isFolder || ctxMenu.isRoot) && can('createDocuments') ? [
       { label: t('New File'),   action: ctxMenu.doNewFile   },
       { label: t('New Folder'), action: ctxMenu.doNewFolder },
       { label: t('Clip from URL'), action: () => openClip(ctxMenu.isRoot ? '' : ctxMenu.folderPath, ctxMenu.isRoot ? loadRoot : ctxMenu.doRefreshOnColorSave) },
-      ...(ctxMenu.isRoot ? [
+      ...(ctxMenu.isRoot && can('importDocuments') ? [
         { label: t('Import files/packages'), action: () => {
             ctxMenuTargetRef.current = '';
             fileInputRef.current?.click();
           }
         },
-        { separator: true }
-      ] : [{ separator: true }]),
+      ] : []),
+      { separator: true },
     ] : []),
-    ...(ctxMenu.isRoot ? [] : [
+    ...(ctxMenu.isRoot || !can('changeVaultShape') ? [] : [
       { label: t('Rename'), action: ctxMenu.triggerRename },
       { label: t('Delete'), action: ctxMenu.doDelete, danger: true },
     ]),
-  ] : [];
+  ]) : [];
 
   return (
     <div
@@ -862,12 +888,17 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
       <div className="fe-header">
         <span className="fe-workspace-name">{workspaceName}</span>
         <div className="fe-header-actions">
+          {/* Hidden, not disabled: a Reader's sidebar should read as a reading sidebar. The
+              same capabilities gate the context menu below, so the two can't disagree. */}
+          {can('createDocuments') && (
           <button type="button" className="fe-action-btn" onClick={() => handleCreate(true)} title={t('New folder')} aria-label={t('New folder')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.38a1.5 1.5 0 0 1 1.06.44L8 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z"/>
               <line x1="8" y1="7" x2="8" y2="11"/><line x1="6" y1="9" x2="10" y2="9"/>
             </svg>
           </button>
+          )}
+          {can('createDocuments') && (
           <button type="button" className="fe-action-btn" onClick={() => handleCreate(false)} title={t('New file')} aria-label={t('New file')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M9 1H3.5A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9A1.5 1.5 0 0 0 14 13.5V6L9 1z"/>
@@ -875,6 +906,8 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
               <line x1="8" y1="9" x2="8" y2="13"/><line x1="6" y1="11" x2="10" y2="11"/>
             </svg>
           </button>
+          )}
+          {can('importDocuments') && (
           <button type="button" className="fe-action-btn" onClick={() => { ctxMenuTargetRef.current = ''; fileInputRef.current?.click(); }} title={t('Import files / packages (.zip, .apkg, .md)')} aria-label={t('Import files')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
               <path d="M12 12L8 8L4 12"/>
@@ -882,12 +915,15 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
               <rect x="2" y="2" width="12" height="4" rx="1"/>
             </svg>
           </button>
+          )}
+          {can('createDocuments') && (
           <button type="button" className="fe-action-btn" onClick={() => openClip('', loadRoot)} title={t('Clip from URL (web article or YouTube)')} aria-label={t('Clip from URL')}>
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
               <path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2.4-2.4a2.5 2.5 0 1 0-3.5-3.5l-1 1"/>
               <path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1L3.5 8.8a2.5 2.5 0 1 0 3.5 3.5l1-1"/>
             </svg>
           </button>
+          )}
         </div>
       </div>
 
