@@ -5,11 +5,15 @@
 # daily; it stops being survivable with a headless server build, which is the first
 # configuration nobody exercises by accident.
 #
-# Four jobs, deliberately separate so a failure names itself:
+# Two jobs, deliberately separate so a failure names itself:
 #   test    — the suite, on Linux (the platform the server actually deploys to)
 #   lint    — advisory for now, see below
-#   docker  — builds the image, which is what catches a broken native addon compile
-#   zip     — builds and RUNS the standalone artifact on Linux, its real target
+#
+# The server BUILD is not checked here. The Docker image and the standalone Linux zip are
+# built and booted by `release.yml` on a `v*` tag instead: both are slow, both give the same
+# answer for every commit on a branch, and what they protect is a release artifact rather
+# than the code a commit changes. The tradeoff is deliberate and worth stating plainly — a
+# commit that breaks the container or the zip now stays green until someone cuts a tag.
 
 name: Tests
 
@@ -62,158 +66,3 @@ jobs:
       # the line or lower it deliberately.
       - run: npm run lint
         continue-on-error: true
-
-  docker:
-    name: Server image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      # The real assertion here is that better-sqlite3 compiles against the image's Node.
-      # It is a native addon, and a broken build surfaces at container start as a
-      # NODE_MODULE_VERSION error — far too late to be useful.
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: false
-          load: true
-          tags: flashback-server:ci
-
-      # Boot it. An image that builds and then cannot open a vault has told us nothing, so
-      # this starts a real container on a real volume and waits for the unauthenticated
-      # readiness ping — the same one the HEALTHCHECK uses.
-      - name: Boot the server and wait for readiness
-        run: |
-          docker run -d --name flashback-ci \
-            -e FLASHBACK_VAULT_NAME=ci \
-            -p 50500:50500 \
-            flashback-server:ci
-          for i in $(seq 1 30); do
-            if curl -fsS http://127.0.0.1:50500/ >/dev/null 2>&1; then
-              echo "ready after ${i}s"; break
-            fi
-            if [ "$i" = "30" ]; then echo "server never became ready"; docker logs flashback-ci; exit 1; fi
-            sleep 1
-          done
-
-      - name: Require authentication on /api
-        run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:50500/api/documents/list?path=")
-          echo "anonymous /api -> $code"
-          test "$code" = "401" || { docker logs flashback-ci; exit 1; }
-
-      # A clean stop is what checkpoints the WAL; if SIGTERM handling regressed, this is
-      # where it shows up rather than as a corrupted volume in production.
-      - name: Stop cleanly
-        run: |
-          docker stop -t 30 flashback-ci
-          docker logs flashback-ci 2>&1 | tail -20
-          docker logs flashback-ci 2>&1 | grep -q "Shutdown complete" \
-            || { echo "container did not shut down gracefully"; exit 1; }
-
-  zip:
-    name: Standalone zip (Linux)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: npm
-      - run: npm ci
-
-      # The artifact is platform-specific: better-sqlite3 is a compiled addon, so a Linux zip
-      # can only be built on Linux. Until this job existed the zip had been built and tested
-      # on Windows only, while Linux is the actual deployment target.
-      - name: Build the zip
-        run: npm run package:server
-
-      - name: Unpack and check what shipped
-        run: |
-          cd dist-server
-          zip=$(ls flashback-server-*-linux-x64.zip)
-          unzip -q "$zip" -d extracted
-
-          # Renamed to a fixed path so every later step can address it literally. The
-          # alternative — passing the globbed directory forward through $GITHUB_ENV — is
-          # cross-step state that only fails once it reaches a real runner, and there is
-          # nothing here it buys.
-          mv "extracted/$(ls extracted)" app
-          dir=app
-          ls -l "$dir"
-
-          # The Windows build cannot set a Unix execute bit, so the mode is stamped into the
-          # zip entry explicitly. If that regressed, the launcher is unrunnable and this is
-          # the only place it would be noticed.
-          test -x "$dir/flashback-server.sh" \
-            || { echo "flashback-server.sh is not executable"; exit 1; }
-          test ! -e "$dir/flashback-server.cmd" \
-            || { echo "the Windows launcher should not be in a Linux artifact"; exit 1; }
-
-      # PDF and EPUB are the formats that resolve package files at RUNTIME (pdfjs needs its
-      # worker and standard_fonts; jsdom needs its own stylesheet). Both were broken in the
-      # first bundle and both pass a markdown-only smoke test, so they are built here.
-      - name: Build reader fixtures
-        run: |
-          node --input-type=module -e "
-            import fs from 'fs';
-            const { buildPdf, buildEpub } = await import('./tests/fixtures.js');
-            fs.writeFileSync('/tmp/t.pdf', buildPdf([['Hello Flashback','page one']]));
-            fs.writeFileSync('/tmp/t.epub', buildEpub([
-              { href: 'c1.xhtml', title: 'Chapter One', body: '<h1>Chapter One</h1><p>readable</p>' },
-            ]));
-          "
-
-      - name: Boot it via the shell launcher
-        run: |
-          cd dist-server/app
-          FLASHBACK_PORT=50500 FLASHBACK_HOST=127.0.0.1 FLASHBACK_VAULT_NAME=ci \
-            nohup ./flashback-server.sh > boot.log 2>&1 &
-          echo $! > /tmp/server.pid
-          for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:50500/ >/dev/null 2>&1; then echo "ready after ${i}s"; break; fi
-            if [ "$i" = "60" ]; then echo "never became ready"; cat boot.log; exit 1; fi
-            sleep 1
-          done
-
-      - name: Exercise the API
-        run: |
-          cd dist-server/app
-          token=$(grep -A2 'AUTHOR TOKEN' boot.log | tail -1 | tr -d ' \r')
-          test -n "$token" || { echo "no token was minted"; cat boot.log; exit 1; }
-          cp /tmp/t.pdf /tmp/t.epub data/ci/workspace/
-
-          check() {  # name, expected, url...
-            code=$(curl -s -o /tmp/body -w '%{http_code}' "${@:3}")
-            printf '  %-34s %s\n' "$1" "$code"
-            test "$code" = "$2" || { echo "expected $2"; cat /tmp/body; exit 1; }
-          }
-          check "anonymous /api"      401 "http://127.0.0.1:50500/api/documents/list?path="
-          check "authenticated /api"  200 -H "Authorization: Bearer $token" "http://127.0.0.1:50500/api/documents/list?path="
-          check "vault/switch absent" 404 -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{}' "http://127.0.0.1:50500/api/vault/switch"
-          check "seal log"            200 -H "Authorization: Bearer $token" "http://127.0.0.1:50500/api/seal/log?depth=1"
-
-          for fmt in pdf epub; do
-            body=$(curl -s -H "Authorization: Bearer $token" "http://127.0.0.1:50500/api/reader/read?path=t.$fmt")
-            echo "$body" | grep -q '"error"' && { echo "$fmt extraction failed: $body"; exit 1; }
-            echo "  $fmt extraction ok"
-          done
-
-      # `exec` in the launcher means the shell is replaced by node, so SIGTERM reaches the
-      # process that installed the handler.
-      - name: Stop cleanly
-        run: |
-          cd dist-server/app
-          kill -TERM "$(cat /tmp/server.pid)"
-          for i in $(seq 1 30); do
-            grep -q "Shutdown complete" boot.log && { echo "clean shutdown"; break; }
-            if [ "$i" = "30" ]; then echo "no graceful shutdown"; tail -20 boot.log; exit 1; fi
-            sleep 1
-          done
-          test ! -s data/ci/ci.db-wal || { echo "WAL was not checkpointed"; exit 1; }
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: flashback-server-linux-x64
-          path: dist-server/*.zip
-          retention-days: 14
