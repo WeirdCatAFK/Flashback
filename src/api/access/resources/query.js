@@ -389,7 +389,7 @@ class DocumentQuery {
 
     async getFlashcardContentByHash(hash, scope) {
         return await this.db.prepare(`
-            SELECT f.id, f.document_id, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
+            SELECT f.id, f.node_id, f.document_id, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
                    c.frontText, c.backText, c.answerText, c.custom_html,
                    c.front_img, c.back_img, c.front_sound, c.back_sound,
                    pc.name AS category,

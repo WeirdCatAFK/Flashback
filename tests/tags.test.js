@@ -478,6 +478,74 @@ describe('Deck tag propagation — correctness', () => {
     });
 });
 
+describe('Standalone card tags — correctness', () => {
+    let hash;
+
+    // A standalone card has no sidecar: its canonical home is the system deck's
+    // `_decks/<uuid>.json` entry snapshot, so that is where its tags have to land
+    // for a Doctor rebuild to be able to bring them back.
+    const snapshotFor = async (cardHash) => {
+        for (const f of await decks.listDeckFiles()) {
+            const entry = (f.data?.entries ?? []).find(e => e.cardHash === cardHash);
+            if (entry) return entry.card ?? null;
+        }
+        return null;
+    };
+
+    const directTags = async (cardHash) =>
+        (await query.getDirectTagNames(await query.getFlashcardNodeIdByHash(cardHash))).sort();
+
+    before(async () => {
+        await sealTools.init();
+        hash = await decks.createStandaloneCard({
+            name: 'Tagged standalone', cardType: 'basic',
+            frontText: 'Q', backText: 'A', tags: ['solo', 'vocab'],
+        });
+    });
+
+    it('creates the tag and links it to the card node', async () => {
+        assert.deepEqual(await directTags(hash), ['solo', 'vocab']);
+        const all = await query.getAllTags();
+        assert.ok(all.includes('solo') && all.includes('vocab'), 'tags should exist vault-wide');
+    });
+
+    it('writes the tags into the canonical deck snapshot', async () => {
+        assert.deepEqual((await snapshotFor(hash))?.tags?.slice().sort(), ['solo', 'vocab']);
+    });
+
+    it('finds the card by tag', async () => {
+        const found = await query.superSearch({ tag: 'solo', limit: 10 }, 'owner');
+        assert.ok(found.flashcards.some(f => f.global_hash === hash),
+            'a standalone card should be findable by its own tag');
+    });
+
+    it('replaces tags on edit, and leaves them alone when the field is omitted', async () => {
+        await decks.updateStandaloneCard(hash, { tags: ['solo', 'grammar'] });
+        assert.deepEqual(await directTags(hash), ['grammar', 'solo']);
+        assert.deepEqual((await snapshotFor(hash))?.tags?.slice().sort(), ['grammar', 'solo']);
+
+        await decks.updateStandaloneCard(hash, { name: 'Renamed only' });
+        assert.deepEqual(await directTags(hash), ['grammar', 'solo'],
+            'a name-only edit must not wipe the card\u2019s tags');
+    });
+
+    it('getCard reports the tags, so an editor can show what it is about to replace', async () => {
+        assert.deepEqual((await decks.getCard(hash)).tags?.slice().sort(), ['grammar', 'solo']);
+    });
+
+    it('survives a rebuild from the canonical deck files', async () => {
+        await db.transaction(async () => {
+            await db.prepare('DELETE FROM DeckEntries').run();
+            await db.prepare('DELETE FROM Flashcards WHERE document_id IS NULL').run();
+            await db.prepare('DELETE FROM Decks').run();
+        })();
+        await decks.rebuildFromFiles();
+        assert.deepEqual(await directTags(hash), ['grammar', 'solo'],
+            'a Doctor rebuild must restore a standalone card\u2019s tags from its snapshot');
+    });
+});
+
+
 // ── Performance ───────────────────────────────────────────────────────────────
 
 describe('Tag propagation — performance', () => {

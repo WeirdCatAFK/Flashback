@@ -22,6 +22,9 @@ export default function StandaloneCardModal({ onClose, onCreated }) {
                 cardType:   card.cardType,
                 category:   card.category                || null,
                 customHtml: card.customData?.html        || null,
+                // A standalone card has no document to inherit tags from, so the ones
+                // typed here are the only ones it will ever have.
+                tags:       card.tags                    || [],
             });
             onCreated();
         } catch (err) {

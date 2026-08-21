@@ -1883,6 +1883,33 @@ describe('Flashback API', () => {
             assert.equal(solo.documentPath, null, 'a standalone card reports no document');
         });
 
+        // The route layer is where a standalone card's tags used to be dropped: the form
+        // collected them, and every layer under it discarded the field silently.
+        it('POST/PUT /api/flashcards → a standalone card keeps its own tags', async () => {
+            const created = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Tagged Q', backText: 'A', cardType: 'basic', tags: ['http-tag', 'solo'],
+            });
+            assert.equal(created.status, 201);
+            const { globalHash } = await created.json();
+
+            const read = await (await fetch(`${baseUrl}/api/flashcards/${globalHash}`)).json();
+            assert.deepEqual(read.tags.slice().sort(), ['http-tag', 'solo']);
+
+            const put = await fetch(`${baseUrl}/api/flashcards/${globalHash}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tags: ['solo'] }),
+            });
+            assert.equal(put.status, 200);
+            const after = await (await fetch(`${baseUrl}/api/flashcards/${globalHash}`)).json();
+            assert.deepEqual(after.tags, ['solo']);
+
+            const found = await (await fetch(
+                `${baseUrl}/api/search?tag=${encodeURIComponent('solo')}`)).json();
+            assert.ok(JSON.stringify(found).includes(globalHash),
+                'a standalone card should be findable by its own tag');
+        });
+
         it('DELETE /api/flashcards/:hash → 404 for an unknown hash', async () => {
             const res = await del(`${baseUrl}/api/flashcards/no-such-card-hash`);
             assert.equal(res.status, 404);

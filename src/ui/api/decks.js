@@ -34,8 +34,8 @@ export const addEntry = (deckHash, cardHash, documentPath = null) =>
 export const removeEntry = (deckHash, cardHash) =>
     request('DELETE', `/api/decks/${deckHash}/entries/${encodeURIComponent(cardHash)}`);
 
-export const createStandaloneCard = ({ frontText, backText, answerText, name, cardType, category, customHtml } = {}) =>
-    request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml });
+export const createStandaloneCard = ({ frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) =>
+    request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, tags });
 
 // Edits any card by hash — standalone or document-anchored. As with deleteCard the
 // server resolves which canonical file the card lives in, so callers don't branch.

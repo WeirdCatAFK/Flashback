@@ -147,10 +147,9 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
           : {}),
         customHtml: card.customData?.html ?? '',
         category: card.category,
-        // No `tags` key on purpose: this view's payload is the derived layer, which
-        // doesn't carry the card's own tag list, and an omitted field leaves the
-        // stored value alone. Tags are edited in the document Inspector, which reads
-        // them from the sidecar and can show what it's about to replace.
+        // `card.tags` is the card's OWN list, not what it inherits from a document,
+        // folder or deck — those are not this form's to remove and are not shown in it.
+        tags: card.tags ?? [],
       });
       setEditing(false);
       load();
@@ -204,9 +203,9 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
             customHtml: card.customHtml ?? '',
             category: card.category ?? '',
             media: card.media ?? null,
+            tags: card.tags ?? [],
           }}
           resolveMedia={resolveMedia}
-          showTags={false}
           submitLabel={t('Save changes')}
           saving={saving}
           error={saveError}

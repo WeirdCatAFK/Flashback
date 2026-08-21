@@ -30,9 +30,9 @@ router.get('/:hash', catchError(async (req, res) => {
 // `origin` marks provenance ('ai' = created by an AI assistant); set once at
 // creation, never editable afterwards — the PUT below deliberately ignores it.
 router.post('/', catchError(async (req, res) => {
-    const { frontText, backText, answerText, name, cardType = 'basic', category, customHtml } = req.body;
+    const { frontText, backText, answerText, name, cardType = 'basic', category, customHtml, tags } = req.body;
     const origin = req.body.origin === 'ai' ? 'ai' : null;
-    const globalHash = await decks.createStandaloneCard({ frontText, backText, answerText, name, cardType, category, customHtml, origin });
+    const globalHash = await decks.createStandaloneCard({ frontText, backText, answerText, name, cardType, category, customHtml, origin, tags });
     res.status(201).json({ globalHash });
 }));
 
@@ -80,19 +80,22 @@ router.post('/:hash/flags/:kind/dismiss', catchError(async (req, res) => {
 // The two live in different canonical files, but as with DELETE below a client
 // holding a hash shouldn't have to know which — the server resolves the card's home
 // and dispatches. Editing an anchored card used to be refused here outright.
+//
+// `tags` is the card's OWN list either way — the sidecar's `tags` array for an anchored
+// card, direct tag connections on the node for a standalone one, which has no sidecar to
+// keep a list in. What a card INHERITS from a document, folder or deck is not editable
+// here and is never returned as if it were.
 router.put('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
     const { frontText, backText, answerText, name, cardType, category, customHtml, tags } = req.body;
     const card = await decks.getCard(hash);   // throws "not found" → 404
 
     if (!card.documentPath) {
-        await decks.updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml });
+        await decks.updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags });
         await cardHealth.onCardEdited(hash);
         return res.json({ ok: true, documentPath: null });
     }
 
-    // tags are a sidecar concept — standalone cards inherit theirs from their deck.
-    //
     // `ifMatch` here is the CARD's etag, not the document's: this is a patch to one entity
     // inside the sidecar, so someone editing another card of the same document is not in
     // conflict with it and must not be told they are. Omitted means no check, exactly as on

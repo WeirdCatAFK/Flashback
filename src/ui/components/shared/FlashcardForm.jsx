@@ -60,7 +60,6 @@ export default function FlashcardForm({
   // again in the picker. Requires `sourcePath`.
   seedImage = null,
   submitLabel,
-  showTags = true,
   saving = false,
   error = null,
   onSubmit,
@@ -451,28 +450,24 @@ export default function FlashcardForm({
         />
       ))}
 
-      {showTags && (
-        <>
-          <label htmlFor="fc-tag-input" className="fc-form-label">{t('TAGS')}</label>
-          <div className="fc-form-tags">
-            {tags.map((tag) => (
-              <span key={tag} className="fc-tag fc-tag--removable">
-                {tag}
-                <button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
-              </span>
-            ))}
-            <input
-              id="fc-tag-input"
-              className="fc-form-tag-input"
-              value={tagInput}
-              onChange={(e) => setTagInput(e.target.value)}
-              onKeyDown={handleTagKeyDown}
-              onBlur={addTag}
-              placeholder={t('+ tag')}
-            />
-          </div>
-        </>
-      )}
+      <label htmlFor="fc-tag-input" className="fc-form-label">{t('TAGS')}</label>
+      <div className="fc-form-tags">
+        {tags.map((tag) => (
+          <span key={tag} className="fc-tag fc-tag--removable">
+            {tag}
+            <button type="button" className="fc-tag-remove" onClick={() => removeTag(tag)}>×</button>
+          </span>
+        ))}
+        <input
+          id="fc-tag-input"
+          className="fc-form-tag-input"
+          value={tagInput}
+          onChange={(e) => setTagInput(e.target.value)}
+          onKeyDown={handleTagKeyDown}
+          onBlur={addTag}
+          placeholder={t('+ tag')}
+        />
+      </div>
 
       <label htmlFor="fc-category" className="fc-form-label">{t('CATEGORY')}</label>
       <select

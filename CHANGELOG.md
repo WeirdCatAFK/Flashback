@@ -2,6 +2,28 @@
 
 ## Unreleased
 
+### Fixed — tags typed on a standalone card went nowhere
+
+A card made outside a document — the "New standalone card" button, or an AI assistant
+calling `create_flashcard` with no `path` — showed a tag field, accepted what you typed,
+and dropped it. Not silently in one place: every layer under the form discarded the field,
+so the tag never reached the card, the tag list, the graph, or a search.
+
+Those tags are now the card's own, kept in the system deck's canonical file and restored by a
+Vault Doctor rebuild like the rest of it. A standalone card can be found by tag, studied by
+tag, and retagged from the card view, which now shows the tags a card actually has rather
+than hiding the field. Nothing about document-anchored cards changed — theirs always
+worked, and still live in the document's sidecar.
+
+### Fixed — one server, one remote
+
+Adding a Flashback Server you had already added replaced the existing entry, credential and
+all. That made it impossible to hold two accounts on one server — an author token and a
+collaborator token, say — which is exactly what you need to see what a role actually looks
+like. Entries are now told apart by name as well as address: give the same server a second
+name to connect as a second account. Re-adding under the same name still replaces, which is
+how you refresh an expired token.
+
 ### Fixed — `0.0.0.0` accepted as a server address
 
 The server printed the interface it bound to (`0.0.0.0:50501`) as though it were an address

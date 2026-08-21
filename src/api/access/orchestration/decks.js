@@ -10,6 +10,9 @@ import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
 
 const DECKS_DIR = '_decks';
 
+/** Trimmed, de-duplicated, blank-free. The one definition of a clean tag list here. */
+const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
+
 export default class Decks {
     constructor() {
         this.query = query;
@@ -159,7 +162,7 @@ export default class Decks {
     }
 
     // Resolves existing tag names to their Tags row ids (skipping unknown names).
-    // Callers must ensure the tags exist first (via _syncDeckNodeTags).
+    // Callers must ensure the tags exist first (via _syncNodeTags).
     async _tagIdsForNames(tagNames) {
         const ids = [];
         for (const name of tagNames) {
@@ -169,11 +172,18 @@ export default class Decks {
         return ids;
     }
 
-    // Makes the given tag names the deck node's exact set of direct tags, creating
-    // any that don't exist and pruning those left unreferenced. Mirrors
-    // documents._syncTags; the deck node holding the direct 'tag' connection is what
-    // keeps a deck-only tag alive in getAllTags().
-    async _syncDeckNodeTags(nodeId, tagNames) {
+    // Makes the given tag names a node's exact set of direct tags, creating any that
+    // don't exist and pruning those left unreferenced. Mirrors documents._syncTags.
+    //
+    // Serves two kinds of node, and the distinction is worth stating. On a DECK node the
+    // direct 'tag' connection is what keeps a deck-only tag alive in getAllTags(). On a
+    // STANDALONE CARD node it is the card's own tag list — the counterpart of the `tags`
+    // array a document-anchored card carries in its sidecar. A standalone card has no
+    // sidecar to hold one, which is why tags were long treated as a document concept;
+    // the derived layer never made that assumption (getDueFlashcards, getSessionFacets
+    // and _searchFlashcards all match `tag` connections straight off `f.node_id`), so the
+    // card node has always been the right place to put it.
+    async _syncNodeTags(nodeId, tagNames) {
         const tagNodeIds = [];
         for (const name of tagNames) {
             let tag = await this.query.getTagByName(name);
@@ -189,7 +199,7 @@ export default class Decks {
     }
 
     // Pushes a deck's direct tags down onto every current member card as inherited
-    // tags. Tags must already exist (call _syncDeckNodeTags first).
+    // tags. Tags must already exist (call _syncNodeTags first).
     async _propagateTagsToCards(deck, tagNames) {
         if (!deck.node_id) return;
         const tagIds = await this._tagIdsForNames(tagNames);
@@ -204,7 +214,7 @@ export default class Decks {
     async setTags(globalHash, tags) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        const clean = [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
+        const clean = cleanTagNames(tags);
 
         const file = await this._readOrRebuild(globalHash, deck);
         file.tags = clean;
@@ -212,7 +222,7 @@ export default class Decks {
         this._write(globalHash, file);
 
         await db.transaction(async () => {
-            await this._syncDeckNodeTags(deck.node_id, clean);
+            await this._syncNodeTags(deck.node_id, clean);
             await this._propagateTagsToCards(deck, clean);
         })();
         await sealEmitter.edit(this._sealRelPath(globalHash));
@@ -249,7 +259,7 @@ export default class Decks {
             // Drop the deck's direct tags first so any left unreferenced are pruned.
             // Deleting the Decks row then fires delete_deck_node, cascading the deck's
             // Connections (and their InheritedTags) off every member card.
-            if (deck.node_id) await this._syncDeckNodeTags(deck.node_id, []);
+            if (deck.node_id) await this._syncNodeTags(deck.node_id, []);
             await this.query.deleteDeck(deck.id);
         })();
         await sealEmitter.delete(this._sealRelPath(globalHash));
@@ -467,12 +477,18 @@ export default class Decks {
     // deck entry (file entry.card + DeckEntries.inline_card). Standalone cards
     // have no document sidecar, so this snapshot is their only canonical-layer
     // representation — without it they'd be unrecoverable after a DB rebuild.
-    _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
+    _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
+        const cleanTags = cleanTagNames(tags);
         return {
             name: name ?? null,
             cardType,
             category,
             ...(origin ? { origin } : {}),
+            // Omitted when empty, exactly like `origin` above: every snapshot written
+            // before this existed has no `tags` key, and absent already means "no tags".
+            // Emitting an empty array instead would rewrite every entry in the file on
+            // the next save without changing what any of them mean.
+            ...(cleanTags.length ? { tags: cleanTags } : {}),
             vanillaData: {
                 frontText: frontText || null,
                 backText: backText || null,
@@ -488,7 +504,7 @@ export default class Decks {
         };
     }
 
-    async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null } = {}) {
+    async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
         if (category && !await this.query.getCategoryByName(category)) {
@@ -496,7 +512,7 @@ export default class Decks {
         }
 
         const globalHash = crypto.randomUUID();
-        const snapshot = this._standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin });
+        const snapshot = this._standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags });
 
         await db.transaction(async () => {
             const nodeId = await this.query.createNode('Flashcard');
@@ -507,6 +523,9 @@ export default class Decks {
                 category, cardType, name, origin,
                 level: 0, sm2Reps: 0, fileIndex: 0,
             }, OWNER_SCOPE);
+            // The card's own tags, direct on its node — the same shape
+            // _syncDocumentFlashcards gives an anchored card from its sidecar.
+            if (snapshot.tags) await this._syncNodeTags(nodeId, snapshot.tags);
             const position = await this.query.getDeckEntryCount(systemDeck.id);
             await this.query.insertDeckEntry({
                 deckId: systemDeck.id, cardHash: globalHash,
@@ -552,6 +571,11 @@ export default class Decks {
             customHtml: card.custom_html,
             category: card.category,
             documentPath: card.document_path ?? null,
+            // The card's OWN tags (direct on its node), never the ones it inherits from a
+            // document, folder or deck — an editor that showed those would offer to remove
+            // something it cannot remove from here. For an anchored card this mirrors the
+            // sidecar's `tags`; for a standalone card the node is the only copy.
+            tags: card.node_id ? await this.query.getDirectTagNames(card.node_id) : [],
             // Stored references, not URLs — resolve them against `documentPath`
             // (GET /api/media/file) before handing them to a renderer.
             media: {
@@ -563,7 +587,7 @@ export default class Decks {
         };
     }
 
-    async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml } = {}) {
+    async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
         const card = await this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -585,6 +609,10 @@ export default class Decks {
             category: category !== undefined ? category : existing.category,
             customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
             origin: existing.origin ?? null, // provenance is set at creation and never edited
+            // Omitted means unchanged, like every other field here — but the snapshot is
+            // rewritten whole, so "unchanged" has to be read back explicitly or the file
+            // would lose the tags it already had.
+            tags: tags !== undefined ? cleanTagNames(tags) : await this.query.getDirectTagNames(existing.node_id),
             media: {
                 front_img: existing.front_img || null,
                 back_img: existing.back_img || null,
@@ -596,6 +624,7 @@ export default class Decks {
         const systemDeck = await this.query.getSystemDeck();
         await db.transaction(async () => {
             await this.query.updateFlashcardContentByHash(hash, merged);
+            if (tags !== undefined) await this._syncNodeTags(existing.node_id, merged.tags);
             if (systemDeck) await this.query.updateDeckEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
         })();
 
@@ -787,7 +816,7 @@ export default class Decks {
             // is deferred to _propagateAllDeckTags() once every card row exists
             // (documents/standalone cards may still be rebuilding at this point).
             if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
-                await this._syncDeckNodeTags(deck.node_id, data.tags);
+                await this._syncNodeTags(deck.node_id, data.tags);
             }
         })();
     }
@@ -898,6 +927,10 @@ export default class Decks {
                             origin: e.card.origin ?? null,
                             level: 0, sm2Reps: 0, fileIndex: 0,
                         }, OWNER_SCOPE);
+                        // The card's own tags come back with it. Unlike its level — which has
+                        // no canonical home and honestly resets — these were written to the
+                        // snapshot precisely so a rebuild could restore them.
+                        if (e.card.tags?.length) await this._syncNodeTags(nodeId, e.card.tags);
                         const deck = await this.query.getDeckByHash(f.globalHash);
                         if (deck?.node_id) {
                             const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.cardHash);
