@@ -359,9 +359,19 @@ export function addRemote({ label, url, token }) {
         tokenEnc = safeStorage.encryptString(token).toString("base64");
     }
 
-    const entry = { id: crypto.randomUUID(), label: (label || normalized).trim(), url: normalized, tokenEnc };
+    // A remote is a server AND a credential, not a server. Two entries on one address are
+    // the ordinary case for a shared vault, not a mistake to collapse: an Author token and a
+    // Reader token are two different people on the same server, and the entire point of a
+    // role is that they see different things. Keying the registry by URL alone made the
+    // second one silently overwrite the first.
+    //
+    // So the NAME identifies an entry and only an exact (address, name) repeat replaces —
+    // which is still exactly what re-adding to update an expired token looks like, since the
+    // name defaults to the address when the field is left blank.
+    const name = (label || normalized).trim();
+    const entry = { id: crypto.randomUUID(), label: name, url: normalized, tokenEnc };
     updateConfig((c) => {
-        c.remotes = (c.remotes ?? []).filter((r) => r.url !== normalized);
+        c.remotes = (c.remotes ?? []).filter((r) => !(r.url === normalized && r.label === name));
         c.remotes.push(entry);
     });
     return { ok: true, remote: { id: entry.id, label: entry.label, url: entry.url, hasToken: !!tokenEnc } };
