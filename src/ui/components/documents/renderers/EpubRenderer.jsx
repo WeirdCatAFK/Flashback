@@ -39,10 +39,17 @@ function resolveColor(key) {
   return v || '#f5c542';
 }
 
-function isDarkTheme() {
-  const attr = document.documentElement.dataset.theme;
-  if (attr) return attr === 'dark';
-  return !!window.matchMedia?.('(prefers-color-scheme: dark)').matches;
+/**
+ * The EPUB body renders inside a section iframe, so it cannot inherit the app's
+ * CSS variables — the values have to be read out and injected. Reading them is
+ * what keeps a book blended with whichever theme is on, custom ones included;
+ * the pair of hardcoded light/dark palettes this replaced was selected by a
+ * `dataset.theme === 'dark'` test that no theme name has ever matched, so every
+ * book rendered its light palette even under the dark themes.
+ */
+function cssVar(name, fallback) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return v || fallback;
 }
 
 /**
@@ -195,10 +202,13 @@ export default function EpubRenderer({
         // Theme: a minimal light/dark base so the page blends with the app shell.
         // We only set body colour/background — forcing author-styled elements is a
         // rabbit hole, so content keeps its own formatting.
-        const dark = isDarkTheme();
-        rendition.themes.register('fb', dark
-          ? { body: { color: '#d6d3cd', background: '#1c1a17' }, a: { color: '#e0a44a' } }
-          : { body: { color: '#1c1a17', background: '#faf8f4' }, a: { color: '#b06d12' } });
+        rendition.themes.register('fb', {
+          body: {
+            color: cssVar('--color-fg-primary', '#1c1a17'),
+            background: cssVar('--color-bg-reader', '#faf8f4'),
+          },
+          a: { color: cssVar('--color-accent', '#b06d12') },
+        });
         rendition.themes.select('fb');
         rendition.themes.fontSize(`${fontPctRef.current}%`);
 

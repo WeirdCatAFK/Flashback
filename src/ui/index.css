@@ -59,9 +59,14 @@
      --color-border-strong, which clears 3:1 against the surface behind it.
    • --color-graph-* is a CATEGORICAL palette, not a set of aliases. Five node
      types are bare dots on --color-bg-base, so colour is the only thing telling
-     them apart: each theme's five hues sit at one shared chroma and are spread
-     around the wheel, which is what makes them read as one set while staying
-     separable. Slot 1 (Document) sits on the theme's accent hue, and Tag stays
+     them apart: each theme's five hues are spread around the wheel AND stepped
+     in lightness, which is what makes them read as one set while staying
+     separable. The lightness ladder is not decoration — under protanopia and
+     deuteranopia the hue differences collapse and lightness is the only cue
+     left, so flattening it is what breaks the palette first (the pairwise
+     deltaE floors in check-contrast.js are what catch that). Chroma RISES as
+     lightness falls: holding it flat across the ladder is what makes the dark
+     end read as mud rather than as colour. Slot 1 (Document) sits on the theme's accent hue, and Tag stays
      green / Flashcard warm so the graph reads the same way whichever theme is
      on — dark-cherry is the deliberate exception (a narrow blossom palette that
      separates by lightness instead; see its own note). Aliasing these back to --color-hl-* or
@@ -71,52 +76,71 @@
 
    `node scripts/check-contrast.js` verifies all of the above and fails loudly. */
 
+/* light-workbench's surfaces are a pastel beige, and the beige is carried by
+   CHROMA rather than by darkness (0.022–0.033, up from the 0.000–0.011 they
+   started at). That is not a style preference: --color-accent is frozen at the
+   sRGB gamut edge for its hue, and its 4.5:1 requirement against both the
+   window and the panel puts a hard floor of Y >= 0.891 under every surface
+   either one touches. bg-base has ~2 luminance points of room, so a *darker*
+   beige is not reachable without changing the accent contract — a more
+   *chromatic* one at the same luminance is, and reads as the same warmth.
+   bg-base, bg-surface and accent-subtle are therefore solved backwards from
+   the ratio each must clear against the accent, not hand-picked; nudging their
+   lightness is what will break the contrast check first. */
 :root,
 [data-theme="light-workbench"] {
-  --color-bg-base:        #F5F5F4;
-  --color-bg-sidebar:     #EEECEA;
-  --color-bg-surface:     #FFFFFF;
-  --color-bg-hover:       #E2DFDC;
-  --color-bg-reader:      #FFFEF9;
+  --color-bg-base:        #FCF4E2;
+  --color-bg-sidebar:     #F4EBD8;
+  --color-bg-surface:     #FFFAEA;
+  --color-bg-hover:       #E7DCC7;
+  --color-bg-reader:      #FEF9E4;
   --color-bg-editor:      light;
-  --color-fg-primary:     #1C1917;
-  --color-fg-secondary:   #6B6560;
-  --color-fg-icon:        #57534E;
+  --color-fg-primary:     #201A15;
+  --color-fg-secondary:   #6C6359;
+  --color-fg-icon:        #595249;
+  /* accent is at the sRGB gamut edge for its hue (C=0.146 of 0.150 available)
+     and clears only 4.60:1 on bg-base / 4.53:1 against accent-subtle. One token
+     serves both link text and button fills, so it cannot be brightened toward
+     the dark theme's vivid amber without splitting that role in two. Leave it
+     and accent-subtle alone unless you are changing that contract. */
   --color-accent:         #B45309;
   --color-on-accent:      #FFFFFF;
-  --color-border:         #D6D3D1;
-  --color-border-strong:  #8C8681;
-  --color-title-bar:      #E8E4E0;
+  --color-border:         #DAD1C1;
+  --color-border-strong:  #8B8277;
+  --color-title-bar:      #EEE3CF;
   /* extended */
-  --color-accent-subtle:  #FEF3C7;
-  --color-tree-indent:    #D6D3D1;
-  --color-sidebar-header: #E2DFDC;
+  --color-accent-subtle:  #FFF4C7;
+  --color-tree-indent:    #D8D4CC;
+  --color-sidebar-header: #E7DCC7;
   /* highlight swatches — these sit BEHIND document text, so fg-primary must
      stay legible on top of them. Keep them pale in a light theme. */
-  --color-hl-1:       #FDE68A;
-  --color-hl-2:       #D9F99D;
-  --color-hl-3:        #BFDBFE;
-  --color-hl-4:        #FBCFE8;
+  --color-hl-1:       #FEE477;
+  --color-hl-2:       #D2F58B;
+  --color-hl-3:        #BBDAFF;
+  --color-hl-4:        #FFC6E8;
   /* review grade swatches — see the role note above --color-on-review */
-  --color-on-review:      #FFFFFF;
-  --color-review-again:   #A82323;
-  --color-review-hard:    #8F5606;
-  --color-review-good:    #196B39;
-  --color-review-easy:    #1E4E8C;
-  /* graph node & link colours — muted oxides and inks, one chroma (~0.10) */
-  --color-graph-edge:       #9A938C;   /* resting links: structure, not identity */
-  --color-graph-document:   #B0694D;
-  --color-graph-folder:     #5580B9;
-  --color-graph-flashcard:  #814774;
-  --color-graph-tag:        #385B1C;
-  --color-graph-deck:       #422862;
-  --color-graph-link:       #B0694D;
-  --color-graph-disconnect: #B91C1C;
-  --color-graph-inherit:    #637558;
+  --color-on-review:      #FFFAEA;
+  --color-review-again:   #C33530;
+  --color-review-hard:    #9E5A00;
+  --color-review-good:    #107B39;
+  --color-review-easy:    #116CBE;
+  /* graph node & link colours — hues spread around the wheel, stepped in
+     lightness (65%→41% OKLab L) with chroma rising as lightness falls, so the
+     dark end stays saturated instead of going to mud. Worst-case separation is
+     19.8 deltaE normal / 11.1 under colour-blindness, against floors of 15/8. */
+  --color-graph-edge:       #A49D95;   /* resting links: structure, not identity */
+  --color-graph-document:   #D76A3D;
+  --color-graph-folder:     #2F75CF;
+  --color-graph-flashcard:  #B3368E;
+  --color-graph-tag:        #35600B;
+  --color-graph-deck:       #58089B;
+  --color-graph-link:       #D86A3D;
+  --color-graph-disconnect: #C72E28;
+  --color-graph-inherit:    #5B863C;
   /* semantic + elevation */
   --shadow-sm:          0 1px 3px rgba(0,0,0,.08);
   --shadow-float:       0 4px 16px -2px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
-  --color-danger:       #B91C1C;
+  --color-danger:       #C72E28;
   --color-danger-bg:    rgba(185, 28, 28, 0.08);
 }
 
