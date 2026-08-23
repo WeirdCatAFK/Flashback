@@ -117,7 +117,7 @@ export default function RetentionCurve({ curve }) {
         ) : (
           <>
             <strong>{t('Approximation.')}</strong>{' '}
-            {t('This scheduler has no memory model — the curve assumes its {interval} interval is where recall falls to {target}.',
+            {t('This scheduler doesn’t model memory — the curve assumes recall falls to {target} at its {interval} interval.',
               { interval: days(intervalDays), target: pct(requestRetention) })}
           </>
         )}

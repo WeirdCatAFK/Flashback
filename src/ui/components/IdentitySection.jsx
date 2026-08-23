@@ -117,7 +117,7 @@ export default function IdentitySection({ connection }) {
     <section className="config-section">
       <h2 className="config-heading">{t('Identity')}</h2>
       <p className="config-hint">
-        {t('The name and email stamped on documents you create and on every entry in the vault history. This is an authoring label, not an account')}
+        {t('The name and email stamped on documents you create and on every entry in the vault history.')}
       </p>
 
       {effective && (
@@ -168,7 +168,7 @@ export default function IdentitySection({ connection }) {
         {t('Use a different identity in this vault')}
       </label>
       <p className="config-hint identity-toggle__hint">
-        {t('Keeps a separate name and email for this vault only — a work address on a work vault, say. It is stored on this computer and does not travel with the vault folder.')}
+        {t('Keeps a separate name and email for this vault only — a work address on a work vault, say.')}
       </p>
 
       {usesOverride && (

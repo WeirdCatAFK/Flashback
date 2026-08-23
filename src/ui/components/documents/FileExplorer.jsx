@@ -43,7 +43,7 @@ const dropDanglingSeparators = (items) => {
 const reservedNameError = (name, type, t) => {
   const lower = name.trim().toLowerCase();
   if (lower === '.flashback' || lower.endsWith('.flashback'))
-    return t('The ".flashback" name is reserved for Flashback metadata and can’t be created directly.');
+    return t('The ".flashback" name is reserved by Flashback and can’t be used here.');
   if (type === 'folder' && lower === 'media')
     return t('The "media" folder name is reserved for flashcard assets and is managed automatically.');
   return null;

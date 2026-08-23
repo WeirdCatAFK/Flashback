@@ -503,7 +503,7 @@ function McpIntegration() {
   return (
     <div className="mcp-integration">
       <p className="config-hint">
-        {t('Connect an AI assistant to this vault — it can search your notes, draft flashcards from a document, and add them to a deck, right from a conversation. Nothing it changes skips Flashback’s normal save path.')}
+        {t('Connect an AI assistant to this vault — it can search your notes, draft flashcards from a document, and add them to a deck, right from a conversation.')}
       </p>
 
       <div className="theme-text-panel">
@@ -541,7 +541,7 @@ function McpIntegration() {
       </ul>
 
       <p className="config-hint">
-        {t('Flashback needs to be running for this to work — since you’re looking at this screen, it already is.')}
+        {t('Flashback needs to be running for this to work.')}
       </p>
     </div>
   );
@@ -1070,9 +1070,9 @@ export default function ConfigView({
                   <option value="priority">{t('By category priority')}</option>
                 </select>
                 <p className="config-hint">
-                  {order === 'interleaved' && t('Cards from the same document, tag or folder are pushed apart so each one has to be recalled on its own. Expect sessions to feel harder and your pass rate to dip — that’s the trade for remembering more later.')}
+                  {order === 'interleaved' && t('Cards from the same document, tag or folder are spread apart so each one is recalled on its own.')}
                   {order === 'shuffle' && t('Random order within each category-priority tier.')}
-                  {order === 'priority' && t('Foundational cards first, then in the order they were created. Predictable, but reviewing related cards together makes them easier to recall now and harder to recall later.')}
+                  {order === 'priority' && t('Foundational cards first, then in the order they were created.')}
                 </p>
               </td>
             </tr>
@@ -1118,8 +1118,8 @@ export default function ConfigView({
                 </label>
                 <p className="config-hint">
                   {isRemote
-                    ? t('Writes a per-day summary of your reviews (counts, pass rate, streak) to this server’s vault, outside its workspace — never in the graph, search, or flashcards. You can also add your own written reflections. One shared history holds every studier’s entries, and an administrator can read yours, so keep private reflections elsewhere. Off by default.')
-                    : t('Writes a per-day summary of your reviews (counts, pass rate, streak) to a private diary kept outside your workspace — never in the graph, search, or flashcards. You can also add your own written reflections. Off by default.')}
+                    ? t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and an administrator can read yours. Off by default.')
+                    : t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Off by default.')}
                 </p>
               </td>
             </tr>
@@ -1131,7 +1131,7 @@ export default function ConfigView({
         <section className="config-section">
           <h2 className="config-heading">{t('Getting started')}</h2>
           <p className="config-hint">
-            {t('Take the guided tour of Flashback’s features again — this only replays the walkthrough, it doesn’t touch your vault or settings.')}
+            {t('Take the guided tour of Flashback’s features again.')}
           </p>
           <button
             type="button"
@@ -1301,7 +1301,7 @@ export default function ConfigView({
             </select>
             <p className="config-hint">
               <Rich
-                text={t('Off by default. {summaries} lets an assistant see your machine-generated study record (review counts, pass rates, streaks) while keeping your written reflections private — the right choice if you use the diary as a personal journal. {full} also exposes your own prose. When off, every diary tool is refused.')}
+                text={t('Off by default. {summaries} shares your review counts, pass rates and streaks. {full} also shares anything you have written.')}
                 values={{
                   summaries: <strong>{t('Daily summaries only')}</strong>,
                   full: <strong>{t('Summaries and written entries')}</strong>,

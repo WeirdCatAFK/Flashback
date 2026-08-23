@@ -326,7 +326,7 @@ function StepIdentity({ state, onChange, onNext, onBack }) {
     <div className="ob-step">
       <h2 className="ob-step-title">{t('Who’s studying?')}</h2>
       <p className="ob-step-desc">
-        {t('Your name and email are stamped on documents you create and on every entry in the vault history — the way git records who wrote a commit. This is an authoring label, not an account: nothing checks it and nothing signs you in.')}
+        {t('Your name and email are stamped on documents you create and on every entry in the vault history. Nothing checks it and nothing signs you in.')}
       </p>
 
       <div className="ob-field">

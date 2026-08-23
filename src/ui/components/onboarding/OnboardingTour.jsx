@@ -99,14 +99,14 @@ const stepsFor = (t) => [
     view: "stats",
     Icon: IconStats,
     title: t("Track your progress"),
-    body: t("See how your vault is doing at a glance — retention, review activity, card maturity, and what's coming due. All read-only, derived from your review history."),
+    body: t("See how your vault is doing at a glance — retention, review activity, card maturity, and what's coming due, all from your review history."),
   },
   {
     target: '[data-tour="nav-seal"]',
     view: "seal",
     Icon: IconSeal,
     title: t("Seal & Vault Doctor"),
-    body: t("Every change is versioned automatically. Browse your history, restore any earlier state, and run the Vault Doctor to check and repair the index — your work is never lost."),
+    body: t("Every change is versioned automatically. Browse your history, restore any earlier state, and run the Vault Doctor to check and repair your vault — your work is never lost."),
   },
   {
     target: '[data-tour="nav-manage"]',

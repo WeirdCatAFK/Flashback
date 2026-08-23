@@ -98,7 +98,7 @@ function CardFlag({ flag, hash, onDismissed }) {
       {bits.length > 0 && <p className="cd-flag-evidence">{bits.join(' · ')}</p>}
       {flag.evidence?.memoryModel === 'approximated' && (
         <p className="cd-flag-evidence">
-          {t('Your scheduler records no difficulty signal, so this reads the card’s intervals alone — it’s a weaker call than it would be under FSRS.')}
+          {t('Your scheduler records no difficulty signal, so this reads the card’s intervals alone.')}
         </p>
       )}
     </li>

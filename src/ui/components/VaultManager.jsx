@@ -310,7 +310,7 @@ export default function VaultManager({ connection, onClose }) {
           </div>
 
           <p className="vm-explainer">
-            {t('A vault is a self-contained set of documents, cards and review history. Keeping separate vaults is how you keep unrelated work apart')}
+            {t('A vault is a self-contained set of documents, cards and review history.')}
           </p>
 
           {error && <p className="vm-msg vm-msg--error" role="alert">{error}</p>}
@@ -392,7 +392,7 @@ export default function VaultManager({ connection, onClose }) {
                 </label>
                 <div className="vm-form__buttons">
                   <p className="vm-hint">
-                    {t('The token is stored with your operating system’s secure credential store, never in a plain file.')}
+                    {t('The token is kept in your operating system’s secure credential store.')}
                     {' '}
                     {/* Two entries on one address are a normal thing to want — a second
                         account on the same server — and the name is what tells them apart.

@@ -148,7 +148,7 @@ function CategoriesPanel({ refreshKey }) {
           {categories.length > 0 && <span className="mng-count">{categories.length}</span>}
         </h2>
         <p className="mng-section-hint">
-          {t('Classify each card by its learning purpose — definition, concept, application… Lower priority is studied first; cards with no category are treated as priority 0.')}
+          {t('Classify each card by its learning purpose — definition, concept, application… Lower priority is studied first.')}
         </p>
       </div>
 
@@ -322,7 +322,7 @@ export default function Manage({ isActive }) {
         <header className="mng-header">
           <h1 className="mng-title">{t('Management')}</h1>
           <p className="mng-lede">
-            {t('Vault-wide metadata that shapes how your whole knowledge base is classified and studied.')}
+            {t('Categories and tags that shape how your whole vault is classified and studied.')}
           </p>
         </header>
         <CategoriesPanel refreshKey={refreshKey} />

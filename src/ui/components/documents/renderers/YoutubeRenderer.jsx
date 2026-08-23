@@ -358,8 +358,8 @@ export default function YoutubeRenderer({
               : undefined}
           >
             {transcript.kind === 'asr'
-              ? (showTranscript ? t('📄 Hide transcript (auto)') : t('📄 Show transcript (auto)'))
-              : (showTranscript ? t('📄 Hide transcript') : t('📄 Show transcript'))}
+              ? (showTranscript ? t('Hide transcript (auto)') : t('Show transcript (auto)'))
+              : (showTranscript ? t('Hide transcript') : t('Show transcript'))}
           </button>
         ) : (
           <button

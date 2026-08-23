@@ -704,7 +704,7 @@ function SyncConfirmModal({ report, onCancel, onConfirm }) {
             }
         >
             <p className="seal-modal-warning">
-                {t('Your files on disk are the source of truth. This indexes anything new, refreshes documents that changed outside Flashback, and drops index entries for things that were deleted. Review progress is never lowered.')}
+                {t('Your files on disk are the source of truth. This picks up anything new, refreshes documents that changed outside Flashback, and forgets things that were deleted. Review progress is never lowered.')}
                 {hasConflicts && (
                     <> {t('Documents that share a duplicate identity are left untouched and reported.')}</>
                 )}
@@ -779,7 +779,7 @@ function RebuildConfirmModal({ onCancel, onConfirm }) {
                 />
             </p>
             <p className="seal-modal-hint">
-                {t('Card levels and ease survive (they are stored in the files), but per-review history (each card’s review log) is lost and scheduling is re-seeded from the saved levels.')}
+                {t('Card levels and ease survive, but each card’s review history is lost and scheduling restarts from the saved levels.')}
             </p>
 
             <label className="seal-doctor-type-label">
@@ -1086,7 +1086,7 @@ export default function SealView({ isActive = false }) {
                     to know why highlighting a page shows up as a change to a file they never
                     opened. */}
                 <p className="seal-log-note">
-                    {t('Highlights, flashcards and tags are stored beside each document in its own metadata file, so changing them is recorded here as a metadata update — the document’s own text is untouched.')}
+                    {t('Highlights, flashcards and tags are saved with the document, so changing one shows up here even though the text itself is untouched.')}
                 </p>
                 <SealTimeline
                     log={log}

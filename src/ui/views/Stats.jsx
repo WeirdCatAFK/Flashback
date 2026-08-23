@@ -305,7 +305,7 @@ export default function Stats({ isActive }) {
                   : t('none today')} />
               <StatTile label={t('Retention')} value={pctText(stats.totals.retentionAll)}
                 sub={t('{pct} last 30 days', { pct: pctText(stats.totals.retention30) })}
-                title={t('Measured on {reviews} reviews of cards past their learning phase — a card’s first {learning} reviews are counted as acquisition instead.',
+                title={t('Measured on {reviews} reviews — a card’s first {learning} reviews don’t count.',
                   { reviews: formatNumber(stats.totals.retentionReviews), learning: stats.acquisition.learningReviews })} />
               <StatTile label={t('Streak')} value={t('{n}d', { n: formatNumber(stats.streak.current) })}
                 sub={t('best {n}d', { n: formatNumber(stats.streak.longest) })} />

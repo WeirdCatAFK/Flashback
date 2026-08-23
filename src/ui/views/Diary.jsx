@@ -91,7 +91,7 @@ function SummaryPanel({ state, summary }) {
     return (
       <EmptyState
         title={t('No summary for this day')}
-        message={t('Summaries are written automatically when you finish a study session (with logging enabled). Use “Rebuild from history” above to re-derive them from your review log.')}
+        message={t('Summaries are written automatically when you finish a study session. Use “Rebuild from history” above to recreate them from past reviews.')}
       />
     );
   }
@@ -348,7 +348,7 @@ export default function DiaryView({ isActive, connection }) {
               className="diary-btn"
               onClick={onRebuild}
               disabled={rebuilding}
-              title={t('Re-derive every day’s summary from your review history')}
+              title={t('Rebuild every day’s summary from your review history')}
             >
               {rebuilding ? t('Rebuilding…') : t('Rebuild from history')}
             </button>
@@ -357,7 +357,7 @@ export default function DiaryView({ isActive, connection }) {
 
         {shared && (
           <p className="diary-privacy-note" role="note">
-            {t('These logs are stored in this server’s vault, in one history shared with everyone else studying here. An administrator can read your summaries and anything you write. Keep private reflections elsewhere.')}
+            {t('Everyone studying on this server shares one log history, and an administrator can read your summaries and anything you write.')}
           </p>
         )}
 
