@@ -41,7 +41,7 @@ export default class Subscriptions {
             try {
                 const rootMetaPath = path.join(importRootPath, '.flashback');
                 issueMetadata = JSON.parse(await fs.readFile(rootMetaPath, 'utf-8'));
-            } catch (e) {}
+            } catch {}
 
             // 3. Crawler
             const crawl = async (currentPath, destRelPath) => {
@@ -58,7 +58,7 @@ export default class Subscriptions {
                         let metadata;
                         try {
                             metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
-                        } catch (e) {
+                        } catch {
                             console.warn(`Missing or invalid .flashback for directory ${srcPath}, skipping metadata.`);
                             metadata = {};
                         }
@@ -81,7 +81,7 @@ export default class Subscriptions {
                         let metadata;
                         try {
                             metadata = JSON.parse(await fs.readFile(metaPath, 'utf-8'));
-                        } catch (e) {
+                        } catch {
                             console.warn(`Missing or invalid .flashback for file ${srcPath}, skipping metadata.`);
                             metadata = {};
                         }

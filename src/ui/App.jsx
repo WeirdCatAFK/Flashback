@@ -23,7 +23,7 @@ import VaultManager from "./components/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { invalidateData } from "./utils/dataBus";
-import { useT } from "./translations/index.jsx";
+import { useT } from "./translations";
 import useConnection from "./hooks/useConnection.js";
 import { SessionProvider } from "./session.jsx";
 import { getPref, setPref, setActiveVaultScope } from "./prefs.js";

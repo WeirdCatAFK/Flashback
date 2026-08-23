@@ -7,7 +7,8 @@ import { getPref, setPref, getNumberPref } from "../prefs.js";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
 import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
-import { LanguagePicker, Rich, useT } from "../translations/index.jsx";
+import { useT } from "../translations";
+import { LanguagePicker, Rich } from "../translations/components.jsx";
 import {
   THEME_VARS,
   saveCustomTheme,

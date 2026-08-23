@@ -1,15 +1,9 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, Suspense } from 'react';
 import EditorTabBar    from './EditorTabBar';
 import SelectionToolbar from './SelectionToolbar';
 import Inspector         from './inspector/Inspector';
 import HighlightRemoveDialog from './HighlightRemoveDialog';
-import MarkdownRenderer  from './renderers/MarkdownRenderer';
-import TextRenderer      from './renderers/TextRenderer';
-import PdfRenderer       from './renderers/PdfRenderer';
-import EpubRenderer      from './renderers/EpubRenderer';
-import YoutubeRenderer   from './renderers/YoutubeRenderer';
-import ClipRenderer      from './renderers/ClipRenderer';
-import PlaceholderRenderer from './renderers/PlaceholderRenderer';
+import { rendererFor } from './renderers/registry';
 import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
@@ -17,18 +11,6 @@ import { toLayoutRect, useUiZoomChange } from '../../utils/uiZoom';
 import { useT } from '../../translations';
 import { useSession } from '../../sessionContext.js';
 import './DocumentEditor.css';
-
-function pickRenderer(path) {
-  if (!path) return null;
-  const ext = path.replace(/\\/g, '/').split('/').pop().split('.').pop().toLowerCase();
-  if (['md', 'markdown'].includes(ext)) return MarkdownRenderer;
-  if (['txt', 'text'].includes(ext))    return TextRenderer;
-  if (ext === 'pdf')                    return PdfRenderer;
-  if (ext === 'epub')                   return EpubRenderer;
-  if (ext === 'youtube')                return YoutubeRenderer;
-  if (ext === 'clip')                   return ClipRenderer;
-  return PlaceholderRenderer;
-}
 
 const DEFAULT_HL_COLOR = 'amber';
 
@@ -62,20 +44,21 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const saveRef      = useRef(null);
   const highlightRef = useRef(null);
 
-  // A renderer opts into the highlight system by exposing a static
-  // `supportsHighlight` flag (see useHighlightableRenderer). DocumentEditor
-  // stays agnostic about which renderers those are.
-  const activeRenderer = pickRenderer(activeTab);
+  // A renderer declares whether its body can be edited and whether it can be highlighted
+  // in renderers/registry.js, alongside the dynamic import of the component itself. Read as
+  // data rather than off the component, because both answers are needed to render the tab
+  // bar and the selection toolbar — which happens before the renderer's chunk has arrived.
+  const activeRenderer = rendererFor(activeTab);
   // Editable renderers (markdown/text) get a visible Save button in the tab bar — but only
   // for someone who may write a body. For those two formats the highlights ARE the body
   // (marks in the prose), so annotating one is the same `PUT /file` as editing it; see the
   // `editDocumentBody` note in shared/roles.js. Every other renderer persists its highlights
   // through the sidecar and is unaffected — which is why `supportsHighlight` below has to be
   // computed AFTER this pair, not before it.
-  const writesBody = !!activeRenderer?.editable;
+  const writesBody = activeRenderer.editable;
   const mayWriteBody = !writesBody || can('editDocumentBody');
   const editable = writesBody && mayWriteBody;
-  const supportsHighlight = !!activeRenderer?.supportsHighlight && mayWriteBody;
+  const supportsHighlight = activeRenderer.supportsHighlight && mayWriteBody;
   const isActiveDirty = dirtyPaths.has(activeTab);
 
   // Reset selection and inspector panel inline when the active file changes.
@@ -420,7 +403,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     }
   }, [clearSelection]);
 
-  const Renderer = pickRenderer(activeTab);
+  const Renderer = activeRenderer.load;
 
   if (!activeTab || openTabs.length === 0) {
     return (
@@ -452,7 +435,10 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
             ref={rendererRef}
             onMouseUp={handleMouseUp}
           >
-            {Renderer && (
+            {/* Each heavy renderer is its own chunk, so this fallback is what shows while
+                pdf.js / epub.js / TipTap arrives. Keyed on the path, so switching documents
+                remounts rather than reusing a suspended tree. */}
+            <Suspense fallback={<div className="doc-editor-loading">{t('Loading…')}</div>}>
               <Renderer
                 key={`${activeTab}:${dataVersion}`}
                 path={activeTab}
@@ -468,7 +454,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 onExternalSelection={handleExternalSelection}
                 onImagePick={handleImagePick}
               />
-            )}
+            </Suspense>
           </div>
 
           {isActive && selection && selectionRect && (

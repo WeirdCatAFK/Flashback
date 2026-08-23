@@ -1876,6 +1876,11 @@ export default class Documents {
     // --- Media ---
 
     async addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {
+        return await withDocument(relativePath, () =>
+            this._addMediaToFlashcardLocked(relativePath, flashcardHash, mediaBuffer, mediaName));
+    }
+
+    async _addMediaToFlashcardLocked(relativePath, flashcardHash, mediaBuffer, mediaName) {
         const meta = this.files.getMetadata(relativePath);
         const cardIdx = meta.flashcards.findIndex(f => f.globalHash === flashcardHash);
         if (cardIdx === -1) throw new Error(`Flashcard ${flashcardHash} not found`);

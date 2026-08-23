@@ -12,20 +12,16 @@
  *   }))) return;
  *
  * Mount <ConfirmProvider> once near the app root; useConfirm() works anywhere below.
+ *
+ * The hook itself lives in `confirmContext.js` — this module exports one component, so
+ * Fast Refresh keeps working for every view that imports the hook.
  */
 
-import { createContext, useCallback, useContext, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
+import { ConfirmContext } from './confirmContext.js';
 import Modal from './Modal';
 import { useT } from '../../translations';
 import './ConfirmDialog.css';
-
-const ConfirmContext = createContext(null);
-
-export function useConfirm() {
-  const ctx = useContext(ConfirmContext);
-  if (!ctx) throw new Error('useConfirm must be used within <ConfirmProvider>');
-  return ctx;
-}
 
 export function ConfirmProvider({ children }) {
   const [dialog, setDialog] = useState(null);

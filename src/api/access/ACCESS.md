@@ -2,7 +2,7 @@
 
 The Access layer is the core of the Flashback system, responsible for maintaining synchronization between the canonical (filesystem) and derived (SQLite) data layers.
 
-**CRITICAL**: All data modifications must go through these modules. Never write directly to `.flashback` sidecars or call `db.prepare()` outside of `query.js`. For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
+**CRITICAL**: All data modifications must go through these modules. Never write directly to `.flashback` sidecars, and never call `db.prepare()` against the **vault database** outside of `query.js` (the accounts store and the `.apkg` reader are separate databases with their own handles — see Import rules). For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
 
 ---
 
@@ -30,7 +30,7 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 **Import rules:**
 - **Spaced-repetition reads and writes take an explicit `scope`.** An account id, or the literal `'owner'` for the vault's Author (`requestContext.js` `OWNER_SCOPE`). Resolve it **once** at the orchestrator's entry point with `currentScope()` — `srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js` and `decks.js` all do — and pass it down. `query.js` never reads it ambiently and **throws on a missing one** rather than defaulting: whose data a statement returns is not something a call site should have to go somewhere else to find out, and a default would answer that question wrongly in silence. A handful of sites name `OWNER_SCOPE` outright and each says why in a comment — reconciling against a sidecar, writing a canonical file, or Seal's rollback snapshot. See `DATAMODEL.md` § Per-user progress.
 - `query.js` and `files.js` never import each other.
-- `srs.js` and `documents.js` never import each other.
+- **`srs.js` never imports `documents.js`.** The reverse is not true and is not meant to be: `documents.js` imports `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` are document operations — they grade a card that lives in a sidecar, and the sidecar write and the schedule write have to happen in one server operation. The dependency runs one way only, which is the property that matters: the scheduler knows nothing about files, so it stays testable without a workspace and a rebuild can re-derive schedules without replaying document history. (This bullet used to read "never import each other", which the code has never matched.)
 - `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
 - `doctor.js` is read-only toward the canonical layer: it re-derives the SQLite index from the on-disk files and sidecars but never writes document content or regenerates a `globalHash`. It imports `documents.js`, `decks.js`, `files.js`, `query.js`, and Seal.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
@@ -39,7 +39,8 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 - `sequencer.js` follows the same rule for the same reason: it imports `query.js` and the pure `sequencing.js` engine only, and `routes/srs.js` composes `SRS.getDue()` → `sequencer.sequence()`. Selection (which cards are due) and sequencing (what order they're shown in) must stay separable, because topology is never allowed to move a card across days.
 - `ankiImport.js` does **not** import `documents.js` — Anki cards have no source document (they land in decks/standalone cards only), so it talks to `files.js`, `query.js`, and `decks.js` directly instead.
 - `ankiPackage.js` imports nothing from `access/` at all. It only parses the `.apkg` container into plain objects, so `ankiImport.js` is the only module that knows a package became cards, and `ankiPackage.js` is the only one that knows about zstd, protobuf, or which schema generation the collection uses.
-- Raw `db.prepare()` calls outside `query.js` are not allowed, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
+- Raw `db.prepare()` calls outside `query.js` are not allowed **against the vault database**, with one narrow exception: `decks.js` runs a `PRAGMA table_info(Decks)` directly (schema introspection to detect whether the system-deck migration has run yet), not a data query.
+- The rule is scoped to that one store, and two other modules hold their own handles on purpose. `accounts.js` writes its own SQL against **`accounts.db`**, which is a different database with no `query.js` of its own — five tables it creates itself, never seen by `MigrationRunner`, and deliberately unreachable from the vault's statement layer so that nothing scoping itself to a vault can accidentally read the install's access list. `ankiImport.js`/`ankiPackage.js` hold a **synchronous better-sqlite3** handle because an `.apkg` *is* a SQLite database — someone else's, read-only, outside the adapter entirely.
 
 ---
 
@@ -132,6 +133,48 @@ Lock order is always **path lock first, database lock second**; `highlights.js` 
 order for the same reason. It is an **in-process** lock: right for the desktop app and for a
 server host (one API process each), and explicitly not a file lock — two API processes over one
 vault stay unsupported, and out-of-band writes are the Vault Doctor's problem.
+
+**Deck files take the lock too, and the reason is specific.** `documents.js`, `highlights.js`
+and `decks.js` all take a path lock on every canonical write. For deck files the key is the
+deck's workspace-relative path (`_decks/<uuid>.json`) — the lock keys on an opaque string and
+does not care that the path is not a document, and per-deck keys keep unrelated decks
+concurrent.
+
+It is worth being precise about what it protects, because the obvious answer is wrong. A plain
+read-modify-write in `decks.js` cannot interleave: `_read` and `_write` are both synchronous
+and nothing awaits between them, so a single thread makes the pair atomic. That is an accident
+of the current statement order rather than a maintained property — one `await` added between
+the read and the write reintroduces the race with nothing to catch it.
+
+The reachable bug is the **optimistic write plus rollback** in `addEntry` and `removeEntry`.
+Both write the deck file *before* opening their database transaction and, if it throws, rewrite
+it from the in-memory snapshot they took beforehand. A concurrent `addEntry` on the same deck
+lands during that transaction; the failing one then rolls back to a state that never existed
+and erases it. A *failed* request destroys a *successful* one's work, and the file ends up
+holding fewer entries than `DeckEntries` does — which `diagnoseDecks()` reports as an
+`entryMismatch` and `repairFromFiles()` resolves toward the file, making the loss permanent.
+Unreachable on the desktop (one renderer, one request at a time); reachable on a **server
+build**, where two collaborators adding cards to one deck is ordinary. `tests/conflicts.test.js`
+pins it, and the test fails if the lock is removed.
+
+**The lock is not reentrant, so `decks.js` takes exactly one per operation.** Every public
+mutator wraps its body through `_withDeckFile`; the private helpers (`_read`, `_write`,
+`_readOrRebuild`, `_ensureSystemDeckFile`) take none. That is why `createStandaloneCard` calls
+`_readOrRebuild` instead of the `_ensureSystemDeckFile` + `_read` pair it used to — the pair
+touched two keys — and why `updateDeck` no longer ensures a file it does not write.
+`removeCardEverywhere` is deliberately unlocked: it loops over `removeEntry`, which locks each
+deck on its own, and locking the loop as well would re-enter on the first deck's key. The
+cross-module call chains are safe because they compose sequentially rather than nesting:
+`routes/decks.js`'s purge calls `documents.deleteFlashcard` (a different key) *after* the deck
+call returns, and `ankiImport.js` calls `createDeck`/`createStandaloneCard`/`addEntry` in a loop
+while holding no lock of its own.
+
+**Still uncovered: the Vault Doctor.** `repairFromFiles`, `rebuildFromFiles` and `mapDeckFiles`
+rewrite every deck file without a lock. `mapDeckFiles` is safe by timing — `UpdateRunner` runs
+it at boot, before the server accepts a request. The two Doctor entry points are not, but they
+are part of a larger gap: `doctor.js` takes no path lock anywhere, and it rewrites documents as
+well as decks. Fixing that is a Doctor-wide question (it most likely wants `withStructure`
+around a whole run) and does not belong in `decks.js`.
 
 ---
 

@@ -50,6 +50,17 @@ export default [
       // with ERR_MODULE_NOT_FOUND. This makes the mismatch a lint error in-editor.
       "import-x/no-unresolved": ["error", { caseSensitive: true }],
       "react/jsx-no-target-blank": "off",
+      // A deliberately empty catch is a real pattern here and reads as one: setting
+      // `audio.currentTime` throws on media that has not loaded, an optional sidecar
+      // may simply not exist, a malformed inline snapshot is skipped on purpose. The
+      // binding-less `catch {}` form already says "the error is the expected case",
+      // so allow it — and keep `no-empty` on for every other block, where an empty
+      // body really is a mistake. An empty catch that is NOT intentional should be
+      // written with a body, not left bare.
+      "no-empty": ["error", { allowEmptyCatch: true }],
+      // With the above, `catch (e) {}` has no reason to keep an unused binding —
+      // dropping it is what marks the block as intentional rather than unfinished.
+      "no-unused-vars": ["error", { caughtErrors: "all" }],
       // This codebase does not use prop-types (runtime validation) anywhere;
       // component contracts are documented in INTERFACE.md instead. Leaving the
       // recommended rule on would flag every component in the app.

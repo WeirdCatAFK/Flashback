@@ -189,7 +189,7 @@ describe('Importers Integration Tests', () => {
     after(async () => {
         db.close();
         await new Promise(resolve => setTimeout(resolve, 50));
-        try { fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true }); } catch (e) {}
+        try { fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true }); } catch {}
     });
 
     it('should import a basic Anki card with media', async () => {

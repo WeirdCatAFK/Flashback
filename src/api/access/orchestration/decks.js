@@ -5,6 +5,7 @@ import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import { getWorkspacePath } from '../primitives/config.js';
 import { sealEmitter } from '../../seal/seal.js';
+import { withDocument } from '../resources/pathLock.js';
 import { LATEST_VERSION } from '../../config/updates/registry.js';
 import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
 
@@ -76,6 +77,50 @@ export default class Decks {
         return `${DECKS_DIR}/${globalHash}.json`;
     }
 
+    /**
+     * Serializes one deck file's writes against every other writer of that deck.
+     *
+     * The hazard is narrower than "two read-modify-writes interleave", and worth naming
+     * precisely. A plain read-modify-write here cannot interleave today: `_read` and
+     * `_write` are both synchronous and nothing awaits between them, so JavaScript's own
+     * single thread makes the pair atomic. That is an accident of the current statement
+     * order, not a property anyone maintains — one `await` inserted between the read and
+     * the write reintroduces the race silently.
+     *
+     * What is broken *now* is the **optimistic write plus rollback** in `addEntry` and
+     * `removeEntry`. Both write the deck file BEFORE opening their database transaction and,
+     * if it throws, rewrite the file from the in-memory snapshot they took before it:
+     *
+     *     this._write(deckHash, file);          // optimistic
+     *     try { await db.transaction(...)(); }  // yields — another request runs here
+     *     catch { file.entries.pop(); this._write(deckHash, file); }   // stale snapshot
+     *
+     * A concurrent `addEntry` on the same deck lands during that transaction. The failing
+     * one then rolls back to a state that never existed and erases it — a *failed* request
+     * destroying a *successful* one's work, and leaving the file holding fewer entries than
+     * `DeckEntries` does. That mismatch surfaces later as a Doctor `entryMismatch`, which
+     * `repairFromFiles()` resolves toward the file, making the loss permanent.
+     *
+     * Unreachable on the desktop (one user, one request in flight); reachable the moment two
+     * people share a deck on a server build. `tests/conflicts.test.js` pins it, and that test
+     * fails if this lock is removed.
+     *
+     * The key is the deck's workspace-relative path, so a deck write and a document write
+     * share one key space and a structural operation (`withStructure`) excludes both.
+     *
+     * **Never nest this.** `withDocument` chains per path and takes a shared tree hold, so
+     * a re-entrant call on the same key waits on a promise only the outer call can resolve.
+     * Every public mutator below takes exactly one, and the private helpers
+     * (`_read`, `_write`, `_readOrRebuild`, `_ensureSystemDeckFile`) take none — which is
+     * why `createStandaloneCard` reaches for `_readOrRebuild` rather than the
+     * `_ensureSystemDeckFile` + `_read` pair it used to, and why `updateDeck` no longer
+     * ensures a file it is not writing. `removeCardEverywhere` is deliberately unlocked:
+     * it loops over `removeEntry`, which locks each deck on its own.
+     */
+    _withDeckFile(globalHash, fn) {
+        return withDocument(this._sealRelPath(globalHash), fn);
+    }
+
     _read(globalHash) {
         return JSON.parse(fs.readFileSync(this._filePath(globalHash), 'utf-8'));
     }
@@ -130,6 +175,10 @@ export default class Decks {
 
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
+        return await this._withDeckFile(globalHash, () => this._createDeckLocked(globalHash, name, description));
+    }
+
+    async _createDeckLocked(globalHash, name, description) {
         const now = new Date().toISOString();
         // formatVersion: deck files are canonical too, so they carry the same version stamp
         // sidecars do (see config/updates/UPDATES.md).
@@ -212,6 +261,10 @@ export default class Decks {
     // Replaces a deck's tags, syncing the deck node's direct tags and re-propagating
     // them to every member card. Persists to the canonical deck file and seals.
     async setTags(globalHash, tags) {
+        return await this._withDeckFile(globalHash, () => this._setTagsLocked(globalHash, tags));
+    }
+
+    async _setTagsLocked(globalHash, tags) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         const clean = cleanTagNames(tags);
@@ -230,10 +283,16 @@ export default class Decks {
     }
 
     async updateDeck(globalHash, { name, description }) {
+        return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description }));
+    }
+
+    async _updateDeckLocked(globalHash, { name, description }) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
-        await this._ensureSystemDeckFile();
+        // No _ensureSystemDeckFile() here. It rebuilt a file this method does not write
+        // (unless the system deck IS the target, in which case the next line does the same
+        // work), and under the lock it would be a second acquisition of a second key.
         const file = await this._readOrRebuild(globalHash, deck);
         if (name !== undefined) file.name = name;
         if (description !== undefined) file.description = description;
@@ -250,6 +309,10 @@ export default class Decks {
     }
 
     async deleteDeck(globalHash) {
+        return await this._withDeckFile(globalHash, () => this._deleteDeckLocked(globalHash));
+    }
+
+    async _deleteDeckLocked(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         if (deck.is_system) throw new Error('Cannot delete the system deck');
@@ -266,6 +329,11 @@ export default class Decks {
     }
 
     async addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
+        return await this._withDeckFile(deckHash, () =>
+            this._addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }));
+    }
+
+    async _addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }) {
         const deck = await this.query.getDeckByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
@@ -308,6 +376,10 @@ export default class Decks {
     }
 
     async removeEntry(deckHash, cardHash) {
+        return await this._withDeckFile(deckHash, () => this._removeEntryLocked(deckHash, cardHash));
+    }
+
+    async _removeEntryLocked(deckHash, cardHash) {
         const deck = await this.query.getDeckByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
@@ -450,6 +522,11 @@ export default class Decks {
      * **Must run before the card row is deleted** — `removeEntry` looks up the card's
      * node to unlink the deck connection, and that node is gone afterwards.
      *
+     * Deliberately takes no deck-file lock of its own: it loops over `removeEntry`, which
+     * locks each deck as it goes. Locking here as well would be a re-entrant acquisition on
+     * the first holder's key, and the loop was never atomic across decks anyway — a failure
+     * partway through has always left the earlier decks unlinked.
+     *
      * @param {string} cardHash - globalHash of the card being destroyed.
      * @returns {Promise<number>} how many decks the card was removed from.
      */
@@ -504,9 +581,16 @@ export default class Decks {
         };
     }
 
+    // The three standalone-card methods all write ONE file — the system deck's — so they
+    // resolve it first (a read, safe outside the lock) and hold that one key for the body.
     async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
+        return await this._withDeckFile(systemDeck.global_hash, () => this._createStandaloneCardLocked(
+            systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }));
+    }
+
+    async _createStandaloneCardLocked(systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }) {
         if (category && !await this.query.getCategoryByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
@@ -541,8 +625,9 @@ export default class Decks {
             }
         })();
 
-        await this._ensureSystemDeckFile();
-        const file = this._read(systemDeck.global_hash);
+        // _readOrRebuild, not the _ensureSystemDeckFile + _read pair this used to run:
+        // it is the same recovery in one call, on the one key already held.
+        const file = await this._readOrRebuild(systemDeck.global_hash, systemDeck);
         file.entries.push({ cardHash: globalHash, documentPath: null, card: snapshot });
         file.modified = new Date().toISOString();
         this._write(systemDeck.global_hash, file);
@@ -588,6 +673,15 @@ export default class Decks {
     }
 
     async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
+        const systemDeck = await this.query.getSystemDeck();
+        const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
+        // No system deck means no canonical file to protect — the DB half still runs.
+        if (!systemDeck) return await this._updateStandaloneCardLocked(hash, fields, null);
+        return await this._withDeckFile(systemDeck.global_hash, () =>
+            this._updateStandaloneCardLocked(hash, fields, systemDeck));
+    }
+
+    async _updateStandaloneCardLocked(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags }, systemDeck) {
         const card = await this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -621,7 +715,6 @@ export default class Decks {
             },
         };
         const snapshot = this._standaloneSnapshot(merged);
-        const systemDeck = await this.query.getSystemDeck();
         await db.transaction(async () => {
             await this.query.updateFlashcardContentByHash(hash, merged);
             if (tags !== undefined) await this._syncNodeTags(existing.node_id, merged.tags);
@@ -643,6 +736,13 @@ export default class Decks {
     }
 
     async deleteStandaloneCard(hash) {
+        const systemDeck = await this.query.getSystemDeck();
+        if (!systemDeck) return await this._deleteStandaloneCardLocked(hash, null);
+        return await this._withDeckFile(systemDeck.global_hash, () =>
+            this._deleteStandaloneCardLocked(hash, systemDeck));
+    }
+
+    async _deleteStandaloneCardLocked(hash, systemDeck) {
         const card = await this.query.getFlashcardByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
@@ -654,7 +754,6 @@ export default class Decks {
             await this.query.deleteFlashcard(card.id);
         })();
 
-        const systemDeck = await this.query.getSystemDeck();
         if (systemDeck) {
             try {
                 const file = this._read(systemDeck.global_hash);

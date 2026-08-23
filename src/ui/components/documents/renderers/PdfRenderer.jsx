@@ -537,4 +537,6 @@ export default function PdfRenderer({
   );
 }
 
-PdfRenderer.supportsHighlight = true;
+// Capabilities (editable / supportsHighlight) are declared in renderers/registry.js,
+// not as statics here: this component is loaded lazily and the parent needs both
+// answers before the chunk arrives.

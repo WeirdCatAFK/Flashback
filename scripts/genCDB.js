@@ -144,7 +144,7 @@ WITH fk_info AS (
                       END
                   ELSE null
               END,
-              'default', COALESCE(REPLACE(p.dflt_value, '"', '\"'), ''),
+              'default', COALESCE(REPLACE(p.dflt_value, '"', '"'), ''),
               'is_identity',
               CASE
                   WHEN p.pk = 1 AND LOWER(p.type) LIKE '%int%' THEN json('true')
@@ -200,7 +200,7 @@ replace(replace(replace(
           'database_name', 'sqlite',
           'version', sqlite_version()
       ),
-      '\"', '"'),'"[', '['), ']"', ']'
+      '"', '"'),'"[', '['), ']"', ']'
 ) AS metadata_json_to_import;
 `;
 

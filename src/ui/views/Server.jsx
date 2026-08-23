@@ -6,7 +6,7 @@ import {
   getAccountProgress, issueToken, revokeToken, rotatePureToken,
 } from "../api/accounts";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
-import { useConfirm } from "../components/shared/ConfirmDialog";
+import { useConfirm } from "../components/shared/confirmContext.js";
 import { useSession } from "../sessionContext.js";
 import { ROLES, ROLE_ORDER } from "../../shared/roles.js";
 import { useT } from "../translations";

@@ -5,7 +5,7 @@ import { setActiveVaultScope } from './prefs.js';
 import App from './App.jsx';
 import SetupView from './views/Setup.jsx';
 import { ConfirmProvider } from './components/shared/ConfirmDialog.jsx';
-import { TranslationProvider } from './translations/index.jsx';
+import { TranslationProvider } from './translations/components.jsx';
 import './index.css';
 
 const root = createRoot(document.getElementById('root'));

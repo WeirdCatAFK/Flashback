@@ -22,10 +22,15 @@ export const renameItem    = (path, newName, isFolder)      => request('POST', '
 export const importFileWithProgress = (formData, onProgress)    => uploadWithProgress('/api/documents/import', formData, onProgress);
 export const importZipWithProgress = (formData, onProgress)     => uploadWithProgress('/api/documents/import/zip', formData, onProgress);
 
-// Anki packages import in two phases: analyze reports each notetype's fields,
-// sample notes and a suggested field→slot mapping (and keeps the extraction alive
-// under a sessionId), then applyAnkiMapping imports with the user's mapping.
-export const analyzeAnkiWithProgress = (formData, onProgress)   => uploadWithProgress('/api/documents/import/anki/analyze', formData, onProgress);
+// Anki packages import in two phases: analyze reports each notetype's fields, sample
+// notes and a suggested field→slot mapping (and keeps the extraction alive under a
+// sessionId), then applyAnkiMapping imports with the user's mapping. The renderer never
+// calls analyze directly — it drops an .apkg on importZipWithProgress above, and the
+// import route recognizes the package and answers with the analyze report plus
+// `needsMapping: true`. `POST /api/documents/import/anki/analyze` still exists for a
+// caller that wants the phase on its own (the MCP server, a script); it just has no
+// client wrapper here, because nothing in the UI reaches it.
+
 // Streamable URL for one asset still inside an analyze() session, so the mapping
 // modal can show images and play sounds before the import happens. Loaded by
 // <img>/<audio>, which can't send an Authorization header — the token rides along

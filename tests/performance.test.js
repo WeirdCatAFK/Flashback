@@ -39,7 +39,7 @@ describe('Performance: Import Throughput', () => {
         try {
             const absPath = path.join(getWorkspacePath(), TEST_ROOT);
             if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-        } catch (e) {}
+        } catch {}
     };
 
     before(async () => {

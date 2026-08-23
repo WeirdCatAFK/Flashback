@@ -170,7 +170,7 @@ export default class ObsidianImport {
                             // Inline tags: match #tag, ignoring anything inside fenced code blocks
                             // (Dataview query syntax like #dv/list or #type/books is not a real tag).
                             const contentForTags = content.replace(/```[\s\S]*?```/g, '');
-                            const inlineTagMatches = contentForTags.matchAll(/(?:^|\s)#([a-zA-Z0-9_\-\/]+)/g);
+                            const inlineTagMatches = contentForTags.matchAll(/(?:^|\s)#([a-zA-Z0-9_\-/]+)/g);
                             for (const m of inlineTagMatches) {
                                 const tag = m[1].replace(/\/+$/, '');
                                 if (tag && !/^[0-9]+$/.test(tag)) {

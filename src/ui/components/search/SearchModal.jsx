@@ -35,11 +35,6 @@ function snippet(text, maxLen = 80) {
     return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
 }
 
-function lastName(path) {
-    if (!path) return '';
-    return path.replace(/\\/g, '/').split('/').pop();
-}
-
 // Group heading for a result type. A switch of literals, not a lookup table: only a
 // literal t() argument is extractable, and a module constant would freeze the language.
 const typeLabel = (type, t) => {

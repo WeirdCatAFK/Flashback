@@ -586,6 +586,12 @@ export default function GraphView({ isActive = false, onNavigate }) {
     edge:  getCSSVar('--color-graph-edge'),
     bg:    getCSSVar('--color-bg-base'),
     label: getCSSVar('--color-fg-secondary'),
+    // `themeVer` looks unnecessary to the linter and is the only thing holding this
+    // memo together: every value above comes from getCSSVar(), which reads a live CSS
+    // custom property off the document. That is a dependency React cannot see, so the
+    // counter from useThemeVersion() stands in for it — drop it and the graph keeps
+    // the previous theme's colors until something else happens to invalidate.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [themeVer]);
 
   const visibleData = useMemo(() => {

@@ -23,7 +23,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../translations';
 import Modal from './shared/Modal.jsx';
-import { useConfirm } from './shared/ConfirmDialog.jsx';
+import { useConfirm } from './shared/confirmContext.js';
 import {
   listVaults, createVault, renameVault, removeVault, switchVault, openVaultFromDisk,
   listRemotes, addRemote, removeRemote, testRemote,

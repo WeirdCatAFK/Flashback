@@ -14,6 +14,9 @@
  *      behaviour, which is what every caller written before this does.
  *   3. **Patches merge.** A card or highlight patch names its target, so two people editing
  *      different cards of one document both succeed. Only the same entity conflicts.
+ *   4. **Deck files take the same lock.** They are canonical too, and `addEntry`/`removeEntry`
+ *      write them optimistically before their transaction and roll back from a snapshot
+ *      afterwards — so a failing request can erase a concurrent successful one.
  *
  * And one property that is about history rather than safety: grading cards still produces one
  * commit per session, while editing content produces one per edit, immediately.
@@ -42,6 +45,7 @@ if (!await validate()) {
 
 const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
 const { default: highlightsService } = await import('../src/api/access/orchestration/highlights.js');
+const { default: Decks } = await import('../src/api/access/orchestration/decks.js');
 const { default: query } = await import('../src/api/access/resources/query.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const { PathLock, isIdle } = await import('../src/api/access/resources/pathLock.js');
@@ -311,6 +315,55 @@ describe('Concurrent writes', () => {
 
             assert.equal(await commitCount(), before + 1,
                 'grading cards is coalesced — a session is one commit, as it has always been');
+        });
+    });
+
+    // --- 6. Deck files are canonical too -------------------------------------------
+
+    describe('deck files', () => {
+        it("keeps a failed add from erasing a concurrent successful one", async () => {
+            const decks = new Decks();
+            await decks.onVaultOpened();
+
+            const deckHash = await decks.createDeck('Rollback Race', '');
+            const good = await decks.createStandaloneCard({ frontText: 'survivor', backText: 'b' });
+            const bad  = await decks.createStandaloneCard({ frontText: 'doomed',   backText: 'b' });
+
+            // addEntry writes the deck file BEFORE its transaction and, on failure, rewrites
+            // it from the snapshot it took beforehand. Fail one add inside its transaction,
+            // after a yield, so the other add lands in the window the rollback is blind to.
+            const realInsert = query.insertDeckEntry.bind(query);
+            query.insertDeckEntry = async (args) => {
+                if (args.cardHash === bad) {
+                    await tick(1);
+                    throw new Error('simulated DB failure');
+                }
+                return realInsert(args);
+            };
+
+            let settled;
+            try {
+                settled = await Promise.allSettled([
+                    decks.addEntry(deckHash, { cardHash: bad }),
+                    decks.addEntry(deckHash, { cardHash: good }),
+                ]);
+            } finally {
+                query.insertDeckEntry = realInsert;
+            }
+
+            assert.equal(settled[0].status, 'rejected', 'the doomed add must still fail');
+            assert.equal(settled[1].status, 'fulfilled', 'the other add must still succeed');
+
+            const file = JSON.parse(fs.readFileSync(
+                path.join(getWorkspacePath(), '_decks', `${deckHash}.json`), 'utf-8'));
+            const hashes = file.entries.map(e => e.cardHash);
+            assert.deepEqual(hashes, [good],
+                "the failed add's rollback must not erase the successful add from the deck file");
+
+            const row = await query.getDeckByHash(deckHash);
+            const inDb = (await query.getDeckEntries(row.id, 'owner')).map(e => e.card_hash);
+            assert.deepEqual(inDb, [good],
+                'the canonical file and the index must agree about what the deck holds');
         });
     });
 });

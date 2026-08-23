@@ -31,7 +31,7 @@ function restoreBinary() {
             fs.renameSync(electronDir, debugDir);
         }
     } catch (e) { console.warn('Warning: could not restore Electron binary:', e.message); }
-    try { if (fs.existsSync(releaseDir)) fs.rmSync(releaseDir, { recursive: true, force: true }); } catch (_) {}
+    try { if (fs.existsSync(releaseDir)) fs.rmSync(releaseDir, { recursive: true, force: true }); } catch {}
 }
 
 process.on('exit', restoreBinary);
@@ -636,7 +636,7 @@ await mkFile('Calculus.md', 'Mathematics', `# Calculus
 Differential and integral calculus — the mathematics of continuous change.
 
 ## Key Derivatives
-| f(x) | f\'(x) |
+| f(x) | f'(x) |
 |------|--------|
 | xⁿ | n·xⁿ⁻¹ |
 | sin x | cos x |
@@ -961,7 +961,7 @@ for (const { cards: planCards, targetLevel } of reviewPlan) {
                     level:       s.level,
                 });
                 reviewsAdded++;
-            } catch (_) {}
+            } catch {}
         }
 
         const last = sessions[sessions.length - 1];

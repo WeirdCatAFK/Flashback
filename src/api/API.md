@@ -869,6 +869,368 @@ Returns the Leitner box distribution and total flashcard count across the whole 
 
 **Response** `200` — `{ boxes: [{ level, count }], total: number }`.
 
+### `POST /api/srs/undo`
+
+Reverses a card's most recent review — the misgrade escape hatch. Removes the last `ReviewLogs`
+row and restores the schedule that preceded it. `path` is present for a document-anchored card
+so the sidecar is corrected too, and omitted for a standalone one, exactly as on `/review`.
+Card health is re-evaluated afterward, because the retracted grade may be the one that raised a
+flag; that re-classification is best-effort and never fails the undo.
+
+| Field           | Type   | Required | Description                          |
+| --------------- | ------ | -------- | ------------------------------------ |
+| `flashcardHash` | string | yes      | `globalHash` of the card.            |
+| `path`          | string | no       | Source document, for anchored cards. |
+| `algorithm`     | string | no       | `leitner` \| `sm2` \| `fsrs`.        |
+
+**Response** `200` — `{ ok: true, restored }`.
+**Errors** `400` `flashcardHash` missing · `404` card or review not found.
+
+### `POST /api/srs/migrate`
+
+Translates **the caller's** progress from one algorithm's scale to the other by interval
+matching, so the schedule is preserved as closely as the two models allow.
+
+**Body** `{ from, to }` — both required, both one of `leitner` / `sm2` / `fsrs`, and they must
+differ.
+
+**Response** `200` — `{ ok: true, count }`, the number of cards remapped.
+**Errors** `400` missing, equal, or unrecognized algorithm.
+
+### `POST /api/srs/optimize`
+
+Fits FSRS weights from **the caller's own** rated review history and persists them to their
+`FsrsParameters` row. A no-op below the minimum-data threshold. No body. Reader-level: fitted
+weights model one person's forgetting curve, so refitting them changes nothing anyone else sees.
+
+**Response** `200` — `{ ok: true, ... }` including before/after loss and the review count used.
+
+### `GET /api/srs/fsrs-info`
+
+Optimizer status for the Config panel: how many rated reviews exist, whether weights have been
+fitted, and when.
+
+**Response** `200` — `{ ratedReviews, fitted, fittedAt, ... }`.
+
+### `GET /api/srs/statistics`
+
+Vault-wide analytics for the Stats view, scoped to the caller: retention, acquisition, maturity,
+due forecast, activity heatmap, streaks, and a derived `milestones` array. Retention counts only
+reviews past a card's learning phase — the learning phase is reported separately under
+`acquisition`, rather than being averaged into a number that would then flatter every vault with
+new cards in it. Read-only.
+
+| Param       | Type   | Required | Description                                   |
+| ----------- | ------ | -------- | --------------------------------------------- |
+| `algorithm` | string | no       | Defaults server-side via `detectAlgorithm()`. |
+
+**Response** `200` — the statistics object.
+
+---
+
+## Decks `/api/decks`
+
+User-curated card collections. Canonical storage is `workspace/_decks/<uuid>.json` (Seal-tracked)
+with `Decks`/`DeckEntries` mirroring it in the index; the JSON is written first and rolled back if
+the database write fails. One deck is flagged `is_system` and is the home for every standalone
+(document-less) card — it cannot be deleted.
+
+**Roles:** `GET` is Reader; every write is Admin.
+
+Errors are normalized by this router: a duplicate entry is `409`, an unknown deck or card `404`,
+an attempt on the system deck `403`, and a raw filesystem error is replaced with a generic `500`
+so an absolute path or a username never reaches a client.
+
+### `GET /api/decks`
+
+**Response** `200` — array of decks.
+
+### `POST /api/decks`
+
+**Body** `{ name, description? }`.
+**Response** `201` — `{ globalHash }`. **Errors** `400` `name` missing.
+
+### `GET /api/decks/cards`
+
+The vault-wide card browser, and the only listing that spans decks and documents together. Also
+where flagged cards are found — there is no separate inbox, deliberately, so flagged cards stay
+in the one place cards are already hunted down. Every row carries `flags`: a comma-joined list of
+the card's live flag kinds, or `null`. `total` honours the filter, so the pager stays correct.
+
+| Param      | Type   | Description                                                                                              |
+| ---------- | ------ | -------------------------------------------------------------------------------------------------------- |
+| `search`   | string | Substring over name and content.                                                                          |
+| `level`    | int    | Exact SRS level.                                                                                           |
+| `cardType` | string | `basic` \| `reversible` \| `cloze` \| `type_answer` \| `custom`.                                           |
+| `origin`   | string | `ai` (AI-created only) or `human` (everything else). Anything else is ignored.                             |
+| `flagged`  | bool   | `1`/`true` — only cards carrying a live card-health flag.                                                  |
+| `flagKind` | string | One signature; implies `flagged`. Unrecognized kinds are ignored rather than refused.                      |
+| `sortBy`   | string | `level` (default) \| `name` \| `last_recall` \| `lapses` \| `difficulty`. The last two are FSRS-only and NULL for cards never rated under it; `difficulty` sinks those to the bottom in **both** directions. |
+| `sortDir`  | string | `asc` \| `desc` (default).                                                                                 |
+| `limit`    | int    | Default 50, capped at 200.                                                                                 |
+| `offset`   | int    | Default 0.                                                                                                 |
+
+**Response** `200` — `{ cards, total, limit, offset }`.
+
+### `GET /api/decks/:hash` · `PUT /api/decks/:hash`
+
+Read one deck, or update `{ name?, description? }`.
+**Response** `200` — the deck, or `{ ok: true }`.
+
+### `DELETE /api/decks/:hash`
+
+Removes **the deck only**. Its cards survive as standalone cards in the system deck.
+**Response** `200` — `{ ok: true }`.
+
+### `GET /api/decks/:hash/contents`
+
+What erasing this deck *and its cards* would destroy: counts split by standalone vs
+document-anchored, plus how many of them another non-system deck also holds. Read-only, and it
+exists so a client can say exactly what it is about to delete instead of guessing.
+
+**Response** `200` — `{ standalone, anchored, shared, ... }`.
+
+### `POST /api/decks/:hash/purge`
+
+Deletes the deck **and its cards**. A separate route rather than a flag on `DELETE /:hash`, so the
+non-destructive delete can never become destructive by accident. Cards go first: card deletions
+seal through the debounced `edit()`, and the deck's `delete()` then flushes them, so the whole
+erase lands in one commit instead of one per card.
+
+**Body** `{ includeShared?: boolean }` — when false (default), a card another non-system deck also
+holds is kept.
+**Response** `200` — `{ ok: true, deleted, kept }`.
+
+### `PUT /api/decks/:hash/tags`
+
+**Body** `{ tags: string[] }` — replaces the deck's tags, which flow down to its member cards.
+**Response** `200` — `{ ok: true, tags }`.
+
+### `POST /api/decks/:hash/entries` · `DELETE /api/decks/:hash/entries/:cardHash`
+
+Add or remove one card. **Body** on add: `{ cardHash, documentPath?, inlineCard? }` —
+`inlineCard` is the content snapshot that lets a rebuild restore a document-less card from files
+alone.
+**Response** `201` / `200` — `{ ok: true }`. **Errors** `400` `cardHash` missing · `409` already in
+deck.
+
+---
+
+## Highlights `/api/highlights`
+
+A highlight is a first-class entity — its own `Highlights` row and its own entry in the document's
+sidecar — independent of any flashcard; a card optionally *anchors* to one. **Roles:** `GET` is
+Reader, every write is Collaborator, because highlights are the annotation surface and a
+collaborator who could not write one could not annotate anything.
+
+These routes are **patches**: they name their target by `globalHash`, re-read the sidecar under the
+path lock and put back what they were not asked to change, so two people editing different
+highlights of one document both succeed. An `ifMatch` here is the *entity's* etag, not the
+document's.
+
+### `GET /api/highlights`
+
+**Query** `path` (required).
+**Response** `200` — `{ highlights }`. **Errors** `400` `path` missing.
+
+### `GET /api/highlights/annotated`
+
+Highlights enriched with the highlighted text, ~200 chars of surrounding body context (for `.md`
+/`.txt`, via `files.readFile`), and the flashcards already anchored to each one. Vault-wide when
+`path` is omitted — this is what drives the "loose pages" review of what has been marked but not
+yet turned into a card.
+
+| Param      | Type   | Description                                      |
+| ---------- | ------ | ------------------------------------------------ |
+| `path`     | string | Restrict to one document. Omit for vault-wide.   |
+| `color`    | string | Restrict to one highlight color.                 |
+| `uncarded` | bool   | `true`/`1` — only highlights with no card on them. |
+| `limit`    | int    | Default 100, capped at 500.                      |
+
+**Response** `200` — `{ highlights, total }`. `total` is the unsliced count.
+
+### `POST /api/highlights`
+
+**Body** `{ path, type, start, end, page, bbox, color, note }` — which anchoring fields apply
+depends on `type` (see `DATAMODEL.md`).
+**Response** `201` — `{ ok: true, highlight }`. **Errors** `400` `path` missing.
+
+### `PUT /api/highlights/:hash`
+
+**Body** `{ path, color, note, ifMatch? }`.
+**Response** `200` — `{ ok: true, highlight }`.
+**Errors** `400` `path` missing · `409` `{ code: 'stale' }` when `ifMatch` no longer matches.
+
+### `DELETE /api/highlights/:hash`
+
+**Query** `path` (required).
+**Response** `200` — `{ ok: true }`. **Errors** `400` `path` missing.
+
+---
+
+## Categories `/api/categories`
+
+Editable pedagogical categories, managed in the Manage tab. A category carries a `priority` that
+`GET /api/srs/due?minPriority=` filters on. **Roles:** `GET` is Reader; writes are Admin.
+
+### `GET /api/categories`
+
+**Response** `200` — array of `{ id, name, priority, description }`.
+
+### `POST /api/categories`
+
+**Body** `{ name, priority?, description? }`. `name` is trimmed and required.
+**Response** `201` — `{ id }`. **Errors** `400` `name` missing or blank.
+
+### `PUT /api/categories/:id`
+
+**Body** `{ name?, priority?, description? }` — omitted fields keep their stored values.
+**Response** `200` — `{ ok: true }`.
+
+### `DELETE /api/categories/:id`
+
+Refuses while any card still uses the category, rather than orphaning cards or silently
+reassigning them.
+
+**Response** `200` — `{ ok: true }`.
+**Errors** `409` — `{ error: "In use by N flashcard(s)" }`.
+
+---
+
+## Search `/api/search`
+
+One route, two modes. **Roles:** Reader (read-only by construction).
+
+Search hits carry each card's level, so results are **the caller's** view of the vault. This route
+reaches `query.js` directly instead of going through an orchestrator, which makes it one of the few
+places that has to name the scope itself.
+
+### `GET /api/search`
+
+| Param      | Type   | Description                                                      |
+| ---------- | ------ | ---------------------------------------------------------------- |
+| `q`        | string | Free-text query. Alone, this selects **global mode**.             |
+| `tag`      | string | Filter by tag name.                                              |
+| `deck`     | string | Filter by deck `globalHash`.                                     |
+| `document` | string | Filter by document path. Normalized — a POSIX-style path from an MCP tool or a script matches the backslash-separated paths in the index. |
+| `folder`   | string | Filter by folder subtree. Normalized the same way.               |
+| `limit`    | int    | Default 20, capped at 100.                                       |
+
+- **Global mode** (`q`, no filters) → `{ folders, documents, flashcards, tags, decks }`.
+- **Filter mode** (any of `tag`/`deck`/`document`/`folder`) → `{ flashcards }` matching *all*
+  supplied filters.
+
+**Errors** `400` — neither `q` nor any filter was supplied.
+
+---
+
+## Doctor `/api/doctor`
+
+The Vault Doctor re-derives the SQLite index from the canonical files. It is **read-only toward
+disk**: it never writes document content and never regenerates a `globalHash`. It also never
+touches `accounts.db` — there is no canonical form of an account, so a rebuild there would delete
+every token in the deployment.
+
+**Roles:** `GET /check` is Admin (diagnosis is an audit power); `sync` and `rebuild` are Author,
+because they rewrite the derived layer and a rebuild discards review history.
+
+### `GET /api/doctor/check`
+
+Read-only whole-vault consistency report — index vs. canonical files, plus deck diagnostics.
+
+**Response** `200` — the report.
+
+### `POST /api/doctor/sync`
+
+Applies the check report, with **disk as truth**.
+
+**Body** `{ sealDrift?: boolean }` — default `true`, binding the out-of-band changes it reconciled
+into a single `reconcile:` Seal commit.
+**Response** `200` — `{ ok: true, ... }`.
+
+### `POST /api/doctor/rebuild`
+
+Wipes the index and re-indexes the canonical layer from scratch.
+
+**Destructive.** `ReviewLogs` and everything derived from it — review history, card-health verdicts,
+optimizer input — do not survive, because no canonical file holds them. Non-owner schedules *do*
+survive: they are canonical in `accounts.db`'s `AccountProgress` and are re-projected.
+
+**Body** `{ confirm: 'REBUILD' }` — the exact token is required.
+**Response** `200` — `{ ok: true, ... }`.
+**Errors** `400` — confirm token missing or wrong.
+
+---
+
+## Diary `/api/diary`
+
+A per-day study record at `{vault}/diary/`, a **sibling** of `workspace/` with its own git repo — so
+it is invisible to the graph, search and file explorer for free. Summaries
+(`summaries/summary-YYYY-MM-DD.json`) are derived idempotently from `ReviewLogs`; entries
+(`entries/entry-YYYY-MM-DD.md`) are optional user prose. Per account, using the same unmarked-owner
+shape as `OWNER_SCOPE`: the owner keeps the unprefixed layout, everyone else gets
+`diary/accounts/<accountId>/`.
+
+Surfaced as **"Logs"** in the UI. Only the label moved — the routes, the directory and the
+`fb-diary-enabled` preference keep their names, because renaming them would be a migration that
+silently reset everyone's opt-in.
+
+**Roles:** Reader throughout. Opt-in is a *client* preference (`localStorage`); the server does not
+gate on it and simply never creates `diary/` until a write endpoint is called.
+
+**The MCP privacy gate.** The MCP server tags every request with `X-Flashback-Client: mcp`; the
+React renderer sends no such header, so the in-app view is never affected. For a tagged request the
+router consults `config.json`'s `mcpDiaryAccess` (Config → AI Assistant), read fresh from disk on
+each request so the setting takes effect without a restart:
+
+| `mcpDiaryAccess`        | Effect                                                              |
+| ----------------------- | ------------------------------------------------------------------- |
+| `none` (default)        | `403` on the whole namespace.                                       |
+| `summaries`             | Summaries and the day list are readable; `/entry*` is `403`.        |
+| `full`                  | Everything.                                                         |
+
+Legacy booleans are honoured: `true` = `full`, `false` = `none`. This is real server-side
+enforcement, not client-side self-censoring.
+
+### `GET /api/diary`
+
+Date-descending list of days that have a summary and/or an entry.
+
+**Query** `from`, `to` — `YYYY-MM-DD`; anything malformed is ignored rather than refused.
+**Response** `200` — the day list.
+
+### `POST /api/diary/summary`
+
+Regenerates the day's summary from `ReviewLogs` — cumulative and idempotent, so the client can call
+it after every session. **Body** `{ date? }`, defaulting to today (UTC).
+
+**Response** `200` — `{ ok: true, summary }`. `summary` is `null` when the day had no real reviews,
+in which case nothing is written.
+**Errors** `400` — `date` not `YYYY-MM-DD`.
+
+### `POST /api/diary/rebuild`
+
+Re-derives every summary from `ReviewLogs`. Idempotent.
+**Response** `200` — `{ ok: true, count }`.
+
+### `GET /api/diary/summary/:date`
+
+**Response** `200` — the summary. **Errors** `400` bad date · `404` no summary for that date.
+
+### `GET /api/diary/entry/:date`
+
+**Response** `200` — `{ date, content }`; `content` is `''` when no entry exists (not a `404` — an
+unwritten day is a normal state, not a missing resource).
+**Errors** `400` bad date.
+
+### `PUT /api/diary/entry/:date`
+
+Saves the user's Markdown reflection. Lazy: empty content for a date with no existing entry is a
+no-op rather than an empty file.
+
+**Body** `{ content }`.
+**Response** `200` — `{ ok: true, created, empty }`. **Errors** `400` bad date.
+
 ---
 
 ## Subscriptions `/api/subscriptions`

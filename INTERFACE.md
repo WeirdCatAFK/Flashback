@@ -87,7 +87,18 @@ views/GraphView.jsx
 
 ### State ownership
 
-Server state (data fetched from the API) lives in TanStack Query hooks. Local UI state (which panel is open, current selection) lives in `useState` or `useReducer` inside the view.
+Server state (data fetched from the API) is fetched through the `api/*.js` modules and held in
+`useState`/`useEffect` inside the view that needs it. Local UI state (which panel is open,
+current selection) lives in `useState` or `useReducer` in the same place.
+
+> **TanStack is not installed.** Neither TanStack Query nor TanStack Virtual is a dependency of
+> this project, and nothing in `src/ui` imports either. The two sections below that describe
+> them — "TanStack Query conventions" and "Virtualize long lists" — are a design intention that
+> was never adopted, kept here because the *reasoning* in them still governs how this app is
+> written. Read them as rationale, not as instructions: **do not add TanStack to satisfy them**,
+> and do not write `useQuery` in a new view. The rules that are actually in force are the ones
+> in this section — fetch through `api/*.js`, keep the result local to the view, do not lift it
+> into Context.
 
 **Do not lift server state into a parent component or React Context.** Each view fetches its own data. This scopes re-renders and makes views independently loadable.
 
@@ -144,7 +155,11 @@ values without the role, because the values are information even to someone who 
 them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
 whose save is refused invites someone to type a page and lose it.
 
-### TanStack Query conventions
+### TanStack Query conventions — *not in force; see "State ownership" above*
+
+TanStack Query is not a dependency. What survives from this section is the invalidation
+discipline: when a write succeeds, refresh exactly the data it invalidated and nothing more.
+In this codebase that is `utils/dataBus`'s `useDataInvalidation`, not a `queryClient`.
 
 ```js
 // Reading — data is cached and shared across the view
@@ -234,9 +249,16 @@ Wrap a component in `React.memo` only when:
 
 `useMemo` and `useCallback` on their own have a cost. They are only valuable when they prevent a downstream re-render.
 
-### 3. Virtualize long lists
+### 3. Long lists — *aspirational; TanStack Virtual is not installed*
 
-Any list that can grow beyond ~100 rows (file tree, review history, search results, graph node list) must use **TanStack Virtual**. Rendering 500 DOM nodes at once is slow regardless of React optimizations.
+Rendering 500 DOM nodes at once is slow regardless of React optimizations, and the lists that
+can get there are the file tree, review history, search results and the graph node list. The
+intended answer was **TanStack Virtual**; it was never adopted. What exists instead is paging at
+the API: the card browser reads `GET /api/decks/cards` with `limit`/`offset`, and `GET
+/api/search` caps at 100 results (20 by default). The file tree renders one folder at a time and
+is not bounded — a folder with thousands of documents in it is the case this section is still
+about. Keep new lists paged for the same reason, and do not add a virtualization dependency to
+satisfy this section without deciding to adopt one deliberately.
 
 ### 4. Code-split at the view boundary
 
@@ -297,11 +319,23 @@ components/
 ## Renderers & the Highlight Contract
 
 `components/documents/renderers/` holds one editor per file type plus the shared
-highlight machinery. `DocumentEditor` chooses a renderer by extension
-(`pickRenderer`) and talks to it through a fixed prop contract — it never imports
+highlight machinery. `DocumentEditor` chooses a renderer through
+`renderers/registry.js` and talks to it through a fixed prop contract — it never imports
 TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
 → `MarkdownRenderer`, `txt`/`text` → `TextRenderer`, `pdf` → `PdfRenderer`,
-`youtube` → `YoutubeRenderer`, `clip` → `ClipRenderer`, else `PlaceholderRenderer`.
+`epub` → `EpubRenderer`, `youtube` → `YoutubeRenderer`, `clip` → `ClipRenderer`, else
+`PlaceholderRenderer`.
+
+**The registry is one table doing two jobs, and they cannot be separated.** Each entry pairs
+a `lazy()` import of the component with its `editable` and `supportsHighlight` flags. The
+components are lazy because pdf.js, epub.js and TipTap are about a megabyte between them and
+statically importing all of them meant opening *any* document paid for *every* format — the
+`Documents` chunk was 1.4 MB and is now 60 kB, with each heavy renderer fetched on first use.
+The flags cannot be lazy: `editable` decides whether the tab bar draws a Save button and
+`supportsHighlight` decides whether `SelectionToolbar` offers to highlight, and both render
+outside the `<Suspense>` boundary. So they are declared as plain data in the registry rather
+than as statics on the component (`MyRenderer.supportsHighlight = true`), which a lazy
+component cannot expose until its chunk has arrived. Adding a format is one entry.
 
 `PdfRenderer`, `ClipRenderer`, and `YoutubeRenderer` are the non-editable
 references: they own their own load/save (metadata-only — the body is immutable)
@@ -337,11 +371,18 @@ through `PUT /metadata` (collaborator) and is unaffected, which is why a Collabo
 annotate a PDF but not a note. That is a fact about where the data lives, not a gap in the
 permission table.
 
-A renderer that supports highlighting also exposes a **static** flag so the
-parent can enable the highlight toolbar without knowing the renderer's identity:
+A renderer that supports highlighting says so in the registry, not on itself, so the parent
+can enable the highlight toolbar without knowing the renderer's identity — and without having
+loaded it yet:
 
 ```js
-MyRenderer.supportsHighlight = true;
+// renderers/registry.js
+pdf: {
+    load: lazy(() => import('./PdfRenderer')),
+    extensions: ['pdf'],
+    editable: false,
+    supportsHighlight: true,
+},
 ```
 
 ### Building a highlightable renderer

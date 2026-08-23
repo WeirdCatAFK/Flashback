@@ -4,7 +4,8 @@ import { checkIndex, syncIndex, rebuildIndex } from '../api/doctor';
 import { useCan } from '../sessionContext.js';
 import Modal from '../components/shared/Modal';
 import { invalidateData } from '../utils/dataBus';
-import { Rich, useT } from '../translations';
+import { useT } from '../translations';
+import { Rich } from '../translations/components.jsx';
 import './Seal.css';
 
 /**

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { readFile } from '../../../api/documents';
 import { deleteCard as deleteCardRequest } from '../../../api/decks';
-import { useConfirm } from '../../shared/ConfirmDialog';
+import { useConfirm } from '../../shared/confirmContext.js';
 import FlashcardEditor from '../../FlashcardEditor';
 import { typeAnswerParts, cardTypeShortLabel } from '../../shared/flashcardFields';
 import { useT } from '../../../translations';

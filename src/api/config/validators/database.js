@@ -135,6 +135,11 @@ async function validateDatabase() {
     try {
       return await handleRebuild();
     } catch (rebuildErr) {
+      // The last thing that can go wrong at startup, and the one worth being loud
+      // about: the index could not be validated AND could not be rebuilt. Returning
+      // a bare `false` left the caller reporting "validation failed" with no cause,
+      // which is the hardest possible version of this to diagnose from a user's log.
+      console.error("Database rebuild failed:", rebuildErr.message);
       return false;
     }
   }

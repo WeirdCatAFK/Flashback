@@ -142,9 +142,6 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
   );
 }
 
-// This renderer participates in the document-highlight system (see
-// useHighlightableRenderer); DocumentEditor reads this flag to enable the
-// highlight toolbar without knowing the renderer's identity.
-MarkdownRenderer.supportsHighlight = true;
-// Text content is user-editable, so DocumentEditor shows a Save button for it.
-MarkdownRenderer.editable = true;
+// Capabilities (editable / supportsHighlight) are declared in renderers/registry.js,
+// not as statics here: this component is loaded lazily and the parent needs both
+// answers before the chunk arrives.

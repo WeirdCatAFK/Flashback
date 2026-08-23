@@ -39,7 +39,7 @@ const writeSidecar = (relPath, data) => fs.writeFileSync(abs(relPath + '.flashba
 describe('Vault Doctor', () => {
 
     before(async () => {
-        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch (e) { /* clean slate */ }
+        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch { /* clean slate */ }
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });

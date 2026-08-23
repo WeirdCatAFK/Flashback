@@ -8,9 +8,10 @@ import AnkiMappingModal from '../components/shared/AnkiMappingModal';
 import DeckPurgeDialog from '../components/shared/DeckPurgeDialog';
 import ProgressDialog from '../components/shared/ProgressDialog';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
-import { useConfirm } from '../components/shared/ConfirmDialog';
+import { useConfirm } from '../components/shared/confirmContext.js';
 import { useDataInvalidation, invalidateData } from '../utils/dataBus';
-import { Rich, useT } from '../translations';
+import { useT } from '../translations';
+import { Rich } from '../translations/components.jsx';
 import { useSession } from '../sessionContext.js';
 import './Decks.css';
 

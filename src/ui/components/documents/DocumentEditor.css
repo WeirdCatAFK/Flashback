@@ -35,3 +35,14 @@
   position: relative;
   background: var(--color-bg-surface);
 }
+
+/* Shown while a renderer's chunk loads (pdf.js, epub.js, TipTap are each fetched on
+   first use). Centred and muted so a fast load reads as a beat, not a flash of text. */
+.doc-editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-fg-secondary);
+  font-size: 0.9rem;
+}

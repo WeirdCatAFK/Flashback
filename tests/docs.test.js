@@ -33,7 +33,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         try {
             const absPath = path.join(getWorkspacePath(), TEST_ROOT);
             if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-        } catch (e) {}
+        } catch {}
     };
 
     before(async () => {
@@ -641,7 +641,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             try {
                 const absPath = path.join(getWorkspacePath(), exportFolder);
                 if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-            } catch (e) {}
+            } catch {}
         };
 
         before(async () => {
@@ -805,11 +805,11 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         before(async () => {
             // Defensive cleanup in case a previous interrupted run left the file
-            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch (e) {}
+            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch {}
         });
 
         after(async () => {
-            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch (e) {}
+            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch {}
         });
 
         it('should register the copy in DB with a new globalHash and fire a Seal commit', async () => {

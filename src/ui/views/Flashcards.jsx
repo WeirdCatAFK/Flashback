@@ -5,7 +5,7 @@ import StandaloneCardModal from '../components/shared/StandaloneCardModal';
 import CardDetailModal from '../components/shared/CardDetailModal';
 import { typeAnswerParts, cardTypes, cardTypeLabel } from '../components/shared/flashcardFields';
 import { ErrorState } from '../components/shared/StateView';
-import { useConfirm } from '../components/shared/ConfirmDialog';
+import { useConfirm } from '../components/shared/confirmContext.js';
 import { useDataInvalidation } from '../utils/dataBus';
 import { useSession } from '../sessionContext.js';
 import { useT } from '../translations';

@@ -30,7 +30,7 @@ const LOG_DEPTH = 500;
 describe('Seal Integration Tests', () => {
 
     before(async () => {
-        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch (e) {}
+        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch {}
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });
