@@ -458,6 +458,11 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
     const [activeDeck, setActiveDeck] = useState(null);
 
     // A deck opened from global search: select it and clear the request.
+    // This stays an effect on purpose, and react-doctor's no-adjust-state-on-prop-change
+    // flags it. It is relaying an event that already happened, not deriving state: it
+    // calls back into the parent, which cannot happen during render. The clear is also
+    // load-bearing — App.jsx sets a bare hash string, so without resetting it to null,
+    // searching the same deck twice would not change the prop and would not reopen it.
     useEffect(() => {
         if (!openDeck) return;
         setActiveDeck(openDeck);

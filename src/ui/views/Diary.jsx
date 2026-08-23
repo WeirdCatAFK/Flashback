@@ -150,12 +150,21 @@ function EntryEditor({ date, loading, content, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
 
-  // Reset local state whenever the loaded entry (i.e. the date) changes.
-  useEffect(() => {
+  // Reset local state whenever the loaded entry (i.e. the date) changes. Done during
+  // render, not in an effect: an effect commits one frame first, so switching days
+  // painted the PREVIOUS day's prose under the new day's heading, and hitting Edit in
+  // that frame would have typed over the wrong entry. `key={date}` is not the fix here —
+  // the parent fetches `content` asynchronously, so at remount time it is still the old
+  // day's text; this has to re-fire when the fetch lands too, which is why `content` is
+  // half of the marker. React re-runs this component immediately and never paints the
+  // stale frame.
+  const [synced, setSynced] = useState({ date, content });
+  if (synced.date !== date || synced.content !== content) {
+    setSynced({ date, content });
     setDraft(content);
     setEditing(false);
     setError(null);
-  }, [content, date]);
+  }
 
   const dirty = draft !== content;
 

@@ -103,6 +103,9 @@ export default function DocumentsView({ isActive, openPaths, toggleOpen, relocat
   onOpenSourceConsumedRef.current = onOpenSourceConsumed;
 
   // Open a document from an external source (e.g. trainer "view source")
+  // Same shape as Decks' openDeck relay, and flagged by the same rule for the same
+  // reason: it reacts to an event that already happened and calls back into the parent,
+  // which render cannot do. Not derived state.
   useEffect(() => {
     if (!openSource) return;
     const { path, highlightId } = openSource;

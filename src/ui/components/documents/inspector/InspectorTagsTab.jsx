@@ -17,11 +17,19 @@ export default function InspectorTagsTab({ path, tags: propTags = [], onTagsChan
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
 
-  // Sync direct tags when parent refreshes the sidecar (e.g. after save)
-  useEffect(() => {
+  // Sync direct tags when parent refreshes the sidecar (e.g. after save), and when the
+  // active file changes. During render rather than in an effect: an effect commits a
+  // frame first, so clicking a second document showed the FIRST one's tags until the
+  // next paint. The serialised marker is what the dependency array used to do with
+  // JSON.stringify — the array identity changes on every parent render, its contents
+  // do not — except it no longer re-serialises on renders that change nothing else.
+  const tagsKey = propTags.join('\u0000'); // NUL: a tag may contain a space, so ' ' would alias
+  const [synced, setSynced] = useState({ path, tagsKey });
+  if (synced.path !== path || synced.tagsKey !== tagsKey) {
+    setSynced({ path, tagsKey });
     setDirectTags(propTags);
     setDirty(false);
-  }, [JSON.stringify(propTags), path]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   // Fetch inherited tags + all known tags whenever the active file changes
   useEffect(() => {

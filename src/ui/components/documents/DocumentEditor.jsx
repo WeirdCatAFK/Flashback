@@ -133,9 +133,16 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
     }
   }
 
-  // Drop dirty state and drafts for tabs that have been closed
-  useEffect(() => {
-    const openSet = new Set(openTabs.map(t => t.path));
+  // Drop dirty state and drafts for tabs that have been closed. Done during render, in
+  // the same guarded shape as the isActive block above: the parent owns the close event
+  // and this component owns the state, so neither "derive it" nor "prune it in the event
+  // that closes the tab" is available. It converges because the marker is set to the very
+  // `openTabs` identity that triggered the branch, and both updaters return `prev`
+  // unchanged when there is nothing to drop.
+  const [syncedTabs, setSyncedTabs] = useState(openTabs);
+  if (syncedTabs !== openTabs) {
+    setSyncedTabs(openTabs);
+    const openSet = new Set(openTabs.map(tab => tab.path));
     setDirtyPaths(prev => {
       const next = new Set([...prev].filter(p => openSet.has(p)));
       return next.size !== prev.size ? next : prev;
@@ -148,7 +155,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
       }
       return changed ? next : prev;
     });
-  }, [openTabs]);
+  }
 
   const handleDirtyChange = useCallback((path, isDirty) => {
     setDirtyPaths(prev => {

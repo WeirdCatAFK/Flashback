@@ -106,10 +106,14 @@ export default function InspectorCardsTab({ path, flashcards: flashcardsProp, on
     }
   }, [path, confirm, loadCards, t]);
 
-  // Reset local post-edit snapshot when the document changes or parent sends fresh data.
-  useEffect(() => {
+  // Reset local post-edit snapshot when the document changes. During render rather than
+  // in an effect: `cards` below falls back to postEditCards first, so an effect left the
+  // PREVIOUS document's cards on screen for a frame after clicking a new one.
+  const [syncedPath, setSyncedPath] = useState(path);
+  if (syncedPath !== path) {
+    setSyncedPath(path);
     setPostEditCards(null);
-  }, [path]);
+  }
 
   // Async fetch stays in an effect; only runs when parent has no data to offer.
   useEffect(() => {
