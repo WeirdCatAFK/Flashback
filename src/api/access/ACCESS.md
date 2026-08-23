@@ -16,7 +16,7 @@ access/
                             doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
-  resources/       Tier 2   query · files · pathLock (pure — no DB, no IO)
+  resources/       Tier 2   query · files · pathLock, safeFetch (pure — no DB, no IO)
   primitives/      Tier 1   config · database · accounts · vault
                             sqliteAdapter (the async driver both stores are built on)
 ```
@@ -109,6 +109,35 @@ The **only** layer allowed to read/write `.flashback` sidecar files. Resolves al
 - `etag(relPath)` — the document's **version**, for detecting a write that lost a race. Two sha256 digests joined by a dot, `"<body>.<sidecar>"`, because a document is two files with two different owners: an editor replaces the body wholesale while merging the sidecar from a fresh read, and a PDF renderer writes only the sidecar. `documents._assertFresh` compares the half the write replaces, so a card added through the Inspector never fails an editor's save. The body half exists only for `EDITABLE_BODY_EXTENSIONS` (`.md`/`.markdown`/`.txt`/`.text`) — every other format's body is read-only, so its bytes cannot go stale under an editor, and hashing a 50 MB PDF per read would buy nothing. Derived on demand, **stored nowhere**: a counter has to be bumped by whoever writes, so it would report "unchanged" after a Doctor rebuild, a Seal rollback, or an edit made in another program.
 - `entityEtag(entity)` — the same idea for one card or highlight *inside* a sidecar, with keys sorted before hashing so the digest describes the value rather than a writer's key order. This is what lets a patch conflict only with a patch to the same entity.
 - `walkWorkspace()` — read-only, pre-order recursive walk returning `{folders, documents, mediaDirs, strayItems}`. Each folder/document entry carries `{relPath, meta, sidecarExists, sidecarCorrupt}`; `strayItems` are files with no sidecar (`kind: 'untracked-file'`) or sidecars with no owning file (`kind: 'orphan-sidecar'`). Skips `.git`, root-level `_decks`, and `media/` dirs (recorded in `mediaDirs`, not descended). Used by the Vault Doctor to compare disk against the index.
+
+### `safeFetch.js`
+The one door out to the open web. Pure — node builtins only, no config and no IO — so
+`tests/safeFetch.test.js` runs with no vault and no SQLite binary, like `pathLock.js`.
+
+Everything this app fetches on a user's behalf is a URL *they* supplied: the page a clip
+captures, a picture inside that page. A plain `fetch` on such a URL is a request issued from
+wherever the process runs, which is not where the address came from — on a server that is the
+deployment's private network, cloud instance metadata (`169.254.169.254`) included, and a clip
+stores the answer as a document the caller can read back. On the desktop it is the user's own
+LAN, reachable by anything driving the MCP server.
+
+- `assertFetchableUrl(url, { allowPrivate })` — http(s) only, and never an address that
+  resolves into a loopback, private, link-local, CGNAT or multicast range (v4, v6, and v4
+  addresses wearing a v6 hat). Refusals carry `status: 400`, so the API answers "your address"
+  rather than "our fault".
+- `safeFetch(url, init, opts)` — the same signature as `fetch`, with **every redirect hop**
+  re-checked: a public host is free to answer `302 Location: http://169.254.169.254/`, and a
+  guard that only checked the URL it was handed would wave that through. Forces
+  `redirect: "manual"` for that reason.
+
+`allowPrivate` comes from `config.allowPrivateNetworkFetch` (default off) and exists for the
+install that genuinely means to clip from its own intranet. It lifts the address check and
+nothing else — the scheme restriction stands either way.
+
+**Known limit, deliberately stated:** the lookup here and the one the fetch performs are two
+resolutions, so DNS rebinding still gets through. Closing that needs the connection pinned to
+the address that was checked (an undici dispatcher, not a wrapper). This stops the whole class
+of direct attempts, which is what every one of those addresses is.
 
 ### `pathLock.js`
 Serializes canonical writes. Pure — imports nothing, holds no path knowledge beyond using the

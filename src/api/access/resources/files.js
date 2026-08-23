@@ -142,6 +142,57 @@ export default class Files {
     }
 
     /**
+     * Validates the NAME of an asset in a document's `media/` directory.
+     *
+     * A media name is a plain file name and never a path. It is joined onto the owning
+     * document's own `media/` directory AND written into the sidecar as `./media/<name>`,
+     * so a name carrying a separator puts the file and its reference out of step even
+     * where it does not escape the workspace — and where it does escape, `path.join`
+     * walks out of the vault with it (`..`), while `path.resolve` abandons the base
+     * directory altogether for an absolute or drive-relative one.
+     *
+     * Refused rather than rewritten: every legitimate name is generated server-side
+     * (`documents._createFlashcardLocked`, `_cacheRemoteAsset`) or comes from a client
+     * that already sends a bare name, so silently substituting a basename would hide the
+     * caller's bug while leaving the sidecar pointing at something else.
+     *
+     * @param {string} name
+     * @returns {string} the same name, once it is known to be a single path segment.
+     * @throws {Error} if it is anything else.
+     */
+    mediaName(name) {
+        const raw = String(name ?? "");
+        const bad =
+            !raw ||
+            raw === "." ||
+            raw === ".." ||
+            raw.includes("/") || raw.includes("\\") ||  // a separator on EITHER platform: vaults are portable
+            /^[A-Za-z]:/.test(raw) ||                  // "C:foo" — drive-relative, resolves off our base
+            raw.includes("\0") ||
+            path.isAbsolute(raw);
+        if (bad) throw new Error(`Invalid media name: ${raw}`);
+        return raw;
+    }
+
+    /**
+     * The absolute path of one asset inside a document's own `media/` directory.
+     *
+     * The single place that turns (document, asset name) into a path on disk, so the name
+     * check above cannot be skipped by a caller that builds the path itself — which is
+     * exactly how `addVanillaData`, `addCustomMedia` and `removeCustomMedia` each came to
+     * hold their own subtly different version of it. Ends in `safePath`, so containment is
+     * asserted rather than merely implied by the name being clean.
+     *
+     * @param {string} anyPath - relative path of the owning document.
+     * @param {string} name - the asset's file name.
+     * @returns {string} absolute path to the asset (which need not exist).
+     */
+    mediaPathFor(anyPath, name) {
+        const docRel = path.relative(this.workspaceRoot, this.safePath(anyPath));
+        return this.safePath(path.join(path.dirname(docRel), "media", this.mediaName(name)));
+    }
+
+    /**
      * Checks if a file or folder exists at the given relative path.
      * If safePath throws an error (i.e. the path is absolute or traverses outside of the workspace),
      * it is considered non-existent and false is returned.
@@ -859,10 +910,11 @@ _regenerateIdentities(absPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
 
-        const mediaDir = path.resolve(path.dirname(filePath), "media");
+        // Name-checked and workspace-confined before anything is created on disk: a
+        // rejected request must not leave a media/ directory behind either.
+        const mediaPath = this.mediaPathFor(anyPath, name);
+        const mediaDir = path.dirname(mediaPath);
         if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-
-        const mediaPath = path.join(mediaDir, name);
 
         if (fs.existsSync(mediaPath)) throw new Error("Media file already exists.");
 
@@ -909,10 +961,9 @@ _regenerateIdentities(absPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
 
-        const mediaDir = path.resolve(path.dirname(filePath), "media");
+        const mediaPath = this.mediaPathFor(anyPath, name);
+        const mediaDir = path.dirname(mediaPath);
         if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
-
-        const mediaPath = path.join(mediaDir, name);
         if (fs.existsSync(mediaPath)) throw new Error("Media file already exists.");
 
         try {
@@ -955,7 +1006,10 @@ _regenerateIdentities(absPath) {
             throw new Error("File does not exist.");
         }
 
-        const mediaPath = path.resolve(path.dirname(filePath), "media", name);
+        // NOT path.resolve(dirname, "media", name): an absolute or drive-relative `name`
+        // discards the two segments before it, which is how a delete aimed at a document's
+        // own media/ dir could unlink any file the process could reach.
+        const mediaPath = this.mediaPathFor(anyPath, name);
         try {
             if (fs.existsSync(mediaPath)) fs.unlinkSync(mediaPath);
             // remove references in metadata if present

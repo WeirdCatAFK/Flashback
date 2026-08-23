@@ -15,6 +15,9 @@ const catchError = fn => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(err => {
         if (isNotFound(err)) return res.status(404).json({ error: err.message });
         if (err.message?.startsWith('Unknown category')) return res.status(400).json({ error: err.message });
+        // A media name that is not a plain file name is a malformed request, not a server
+        // fault — Files.mediaName refuses it before anything reaches the disk.
+        if (err.message?.startsWith('Invalid media name')) return res.status(400).json({ error: err.message });
         next(err);
     });
 

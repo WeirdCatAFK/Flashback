@@ -230,6 +230,23 @@ export function getAllowedOrigins() {
     return Array.isArray(origins) ? origins.filter((o) => typeof o === "string" && o) : [];
 }
 
+/**
+ * Whether this install may fetch a user-supplied URL that resolves onto a private network.
+ *
+ * Off by default, and the default is the interesting half: the clipper fetches an address
+ * someone hands it, from inside whatever network this process runs in. On a server that is
+ * the deployment's private network (cloud metadata included); on the desktop it is the
+ * user's own LAN, reachable by anything driving the MCP server. See
+ * `access/resources/safeFetch.js` for the whole argument.
+ *
+ * The field exists for the install that genuinely means to clip from its own intranet
+ * wiki, which is a real thing to want and impossible for us to tell apart from the outside.
+ * @returns {boolean}
+ */
+export function getAllowPrivateNetworkFetch() {
+    return get()?.allowPrivateNetworkFetch === true;
+}
+
 // ---------------------------------------------------------------------------
 // Local user identity
 //

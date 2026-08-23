@@ -143,6 +143,72 @@ describe('Media & Binary Operations', () => {
         assert.equal(fs.existsSync(failPath), false, "File should not be written on logic error");
     });
 
+    // A media NAME is a plain file name, never a path. It is joined onto the document's own
+    // media/ directory AND written into the sidecar as `./media/<name>`, so a name carrying a
+    // separator either escapes the vault or leaves the file and its reference out of step.
+    // Both write paths and the delete path used to build that path themselves, each slightly
+    // differently — the delete one with path.resolve, which abandons its base entirely for an
+    // absolute name while the check above it used path.join, which does not.
+    it('refuses a media name that is a path rather than a file name', async () => {
+        const docName = "TraversalGuard.md";
+        const fcHash = "traversal-card-1";
+        const relPath = path.join(TEST_ROOT, docName);
+
+        await docs.createFile(docName, TEST_ROOT);
+        await docs.updateFile(relPath, "# Guard", {
+            tags: [],
+            flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }],
+        });
+
+        const buffer = Buffer.from("payload");
+        const escapee = path.join(path.dirname(getWorkspacePath()), 'traversal-escape.txt');
+        const attempts = [
+            '../traversal-escape.txt',
+            path.join('..', '..', '..', 'traversal-escape.txt'),
+            'nested/name.png',
+            'nested\\name.png',   // a Windows separator, on any platform: vaults are portable
+            '..',
+            '',
+        ];
+
+        for (const name of attempts) {
+            await assert.rejects(
+                async () => await docs.addMediaToFlashcard(relPath, fcHash, buffer, name),
+                /Invalid media name/,
+                `custom media should refuse ${JSON.stringify(name)}`,
+            );
+            await assert.rejects(
+                async () => await media.addVanillaMedia(relPath, fcHash, buffer, name, 'image', 'front'),
+                /Invalid media name/,
+                `vanilla media should refuse ${JSON.stringify(name)}`,
+            );
+        }
+
+        assert.equal(fs.existsSync(escapee), false, "nothing may be written outside the workspace");
+    });
+
+    it('refuses an absolute media name on the delete path', async () => {
+        const docName = "DeleteGuard.md";
+        const relPath = path.join(TEST_ROOT, docName);
+        await docs.createFile(docName, TEST_ROOT);
+
+        // A real file outside the workspace, of the kind path.resolve(dir, "media", name)
+        // used to unlink: the guard above it computed a DIFFERENT path with path.join, which
+        // flattens an absolute segment instead of jumping to it — so the check passed and
+        // the delete landed somewhere else entirely.
+        const bystander = path.join(path.dirname(getWorkspacePath()), 'delete-guard-bystander.txt');
+        fs.writeFileSync(bystander, 'do not delete me');
+        try {
+            await assert.rejects(
+                async () => await media.removeMedia(relPath, bystander),
+                /Invalid media name/,
+            );
+            assert.ok(fs.existsSync(bystander), "a file outside the workspace must survive");
+        } finally {
+            fs.rmSync(bystander, { force: true });
+        }
+    });
+
     it('should attach vanilla audio to the front of a flashcard', async () => {
         const docName = "VanillaAudio.md";
         const fcHash = "vanilla-audio-hash";

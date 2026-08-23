@@ -7,6 +7,8 @@ import path from 'path';
 import fs from 'fs';
 import Files from '../resources/files.js';
 import { withDocument, withStructure } from '../resources/pathLock.js';
+import { safeFetch } from '../resources/safeFetch.js';
+import { getAllowPrivateNetworkFetch } from '../primitives/config.js';
 import query from '../resources/query.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
@@ -1101,7 +1103,7 @@ export default class Documents {
         let url;
         try { url = new URL(track.baseUrl); } catch { throw noCaptions("This video's caption track URL was malformed."); }
         url.searchParams.set('fmt', 'json3');
-        const resp = await fetch(url.href, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback transcript fetcher)' } });
+        const resp = await safeFetch(url.href, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback transcript fetcher)' } });
         if (!resp.ok) throw noCaptions(`Could not download the caption track (${resp.status}).`);
         const cues = parseJson3Transcript(await resp.text());
         if (cues.length === 0) throw noCaptions("The caption track came back empty.");
@@ -1173,8 +1175,11 @@ export default class Documents {
 
         let r;
         try {
-            r = await fetch(absSrc, { headers: { 'User-Agent': CLIP_USER_AGENT } });
+            r = await safeFetch(absSrc, {
+                headers: { 'User-Agent': CLIP_USER_AGENT },
+            }, { allowPrivate: getAllowPrivateNetworkFetch() });
         } catch (err) {
+            if (err.status === 400) throw err;
             throw new Error(`Could not reach ${new URL(absSrc).hostname}: ${err.message}`);
         }
         if (!r.ok) throw new Error(`The site refused that file (status ${r.status})`);
@@ -1226,10 +1231,18 @@ export default class Documents {
     async _buildClipDoc(url) {
         let html;
         try {
-            const resp = await fetch(url, { headers: { 'User-Agent': 'Mozilla/5.0 (Flashback webclipper)' } });
+            // safeFetch, not fetch: `url` is whatever the caller asked for, and this
+            // process sits inside a network the caller cannot otherwise reach. Every
+            // redirect hop is re-checked, since a public page may point at a private one.
+            const resp = await safeFetch(url, {
+                headers: { 'User-Agent': CLIP_USER_AGENT },
+            }, { allowPrivate: getAllowPrivateNetworkFetch() });
             if (!resp.ok) throw new Error(`status ${resp.status}`);
             html = await resp.text();
         } catch (err) {
+            // A refused address is a statement about the REQUEST — keep its 400 rather
+            // than flattening it into a generic fetch failure the caller cannot act on.
+            if (err.status === 400) throw err;
             throw new Error(`Failed to fetch: ${err.message}`);
         }
 
