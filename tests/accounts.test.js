@@ -269,4 +269,59 @@ describe('permission table', () => {
             assert.equal(`${method} ${pattern}`, '* *', `${mount} has no catch-all rule`);
         }
     });
+
+    // Express routes case-insensitively and non-strictly by default, and setting
+    // `case sensitive routing` on the app does NOT reach the routers in routes/ — each is
+    // constructed with its own empty options object. So `/Pure-Token` and `/pure-token/`
+    // both arrive at the pure-token handler, and the guard has to recognise them as that
+    // route. It did not: they missed the AUTHOR rule, fell through to the accounts
+    // catch-all (ADMIN), and any admin could rotate the Author's token — which revokes
+    // every existing Author token on the way out.
+    it('resolves a rule regardless of path case or a trailing slash', () => {
+        for (const p of ['/pure-token', '/Pure-Token', '/PURE-TOKEN', '/pure-token/']) {
+            assert.equal(requiredRole('accounts', 'POST', p), ROLES.AUTHOR, p);
+        }
+        for (const p of ['/rollback', '/Rollback', '/rollback/']) {
+            assert.equal(requiredRole('seal', 'POST', p), ROLES.AUTHOR, p);
+        }
+        // A rule with a mid-pattern star has to survive it too.
+        assert.equal(
+            requiredRole('flashcards', 'POST', '/ABC123/Flags/Mouthful/Dismiss'),
+            ROLES.READER,
+        );
+    });
+
+    // The invariant that would have caught the above before it shipped, rather than the
+    // three spellings that happened to be tried.
+    //
+    // Within a mount, rules are read most-specific first and the last one is a catch-all.
+    // If a specific rule demands MORE than a rule below it, then any request that fails to
+    // match the specific rule — for whatever reason, a spelling nobody predicted included —
+    // lands on something weaker. Every other mount in the table is ordered the safe way
+    // round (its specific rules LOWER the requirement), which is exactly why `pure-token`
+    // was the only escalation and not one of a dozen.
+    //
+    // If a future rule genuinely needs this shape, it must not rely on the matcher alone:
+    // enforce it in the handler, where the actor and the target can be compared — the way
+    // routes/accounts.js already does for the rules a ladder cannot express.
+    it('never lets a specific rule require more than a later one in the same mount', () => {
+        const rank = Object.fromEntries(
+            [ROLES.READER, ROLES.COLLABORATOR, ROLES.ADMIN, ROLES.AUTHOR].map((r, i) => [r, i]),
+        );
+        const offenders = [];
+
+        for (const [mount, rules] of Object.entries(PERMISSIONS)) {
+            for (let i = 0; i < rules.length; i++) {
+                for (let j = i + 1; j < rules.length; j++) {
+                    if (rank[rules[i][2]] > rank[rules[j][2]]) {
+                        offenders.push(
+                            `${mount}: [${rules[i].join(' ')}] outranks the later [${rules[j].join(' ')}]`,
+                        );
+                    }
+                }
+            }
+        }
+
+        assert.deepEqual(offenders, [], offenders.join('\n'));
+    });
 });

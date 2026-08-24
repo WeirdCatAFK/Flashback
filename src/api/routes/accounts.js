@@ -95,6 +95,19 @@ router.patch('/:id', catchError(async (req, res) => {
     if (target.role === ROLES.AUTHOR) {
         return res.status(403).json({ error: 'The Author cannot be demoted or deactivated.' });
     }
+
+    // The ceiling governs who you may ACT ON, not only what you may hand out. Without this
+    // an admin could set a fellow admin to reader, or deactivate them outright — the grant
+    // check below only inspects the role being given, so `{role: 'reader'}` sailed through
+    // and `{active: false}` was never checked at all. DELETE /tokens/:tokenId has enforced
+    // the same rule since it was written; this is the half that was missing.
+    const ceiling = grantCeiling(req.account);
+    if (!atLeast(ceiling, target.role)) {
+        return res.status(403).json({
+            error: `An ${req.account.role} may not modify an account with the ${target.role} role.`,
+        });
+    }
+
     if (role !== undefined) {
         const refusal = grantRefusal(req.account, role);
         if (refusal) return res.status(refusal.status).json({ error: refusal.error });

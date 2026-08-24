@@ -134,6 +134,35 @@ export function getMcpDiaryAccess() {
     }
 }
 
+// How many flashcards one account may delete, per request and per rolling hour.
+//
+// A server-level safety limit, so it belongs here beside mcpDiaryAccess rather than in
+// renderer localStorage: it constrains what a REMOTE caller may do, and a limit the caller
+// configures is not a limit. See access/resources/cardRemovalBudget.js for what it is for
+// and — importantly — what it is not.
+//
+// Read fresh from disk for the same reason getMcpDiaryAccess is: an operator tightening
+// this after an incident should not have to restart the API to make it bite.
+//
+// Fails to the DEFAULTS rather than to zero. A missing or corrupt config must not wedge
+// every card deletion in the vault; the defaults are already conservative, and the
+// permission table remains the actual authorization boundary either way.
+export const CARD_REMOVAL_DEFAULTS = { perHour: 20, perRequest: 10 };
+
+export function getCardRemovalLimits() {
+    const positiveInt = (v, fallback) =>
+        Number.isInteger(v) && v >= 0 ? v : fallback;
+    try {
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+        return {
+            perHour: positiveInt(cfg.cardRemovalsPerHour, CARD_REMOVAL_DEFAULTS.perHour),
+            perRequest: positiveInt(cfg.cardRemovalsPerRequest, CARD_REMOVAL_DEFAULTS.perRequest),
+        };
+    } catch {
+        return { ...CARD_REMOVAL_DEFAULTS };
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Vault registry
 //

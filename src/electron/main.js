@@ -253,17 +253,27 @@ ipcMain.handle('get-config', () => readConfig());
 // The fields are preserved from disk rather than rejected, so an older renderer (or a
 // stale `form` object in Config) cannot corrupt the pointer by round-tripping a whole
 // config object it read before a vault switch.
-const PROTECTED_FIELDS = [
-  'vaultName', 'isCustomPath', 'customPath', 'activeVaultId', 'vaults', 'remotes', 'user',
+// An ALLOWLIST, not a list of exceptions. It used to be the other way round — everything
+// the renderer sent was written except a handful of protected keys — which quietly made
+// `apiToken`, `allowedOrigins` and `allowPrivateNetworkFetch` renderer-writable, none of
+// which any screen edits. A renderer running hostile code (a malicious PDF, a bad
+// dependency) could pin a token it already knew and widen the CORS allowlist to match,
+// turning a renderer compromise into durable access. A denylist protects what someone
+// remembered; an allowlist protects what nobody has thought of yet.
+//
+// These five are exactly what Config edits: RESTART_FIELDS in views/Config.jsx plus the
+// AI-assistant diary selector. Everything else — the vault pointer, the registries, `user`,
+// the token — keeps whatever is on disk, so an older renderer round-tripping a stale `form`
+// object it read before a vault switch still cannot corrupt anything.
+const RENDERER_WRITABLE_FIELDS = [
+  'port', 'host', 'logFormat', 'isLocalhost', 'mcpDiaryAccess',
 ];
 
 ipcMain.handle('set-config', (_event, newConfig) => {
   try {
-    const onDisk = readConfig();
-    const merged = { ...newConfig };
-    for (const key of PROTECTED_FIELDS) {
-      if (key in onDisk) merged[key] = onDisk[key];
-      else delete merged[key];
+    const merged = readConfig();
+    for (const key of RENDERER_WRITABLE_FIELDS) {
+      if (newConfig && key in newConfig) merged[key] = newConfig[key];
     }
     writeConfig(merged);
     return { ok: true };

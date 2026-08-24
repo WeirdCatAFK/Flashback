@@ -72,7 +72,12 @@ export default class Media {
      * @returns {Array<{ name, relativePath, absolutePath, hash|null }>}
      */
     async list(folderRelPath) {
-        const absDir = path.join(this.files.workspaceRoot, folderRelPath, 'media');
+        // safePath, not a bare join: `folderRelPath` arrives from the query string, and
+        // the route's path.normalize() keeps a leading `..` intact rather than removing
+        // it — so `?path=../../..` walked straight out of the vault and listed whatever
+        // `media/` directory it found there. This was the only workspace join in the
+        // codebase that resolved a caller-supplied path without asserting containment.
+        const absDir = this.files.safePath(path.join(folderRelPath, 'media'));
         if (!fs.existsSync(absDir)) return [];
 
         const prefix = absDir + path.sep;
@@ -147,7 +152,7 @@ export default class Media {
      * @returns {Array} orphaned entries that were removed from the DB
      */
     async reconcile(folderRelPath) {
-        const absDir = path.join(this.files.workspaceRoot, folderRelPath, 'media');
+        const absDir = this.files.safePath(path.join(folderRelPath, 'media'));
         const prefix = absDir + path.sep;
         const entries = await this.query.getMediaByAbsPathPrefix(prefix);
         const orphans = entries.filter(e => !fs.existsSync(e.absolute_path));

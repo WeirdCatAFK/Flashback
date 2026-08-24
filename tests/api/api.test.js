@@ -772,6 +772,27 @@ describe('Flashback API', () => {
             customMediaHash = diagram.hash;
         });
 
+        // `norm()` on the route is path.normalize, which keeps a leading `..` — so this
+        // used to walk out of the workspace and list whatever `media/` directory it found
+        // up the tree, from the READER role, reporting each hit's absolute path.
+        it('GET /api/media/list → refuses a path that climbs out of the workspace', async () => {
+            for (const p of ['../../..', '../../../../../..', '..\\..\\..']) {
+                const res = await fetch(`${baseUrl}/api/media/list?path=${encodeURIComponent(p)}`);
+                assert.equal(res.status, 400, `${p} should be refused, not listed`);
+                assert.match((await res.json()).error, /traversal/i);
+            }
+        });
+
+        it('GET /api/media/list → does not report where the vault sits on disk', async () => {
+            const res = await fetch(`${baseUrl}/api/media/list?path=${encodeURIComponent(ROOT)}`);
+            const items = await res.json();
+            assert.ok(items.length > 0, 'precondition: the folder has media');
+            for (const item of items) {
+                assert.ok(!('absolutePath' in item), 'absolutePath must not cross the HTTP boundary');
+                assert.ok(item.relativePath, 'relativePath is what a client addresses an asset by');
+            }
+        });
+
         it('GET /api/media?hash= → streams the file', async () => {
             assert.ok(customMediaHash, 'Precondition: hash captured from list test');
             const res = await fetch(`${baseUrl}/api/media?hash=${customMediaHash}`);
@@ -2333,6 +2354,16 @@ describe('Flashback API', () => {
                 assert.notEqual((await mcp(`/api/diary/summary/${DATE}`)).status, 403);
                 // the personal written entry stays private.
                 assert.equal((await mcp(`/api/diary/entry/${DATE}`)).status, 403);
+            });
+
+            // Express matches routes case-insensitively, so /Entry/... reaches the entry
+            // handler. A gate written as req.path.startsWith('/entry') saw nothing to
+            // block and served the private prose it exists to withhold — one capital
+            // letter defeated the whole setting.
+            it('hides written entries under a mixed-case path too', async () => {
+                setAccess('summaries');
+                assert.equal((await mcp(`/api/diary/Entry/${DATE}`)).status, 403);
+                assert.equal((await mcp(`/api/diary/ENTRY/${DATE}`)).status, 403);
             });
 
             it('never gates the renderer (no MCP header), regardless of the flag', async () => {

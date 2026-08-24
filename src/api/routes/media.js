@@ -30,9 +30,15 @@ router.get('/', catchError(async (req, res) => {
 }));
 
 // GET /api/media/list?path=
+// `absolutePath` is dropped on the way out. It is genuinely useful inside the process —
+// media.list() still returns it, and the orchestrator tests assert against it — but over
+// HTTP it tells a caller where the vault sits on the host's disk and nothing they can use:
+// every client addresses an asset by `relativePath` or by hash.
 router.get('/list', catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? '');
-    res.json(await media.list(folderPath));
+    const items = await media.list(folderPath);
+    // eslint-disable-next-line no-unused-vars
+    res.json(items.map(({ absolutePath, ...rest }) => rest));
 }));
 
 // GET /api/media/file?docPath=&name=

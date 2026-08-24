@@ -39,6 +39,9 @@ const catchError = (fn) => (req, res, next) =>
       const body = { error: err.message };
       if (err.code) body.code = err.code;
       if (err.etag !== undefined) body.etag = err.etag;
+      // A refused card removal (429) says when the allowance refills, in the header a
+      // client already knows how to read rather than only in the prose.
+      if (err.retryAfter) res.set('Retry-After', String(err.retryAfter));
       return res.status(err.status).json(body);
     }
     if (isConflict(err)) return res.status(409).json({ error: err.message });
