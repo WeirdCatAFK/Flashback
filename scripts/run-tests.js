@@ -47,6 +47,7 @@ const tests = [
     'tests/conflicts.test.js',
     'tests/sequencing.test.js',
     'tests/safeFetch.test.js',
+    'tests/cardRemovalBudget.test.js',
     'tests/capabilities.test.js',
     'tests/connection.test.js',
     'tests/translations.test.js',

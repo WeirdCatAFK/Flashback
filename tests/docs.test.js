@@ -940,4 +940,119 @@ describe('Documents Orchestrator Integration Tests', () => {
             );
         });
     });
+
+    // ── Metadata writes cannot be used to clear a document ────────────────────
+    //
+    // PUT /api/documents/metadata is a COLLABORATOR route, because highlights, tags and
+    // cards all live in the sidecar and annotating IS a metadata write. But the write
+    // replaces the whole object and _syncDocumentFlashcards deletes every card missing
+    // from what arrives, so `{"flashcards": []}` erased a document's entire card set —
+    // canonical file and index together — from a role meant to annotate, not reshape.
+    //
+    // Removing a card stays allowed; the volume is bounded. Acted out through
+    // runWithAccount, which is exactly what auth/authenticate.js does per request.
+    describe('Card removal budget', () => {
+        // path.join, not a template literal: relative paths are stored with the platform
+        // separator, so a forward-slash spelling misses every DB lookup on Windows.
+        const BUDGET_ROOT = path.join(TEST_ROOT, 'BudgetTest');
+        const DOC = path.join(BUDGET_ROOT, 'deck.md');
+        const collaborator = { id: 'collab-budget-test', name: 'Sam', role: 'collaborator' };
+        const admin = { id: 'admin-budget-test', name: 'Alex', role: 'admin' };
+
+        let runWithAccount, budget;
+        let cards;
+
+        const sidecarCards = () => docs.files.getMetadata(DOC)?.flashcards ?? [];
+        const withoutFirst = (n) => sidecarCards().slice(n);
+
+        before(async () => {
+            ({ runWithAccount } = await import('../src/api/requestContext.js'));
+            budget = (await import('../src/api/access/resources/cardRemovalBudget.js')).default;
+
+            await docs.createFolder('BudgetTest', TEST_ROOT);
+            await docs.importFile('deck.md', BUDGET_ROOT, '# Deck', {
+                globalHash: genHash(),
+                flashcards: Array.from({ length: 30 }, (_, i) => ({
+                    globalHash: genHash(),
+                    cardType: 'basic',
+                    vanillaData: { frontText: `q${i}`, backText: `a${i}` },
+                })),
+            });
+            cards = sidecarCards();
+            assert.equal(cards.length, 30, 'precondition: 30 cards on disk');
+        });
+
+        it('lets a collaborator remove a few cards', async () => {
+            budget.reset();
+            await runWithAccount(collaborator, () =>
+                docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(3) }));
+            assert.equal(sidecarCards().length, 27);
+        });
+
+        it('refuses a single write that would clear the document, and writes nothing', async () => {
+            budget.reset();
+            const before = sidecarCards().length;
+
+            await assert.rejects(
+                () => runWithAccount(collaborator, () =>
+                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: [] })),
+                (err) => {
+                    assert.equal(err.status, 429);
+                    assert.equal(err.code, 'removal_budget');
+                    return true;
+                },
+            );
+
+            // The refusal has to land BEFORE writeMetadata: a sidecar overwritten and then
+            // "rolled back" is a sidecar that is gone.
+            assert.equal(sidecarCards().length, before, 'the sidecar must be untouched');
+            const inDb = await docs.query.getFlashcardsByDocument(
+                (await docs.query.getDocumentByPath(DOC)).id, 'owner');
+            assert.equal(inDb.length, before, 'the index must be untouched');
+        });
+
+        it('exhausts the hourly allowance across several small writes', async () => {
+            budget.reset();
+            // Default is 20/hour, 10/request. Four batches of five spends it exactly.
+            for (let i = 0; i < 4; i++) {
+                await runWithAccount(collaborator, () =>
+                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(5) }));
+            }
+            await assert.rejects(
+                () => runWithAccount(collaborator, () =>
+                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(1) })),
+                (err) => err.status === 429,
+            );
+        });
+
+        it('never charges an admin, so the desktop Author is unaffected', async () => {
+            budget.reset();
+            const before = sidecarCards().length;
+            assert.ok(before > 0, 'precondition: cards remain');
+
+            await runWithAccount(admin, () =>
+                docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: [] }));
+            assert.equal(sidecarCards().length, 0, 'an admin may clear a document');
+        });
+
+        it('keeps globalHash and createdBy as the server assigned them', async () => {
+            budget.reset();
+            const real = docs.files.getMetadata(DOC);
+            await runWithAccount(collaborator, () => docs.updateMetadata(DOC, {
+                ...real,
+                globalHash: 'forged-hash',
+                createdBy: 'somebody else',
+                tags: ['annotated'],
+            }));
+
+            const after = docs.files.getMetadata(DOC);
+            assert.equal(after.globalHash, real.globalHash, 'globalHash is immutable once assigned');
+            // This fixture's sidecar carries no createdBy, which is the case a conditional
+            // "only overwrite what is already there" quietly let through. Absent is the
+            // honest answer; the client's claim is not.
+            assert.equal(after.createdBy, real.createdBy, 'createdBy mirrors disk, absent included');
+            assert.notEqual(after.createdBy, 'somebody else');
+            assert.deepEqual(after.tags, ['annotated'], 'the legitimate part of the write still lands');
+        });
+    });
 });

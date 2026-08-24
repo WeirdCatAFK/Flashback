@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import diary from '../access/orchestration/diary.js';
 import { getMcpDiaryAccess } from '../access/primitives/config.js';
+import { normalizePath } from '../auth/permissions.js';
 
 const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -16,8 +17,16 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 // toggled in Config → AI Assistant). Three levels: 'none' closes the whole namespace,
 // 'summaries' exposes the machine-derived study summaries and the day list but keeps
 // the personal written entries private, 'full' opens everything. The React renderer
-// sends no such header, so the in-app Diary view is never affected. This is real
-// server-side enforcement for our MCP server, not client-side self-censoring.
+// sends no such header, so the in-app Diary view is never affected.
+//
+// WHAT THIS IS AND IS NOT. It is enforced on the server, so our MCP server cannot talk
+// itself past it and a model cannot argue its way in. It is NOT a boundary against a
+// determined caller: the gate keys off a header the client chooses to send, so anything
+// holding FLASHBACK_API_TOKEN — including a model with shell access, which is the actual
+// threat model here — reads the diary at any setting simply by omitting the header.
+// Closing that needs the MCP server to authenticate as its own account with its own role,
+// rather than presenting the Author's token and labelling itself. Until then this is a
+// guard rail for the assistant we ship, not a wall around the diary, and Config says so.
 router.use((req, res, next) => {
     if (req.get('X-Flashback-Client') !== 'mcp') return next();
     const access = getMcpDiaryAccess(); // 'none' | 'summaries' | 'full'
@@ -28,7 +37,11 @@ router.use((req, res, next) => {
     }
     // In summaries-only mode the personal written entries (the /entry routes) stay
     // private, even though the derived summaries are readable.
-    if (access === 'summaries' && req.path.startsWith('/entry')) {
+    //
+    // normalizePath, not req.path: Express matches routes case-insensitively, so
+    // `/Entry/2026-01-01` reaches the entry handler while a raw startsWith('/entry')
+    // sees nothing to block. Same hole the permission table had — one fix, one source.
+    if (access === 'summaries' && normalizePath(req.path).startsWith('/entry')) {
         return res.status(403).json({
             error: 'AI assistants can read your daily summaries but not your written diary entries. Change this in Flashback → Config → AI Assistant.',
         });

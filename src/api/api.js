@@ -26,6 +26,23 @@ import { guard } from './auth/permissions.js';
 import { ensureLocalAuthor, hasUsableToken } from './access/primitives/accounts.js';
 import { isSwitching } from './vaultSession.js';
 
+// Keep the API token out of the request log.
+//
+// The auth guard accepts the token as `?token=` as well as a Bearer header, because a
+// browser-initiated load cannot set a header — a PDF page, an <img>, an <audio>. The
+// renderer therefore appends it to every asset URL (ui/api/client.js appendToken), and
+// morgan is mounted BEFORE the guard, with `:url` resolving to `req.originalUrl`, query
+// string and all. The result was the vault's master credential written to the rotating
+// log file thousands of times over an ordinary reading session.
+//
+// Overriding the token is how morgan registers its own built-ins, so this replaces `:url`
+// for EVERY format — `dev` on the desktop, `combined` on a server, and whatever an
+// operator sets through FLASHBACK_LOG_FORMAT. Doing it at each call site would miss the
+// ones nobody thought of, which is exactly how this got here.
+morgan.token('url', (req) =>
+    String(req.originalUrl || req.url || '').replace(/([?&]token=)[^&]*/gi, '$1[redacted]'),
+);
+
 /**
  * Every router this API serves, keyed by its mount name under `/api/`.
  *

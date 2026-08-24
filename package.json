@@ -53,6 +53,7 @@
     "test:peruser": "node --test tests/perUserSrs.test.js",
     "test:conflicts": "node --test tests/conflicts.test.js",
     "test:fetch": "node --test tests/safeFetch.test.js",
+    "test:budget": "node --test tests/cardRemovalBudget.test.js",
     "test:sequencing": "node --test tests/sequencing.test.js",
     "test:translations": "node --test tests/translations.test.js",
     "doctor": "react-doctor",
@@ -85,7 +86,7 @@
     "knex": "^3.1.0",
     "morgan": "^1.10.1",
     "multer": "^2.0.2",
-    "pdfjs-dist": "^6.0.227",
+    "pdfjs-dist": "^6.2.108",
     "sanitize-html": "^2.17.5",
     "zod": "^4.4.3"
   },

@@ -135,15 +135,66 @@ export const PERMISSIONS = {
 
     // Managing access is an admin power; minting the token that PROVES ownership is not.
     // The two rules an ordering cannot express — an admin may grant only Reader, and an
-    // admin may not revoke their own token — are enforced in routes/accounts.js, where the
-    // actor and the target can be compared.
+    // admin may not revoke their own token or act on a peer — are enforced in
+    // routes/accounts.js, where the actor and the target can be compared.
+    //
+    // This mount is the ONE that enumerates its admin routes and ends in AUTHOR, rather
+    // than naming its author route and ending in ADMIN. The shape is deliberate.
+    //
+    // First match wins, so a rule that requires MORE than the catch-all below it is only
+    // as strong as the matcher's ability to recognise the path — and any request that
+    // fails to match it lands on something weaker. That is not hypothetical: with
+    // `["POST", "/pure-token", AUTHOR]` sitting above an ADMIN catch-all, Express's
+    // case-insensitive routing sent `POST /api/accounts/Pure-Token` to the pure-token
+    // handler while the guard read it as an unremarkable admin call, so any admin could
+    // mint the Author's token — and rotation revokes every existing Author token, locking
+    // the owner out of their own vault.
+    //
+    // normalizePath now closes that particular door. Inverting the mount closes the
+    // corridor: `/pure-token` needs no rule at all, because falling through to AUTHOR is
+    // the correct answer for it and for every misspelling of it. A new route added to
+    // routes/accounts.js is author-only until someone deliberately lists it here, which is
+    // the same fail-closed direction as an unknown mount.
     accounts: [
-        ["POST", "/pure-token", AUTHOR],
-        ["*", "*", ADMIN],
+        ["GET", "/", ADMIN],                 // the people table
+        ["POST", "/", ADMIN],                // create an account
+        ["PATCH", "/*", ADMIN],              // change a role / deactivate
+        ["GET", "/*/progress", ADMIN],       // read one person's schedule
+        ["POST", "/*/tokens", ADMIN],        // issue a token
+        ["DELETE", "/tokens/*", ADMIN],      // revoke one
+        ["*", "*", AUTHOR],                  // POST /pure-token, and anything new
     ],
 };
 
-// Matches a rule's path pattern against a request path.
+/**
+ * The form of a request path that the rules below are written against.
+ *
+ * Express routes **case-insensitively and non-strictly** by default, so `/Pure-Token`,
+ * `/PURE-TOKEN` and `/pure-token/` all reach the `/pure-token` handler. The guard compares
+ * strings, so without this it saw three paths the table has no rule for and fell through to
+ * the mount's catch-all — which for `accounts` is ADMIN, one rung below the AUTHOR the
+ * pure-token rule names. Capitalising one letter was a full vault takeover.
+ *
+ * Setting `case sensitive routing` on the app does NOT close this: that option configures
+ * only the app's own base router (express/lib/application.js), while every router in
+ * `routes/` is constructed with its own empty options object and defaults back to
+ * insensitive. The guard has to compare what the ROUTER will match, not what the caller
+ * typed, and this is the only place that can be true of.
+ *
+ * Used for COMPARISON only — never to rewrite `req.url` or `req.path`. Several routes carry
+ * case-significant data in the path (`/by-hash/:hash`, `/summary/:date`, `/entry/:date`),
+ * and lowercasing what the handler receives would corrupt it.
+ *
+ * @param {string} p
+ * @returns {string}
+ */
+export function normalizePath(p) {
+    const s = String(p || "/").toLowerCase();
+    return s.length > 1 && s.endsWith("/") ? s.slice(0, -1) : s;
+}
+
+// Matches a rule's path pattern against a request path. The path is expected to have been
+// through normalizePath already; every pattern below is written in that same form.
 //
 //   "*"            matches anything
 //   "/foo/*"       matches that prefix and everything under it
@@ -174,6 +225,7 @@ function pathMatches(pattern, reqPath) {
  * @param {string} mount  the mount name — the key in PERMISSIONS, not the URL.
  * @param {string} method
  * @param {string} reqPath  the path WITHIN the router (Express strips the mount prefix).
+ *   Normalized here, so a caller passes it through verbatim — see normalizePath.
  * @returns {string} a role. Never null: an unknown mount resolves to AUTHOR.
  */
 export function requiredRole(mount, method, reqPath) {
@@ -181,7 +233,7 @@ export function requiredRole(mount, method, reqPath) {
     if (!rules) return AUTHOR;
 
     const verb = String(method || "").toUpperCase();
-    const p = reqPath || "/";
+    const p = normalizePath(reqPath);
     for (const [ruleMethod, rulePath, role] of rules) {
         if (ruleMethod !== "*" && ruleMethod !== verb) continue;
         if (!pathMatches(rulePath, p)) continue;

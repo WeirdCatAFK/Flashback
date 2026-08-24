@@ -8,7 +8,8 @@ import fs from 'fs';
 import Files from '../resources/files.js';
 import { withDocument, withStructure } from '../resources/pathLock.js';
 import { safeFetch } from '../resources/safeFetch.js';
-import { getAllowPrivateNetworkFetch } from '../primitives/config.js';
+import { getAllowPrivateNetworkFetch, getCardRemovalLimits } from '../primitives/config.js';
+import cardRemovalBudget from '../resources/cardRemovalBudget.js';
 import query from '../resources/query.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
@@ -18,7 +19,8 @@ import AdmZip from 'adm-zip';
 import { sealEmitter } from '../../seal/seal.js';
 import highlightsService from './highlights.js';
 import newFileMetadata from '../../config/defaults/FlashbackFile.js';
-import { OWNER_SCOPE, currentScope, isOwnerScope } from '../../requestContext.js';
+import { OWNER_SCOPE, currentScope, isOwnerScope, currentAccount } from '../../requestContext.js';
+import { ROLES, atLeast } from '../../../shared/roles.js';
 
 /**
  * Extracts the 11-char video id from any common YouTube URL shape
@@ -905,9 +907,143 @@ export default class Documents {
         });
     }
 
+    /**
+     * How many of this document's cards a metadata write would delete.
+     *
+     * `_syncDocumentFlashcards` removes every indexed card whose `globalHash` is absent
+     * from the incoming array, so this counts exactly that set — read off the SIDECAR
+     * rather than the index, because the sidecar is what the caller is replacing and what
+     * `etag`/`ifMatch` was checked against.
+     *
+     * A write that omits `flashcards` entirely (a tag edit, a highlight save) is not a
+     * removal of anything: `_syncDocumentFlashcards` never runs for it. Only an array
+     * that is actually present can drop a card.
+     *
+     * @param {object|null} onDisk the sidecar as it stands, read once by the caller.
+     * @returns {number} 0 for a folder, a card-less write, or a write that removes nothing.
+     */
+    _countCardRemovals(metadata, isFolder, onDisk) {
+        if (isFolder || !Array.isArray(metadata?.flashcards)) return 0;
+
+        const before = onDisk?.flashcards;
+        if (!Array.isArray(before) || before.length === 0) return 0;
+
+        const incoming = new Set(
+            metadata.flashcards.map((fc) => fc?.globalHash).filter(Boolean),
+        );
+        return before.filter((fc) => fc?.globalHash && !incoming.has(fc.globalHash)).length;
+    }
+
+    /**
+     * Refuses a metadata write that would delete more cards than this caller may.
+     *
+     * `PUT /api/documents/metadata` is a collaborator route because annotating IS a sidecar
+     * write — but the write replaces the whole object, so `{"flashcards": []}` used to erase
+     * a document's entire card set, canonical file and index together, from a role that is
+     * meant to annotate rather than reshape. Removing a card is still allowed (it is part of
+     * tidying your own work); the VOLUME is what is bounded. See
+     * `access/resources/cardRemovalBudget.js`, which is explicit that this is a rate limit
+     * and not an authorization boundary.
+     *
+     * Two exemptions, each earned:
+     *
+     *   - **Admin and Author.** Clearing a document is exactly their prerogative, and they
+     *     are who a full wipe is reserved for.
+     *   - **No account in context.** Background work — UpdateRunner, the Doctor, canonical
+     *     updates, importPackage's internal updateMetadata — has no request behind it and no
+     *     account to charge. `currentAuthorString` already falls back the same way.
+     *
+     * Throws before anything is written; the caller has not touched disk yet.
+     */
+    _assertRemovalAllowed(relativePath, removals) {
+        if (removals <= 0) return null;
+
+        const account = currentAccount();
+        if (!account) return null;                                  // background work
+        if (atLeast(account.role, ROLES.ADMIN)) return null;        // admin + author
+
+        const limits = getCardRemovalLimits();
+        const verdict = cardRemovalBudget.check(account.id, removals, limits);
+        if (verdict.allowed) return account;
+
+        const message = verdict.reason === 'per_request'
+            ? `This would remove ${removals} flashcards from ${relativePath}, and a single `
+              + `edit may remove at most ${limits.perRequest}. Remove them in smaller batches, `
+              + `or ask an admin.`
+            : `This would remove ${removals} flashcards, and you have ${verdict.remaining} `
+              + `of your hourly allowance of ${limits.perHour} left. It refills in `
+              + `${verdict.retryAfter} seconds.`;
+
+        throw Object.assign(new Error(message), {
+            status: 429,
+            code: 'removal_budget',
+            retryAfter: verdict.retryAfter || 60,
+        });
+    }
+
+    /**
+     * Keeps a sidecar's identity fields as the server assigned them.
+     *
+     * `writeMetadata` puts the caller's JSON on disk verbatim, which made two server-owned
+     * facts client-writable through `PUT /api/documents/metadata`:
+     *
+     *   - **`globalHash`** — immutable once assigned, by the rule the whole sync model rests
+     *     on (DATAMODEL.md; only `_regenerateIdentities` ever mints a new one, for a copy).
+     *     A caller who could rewrite it could point two documents at one hash and break
+     *     `flashback://` resolution and `/by-hash` for both.
+     *   - **`createdBy`** — stamped by `files.stampedBy()` from the authenticated account,
+     *     and the same string Seal records as the commit author. A file and the commit that
+     *     made it must not disagree about who made them.
+     *
+     * Carried forward silently rather than refused: every legitimate client round-trips the
+     * sidecar it just read, so these arrive unchanged in the normal case and rejecting the
+     * request would only punish the honest caller for echoing our own field back.
+     *
+     * Two boundaries worth stating, because both were got wrong first time:
+     *
+     *   - **Only for a request.** With no account in context this is background work —
+     *     `importPackage` calls `updateMetadata` internally, and a Flashback ZIP's sidecars
+     *     carry the `createdBy` of whoever authored them elsewhere. Pinning those to the
+     *     importing machine would destroy real provenance, so background writes pass
+     *     through untouched. Same exemption, same reason, as the removal budget.
+     *   - **`createdBy` mirrors disk EXACTLY, absent included.** A conditional that only
+     *     overwrote a value already present left the forgery standing on any sidecar that
+     *     had none — which is every document imported with caller-supplied metadata. No
+     *     recorded author is honest; an unverified one is not.
+     */
+    _preserveIdentity(metadata, onDisk) {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (!currentAccount()) return;                  // background work owns its own values
+        if (!onDisk) return;
+
+        // A document with no globalHash on disk is a broken sidecar, not a create —
+        // createFile assigns one. Leave whatever is there for the Doctor rather than
+        // stripping the caller's and writing nothing at all.
+        if (onDisk.globalHash) metadata.globalHash = onDisk.globalHash;
+
+        if ('createdBy' in onDisk) metadata.createdBy = onDisk.createdBy;
+        else delete metadata.createdBy;
+    }
+
     /** The body of updateMetadata, with the lock and the freshness check already applied. */
     async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
+        // Both checks below read the sidecar as it stands; read it once. We are inside the
+        // caller's withDocument() lock, so nothing can change it between here and the
+        // write, and a second read would only cost another stat+parse on the hot path
+        // every highlight save takes.
+        const onDisk = this.files.getMetadata(relativePath, isFolder);
+
+        // Before writeMetadata, not after: the sidecar is replaced wholesale below, so a
+        // refusal that came later would already have destroyed the canonical file it was
+        // trying to protect — rolling back the transaction would not bring it back.
+        const removals = this._countCardRemovals(metadata, isFolder, onDisk);
+        const charged = this._assertRemovalAllowed(relativePath, removals);
+
+        this._preserveIdentity(metadata, onDisk);
         this.files.writeMetadata(relativePath, metadata, isFolder);
+        // Charged only once the removal has actually happened, so a write that fails for an
+        // unrelated reason does not spend an allowance the caller never used.
+        if (charged) cardRemovalBudget.consume(charged.id, removals);
 
         await db.transaction(async () => {
             const entity = isFolder ? await this.query.getFolderByPath(relativePath) : await this.query.getDocumentByPath(relativePath);

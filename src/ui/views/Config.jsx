@@ -1309,6 +1309,14 @@ export default function ConfigView({
                 }}
               />
             </p>
+            {/* Said plainly rather than left implied. The setting is enforced on the server,
+                so the assistant we ship honours it — but it is keyed to a label the client
+                sends about itself, and the API token is the only real credential. An
+                assistant that can run commands can read the files directly. See the note in
+                routes/diary.js. */}
+            <p className="config-hint">
+              {t('This setting governs the assistant Flashback provides. It is not a lock on the folder: an assistant that can run commands on this computer can read your diary files whatever you choose here.')}
+            </p>
           </section>
 
           <section className="config-section">

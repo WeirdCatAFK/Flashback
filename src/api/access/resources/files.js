@@ -133,9 +133,18 @@ export default class Files {
         const resolvedPath = path.resolve(this.workspaceRoot, anyPath);
         const relative = path.relative(this.workspaceRoot, resolvedPath);
 
-        // Prevent traversal outside workspace
+        // Prevent traversal outside workspace.
+        //
+        // Carries a status, like the refusals in mcpReader.js and safeFetch.js: a path that
+        // leaves the vault is a statement about the REQUEST, and api.js's error handler
+        // already turns a 4xx `err.status` into that response. Without it every caller had
+        // to recognise the message by hand, and the ones that did not answered 500 — which
+        // reads as "the server broke" for what is a malformed argument.
         if (relative.startsWith("..") || path.isAbsolute(relative)) {
-            throw new Error(`Path traversal outside of workspace is not allowed: ${anyPath}`);
+            throw Object.assign(
+                new Error(`Path traversal outside of workspace is not allowed: ${anyPath}`),
+                { status: 400, code: "path_traversal" },
+            );
         }
 
         return resolvedPath;
