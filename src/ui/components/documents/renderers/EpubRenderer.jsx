@@ -111,6 +111,7 @@ export default function EpubRenderer({
   initialProgress,
   onProgress,
   progressRef,
+  readingBar,
 }) {
   const { t } = useT();
   // `wireRendition` runs once per load, so anything it closes over has to be reachable
@@ -527,6 +528,11 @@ export default function EpubRenderer({
         <button className="epub-btn epub-btn--font" onClick={() => changeFont(-FONT_STEP)} disabled={fontPct <= FONT_MIN} title={t('Smaller text')}>A−</button>
         <span className="epub-font-label">{fontPct}%</span>
         <button className="epub-btn epub-btn--font" onClick={() => changeFont(FONT_STEP)} disabled={fontPct >= FONT_MAX} title={t('Larger text')}>A+</button>
+
+        {/* Hosted here rather than as a second full-width strip above this one — see
+            registry.js `ownsReadingBar`. `.epub-progress` on the left is the LIVE
+            position; this is the saved mark, which is why it keeps its own track. */}
+        {readingBar}
       </div>
 
       <div className="epub-viewport-wrap">

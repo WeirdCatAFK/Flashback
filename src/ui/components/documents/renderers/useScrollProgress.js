@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { findScroller } from './scroller';
 
 /**
  * Reading position for the formats whose renderers have no native unit — Markdown, plain
@@ -11,9 +12,9 @@ import { useCallback, useEffect, useRef } from 'react';
  * cursor. PDF pages and EPUB CFIs are exact; these are not, and pretending otherwise would
  * be the worse error.
  *
- * The scroll container is found by walking up from the element, because each of the three
- * renderers puts the scrollbar somewhere different (TipTap's wrapper, CodeMirror's own
- * scroller, a plain div) and none of them exposes it.
+ * The scroll container is found by walking up from the element (`findScroller`), because
+ * each of the three renderers puts the scrollbar somewhere different and none of them
+ * exposes it.
  *
  * @param {object} opts
  * @param {React.RefObject} opts.elementRef - anything inside the scrolling region.
@@ -32,16 +33,7 @@ export function useScrollProgress({
 
   useEffect(() => { resumedRef.current = false; }, [path]);
 
-  const scroller = useCallback(() => {
-    let el = elementRef?.current;
-    while (el && el !== document.body) {
-      const style = window.getComputedStyle(el);
-      const scrolls = /(auto|scroll)/.test(style.overflowY);
-      if (scrolls && el.scrollHeight > el.clientHeight + 1) return el;
-      el = el.parentElement;
-    }
-    return null;
-  }, [elementRef]);
+  const scroller = useCallback(() => findScroller(elementRef?.current), [elementRef]);
 
   // Resume once both the body and the saved position are available; either can arrive first.
   useEffect(() => {

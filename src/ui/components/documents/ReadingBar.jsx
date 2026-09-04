@@ -15,6 +15,18 @@ import { useT } from '../../translations';
  * flag is data in the registry rather than a static on a lazily-loaded component: this
  * renders outside the Suspense boundary, before the renderer's chunk has arrived.
  *
+ * Two variants, because half the renderers already own a toolbar. `strip` is the standalone
+ * row above the document, for the formats that have no chrome of their own (Markdown, text,
+ * clips). `inline` is the same controls with the surface taken away, handed to a renderer
+ * that sets `ownsReadingBar` and dropped into its toolbar — one bar instead of two stacked
+ * ones. The element is still built here and imported statically, so it stays outside the
+ * lazy chunk; only where it mounts changes.
+ *
+ * `inline` shortens the position rather than dropping it: a toolbar is a row of small
+ * facts, and "Page 12 of 40" beside a "40 pages" count repeats the total for no one. It
+ * becomes "p. 12", the track carries the shape, and the states that are not positions at
+ * all — `Not started`, `Finished` — read the same in both variants.
+ *
  * @param {object|null} progress - the caller's current record, or null if never opened.
  * @param {boolean} resumed - whether this open jumped to a saved position.
  * @param {() => void} onGoToStart
@@ -23,6 +35,7 @@ import { useT } from '../../translations';
  * @param {(body: object) => Promise<void>} onMarkFinished
  * @param {() => Promise<void>} onClear
  * @param {() => object|null} readPosition - the renderer's live position, via progressRef.
+ * @param {'strip'|'inline'} [variant] - standalone row, or hosted in a renderer's toolbar.
  */
 export default function ReadingBar({
   progress,
@@ -33,6 +46,7 @@ export default function ReadingBar({
   onMarkFinished,
   onClear,
   readPosition,
+  variant = 'strip',
 }) {
   const { t } = useT();
   const [busy, setBusy] = useState(false);
@@ -41,12 +55,20 @@ export default function ReadingBar({
     ? Math.round(progress.furthestPercent * 100)
     : null;
 
+  const inline = variant === 'inline';
+
   // Only a page number means anything to a reader; a CFI or a character offset does not,
   // so everything else falls back to the percentage.
   const where = (() => {
     if (!progress) return t('Not started');
     if (progress.finished) return t('Finished');
     const page = progress.position?.page;
+    if (inline) {
+      // The host toolbar already states the document's size, so the total is dropped and
+      // only the mark itself is named.
+      if (page != null) return t('p. {n}', { n: page });
+      return pct != null ? t('{percent}%', { percent: pct }) : t('In progress');
+    }
     if (page != null && progress.total) return t('Page {n} of {total}', { n: page, total: progress.total });
     if (page != null) return t('Page {n}', { n: page });
     if (pct != null) return t('{percent}% read', { percent: pct });
@@ -71,10 +93,14 @@ export default function ReadingBar({
   });
 
   return (
-    <div className="doc-reading-bar">
+    <div className={`doc-reading-bar${inline ? ' doc-reading-bar--inline' : ''}`}>
       {resumed ? (
         <>
-          <span className="doc-reading-where">{t('Resumed where you left off')}</span>
+          {/* A toolbar has no room for the sentence, but the way back must still be one
+              click away, so inline keeps the action and drops the prose around it. */}
+          <span className="doc-reading-where">
+            {inline ? t('Resumed') : t('Resumed where you left off')}
+          </span>
           <button type="button" className="doc-reading-action" onClick={onGoToStart}>
             {t('Go to start')}
           </button>
@@ -91,7 +117,11 @@ export default function ReadingBar({
         <>
           <span className="doc-reading-where">{where}</span>
           {pct != null && (
-            <span className="doc-reading-bar-track" aria-hidden="true">
+            <span
+              className="doc-reading-bar-track"
+              title={t('{percent}% read', { percent: pct })}
+              aria-hidden="true"
+            >
               <span style={{ width: `${pct}%` }} />
             </span>
           )}

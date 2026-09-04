@@ -327,14 +327,15 @@ TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
 `PlaceholderRenderer`.
 
 **The registry is one table doing two jobs, and they cannot be separated.** Each entry pairs
-a `lazy()` import of the component with its `editable`, `supportsHighlight` and
-`tracksProgress` flags. The
+a `lazy()` import of the component with its `editable`, `supportsHighlight`,
+`tracksProgress` and `ownsReadingBar` flags. The
 components are lazy because pdf.js, epub.js and TipTap are about a megabyte between them and
 statically importing all of them meant opening *any* document paid for *every* format — the
 `Documents` chunk was 1.4 MB and is now 60 kB, with each heavy renderer fetched on first use.
 The flags cannot be lazy: `editable` decides whether the tab bar draws a Save button and
 `supportsHighlight` decides whether `SelectionToolbar` offers to highlight, `tracksProgress`
-decides whether the reading bar is drawn above the document, and all three render outside the
+decides whether a reading bar is built at all, `ownsReadingBar` decides whether it is drawn
+above the document or handed to the renderer, and all four are needed outside the
 `<Suspense>` boundary. So they are declared as plain data in the registry rather
 than as statics on the component (`MyRenderer.supportsHighlight = true`), which a lazy
 component cannot expose until its chunk has arrived. Adding a format is one entry.
@@ -366,6 +367,7 @@ Every renderer receives the same props from `DocumentEditor`:
 | `initialProgress`     | in        | The saved reading position to resume at; `null` when never opened and `undefined` while still loading. Renderers must wait for it to become defined rather than assuming an order — the body and the position race. |
 | `onProgress`          | callback  | `(path, { unit, position, percent, total })` — report freely, on every scroll or relocation. Debounce and the dwell guard live in `useReadProgress`, not at the call site. |
 | `progressRef`         | out (ref) | Set to `{ goToStart(), currentPosition() }`, or leave null. Drives the reading bar's "Go to start" and "Set mark here". |
+| `readingBar`          | in        | A ready-built `<ReadingBar>` element, passed only to renderers whose registry entry sets `ownsReadingBar`. Render it inside your own toolbar; `undefined` otherwise. |
 | `readOnly`            | in        | The caller may not write this document's body. Editor-backed renderers pass it to`useHighlightableRenderer`, which makes the editor non-editable. |
 
 ### Reading position
@@ -375,6 +377,25 @@ reports where the reader gets to through `onProgress`, and it publishes `goToSta
 `currentPosition` on `progressRef`. `DocumentEditor` owns none of the policy — the dwell
 guard, the write debounce and the auto-versus-manual rule all live in `useReadProgress`, so a
 renderer reports as often as it likes and never decides when to write.
+
+**Where the bar goes is the editor's decision, not the renderer's.** A format with no chrome
+of its own (Markdown, text, clips) gets the standalone `.doc-reading-bar` strip above the
+document. A format that already draws a toolbar — PDF, EPUB, YouTube — sets `ownsReadingBar`
+and receives the same element through the `readingBar` prop to place inside that toolbar. Two
+full-width bars with the same surface and the same bottom border, one directly under the
+other, is what the flag exists to prevent; on a PDF it stacked three strips deep under the tab
+bar. `ReadingBar` is still imported statically by `DocumentEditor` and built there, so it
+never enters a lazy chunk — only its mount point moves — and its `inline` variant drops the
+surface and shortens the position text (`p. 12`, not `Page 12 of 40`) so it reads as one item
+in a toolbar rather than a transplanted row.
+
+**The scroll container is rarely the renderer's own element.** `findScroller`
+(`renderers/scroller.js`) walks up from any element until it finds one that both overflows
+and has something to scroll. Markdown, text and clips need it because TipTap, CodeMirror and a
+plain div each put the scrollbar somewhere different; PDF needs it because *nothing it owns
+scrolls at all* — `.doc-editor-renderer` does. Attaching a `scroll` listener to a descendant
+of the real scroller silently never fires, and measuring page positions against a container
+that itself scrolls reads page 1 forever, which is exactly how PDF progress was broken.
 
 **Resume waits for a pair, not an order.** `initialProgress` arrives from the network and the
 body arrives from disk or a parser; either can win. Every renderer guards with a `resumedRef`

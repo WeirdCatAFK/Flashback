@@ -21,7 +21,14 @@ import { lazy } from 'react';
  * `highlightRef`. `tracksProgress` means it reports a reading position through
  * `onProgress`, resumes from `initialProgress`, and supplies `goToStart` /
  * `currentPosition` on `progressRef` — which is what lets the editor draw the reading
- * bar before the renderer's chunk has even arrived. See INTERFACE.md § Renderers.
+ * bar before the renderer's chunk has even arrived.
+ *
+ * `ownsReadingBar` means the renderer already draws a toolbar of its own and will host
+ * the reading controls inside it, so the editor must NOT also draw the standalone strip.
+ * Without it the two stack: two full-width bars, same surface, same bottom border, one
+ * directly under the other. It is read at the same moment as `tracksProgress` and for
+ * the same reason — the editor decides where to put the bar before the chunk exists, so
+ * the renderer cannot be asked. See INTERFACE.md § Renderers.
  */
 const RENDERERS = {
     markdown: {
@@ -44,6 +51,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
+        ownsReadingBar: true,
     },
     epub: {
         load: lazy(() => import('./EpubRenderer')),
@@ -51,6 +59,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
+        ownsReadingBar: true,
     },
     youtube: {
         load: lazy(() => import('./YoutubeRenderer')),
@@ -58,6 +67,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
+        ownsReadingBar: true,
     },
     clip: {
         load: lazy(() => import('./ClipRenderer')),
@@ -80,6 +90,7 @@ const PLACEHOLDER = {
     editable: false,
     supportsHighlight: false,
     tracksProgress: false,
+    ownsReadingBar: false,
 };
 
 const BY_EXTENSION = new Map();
@@ -93,7 +104,7 @@ for (const entry of Object.values(RENDERERS)) {
  *
  * @param {string} path
  * @returns {{ load: React.ComponentType, editable: boolean, supportsHighlight: boolean,
- *   tracksProgress: boolean }}
+ *   tracksProgress: boolean, ownsReadingBar?: boolean }}
  */
 export function rendererFor(path) {
     if (!path) return PLACEHOLDER;

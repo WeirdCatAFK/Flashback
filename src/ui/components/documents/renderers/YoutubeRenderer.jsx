@@ -29,6 +29,7 @@ export default function YoutubeRenderer({
   initialProgress,
   onProgress,
   progressRef,
+  readingBar,
 }) {
   const { t, tp } = useT();
   const [meta,       setMeta]       = useState(null);   // { videoId, title, author, thumbnailUrl }
@@ -426,6 +427,10 @@ export default function YoutubeRenderer({
           </button>
         )}
         {transcriptError && <span className="yt-transcript-error">{transcriptError}</span>}
+
+        {/* Hosted here rather than as a strip above the player — see registry.js
+            `ownsReadingBar`. */}
+        {readingBar}
       </div>
 
       {showTranscript && transcriptCues.length > 0 && (

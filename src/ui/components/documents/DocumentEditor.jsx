@@ -417,6 +417,24 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
 
   const Renderer = activeRenderer.load;
 
+  // Built here, and imported statically, so the reading controls stay outside the lazy
+  // chunk exactly as before — `ownsReadingBar` decides only WHERE this mounts. A renderer
+  // that draws its own toolbar takes it as a prop and hosts it there; everything else gets
+  // it as the standalone strip above the document. Two bars stacked was the alternative.
+  const readingBar = activeRenderer.tracksProgress ? (
+    <ReadingBar
+      progress={shownProgress}
+      resumed={!!resumeAt}
+      variant={activeRenderer.ownsReadingBar ? 'inline' : 'strip'}
+      onGoToStart={() => { progressRef.current?.goToStart?.(); dismissResume(); }}
+      onDismissResume={dismissResume}
+      readPosition={() => progressRef.current?.currentPosition?.() ?? null}
+      onSetHere={async (body) => setShownProgress(await setManualProgress(body))}
+      onMarkFinished={async (body) => setShownProgress(await setManualProgress(body))}
+      onClear={async () => { await clearReadProgress(); setShownProgress(null); }}
+    />
+  ) : null;
+
   if (!activeTab || openTabs.length === 0) {
     return (
       <div className="doc-editor doc-editor--empty">
@@ -442,18 +460,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
 
       <div className="doc-editor-body">
         <div className="doc-editor-content">
-          {activeRenderer.tracksProgress && (
-            <ReadingBar
-              progress={shownProgress}
-              resumed={!!resumeAt}
-              onGoToStart={() => { progressRef.current?.goToStart?.(); dismissResume(); }}
-              onDismissResume={dismissResume}
-              readPosition={() => progressRef.current?.currentPosition?.() ?? null}
-              onSetHere={async (body) => setShownProgress(await setManualProgress(body))}
-              onMarkFinished={async (body) => setShownProgress(await setManualProgress(body))}
-              onClear={async () => { await clearReadProgress(); setShownProgress(null); }}
-            />
-          )}
+          {!activeRenderer.ownsReadingBar && readingBar}
           <div
             className="doc-editor-renderer"
             ref={rendererRef}
@@ -480,6 +487,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 initialProgress={initialProgress}
                 onProgress={reportProgress}
                 progressRef={progressRef}
+                readingBar={activeRenderer.ownsReadingBar ? readingBar : undefined}
               />
             </Suspense>
           </div>

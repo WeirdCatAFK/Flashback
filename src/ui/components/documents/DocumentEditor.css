@@ -69,6 +69,7 @@
 
 .doc-reading-where {
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -91,6 +92,33 @@
 
 .doc-reading-bar > .doc-reading-action:first-of-type {
   margin-left: auto;
+}
+
+/* Hosted inside a renderer's own toolbar (registry `ownsReadingBar`) rather than drawn as
+   a row of its own. The surface comes off entirely — a second background and a second
+   bottom border directly under the first is what made a PDF read as a wall of chrome —
+   and the type drops to the 11px the surrounding toolbars use. */
+.doc-reading-bar--inline {
+  padding: 0;
+  background: none;
+  border-bottom: none;
+  gap: 0.4rem;
+  font-size: 11px;
+  min-width: 0;
+}
+
+/* The host toolbar owns the spacing to its right: `.pdf-toolbar-pages` already has
+   `margin-left: auto` and `.epub-toolbar-spacer` is `flex: 1`, so pushing again here
+   would strand the controls against the window edge. */
+.doc-reading-bar--inline > .doc-reading-action:first-of-type {
+  margin-left: 0;
+}
+
+/* Fixed rather than `flex: 1` — in a toolbar the track is one item among many and must
+   not eat the space the zoom and font controls need. */
+.doc-reading-bar--inline .doc-reading-bar-track {
+  flex: 0 0 auto;
+  width: 48px;
 }
 
 .doc-reading-action {
