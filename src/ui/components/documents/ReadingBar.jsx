@@ -51,9 +51,13 @@ export default function ReadingBar({
   const { t } = useT();
   const [busy, setBusy] = useState(false);
 
-  const pct = progress?.furthestPercent != null
-    ? Math.round(progress.furthestPercent * 100)
-    : null;
+  // Two different facts, and the bar shows both: the track is the MARK (furthest, which only
+  // ever advances), the text is WHERE YOU ARE (current, which moves both ways). Reading them
+  // from one field made a bar that could not move while the reader did, which is most of what
+  // "the marker is stuck" looked like.
+  const asPct = (n) => (n != null ? Math.round(n * 100) : null);
+  const markPct = asPct(progress?.furthestPercent);
+  const pct = asPct(progress?.percent) ?? markPct;
 
   const inline = variant === 'inline';
 
@@ -94,8 +98,13 @@ export default function ReadingBar({
 
   return (
     <div className={`doc-reading-bar${inline ? ' doc-reading-bar--inline' : ''}`}>
-      {resumed ? (
-        <>
+      {/* The resume notice sits IN FRONT OF the controls rather than in place of them.
+          It used to replace them, which meant the one document that might need its mark
+          corrected — a book you had already read into — was the one document where
+          "Set mark here" was missing. Since `auto` may never move the furthest mark
+          backwards, that left a wrong mark with no way out but Clear. */}
+      {resumed && (
+        <span className="doc-reading-resume">
           {/* A toolbar has no room for the sentence, but the way back must still be one
               click away, so inline keeps the action and drops the prose around it. */}
           <span className="doc-reading-where">
@@ -112,38 +121,38 @@ export default function ReadingBar({
           >
             &times;
           </button>
-        </>
-      ) : (
-        <>
-          <span className="doc-reading-where">{where}</span>
-          {pct != null && (
-            <span
-              className="doc-reading-bar-track"
-              title={t('{percent}% read', { percent: pct })}
-              aria-hidden="true"
-            >
-              <span style={{ width: `${pct}%` }} />
-            </span>
-          )}
-          <button type="button" className="doc-reading-action" onClick={setHere} disabled={busy}>
-            {t('Set mark here')}
-          </button>
-          {!progress?.finished && (
-            <button type="button" className="doc-reading-action" onClick={markFinished} disabled={busy}>
-              {t('Mark finished')}
-            </button>
-          )}
-          {progress && (
-            <button
-              type="button"
-              className="doc-reading-action doc-reading-action--quiet"
-              onClick={() => run(onClear)}
-              disabled={busy}
-            >
-              {t('Clear')}
-            </button>
-          )}
-        </>
+        </span>
+      )}
+
+      {/* The position reads the same either way; while the notice is up it would only
+          repeat what the notice already says, so it steps aside for it. */}
+      {!resumed && <span className="doc-reading-where">{where}</span>}
+      {markPct != null && (
+        <span
+          className="doc-reading-bar-track"
+          title={t('{percent}% read', { percent: markPct })}
+          aria-hidden="true"
+        >
+          <span style={{ width: `${markPct}%` }} />
+        </span>
+      )}
+      <button type="button" className="doc-reading-action" onClick={setHere} disabled={busy}>
+        {t('Set mark here')}
+      </button>
+      {!progress?.finished && (
+        <button type="button" className="doc-reading-action" onClick={markFinished} disabled={busy}>
+          {t('Mark finished')}
+        </button>
+      )}
+      {progress && (
+        <button
+          type="button"
+          className="doc-reading-action doc-reading-action--quiet"
+          onClick={() => run(onClear)}
+          disabled={busy}
+        >
+          {t('Clear')}
+        </button>
       )}
     </div>
   );

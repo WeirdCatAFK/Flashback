@@ -70,8 +70,8 @@ export function getAccountsPath() {
 // The schema is created here rather than in `defaults/SchemaSQL.js` and is never seen by
 // MigrationRunner: that runner is the vault database's, and pointing it at a second store
 // would give one version counter two meanings. `AccountsSchemaVersion` is this store's own
-// marker, unused so far and present so the first change to this schema has somewhere to
-// record itself instead of needing a new table at the worst moment.
+// marker, and `REPAIRS` below is what records itself in it — the CREATE-IF-NOT-EXISTS schema
+// can add a table or a column but cannot correct rows that are already wrong.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS Accounts (
     id          TEXT PRIMARY KEY,
@@ -130,11 +130,52 @@ CREATE TABLE IF NOT EXISTS ReadProgress (
 CREATE INDEX IF NOT EXISTS idx_read_progress_scope ON ReadProgress(vault_id, scope, updated_at);
 `;
 
+/**
+ * Repairs recorded against `AccountsSchemaVersion`, applied in order after `SCHEMA`.
+ *
+ * This store has no MigrationRunner: it is created by `CREATE TABLE IF NOT EXISTS` on every
+ * open, which handles new tables and columns but cannot fix rows that are already wrong.
+ * The version table was put there for exactly this and had gone unused until now.
+ *
+ * Each entry must be safe to run against a store that has never held the bad data, since a
+ * fresh install records the same version without having needed the repair.
+ */
+export const REPAIRS = [
+    {
+        version: 1,
+        // EPUB percentages were written on two different scales. epub.js reports no usable
+        // percentage until its locations index finishes building in the background, and the
+        // gap used to be filled server-side with `position.section / total` — a SPINE-item
+        // ratio, which counts covers and nav pages and is not weighted by how much text is
+        // behind you. A book sitting 22% into its text recorded 48%.
+        //
+        // That number then froze: `auto` may only ever advance the furthest mark, so every
+        // honest report afterwards was rejected as a regression.
+        //
+        // Only the two percentages go. The locator columns are untouched, so every book still
+        // resumes exactly where it was — the repair costs a number that was wrong and nothing
+        // else, and the percentage refills on the correct scale at the next relocation.
+        sql: "UPDATE ReadProgress SET pos_pct = NULL, far_pct = NULL WHERE unit = 'section'",
+    },
+];
+
+function applyRepairs(raw) {
+    const done = new Set(
+        raw.prepare('SELECT version FROM AccountsSchemaVersion').all().map((r) => r.version),
+    );
+    for (const repair of REPAIRS) {
+        if (done.has(repair.version)) continue;
+        raw.exec(repair.sql);
+        raw.prepare('INSERT INTO AccountsSchemaVersion (version, applied_at) VALUES (?, ?)')
+            .run(repair.version, new Date().toISOString());
+    }
+}
+
 const adapter = createSqliteAdapter({
     resolvePath: getAccountsPath,
     // Runs against the fresh handle before anything queries it. Synchronous, and idempotent
     // via IF NOT EXISTS, so opening an existing store costs three no-op DDL statements.
-    onOpen: (raw) => raw.exec(SCHEMA),
+    onOpen: (raw) => { raw.exec(SCHEMA); applyRepairs(raw); },
 });
 
 const db = adapter.db;

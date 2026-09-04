@@ -45,6 +45,120 @@
   padding: 32px 0;
 }
 
+/* ── Vault completeness (headline band) ───────────────────────────── */
+
+/* Full width rather than a fifth tile: the tile row is a fixed four-column grid, and this
+   is the headline the rest of the page qualifies — it should not read as one of four peers. */
+.stats-completeness {
+  padding: 18px 20px;
+  margin-bottom: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.stats-completeness-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stats-completeness-value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-completeness-label {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-completeness-hint {
+  flex: 1 1 22ch;
+  margin: 0;
+  max-width: 46ch;
+  text-align: right;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+/* Same pill idiom as .stats-maturity-track, so the two bars on this page read as one
+   family; a single fill here rather than segments, because this is one quantity. */
+.stats-completeness-track {
+  margin-top: 16px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-halves {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* label | track | value | detail — the value column is fixed so the two percentages line
+   up under each other rather than drifting with the label's length. */
+.stats-completeness-half {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(60px, 140px) 3rem 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.stats-completeness-half-label {
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-completeness-half-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-half-track > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-half-value {
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stats-completeness-half-detail {
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Headline tiles ─────────────────────────────────────────────────────────── */
 
 .stats-tiles {
@@ -323,6 +437,17 @@
 @media (max-width: 720px) {
   .stats-tiles {
     grid-template-columns: repeat(2, 1fr);
+  }
+  /* The detail column is the first thing worth losing: the percentage beside it already
+     carries the number, and an ellipsised count says less than no count at all. */
+  .stats-completeness-half {
+    grid-template-columns: 4.5rem 1fr 3rem;
+  }
+  .stats-completeness-half-detail {
+    display: none;
+  }
+  .stats-completeness-hint {
+    text-align: left;
   }
   .stats-two-col {
     grid-template-columns: 1fr;

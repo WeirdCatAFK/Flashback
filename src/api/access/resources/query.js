@@ -58,7 +58,7 @@ const PROGRESS_JOIN = (cardAlias = 'f', progressAlias = 'p') =>
  * FSRS stability is the truest memory-strength number the app has, so it wins
  * when present; cards scheduled under Leitner/SM-2 have none and fall back to
  * the app-wide `level` scalar. Level 6 maps to 1.0 — just past the vault-wide
- * mastery threshold of 5 (orchestration/srs.js).
+ * mastery threshold, MASTERY_LEVEL (orchestration/srs.js).
  *
  * The stability arm is a ladder of log-spaced bins rather than an actual log():
  * SQLite's math functions are a compile-time option we can't rely on.
@@ -945,6 +945,32 @@ class DocumentQuery {
 
     async getFlashcardCount() {
         return (await this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get()).c;
+    }
+
+    /**
+     * How much of the whole vault this person has actually learned, as a card-weighted sum.
+     *
+     * Returns the numerator and the denominator rather than the fraction, because the caller
+     * has to decide what an empty vault means and a NaN from 0/0 is not that decision.
+     *
+     * Card-weighted on purpose, exactly like the folder rollup in `getGraphData`: the score is
+     * SUM(learned) over COUNT(cards), never an average of per-document averages. Averaging the
+     * averages lets a document holding one card outvote one holding a hundred — the scale-free
+     * error `presence` makes and this expression was written to avoid.
+     *
+     * The outer join is what keeps the denominator honest. A card this person has never
+     * reviewed has no CardProgress row, reads NULL through every arm of CARD_LEARNED_SQL and
+     * scores 0 — it is not missing from the bottom of the fraction, which is the difference
+     * between "half the vault is unlearned" and "the half I touched went well".
+     */
+    async getVaultLearned(scope) {
+        const row = await this.db.prepare(`
+            SELECT COUNT(*) AS cards,
+                   COALESCE(SUM(${CARD_LEARNED_SQL('p')}), 0) AS learnedSum
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+        `).get(scoped(scope));
+        return { cards: row?.cards ?? 0, learnedSum: row?.learnedSum ?? 0 };
     }
 
     async getMasteredFlashcardCount(threshold, scope) {

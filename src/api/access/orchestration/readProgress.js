@@ -83,14 +83,28 @@ class ReadProgress {
      * Derives a fraction when the caller did not send one. The client normally does — epub.js
      * computes its own percentage and a PDF knows its page count — but a position is still a
      * usable resume point without one, so this is a convenience, not a requirement.
+     *
+     * `section` is deliberately absent, and that is the whole point of this function's shape.
+     * A page is 1/total of a PDF and a character offset is offset/length of a text, so for
+     * those the locator and the percentage are the same scale and dividing is sound. An EPUB
+     * section is not: `position.section` is epub.js's SPINE index (counting cover, nav and
+     * blank items), /api/reader numbers only the sections that carry text, and the percentage
+     * the renderer sends is weighted by how much text is actually behind you. Three
+     * vocabularies, none convertible into the others without the book open.
+     *
+     * Deriving one anyway is what put two scales in one column: while epub.js builds its
+     * locations index the renderer has no percentage to send, this filled the gap with a
+     * spine ratio, and since `auto` may only ever advance the furthest mark, that inflated
+     * number then blocked every real reading report behind it. A missing percentage is the
+     * honest answer, and it costs nothing that matters — the position still resumes, and
+     * `readingBound` falls back to the locator when the reader's unit matches the stored one.
      */
     _percentOf(unit, position, total) {
         if (!Number.isFinite(total) || total <= 0) return null;
         const at = unit === "page" ? position?.page
-            : unit === "section" ? position?.section
-                : unit === "chars" ? position?.offset
-                    : unit === "segment" ? position?.seconds
-                        : null;
+            : unit === "chars" ? position?.offset
+                : unit === "segment" ? position?.seconds
+                    : null;
         if (!Number.isFinite(at)) return null;
         return clamp01(at / total);
     }

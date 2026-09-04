@@ -642,6 +642,8 @@ AccountsSchemaVersion(version, applied_at)
 
 Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
 
+`AccountsSchemaVersion` records this store's own **repairs** (`REPAIRS` in `accounts.js`), applied in order right after the schema on every open and skipped once their version is present. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows that are already wrong, which is what the counter is for. Repair 1 clears `pos_pct`/`far_pct` on every `unit = 'section'` row: EPUB percentages had been written on two different scales (see § Read progress), and the locator columns are deliberately left alone so every book still resumes exactly where it was.
+
 `AccountProgress` is the durable home of every **non-owner's** study schedule, and it is in this file for the same reason the access list is: it must not travel with a copied vault. See § Per-user progress. Keyed by `card_hash` (a card's `globalHash`) rather than a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it; keyed by `vault_id` because this store is install-scoped and an install can hold several vaults.
 
 `role` is one of `reader` < `collaborator` < `admin` < `author` (`src/shared/roles.js`), a strict ladder where each role can do everything below it. Exactly one Author exists; several Admins may.
@@ -750,6 +752,10 @@ The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers 
 Two honest approximations, recorded rather than hidden. A `chars` position is a scroll fraction, because no text renderer keeps a character offset (Markdown keeps no offset state at all), and the reader offset is derived from the percentage — a sound bound, not a precise cursor. And a `chars` offset is invalidated by editing the body, so `body_etag` records what it was measured against; when it no longer matches, the percentage is kept and the absolute offset is dropped rather than pretending it still points somewhere.
 
 `total` is always supplied by the writer and never computed server-side: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a 500-document folder listing parse 500 PDFs. A position without one is still a valid resume point; it simply has no percentage.
+
+**One document, one percentage scale.** For `page`, `chars` and `segment` the locator and the percentage are the same scale, so `_percentOf` derives `locator / total` when the writer sends none. For `section` it derives **nothing**, and an EPUB that sends no `percent` stores none — because the three EPUB vocabularies above do not divide into one another. A spine index over a spine count counts covers and nav pages and is unweighted by text length; the percentage the renderer sends is how much prose is actually behind you.
+
+Filling the gap anyway is what broke it. epub.js reports no usable percentage until its `locations` index finishes building in the background, and while that ran the server supplied a spine ratio instead — so one column held two scales, a book 22% through its text recorded 48%, and since `auto` may only ever advance `far_pct`, that inflated figure then rejected every honest report behind it. The renderer now withholds the percentage until the index is real and re-publishes once it lands; the server derives nothing for `section`; and repair 1 (§ accounts.db) cleared the rows already written that way.
 
 ### Current, furthest, and finished
 

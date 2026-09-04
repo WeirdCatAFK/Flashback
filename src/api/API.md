@@ -578,6 +578,10 @@ A position is a `unit` plus a format-specific locator, in the **same vocabulary 
 
 `total` is always supplied by the caller and never computed server-side: deriving it would mean a full extraction per document, so a folder listing would parse every PDF in it. A position with no `total` is still a valid resume point; it simply has no percentage.
 
+**One document, one percentage scale — and `section` is the exception that proves it.** For `page`, `chars` and `segment` the locator and the percentage are the same scale, so an omitted `percent` is derived as `locator / total`. For `section` it is **not derived at all**, and an EPUB that sends no `percent` stores none. Three different vocabularies are in play there: `position.section` is epub.js's *spine* index (which counts covers, nav documents and blank pages), `/api/reader` numbers only the sections that carry text, and the percentage the renderer sends is weighted by how much text is actually behind you. None converts into another without the book open.
+
+Deriving one anyway is what put two scales in one column: while epub.js builds its locations index it has no percentage to report, the gap was filled with a spine ratio, and since `auto` may only ever advance the furthest mark, that inflated figure then rejected every honest report behind it — a book 22% through its prose stuck at 48%. A missing percentage is the honest answer; the position still resumes, and `readingBound` falls back to the locator when the reader's unit matches the stored one.
+
 **Finished** is derived, not stored: `furthestPercent >= 0.95`. Real documents end in indices and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; a manual write of 1.0 always clears the bar.
 
 ### `GET /api/progress`
@@ -605,7 +609,7 @@ Records a position.
 | `path`     | string | Yes      | Relative path to the document.                                              |
 | `unit`     | string | Yes      | `page` \| `section` \| `chars` \| `segment`.                                |
 | `position` | object | Yes      | Format-specific locator (see the table above).                              |
-| `percent`  | number | No       | 0–1. Derived from `position`/`total` when omitted.                          |
+| `percent`  | number | No       | 0–1. Derived from `position`/`total` when omitted — except for `section`, which is never derived (see above). |
 | `total`    | number | No       | Denominator in `unit`. Retained from the previous write when omitted.       |
 | `mode`     | string | No       | `auto` (default) or `manual`.                                               |
 
@@ -1006,9 +1010,17 @@ Selection and sequencing are composed here but never folded together: the schedu
 
 ### `GET /api/srs/stats`
 
-Returns the Leitner box distribution and total flashcard count across the whole workspace.
+Returns the Leitner box distribution across the whole workspace, plus the mastery summary of
+it. Scoped to the caller: the boxes come from `COALESCE(CardProgress.level, 0)`, so a card this
+person has never reviewed is in box 0 rather than absent.
 
-**Response** `200` — `{ boxes: [{ level, count }], total: number }`.
+**Response** `200` — `{ boxes: [{ level, count }], total, mastered, masteryLevel, masteryPercentage }`.
+
+`mastered` counts the caller's cards at `masteryLevel` (5) or above; `total` counts every card
+in the vault, so `masteryPercentage` is a share of the whole vault rather than of the part
+already studied. **Not the same question as `completeness.known` on `/api/srs/statistics`**,
+which grades each card 0..1 from FSRS stability — this one is a binary cutoff and exists to
+summarise the histogram it is served with.
 
 ### `POST /api/srs/undo`
 
@@ -1056,16 +1068,45 @@ fitted, and when.
 ### `GET /api/srs/statistics`
 
 Vault-wide analytics for the Stats view, scoped to the caller: retention, acquisition, maturity,
-due forecast, activity heatmap, streaks, and a derived `milestones` array. Retention counts only
-reviews past a card's learning phase — the learning phase is reported separately under
-`acquisition`, rather than being averaged into a number that would then flatter every vault with
-new cards in it. Read-only.
+due forecast, activity heatmap, streaks and completeness. Retention counts only reviews past a
+card's learning phase — the learning phase is reported separately under `acquisition`, rather than
+being averaged into a number that would then flatter every vault with new cards in it. Read-only.
 
 | Param       | Type   | Required | Description                                   |
 | ----------- | ------ | -------- | --------------------------------------------- |
 | `algorithm` | string | no       | Defaults server-side via `detectAlgorithm()`. |
 
 **Response** `200` — the statistics object.
+
+#### `completeness` — how far through the vault the caller is
+
+**Not `acquisition`.** The two sit side by side and mean different things: `acquisition` is about
+the *learning phase of a review* (first-exposure hit rate, retention over a card's first few reps),
+while `completeness` is about *the vault* — how much of it has been read, and how well the cards
+drawn from it are known.
+
+```
+completeness: {
+  percent,                                          // 0..1, or null when the vault is empty
+  read:  { percent, documents, finished, inProgress, unread },
+  known: { percent, cards, mature, young, new }
+}
+```
+
+- `read` is `readProgress.rollup('')` verbatim — the mean furthest-read fraction across **every**
+  document, an unread one counting as 0.
+- `known` is `SUM(learned) / COUNT(cards)` over every card in the vault, where `learned` is the
+  same per-card 0..1 score GraphView paints (`query.js`'s `CARD_LEARNED_SQL`: FSRS stability when
+  present, else `level/6` capped at 1). A card with no `CardProgress` row scores 0 rather than
+  leaving the denominator.
+- `percent` is the mean of the two halves — but **a half with an empty denominator is dropped
+  rather than counted as zero**. A vault of standalone cards has nothing to read, and scoring it
+  0% read would be a statement about material that does not exist; the same goes for a reference
+  vault carrying no cards. With both empty, `percent` is `null`.
+
+Composed at the route rather than inside `SRS.getStatistics()`: the two halves come from different
+orchestrators, and `srs.js` may not import `readProgress.js` — that would pull `files.js` into the
+scheduler, which is what "srs.js never imports documents.js" exists to prevent.
 
 ---
 

@@ -34,6 +34,8 @@ export function useReadProgress(path) {
   const [initialProgress, setInitialProgress] = useState(undefined);
   const [resumeAt, setResumeAt] = useState(null);
   const [dismissed, setDismissed] = useState(false);
+  // The most recent auto report, so the bar can show a live position between writes.
+  const [live, setLive] = useState(null);
 
   const pendingRef = useRef(null);      // the latest report, not yet written
   const timerRef = useRef(null);
@@ -61,6 +63,7 @@ export function useReadProgress(path) {
     setInitialProgress(undefined);
     setResumeAt(null);
     setDismissed(false);
+    setLive(null);
     startedAtRef.current = null;
     openedAtRef.current = Date.now();
     if (!path) { setInitialProgress(null); return; }
@@ -100,6 +103,18 @@ export function useReadProgress(path) {
     if (Date.now() - openedAtRef.current < MIN_DWELL_MS) return;
     if (samePlace(position, startedAtRef.current)) return;   // never moved from where it opened
 
+    // The guard above asks "has the reader moved at all yet", and one report through is the
+    // answer. Left standing it becomes a permanent blind spot instead: it holds the position
+    // the document RESUMED at, so coming back to that page later — the most natural thing to
+    // do with a bookmark — matched it again and the report was dropped, silently, for as long
+    // as the tab stayed open.
+    startedAtRef.current = null;
+
+    // What the bar shows should be where the reader is, not where they were when the document
+    // opened. The write is debounced by design; the readout must not be, or a position that is
+    // being recorded correctly still looks frozen.
+    setLive({ unit, position, percent: percent ?? null, total: total ?? null });
+
     pendingRef.current = { path: reportPath, body: { unit, position, percent, total, mode: 'auto' } };
     if (!timerRef.current) {
       timerRef.current = setTimeout(() => { timerRef.current = null; flushRef.current(); }, FLUSH_MS);
@@ -126,6 +141,9 @@ export function useReadProgress(path) {
     await clearProgress(pathRef.current);
     setInitialProgress(null);
     setResumeAt(null);
+    setLive(null);
+    // The blind spot was anchored to a record that no longer exists.
+    startedAtRef.current = null;
   }, []);
 
   return {
@@ -133,6 +151,10 @@ export function useReadProgress(path) {
     reportProgress,
     setManualProgress,
     clearProgress: clear,
+    // Where the reader is right now, or null before they have moved. The caller overlays this
+    // on the stored record so the readout tracks reading; the furthest mark still only ever
+    // advances, and that stays the server's decision.
+    live,
     // The "resumed at X" affordance: shown once per open, dismissible, never blocking.
     resumeAt: dismissed ? null : resumeAt,
     dismissResume: useCallback(() => setDismissed(true), []),

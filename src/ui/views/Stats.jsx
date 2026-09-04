@@ -37,6 +37,107 @@ function StatTile({ label, value, sub, title }) {
   );
 }
 
+// ── Vault completeness (headline band) ──────────────────────────────
+
+/**
+ * How far through the vault you are: how much of it you have read, and how well you know the
+ * cards drawn from it.
+ *
+ * The two halves are shown alongside the blend rather than under it, because the headline
+ * alone cannot be acted on — the same 20% means "read it all, learned none of it" or the
+ * reverse, and those call for opposite afternoons. Averaging without showing the parts would
+ * hide precisely the thing the number is for.
+ *
+ * Both halves count the whole vault in their denominator, so an untouched document and an
+ * unreviewed card each drag the figure down. That is the intent: this measures the vault, not
+ * the corner of it already visited.
+ *
+ * Not to be confused with the Acquisition panel below, which is about how new material lands
+ * during its first few reviews.
+ */
+function CompletenessBand({ completeness }) {
+  const { t, tp, formatNumber } = useT();
+  const c = completeness;
+  if (!c) return null;
+
+  const overall = c.percent == null ? null : Math.round(c.percent * 100);
+  const halves = [
+    {
+      key: "read",
+      label: t('Read'),
+      percent: c.read.percent,
+      // Unread is the honest headline for the reading half: it is what is left to do.
+      detail: c.read.documents === 0
+        ? t('No documents yet')
+        : tp('{n} of {total} document read',
+             '{n} of {total} documents read',
+             c.read.finished,
+             { n: formatNumber(c.read.finished), total: formatNumber(c.read.documents) }),
+      hint: c.read.inProgress > 0
+        ? tp('{n} started', '{n} started', c.read.inProgress, { n: formatNumber(c.read.inProgress) })
+        : null,
+    },
+    {
+      key: "known",
+      label: t('Known'),
+      percent: c.known.percent,
+      detail: c.known.cards === 0
+        ? t('No cards yet')
+        : tp('{n} card', '{n} cards', c.known.cards, { n: formatNumber(c.known.cards) }),
+      hint: c.known.cards > 0
+        ? t('{n} mature', { n: formatNumber(c.known.mature) })
+        : null,
+    },
+  ];
+
+  return (
+    <section className="stats-completeness">
+      <div className="stats-completeness-head">
+        <div>
+          <div className="stats-completeness-value">{pctText(c.percent)}</div>
+          <div className="stats-completeness-label">{t('Completeness')}</div>
+        </div>
+        <p className="stats-completeness-hint">
+          {t('How much of this vault you have read, and how well you know the cards from it.')}
+        </p>
+      </div>
+
+      <div
+        className="stats-completeness-track"
+        role="img"
+        aria-label={overall == null
+          ? t('Completeness unknown — nothing in this vault yet')
+          : t('Vault {percent}% complete', { percent: overall })}
+      >
+        <div
+          className="stats-completeness-fill"
+          style={{ width: `${overall ?? 0}%`, background: ramp(70) }}
+        />
+      </div>
+
+      <ul className="stats-completeness-halves">
+        {halves.map((h) => (
+          <li key={h.key} className="stats-completeness-half">
+            <span className="stats-completeness-half-label">{h.label}</span>
+            <span className="stats-completeness-half-track" aria-hidden="true">
+              <span
+                style={{
+                  width: `${h.percent == null ? 0 : Math.round(h.percent * 100)}%`,
+                  background: ramp(45),
+                }}
+              />
+            </span>
+            <span className="stats-completeness-half-value">{pctText(h.percent)}</span>
+            <span className="stats-completeness-half-detail">
+              {h.detail}{h.hint ? <> · {h.hint}</> : null}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 // ── Acquisition (learning-phase measures) ─────────────────────────────────────
 
 // Retention answers "is what I learned staying?", which only means anything once a
@@ -296,6 +397,8 @@ export default function Stats({ isActive }) {
           </p>
         ) : stats ? (
           <>
+            <CompletenessBand completeness={stats.completeness} />
+
             <div className="stats-tiles">
               <StatTile label={t('Cards')} value={formatNumber(stats.totals.cards)}
                 sub={t('{n} mature', { n: formatNumber(stats.maturity.mature) })} />

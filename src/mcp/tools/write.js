@@ -743,6 +743,10 @@ export function registerWriteTools(server) {
         '`section` number, a text file or clip by character `offset`, a video by `seconds`. Send `total` ' +
         '(pages, sections, characters, duration) when you know it, or a `percent` directly — without one ' +
         'or the other the position still resumes but has no percentage and cannot bound a read.\n\n' +
+        'AN EPUB IS THE EXCEPTION: `total` alone buys no percentage there. Section numbers do not ' +
+        'divide into one — sections vary enormously in length, and the app measures an EPUB by how ' +
+        'much TEXT is behind you, not by which section you are in. Send an explicit `percent` if you ' +
+        'want the reading bar to move; a section alone records a place to resume and nothing more.\n\n' +
         'This writes the user\'s own position and nobody else\'s; it produces no file change and no ' +
         'version-history commit. `mode` defaults to "manual", which is almost always what you want from ' +
         'a stated position: it sets the furthest-reached mark exactly where you say, including backwards ' +
@@ -756,7 +760,7 @@ export function registerWriteTools(server) {
         section: z.number().int().min(1).optional().describe('unit "section": the EPUB section number reached.'),
         offset: z.number().int().min(0).optional().describe('unit "chars": the character offset reached.'),
         seconds: z.number().min(0).optional().describe('unit "segment": the timestamp reached, in seconds.'),
-        total: z.number().optional().describe('The document length in the same unit (pages, sections, characters, seconds). Enables a percentage.'),
+        total: z.number().optional().describe('The document length in the same unit (pages, sections, characters, seconds). Enables a percentage for every unit except the EPUB section unit - see above.'),
         percent: z.number().min(0).max(1).optional().describe('Fraction read, 0-1. Send 1 to mark it finished.'),
         mode: z.enum(['auto', 'manual']).optional().describe('Default "manual": sets the furthest mark exactly, including backwards. "auto" only ever advances it.'),
       },

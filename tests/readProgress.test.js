@@ -341,4 +341,122 @@ describe('Read progress', () => {
             assert.equal(await readProgress.get(rel), null);
         });
     });
+
+    // --- 8. One scale per document -------------------------------------------------
+
+    // Regression. EPUB percentages were arriving on two scales: epub.js reports nothing usable
+    // until its locations index finishes building, and the server used to fill the gap with
+    // `section / total` — a spine-item ratio, unweighted by text. A book 22% through its prose
+    // recorded 48%, and because `auto` may only ever advance the furthest mark, that inflated
+    // number then rejected every honest report behind it.
+    describe('a section has no server-derivable percentage', () => {
+        const epubRel = () => path.join(FOLDER, 'third.md');
+
+        it('stores no percent for a section when the caller sends none', async () => {
+            const p = await readProgress.set(epubRel(), {
+                unit: 'section',
+                position: { cfi: 'epubcfi(/6/24!/4/2)', href: 'ch04.xhtml', section: 10 },
+                total: 21,
+                mode: 'manual',
+            });
+            assert.equal(p.percent, null,
+                'a spine index over a spine count is not how far through the text you are');
+            assert.equal(p.furthestPercent, null);
+            assert.equal(p.position.section, 10, 'the position itself is still recorded');
+            assert.equal(p.total, 21, 'and so is the length, for whoever can use it');
+        });
+
+        it('keeps the percent the caller does send', async () => {
+            const p = await readProgress.set(epubRel(), {
+                unit: 'section',
+                position: { cfi: 'epubcfi(/6/26!/4/2)', href: 'ch05.xhtml', section: 11 },
+                total: 21,
+                percent: 0.2237,
+                mode: 'manual',
+            });
+            assert.equal(p.percent, 0.2237, 'stored verbatim, not re-derived');
+            assert.equal(p.furthestPercent, 0.2237);
+        });
+
+        it('still derives for the units where the locator IS the scale', async () => {
+            const page = await readProgress.set(path.join(FOLDER, 'fourth.md'), {
+                unit: 'page', position: { page: 25 }, total: 100, mode: 'manual',
+            });
+            assert.equal(page.percent, 0.25, 'page 25 of 100 is a quarter of the pages');
+
+            const chars = await readProgress.set(path.join(FOLDER, 'second.md'), {
+                unit: 'chars', position: { offset: 300 }, total: 1200, mode: 'manual',
+            });
+            assert.equal(chars.percent, 0.25, 'offset 300 of 1200 is a quarter of the text');
+        });
+
+        it('does not let a real mark be overtaken by a spine ratio', async () => {
+            const rel = epubRel();
+            // Where the reader actually is: a fifth of the way through the text.
+            await readProgress.set(rel, {
+                unit: 'section',
+                position: { cfi: 'a', href: 'ch05.xhtml', section: 11 },
+                total: 21, percent: 0.2237, mode: 'manual',
+            });
+            // The report that used to arrive during the locations build, carrying no percent.
+            const after = await readProgress.set(rel, {
+                unit: 'section',
+                position: { cfi: 'b', href: 'ch06.xhtml', section: 12 },
+                total: 21, mode: 'auto',
+            });
+            assert.equal(after.furthestPercent, 0.2237,
+                'the mark holds at the real figure rather than jumping to 12/21');
+            assert.equal(after.position.section, 12, 'though the position still moves');
+        });
+    });
+
+
+    // The one-time repair that clears the two mixed-scale percentages already on disk. Tested
+    // as SQL against a throwaway database rather than through the real store, because the
+    // repair runs at open and the store under test has already been opened.
+    describe('the one-time repair of already-written percentages', () => {
+        it('nulls section percentages, keeps their locators, and leaves other units alone', async () => {
+            const { default: Database } = await import('better-sqlite3');
+            const { REPAIRS } = await import('../src/api/access/primitives/accounts.js');
+            const repair = REPAIRS.find(r => r.version === 1);
+            assert.ok(repair, 'repair 1 exists and is versioned');
+
+            const raw = new Database(':memory:');
+            raw.exec(`CREATE TABLE ReadProgress (
+                vault_id TEXT, scope TEXT, doc_hash TEXT, unit TEXT, total REAL,
+                pos TEXT, pos_pct REAL, far TEXT, far_pct REAL, body_etag TEXT, updated_at TEXT)`);
+            const ins = raw.prepare(`INSERT INTO ReadProgress
+                (vault_id, scope, doc_hash, unit, total, pos, pos_pct, far, far_pct, updated_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?)`);
+            ins.run('v', 'owner', 'book', 'section', 21,
+                '{"cfi":"epubcfi(/6/24)","section":11}', 0.2153,
+                '{"cfi":"epubcfi(/6/22)","section":10}', 0.47619047619047616, 'then');
+            ins.run('v', 'owner', 'paper', 'page', 100, '{"page":25}', 0.25, '{"page":80}', 0.8, 'then');
+
+            raw.exec(repair.sql);
+
+            const book = raw.prepare("SELECT * FROM ReadProgress WHERE doc_hash = 'book'").get();
+            assert.equal(book.pos_pct, null, 'the mixed-scale percentages go');
+            assert.equal(book.far_pct, null);
+            assert.equal(book.pos, '{"cfi":"epubcfi(/6/24)","section":11}',
+                'the locator does not — the book still resumes exactly where it was');
+            assert.equal(book.far, '{"cfi":"epubcfi(/6/22)","section":10}');
+            assert.equal(book.total, 21);
+            assert.equal(book.updated_at, 'then', 'and the row is not touched otherwise');
+
+            const paper = raw.prepare("SELECT * FROM ReadProgress WHERE doc_hash = 'paper'").get();
+            assert.equal(paper.pos_pct, 0.25, 'a PDF was never on the wrong scale');
+            assert.equal(paper.far_pct, 0.8);
+
+            raw.close();
+        });
+
+        it('is recorded, so it runs once rather than on every open', async () => {
+            const { REPAIRS } = await import('../src/api/access/primitives/accounts.js');
+            const versions = REPAIRS.map(r => r.version);
+            assert.deepEqual(versions, [...new Set(versions)].sort((a, b) => a - b),
+                'versions are unique and ordered');
+        });
+    });
+
 });

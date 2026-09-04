@@ -852,6 +852,85 @@ describe('Flashback API', () => {
             assert.ok(typeof total === 'number');
         });
 
+        // Regression: the route used to hand-roll {boxes, total} beside an unreachable
+        // SRS.getLeitnerStats() that computed the mastery figure, so the Flashcards sidebar
+        // read a field nothing sent and printed "Mastery 0%" for every vault.
+        it('GET /api/srs/stats → carries the mastery summary the sidebar reads', async () => {
+            const res = await fetch(`${baseUrl}/api/srs/stats`);
+            const stats = await res.json();
+
+            assert.equal(typeof stats.masteryPercentage, 'number',
+                'the field the Flashcards sidebar renders is actually sent');
+            assert.equal(typeof stats.mastered, 'number');
+            assert.equal(stats.masteryLevel, 5, 'and says which cutoff it counted');
+            assert.ok(stats.mastered <= stats.total, 'mastered cards are a subset of all cards');
+
+            const expected = stats.total > 0 ? (stats.mastered / stats.total) * 100 : 0;
+            assert.equal(stats.masteryPercentage, expected,
+                'the percentage is of the whole vault, not of the cards already studied');
+        });
+
+        it('GET /api/srs/stats → counts a card pushed past the cutoff', async () => {
+            const before = await (await fetch(`${baseUrl}/api/srs/stats`)).json();
+
+            await post(`${baseUrl}/api/srs/review`, {
+                path: `${ROOT}/${DOC}`, flashcardHash: FC_HASH,
+                outcome: 1, easeFactor: 2.5, newLevel: before.masteryLevel + 1,
+            });
+
+            const after = await (await fetch(`${baseUrl}/api/srs/stats`)).json();
+            assert.ok(after.mastered > before.mastered,
+                'a card taken above the cutoff joins the mastered count');
+            assert.ok(after.masteryPercentage > 0,
+                'so the sidebar can no longer be stuck at zero');
+        });
+
+        // The composition itself — the arithmetic behind `known` is pinned in
+        // tests/stats.test.js, and what can only be checked here is that the route actually
+        // joins the two orchestrators and reports the same numbers they do on their own.
+        it('GET /api/srs/statistics → carries a vault completeness block', async () => {
+            const res = await fetch(`${baseUrl}/api/srs/statistics`);
+            assert.equal(res.status, 200);
+            const stats = await res.json();
+
+            const c = stats.completeness;
+            assert.ok(c, 'statistics carries a completeness block');
+            assert.ok(c.percent === null || (c.percent >= 0 && c.percent <= 1),
+                'the headline is a fraction or nothing at all');
+            assert.equal(c.known.cards, stats.totals.cards,
+                'the known half counts every card in the vault');
+            assert.equal(c.known.mature, stats.maturity.mature,
+                'and reuses the maturity partition rather than recounting');
+            assert.equal(
+                c.read.documents,
+                c.read.finished + c.read.inProgress + c.read.unread,
+                'every document is in exactly one reading state',
+            );
+
+            // Not `acquisition`, which is about the learning phase of a review. Both exist,
+            // and confusing them is the whole reason this block is named what it is.
+            assert.ok(stats.acquisition, 'the learning-phase block is untouched');
+            assert.ok(!('percent' in stats.acquisition), 'and is a different shape entirely');
+        });
+
+        it('GET /api/srs/statistics → its read half agrees with /api/progress/rollup', async () => {
+            const [statsRes, rollupRes] = await Promise.all([
+                fetch(`${baseUrl}/api/srs/statistics`),
+                fetch(`${baseUrl}/api/progress/rollup?path=`),
+            ]);
+            const { completeness } = await statsRes.json();
+            const rollup = await rollupRes.json();
+
+            assert.equal(completeness.read.documents, rollup.total);
+            assert.equal(completeness.read.finished, rollup.finished);
+            // Null only when there is nothing to read; otherwise it is the rollup verbatim,
+            // not a recomputation that could drift from it.
+            assert.equal(
+                completeness.read.percent,
+                rollup.total > 0 ? rollup.percent : null,
+            );
+        });
+
         it('POST /api/srs/review → 200, level reflected in stats', async () => {
             const res = await post(`${baseUrl}/api/srs/review`, {
                 path: `${ROOT}/${DOC}`,

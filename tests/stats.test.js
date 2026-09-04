@@ -275,3 +275,80 @@ describe('Card insights', () => {
         await assert.rejects(async () => await SRS.getCardInsights('no-such-card'), /not found/);
     });
 });
+
+// The `known` half of vault completeness. Composed into GET /api/srs/statistics at the route
+// layer (readProgress and srs may not import each other), so the composition is asserted in
+// tests/api/api.test.js; the arithmetic that can actually be wrong lives here.
+describe('vault learned aggregate', () => {
+    const ROOT2 = 'VaultLearnedTest';
+    const big = Array.from({ length: 20 }, () => crypto.randomUUID());
+    const lone = crypto.randomUUID();
+
+    const rm2 = () => {
+        try {
+            const abs = path.join(getWorkspacePath(), ROOT2);
+            if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
+        } catch { /* ignore */ }
+    };
+
+    before(async () => {
+        rm2();
+        await docs.createFolder(ROOT2);
+        // Twenty untouched cards in one document, one card in another. If the score averaged
+        // per-document averages, mastering the lone card would read as ~50% of the vault.
+        await docs.importFile('many.md', ROOT2, Buffer.from('# Many'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: big.map(h => ({ globalHash: h, vanillaData: { frontText: 'q', backText: 'a' } })),
+        });
+        await docs.importFile('one.md', ROOT2, Buffer.from('# One'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: [{ globalHash: lone, vanillaData: { frontText: 'q', backText: 'a' } }],
+        });
+    });
+
+    after(() => rm2());
+
+    it('counts every card in the denominator, including ones never reviewed', async () => {
+        const learned = await query.getVaultLearned('owner');
+        const total = await query.getFlashcardCount();
+        assert.equal(learned.cards, total,
+            'a card with no CardProgress row is unlearned, not absent');
+    });
+
+    it('scores an unreviewed card 0 rather than dropping it', async () => {
+        const before = await query.getVaultLearned('owner');
+        const extraDoc = path.join(ROOT2, 'fresh.md');
+        const fresh = crypto.randomUUID();
+        await docs.importFile('fresh.md', ROOT2, Buffer.from('# Fresh'), {
+            globalHash: crypto.randomUUID(),
+            flashcards: [{ globalHash: fresh, vanillaData: { frontText: 'q', backText: 'a' } }],
+        });
+
+        const after_ = await query.getVaultLearned('owner');
+        assert.equal(after_.cards, before.cards + 1, 'the denominator grew');
+        assert.equal(after_.learnedSum, before.learnedSum,
+            'and the numerator did not — an unstudied card adds nothing');
+        assert.ok(after_.learnedSum / after_.cards <= before.learnedSum / before.cards,
+            'so adding unstudied material can only lower completeness');
+        assert.ok(extraDoc);
+    });
+
+    it('is card-weighted, so one mastered card cannot outvote twenty unstudied ones', async () => {
+        const before = await query.getVaultLearned('owner');
+        await docs.submitReview(path.join(ROOT2, 'one.md'), lone, 1, 2.5, 6, 'leitner');
+        const after_ = await query.getVaultLearned('owner');
+
+        // Level 6 is where CARD_LEARNED_SQL saturates at 1.0.
+        assert.ok(after_.learnedSum - before.learnedSum > 0.99,
+            'the reviewed card contributes its full weight');
+        assert.equal(after_.cards, before.cards, 'and the denominator is unchanged');
+
+        const score = after_.learnedSum / after_.cards;
+        assert.ok(score < 0.5,
+            `one card among ${after_.cards} must not read as half the vault (got ${score})`);
+    });
+
+    it('refuses a missing scope rather than answering for the owner', async () => {
+        await assert.rejects(() => query.getVaultLearned(), /account scope/);
+    });
+});

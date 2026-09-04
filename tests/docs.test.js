@@ -407,8 +407,12 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('should return valid Leitner box statistics', async () => {
             const stats = await docs.srs.getLeitnerStats();
 
-            assert.ok(typeof stats.totalCards === 'number', 'totalCards should be a number');
-            assert.ok(stats.totalCards > 0, 'Should have at least one card from prior tests');
+            // `total`, not `totalCards`: this is what GET /api/srs/stats has always sent, and
+            // the orchestrator used to disagree with its own route on the name.
+            assert.ok(typeof stats.total === 'number', 'total should be a number');
+            assert.ok(stats.total > 0, 'Should have at least one card from prior tests');
+            assert.ok(typeof stats.mastered === 'number', 'mastered should be a number');
+            assert.ok(stats.mastered <= stats.total, 'mastered cards are a subset of all cards');
             assert.ok(typeof stats.masteryPercentage === 'number', 'masteryPercentage should be a number');
             assert.ok(stats.masteryPercentage >= 0 && stats.masteryPercentage <= 100, 'masteryPercentage must be between 0 and 100');
             assert.ok(Array.isArray(stats.boxes), 'boxes should be an array');

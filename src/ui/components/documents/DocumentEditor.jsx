@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'react';
 import EditorTabBar    from './EditorTabBar';
 import SelectionToolbar from './SelectionToolbar';
 import Inspector         from './inspector/Inspector';
@@ -21,12 +21,26 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const { can } = useSession();
   const {
     initialProgress, reportProgress, resumeAt, dismissResume,
-    setManualProgress, clearProgress: clearReadProgress,
+    setManualProgress, clearProgress: clearReadProgress, live: liveProgress,
   } = useReadProgress(activeTab);
   // Mirrors the hook's record so the bar reflects a manual change immediately rather than
   // waiting for the next open.
   const [shownProgress, setShownProgress] = useState(null);
   useEffect(() => { setShownProgress(initialProgress ?? null); }, [initialProgress]);
+
+  // The stored record, with the reader's live position laid over it. Only `position` and
+  // `percent` move — `furthest` is the server's to advance, and overlaying it here would
+  // draw a mark going backwards that the server would never actually record.
+  const barProgress = useMemo(() => {
+    if (!liveProgress) return shownProgress;
+    return {
+      ...(shownProgress ?? { furthest: null, furthestPercent: null, finished: false }),
+      unit: liveProgress.unit,
+      position: liveProgress.position,
+      percent: liveProgress.percent,
+      total: liveProgress.total ?? shownProgress?.total ?? null,
+    };
+  }, [shownProgress, liveProgress]);
 
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
@@ -423,7 +437,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   // it as the standalone strip above the document. Two bars stacked was the alternative.
   const readingBar = activeRenderer.tracksProgress ? (
     <ReadingBar
-      progress={shownProgress}
+      progress={barProgress}
       resumed={!!resumeAt}
       variant={activeRenderer.ownsReadingBar ? 'inline' : 'strip'}
       onGoToStart={() => { progressRef.current?.goToStart?.(); dismissResume(); }}

@@ -94,6 +94,16 @@
   margin-left: auto;
 }
 
+/* The resume notice, grouped so its own buttons are not direct children of the bar and so
+   do not claim the `margin-left: auto` that pushes the controls to the right. It leads;
+   the controls stay where they always were. */
+.doc-reading-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
 /* Hosted inside a renderer's own toolbar (registry `ownsReadingBar`) rather than drawn as
    a row of its own. The surface comes off entirely — a second background and a second
    bottom border directly under the first is what made a PDF read as a wall of chrome —
