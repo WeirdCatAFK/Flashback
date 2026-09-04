@@ -729,4 +729,54 @@ export function registerWriteTools(server) {
       }
     },
   );
+
+  server.registerTool(
+    'set_read_progress',
+    {
+      title: 'Move the user reading position',
+      description:
+        'Record where the user has read to in a document. Use it when they TELL you where they are — ' +
+        '"I read to page 40 on paper last night", "I finished chapter 3", "mark this as done" — not to ' +
+        'guess on their behalf, and never merely because you read the document yourself. Reading it is ' +
+        'not them reading it.\n\n' +
+        'ADDRESS IT THE WAY THE FORMAT IS READ, matching read_document_text: a PDF by `page`, an EPUB by ' +
+        '`section` number, a text file or clip by character `offset`, a video by `seconds`. Send `total` ' +
+        '(pages, sections, characters, duration) when you know it, or a `percent` directly — without one ' +
+        'or the other the position still resumes but has no percentage and cannot bound a read.\n\n' +
+        'This writes the user\'s own position and nobody else\'s; it produces no file change and no ' +
+        'version-history commit. `mode` defaults to "manual", which is almost always what you want from ' +
+        'a stated position: it sets the furthest-reached mark exactly where you say, including backwards ' +
+        'if they are correcting an over-recorded position. Use "auto" only to advance a mark forward ' +
+        'without ever moving it back. To mark something finished, send percent: 1.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document from the workspace root.'),
+        unit: z.enum(['page', 'section', 'chars', 'segment'])
+          .describe('page = PDF; section = EPUB; chars = markdown/text/clip; segment = video by timestamp.'),
+        page: z.number().int().min(1).optional().describe('unit "page": the page number reached.'),
+        section: z.number().int().min(1).optional().describe('unit "section": the EPUB section number reached.'),
+        offset: z.number().int().min(0).optional().describe('unit "chars": the character offset reached.'),
+        seconds: z.number().min(0).optional().describe('unit "segment": the timestamp reached, in seconds.'),
+        total: z.number().optional().describe('The document length in the same unit (pages, sections, characters, seconds). Enables a percentage.'),
+        percent: z.number().min(0).max(1).optional().describe('Fraction read, 0-1. Send 1 to mark it finished.'),
+        mode: z.enum(['auto', 'manual']).optional().describe('Default "manual": sets the furthest mark exactly, including backwards. "auto" only ever advances it.'),
+      },
+    },
+    async ({ path, unit, page, section, offset, seconds, total, percent, mode }) => {
+      const position = { page, section, offset, seconds };
+      for (const key of Object.keys(position)) if (position[key] === undefined) delete position[key];
+      if (Object.keys(position).length === 0 && percent === undefined) {
+        return asToolError(
+          `set_read_progress needs a position: page, section, offset or seconds for unit "${unit}" (or a percent).`,
+        );
+      }
+      try {
+        const data = await request('PUT', '/api/progress', {
+          path, unit, position, total, percent, mode: mode ?? 'manual',
+        });
+        return asText(data);
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
 }

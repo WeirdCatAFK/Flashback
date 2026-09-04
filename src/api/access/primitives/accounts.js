@@ -58,6 +58,7 @@ import path from "path";
 import { createSqliteAdapter } from "./sqliteAdapter.js";
 import { getBaseDir, getIdentity } from "./config.js";
 import { ROLES, isRole } from "../../../shared/roles.js";
+import { OWNER_SCOPE } from "../../requestContext.js";
 
 export { ROLES };
 
@@ -112,6 +113,21 @@ CREATE TABLE IF NOT EXISTS AccountProgress (
     PRIMARY KEY (vault_id, account_id, card_hash)
 );
 CREATE INDEX IF NOT EXISTS idx_account_progress_vault ON AccountProgress(vault_id, account_id);
+CREATE TABLE IF NOT EXISTS ReadProgress (
+    vault_id    TEXT NOT NULL,
+    scope       TEXT NOT NULL,
+    doc_hash    TEXT NOT NULL,
+    unit        TEXT NOT NULL,
+    total       REAL,
+    pos         TEXT NOT NULL,
+    pos_pct     REAL,
+    far         TEXT NOT NULL,
+    far_pct     REAL,
+    body_etag   TEXT,
+    updated_at  TEXT NOT NULL,
+    PRIMARY KEY (vault_id, scope, doc_hash)
+);
+CREATE INDEX IF NOT EXISTS idx_read_progress_scope ON ReadProgress(vault_id, scope, updated_at);
 `;
 
 const adapter = createSqliteAdapter({
@@ -500,6 +516,101 @@ export async function deleteAccountProgress(vaultId, accountId, cardHash) {
     ).run(vaultId, accountId, cardHash);
 }
 
+// ---------------------------------------------------------------------------
+// Read progress
+// ---------------------------------------------------------------------------
+//
+// Where one person has read to in one document. It is here rather than in the vault database
+// or a sidecar, and the reasoning differs from AccountProgress above in one important way:
+// this table holds EVERYONE's positions, the owner's included, under the same OWNER_SCOPE
+// sentinel the rest of the app uses.
+//
+// The owner's SRS schedule lives in the sidecar because a graded card is a fact worth
+// versioning and worth carrying to whoever receives a copy of the folder. A reading position
+// is neither. It also moves continuously — seal.js justifies its review debounce with
+// "nobody will ever roll back to the state of a card between two answers", and a scroll
+// position is that argument several orders of magnitude over. Sidecar storage would mean a
+// commit stream for the act of reading, and a sidecar write that skipped Seal would leave
+// permanent working-tree drift for the Doctor to sweep up later.
+//
+// The other half of the argument is permissions: PUT /api/documents/metadata is guarded at
+// COLLABORATOR, so a Reader cannot write a sidecar at all. Reading is not editing.
+//
+// So: no sidecar field, no vault-DB projection, no Seal commit, nothing for the Doctor to
+// rebuild. The cost is that positions do not travel with a copied vault folder — the same
+// bargain the access list and every reader's schedule already make.
+//
+// `scope` carries an account id OR the literal 'owner', which is why it has no foreign key to
+// Accounts: the sentinel is not a row there. Rows whose account has since been deleted are
+// filtered on read, exactly as listAccountProgress does, and for the same reason.
+//
+// Keyed by the document's globalHash, so a position survives a rename or a move for free and
+// a copied document correctly starts unread (copy regenerates identities).
+
+/** The stored columns, in the order the statements below use them. */
+const READ_FIELDS = ["unit", "total", "pos", "pos_pct", "far", "far_pct", "body_etag"];
+
+/**
+ * Records where one person has read to in one document. Upsert: current state, not history.
+ *
+ * Unlike saveAccountProgress, this one IS called for the owner. Read progress has no second
+ * canonical home for the two to drift apart from.
+ *
+ * @param {string} vaultId   from vault.json
+ * @param {string} scope     an account id, or OWNER_SCOPE
+ * @param {string} docHash   the document's globalHash
+ * @param {object} state     subset of READ_FIELDS; `unit`, `pos` and `far` are required
+ */
+export async function saveReadProgress(vaultId, scope, docHash, state = {}) {
+    const values = READ_FIELDS.map((f) => state[f] ?? null);
+    await db.prepare(`
+        INSERT INTO ReadProgress
+            (vault_id, scope, doc_hash, ${READ_FIELDS.join(", ")}, updated_at)
+        VALUES (?, ?, ?, ${READ_FIELDS.map(() => "?").join(", ")}, ?)
+        ON CONFLICT(vault_id, scope, doc_hash) DO UPDATE SET
+            ${READ_FIELDS.map((f) => `${f} = excluded.${f}`).join(", ")},
+            updated_at = excluded.updated_at
+    `).run(vaultId, scope, docHash, ...values, now());
+}
+
+/** @returns {Promise<object|null>} one person's position in one document, or null if unread. */
+export async function getReadProgress(vaultId, scope, docHash) {
+    return await db.prepare(
+        "SELECT * FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",
+    ).get(vaultId, scope, docHash);
+}
+
+/**
+ * Every position one person holds in a vault — the folder rollup and the "what am I in the
+ * middle of" listing both read the whole set once and join it in memory, which is what keeps
+ * a 500-document folder to one query instead of 500.
+ *
+ * A row is returned when its scope is the owner sentinel or names an account that still
+ * exists. Deleted accounts are filtered here, never deleted: nothing cascades across the
+ * store boundary, and dropping a row on a read would make a temporarily-missing account
+ * permanent data loss.
+ *
+ * @param {string} vaultId
+ * @param {string|null} scope  restrict to one scope, or null for every scope in the vault
+ */
+export async function listReadProgress(vaultId, scope = null) {
+    const filter = scope ? " AND p.scope = ?" : "";
+    const params = scope ? [vaultId, scope, OWNER_SCOPE] : [vaultId, OWNER_SCOPE];
+    return await db.prepare(`
+        SELECT p.* FROM ReadProgress p
+        WHERE p.vault_id = ?${filter}
+          AND (p.scope = ? OR EXISTS (SELECT 1 FROM Accounts a WHERE a.id = p.scope))
+        ORDER BY p.updated_at DESC
+    `).all(...params);
+}
+
+/** Forgets one person's position in one document. */
+export async function deleteReadProgress(vaultId, scope, docHash) {
+    await db.prepare(
+        "DELETE FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",
+    ).run(vaultId, scope, docHash);
+}
+
 export default {
     ROLES,
     getAccountsPath,
@@ -523,5 +634,9 @@ export default {
     getAccountProgress,
     listAccountProgress,
     deleteAccountProgress,
+    saveReadProgress,
+    getReadProgress,
+    listReadProgress,
+    deleteReadProgress,
     LOCAL_TOKEN_LABEL,
 };

@@ -1525,6 +1525,11 @@ class DocumentQuery {
         return await this.db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(magazineId);
     }
 
+    /** Every tracked subscription, so a folder can be recognised as one issue's target. */
+    async listSubscriptions() {
+        return await this.db.prepare('SELECT * FROM Subscriptions').all();
+    }
+
     async upsertSubscription(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Subscriptions (magazine_id, issue_id, version, target_path, last_sync)
@@ -1585,6 +1590,18 @@ class DocumentQuery {
 
     async getDocumentsByAbsPathPrefix(absPrefix) {
         return this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .all(this._escapeLike(absPrefix));
+    }
+
+    /**
+     * Every document under a subtree, with the identity a read position is keyed by.
+     *
+     * getDocumentsByAbsPathPrefix above returns paths only; the read-progress rollup joins on
+     * `global_hash`, so it needs its own projection rather than a second lookup per document.
+     */
+    async getDocumentsInTree(absPrefix) {
+        return this.db.prepare(`SELECT id, global_hash, relative_path, absolute_path, name
+            FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .all(this._escapeLike(absPrefix));
     }
 

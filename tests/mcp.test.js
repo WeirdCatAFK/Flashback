@@ -94,6 +94,7 @@ describe('MCP tools', () => {
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
             'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
+            'get_read_progress', 'list_reading', 'reading_rollup', 'reading_coverage',
             // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard',
             'create_document', 'update_document', 'create_folder', 'update_tags',
@@ -102,6 +103,7 @@ describe('MCP tools', () => {
             'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
             'attach_book_image', 'attach_clip_media',
             'create_category', 'update_category',
+            'set_read_progress',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
     });
@@ -624,6 +626,81 @@ describe('MCP tools', () => {
             const p2 = await call('read_document_text', { path: bookRel, index: p1.data.next });
             assert.match(p2.data.text, /chloroplasts/);
             assert.equal(p2.data.hasMore, false);
+        });
+
+        // Read progress. The headline case is the `upTo` bound: an assistant asked to make
+        // cards "for everything I have read" must be unable to reach a page past the mark.
+        describe('read progress', () => {
+            it('reports nothing before the document has been opened', async () => {
+                const res = await call('get_read_progress', { path: bookRel });
+                assert.equal(res.isError, false, res.text);
+                assert.equal(res.data, null, 'never opened is not the same as at the start');
+            });
+
+            it('records a stated position and marks the furthest reach', async () => {
+                const set = await call('set_read_progress', {
+                    path: bookRel, unit: 'page', page: 1, total: 2,
+                });
+                assert.equal(set.isError, false, set.text);
+                assert.equal(set.data.progress.position.page, 1);
+                assert.equal(set.data.progress.percent, 0.5);
+
+                const got = await call('get_read_progress', { path: bookRel });
+                assert.equal(got.data.furthest.page, 1);
+                assert.equal(got.data.finished, false);
+            });
+
+            it('refuses a position with no locator', async () => {
+                const res = await call('set_read_progress', { path: bookRel, unit: 'page' });
+                assert.equal(res.isError, true);
+                assert.match(res.text, /needs a position/);
+            });
+
+            it('bounds a text read to what has actually been read', async () => {
+                const p1 = await call('read_document_text', { path: bookRel, upTo: 'progress' });
+                assert.equal(p1.isError, false, p1.text);
+                assert.match(p1.data.text, /mitochondria/, 'page one is readable');
+                assert.equal(p1.data.hasMore, false, 'and page two is past the mark');
+
+                const p2 = await call('read_document_text', { path: bookRel, index: 2, upTo: 'progress' });
+                assert.equal(p2.isError, true, 'asking for page two directly is refused');
+                assert.match(p2.text, /only read to page 1/);
+            });
+
+            it('lets the bound move once more has been read', async () => {
+                await call('set_read_progress', { path: bookRel, unit: 'page', page: 2, total: 2 });
+                const p2 = await call('read_document_text', { path: bookRel, index: 2, upTo: 'progress' });
+                assert.equal(p2.isError, false, p2.text);
+                assert.match(p2.data.text, /chloroplasts/);
+            });
+
+            it('reads the whole document when no bound is asked for', async () => {
+                await call('set_read_progress', {
+                    path: bookRel, unit: 'page', page: 1, total: 2, mode: 'manual',
+                });
+                const unbounded = await call('read_document_text', { path: bookRel, index: 2 });
+                assert.equal(unbounded.isError, false, 'bounding is a courtesy, not a lock');
+                assert.match(unbounded.data.text, /chloroplasts/);
+            });
+
+            it('lists what is in progress and rolls the folder up', async () => {
+                const list = await call('list_reading', {});
+                assert.equal(list.isError, false, list.text);
+                assert.ok(list.data.some(r => r.path.endsWith('book.pdf')));
+
+                const roll = await call('reading_rollup', { path: ROOT });
+                assert.equal(roll.isError, false, roll.text);
+                assert.ok(roll.data.total > 0);
+                assert.ok(roll.data.unread > 0, 'documents nobody opened stay in the denominator');
+            });
+
+            it('reports the read-but-not-carded gap', async () => {
+                const cov = await call('reading_coverage', { path: bookRel });
+                assert.equal(cov.isError, false, cov.text);
+                assert.equal(cov.data.unit, 'page');
+                assert.equal(cov.data.readTo, 1);
+                assert.equal(cov.data.cardedTo, null, 'no cards anchored into this PDF yet');
+            });
         });
 
         // A figure is content read_document_text structurally cannot return, and the

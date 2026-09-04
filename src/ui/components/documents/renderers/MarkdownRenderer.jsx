@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Link from '@tiptap/extension-link';
@@ -9,6 +9,7 @@ import { ThemedHighlight, reconcileHighlights, applyMissingHighlights } from './
 import { useHighlightableRenderer } from './useHighlightableRenderer';
 import ConflictBanner from '../../shared/ConflictBanner';
 import { getDocumentByHash } from '../../../api/documents';
+import { useScrollProgress } from './useScrollProgress';
 import { useT } from '../../../translations';
 import './MarkdownRenderer.css';
 
@@ -72,8 +73,9 @@ const loadContent = (editor, markdown, meta) => {
   applyMissingHighlights(editor, meta?.highlights ?? []);
 };
 
-export default function MarkdownRenderer({ onNavigate, ...props }) {
+export default function MarkdownRenderer({ onNavigate, initialProgress, onProgress, progressRef, ...props }) {
   const { t } = useT();
+  const containerRef = useRef(null);
   const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
@@ -81,6 +83,16 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
     serialize,
     loadContent,
     reconcile: reconcileHighlights,
+  });
+
+  useScrollProgress({
+    elementRef: containerRef,
+    path: props.path,
+    length: editor && !loading ? editor.getText().length : 0,
+    ready: !!editor && !loading,
+    initialProgress,
+    onProgress,
+    progressRef,
   });
 
   const handleClick = useCallback(async (e) => {
@@ -127,6 +139,7 @@ export default function MarkdownRenderer({ onNavigate, ...props }) {
   return (
     <div
       className="markdown-editor-container"
+      ref={containerRef}
       onClickCapture={handleClick}
       onDragOver={handleDragOver}
       onDrop={handleDrop}

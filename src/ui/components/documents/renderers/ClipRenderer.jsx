@@ -3,6 +3,7 @@ import { readFile, updateMetadata, setClipSource } from '../../../api/documents'
 import { getBaseUrl, appendToken } from '../../../api/client';
 import SourceUrlForm from './SourceUrlForm';
 import { toLayoutRect, layoutViewport, useUiZoomChange } from '../../../utils/uiZoom';
+import { useScrollProgress } from './useScrollProgress';
 import { useT } from '../../../translations';
 import './ClipRenderer.css';
 import './Renderer.css';
@@ -207,6 +208,9 @@ export default function ClipRenderer({
   onHighlightsChange,
   onSidecarRefresh,
   onImagePick,
+  initialProgress,
+  onProgress,
+  progressRef,
 }) {
   const { t } = useT();
   const [source,     setSource]     = useState(null); // { url, siteName, title, clippedAt }
@@ -225,6 +229,19 @@ export default function ClipRenderer({
   const currentHlRef   = useRef(null);
   const loadedPathRef  = useRef(null);
   const bodyRef        = useRef(null);
+
+  // A clip is a `chars` document with no character cursor of its own, so its position is
+  // a scroll fraction like Markdown's. See useScrollProgress for why that approximation
+  // is the honest one here.
+  useScrollProgress({
+    elementRef: bodyRef,
+    path,
+    length: bodyRef.current?.textContent?.length ?? 0,
+    ready: !loading && !error,
+    initialProgress,
+    onProgress,
+    progressRef,
+  });
   const onImagePickRef = useRef(onImagePick);
   onImagePickRef.current = onImagePick;
 

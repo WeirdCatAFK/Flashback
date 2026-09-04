@@ -21,7 +21,7 @@ Before the API starts, it undergoes a mandatory validation process to ensure the
 
 Base URL: `http://localhost:3000` (default port, configurable)
 
-`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
+`documents` · `reader` · `progress` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
 
 All request bodies are JSON unless marked **multipart**. All responses are JSON unless noted otherwise. Paths in request bodies or query strings may use forward slashes on any platform; the server normalizes them internally.
 
@@ -556,6 +556,147 @@ One asset's bytes, with its own content type — the general form of `/image`, a
 **Errors** `400` path/href required, no such asset, an href matching more than one, or a clip asset not yet saved into the vault · `404` declared but missing from the archive or the vault · `415` format carries no media.
 
 The same allow-list applies for both formats, and a clip asset still loading from the web is **refused, not fetched** — this endpoint does no network IO on a caller's behalf. Downloading one is [`POST /api/documents/clip/asset`](#post-apidocumentsclipasset)'s job, and it is a POST precisely because it reaches out to the network.
+
+---
+
+## Read progress `/api/progress`
+
+Where the caller has read to in a document, and how far through a folder they are. Backed by [`access/orchestration/readProgress.js`](./access/ACCESS.md#readprogressjs).
+
+**Every endpoint here is about the caller's own reading.** None takes an account parameter and none can reach anyone else's positions, which is why the whole mount sits at `reader` in the permission table: recording where you got to is not an administrative act, and a Reader who could not record one could not resume anything. Cross-person visibility, if it is ever wanted, belongs under `accounts` beside [`GET /api/accounts/:id/progress`](#get-apiaccountsidprogress), where an actor and a target can be compared.
+
+Positions are stored in `accounts.db`, for **everyone including the owner**, keyed by `(vault_id, scope, document globalHash)`. This is deliberately not the split SRS makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream; and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. **Recording a position writes no file and produces no Seal commit.** The trade-off is that positions do not travel with a copied vault folder — the same bargain the access list and every reader's schedule already make. See `DATAMODEL.md` § Read progress.
+
+A position is a `unit` plus a format-specific locator, in the **same vocabulary the reader paginates by**, so a stored position can bound a text read:
+
+| Format | `unit` | Locator | Addresses `/api/reader/read` with |
+| --- | --- | --- | --- |
+| `.pdf` | `page` | `{ page }` | `index` |
+| `.epub` | `section` | `{ cfi, href, section }` | `index`=`href` |
+| `.md` `.markdown` `.txt` `.text` `.clip` | `chars` | `{ offset }` | `offset` |
+| `.youtube` | `segment` | `{ seconds }` | `at` |
+
+`total` is always supplied by the caller and never computed server-side: deriving it would mean a full extraction per document, so a folder listing would parse every PDF in it. A position with no `total` is still a valid resume point; it simply has no percentage.
+
+**Finished** is derived, not stored: `furthestPercent >= 0.95`. Real documents end in indices and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; a manual write of 1.0 always clears the bar.
+
+### `GET /api/progress`
+
+Where the caller has read to in one document.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ unit, total, position, percent, furthest, furthestPercent, finished, stale, updatedAt }`, or `null` when the caller has never opened it. A missing record means *never started*; it is never backfilled to a zero position.
+
+`stale` is `chars`-only and means the body has been edited since the offset was measured: the percentage is kept, the now-meaningless absolute `offset` is dropped from `position`/`furthest`. Page and section positions do not drift.
+
+**Errors** `400` path required · `404` no document indexed at that path.
+
+---
+
+### `PUT /api/progress`
+
+Records a position.
+
+| Field      | Type   | Required | Description                                                                 |
+| ---------- | ------ | -------- | --------------------------------------------------------------------------- |
+| `path`     | string | Yes      | Relative path to the document.                                              |
+| `unit`     | string | Yes      | `page` \| `section` \| `chars` \| `segment`.                                |
+| `position` | object | Yes      | Format-specific locator (see the table above).                              |
+| `percent`  | number | No       | 0–1. Derived from `position`/`total` when omitted.                          |
+| `total`    | number | No       | Denominator in `unit`. Retained from the previous write when omitted.       |
+| `mode`     | string | No       | `auto` (default) or `manual`.                                               |
+
+`mode` is the whole auto-versus-manual rule and the only thing that decides the furthest mark:
+
+- **`auto`** always moves `position`, and advances `furthest` *only forward* — scrolling back to check something never costs you your place.
+- **`manual`** sets both, and **may move `furthest` backwards**. An explicit "I actually only got to page 20" has to be obeyable, or the mark can never be corrected. "Mark as finished" is a manual write of `percent: 1`.
+
+**Response** `200` — `{ ok: true, progress }`, `progress` in the shape of `GET /api/progress`.
+
+**Errors** `400` path required, unknown unit, missing position, or unknown mode · `404` no document indexed at that path · `409` the document has no `globalHash` to key a position to.
+
+---
+
+### `DELETE /api/progress`
+
+Forgets the caller's position in one document.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ ok: true }`. **Errors** `400` path required · `404` no such document.
+
+---
+
+### `GET /api/progress/reading`
+
+What the caller is partway through, most recently touched first.
+
+| Param             | In    | Type    | Required | Description                                     |
+| ----------------- | ----- | ------- | -------- | ----------------------------------------------- |
+| `limit`           | query | number  | No       | Maximum documents to return. Default 50.        |
+| `includeFinished` | query | boolean | No       | Include finished documents. Default `false`.    |
+
+**Response** `200` — an array of `{ path, name, globalHash, ...progress }`. Positions whose document has since been deleted are skipped, never dropped from the store.
+
+---
+
+### `GET /api/progress/list`
+
+One folder listing's worth of progress, in a single call — the shape the file explorer draws a level from.
+
+| Param     | In    | Type     | Required | Description                                                      |
+| --------- | ----- | -------- | -------- | ---------------------------------------------------------------- |
+| `folder`  | query | string   | No       | Folder to list. Defaults to the workspace root.                  |
+| `folders` | query | string[] | No       | Subfolders to roll up, repeated once per folder.                 |
+
+**Response** `200` — `{ documents, folders }`. `documents` is keyed by document `globalHash`; `folders` is keyed by folder path and holds a rollup each.
+
+Mirrors `listFolder`, which already returns a descendant-aggregated `flashcardCount` for folders as well as files — so the explorer renders one level at a time and never issues a request per node.
+
+---
+
+### `GET /api/progress/rollup`
+
+How far through a folder the caller is.
+
+| Param  | In    | Type   | Required | Description                                        |
+| ------ | ----- | ------ | -------- | -------------------------------------------------- |
+| `path` | query | string | No       | Folder path. Defaults to the workspace root.       |
+
+**Response** `200` — `{ path, total, finished, inProgress, unread, percent, subscription? }`.
+
+Counting rules, all of which follow from *finished* being derived:
+
+- **finished** — furthest `>= 0.95`
+- **inProgress** — a position exists and is not finished
+- **unread** — no position at all
+- **percent** — the mean across *every* document in the subtree, counting unread as 0, so the number describes the folder rather than only the parts already touched
+- a document with no denominator counts as `inProgress` and never as `finished`, and stays in `total`; dropping it would flatter the percentage
+
+`subscription` is present when the folder is a subscription's `target_path`, and carries `{ magazineId, issueId }`. That label is the whole of what a "subscription rollup" is: `Subscriptions` records what a publisher installed and is not account-scoped, so per-person progress over its folder is the only place that answer can come from — the label turns "12 of 47 documents" into "12 of 47 issues".
+
+---
+
+### `GET /api/progress/coverage`
+
+What the caller has read but has no flashcards for — the gap between the furthest mark and the deepest carded position.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ path, unit, total, readTo, readPercent, cardedTo, cardedPercent, cards, gap, gapKnown }`.
+
+`gap` is `{ from, to }` or `null`, and `gapKnown` separates the two reasons it can be null: cards already reach the mark, or the carded depth could not be determined. With no cards at all the gap is everything read so far (`from: 0`) — "nothing carded yet" is not the same answer as "nothing left to card".
+
+Cards are vault-wide — only *schedules* are personal — so `cardedTo` is not scoped to the caller. It is read from the sidecar rather than from `FlashcardReference`, because a highlight-anchored card keeps its position on the highlight and the sidecar holds both.
+
+`cardedTo` is `null` for `section` units: an EPUB card is anchored by CFI, and CFIs are not orderable without epub.js resolving them against the live book. Reporting "unknown" is the honest answer; inferring an ordinal from a CFI string is not.
 
 ---
 

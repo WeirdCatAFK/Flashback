@@ -108,8 +108,16 @@ export default function EpubRenderer({
   onSidecarRefresh,
   onExternalSelection,
   onImagePick,
+  initialProgress,
+  onProgress,
+  progressRef,
 }) {
   const { t } = useT();
+  // `wireRendition` runs once per load, so anything it closes over has to be reachable
+  // through a ref or it would go stale on the next render.
+  const onProgressRef = useRef(null);
+  const lastPosRef    = useRef(null);
+  const resumedRef    = useRef(false);
   const [highlights, setHighlights] = useState([]);
   // The figure the reader just clicked: { href, name, alt, rect } | null.
   const [imageHit, setImageHit] = useState(null);
@@ -311,8 +319,54 @@ export default function EpubRenderer({
       setAtEnd(!!loc?.atEnd);
       // The rect belonged to the page that just left.
       setImageHit(null);
+
+      // Reading position. The CFI is what resumes the renderer; the spine `href` is what
+      // addresses /api/reader, whose section numbers count only sections that HAVE text
+      // and so are not these indices. Both are stored precisely so neither has to be
+      // converted into the other.
+      const cfi = loc?.start?.cfi;
+      if (cfi) {
+        lastPosRef.current = { cfi, href: loc.start.href ?? null, section: loc.start.index ?? null };
+        onProgressRef.current?.(path, {
+          unit: 'section',
+          position: lastPosRef.current,
+          percent: typeof pct === 'number' ? pct : null,
+          total: bookRef.current?.spine?.length ?? null,
+        });
+      }
     });
   }
+
+  // --- Reading position -----------------------------------------------------
+
+  // Kept current without re-wiring the rendition, which happens once per load.
+  useEffect(() => { onProgressRef.current = onProgress ?? null; }, [onProgress]);
+  useEffect(() => { resumedRef.current = false; }, [path]);
+
+  // Resume once, when both the book and the saved position are available. The initial
+  // display() is deliberately left alone: it renders the opening section immediately
+  // rather than waiting on a network round trip, and this jumps afterwards. epub.js
+  // resolves a CFI against the live book, which is why the CFI is stored at all.
+  useEffect(() => {
+    if (resumedRef.current || !ready || initialProgress === undefined) return;
+    resumedRef.current = true;
+    const cfi = initialProgress?.position?.cfi;
+    if (cfi) renditionRef.current?.display(cfi).catch(() => {});
+  }, [ready, initialProgress]);
+
+  useEffect(() => {
+    if (!progressRef) return;
+    progressRef.current = {
+      goToStart: () => { renditionRef.current?.display().catch(() => {}); },
+      currentPosition: () => (lastPosRef.current ? {
+        unit: 'section',
+        position: lastPosRef.current,
+        percent: progress != null ? progress / 100 : null,
+        total: bookRef.current?.spine?.length ?? null,
+      } : null),
+    };
+    return () => { if (progressRef) progressRef.current = null; };
+  }, [progressRef, progress]);
 
   // --- Keep painted annotations in sync with the registry --------------------
   useEffect(() => {
