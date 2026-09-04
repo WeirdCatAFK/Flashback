@@ -7,6 +7,8 @@ import {
 } from './highlights';
 import { useHighlightableRenderer } from './useHighlightableRenderer';
 import ConflictBanner from '../../shared/ConflictBanner';
+import { useRef } from 'react';
+import { useScrollProgress } from './useScrollProgress';
 import { useT } from '../../../translations';
 import './Renderer.css';
 
@@ -57,8 +59,9 @@ const loadContent = (editor, text, meta) => {
   applyHighlightsToText(editor, meta.highlights ?? []);
 };
 
-export default function TextRenderer(props) {
+export default function TextRenderer({ initialProgress, onProgress, progressRef, ...props }) {
   const { t } = useT();
+  const containerRef = useRef(null);
   const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightableRenderer({
     ...props,
     extensions: EXTENSIONS,
@@ -68,8 +71,18 @@ export default function TextRenderer(props) {
     reconcile: highlightsFromText,
   });
 
+  useScrollProgress({
+    elementRef: containerRef,
+    path: props.path,
+    length: editor && !loading ? editor.getText().length : 0,
+    ready: !!editor && !loading,
+    initialProgress,
+    onProgress,
+    progressRef,
+  });
+
   return (
-    <div className="text-tiptap-container">
+    <div className="text-tiptap-container" ref={containerRef}>
       {conflict && <ConflictBanner onReload={reloadFromDisk} onOverwrite={overwrite} />}
       {loading && <div className="renderer-loading">{t('Loading…')}</div>}
       <EditorContent editor={editor} className="text-tiptap-wrapper" />

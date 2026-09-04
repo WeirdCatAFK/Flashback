@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
 import reader from '../access/orchestration/mcpReader.js';
+import readProgress from '../access/orchestration/readProgress.js';
 
 // Paginated, read-only text extraction for documents whose bodies are not decodable
 // text — PDF, EPUB, saved web clips — plus char-window reads of ordinary text files,
@@ -28,21 +29,66 @@ router.get('/info', catchError(async (req, res) => {
     res.json(await reader.info(relPath));
 }));
 
-// GET /api/reader/read?path=&index=&count=&offset=&limit=&charOffset=&at=
+// GET /api/reader/read?path=&index=&count=&offset=&limit=&charOffset=&at=&upTo=
 // One window of text. index/count address pages and sections (1-based); offset/limit
 // address character windows in text formats; at=<seconds> jumps to a YouTube
 // transcript moment.
+//
+// upTo=progress clamps the window to the caller's own furthest reading position, which is
+// what makes "make cards for everything I've read" a well-formed request: the assistant
+// cannot be handed a page past the mark. Composed HERE rather than inside mcpReader, which
+// ACCESS.md forbids from importing anything but files.js — the same reason routes/srs.js
+// composes the sequencer instead of folding it into the scheduler.
 router.get('/read', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await reader.read(relPath, {
+
+    const opts = {
         index: req.query.index,
         count: req.query.count,
         offset: req.query.offset,
         limit: req.query.limit,
         charOffset: req.query.charOffset,
         at: req.query.at,
-    }));
+    };
+
+    let bound = null;
+    if (req.query.upTo === 'progress') {
+        bound = await readProgress.readingBound(relPath, { readerInfo: await reader.info(relPath) });
+        if (bound.maxOffset != null) {
+            const from = Number(opts.offset ?? 0);
+            if (from >= bound.maxOffset) {
+                return res.status(400).json({
+                    error: `You have only read to character ${bound.maxOffset} of ${relPath}.`,
+                    code: 'past_progress', bound,
+                });
+            }
+            const want = opts.limit != null ? Number(opts.limit) : (bound.maxOffset - from);
+            opts.limit = Math.min(want, bound.maxOffset - from);
+        } else if (bound.maxIndex != null) {
+            const from = Number(opts.index ?? 1);
+            if (from > bound.maxIndex) {
+                return res.status(400).json({
+                    error: `You have only read to ${bound.unit} ${bound.maxIndex} of ${relPath}.`,
+                    code: 'past_progress', bound,
+                });
+            }
+            opts.count = Math.min(Number(opts.count ?? 1), bound.maxIndex - from + 1);
+            // `at` addresses by time and would jump straight past the mark.
+            if (opts.at != null) delete opts.at;
+        }
+    }
+
+    const data = await reader.read(relPath, opts);
+    if (bound) {
+        data.boundedBy = bound;
+        // Past the mark there is no more to read, whatever the document's real length says.
+        const reached = bound.maxOffset != null
+            ? (data.index + data.text.length) >= bound.maxOffset
+            : (data.index + (Number(opts.count ?? 1) - 1)) >= bound.maxIndex;
+        if (reached && !data.truncated) { data.hasMore = false; data.next = null; }
+    }
+    res.json(data);
 }));
 
 // GET /api/reader/images?path=

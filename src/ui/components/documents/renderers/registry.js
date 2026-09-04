@@ -18,7 +18,10 @@ import { lazy } from 'react';
  *
  * `editable` means the body is user-editable (a Save button, `PUT /api/documents/file`).
  * `supportsHighlight` means the renderer supplies a highlight command object on
- * `highlightRef`. See INTERFACE.md § Renderers & the Highlight Contract.
+ * `highlightRef`. `tracksProgress` means it reports a reading position through
+ * `onProgress`, resumes from `initialProgress`, and supplies `goToStart` /
+ * `currentPosition` on `progressRef` — which is what lets the editor draw the reading
+ * bar before the renderer's chunk has even arrived. See INTERFACE.md § Renderers.
  */
 const RENDERERS = {
     markdown: {
@@ -26,36 +29,42 @@ const RENDERERS = {
         extensions: ['md', 'markdown'],
         editable: true,
         supportsHighlight: true,
+        tracksProgress: true,
     },
     text: {
         load: lazy(() => import('./TextRenderer')),
         extensions: ['txt', 'text'],
         editable: true,
         supportsHighlight: true,
+        tracksProgress: true,
     },
     pdf: {
         load: lazy(() => import('./PdfRenderer')),
         extensions: ['pdf'],
         editable: false,
         supportsHighlight: true,
+        tracksProgress: true,
     },
     epub: {
         load: lazy(() => import('./EpubRenderer')),
         extensions: ['epub'],
         editable: false,
         supportsHighlight: true,
+        tracksProgress: true,
     },
     youtube: {
         load: lazy(() => import('./YoutubeRenderer')),
         extensions: ['youtube'],
         editable: false,
         supportsHighlight: true,
+        tracksProgress: true,
     },
     clip: {
         load: lazy(() => import('./ClipRenderer')),
         extensions: ['clip'],
         editable: false,
         supportsHighlight: true,
+        tracksProgress: true,
     },
 };
 
@@ -70,6 +79,7 @@ const PLACEHOLDER = {
     extensions: [],
     editable: false,
     supportsHighlight: false,
+    tracksProgress: false,
 };
 
 const BY_EXTENSION = new Map();
@@ -82,7 +92,8 @@ for (const entry of Object.values(RENDERERS)) {
  * extension gets the placeholder, so callers never branch on "no renderer".
  *
  * @param {string} path
- * @returns {{ load: React.ComponentType, editable: boolean, supportsHighlight: boolean }}
+ * @returns {{ load: React.ComponentType, editable: boolean, supportsHighlight: boolean,
+ *   tracksProgress: boolean }}
  */
 export function rendererFor(path) {
     if (!path) return PLACEHOLDER;

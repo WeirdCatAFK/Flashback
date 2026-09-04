@@ -79,10 +79,14 @@ Outside the vault deliberately: a vault folder is meant to be copied and handed 
 
 Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
 
+It also holds two per-person tables that must not travel with a copied vault: `AccountProgress` (every **non-owner's** SRS schedule) and `ReadProgress` (**everyone's** reading position, the owner's included — see `readProgress.js`). Both are keyed by `vault_id` plus a `globalHash`, never a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it.
+
 Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
 - `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
 - `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
 - `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
+- `saveAccountProgress()` / `getAccountProgress()` / `listAccountProgress()` / `deleteAccountProgress()` — never called for the owner; their canonical copy is the sidecar.
+- `saveReadProgress()` / `getReadProgress()` / `listReadProgress()` / `deleteReadProgress()` — **is** called for the owner. Read progress has no second canonical home to drift from. `scope` carries an account id or `OWNER_SCOPE` and so has no foreign key to `Accounts`; rows whose account was deleted are filtered on read, never deleted.
 
 ### `vault.js`
 Vault identity. `vault.json` at the vault root — a stable UUID that outlives renames, moves and copies, since the database can be rebuilt and `vaultName` is just a folder name. Deliberately a **sibling of `workspace/`**, not inside it: identity is not something to version or roll back, so Seal never tracks it and `UpdateRunner`'s walk never sees it (hence no `formatVersion`). Imports `config` only.
@@ -248,6 +252,21 @@ Read-only **text extraction** — plus the **media** a document carries (an EPUB
 - Extraction results are cached in memory, keyed by `relPath + mtimeMs + size` so an edited file invalidates itself, capped by entry count and total characters. **Nothing is cached to disk** — a cache file inside `workspace/` would surface as a stray item in the Vault Doctor and in Seal.
 
 **What it deliberately does not do:** produce highlight anchors. A highlight has to land in the coordinate system its renderer paints from (PDF text-layer bboxes, an epub.js CFI generated from the live iframe DOM), and neither is faithfully computable server-side. Cards don't need one — `create_flashcard`'s `highlightHash` is optional — so an assistant can read a book and draft cards from it while anchoring stays a reading gesture the user makes in the app.
+
+### `readProgress.js`
+**Where one person has read to.** Singleton export. The only module that knows both a document's *identity* and a reading *unit* — the unit vocabulary belongs to the reader and the identity belongs to the index, which is why this is a module rather than a few methods on `documents.js`. Imports `query.js`, `files.js`, `accounts.js`, `vault.js` and `requestContext.js`. Full HTTP surface in `API.md` § Read progress; data model in `DATAMODEL.md` § Read progress.
+
+Stored in **`accounts.db` for everyone, the owner included**, under the same `OWNER_SCOPE` sentinel. That is deliberately *not* the split `srs.js` makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream (`seal.js` already argues the weaker version of this for reviews), and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is COLLABORATOR-gated. **A write here produces no file and no Seal commit** — reading is not editing. Nothing is derived into the vault database, so a Doctor rebuild neither restores nor destroys it.
+
+- `get(relPath, { scope })` / `set(relPath, { unit, position, percent, total, mode }, { scope })` / `clear(relPath, { scope })`
+- `listInProgress({ scope, limit, includeFinished })` — what the caller is partway through.
+- `rollup(folderRelPath, { scope, rows })` / `folderRollup(...)` — a subtree aggregate, labelled with the magazine when the folder is a subscription's `target_path`. That label is the entirety of what a "subscription rollup" is: `Subscriptions` is a publisher-side record with no account scoping and no completion notion, so per-person progress over its folder is the only place the answer can come from.
+- `listForFolder(folderRelPath, { scope, folders })` — one folder listing's progress in one call, mirroring `listFolder`'s shape so the explorer never issues a request per node.
+- `coverage(relPath, { scope })` — the span read but not carded. Cards are vault-wide (only *schedules* are personal), so the carded depth is unscoped; it is read from the sidecar because a highlight-anchored card keeps its position on the highlight. Returns `cardedTo: null` for `section` units, since CFIs are not orderable without epub.js.
+
+**Positions are keyed by the CANONICAL `globalHash`, read from the sidecar** — not by `Documents.global_hash`, which is derived and can disagree with it (`importFile` does not always carry a caller-supplied hash into the index). A Doctor rebuild re-derives that column *from* the sidecar, so a position keyed to the indexed value would be silently orphaned by a rebuild. When `set()` finds the two disagree it corrects the indexed column toward the canonical one, which is what the Doctor would do anyway, and is what lets every rollup join plainly on the index.
+
+`total` is always supplied by the caller and never computed here: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a folder listing parse every PDF in it.
 
 ### `cardHealth.js`
 **Failure-signature classification** — decides which failing cards are worth acting on, and says why. Singleton export (like `diary.js`/`mcpReader.js`) so its baseline and session caches are shared. Full data model in `DATAMODEL.md` § Card Health.

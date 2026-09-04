@@ -634,6 +634,9 @@ AccountProgress(vault_id, account_id → Accounts.id, card_hash,
                 level, sm2_reps, last_recall, ease_factor,
                 fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
                 updated_at)          -- PK (vault_id, account_id, card_hash)
+ReadProgress(vault_id, scope, doc_hash,
+             unit, total, pos, pos_pct, far, far_pct, body_etag,
+             updated_at)              -- PK (vault_id, scope, doc_hash)
 AccountsSchemaVersion(version, applied_at)
 ```
 
@@ -703,6 +706,64 @@ Neither cross-store reference (`CardProgress.account_id`, `AccountProgress.vault
 Resolved **once**, at each orchestrator's entry point (`srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js`, `decks.js`), and passed down explicitly. `query.js` never reads it ambiently, and it **refuses a missing scope** rather than defaulting — defaulting to the owner would hand the owner's schedule to whoever forgot the argument, silently, which is the exact bug the split exists to prevent.
 
 A few call sites name `OWNER_SCOPE` outright, and each is a place where the data genuinely belongs to the files rather than to the caller: reconciling against a sidecar (`_syncDocumentFlashcards`, the Doctor's drift check), writing a canonical file (`_decks/*.json` snapshots, an Anki import's carried-over schedule, `Documents.presence`), and Seal's rollback snapshot — which rewinds the workspace and must not rewind a reader's studying along with it.
+
+## Read progress
+
+Where a person has read to in a document — a PDF page, an EPUB location, a character offset, a video timestamp. Captured automatically as they read and overridable by hand. Like a schedule, it is a property of a **person**; unlike a schedule, it is stored in exactly one place for everybody.
+
+### One home, not two
+
+| Whose | Canonical home | Travels with a copied vault | Versioned by Seal |
+|---|---|---|---|
+| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no | no |
+
+This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
+
+- **A position moves continuously.** `seal.js` justifies coalescing review commits with "nobody will ever roll back to the state of a card between two answers"; a scroll position is that argument several orders of magnitude over. Storing it in the sidecar would turn the act of reading into a commit stream — and writing the sidecar *without* sealing is worse, since `stageAll` stages only named paths, so the file would sit as permanent working-tree drift for the Doctor to sweep into a `reconcile:` commit later.
+- **A Reader must be able to record one.** `PUT /api/documents/metadata` is `collaborator`-gated, so a Reader cannot write a sidecar at all. Reading is not editing — the same sentence that governs a reader's review, applied to its purest case.
+
+So **recording a position writes no file and produces no Seal commit, for anybody**. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
+
+The cost is stated rather than hidden: **reading positions do not travel with a copied vault folder**, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
+
+### Identity
+
+Keyed by the document's **canonical `globalHash`, read from the sidecar** — not by `Documents.global_hash`. That column is derived and can disagree with the sidecar (`importFile` does not always carry a caller-supplied hash into the index), and a Doctor rebuild re-derives it *from* the sidecar; a position keyed to the indexed value would be silently orphaned by that rebuild. This is the same reasoning that keys `AccountProgress` by `card_hash` rather than a row id: only canonical identity survives a rebuild. When a write finds the two disagree it corrects the indexed column toward the canonical one — a repair the Doctor would perform anyway.
+
+Keying by hash also means a position **survives a rename or a move** for free, and correctly does **not** follow a `copy`, which regenerates identities.
+
+`scope` holds an account id or the literal `'owner'`, so — unlike `AccountProgress.account_id` — it carries no foreign key to `Accounts`: the sentinel is not a row there. Rows whose account has since been deleted are filtered on read, never deleted, for the reason `listAccountProgress` gives: quietly dropping a row on a read would turn a temporarily-missing account into permanent data loss.
+
+### Units
+
+A position is a `unit` plus a format-specific locator, expressed in **the same vocabulary `mcpReader` paginates by** rather than a fifth one — that is what lets a stored position bound a text read.
+
+| Format | `unit` | Locator | Addresses the reader with |
+|---|---|---|---|
+| `.pdf` | `page` | `{ page }` | `index` |
+| `.epub` | `section` | `{ cfi, href, section }` | `index`=`href` |
+| `.md` `.txt` `.clip` | `chars` | `{ offset }` | `offset` |
+| `.youtube` | `segment` | `{ seconds }` | `at` |
+
+The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers are *readable-section* ordinals — it skips spine items with no text, such as covers and plates — so they are **not** the spine indices the renderer knows. The bridge is `href`, which `info()` reports per section and `read()` accepts as a string `index`. The CFI resumes the renderer; the href addresses the reader; neither ordinal is converted into the other.
+
+Two honest approximations, recorded rather than hidden. A `chars` position is a scroll fraction, because no text renderer keeps a character offset (Markdown keeps no offset state at all), and the reader offset is derived from the percentage — a sound bound, not a precise cursor. And a `chars` offset is invalidated by editing the body, so `body_etag` records what it was measured against; when it no longer matches, the percentage is kept and the absolute offset is dropped rather than pretending it still points somewhere.
+
+`total` is always supplied by the writer and never computed server-side: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a 500-document folder listing parse 500 PDFs. A position without one is still a valid resume point; it simply has no percentage.
+
+### Current, furthest, and finished
+
+Two marks are kept. `pos` is where you are; `far` is the furthest you have reached. An `auto` write always moves `pos` and advances `far` only forward, so scrolling back to check something never costs you your place; a `manual` write sets both and **may move `far` backwards**, because an explicit correction has to be obeyable.
+
+There is no status column. **Finished is derived**: `far_pct >= 0.95`. Real documents end in indices, endnotes and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; "mark as finished" writes exactly 1.0 and always clears the bar.
+
+A missing row means **never started** and is never backfilled to a zero row — the same convention `CardProgress` uses, and what lets a rollup count unread documents without inventing records for them.
+
+### Rollups
+
+A folder rollup counts documents in its subtree: `finished`, `inProgress` (a position exists and is not finished), and `unread` (no position at all). `percent` is the mean across *every* document in the subtree with unread counting as 0, so the figure describes the folder rather than only the parts already touched. A document with no denominator counts as `inProgress` and never as `finished`, and stays in the total — dropping it would flatter the number.
+
+A **subscription rollup is a folder rollup labelled with a magazine**, and nothing more. `Subscriptions` records what a publisher installed (`magazine_id`, `issue_id`, `version`, `target_path`, `last_sync`); it is not account-scoped and has no completion notion, so per-person progress over its target folder is the only place "how far through is this reader" can come from. The label is the whole difference between "12 of 47 documents" and "12 of 47 issues".
 
 ---
 

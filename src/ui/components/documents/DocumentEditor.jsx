@@ -8,6 +8,8 @@ import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
 import { toLayoutRect, useUiZoomChange } from '../../utils/uiZoom';
+import ReadingBar from './ReadingBar';
+import { useReadProgress } from './useReadProgress';
 import { useT } from '../../translations';
 import { useSession } from '../../sessionContext.js';
 import './DocumentEditor.css';
@@ -17,6 +19,15 @@ const DEFAULT_HL_COLOR = 'amber';
 export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate, relocation }) {
   const { t } = useT();
   const { can } = useSession();
+  const {
+    initialProgress, reportProgress, resumeAt, dismissResume,
+    setManualProgress, clearProgress: clearReadProgress,
+  } = useReadProgress(activeTab);
+  // Mirrors the hook's record so the bar reflects a manual change immediately rather than
+  // waiting for the next open.
+  const [shownProgress, setShownProgress] = useState(null);
+  useEffect(() => { setShownProgress(initialProgress ?? null); }, [initialProgress]);
+
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -43,6 +54,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const rendererRef  = useRef(null);
   const saveRef      = useRef(null);
   const highlightRef = useRef(null);
+  const progressRef  = useRef(null);
 
   // A renderer declares whether its body can be edited and whether it can be highlighted
   // in renderers/registry.js, alongside the dynamic import of the component itself. Read as
@@ -430,6 +442,18 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
 
       <div className="doc-editor-body">
         <div className="doc-editor-content">
+          {activeRenderer.tracksProgress && (
+            <ReadingBar
+              progress={shownProgress}
+              resumed={!!resumeAt}
+              onGoToStart={() => { progressRef.current?.goToStart?.(); dismissResume(); }}
+              onDismissResume={dismissResume}
+              readPosition={() => progressRef.current?.currentPosition?.() ?? null}
+              onSetHere={async (body) => setShownProgress(await setManualProgress(body))}
+              onMarkFinished={async (body) => setShownProgress(await setManualProgress(body))}
+              onClear={async () => { await clearReadProgress(); setShownProgress(null); }}
+            />
+          )}
           <div
             className="doc-editor-renderer"
             ref={rendererRef}
@@ -453,6 +477,9 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 onNavigate={onNavigate}
                 onExternalSelection={handleExternalSelection}
                 onImagePick={handleImagePick}
+                initialProgress={initialProgress}
+                onProgress={reportProgress}
+                progressRef={progressRef}
               />
             </Suspense>
           </div>

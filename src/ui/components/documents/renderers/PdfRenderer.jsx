@@ -134,6 +134,9 @@ export default function PdfRenderer({
   highlightRef,
   onHighlightsChange,
   onSidecarRefresh,
+  initialProgress,
+  onProgress,
+  progressRef,
 }) {
   const { t, tp } = useT();
   const [pages,      setPages]      = useState([]);
@@ -155,6 +158,8 @@ export default function PdfRenderer({
   const pagesRef      = useRef(null);
   const drawOverlayRef = useRef(null);
   const drawDragRef    = useRef(null);
+  const resumedRef     = useRef(false);
+  const currentPageRef = useRef(1);
 
   // Load PDF + sidecar
   useEffect(() => {
@@ -194,6 +199,76 @@ export default function PdfRenderer({
 
     return () => { mounted = false; };
   }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Reading position -----------------------------------------------------
+  //
+  // A PDF's position is simply its page number, which is both what the reader resumes at
+  // and how /api/reader addresses the document — no translation either way.
+
+  useEffect(() => { resumedRef.current = false; }, [path]);
+
+  /** Scrolls a page into view by its 1-based number. */
+  const scrollToPage = useCallback((pageNumber) => {
+    const el = pagesRef.current?.querySelector(`[data-page="${pageNumber}"]`);
+    if (el) { el.scrollIntoView({ block: 'start' }); return true; }
+    return false;
+  }, []);
+
+  // Resume once, when BOTH the pages and the saved position have arrived — either can win
+  // the race, so this waits for the pair rather than assuming an order.
+  useEffect(() => {
+    if (resumedRef.current) return;
+    if (!pages.length || initialProgress === undefined) return;
+    resumedRef.current = true;
+    const page = initialProgress?.position?.page;
+    if (page && page > 1 && page <= pages.length) scrollToPage(page);
+  }, [pages, initialProgress, scrollToPage]);
+
+  // The topmost page overlapping the viewport is the page you are reading. Reported on
+  // every scroll; the debounce and the dwell guard live in useReadProgress, so this stays
+  // a plain observation.
+  useEffect(() => {
+    const el = pagesRef.current;
+    if (!el || !pages.length || !onProgress) return;
+
+    const report = () => {
+      const top = el.getBoundingClientRect().top;
+      let current = 1;
+      for (const node of el.querySelectorAll('[data-page]')) {
+        if (node.getBoundingClientRect().bottom > top) {
+          current = Number(node.dataset.page) || 1;
+          break;
+        }
+      }
+      if (current === currentPageRef.current) return;
+      currentPageRef.current = current;
+      onProgress(path, {
+        unit: 'page',
+        position: { page: current },
+        percent: current / pages.length,
+        total: pages.length,
+      });
+    };
+
+    el.addEventListener('scroll', report, { passive: true });
+    return () => el.removeEventListener('scroll', report);
+  }, [pages, path, onProgress]);
+
+  // The editor's "Go to start" needs a way in; the out-ref is the same channel saveRef and
+  // highlightRef already use.
+  useEffect(() => {
+    if (!progressRef) return;
+    progressRef.current = {
+      goToStart: () => { pagesRef.current?.scrollTo({ top: 0 }); },
+      currentPosition: () => ({
+        unit: 'page',
+        position: { page: currentPageRef.current },
+        percent: pages.length ? currentPageRef.current / pages.length : null,
+        total: pages.length,
+      }),
+    };
+    return () => { if (progressRef) progressRef.current = null; };
+  }, [progressRef, pages]);
 
   // Zoom helpers
   const zoomOut  = useCallback(() => setScale(s => Math.max(SCALE_MIN,  parseFloat((s - SCALE_STEP).toFixed(2)))), []);

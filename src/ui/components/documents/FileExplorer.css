@@ -190,6 +190,47 @@
   color: var(--color-bg-base);
 }
 
+/* ── Reading progress ────────────────────────────────────────────────────────
+   A thin bar plus a number, on documents and on folders alike. Deliberately quiet:
+   it sits beside the flashcard count and is absent entirely for anything never
+   opened, so a folder of untouched imports looks untouched. */
+.fe-progress {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.fe-progress-bar {
+  width: 22px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-bg-hover);
+  overflow: hidden;
+}
+
+.fe-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+
+.fe-progress--done .fe-progress-bar > span {
+  opacity: 0.55;
+}
+
+.fe-progress-text {
+  font-size: 9px;
+  line-height: 1;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.02em;
+}
+
+.fe-file.fe-selected .fe-progress-text {
+  color: var(--color-fg-primary);
+}
+
 /* ── Rename input ────────────────────────────────────────────────────────── */
 
 .fe-rename-input {

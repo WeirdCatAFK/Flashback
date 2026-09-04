@@ -11,6 +11,7 @@ import ProgressDialog from '../shared/ProgressDialog';
 import TagChipInput from '../shared/TagChipInput';
 import Modal from '../shared/Modal';
 import AnkiMappingModal from '../shared/AnkiMappingModal';
+import { listProgress } from '../../api/progress';
 import { useDataInvalidation, invalidateData } from '../../utils/dataBus';
 import { useT } from '../../translations';
 import './FileExplorer.css';
@@ -277,7 +278,41 @@ function InlineCreate({ type, onConfirm, onCancel }) {
 
 // ── File ──────────────────────────────────────────────────────────────────────
 
-function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSelect, onDoubleSelect, selectedPath, relocatePaths, onCtxMenu }) {
+// A document's reading position, and a folder's aggregate, drawn the same way: a thin
+// bar plus a number. Nothing is drawn for something never opened — the point of the
+// indicator is to make a large import navigable, which a row of empty bars would not.
+//
+// Fetched per folder listing rather than per node: /api/progress/list answers for a whole
+// level at once, mirroring listFolder, so opening a folder of 500 documents is one request.
+function ProgressBadge({ progress, rollup, t }) {
+  if (rollup) {
+    if (!rollup.total || rollup.finished + rollup.inProgress === 0) return null;
+    const pct = Math.round((rollup.percent ?? 0) * 100);
+    const label = rollup.subscription
+      ? t('{done} of {total} issues read', { done: rollup.finished, total: rollup.total })
+      : t('{done} of {total} read', { done: rollup.finished, total: rollup.total });
+    return (
+      <span className="fe-progress" title={label}>
+        <span className="fe-progress-bar"><span style={{ width: `${pct}%` }} /></span>
+        <span className="fe-progress-text">{rollup.finished}/{rollup.total}</span>
+      </span>
+    );
+  }
+
+  if (!progress) return null;
+  const pct = progress.furthestPercent != null ? Math.round(progress.furthestPercent * 100) : null;
+  const label = progress.finished
+    ? t('Finished')
+    : pct != null ? t('{percent}% read', { percent: pct }) : t('Started');
+  return (
+    <span className={`fe-progress${progress.finished ? ' fe-progress--done' : ''}`} title={label}>
+      <span className="fe-progress-bar"><span style={{ width: `${pct ?? 8}%` }} /></span>
+      {pct != null && <span className="fe-progress-text">{pct}%</span>}
+    </span>
+  );
+}
+
+function FileNode({ name, path, globalHash, flashcardCount = 0, progress = null, onRefresh, onSelect, onDoubleSelect, selectedPath, relocatePaths, onCtxMenu }) {
   const { t } = useT();
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft] = useState('');
@@ -354,6 +389,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
           : name
         }
       </span>
+      <ProgressBadge progress={progress} t={t} />
       {flashcardCount > 0 && (
         <span className="fe-fc-badge">{flashcardCount}</span>
       )}
@@ -363,11 +399,12 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, onRefresh, onSel
 
 // ── Folder ────────────────────────────────────────────────────────────────────
 
-function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress, onNeedsMapping }) {
+function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', rollup = null, onRefresh, onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onCtxMenu, onImportProgress, onNeedsMapping }) {
   const { t } = useT();
   const open = openPaths.has(path);
   const selected = path === selectedPath;
   const [children, setChildren] = useState([]);
+  const [progress, setProgress] = useState(null);
   const [loading, setLoading] = useState(false);
   const [renaming, setRenaming] = useState(false);
   const [draft, setDraft]       = useState('');
@@ -381,7 +418,15 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
 
   const loadChildren = useCallback(async () => {
     setLoading(true);
-    try { setChildren(sortItems(await listFolder(path))); }
+    try {
+      const items = sortItems(await listFolder(path));
+      setChildren(items);
+      // One progress call for the whole level, alongside the listing it annotates.
+      // Failure is silent: a missing indicator is a far smaller loss than a tree that
+      // refuses to open because the progress store was unreachable.
+      const folders = items.filter(i => i.type === 'folder').map(i => (path ? `${path}/${i.name}` : i.name));
+      listProgress(path, folders).then(setProgress).catch(() => setProgress(null));
+    }
     catch (err) { console.error('Load failed', err); }
     finally { setLoading(false); }
   }, [path]);
@@ -548,6 +593,7 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
             : name
           }
         </span>
+        <ProgressBadge rollup={rollup} t={t} />
         {flashcardCount > 0 && (
           <span className="fe-fc-badge">{flashcardCount}</span>
         )}
@@ -566,12 +612,14 @@ function FolderNode({ name, path, flashcardCount = 0, swatchColor = '', onRefres
           {!loading && children.map(item =>
             item.type === 'folder'
               ? <FolderNode key={item.name} name={item.name} path={childPath(item.name)}
-                  flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
+                  flashcardCount={item.flashcardCount ?? 0} swatchColor={item.metadata?.swatchColor ?? ''}
+                  rollup={progress?.folders?.[childPath(item.name)] ?? null}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                   onCtxMenu={onCtxMenu} onImportProgress={onImportProgress} onNeedsMapping={onNeedsMapping} />
               : <FileNode   key={item.name} name={item.name} path={childPath(item.name)}
                   globalHash={item.metadata?.globalHash}
+                  progress={progress?.documents?.[item.metadata?.globalHash] ?? null}
                   flashcardCount={item.flashcardCount ?? 0}
                   onRefresh={refresh} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                   relocatePaths={relocatePaths}
@@ -689,6 +737,7 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const { t } = useT();
   const { can } = useSession();
   const [items, setItems]       = useState([]);
+  const [rootProgress, setRootProgress] = useState(null);
   const [loading, setLoading]   = useState(true);
   const [rootError, setRootError] = useState(false);
   const [dragOver, setDragOver] = useState(false);
@@ -775,7 +824,12 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   const loadRoot = useCallback(async () => {
     setLoading(true);
     setRootError(false);
-    try { setItems(sortItems(await listFolder(''))); }
+    try {
+      const rootItems = sortItems(await listFolder(''));
+      setItems(rootItems);
+      const folders = rootItems.filter(i => i.type === 'folder').map(i => i.name);
+      listProgress('', folders).then(setRootProgress).catch(() => setRootProgress(null));
+    }
     catch (err) { console.error('Load root failed', err); setRootError(true); }
     finally { setLoading(false); }
   }, []);
@@ -948,12 +1002,14 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
         {!loading && items.map(item =>
           item.type === 'folder'
             ? <FolderNode key={`${item.name}:${treeVersion}`} name={item.name} path={item.name}
-                flashcardCount={item.flashcardCount ?? 0} swatchColor={item.swatchColor ?? ''}
+                flashcardCount={item.flashcardCount ?? 0} swatchColor={item.metadata?.swatchColor ?? ''}
+                rollup={rootProgress?.folders?.[item.name] ?? null}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths}
                 onCtxMenu={openCtxMenu} onImportProgress={setImporting} onNeedsMapping={setAnkiMapping} />
             : <FileNode   key={item.name} name={item.name} path={item.name}
                 globalHash={item.metadata?.globalHash}
+                progress={rootProgress?.documents?.[item.metadata?.globalHash] ?? null}
                 flashcardCount={item.flashcardCount ?? 0}
                 onRefresh={loadRoot} onSelect={onSelect} onDoubleSelect={onDoubleSelect} selectedPath={selectedPath}
                 relocatePaths={relocatePaths}

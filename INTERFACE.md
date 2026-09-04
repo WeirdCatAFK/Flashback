@@ -327,13 +327,15 @@ TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
 `PlaceholderRenderer`.
 
 **The registry is one table doing two jobs, and they cannot be separated.** Each entry pairs
-a `lazy()` import of the component with its `editable` and `supportsHighlight` flags. The
+a `lazy()` import of the component with its `editable`, `supportsHighlight` and
+`tracksProgress` flags. The
 components are lazy because pdf.js, epub.js and TipTap are about a megabyte between them and
 statically importing all of them meant opening *any* document paid for *every* format — the
 `Documents` chunk was 1.4 MB and is now 60 kB, with each heavy renderer fetched on first use.
 The flags cannot be lazy: `editable` decides whether the tab bar draws a Save button and
-`supportsHighlight` decides whether `SelectionToolbar` offers to highlight, and both render
-outside the `<Suspense>` boundary. So they are declared as plain data in the registry rather
+`supportsHighlight` decides whether `SelectionToolbar` offers to highlight, `tracksProgress`
+decides whether the reading bar is drawn above the document, and all three render outside the
+`<Suspense>` boundary. So they are declared as plain data in the registry rather
 than as statics on the component (`MyRenderer.supportsHighlight = true`), which a lazy
 component cannot expose until its chunk has arrived. Adding a format is one entry.
 
@@ -361,7 +363,35 @@ Every renderer receives the same props from `DocumentEditor`:
 | `onSidecarRefresh`    | callback  | `(path, metadata)` — full sidecar after load/save (cards, tags, …).                                                                  |
 | `onExternalSelection` | callback  | `({ text, rect }) \| null` — for renderers whose selection lives outside the top window (EPUB's iframes); drives `SelectionToolbar`. |
 | `onImagePick`         | callback  | `({ href, name, alt })` — the reader offering a picture as a card's front. Optional; only `EpubRenderer` fires it.                  |
+| `initialProgress`     | in        | The saved reading position to resume at; `null` when never opened and `undefined` while still loading. Renderers must wait for it to become defined rather than assuming an order — the body and the position race. |
+| `onProgress`          | callback  | `(path, { unit, position, percent, total })` — report freely, on every scroll or relocation. Debounce and the dwell guard live in `useReadProgress`, not at the call site. |
+| `progressRef`         | out (ref) | Set to `{ goToStart(), currentPosition() }`, or leave null. Drives the reading bar's "Go to start" and "Set mark here". |
 | `readOnly`            | in        | The caller may not write this document's body. Editor-backed renderers pass it to`useHighlightableRenderer`, which makes the editor non-editable. |
+
+### Reading position
+
+A renderer that sets `tracksProgress` owes three things: it resumes at `initialProgress`, it
+reports where the reader gets to through `onProgress`, and it publishes `goToStart` /
+`currentPosition` on `progressRef`. `DocumentEditor` owns none of the policy — the dwell
+guard, the write debounce and the auto-versus-manual rule all live in `useReadProgress`, so a
+renderer reports as often as it likes and never decides when to write.
+
+**Resume waits for a pair, not an order.** `initialProgress` arrives from the network and the
+body arrives from disk or a parser; either can win. Every renderer guards with a `resumedRef`
+and an effect depending on both, rather than assuming the position is there when the body
+loads.
+
+Positions are expressed in **the reader's units** (`page`, `section`, `chars`, `segment`), not
+in whatever the renderer finds convenient, because the same locator has to address
+`/api/reader` for MCP reads. Two consequences worth knowing before adding a format:
+
+- **EPUB stores a CFI *and* an `href`.** `mcpReader` numbers only sections that have text, so
+  its ordinals are not epub.js's spine indices. The CFI resumes the renderer, the href
+  addresses the reader, and neither is converted into the other.
+- **Text formats are a scroll fraction.** No text renderer keeps a character offset —
+  Markdown keeps no offset state at all — so `useScrollProgress` measures the scrollbar and
+  derives the offset from the percentage. It is a sound bound for "do not read past here", not
+  a cursor, and `body_etag` marks it stale once the body is edited underneath it.
 
 `readOnly` is set by `DocumentEditor` from the `editDocumentBody` capability, and it applies to
 exactly the renderers with `editable = true` (Markdown and text). Those two are the formats
