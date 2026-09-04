@@ -414,22 +414,27 @@ export default function Stats({ isActive }) {
                 sub={t('best {n}d', { n: formatNumber(stats.streak.longest) })} />
             </div>
 
-            <Panel
-              title={t('Acquisition')}>
-              <AcquisitionPanel acquisition={stats.acquisition} />
-            </Panel>
-
-            <Panel title={t('Review activity')} hint={t('Reviews per day over the last 26 weeks.')}>
-              <ActivityHeatmap activity={stats.activity} />
-            </Panel>
-
-            <div className="stats-two-col">
-              <Panel title={t('Due forecast')} hint={t('Cards coming up over the next two weeks.')}>
-                <ForecastChart forecast={stats.forecast} overdue={stats.overdue} />
-              </Panel>
-              <Panel title={t('Card maturity')}>
-                <MaturityBar maturity={stats.maturity} />
-              </Panel>
+            {/* Two columns of panels rather than one stack, paired so the tall panel in each
+                column sits beside the short one — the page then fits a laptop viewport
+                without scrolling. Explicit columns, not a masonry flow, because the pairing
+                is editorial: Acquisition reads with the forecast it explains. */}
+            <div className="stats-grid">
+              <div className="stats-col">
+                <Panel title={t('Acquisition')}>
+                  <AcquisitionPanel acquisition={stats.acquisition} />
+                </Panel>
+                <Panel title={t('Due forecast')} hint={t('Cards coming up over the next two weeks.')}>
+                  <ForecastChart forecast={stats.forecast} overdue={stats.overdue} />
+                </Panel>
+              </div>
+              <div className="stats-col">
+                <Panel title={t('Review activity')} hint={t('Reviews per day over the last 26 weeks.')}>
+                  <ActivityHeatmap activity={stats.activity} />
+                </Panel>
+                <Panel title={t('Card maturity')}>
+                  <MaturityBar maturity={stats.maturity} />
+                </Panel>
+              </div>
             </div>
           </>
         ) : null}
