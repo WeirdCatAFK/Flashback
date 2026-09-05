@@ -12,7 +12,8 @@
     }
   ],
   "mac": {
-    "target": "dmg"
+    "target": "dmg",
+    "icon": "flashback.png"
   },
   "linux": {
     "target": "AppImage",

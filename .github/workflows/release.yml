@@ -12,7 +12,8 @@ name: Release
 # upload assets for this repo.
 #
 # Four jobs:
-#   release            — the desktop installers, one per platform (matrix)
+#   release            — the desktop installers, one per platform (matrix): Windows NSIS,
+#                        Linux AppImage, and an UNSIGNED macOS .dmg (see the matrix comment)
 #   server-image       — builds the Docker image and boots a real container; publishes nothing
 #   server-zip         — builds the standalone Linux server zip, boots it, exercises the API,
 #                        and attaches it to the same draft release
@@ -44,6 +45,18 @@ jobs:
             build: npm run dist:win -- --publish always
           - os: ubuntu-latest
             build: npm run dist:linux -- --publish always
+          # macOS is UNSIGNED, and that has two consequences worth stating rather than
+          # discovering. Gatekeeper refuses an unsigned .dmg on a machine that did not build
+          # it, so a user has to right-click -> Open the first time; and electron-updater
+          # cannot apply a mac update without a signature, so the `latest-mac.yml` this job
+          # writes into the draft is inert — mac is manual download until there is a
+          # Developer ID certificate to sign with.
+          #
+          # arm64, not x64: the runner is Apple Silicon, electron-rebuild compiles
+          # better-sqlite3 for the host arch, and packing that into an x64 app produces a
+          # binary that only fails when someone launches it.
+          - os: macos-latest
+            build: npm run dist:mac -- --publish always
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -77,6 +90,10 @@ jobs:
         run: ${{ matrix.build }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # No-op off macOS. On the mac runner there is no certificate to find, so this
+          # makes the unsigned build a decision recorded here rather than a keychain lookup
+          # that can fail for reasons of its own.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
 
   server-image:
     name: Server image
