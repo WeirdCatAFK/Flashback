@@ -58,7 +58,7 @@ const PROGRESS_JOIN = (cardAlias = 'f', progressAlias = 'p') =>
  * FSRS stability is the truest memory-strength number the app has, so it wins
  * when present; cards scheduled under Leitner/SM-2 have none and fall back to
  * the app-wide `level` scalar. Level 6 maps to 1.0 — just past the vault-wide
- * mastery threshold of 5 (orchestration/srs.js).
+ * mastery threshold, MASTERY_LEVEL (orchestration/srs.js).
  *
  * The stability arm is a ladder of log-spaced bins rather than an actual log():
  * SQLite's math functions are a compile-time option we can't rely on.
@@ -947,6 +947,32 @@ class DocumentQuery {
         return (await this.db.prepare('SELECT COUNT(*) as c FROM Flashcards').get()).c;
     }
 
+    /**
+     * How much of the whole vault this person has actually learned, as a card-weighted sum.
+     *
+     * Returns the numerator and the denominator rather than the fraction, because the caller
+     * has to decide what an empty vault means and a NaN from 0/0 is not that decision.
+     *
+     * Card-weighted on purpose, exactly like the folder rollup in `getGraphData`: the score is
+     * SUM(learned) over COUNT(cards), never an average of per-document averages. Averaging the
+     * averages lets a document holding one card outvote one holding a hundred — the scale-free
+     * error `presence` makes and this expression was written to avoid.
+     *
+     * The outer join is what keeps the denominator honest. A card this person has never
+     * reviewed has no CardProgress row, reads NULL through every arm of CARD_LEARNED_SQL and
+     * scores 0 — it is not missing from the bottom of the fraction, which is the difference
+     * between "half the vault is unlearned" and "the half I touched went well".
+     */
+    async getVaultLearned(scope) {
+        const row = await this.db.prepare(`
+            SELECT COUNT(*) AS cards,
+                   COALESCE(SUM(${CARD_LEARNED_SQL('p')}), 0) AS learnedSum
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+        `).get(scoped(scope));
+        return { cards: row?.cards ?? 0, learnedSum: row?.learnedSum ?? 0 };
+    }
+
     async getMasteredFlashcardCount(threshold, scope) {
         return (await this.db.prepare(
             'SELECT COUNT(*) as c FROM CardProgress WHERE account_id = ? AND level >= ?'
@@ -1195,7 +1221,12 @@ class DocumentQuery {
         `).all(scoped(scope))).map(r => r.day);
     }
 
-    async getDueFlashcards({ algorithm = 'leitner', folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0 } = {}, scope) {
+    async getDueFlashcards({
+        algorithm = 'leitner', folder = null, document = null, deck = null, tags = null,
+        maxNew = 20, minPriority = 0,
+        readDocuments = null, readExcludeCards = null,
+        excludeFolders = null, excludeDocuments = null, excludeDecks = null, excludeTags = null,
+    } = {}, scope) {
         const account = scoped(scope);
         const cteParts = [];
         const whereConditions = [];
@@ -1204,13 +1235,20 @@ class DocumentQuery {
         // the only thing that decides their order, and this statement is assembled from
         // optional pieces. Three groups, concatenated at the bottom in exactly this sequence:
         //
-        //   folderParams — the folder_tree CTE, which is emitted first
-        //   efParams     — the latest_ef CTE (SM-2 only), emitted second
-        //   cardsParams  — the cards CTE: its progress join first, then its WHERE filters
+        //   folderParams        — the folder_tree CTE, which is emitted first
+        //   excludeFolderParams — the excluded_tree CTE, emitted second
+        //   efParams            — the latest_ef CTE (SM-2 only), emitted third
+        //   cardsParams         — the cards CTE: its progress join first, then its WHERE filters
         //
         // A single flat array worked while only the WHERE clause had binds. It stopped
         // working the moment the account scope had to appear inside two of the CTEs.
+        //
+        // Within `cardsParams` the order is the order `whereConditions` was pushed in, because
+        // that is the order the fragments are joined into the statement. A filter whose bind
+        // lives in a CTE (both folder trees) pushes a condition here and NO param, which is why
+        // the two lists are not the same length and must not be zipped.
         const folderParams = [];
+        const excludeFolderParams = [];
         const efParams = [];
         const cardsParams = [];
 
@@ -1223,6 +1261,24 @@ class DocumentQuery {
             )`);
             folderParams.push(folder);
             whereConditions.push('d.folder_id IN (SELECT id FROM folder_tree)');
+        }
+
+        // The mirror image, and NOT a mirror-image predicate: `d` is a LEFT JOIN, so a
+        // standalone card has a NULL folder_id, and `NULL NOT IN (...)` is never true. Without
+        // the IS NULL arm, setting any exclusion would silently delete every standalone card
+        // from the session. The positive filter above drops them on purpose — "cards in this
+        // folder" excludes cards in no folder — but "cards not in this folder" plainly includes
+        // them.
+        if (excludeFolders && excludeFolders.length > 0) {
+            const placeholders = excludeFolders.map(() => '?').join(', ');
+            cteParts.push(`excluded_tree AS (
+                SELECT id FROM Folders WHERE relative_path IN (${placeholders})
+                UNION ALL
+                SELECT fo.id FROM Folders fo
+                JOIN excluded_tree et ON fo.parent_id = et.id
+            )`);
+            excludeFolderParams.push(...excludeFolders);
+            whereConditions.push('(d.folder_id IS NULL OR d.folder_id NOT IN (SELECT id FROM excluded_tree))');
         }
 
         if (deck !== null) {
@@ -1281,6 +1337,79 @@ class DocumentQuery {
         if (minPriority > 0) {
             whereConditions.push('COALESCE(pc.priority, 0) >= ?');
             cardsParams.push(minPriority);
+        }
+
+        // Scoping to ONE document, the counterpart of `folder`. Strict in the same way: a
+        // standalone card is in no document, so "cards in this document" does not include it.
+        if (document !== null) {
+            whereConditions.push('d.relative_path = ?');
+            cardsParams.push(document);
+        }
+
+        // The read gate. Two lists supplied by the caller (`readProgress.studyFilter`); nothing
+        // here knows what reading is, only that these paths are allowed and these hashes are not.
+        //
+        // Bound as JSON through json_each rather than as placeholders, because the deny list is
+        // one entry per card ahead of the reader's mark and a single 400-card import can fill it
+        // — that is the parameter limit, not a filter this size is unusual. The allow list rides
+        // along for symmetry. SQLite has had JSON built in since 3.38 and better-sqlite3 compiles
+        // with SQLITE_ENABLE_JSON1.
+        //
+        // The IS NULL arm keeps standalone cards eligible: they are drawn from no document, so
+        // there is no reading against which to hold them back.
+        if (readDocuments) {
+            whereConditions.push('(f.document_id IS NULL OR d.relative_path IN (SELECT value FROM json_each(?)))');
+            cardsParams.push(JSON.stringify(readDocuments));
+        }
+
+        if (readExcludeCards && readExcludeCards.length > 0) {
+            whereConditions.push('f.global_hash NOT IN (SELECT value FROM json_each(?))');
+            cardsParams.push(JSON.stringify(readExcludeCards));
+        }
+
+        if (excludeDocuments && excludeDocuments.length > 0) {
+            const placeholders = excludeDocuments.map(() => '?').join(', ');
+            whereConditions.push(`(d.relative_path IS NULL OR d.relative_path NOT IN (${placeholders}))`);
+            cardsParams.push(...excludeDocuments);
+        }
+
+        if (excludeDecks && excludeDecks.length > 0) {
+            const placeholders = excludeDecks.map(() => '?').join(', ');
+            whereConditions.push(`f.global_hash NOT IN (
+                SELECT de.card_hash FROM DeckEntries de
+                JOIN Decks dk ON dk.id = de.deck_id
+                WHERE dk.global_hash IN (${placeholders})
+            )`);
+            cardsParams.push(...excludeDecks);
+        }
+
+        // Negated wholesale rather than rewritten: an exclusion that matched only direct tags
+        // would leave a card behind for every tag that lives on its folder, document or deck,
+        // which is nearly all of them — the same trap the positive filter above documents, and
+        // the more dangerous direction to get wrong, since the user is asking for something to
+        // be gone and would be shown it anyway.
+        if (excludeTags && excludeTags.length > 0) {
+            const placeholders = excludeTags.map(() => '?').join(', ');
+            whereConditions.push(`NOT (
+                EXISTS (
+                    SELECT 1 FROM Connections ctag
+                    JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                    WHERE ctag.origin_id = f.node_id
+                      AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                      AND tg.name IN (${placeholders})
+                )
+                OR EXISTS (
+                    SELECT 1 FROM InheritedTags it
+                    JOIN Connections cinh ON cinh.id = it.connection_id
+                    JOIN Tags tgi ON tgi.id = it.tag_id
+                    WHERE cinh.destiny_id = f.node_id
+                      AND cinh.type_id IN (
+                          SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck')
+                      )
+                      AND tgi.name IN (${placeholders})
+                )
+            )`);
+            cardsParams.push(...excludeTags, ...excludeTags);
         }
 
         const extraWhere = whereConditions.length > 0
@@ -1390,7 +1519,7 @@ class DocumentQuery {
               ${dueDateExpr} AS due_date,
               ${statusExpr} AS _status
             FROM cards
-        `).all(...folderParams, ...efParams, ...cardsParams);
+        `).all(...folderParams, ...excludeFolderParams, ...efParams, ...cardsParams);
 
         // Sort by category_priority ASC (lower = more foundational = study first),
         // then by due_date for due cards to surface the most overdue within each priority.
@@ -1525,6 +1654,11 @@ class DocumentQuery {
         return await this.db.prepare('SELECT * FROM Subscriptions WHERE magazine_id = ?').get(magazineId);
     }
 
+    /** Every tracked subscription, so a folder can be recognised as one issue's target. */
+    async listSubscriptions() {
+        return await this.db.prepare('SELECT * FROM Subscriptions').all();
+    }
+
     async upsertSubscription(data) {
         const stmt = this.db.prepare(`
             INSERT INTO Subscriptions (magazine_id, issue_id, version, target_path, last_sync)
@@ -1585,6 +1719,18 @@ class DocumentQuery {
 
     async getDocumentsByAbsPathPrefix(absPrefix) {
         return this.db.prepare(`SELECT absolute_path, relative_path FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
+            .all(this._escapeLike(absPrefix));
+    }
+
+    /**
+     * Every document under a subtree, with the identity a read position is keyed by.
+     *
+     * getDocumentsByAbsPathPrefix above returns paths only; the read-progress rollup joins on
+     * `global_hash`, so it needs its own projection rather than a second lookup per document.
+     */
+    async getDocumentsInTree(absPrefix) {
+        return this.db.prepare(`SELECT id, global_hash, relative_path, absolute_path, name
+            FROM Documents WHERE absolute_path LIKE ? || '%' ESCAPE '\\'`)
             .all(this._escapeLike(absPrefix));
     }
 

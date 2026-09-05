@@ -46,3 +46,126 @@
   color: var(--color-fg-secondary);
   font-size: 0.9rem;
 }
+
+/* The reading strip: where you are in a readable document, and the manual controls for
+   saying so yourself. Shown only for renderers that track a position (registry
+   `tracksProgress`). Deliberately one quiet line — an e-reader shows a progress line, but
+   this sits above a working editor and must not compete with it.
+
+   It doubles as the "resumed where you left off" notice. Opening at the saved position is
+   the e-reader convention, but a silent jump is disorienting when you meant to start over,
+   so the way back is always one click away until dismissed. */
+.doc-reading-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.75rem;
+  background: var(--color-bg-surface);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  font-size: 0.78rem;
+  flex-shrink: 0;
+}
+
+.doc-reading-where {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.doc-reading-bar-track {
+  flex: 1;
+  max-width: 160px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--color-bg-hover);
+  overflow: hidden;
+}
+
+.doc-reading-bar-track > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: 2px;
+}
+
+.doc-reading-bar > .doc-reading-action:first-of-type {
+  margin-left: auto;
+}
+
+/* The resume notice, grouped so its own buttons are not direct children of the bar and so
+   do not claim the `margin-left: auto` that pushes the controls to the right. It leads;
+   the controls stay where they always were. */
+.doc-reading-resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-width: 0;
+}
+
+/* Hosted inside a renderer's own toolbar (registry `ownsReadingBar`) rather than drawn as
+   a row of its own. The surface comes off entirely — a second background and a second
+   bottom border directly under the first is what made a PDF read as a wall of chrome —
+   and the type drops to the 11px the surrounding toolbars use. */
+.doc-reading-bar--inline {
+  padding: 0;
+  background: none;
+  border-bottom: none;
+  gap: 0.4rem;
+  font-size: 11px;
+  min-width: 0;
+}
+
+/* The host toolbar owns the spacing to its right: `.pdf-toolbar-pages` already has
+   `margin-left: auto` and `.epub-toolbar-spacer` is `flex: 1`, so pushing again here
+   would strand the controls against the window edge. */
+.doc-reading-bar--inline > .doc-reading-action:first-of-type {
+  margin-left: 0;
+}
+
+/* Fixed rather than `flex: 1` — in a toolbar the track is one item among many and must
+   not eat the space the zoom and font controls need. */
+.doc-reading-bar--inline .doc-reading-bar-track {
+  flex: 0 0 auto;
+  width: 48px;
+}
+
+.doc-reading-action {
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0.1rem 0.45rem;
+  color: var(--color-fg-secondary);
+  font: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.doc-reading-action:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.doc-reading-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.doc-reading-action--quiet {
+  border-color: transparent;
+}
+
+.doc-reading-dismiss {
+  background: none;
+  border: none;
+  color: var(--color-fg-secondary);
+  font-size: 1.05rem;
+  line-height: 1;
+  padding: 0 0.2rem;
+  cursor: pointer;
+}
+
+.doc-reading-dismiss:hover {
+  color: var(--color-fg-primary);
+}

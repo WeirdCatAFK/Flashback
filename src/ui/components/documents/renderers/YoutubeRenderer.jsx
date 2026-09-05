@@ -26,6 +26,10 @@ export default function YoutubeRenderer({
   highlightRef,
   onHighlightsChange,
   onSidecarRefresh,
+  initialProgress,
+  onProgress,
+  progressRef,
+  readingBar,
 }) {
   const { t, tp } = useT();
   const [meta,       setMeta]       = useState(null);   // { videoId, title, author, thumbnailUrl }
@@ -33,6 +37,8 @@ export default function YoutubeRenderer({
   const [loading,    setLoading]    = useState(true);
   const [error,      setError]      = useState(null);
   const [playerReady, setPlayerReady] = useState(false);
+  const watchedRef = useRef(null);   // { seconds, duration } from the embed's progress feed
+  const resumedRef = useRef(false);
   const [apiFailed,  setApiFailed]  = useState(false);
   const [playbackError, setPlaybackError] = useState(null); // { code, message } from the embed's onError
   const [reloadTick, setReloadTick] = useState(0);
@@ -185,12 +191,60 @@ export default function YoutubeRenderer({
         });
       } else if (d.event === 'markAt') {
         addMomentAt(d.seconds || 0);
+      } else if (d.event === 'progressAt') {
+        // Watched-to position. The unit is `segment` because that is how /api/reader
+        // addresses a transcript, and seconds are what its `at` parameter takes — so the
+        // locator needs no conversion to bound a transcript read.
+        const seconds = d.seconds || 0;
+        const duration = d.duration || 0;
+        watchedRef.current = { seconds, duration };
+        onProgressRef.current?.(path, {
+          unit: 'segment',
+          position: { seconds },
+          percent: duration > 0 ? Math.min(1, seconds / duration) : null,
+          total: duration || null,
+        });
       }
     }
 
     window.addEventListener('message', onMessage);
     return () => window.removeEventListener('message', onMessage);
-  }, [embedSrc, addMomentAt, t]);
+  }, [embedSrc, addMomentAt, path, t]);
+
+  // --- Reading position -----------------------------------------------------
+
+  // The message handler is wired per embed, so the callback reaches it through a ref
+  // rather than being a dependency that would re-wire the listener on every render.
+  const onProgressRef = useRef(null);
+  useEffect(() => { onProgressRef.current = onProgress ?? null; }, [onProgress]);
+  useEffect(() => { resumedRef.current = false; }, [path]);
+
+  // Resume where they stopped watching — seeking WITHOUT starting playback, because
+  // reopening a document is not a request to start playing it.
+  useEffect(() => {
+    if (resumedRef.current || !playerReady || initialProgress === undefined) return;
+    resumedRef.current = true;
+    const seconds = initialProgress?.position?.seconds;
+    if (seconds > 0) postCmd({ cmd: 'seekQuiet', seconds });
+  }, [playerReady, initialProgress, postCmd]);
+
+  useEffect(() => {
+    if (!progressRef) return;
+    progressRef.current = {
+      goToStart: () => postCmd({ cmd: 'seekQuiet', seconds: 0 }),
+      currentPosition: () => {
+        const w = watchedRef.current;
+        if (!w) return null;
+        return {
+          unit: 'segment',
+          position: { seconds: w.seconds },
+          percent: w.duration > 0 ? Math.min(1, w.seconds / w.duration) : null,
+          total: w.duration || null,
+        };
+      },
+    };
+    return () => { if (progressRef) progressRef.current = null; };
+  }, [progressRef, postCmd]);
 
   // Save: sidecar only (the .youtube body is immutable)
   const handleSaveRef = useRef(null);
@@ -373,6 +427,10 @@ export default function YoutubeRenderer({
           </button>
         )}
         {transcriptError && <span className="yt-transcript-error">{transcriptError}</span>}
+
+        {/* Hosted here rather than as a strip above the player — see registry.js
+            `ownsReadingBar`. */}
+        {readingBar}
       </div>
 
       {showTranscript && transcriptCues.length > 0 && (

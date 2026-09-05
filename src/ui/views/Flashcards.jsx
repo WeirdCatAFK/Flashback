@@ -237,9 +237,19 @@ export default function FlashcardsView() {
                             </button>
                         );
                     })}
-                    {stats && (
-                        <div className="fc-mastery">
-                            {t('Mastery {percent}%', { percent: stats.masteryPercentage?.toFixed(0) ?? 0 })}
+                    {stats && stats.masteryPercentage != null && (
+                        // Summarises the boxes above it: the share of the whole vault sitting at
+                        // the mastery level or higher. Titled with the raw counts because a bare
+                        // percentage next to a histogram invites the question "of what?" — and
+                        // because this is a different question from the Stats view's graded
+                        // completeness, which reads FSRS stability rather than a level cutoff.
+                        <div
+                            className="fc-mastery"
+                            title={t('{mastered} of {total} cards at level {level} or above',
+                                { mastered: stats.mastered ?? 0, total: stats.total ?? 0,
+                                  level: stats.masteryLevel ?? 5 })}
+                        >
+                            {t('Mastery {percent}%', { percent: stats.masteryPercentage.toFixed(0) })}
                         </div>
                     )}
                 </div>

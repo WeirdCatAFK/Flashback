@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect, Suspense } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo, Suspense } from 'react';
 import EditorTabBar    from './EditorTabBar';
 import SelectionToolbar from './SelectionToolbar';
 import Inspector         from './inspector/Inspector';
@@ -8,6 +8,8 @@ import { readFile, updateMetadata } from '../../api/documents';
 import { relocatePath } from '../../utils/relocatePath';
 import { useDataInvalidation } from '../../utils/dataBus';
 import { toLayoutRect, useUiZoomChange } from '../../utils/uiZoom';
+import ReadingBar from './ReadingBar';
+import { useReadProgress } from './useReadProgress';
 import { useT } from '../../translations';
 import { useSession } from '../../sessionContext.js';
 import './DocumentEditor.css';
@@ -17,6 +19,29 @@ const DEFAULT_HL_COLOR = 'amber';
 export default function DocumentEditor({ isActive = true, openTabs, activeTab, previewTab, onTabChange, onTabClose, onTabDoubleClick, pendingHighlight, onHighlightConsumed, onNavigate, relocation }) {
   const { t } = useT();
   const { can } = useSession();
+  const {
+    initialProgress, reportProgress, resumeAt, dismissResume,
+    setManualProgress, clearProgress: clearReadProgress, live: liveProgress,
+  } = useReadProgress(activeTab);
+  // Mirrors the hook's record so the bar reflects a manual change immediately rather than
+  // waiting for the next open.
+  const [shownProgress, setShownProgress] = useState(null);
+  useEffect(() => { setShownProgress(initialProgress ?? null); }, [initialProgress]);
+
+  // The stored record, with the reader's live position laid over it. Only `position` and
+  // `percent` move — `furthest` is the server's to advance, and overlaying it here would
+  // draw a mark going backwards that the server would never actually record.
+  const barProgress = useMemo(() => {
+    if (!liveProgress) return shownProgress;
+    return {
+      ...(shownProgress ?? { furthest: null, furthestPercent: null, finished: false }),
+      unit: liveProgress.unit,
+      position: liveProgress.position,
+      percent: liveProgress.percent,
+      total: liveProgress.total ?? shownProgress?.total ?? null,
+    };
+  }, [shownProgress, liveProgress]);
+
   const [selection, setSelection]         = useState(null);
   const [selectionRect, setSelectionRect] = useState(null);
   const [inspectorTab, setInspectorTab]   = useState('cards');
@@ -43,6 +68,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
   const rendererRef  = useRef(null);
   const saveRef      = useRef(null);
   const highlightRef = useRef(null);
+  const progressRef  = useRef(null);
 
   // A renderer declares whether its body can be edited and whether it can be highlighted
   // in renderers/registry.js, alongside the dynamic import of the component itself. Read as
@@ -405,6 +431,24 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
 
   const Renderer = activeRenderer.load;
 
+  // Built here, and imported statically, so the reading controls stay outside the lazy
+  // chunk exactly as before — `ownsReadingBar` decides only WHERE this mounts. A renderer
+  // that draws its own toolbar takes it as a prop and hosts it there; everything else gets
+  // it as the standalone strip above the document. Two bars stacked was the alternative.
+  const readingBar = activeRenderer.tracksProgress ? (
+    <ReadingBar
+      progress={barProgress}
+      resumed={!!resumeAt}
+      variant={activeRenderer.ownsReadingBar ? 'inline' : 'strip'}
+      onGoToStart={() => { progressRef.current?.goToStart?.(); dismissResume(); }}
+      onDismissResume={dismissResume}
+      readPosition={() => progressRef.current?.currentPosition?.() ?? null}
+      onSetHere={async (body) => setShownProgress(await setManualProgress(body))}
+      onMarkFinished={async (body) => setShownProgress(await setManualProgress(body))}
+      onClear={async () => { await clearReadProgress(); setShownProgress(null); }}
+    />
+  ) : null;
+
   if (!activeTab || openTabs.length === 0) {
     return (
       <div className="doc-editor doc-editor--empty">
@@ -430,6 +474,7 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
 
       <div className="doc-editor-body">
         <div className="doc-editor-content">
+          {!activeRenderer.ownsReadingBar && readingBar}
           <div
             className="doc-editor-renderer"
             ref={rendererRef}
@@ -453,6 +498,10 @@ export default function DocumentEditor({ isActive = true, openTabs, activeTab, p
                 onNavigate={onNavigate}
                 onExternalSelection={handleExternalSelection}
                 onImagePick={handleImagePick}
+                initialProgress={initialProgress}
+                onProgress={reportProgress}
+                progressRef={progressRef}
+                readingBar={activeRenderer.ownsReadingBar ? readingBar : undefined}
               />
             </Suspense>
           </div>

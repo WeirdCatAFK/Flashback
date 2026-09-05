@@ -439,11 +439,15 @@ Tier 3 — Package import (built on the orchestration tier, loaded on demand by 
 **Rules that keep this stable long-term:**
 
 - `query.js` and `files.js` never import each other.
-- `srs.js` and `documents.js` never import each other.
+- **`srs.js` never imports `documents.js`.** The reverse is deliberate: `documents.js` imports
+  `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` grade a card that
+  lives in a sidecar, so the sidecar write and the schedule write have to be one operation. The
+  dependency runs one way only, which is the property that matters — the scheduler knows nothing
+  about files, so it stays testable without a workspace and a rebuild can re-derive schedules
+  without replaying document history.
 - `documents.js` may be imported by any Tier 3 orchestrator that needs to create/update real
-  workspace files as part of a larger operation — currently `subscriptions.js` and
-  `obsidianImport.js`. (Previously written as a `subscriptions.js`-only exception; no longer
-  accurate now that `obsidianImport.js` exists.)
+  workspace files as part of a larger operation — currently `subscriptions.js` (issue merge),
+  `obsidianImport.js` (one document per note) and `doctor.js` (re-indexes documents from disk).
 - Raw `db.prepare()` calls outside `query.js` are not allowed, except a single `PRAGMA table_info(Decks)` schema-introspection check in `decks.js` (not a data query).
 - Filesystem access outside `files.js` is not allowed (except temp-dir work in orchestrators).
 
@@ -634,10 +638,15 @@ AccountProgress(vault_id, account_id → Accounts.id, card_hash,
                 level, sm2_reps, last_recall, ease_factor,
                 fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
                 updated_at)          -- PK (vault_id, account_id, card_hash)
+ReadProgress(vault_id, scope, doc_hash,
+             unit, total, pos, pos_pct, far, far_pct, body_etag,
+             updated_at)              -- PK (vault_id, scope, doc_hash)
 AccountsSchemaVersion(version, applied_at)
 ```
 
 Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
+
+`AccountsSchemaVersion` records this store's own **repairs** (`REPAIRS` in `accounts.js`), applied in order right after the schema on every open and skipped once their version is present. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows that are already wrong, which is what the counter is for. Repair 1 clears `pos_pct`/`far_pct` on every `unit = 'section'` row: EPUB percentages had been written on two different scales (see § Read progress), and the locator columns are deliberately left alone so every book still resumes exactly where it was.
 
 `AccountProgress` is the durable home of every **non-owner's** study schedule, and it is in this file for the same reason the access list is: it must not travel with a copied vault. See § Per-user progress. Keyed by `card_hash` (a card's `globalHash`) rather than a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it; keyed by `vault_id` because this store is install-scoped and an install can hold several vaults.
 
@@ -703,6 +712,103 @@ Neither cross-store reference (`CardProgress.account_id`, `AccountProgress.vault
 Resolved **once**, at each orchestrator's entry point (`srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js`, `decks.js`), and passed down explicitly. `query.js` never reads it ambiently, and it **refuses a missing scope** rather than defaulting — defaulting to the owner would hand the owner's schedule to whoever forgot the argument, silently, which is the exact bug the split exists to prevent.
 
 A few call sites name `OWNER_SCOPE` outright, and each is a place where the data genuinely belongs to the files rather than to the caller: reconciling against a sidecar (`_syncDocumentFlashcards`, the Doctor's drift check), writing a canonical file (`_decks/*.json` snapshots, an Anki import's carried-over schedule, `Documents.presence`), and Seal's rollback snapshot — which rewinds the workspace and must not rewind a reader's studying along with it.
+
+## Read progress
+
+Where a person has read to in a document — a PDF page, an EPUB location, a character offset, a video timestamp. Captured automatically as they read and overridable by hand. Like a schedule, it is a property of a **person**; unlike a schedule, it is stored in exactly one place for everybody.
+
+### One home, not two
+
+| Whose | Canonical home | Travels with a copied vault | Versioned by Seal |
+|---|---|---|---|
+| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no | no |
+
+This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
+
+- **A position moves continuously.** `seal.js` justifies coalescing review commits with "nobody will ever roll back to the state of a card between two answers"; a scroll position is that argument several orders of magnitude over. Storing it in the sidecar would turn the act of reading into a commit stream — and writing the sidecar *without* sealing is worse, since `stageAll` stages only named paths, so the file would sit as permanent working-tree drift for the Doctor to sweep into a `reconcile:` commit later.
+- **A Reader must be able to record one.** `PUT /api/documents/metadata` is `collaborator`-gated, so a Reader cannot write a sidecar at all. Reading is not editing — the same sentence that governs a reader's review, applied to its purest case.
+
+So **recording a position writes no file and produces no Seal commit, for anybody**. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
+
+The cost is stated rather than hidden: **reading positions do not travel with a copied vault folder**, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
+
+### Identity
+
+Keyed by the document's **canonical `globalHash`, read from the sidecar** — not by `Documents.global_hash`. That column is derived and can disagree with the sidecar (`importFile` does not always carry a caller-supplied hash into the index), and a Doctor rebuild re-derives it *from* the sidecar; a position keyed to the indexed value would be silently orphaned by that rebuild. This is the same reasoning that keys `AccountProgress` by `card_hash` rather than a row id: only canonical identity survives a rebuild. When a write finds the two disagree it corrects the indexed column toward the canonical one — a repair the Doctor would perform anyway.
+
+Keying by hash also means a position **survives a rename or a move** for free, and correctly does **not** follow a `copy`, which regenerates identities.
+
+`scope` holds an account id or the literal `'owner'`, so — unlike `AccountProgress.account_id` — it carries no foreign key to `Accounts`: the sentinel is not a row there. Rows whose account has since been deleted are filtered on read, never deleted, for the reason `listAccountProgress` gives: quietly dropping a row on a read would turn a temporarily-missing account into permanent data loss.
+
+### Units
+
+A position is a `unit` plus a format-specific locator, expressed in **the same vocabulary `mcpReader` paginates by** rather than a fifth one — that is what lets a stored position bound a text read.
+
+| Format | `unit` | Locator | Addresses the reader with |
+|---|---|---|---|
+| `.pdf` | `page` | `{ page }` | `index` |
+| `.epub` | `section` | `{ cfi, href, section }` | `index`=`href` |
+| `.md` `.txt` `.clip` | `chars` | `{ offset }` | `offset` |
+| `.youtube` | `segment` | `{ seconds }` | `at` |
+
+The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers are *readable-section* ordinals — it skips spine items with no text, such as covers and plates — so they are **not** the spine indices the renderer knows. The bridge is `href`, which `info()` reports per section and `read()` accepts as a string `index`. The CFI resumes the renderer; the href addresses the reader; neither ordinal is converted into the other.
+
+Two honest approximations, recorded rather than hidden. A `chars` position is a scroll fraction, because no text renderer keeps a character offset (Markdown keeps no offset state at all), and the reader offset is derived from the percentage — a sound bound, not a precise cursor. And a `chars` offset is invalidated by editing the body, so `body_etag` records what it was measured against; when it no longer matches, the percentage is kept and the absolute offset is dropped rather than pretending it still points somewhere.
+
+`total` is always supplied by the writer and never computed server-side: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a 500-document folder listing parse 500 PDFs. A position without one is still a valid resume point; it simply has no percentage.
+
+**One document, one percentage scale.** For `page`, `chars` and `segment` the locator and the percentage are the same scale, so `_percentOf` derives `locator / total` when the writer sends none. For `section` it derives **nothing**, and an EPUB that sends no `percent` stores none — because the three EPUB vocabularies above do not divide into one another. A spine index over a spine count counts covers and nav pages and is unweighted by text length; the percentage the renderer sends is how much prose is actually behind you.
+
+Filling the gap anyway is what broke it. epub.js reports no usable percentage until its `locations` index finishes building in the background, and while that ran the server supplied a spine ratio instead — so one column held two scales, a book 22% through its text recorded 48%, and since `auto` may only ever advance `far_pct`, that inflated figure then rejected every honest report behind it. The renderer now withholds the percentage until the index is real and re-publishes once it lands; the server derives nothing for `section`; and repair 1 (§ accounts.db) cleared the rows already written that way.
+
+### Current, furthest, and finished
+
+Two marks are kept. `pos` is where you are; `far` is the furthest you have reached. An `auto` write always moves `pos` and advances `far` only forward, so scrolling back to check something never costs you your place; a `manual` write sets both and **may move `far` backwards**, because an explicit correction has to be obeyable.
+
+There is no status column. **Finished is derived**: `far_pct >= 0.95`. Real documents end in indices, endnotes and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; "mark as finished" writes exactly 1.0 and always clears the bar.
+
+A missing row means **never started** and is never backfilled to a zero row — the same convention `CardProgress` uses, and what lets a rollup count unread documents without inventing records for them.
+
+### Studying what you have read
+
+`GET /api/srs/due?read=only` gates a study session on these marks — the answer to a four
+hundred card import landing on a book you are forty pages into. `readProgress.studyFilter()`
+returns two plain lists and the scheduler is handed them pre-resolved, because `srs.js` may not
+import an orchestrator that reaches the filesystem; the composition happens at the route layer,
+exactly as `vaultCompleteness` already does.
+
+The two lists are deliberately asymmetric, and that asymmetry is the policy:
+
+- **A document is gated on being opened at all.** One never opened is absent from the allow
+  list, which holds its whole pile back.
+- **A card is held back only on positive evidence** that its anchor sits past the furthest mark.
+  Unresolvable positions stay in the session: an EPUB CFI (not orderable — see below), a
+  Markdown inline highlight (no offsets), a card with no anchor. Standalone cards are drawn from
+  no document and are never gated.
+
+So the filter hides work it can prove you have not reached, never work it merely cannot locate.
+A finished document short-circuits before its sidecar is even read: 0.95 exists so back matter
+nobody reads does not keep a book permanently short of the line, and re-deriving a page bound
+from that figure would hold back the last 5% of its cards on the same technicality.
+
+Nothing is rescheduled — a held-back card is simply not offered this session, and reappears when
+the flag comes off. Cost is one accounts query, one subtree query, and one sidecar read per
+*partially* read document, once per session.
+
+**Where a card sits is read from the sidecar, not from `FlashcardReference`.** The anchor the UI
+and the MCP server actually write is `{type:'highlight', id}`, which carries no `data`, so the
+indexed row is `(type='highlight', NULL, NULL, NULL, NULL)` — the geometry is on the highlight.
+`readProgress._cardPositions()` joins the two by `flashcards[].location.id → highlights[].id`,
+and explicitly **not** by the highlight's `cardHashes[]`: that array is documented above as an
+optional mirror and is never populated (every renderer initialises it to `[]` and no
+card-creation path writes to it). Reading it was why `coverage()` reported "cannot tell" for
+every document carded the way the app itself cards them.
+
+### Rollups
+
+A folder rollup counts documents in its subtree: `finished`, `inProgress` (a position exists and is not finished), and `unread` (no position at all). `percent` is the mean across *every* document in the subtree with unread counting as 0, so the figure describes the folder rather than only the parts already touched. A document with no denominator counts as `inProgress` and never as `finished`, and stays in the total — dropping it would flatter the number.
+
+A **subscription rollup is a folder rollup labelled with a magazine**, and nothing more. `Subscriptions` records what a publisher installed (`magazine_id`, `issue_id`, `version`, `target_path`, `last_sync`); it is not account-scoped and has no completion notion, so per-person progress over its target folder is the only place "how far through is this reader" can come from. The label is the whole difference between "12 of 47 documents" and "12 of 47 issues".
 
 ---
 
@@ -1104,6 +1210,26 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 **Session-ordering columns record how a card was PRESENTED, not how it was graded.** They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. **A reader must treat NULL as "not recorded", never as distance 0**: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
 
 **Only the grade is stored, never the typed answer.** That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
+
+---
+
+### Table: FsrsParameters
+
+One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
+
+| Column        | Type         | Description                                                                                                                        |
+| ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| id            | integer (PK) | Unique identifier.                                                                                                                  |
+| account_id    | text         | An account id from `accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| weights_json  | text         | The 21 fitted weights, JSON-encoded. Consumed by `fsrs.js`; absent means the hand-rolled defaults are used.                          |
+| optimized_at  | timestamp    | When the fit was last run.                                                                                                          |
+| review_count  | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                        |
+
+`UNIQUE(account_id)` — one row per person, replaced on each optimize run.
+
+**One row per account, not one per vault.** The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
+
+Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the logs and therefore the input, so a rebuilt vault falls back to the default weights until each person re-optimizes. That is the same cost a rebuild has always carried for review history, not a new one.
 
 ---
 

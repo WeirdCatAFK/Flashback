@@ -10,13 +10,41 @@ import { typeAnswerParts } from '../components/shared/flashcardFields';
 import CardDetailModal from '../components/shared/CardDetailModal';
 import { LoadingState, ErrorState } from '../components/shared/StateView';
 import useKeybindings from '../hooks/useKeybindings';
-import { getPref, setPref, getNumberPref } from '../prefs.js';
+import { getPref, setPref, getNumberPref, getBoolPref } from '../prefs.js';
 import { eventKeyName, formatKeyLabel } from '../keybindings';
 import { useT } from '../translations';
 import { toDate } from '../translations/format';
 import './Trainer.css';
 
 const EMPTY_TAGS = [];
+
+// A session's scope, in one shape, defaulted field by field.
+//
+// `fb-trainer-scope` is a JSON blob in localStorage that predates the exclusions and the
+// document scope, so a saved object from an older build is missing half of these keys.
+// Reading it through here is what lets the shape grow without a migration — and what stops
+// `exclude.folders.map` throwing on the first render after an update.
+function normalizeScope(raw) {
+  return {
+    folder: raw?.folder ?? null,
+    document: raw?.document ?? null,
+    deck: raw?.deck ?? null,
+    deckName: raw?.deckName ?? null,
+    tags: raw?.tags ?? null,
+    exclude: {
+      folders: raw?.exclude?.folders ?? [],
+      documents: raw?.exclude?.documents ?? [],
+      // Decks are {hash, name}: the API wants the hash, the chip has to show the name.
+      decks: raw?.exclude?.decks ?? [],
+      tags: raw?.exclude?.tags ?? [],
+    },
+  };
+}
+
+// Anything excluded? Cheap enough to recompute, and used in three places.
+const hasExclusions = (ex) =>
+  (ex?.folders?.length ?? 0) + (ex?.documents?.length ?? 0) +
+  (ex?.decks?.length ?? 0) + (ex?.tags?.length ?? 0) > 0;
 
 // Anki-style grades. `outcome` is the binary success flag the backend logs; the
 // nuance is encoded in the ease delta and the next Leitner level. `kind` is the
@@ -115,21 +143,26 @@ function mapApiCard(raw, isNew = false) {
   };
 }
 
-function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
+function useDueCards({ folder, document, deck, tags, exclude, readOnly, maxNew, refreshToken }) {
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   // Stringify tags so the effect only re-runs when the set of tags actually changes.
   const tagsKey = tags ? tags.slice().sort().join(',') : '';
+  // Same trick for the exclusion set, which is four lists rather than one. JSON is enough:
+  // the lists are short, and they are rebuilt on every scope change anyway, so identity
+  // comparison would refetch on every render.
+  const excludeKey = JSON.stringify(exclude ?? {});
 
   // Reset loading/result/error inline when deps change so users don't see a
   // stale result between when deps change and when the effect fires.
-  const [prevDeps, setPrevDeps] = useState({ folder, deck, tagsKey, maxNew, refreshToken });
-  if (prevDeps.folder !== folder || prevDeps.deck !== deck ||
-      prevDeps.tagsKey !== tagsKey || prevDeps.maxNew !== maxNew ||
+  const [prevDeps, setPrevDeps] = useState({ folder, document, deck, tagsKey, excludeKey, readOnly, maxNew, refreshToken });
+  if (prevDeps.folder !== folder || prevDeps.document !== document || prevDeps.deck !== deck ||
+      prevDeps.tagsKey !== tagsKey || prevDeps.excludeKey !== excludeKey ||
+      prevDeps.readOnly !== readOnly || prevDeps.maxNew !== maxNew ||
       prevDeps.refreshToken !== refreshToken) {
-    setPrevDeps({ folder, deck, tagsKey, maxNew, refreshToken });
+    setPrevDeps({ folder, document, deck, tagsKey, excludeKey, readOnly, maxNew, refreshToken });
     setLoading(true);
     setResult(null);
     setError(null);
@@ -145,14 +178,17 @@ function useDueCards({ folder, deck, tags, maxNew, refreshToken }) {
       algorithm,
       maxNew,
       folder,
+      document,
       deck,
       order,
+      readOnly,
+      exclude: JSON.parse(excludeKey),
       tags: tagsArray?.length ? tagsArray : undefined,
     })
       .then(setResult)
       .catch(setError)
       .finally(() => setLoading(false));
-  }, [folder, deck, tagsKey, maxNew, refreshToken]);
+  }, [folder, document, deck, tagsKey, excludeKey, readOnly, maxNew, refreshToken]);
 
   // The server already sequenced this queue — by pedagogical tier, then by graph distance
   // within each tier. Do NOT re-sort it here. The previous client-side sort was a stable
@@ -325,9 +361,14 @@ function highlightMatch(tag, query) {
   );
 }
 
-// Browsable folder picker. Clicking a folder label applies it as scope;
-// clicking › navigates into that folder to see its subfolders.
-function FolderPicker({ onPick }) {
+// Browsable path picker. Clicking a label applies that path as scope; clicking ›
+// navigates into a folder to see what is inside it.
+//
+// `kind` decides what is pickable, not what is browsable — folders are always listed,
+// because you have to walk through them to reach a document. `label` and `applyLabel` are
+// passed in rather than derived so the same component reads correctly in both directions:
+// the exclude menu opens it to say "everything except this".
+function PathPicker({ kind = 'folder', label, applyLabel, onPick }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [browsePath, setBrowsePath] = useState('');
@@ -341,7 +382,8 @@ function FolderPicker({ onPick }) {
     setLoading(true);
     setBrowsePath(folderPath);
     listFolder(folderPath)
-      .then(items => setSubfolders(items.filter(i => i.type === 'folder')))
+      .then(items => setSubfolders(
+        kind === 'document' ? items : items.filter(i => i.type === 'folder')))
       .catch(() => setSubfolders([]))
       .finally(() => setLoading(false));
   };
@@ -372,7 +414,7 @@ function FolderPicker({ onPick }) {
   return (
     <>
       <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
-        {t('+ Folder')}
+        {label}
       </button>
       {open && createPortal(
         <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
@@ -388,29 +430,35 @@ function FolderPicker({ onPick }) {
               );
             })}
           </div>
-          {browsePath && (
+          {browsePath && kind === 'folder' && (
             <button type="button" className="scope-picker-apply"
               onClick={() => { onPick(browsePath); setOpen(false); }}>
-              {t('Study “{name}”', { name: crumbs.at(-1) })}
+              {applyLabel(crumbs.at(-1))}
             </button>
           )}
           <div className="scope-picker-list">
             {loading && <span className="scope-picker-empty">{t('Loading…')}</span>}
             {!loading && subfolders.length === 0 && (
-              <span className="scope-picker-empty">{t('No subfolders')}</span>
+              <span className="scope-picker-empty">
+                {kind === 'document' ? t('Nothing here') : t('No subfolders')}
+              </span>
             )}
             {!loading && subfolders.map(item => {
               const itemPath = browsePath ? `${browsePath}/${item.name}` : item.name;
+              const pickable = kind === 'folder' || item.type !== 'folder';
               return (
                 <div key={itemPath} className="scope-picker-item">
                   <button type="button" className="scope-picker-item-label"
+                    disabled={!pickable}
                     onClick={() => { onPick(itemPath); setOpen(false); }}>
                     {item.name}
                   </button>
-                  <button type="button" className="scope-picker-item-drill"
-                    onClick={() => loadLevel(itemPath)} title={t('Show subfolders')}>
-                    ›
-                  </button>
+                  {item.type === 'folder' && (
+                    <button type="button" className="scope-picker-item-drill"
+                      onClick={() => loadLevel(itemPath)} title={t('Show subfolders')}>
+                      ›
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -423,7 +471,7 @@ function FolderPicker({ onPick }) {
 }
 
 // Flat deck list picker.
-function DeckPicker({ onPick }) {
+function DeckPicker({ label, onPick }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
   const [decks, setDecks] = useState([]);
@@ -460,7 +508,7 @@ function DeckPicker({ onPick }) {
   return (
     <>
       <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
-        {t('+ Deck')}
+        {label}
       </button>
       {open && createPortal(
         <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
@@ -474,6 +522,76 @@ function DeckPicker({ onPick }) {
                 <button type="button" className="scope-picker-item-label"
                   onClick={() => { onPick({ deck: deck.globalHash, deckName: deck.name }); setOpen(false); }}>
                   {deck.name}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>,
+        document.body
+      )}
+    </>
+  );
+}
+
+// Flat tag list picker, the dropdown counterpart of TagInput.
+//
+// The inline chip input is right for the positive filter, where you are composing a scope
+// and want to type. Exclusions are chosen once and then left alone, so they live behind the
+// same button-and-dropdown shape as the folder and deck pickers rather than in a second
+// text field that looks like the first one but means the opposite.
+function TagPicker({ label, chosen = EMPTY_TAGS, onPick }) {
+  const { t } = useT();
+  const [open, setOpen] = useState(false);
+  const [tags, setTags] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const btnRef = useRef(null);
+  const dropRef = useRef(null);
+  const [dropPos, setDropPos] = useState({ top: 0, left: 0 });
+
+  const openPicker = () => {
+    if (!open) {
+      const r = btnRef.current.getBoundingClientRect();
+      setDropPos({ top: r.bottom + 4, left: r.left });
+      setLoading(true);
+      getTags()
+        .then(d => setTags(d.tags ?? []))
+        .catch(() => setTags([]))
+        .finally(() => setLoading(false));
+      setOpen(true);
+    } else {
+      setOpen(false);
+    }
+  };
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => {
+      if (!btnRef.current?.contains(e.target) && !dropRef.current?.contains(e.target))
+        setOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [open]);
+
+  const available = tags.filter(tag => !chosen.includes(tag));
+
+  return (
+    <>
+      <button ref={btnRef} type="button" className="scope-picker-btn" onClick={openPicker}>
+        {label}
+      </button>
+      {open && createPortal(
+        <div ref={dropRef} className="scope-picker-dropdown" style={{ top: dropPos.top, left: dropPos.left }}>
+          <div className="scope-picker-list">
+            {loading && <span className="scope-picker-empty">{t('Loading…')}</span>}
+            {!loading && available.length === 0 && (
+              <span className="scope-picker-empty">{t('No tags yet')}</span>
+            )}
+            {!loading && available.map(tag => (
+              <div key={tag} className="scope-picker-item">
+                <button type="button" className="scope-picker-item-label"
+                  onClick={() => { onPick(tag); setOpen(false); }}>
+                  {tag}
                 </button>
               </div>
             ))}
@@ -714,20 +832,19 @@ function FlashcardReviewer({ card, remaining, isActive, stageRef, onResult, onVi
 
 export default function FlashcardsTrainer({ isActive, studySession, onOpenSource }) {
   const [appliedScope, setAppliedScope] = useState(() => {
-    if (studySession) {
-      return {
-        folder: studySession.folder ?? null,
-        deck: studySession.deck ?? null,
-        deckName: studySession.deckName ?? null,
-        tags: null,
-      };
-    }
+    if (studySession) return normalizeScope(studySession);
     try {
       const saved = getPref('fb-trainer-scope');
-      if (saved) return JSON.parse(saved);
+      if (saved) return normalizeScope(JSON.parse(saved));
     } catch { /* ignore */ }
-    return { folder: null, deck: null, deckName: null, tags: null };
+    return normalizeScope(null);
   });
+
+  // Offer only cards drawn from material already read. Vault-scoped, because it is about
+  // this vault's reading positions and a reference vault with none of them would be
+  // permanently empty if the preference followed the person instead.
+  const [readOnly, setReadOnly] = useState(() => getBoolPref('fb-trainer-read-only', false));
+  const [showExclude, setShowExclude] = useState(false);
 
   // Session settings — read from localStorage, changes persist and reset the session.
   const [maxNew, setMaxNew] = useState(() => {
@@ -798,16 +915,27 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
   if (prevStudySession !== studySession) {
     setPrevStudySession(studySession);
     if (studySession) {
+      // An "exclude this" launch is additive — it says what to leave out of whatever you
+      // were already studying, so it merges into the live scope instead of replacing it.
+      const next = studySession.exclude
+        ? normalizeScope({
+            ...appliedScope,
+            exclude: {
+              folders: [...new Set([...appliedScope.exclude.folders, ...(studySession.exclude.folders ?? [])])],
+              documents: [...new Set([...appliedScope.exclude.documents, ...(studySession.exclude.documents ?? [])])],
+              decks: appliedScope.exclude.decks,
+              tags: appliedScope.exclude.tags,
+            },
+          })
+        : normalizeScope(studySession);
+
       const sameScope =
+        !studySession.exclude &&
         (studySession.folder ?? null) === appliedScope.folder &&
+        (studySession.document ?? null) === appliedScope.document &&
         (studySession.deck ?? null) === appliedScope.deck;
       if (!sameScope || sessionDone) {
-        setAppliedScope({
-          folder: studySession.folder ?? null,
-          deck: studySession.deck ?? null,
-          deckName: studySession.deckName ?? null,
-          tags: null,
-        });
+        setAppliedScope(next);
         setQueue([]);
         setSessionDone(false);
         setLastSession(null);
@@ -815,11 +943,40 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
     }
   }
 
-  const clearFolder = () => { setAppliedScope(s => ({ ...s, folder: null })); setQueue([]); setSessionDone(false); };
-  const clearDeck   = () => { setAppliedScope(s => ({ ...s, deck: null, deckName: null })); setQueue([]); setSessionDone(false); };
-  const applyFolder = (folder) => { setAppliedScope(s => ({ ...s, folder })); setQueue([]); setSessionDone(false); };
-  const applyDeck   = ({ deck, deckName }) => { setAppliedScope(s => ({ ...s, deck, deckName })); setQueue([]); setSessionDone(false); };
-  const applyTags   = (tags) => { setAppliedScope(s => ({ ...s, tags: tags?.length ? tags : null })); setQueue([]); setSessionDone(false); };
+  // Every scope change drops the queue, which is what makes the next fetch auto-start a
+  // fresh session rather than leaving the old one running under new rules.
+  const rescope = (fn) => { setAppliedScope(fn); setQueue([]); setSessionDone(false); };
+
+  const clearFolder   = () => rescope(s => ({ ...s, folder: null }));
+  const clearDocument = () => rescope(s => ({ ...s, document: null }));
+  const clearDeck     = () => rescope(s => ({ ...s, deck: null, deckName: null }));
+  const applyFolder   = (folder) => rescope(s => ({ ...s, folder }));
+  const applyDocument = (document) => rescope(s => ({ ...s, document }));
+  const applyDeck     = ({ deck, deckName }) => rescope(s => ({ ...s, deck, deckName }));
+  const applyTags     = (tags) => rescope(s => ({ ...s, tags: tags?.length ? tags : null }));
+
+  // Exclusions are a set, not a slot: the case they exist for is several bulk imports, and
+  // replacing the previous one on every pick would make that impossible to express.
+  const addExclusion = (kind, value) => rescope(s => {
+    const list = s.exclude[kind];
+    const key = kind === 'decks' ? (v) => v.hash : (v) => v;
+    if (list.some(v => key(v) === key(value))) return s;
+    return { ...s, exclude: { ...s.exclude, [kind]: [...list, value] } };
+  });
+  const removeExclusion = (kind, id) => rescope(s => ({
+    ...s,
+    exclude: {
+      ...s.exclude,
+      [kind]: s.exclude[kind].filter(v => (kind === 'decks' ? v.hash : v) !== id),
+    },
+  }));
+
+  const applyReadOnly = (on) => {
+    setReadOnly(on);
+    setPref('fb-trainer-read-only', String(on));
+    setQueue([]);
+    setSessionDone(false);
+  };
 
   // Re-check for due cards when the view becomes active — but only when there is
   // no session running. Mid-session the queue is already in state; a re-fetch would
@@ -834,8 +991,11 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
 
   const { cards, result, loading, error, sessionId } = useDueCards({
     folder: appliedScope.folder,
+    document: appliedScope.document,
     deck: appliedScope.deck,
     tags: appliedScope.tags,
+    exclude: appliedScope.exclude,
+    readOnly,
     maxNew,
     refreshToken,
   });
@@ -1047,10 +1207,77 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             <button type="button" onClick={clearFolder} title={t('Clear')}>×</button>
           </span>
         )}
-        {!appliedScope.folder && <FolderPicker onPick={applyFolder} />}
-        {!appliedScope.deck   && <DeckPicker   onPick={applyDeck} />}
+        {appliedScope.document && (
+          <span className="scope-chip">
+            {t('Document: {path}', { path: appliedScope.document })}
+            <button type="button" onClick={clearDocument} title={t('Clear')}>×</button>
+          </span>
+        )}
+
+        {/* Excluded scopes read as chips too, so what a session leaves out is as visible as
+            what it includes — a silent exclusion is indistinguishable from an empty vault. */}
+        {appliedScope.exclude.folders.map(path => (
+          <span key={`xf:${path}`} className="scope-chip scope-chip--exclude">
+            {t('Except folder: {path}', { path })}
+            <button type="button" onClick={() => removeExclusion('folders', path)} title={t('Clear')}>×</button>
+          </span>
+        ))}
+        {appliedScope.exclude.documents.map(path => (
+          <span key={`xd:${path}`} className="scope-chip scope-chip--exclude">
+            {t('Except document: {path}', { path })}
+            <button type="button" onClick={() => removeExclusion('documents', path)} title={t('Clear')}>×</button>
+          </span>
+        ))}
+        {appliedScope.exclude.decks.map(deck => (
+          <span key={`xk:${deck.hash}`} className="scope-chip scope-chip--exclude">
+            {t('Except deck: {name}', { name: deck.name ?? deck.hash })}
+            <button type="button" onClick={() => removeExclusion('decks', deck.hash)} title={t('Clear')}>×</button>
+          </span>
+        ))}
+        {appliedScope.exclude.tags.map(tag => (
+          <span key={`xt:${tag}`} className="scope-chip scope-chip--exclude">
+            {t('Except tag: {name}', { name: tag })}
+            <button type="button" onClick={() => removeExclusion('tags', tag)} title={t('Clear')}>×</button>
+          </span>
+        ))}
+
+        {!appliedScope.folder && (
+          <PathPicker kind="folder" label={t('+ Folder')} onPick={applyFolder}
+            applyLabel={(name) => t('Study “{name}”', { name })} />
+        )}
+        {!appliedScope.document && (
+          <PathPicker kind="document" label={t('+ Document')} onPick={applyDocument} applyLabel={() => null} />
+        )}
+        {!appliedScope.deck && <DeckPicker label={t('+ Deck')} onPick={applyDeck} />}
+        {/* Before the tag input, which is `flex: 1` and would otherwise push this off the row. */}
+        <button
+          type="button"
+          className={`scope-picker-btn${showExclude ? ' scope-picker-btn--active' : ''}`}
+          aria-expanded={showExclude}
+          onClick={() => setShowExclude(v => !v)}
+        >
+          {t('− Exclude')}
+        </button>
         <TagInput selected={appliedScope.tags ?? []} onApply={applyTags} />
       </div>
+
+      {/* Exclusions get their own row rather than four more buttons in the first one: they
+          are chosen rarely, they mean the opposite of everything beside them, and a bulk
+          import is usually parked once and then forgotten about. */}
+      {showExclude && (
+        <div className="trainer-scope-bar trainer-scope-bar--exclude">
+          <span className="scope-exclude-label">{t('Leave out')}</span>
+          <PathPicker kind="folder" label={t('− Folder')}
+            onPick={(path) => addExclusion('folders', path)}
+            applyLabel={(name) => t('Leave out “{name}”', { name })} />
+          <PathPicker kind="document" label={t('− Document')}
+            onPick={(path) => addExclusion('documents', path)} applyLabel={() => null} />
+          <DeckPicker label={t('− Deck')}
+            onPick={({ deck, deckName }) => addExclusion('decks', { hash: deck, name: deckName })} />
+          <TagPicker label={t('− Tag')} chosen={appliedScope.exclude.tags}
+            onPick={(tag) => addExclusion('tags', tag)} />
+        </div>
+      )}
 
       <div className="trainer-settings-row">
         <div className="trainer-setting">
@@ -1067,15 +1294,49 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
             onKeyDown={e => { if (e.key === 'Enter') applyMaxNew(maxNewDisplay); }}
           />
         </div>
+        <div className="trainer-setting">
+          <label className="trainer-setting-check" htmlFor="trainer-read-only">
+            <input
+              id="trainer-read-only"
+              type="checkbox"
+              checked={readOnly}
+              onChange={e => applyReadOnly(e.target.checked)}
+            />
+            <span>{t('Only what I’ve read')}</span>
+          </label>
+        </div>
       </div>
 
       {empty && (
         <div className="trainer-summary">
-          <h3 className="trainer-summary-title">{t('All caught up')}</h3>
-          {result?.nextDue
-            ? <p className="trainer-summary-line">{t('Next review {when}', { when: formatNextDue(result.nextDue, formatRelative, t) })}</p>
-            : <p className="trainer-summary-line">{t('No cards scheduled yet — start reviewing to build your schedule.')}</p>
-          }
+          {/* "All caught up" would be a lie when a filter is what emptied the session. Name
+              the filter and offer to lift it, rather than reporting a finished day. */}
+          {readOnly ? (
+            <>
+              <h3 className="trainer-summary-title">{t('Nothing due from what you’ve read')}</h3>
+              <p className="trainer-summary-line">
+                {t('Cards from pages you haven’t reached yet are being held back.')}
+              </p>
+              <button type="button" className="trainer-summary-btn" onClick={() => applyReadOnly(false)}>
+                {t('Study everything instead')}
+              </button>
+            </>
+          ) : hasExclusions(appliedScope.exclude) ? (
+            <>
+              <h3 className="trainer-summary-title">{t('Nothing due outside what you left out')}</h3>
+              <p className="trainer-summary-line">
+                {t('Clear an “Except” chip above to widen the session.')}
+              </p>
+            </>
+          ) : (
+            <>
+              <h3 className="trainer-summary-title">{t('All caught up')}</h3>
+              {result?.nextDue
+                ? <p className="trainer-summary-line">{t('Next review {when}', { when: formatNextDue(result.nextDue, formatRelative, t) })}</p>
+                : <p className="trainer-summary-line">{t('No cards scheduled yet — start reviewing to build your schedule.')}</p>
+              }
+            </>
+          )}
         </div>
       )}
 

@@ -21,7 +21,7 @@ Before the API starts, it undergoes a mandatory validation process to ensure the
 
 Base URL: `http://localhost:3000` (default port, configurable)
 
-`documents` · `reader` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
+`documents` · `reader` · `progress` · `media` · `flashcards` · `srs` · `subscriptions` · `seal` · `decks` · `highlights` · `categories` · `search` · `doctor` · `diary` · `vault` · `remotes` · `identity` · `accounts`
 
 All request bodies are JSON unless marked **multipart**. All responses are JSON unless noted otherwise. Paths in request bodies or query strings may use forward slashes on any platform; the server normalizes them internally.
 
@@ -449,6 +449,98 @@ The href must already appear in that clip's body. That check is what keeps this 
 
 ---
 
+### `GET /api/documents/tags`
+
+Every tag name in the vault.
+
+**Response** `200` — `{ tags }`.
+
+---
+
+### `GET /api/documents/tags/usage`
+
+Every tag with how many entities carry it — the Manage tab's tag list.
+
+**Response** `200` — `{ tags }`, each `{ name, count }`.
+
+---
+
+### `GET /api/documents/tags/entity`
+
+The three-tier tag state of one file or folder. See `DATAMODEL.md` § Tags for why exclusion is
+a stored fact rather than the absence of a tag.
+
+| Param      | In    | Type    | Required | Description                                   |
+| ---------- | ----- | ------- | -------- | --------------------------------------------- |
+| `path`     | query | string  | Yes      | Relative path to the file or folder.          |
+| `isFolder` | query | boolean | No       | `"true"` to resolve the path as a folder.     |
+
+**Response** `200` — `{ direct, inherited, excluded }`. `direct` and `inherited` come from the
+index; `excluded` is read from the sidecar, which is where it is canonical.
+
+**Errors** `400` path required · `404` entity not found.
+
+---
+
+### `GET /api/documents/sidecar`
+
+The raw `.flashback` sidecar for a file or folder, verbatim.
+
+| Param      | In    | Type    | Required | Description                               |
+| ---------- | ----- | ------- | -------- | ----------------------------------------- |
+| `path`     | query | string  | Yes      | Relative path to the file or folder.      |
+| `isFolder` | query | boolean | No       | `"true"` to resolve the path as a folder. |
+
+**Response** `200` — the sidecar JSON as-is. The document's etag rides in the **`ETag` header**
+rather than the body, because callers parse the body as the canonical format and an extra field
+would look like part of it. Pass that value back as `ifMatch` on a write.
+
+**Errors** `400` path required · `404` sidecar not found.
+
+---
+
+### `GET /api/documents/by-hash/:hash`
+
+Resolves a `globalHash` to a location — how the renderer turns a clicked `flashback://` link
+into a path to open.
+
+| Param  | In   | Type   | Required | Description                 |
+| ------ | ---- | ------ | -------- | --------------------------- |
+| `hash` | path | string | Yes      | The document's `globalHash`. |
+
+**Response** `200` — `{ relativePath, name }`.
+
+**Errors** `404` Document not found.
+
+---
+
+### `POST /api/documents/links/sync`
+
+Re-derives one document's `flashback://` link edges from its body. Writes are already synced on
+save; this is the manual repair path.
+
+**Body** `{ path }`.
+
+**Response** `200` — `{ ok: true }`.
+
+**Errors** `400` path required.
+
+---
+
+### `POST /api/documents/import/obsidian`
+
+Imports an Obsidian vault as a zip, one document per note. See `DATAMODEL.md` for the
+metadata-leakage rules (frontmatter, comments, tags, clozes).
+
+**Body** `multipart/form-data` — `file` (the zip, required), `targetPath` (destination folder,
+defaults to the workspace root).
+
+**Response** `201` — the importer's result summary.
+
+**Errors** `400` file required.
+
+---
+
 ## Reader `/api/reader`
 
 Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **media** those documents carry — an EPUB's figures, a clip's downloaded pictures and sound. Built for the MCP server — which has no renderer — but not restricted to it: the card form's media pickers are the other client of the media half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
@@ -556,6 +648,151 @@ One asset's bytes, with its own content type — the general form of `/image`, a
 **Errors** `400` path/href required, no such asset, an href matching more than one, or a clip asset not yet saved into the vault · `404` declared but missing from the archive or the vault · `415` format carries no media.
 
 The same allow-list applies for both formats, and a clip asset still loading from the web is **refused, not fetched** — this endpoint does no network IO on a caller's behalf. Downloading one is [`POST /api/documents/clip/asset`](#post-apidocumentsclipasset)'s job, and it is a POST precisely because it reaches out to the network.
+
+---
+
+## Read progress `/api/progress`
+
+Where the caller has read to in a document, and how far through a folder they are. Backed by [`access/orchestration/readProgress.js`](./access/ACCESS.md#readprogressjs).
+
+**Every endpoint here is about the caller's own reading.** None takes an account parameter and none can reach anyone else's positions, which is why the whole mount sits at `reader` in the permission table: recording where you got to is not an administrative act, and a Reader who could not record one could not resume anything. Cross-person visibility, if it is ever wanted, belongs under `accounts` beside [`GET /api/accounts/:id/progress`](#get-apiaccountsidprogress), where an actor and a target can be compared.
+
+Positions are stored in `accounts.db`, for **everyone including the owner**, keyed by `(vault_id, scope, document globalHash)`. This is deliberately not the split SRS makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream; and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. **Recording a position writes no file and produces no Seal commit.** The trade-off is that positions do not travel with a copied vault folder — the same bargain the access list and every reader's schedule already make. See `DATAMODEL.md` § Read progress.
+
+A position is a `unit` plus a format-specific locator, in the **same vocabulary the reader paginates by**, so a stored position can bound a text read:
+
+| Format | `unit` | Locator | Addresses `/api/reader/read` with |
+| --- | --- | --- | --- |
+| `.pdf` | `page` | `{ page }` | `index` |
+| `.epub` | `section` | `{ cfi, href, section }` | `index`=`href` |
+| `.md` `.markdown` `.txt` `.text` `.clip` | `chars` | `{ offset }` | `offset` |
+| `.youtube` | `segment` | `{ seconds }` | `at` |
+
+`total` is always supplied by the caller and never computed server-side: deriving it would mean a full extraction per document, so a folder listing would parse every PDF in it. A position with no `total` is still a valid resume point; it simply has no percentage.
+
+**One document, one percentage scale — and `section` is the exception that proves it.** For `page`, `chars` and `segment` the locator and the percentage are the same scale, so an omitted `percent` is derived as `locator / total`. For `section` it is **not derived at all**, and an EPUB that sends no `percent` stores none. Three different vocabularies are in play there: `position.section` is epub.js's *spine* index (which counts covers, nav documents and blank pages), `/api/reader` numbers only the sections that carry text, and the percentage the renderer sends is weighted by how much text is actually behind you. None converts into another without the book open.
+
+Deriving one anyway is what put two scales in one column: while epub.js builds its locations index it has no percentage to report, the gap was filled with a spine ratio, and since `auto` may only ever advance the furthest mark, that inflated figure then rejected every honest report behind it — a book 22% through its prose stuck at 48%. A missing percentage is the honest answer; the position still resumes, and `readingBound` falls back to the locator when the reader's unit matches the stored one.
+
+**Finished** is derived, not stored: `furthestPercent >= 0.95`. Real documents end in indices and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; a manual write of 1.0 always clears the bar.
+
+### `GET /api/progress`
+
+Where the caller has read to in one document.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ unit, total, position, percent, furthest, furthestPercent, finished, stale, updatedAt }`, or `null` when the caller has never opened it. A missing record means *never started*; it is never backfilled to a zero position.
+
+`stale` is `chars`-only and means the body has been edited since the offset was measured: the percentage is kept, the now-meaningless absolute `offset` is dropped from `position`/`furthest`. Page and section positions do not drift.
+
+**Errors** `400` path required · `404` no document indexed at that path.
+
+---
+
+### `PUT /api/progress`
+
+Records a position.
+
+| Field      | Type   | Required | Description                                                                 |
+| ---------- | ------ | -------- | --------------------------------------------------------------------------- |
+| `path`     | string | Yes      | Relative path to the document.                                              |
+| `unit`     | string | Yes      | `page` \| `section` \| `chars` \| `segment`.                                |
+| `position` | object | Yes      | Format-specific locator (see the table above).                              |
+| `percent`  | number | No       | 0–1. Derived from `position`/`total` when omitted — except for `section`, which is never derived (see above). |
+| `total`    | number | No       | Denominator in `unit`. Retained from the previous write when omitted.       |
+| `mode`     | string | No       | `auto` (default) or `manual`.                                               |
+
+`mode` is the whole auto-versus-manual rule and the only thing that decides the furthest mark:
+
+- **`auto`** always moves `position`, and advances `furthest` *only forward* — scrolling back to check something never costs you your place.
+- **`manual`** sets both, and **may move `furthest` backwards**. An explicit "I actually only got to page 20" has to be obeyable, or the mark can never be corrected. "Mark as finished" is a manual write of `percent: 1`.
+
+**Response** `200` — `{ ok: true, progress }`, `progress` in the shape of `GET /api/progress`.
+
+**Errors** `400` path required, unknown unit, missing position, or unknown mode · `404` no document indexed at that path · `409` the document has no `globalHash` to key a position to.
+
+---
+
+### `DELETE /api/progress`
+
+Forgets the caller's position in one document.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ ok: true }`. **Errors** `400` path required · `404` no such document.
+
+---
+
+### `GET /api/progress/reading`
+
+What the caller is partway through, most recently touched first.
+
+| Param             | In    | Type    | Required | Description                                     |
+| ----------------- | ----- | ------- | -------- | ----------------------------------------------- |
+| `limit`           | query | number  | No       | Maximum documents to return. Default 50.        |
+| `includeFinished` | query | boolean | No       | Include finished documents. Default `false`.    |
+
+**Response** `200` — an array of `{ path, name, globalHash, ...progress }`. Positions whose document has since been deleted are skipped, never dropped from the store.
+
+---
+
+### `GET /api/progress/list`
+
+One folder listing's worth of progress, in a single call — the shape the file explorer draws a level from.
+
+| Param     | In    | Type     | Required | Description                                                      |
+| --------- | ----- | -------- | -------- | ---------------------------------------------------------------- |
+| `folder`  | query | string   | No       | Folder to list. Defaults to the workspace root.                  |
+| `folders` | query | string[] | No       | Subfolders to roll up, repeated once per folder.                 |
+
+**Response** `200` — `{ documents, folders }`. `documents` is keyed by document `globalHash`; `folders` is keyed by folder path and holds a rollup each.
+
+Mirrors `listFolder`, which already returns a descendant-aggregated `flashcardCount` for folders as well as files — so the explorer renders one level at a time and never issues a request per node.
+
+---
+
+### `GET /api/progress/rollup`
+
+How far through a folder the caller is.
+
+| Param  | In    | Type   | Required | Description                                        |
+| ------ | ----- | ------ | -------- | -------------------------------------------------- |
+| `path` | query | string | No       | Folder path. Defaults to the workspace root.       |
+
+**Response** `200` — `{ path, total, finished, inProgress, unread, percent, subscription? }`.
+
+Counting rules, all of which follow from *finished* being derived:
+
+- **finished** — furthest `>= 0.95`
+- **inProgress** — a position exists and is not finished
+- **unread** — no position at all
+- **percent** — the mean across *every* document in the subtree, counting unread as 0, so the number describes the folder rather than only the parts already touched
+- a document with no denominator counts as `inProgress` and never as `finished`, and stays in `total`; dropping it would flatter the percentage
+
+`subscription` is present when the folder is a subscription's `target_path`, and carries `{ magazineId, issueId }`. That label is the whole of what a "subscription rollup" is: `Subscriptions` records what a publisher installed and is not account-scoped, so per-person progress over its folder is the only place that answer can come from — the label turns "12 of 47 documents" into "12 of 47 issues".
+
+---
+
+### `GET /api/progress/coverage`
+
+What the caller has read but has no flashcards for — the gap between the furthest mark and the deepest carded position.
+
+| Param  | In    | Type   | Required | Description                    |
+| ------ | ----- | ------ | -------- | ------------------------------ |
+| `path` | query | string | Yes      | Relative path to the document. |
+
+**Response** `200` — `{ path, unit, total, readTo, readPercent, cardedTo, cardedPercent, cards, gap, gapKnown }`.
+
+`gap` is `{ from, to }` or `null`, and `gapKnown` separates the two reasons it can be null: cards already reach the mark, or the carded depth could not be determined. With no cards at all the gap is everything read so far (`from: 0`) — "nothing carded yet" is not the same answer as "nothing left to card".
+
+Cards are vault-wide — only *schedules* are personal — so `cardedTo` is not scoped to the caller. It is read from the sidecar rather than from `FlashcardReference`, because a highlight-anchored card keeps its position on the highlight and the sidecar holds both.
+
+`cardedTo` is `null` for `section` units: an EPUB card is anchored by CFI, and CFIs are not orderable without epub.js resolving them against the live book. Reporting "unknown" is the honest answer; inferring an ordinal from a CFI string is not.
 
 ---
 
@@ -848,8 +1085,14 @@ Returns the cards to study now, **already in presentation order**.
 | `maxNew`      | number | New cards to introduce this session.                               |
 | `minPriority` | number | Only cards whose pedagogical category priority ≥ this.            |
 | `folder`      | string | Restrict to a folder subtree.                                      |
+| `document`    | string | Restrict to one document.                                          |
 | `deck`        | string | Restrict to a deck's cards.                                        |
 | `tag`         | string | Restrict to a tag — **direct or inherited**. Repeatable.           |
+| `excludeFolder`   | string | Hold back a folder subtree. Repeatable.                        |
+| `excludeDocument` | string | Hold back one document. Repeatable.                            |
+| `excludeDeck`     | string | Hold back a deck's cards, by `globalHash`. Repeatable.         |
+| `excludeTag`      | string | Hold back cards carrying this **effective** tag. Repeatable.   |
+| `read`        | string | `only` — offer only cards drawn from material the caller has read past. |
 | `order`       | string | `interleaved` (default) \| `shuffle` \| `priority`.             |
 | `seed`        | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports. |
 
@@ -859,15 +1102,44 @@ Returns the cards to study now, **already in presentation order**.
 
 Selection and sequencing are composed here but never folded together: the scheduler picks *which* cards from due dates alone, then the sequencer picks *what order*. Topology never moves a card across days. Full model in `DATAMODEL.md` § Session Sequencing.
 
-`tag` matches a card's **effective** tags — direct ones plus those inherited from its folder, document or deck (`InheritedTags`, already exclusion-resolved). Matching direct tags only would make the filter select nothing for almost every tag the picker offers, since tags are normally applied to containers rather than to individual cards.
+`tag` matches a card's **effective** tags — direct ones plus those inherited from its folder, document or deck (`InheritedTags`, already exclusion-resolved). Matching direct tags only would make the filter select nothing for almost every tag the picker offers, since tags are normally applied to containers rather than to individual cards. `excludeTag` is the same expression negated, for the same reason and more urgently: the user is asking for something to be *gone*, and a direct-only match would show it to them anyway.
+
+**Every exclusion keeps standalone cards.** A card with no document is in no folder and in no
+document, so it cannot be in an excluded one. This is not symmetric with the positive filters,
+which drop document-less cards on purpose: "cards in this folder" excludes them, "cards not in
+this folder" plainly includes them. (In SQL the trap is that `NULL NOT IN (…)` is never true, so
+the naive predicate would delete every standalone card in the vault along with the exclusion.)
+
+`read=only` gates the session on **read progress** (`DATAMODEL.md` § Read progress). Two rules,
+and the asymmetry between them is the whole policy:
+
+- A document the caller has **never opened** contributes nothing at all.
+- Inside a document they have opened, a card is held back only when its anchor is **provably**
+  ahead of their furthest mark. A card whose position cannot be resolved — an EPUB CFI, a
+  Markdown inline highlight, a card with no anchor — stays in the session, as does every
+  standalone card. The gate hides work it can prove you have not reached, never work it merely
+  cannot locate.
+
+Nothing is rescheduled: a held-back card is not offered *this session* and reappears the moment
+the flag comes off. Both the exclusions and the gate are applied during **selection**, so
+`maxNew` still fills from eligible cards rather than from whichever of the first `maxNew`
+happened to survive.
 
 ---
 
 ### `GET /api/srs/stats`
 
-Returns the Leitner box distribution and total flashcard count across the whole workspace.
+Returns the Leitner box distribution across the whole workspace, plus the mastery summary of
+it. Scoped to the caller: the boxes come from `COALESCE(CardProgress.level, 0)`, so a card this
+person has never reviewed is in box 0 rather than absent.
 
-**Response** `200` — `{ boxes: [{ level, count }], total: number }`.
+**Response** `200` — `{ boxes: [{ level, count }], total, mastered, masteryLevel, masteryPercentage }`.
+
+`mastered` counts the caller's cards at `masteryLevel` (5) or above; `total` counts every card
+in the vault, so `masteryPercentage` is a share of the whole vault rather than of the part
+already studied. **Not the same question as `completeness.known` on `/api/srs/statistics`**,
+which grades each card 0..1 from FSRS stability — this one is a binary cutoff and exists to
+summarise the histogram it is served with.
 
 ### `POST /api/srs/undo`
 
@@ -915,16 +1187,45 @@ fitted, and when.
 ### `GET /api/srs/statistics`
 
 Vault-wide analytics for the Stats view, scoped to the caller: retention, acquisition, maturity,
-due forecast, activity heatmap, streaks, and a derived `milestones` array. Retention counts only
-reviews past a card's learning phase — the learning phase is reported separately under
-`acquisition`, rather than being averaged into a number that would then flatter every vault with
-new cards in it. Read-only.
+due forecast, activity heatmap, streaks and completeness. Retention counts only reviews past a
+card's learning phase — the learning phase is reported separately under `acquisition`, rather than
+being averaged into a number that would then flatter every vault with new cards in it. Read-only.
 
 | Param       | Type   | Required | Description                                   |
 | ----------- | ------ | -------- | --------------------------------------------- |
 | `algorithm` | string | no       | Defaults server-side via `detectAlgorithm()`. |
 
 **Response** `200` — the statistics object.
+
+#### `completeness` — how far through the vault the caller is
+
+**Not `acquisition`.** The two sit side by side and mean different things: `acquisition` is about
+the *learning phase of a review* (first-exposure hit rate, retention over a card's first few reps),
+while `completeness` is about *the vault* — how much of it has been read, and how well the cards
+drawn from it are known.
+
+```
+completeness: {
+  percent,                                          // 0..1, or null when the vault is empty
+  read:  { percent, documents, finished, inProgress, unread },
+  known: { percent, cards, mature, young, new }
+}
+```
+
+- `read` is `readProgress.rollup('')` verbatim — the mean furthest-read fraction across **every**
+  document, an unread one counting as 0.
+- `known` is `SUM(learned) / COUNT(cards)` over every card in the vault, where `learned` is the
+  same per-card 0..1 score GraphView paints (`query.js`'s `CARD_LEARNED_SQL`: FSRS stability when
+  present, else `level/6` capped at 1). A card with no `CardProgress` row scores 0 rather than
+  leaving the denominator.
+- `percent` is the mean of the two halves — but **a half with an empty denominator is dropped
+  rather than counted as zero**. A vault of standalone cards has nothing to read, and scoring it
+  0% read would be a statement about material that does not exist; the same goes for a reference
+  vault carrying no cards. With both empty, `percent` is `null`.
+
+Composed at the route rather than inside `SRS.getStatistics()`: the two halves come from different
+orchestrators, and `srs.js` may not import `readProgress.js` — that would pull `files.js` into the
+scheduler, which is what "srs.js never imports documents.js" exists to prevent.
 
 ---
 
@@ -1287,6 +1588,18 @@ is what lets the client say so instead of showing a raw sidecar path.
 
 Paging is cursor-based because git history is a linked list, not an indexable array. A page
 shorter than `limit` means history ended.
+
+---
+
+### `GET /api/seal/commit/:oid/files`
+
+The paths one commit touched, for expanding a row in the history view.
+
+| Param | In   | Type   | Required | Description                  |
+| ----- | ---- | ------ | -------- | ---------------------------- |
+| `oid` | path | string | Yes      | The commit's object id, from `GET /api/seal/log`. |
+
+**Response** `200` — the commit's changed paths against its parent.
 
 ---
 

@@ -248,7 +248,9 @@ export function registerReadTools(server) {
         '`total` (pages, sections, segments, or characters) and a `label` such as "p. 37" or a "m:ss" ' +
         'timestamp — cite that label when a card comes from a specific place. Scanned PDFs have no text ' +
         'layer and return nothing readable; a YouTube document with no transcript yet says how to fetch one. ' +
-        'This is READ-ONLY and returns a FRAGMENT: never pass its output to update_document, which ' +
+        'Pass `upTo: "progress"` to clamp the window to how far the user has actually read - use it for any '
+        + 'request phrased around what THEY have read, so you never hand back a page they have not reached. '
+        + 'This is READ-ONLY and returns a FRAGMENT: never pass its output to update_document, which ' +
         'overwrites an entire body — and which refuses these formats anyway.',
       inputSchema: {
         path: z.string().describe('Relative path to the document from the workspace root.'),
@@ -258,10 +260,11 @@ export function registerReadTools(server) {
         limit: z.number().int().min(1).optional().describe('Character-window text formats only: how many characters to return. Capped server-side.'),
         charOffset: z.number().int().min(0).optional().describe('Resume inside a single oversized page/section — pass the `nextCharOffset` from a truncated response.'),
         at: z.number().min(0).optional().describe('YouTube transcript only: seconds to jump to. Lands on the transcript block covering that moment (e.g. a video_timestamp highlight\'s `start`); pass `count` for surrounding blocks.'),
+        upTo: z.literal('progress').optional().describe('Clamp the read to how far the user has actually read. Pass "progress" whenever the request is about what THEY have read ("make cards for what I have read so far") - it stops you reading past their mark, so you cannot spoil a document they are partway through. Errors if they have no recorded position here.'),
       },
     },
-    safe(async ({ path, index, count, offset, limit, charOffset, at }) => {
-      const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset, at })}`);
+    safe(async ({ path, index, count, offset, limit, charOffset, at, upTo }) => {
+      const data = await request('GET', `/api/reader/read${qs({ path, index, count, offset, limit, charOffset, at, upTo })}`);
       return asText(data);
     }),
   );
@@ -735,5 +738,88 @@ export function registerReadTools(server) {
       const data = await request('GET', `/api/diary/entry/${encodeURIComponent(date)}`);
       return asText(data);
     }),
+  );
+
+  // ---------------------------------------------------------------------------
+  // Read progress — where the USER has read to. Every tool here is about the caller;
+  // none of them can reach anyone else's positions.
+  // ---------------------------------------------------------------------------
+
+  server.registerTool(
+    'get_read_progress',
+    {
+      title: 'Where the user has read to',
+      description:
+        'How far the user has read into ONE document. Returns their current position, the furthest ' +
+        'point they have reached, a percentage, and whether it counts as finished. Call this before ' +
+        'making cards "from what I have read", before summarising a book they are partway through, or ' +
+        'any time you are about to read a long document on their behalf — then pass ' +
+        '`upTo: "progress"` to read_document_text so you stay behind their mark. ' +
+        'A null result means they have never opened it, which is different from being at the start. ' +
+        '`stale` (text formats only) means the body was edited after the position was recorded, so the ' +
+        'percentage still holds but the exact offset no longer does.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document from the workspace root.'),
+      },
+    },
+    safe(async ({ path }) => asText(await request('GET', `/api/progress${qs({ path })}`))),
+  );
+
+  server.registerTool(
+    'list_reading',
+    {
+      title: 'What the user is in the middle of',
+      description:
+        'Every document the user has started and not finished, most recently read first. This is how ' +
+        'you answer "what am I in the middle of?", "what should I get back to?", or pick up work across ' +
+        'several documents at once. Each entry carries the path, the position and the percentage, so you ' +
+        'can go straight to read_document_text from here. Finished documents are excluded unless you ask ' +
+        'for them. Documents nobody has opened never appear — absence means unread, not zero.',
+      inputSchema: {
+        limit: z.number().int().min(1).max(200).optional().describe('Maximum documents to return. Default 50.'),
+        includeFinished: z.boolean().optional().describe('Include documents already read to the end. Default false.'),
+      },
+    },
+    safe(async ({ limit, includeFinished }) =>
+      asText(await request('GET', `/api/progress/reading${qs({ limit, includeFinished })}`))),
+  );
+
+  server.registerTool(
+    'reading_rollup',
+    {
+      title: 'How far through a folder or subscription',
+      description:
+        'Aggregate reading progress over a FOLDER and everything beneath it: how many documents are ' +
+        'finished, how many are started, how many have never been opened, and the overall percentage. ' +
+        'Use it for "how far through this course/magazine/collection am I?" and to decide what to work ' +
+        'on next after a large import. Unread documents count in the total (as zero), so the percentage ' +
+        'describes the whole folder rather than only the parts already touched. When the folder is a ' +
+        'subscription target the result carries a `subscription` label, which is what makes the answer ' +
+        '"12 of 47 issues" rather than "12 of 47 documents". Omit `path` for the whole vault.',
+      inputSchema: {
+        path: z.string().optional().describe('Relative folder path. Defaults to the workspace root.'),
+      },
+    },
+    safe(async ({ path }) => asText(await request('GET', `/api/progress/rollup${qs({ path })}`))),
+  );
+
+  server.registerTool(
+    'reading_coverage',
+    {
+      title: 'Read but not yet carded',
+      description:
+        'The gap between how far the user has READ into a document and how far the flashcards for it ' +
+        'go — "read to page 120, the last card is from page 44". This is the tool that turns a big ' +
+        'import back into a to-do list: call it to find where card-making should resume, then read that ' +
+        'span with read_document_text and draft cards for it. `gap` is null when the cards already reach ' +
+        'the mark; with no cards at all it is everything read so far, because "nothing carded yet" is ' +
+        'not the same answer as "nothing left to card" — check `gapKnown` to tell a real absence ' +
+        'from an undeterminable one. `cardedTo` is null for EPUBs, whose cards are anchored by CFI and cannot be ordered ' +
+        'server-side — for those, fall back to reading the sections and judging coverage yourself.',
+      inputSchema: {
+        path: z.string().describe('Relative path to the document from the workspace root.'),
+      },
+    },
+    safe(async ({ path }) => asText(await request('GET', `/api/progress/coverage${qs({ path })}`))),
   );
 }

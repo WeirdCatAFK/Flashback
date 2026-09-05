@@ -106,7 +106,10 @@
 .yt-toolbar {
   display: flex;
   align-items: center;
+  /* Wraps rather than crushing: this bar now also hosts the reading controls. */
+  flex-wrap: wrap;
   gap: 12px;
+  row-gap: 6px;
 }
 
 .yt-mark-btn {

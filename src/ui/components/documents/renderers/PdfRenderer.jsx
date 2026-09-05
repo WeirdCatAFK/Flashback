@@ -5,6 +5,7 @@ import { readFile, updateMetadata } from '../../../api/documents';
 import { getBaseUrl, appendToken } from '../../../api/client';
 import { getUiZoom, useUiZoomChange } from '../../../utils/uiZoom';
 import { useT } from '../../../translations';
+import { findScroller } from './scroller';
 import './PdfRenderer.css';
 import './Renderer.css';
 
@@ -134,6 +135,10 @@ export default function PdfRenderer({
   highlightRef,
   onHighlightsChange,
   onSidecarRefresh,
+  initialProgress,
+  onProgress,
+  progressRef,
+  readingBar,
 }) {
   const { t, tp } = useT();
   const [pages,      setPages]      = useState([]);
@@ -155,6 +160,8 @@ export default function PdfRenderer({
   const pagesRef      = useRef(null);
   const drawOverlayRef = useRef(null);
   const drawDragRef    = useRef(null);
+  const resumedRef     = useRef(false);
+  const currentPageRef = useRef(1);
 
   // Load PDF + sidecar
   useEffect(() => {
@@ -194,6 +201,89 @@ export default function PdfRenderer({
 
     return () => { mounted = false; };
   }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // --- Reading position -----------------------------------------------------
+  //
+  // A PDF's position is simply its page number, which is both what the reader resumes at
+  // and how /api/reader addresses the document — no translation either way.
+
+  useEffect(() => { resumedRef.current = false; }, [path]);
+
+  /** Scrolls a page into view by its 1-based number. */
+  const scrollToPage = useCallback((pageNumber) => {
+    const el = pagesRef.current?.querySelector(`[data-page="${pageNumber}"]`);
+    if (el) { el.scrollIntoView({ block: 'start' }); return true; }
+    return false;
+  }, []);
+
+  // Resume once, when BOTH the pages and the saved position have arrived — either can win
+  // the race, so this waits for the pair rather than assuming an order.
+  useEffect(() => {
+    if (resumedRef.current) return;
+    if (!pages.length || initialProgress === undefined) return;
+    resumedRef.current = true;
+    const page = initialProgress?.position?.page;
+    if (page && page > 1 && page <= pages.length) scrollToPage(page);
+  }, [pages, initialProgress, scrollToPage]);
+
+  // Nothing this renderer owns scrolls: `.pdf-pages` lays the pages out and the editor's
+  // `.doc-editor-renderer` ancestor is what actually has `overflow-y: auto`. Listening on
+  // our own element therefore never fires (scroll does not bubble downward), and measuring
+  // against it is wrong twice over — its top slides negative as you scroll, so page 1's
+  // bottom always clears it. Both answers come from the scroller instead.
+  const scroller = useCallback(() => findScroller(rendererRef.current), []);
+
+  // The topmost page overlapping the viewport is the page you are reading. Reported on
+  // every scroll; the debounce and the dwell guard live in useReadProgress, so this stays
+  // a plain observation.
+  useEffect(() => {
+    if (!pages.length || !onProgress) return;
+    const el = scroller();
+    if (!el) return;
+
+    const report = () => {
+      // The scroller's own top edge is fixed in the viewport, which is what makes it the
+      // reference line: the first page whose bottom clears it is the one on screen.
+      const top = el.getBoundingClientRect().top;
+      let current = 1;
+      for (const node of pagesRef.current?.querySelectorAll('[data-page]') ?? []) {
+        if (node.getBoundingClientRect().bottom > top) {
+          current = Number(node.dataset.page) || 1;
+          break;
+        }
+      }
+      if (current === currentPageRef.current) return;
+      currentPageRef.current = current;
+      onProgress(path, {
+        unit: 'page',
+        position: { page: current },
+        percent: current / pages.length,
+        total: pages.length,
+      });
+    };
+
+    el.addEventListener('scroll', report, { passive: true });
+    return () => el.removeEventListener('scroll', report);
+    // `scale` is a dependency because findScroller only answers with a container that has
+    // something to scroll — a short PDF that fits on screen at 100% acquires a scroller
+    // only once zooming in makes it overflow.
+  }, [pages, path, onProgress, scroller, scale]);
+
+  // The editor's "Go to start" needs a way in; the out-ref is the same channel saveRef and
+  // highlightRef already use.
+  useEffect(() => {
+    if (!progressRef) return;
+    progressRef.current = {
+      goToStart: () => { scroller()?.scrollTo({ top: 0 }); },
+      currentPosition: () => ({
+        unit: 'page',
+        position: { page: currentPageRef.current },
+        percent: pages.length ? currentPageRef.current / pages.length : null,
+        total: pages.length,
+      }),
+    };
+    return () => { if (progressRef) progressRef.current = null; };
+  }, [progressRef, pages, scroller]);
 
   // Zoom helpers
   const zoomOut  = useCallback(() => setScale(s => Math.max(SCALE_MIN,  parseFloat((s - SCALE_STEP).toFixed(2)))), []);
@@ -518,6 +608,10 @@ export default function PdfRenderer({
         <span className="pdf-toolbar-pages">
           {tp('{n} page', '{n} pages', pages.length)}
         </span>
+
+        {/* The reading controls, hosted here rather than as a second full-width strip
+            above this one — see registry.js `ownsReadingBar`. */}
+        {readingBar}
       </div>
 
       <div className="pdf-pages" ref={pagesRef}>

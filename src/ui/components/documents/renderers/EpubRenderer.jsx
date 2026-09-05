@@ -108,8 +108,25 @@ export default function EpubRenderer({
   onSidecarRefresh,
   onExternalSelection,
   onImagePick,
+  initialProgress,
+  onProgress,
+  progressRef,
+  readingBar,
 }) {
   const { t } = useT();
+  // `wireRendition` runs once per load, so anything it closes over has to be reachable
+  // through a ref or it would go stale on the next render.
+  const onProgressRef = useRef(null);
+  const lastPosRef    = useRef(null);
+  const resumedRef    = useRef(false);
+  // The unrounded percentage, and whether epub.js has an index to compute one from.
+  //
+  // Both are refs rather than state because `relocated` is wired once per load and reads them
+  // from inside that closure. `progress` below is the same number rounded for display; the
+  // stored position must not come from it, because rounding 0.2237 to 0.22 silently coarsens
+  // the mark and its null-when-blank behaviour would hand the server a missing percentage.
+  const lastPctRef        = useRef(null);
+  const locationsReadyRef = useRef(false);
   const [highlights, setHighlights] = useState([]);
   // The figure the reader just clicked: { href, name, alt, rect } | null.
   const [imageHit, setImageHit] = useState(null);
@@ -175,6 +192,8 @@ export default function EpubRenderer({
     setError(null);
     setReady(false);
     setProgress(null);
+    lastPctRef.current = null;
+    locationsReadyRef.current = false;
     appliedRef.current = new Map();
     pendingSelRef.current = null;
     currentHlRef.current = null;
@@ -227,10 +246,22 @@ export default function EpubRenderer({
         setReady(true);
         setLoading(false);
 
-        // Background: page-count locations for an accurate progress %. Large books
-        // take a moment; failure just leaves progress null.
+        // Background: page-count locations, which are what make a percentage mean "how much
+        // of the text is behind me" rather than "which spine item am I in". Large books take
+        // a moment; failure just leaves the percentage absent, which is a state everything
+        // downstream already handles.
+        //
+        // The re-publish at the end is not optional. epub.js fires no event when the index
+        // lands, so without it the percentage stays missing until the reader happens to turn
+        // a page — and on a book they resume near the end, that could be never.
         book.ready
           .then(() => book.locations.generate(1600))
+          .then(() => {
+            if (cancelled || loadedPathRef.current !== path) return;
+            locationsReadyRef.current = true;
+            const loc = rendition?.currentLocation?.();
+            if (loc?.start) publishLocation(loc);
+          })
           .catch(() => {});
       } catch (err) {
         if (!cancelled) {
@@ -248,6 +279,41 @@ export default function EpubRenderer({
       bookRef.current = null;
     };
   }, [path]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /**
+   * Publishes one location, upward and to the toolbar.
+   *
+   * Split out of the `relocated` handler because it has a second caller: epub.js does not
+   * re-fire `relocated` when its locations index finishes building, so without a nudge the
+   * percentage stays absent until the reader happens to turn a page.
+   *
+   * Until that index exists epub.js reports `percentage` as **0, not undefined**
+   * (`percentageFromLocation` returns 0 while `total` is 0), and a finite 0 is indistinguishable
+   * from a real one downstream: the server would store it, and `auto` would then refuse to
+   * lower the furthest mark away from it. So the percentage is only sent once the index is
+   * real, and reported as absent before that — a position with no percentage still resumes,
+   * which is what actually matters in those first seconds.
+   */
+  const publishLocation = useCallback((loc) => {
+    const raw = loc?.start?.percentage;
+    const pct = locationsReadyRef.current && typeof raw === 'number' ? raw : null;
+    lastPctRef.current = pct;
+    setProgress(pct != null && pct > 0 ? Math.round(pct * 100) : null);
+
+    // Reading position. The CFI is what resumes the renderer; the spine `href` is what
+    // addresses /api/reader, whose section numbers count only sections that HAVE text
+    // and so are not these indices. Both are stored precisely so neither has to be
+    // converted into the other.
+    const cfi = loc?.start?.cfi;
+    if (!cfi) return;
+    lastPosRef.current = { cfi, href: loc.start.href ?? null, section: loc.start.index ?? null };
+    onProgressRef.current?.(path, {
+      unit: 'section',
+      position: lastPosRef.current,
+      percent: pct,
+      total: bookRef.current?.spine?.length ?? null,
+    });
+  }, [path]);
 
   // Attach epub.js event listeners. Split out so the load effect stays readable.
   function wireRendition(rendition) {
@@ -305,14 +371,47 @@ export default function EpubRenderer({
     });
 
     rendition.on('relocated', (loc) => {
-      const pct = loc?.start?.percentage;
-      setProgress(typeof pct === 'number' && pct > 0 ? Math.round(pct * 100) : null);
+      publishLocation(loc);
       setAtStart(!!loc?.atStart);
       setAtEnd(!!loc?.atEnd);
       // The rect belonged to the page that just left.
       setImageHit(null);
     });
   }
+
+  // --- Reading position -----------------------------------------------------
+
+  // Kept current without re-wiring the rendition, which happens once per load.
+  useEffect(() => { onProgressRef.current = onProgress ?? null; }, [onProgress]);
+  useEffect(() => { resumedRef.current = false; }, [path]);
+
+  // Resume once, when both the book and the saved position are available. The initial
+  // display() is deliberately left alone: it renders the opening section immediately
+  // rather than waiting on a network round trip, and this jumps afterwards. epub.js
+  // resolves a CFI against the live book, which is why the CFI is stored at all.
+  useEffect(() => {
+    if (resumedRef.current || !ready || initialProgress === undefined) return;
+    resumedRef.current = true;
+    const cfi = initialProgress?.position?.cfi;
+    if (cfi) renditionRef.current?.display(cfi).catch(() => {});
+  }, [ready, initialProgress]);
+
+  useEffect(() => {
+    if (!progressRef) return;
+    progressRef.current = {
+      goToStart: () => { renditionRef.current?.display().catch(() => {}); },
+      // The unrounded percentage, not the rounded one the toolbar displays: "Set mark here"
+      // writes a mark that /api/reader later bounds an assistant's reading with, so it must
+      // be the position itself rather than the position to the nearest percent.
+      currentPosition: () => (lastPosRef.current ? {
+        unit: 'section',
+        position: lastPosRef.current,
+        percent: lastPctRef.current,
+        total: bookRef.current?.spine?.length ?? null,
+      } : null),
+    };
+    return () => { if (progressRef) progressRef.current = null; };
+  }, [progressRef]);
 
   // --- Keep painted annotations in sync with the registry --------------------
   useEffect(() => {
@@ -473,6 +572,11 @@ export default function EpubRenderer({
         <button className="epub-btn epub-btn--font" onClick={() => changeFont(-FONT_STEP)} disabled={fontPct <= FONT_MIN} title={t('Smaller text')}>A−</button>
         <span className="epub-font-label">{fontPct}%</span>
         <button className="epub-btn epub-btn--font" onClick={() => changeFont(FONT_STEP)} disabled={fontPct >= FONT_MAX} title={t('Larger text')}>A+</button>
+
+        {/* Hosted here rather than as a second full-width strip above this one — see
+            registry.js `ownsReadingBar`. `.epub-progress` on the left is the LIVE
+            position; this is the saved mark, which is why it keeps its own track. */}
+        {readingBar}
       </div>
 
       <div className="epub-viewport-wrap">

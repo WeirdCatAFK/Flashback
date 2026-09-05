@@ -5,19 +5,22 @@
 .stats-view {
   height: 100%;
   overflow-y: auto;
-  padding: 24px 32px 48px;
+  padding: 20px 28px 24px;
   background: var(--color-bg-base);
 }
 
+/* Wide rather than a reading column: nothing on this page is prose — every block is a
+   chart or a row of numbers — and the width is what lets the panels pair up two-across
+   and the whole view fit a laptop viewport without scrolling. */
 .stats-body {
-  max-width: 960px;
+  max-width: 1240px;
   margin: 0 auto;
 }
 
 /* ── Header ─────────────────────────────────────────────────────────────────── */
 
 .stats-header {
-  margin-bottom: 24px;
+  margin-bottom: 14px;
 }
 
 .stats-title {
@@ -45,13 +48,127 @@
   padding: 32px 0;
 }
 
+/* ── Vault completeness (headline band) ───────────────────────────── */
+
+/* Full width rather than a fifth tile: the tile row is a fixed four-column grid, and this
+   is the headline the rest of the page qualifies — it should not read as one of four peers. */
+.stats-completeness {
+  padding: 14px 18px;
+  margin-bottom: 12px;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.stats-completeness-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.stats-completeness-value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-completeness-label {
+  margin-top: 6px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-completeness-hint {
+  flex: 1 1 22ch;
+  margin: 0;
+  max-width: 46ch;
+  text-align: right;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+/* Same pill idiom as .stats-maturity-track, so the two bars on this page read as one
+   family; a single fill here rather than segments, because this is one quantity. */
+.stats-completeness-track {
+  margin-top: 12px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-halves {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* label | track | value | detail — the value column is fixed so the two percentages line
+   up under each other rather than drifting with the label's length. */
+.stats-completeness-half {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(60px, 140px) 3rem 1fr;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+}
+
+.stats-completeness-half-label {
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-completeness-half-track {
+  height: 6px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-half-track > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-half-value {
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stats-completeness-half-detail {
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ── Headline tiles ─────────────────────────────────────────────────────────── */
 
 .stats-tiles {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-bottom: 24px;
+  margin-bottom: 14px;
 }
 
 .stats-tile {
@@ -87,7 +204,7 @@
 /* ── Panels ─────────────────────────────────────────────────────────────────── */
 
 .stats-panel {
-  padding: 18px 20px;
+  padding: 16px 18px;
   background: var(--color-bg-surface);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -95,7 +212,7 @@
 }
 
 .stats-panel-head {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .stats-panel-title {
@@ -110,24 +227,37 @@
   color: var(--color-fg-secondary);
 }
 
-.stats-two-col {
+/* Two columns of panels, each an independent stack. A grid of panels would stretch
+   every row to its tallest cell and leave holes under the short ones; nested stacks let
+   each column close up, which is what keeps the page inside one screen. */
+.stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 16px;
+  gap: 12px;
+  align-items: start;
+}
+
+.stats-col {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 /* ── In-panel metric row (Acquisition) ──────────────────────────────────────── */
 /* Same reading as the headline tiles, minus the chrome — these already sit inside
    a panel, so they are separated by rule lines rather than borders. */
 
+/* Three across inside a half-width column, so the gutters are tighter than they would
+   be full-bleed — the longest label still sits on one line at that width. */
 .stats-metrics {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 20px;
+  gap: 16px;
 }
 
 .stats-metric + .stats-metric {
-  padding-left: 20px;
+  padding-left: 16px;
   border-left: 1px solid var(--color-border);
 }
 
@@ -156,7 +286,7 @@
   opacity: 0.85;
 }
 
-.stats-two-col .stats-panel {
+.stats-col .stats-panel {
   margin-bottom: 0;
 }
 
@@ -181,7 +311,7 @@
 
 .stats-legend {
   list-style: none;
-  margin: 16px 0 0;
+  margin: 12px 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -234,7 +364,7 @@
   display: flex;
   align-items: flex-end;
   gap: 4px;
-  height: 150px;
+  height: 118px;
 }
 
 .stats-forecast-col {
@@ -307,7 +437,7 @@
   display: flex;
   align-items: center;
   gap: 4px;
-  margin-top: 12px;
+  margin-top: 10px;
   font-size: 11px;
   color: var(--color-fg-secondary);
 }
@@ -320,12 +450,28 @@
 
 /* ── Responsive ─────────────────────────────────────────────────────────────── */
 
+/* Below this the two panel columns are narrower than the heatmap they have to hold,
+   so they stack — one tall page beats two scrolling sideways. */
+@media (max-width: 1000px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 720px) {
   .stats-tiles {
     grid-template-columns: repeat(2, 1fr);
   }
-  .stats-two-col {
-    grid-template-columns: 1fr;
+  /* The detail column is the first thing worth losing: the percentage beside it already
+     carries the number, and an ellipsised count says less than no count at all. */
+  .stats-completeness-half {
+    grid-template-columns: 4.5rem 1fr 3rem;
+  }
+  .stats-completeness-half-detail {
+    display: none;
+  }
+  .stats-completeness-hint {
+    text-align: left;
   }
   .stats-metrics {
     grid-template-columns: 1fr;

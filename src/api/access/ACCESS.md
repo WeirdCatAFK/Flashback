@@ -16,7 +16,7 @@ access/
                             doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
-  resources/       Tier 2   query · files · pathLock, safeFetch (pure — no DB, no IO)
+  resources/       Tier 2   query · files · pathLock, safeFetch, cardRemovalBudget (pure — no DB, no IO)
   primitives/      Tier 1   config · database · accounts · vault
                             sqliteAdapter (the async driver both stores are built on)
 ```
@@ -30,8 +30,8 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 **Import rules:**
 - **Spaced-repetition reads and writes take an explicit `scope`.** An account id, or the literal `'owner'` for the vault's Author (`requestContext.js` `OWNER_SCOPE`). Resolve it **once** at the orchestrator's entry point with `currentScope()` — `srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js` and `decks.js` all do — and pass it down. `query.js` never reads it ambiently and **throws on a missing one** rather than defaulting: whose data a statement returns is not something a call site should have to go somewhere else to find out, and a default would answer that question wrongly in silence. A handful of sites name `OWNER_SCOPE` outright and each says why in a comment — reconciling against a sidecar, writing a canonical file, or Seal's rollback snapshot. See `DATAMODEL.md` § Per-user progress.
 - `query.js` and `files.js` never import each other.
-- **`srs.js` never imports `documents.js`.** The reverse is not true and is not meant to be: `documents.js` imports `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` are document operations — they grade a card that lives in a sidecar, and the sidecar write and the schedule write have to happen in one server operation. The dependency runs one way only, which is the property that matters: the scheduler knows nothing about files, so it stays testable without a workspace and a rebuild can re-derive schedules without replaying document history. (This bullet used to read "never import each other", which the code has never matched.)
-- `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
+- **`srs.js` never imports `documents.js`.** The reverse is not true and is not meant to be: `documents.js` imports `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` are document operations — they grade a card that lives in a sidecar, and the sidecar write and the schedule write have to happen in one server operation. The dependency runs one way only, which is the property that matters: the scheduler knows nothing about files, so it stays testable without a workspace and a rebuild can re-derive schedules without replaying document history.
+- `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). The rule is "any orchestrator that needs real files", not a fixed list.
 - `doctor.js` is read-only toward the canonical layer: it re-derives the SQLite index from the on-disk files and sidecars but never writes document content or regenerates a `globalHash`. It imports `documents.js`, `decks.js`, `files.js`, `query.js`, and Seal.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
 - **Canonical updates do not live in this tier.** Versioned rewrites of the sidecars and `_decks/*.json` are `config/UpdateRunner.js` + `config/updates/`, the document-driven counterpart of `config/migrations/` — see `config/updates/UPDATES.md`. The runner imports *downward* into this layer (`files.js`, `query.js`, `decks.js`) exactly as `routes/` does; nothing in `access/` imports it back, apart from `files.js` and `decks.js` reading `LATEST_VERSION` from the dependency-free `config/updates/registry.js` to stamp new files.
@@ -79,10 +79,14 @@ Outside the vault deliberately: a vault folder is meant to be copied and handed 
 
 Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
 
+It also holds two per-person tables that must not travel with a copied vault: `AccountProgress` (every **non-owner's** SRS schedule) and `ReadProgress` (**everyone's** reading position, the owner's included — see `readProgress.js`). Both are keyed by `vault_id` plus a `globalHash`, never a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it.
+
 Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
 - `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
 - `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
 - `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
+- `saveAccountProgress()` / `getAccountProgress()` / `listAccountProgress()` / `deleteAccountProgress()` — never called for the owner; their canonical copy is the sidecar.
+- `saveReadProgress()` / `getReadProgress()` / `listReadProgress()` / `deleteReadProgress()` — **is** called for the owner. Read progress has no second canonical home to drift from. `scope` carries an account id or `OWNER_SCOPE` and so has no foreign key to `Accounts`; rows whose account was deleted are filtered on read, never deleted.
 
 ### `vault.js`
 Vault identity. `vault.json` at the vault root — a stable UUID that outlives renames, moves and copies, since the database can be rebuilt and `vaultName` is just a folder name. Deliberately a **sibling of `workspace/`**, not inside it: identity is not something to version or roll back, so Seal never tracks it and `UpdateRunner`'s walk never sees it (hence no `formatVersion`). Imports `config` only.
@@ -207,6 +211,34 @@ around a whole run) and does not belong in `decks.js`.
 
 ---
 
+### `cardRemovalBudget.js`
+How many flashcards one account may delete, per request and per rolling hour. Pure — imports
+nothing at all — so `tests/cardRemovalBudget.test.js` runs with no vault and no native module,
+like `pathLock.js` and `safeFetch.js`.
+
+`PUT /api/documents/metadata` is COLLABORATOR-gated on purpose: cards, highlights and tags all
+live in the sidecar, so a collaborator who could not write metadata could not annotate. But the
+write is a whole-object replacement, and `documents._syncDocumentFlashcards` deletes every
+indexed card absent from what arrived — so `{"flashcards": []}` erased a document's entire card
+set, canonical file and index together, from the role meant to annotate rather than reshape.
+
+Removing a card *is* annotating, so the operation stays open and the **volume** is bounded
+instead. Two limits: **per request** (the one that matters — it makes "delete this document's
+two hundred cards in one call" impossible) and **per rolling hour** (bounds a patient caller,
+turning an instant wipe into something slow enough to notice). Admins and the Author are exempt.
+
+- `check(accountId, count, limits)` — verdict only, no state change.
+- `consume(accountId, count)` — charges the budget, called only after the write succeeds.
+
+**This is a rate limit, not an authorization boundary.** The role table is still the boundary;
+this stops that boundary's one deliberately-wide door from being a trapdoor. The counter lives
+in this process and resets on restart — the same honesty as `pathLock.js`, and the right scope
+given one API process per vault, but it is not a durable quota. Limits come from
+`config.getCardRemovalLimits()` (`cardRemovalsPerHour` / `cardRemovalsPerRequest`, defaults 20
+and 10), read fresh from disk so tightening them after an incident needs no restart.
+
+---
+
 ## Tier 3 — Orchestration
 
 ### `documents.js`
@@ -248,6 +280,23 @@ Read-only **text extraction** — plus the **media** a document carries (an EPUB
 - Extraction results are cached in memory, keyed by `relPath + mtimeMs + size` so an edited file invalidates itself, capped by entry count and total characters. **Nothing is cached to disk** — a cache file inside `workspace/` would surface as a stray item in the Vault Doctor and in Seal.
 
 **What it deliberately does not do:** produce highlight anchors. A highlight has to land in the coordinate system its renderer paints from (PDF text-layer bboxes, an epub.js CFI generated from the live iframe DOM), and neither is faithfully computable server-side. Cards don't need one — `create_flashcard`'s `highlightHash` is optional — so an assistant can read a book and draft cards from it while anchoring stays a reading gesture the user makes in the app.
+
+### `readProgress.js`
+**Where one person has read to.** Singleton export. The only module that knows both a document's *identity* and a reading *unit* — the unit vocabulary belongs to the reader and the identity belongs to the index, which is why this is a module rather than a few methods on `documents.js`. Imports `query.js`, `files.js`, `accounts.js`, `vault.js` and `requestContext.js`. Full HTTP surface in `API.md` § Read progress; data model in `DATAMODEL.md` § Read progress.
+
+Stored in **`accounts.db` for everyone, the owner included**, under the same `OWNER_SCOPE` sentinel. That is deliberately *not* the split `srs.js` makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream (`seal.js` already argues the weaker version of this for reviews), and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is COLLABORATOR-gated. **A write here produces no file and no Seal commit** — reading is not editing. Nothing is derived into the vault database, so a Doctor rebuild neither restores nor destroys it.
+
+- `get(relPath, { scope })` / `set(relPath, { unit, position, percent, total, mode }, { scope })` / `clear(relPath, { scope })`
+- `listInProgress({ scope, limit, includeFinished })` — what the caller is partway through.
+- `rollup(folderRelPath, { scope, rows })` / `folderRollup(...)` — a subtree aggregate, labelled with the magazine when the folder is a subscription's `target_path`. That label is the entirety of what a "subscription rollup" is: `Subscriptions` is a publisher-side record with no account scoping and no completion notion, so per-person progress over its folder is the only place the answer can come from.
+- `listForFolder(folderRelPath, { scope, folders })` — one folder listing's progress in one call, mirroring `listFolder`'s shape so the explorer never issues a request per node.
+- `coverage(relPath, { scope })` — the span read but not carded. Cards are vault-wide (only *schedules* are personal), so the carded depth is unscoped; it is read from the sidecar because a highlight-anchored card keeps its position on the highlight. Returns `cardedTo: null` for `section` units, since CFIs are not orderable without epub.js.
+- `studyFilter({ scope })` — `{ documents, excludeCards }`, the read gate behind `GET /api/srs/due?read=only`. Composed at the **route** layer, never inside `srs.js`, which may not import an orchestrator that reaches the filesystem. The two lists are asymmetric on purpose: a document you have never opened is absent from `documents` (holding its whole pile back), but a card lands in `excludeCards` only when its position is *provably* past your furthest mark — an unresolvable one (EPUB CFI, Markdown inline highlight, no anchor) and every standalone card stay in the session. A finished document short-circuits before its sidecar is read.
+- `_cardPositions(meta, unit)` (private) — card `globalHash` → position in `unit`, resolving the modern `{type:'highlight', id}` anchor through `highlights[]` by **id**, never through the highlight's `cardHashes[]` (an "optional mirror" nothing populates). Both `coverage` and `studyFilter` read card positions through it; before it existed, `_deepestCard` resolved only the legacy `location.data` forms and so answered `null` for every document carded by the app itself.
+
+**Positions are keyed by the CANONICAL `globalHash`, read from the sidecar** — not by `Documents.global_hash`, which is derived and can disagree with it (`importFile` does not always carry a caller-supplied hash into the index). A Doctor rebuild re-derives that column *from* the sidecar, so a position keyed to the indexed value would be silently orphaned by a rebuild. When `set()` finds the two disagree it corrects the indexed column toward the canonical one, which is what the Doctor would do anyway, and is what lets every rollup join plainly on the index.
+
+`total` is always supplied by the caller and never computed here: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a folder listing parse every PDF in it.
 
 ### `cardHealth.js`
 **Failure-signature classification** — decides which failing cards are worth acting on, and says why. Singleton export (like `diary.js`/`mcpReader.js`) so its baseline and session caches are shared. Full data model in `DATAMODEL.md` § Card Health.

@@ -79,6 +79,12 @@ export const PERMISSIONS = {
     // were one shared row per vault; it is not an administrative act any more.
     srs: [["*", "*", READER]],
 
+    // Where you have read to is the reading equivalent of your own schedule: every endpoint
+    // under this mount is about the CALLER and none of them takes an account parameter. A
+    // Reader who could not record a position could not resume anything, and recording one
+    // writes no file and produces no Seal commit — reading is not editing.
+    progress: [["*", "*", READER]],
+
     // Reading a card and dismissing a health flag on it are part of studying. Authoring one
     // is not. The two stars stand for the card hash and the flag kind.
     flashcards: [

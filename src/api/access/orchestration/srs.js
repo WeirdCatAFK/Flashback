@@ -17,6 +17,19 @@ import * as fsrs from './fsrs.js';
 // measured on; the acquisition phase gets its own measures. Shared with diary.js.
 export const LEARNING_REVIEWS = 3;
 
+/**
+ * The level at which a card counts as mastered, for the Flashcards sidebar's summary of its
+ * own box histogram. Five consecutive recalls is a ~16-day interval under Leitner, and `level`
+ * is kept in step under SM-2 and FSRS too (see `submitReview`), so the number means the same
+ * thing whichever scheduler is active.
+ *
+ * Deliberately a different question from the Stats view's `completeness.known`, which grades
+ * each card 0..1 from FSRS stability. This one is binary and answers "how much of this
+ * histogram is in the high boxes" — it is the legend for the bars it sits under, not a second
+ * opinion about how much you know.
+ */
+export const MASTERY_LEVEL = 5;
+
 // Last-resort scheduler when the vault has no review history to infer one from
 // (see SRSService.detectAlgorithm). Not a claim about the user's preference —
 // just the arithmetic the read-only views fall back to on an empty vault.
@@ -319,16 +332,22 @@ class SRSService {
         })();
     }
 
+    // Backs GET /api/srs/stats: the level histogram behind the Flashcards sidebar, plus the
+    // one-line summary of it. `total` counts every card in the vault while `mastered` counts
+    // only rows this person has pushed to MASTERY_LEVEL, so an untouched card is unmastered
+    // rather than missing — the percentage is of the whole vault, not of the part studied.
     async getLeitnerStats(scopeArg) {
         const scope = this._scope(scopeArg);
         const boxes = await query.getLeitnerBoxes(scope);
         const total = await query.getFlashcardCount();
-        const mastered = await query.getMasteredFlashcardCount(5, scope);
+        const mastered = await query.getMasteredFlashcardCount(MASTERY_LEVEL, scope);
 
         return {
             boxes,
-            totalCards: total,
-            masteryPercentage: total > 0 ? (mastered / total) * 100 : 0
+            total,
+            mastered,
+            masteryLevel: MASTERY_LEVEL,
+            masteryPercentage: total > 0 ? (mastered / total) * 100 : 0,
         };
     }
 
@@ -704,10 +723,30 @@ class SRSService {
     // `algorithm` decides how dueness is computed; when the caller can't supply it
     // (no browser, so no localStorage) it's inferred from review history rather than
     // assumed — see detectAlgorithm. The echoed `algorithm` is the one actually used.
-    async getDue({ algorithm: requested = null, folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0, scope: scopeArg = null } = {}) {
+    //
+    // Every filter here is a pass-through. `readGate` is the one that looks like it should be
+    // more: it is `readProgress.studyFilter()`'s output, composed at the route layer and handed
+    // down as two opaque lists, because this module may not import an orchestrator that reaches
+    // the filesystem (ACCESS.md — "srs.js never imports documents.js"). It arrives pre-resolved
+    // so the scheduler stays ignorant of reading, exactly as it stays ignorant of the graph.
+    //
+    // All of it is applied inside the SQL rather than to the returned rows, and that is load
+    // bearing: getDueFlashcards slices the new-card pile to `maxNew` AFTER its WHERE clause, so
+    // filtering afterwards would quietly turn "20 new cards" into however few survived.
+    async getDue({
+        algorithm: requested = null, folder = null, document = null, deck = null, tags = null,
+        maxNew = 20, minPriority = 0, readGate = null,
+        excludeFolders = null, excludeDocuments = null, excludeDecks = null, excludeTags = null,
+        scope: scopeArg = null,
+    } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const result = await query.getDueFlashcards({ algorithm, folder, deck, tags, maxNew, minPriority }, scope);
+        const result = await query.getDueFlashcards({
+            algorithm, folder, document, deck, tags, maxNew, minPriority,
+            readDocuments: readGate?.documents ?? null,
+            readExcludeCards: readGate?.excludeCards ?? null,
+            excludeFolders, excludeDocuments, excludeDecks, excludeTags,
+        }, scope);
         return {
             algorithm,
             due: result.due,
