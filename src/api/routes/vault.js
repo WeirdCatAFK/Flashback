@@ -1,33 +1,12 @@
 import { Router } from 'express';
-import { readFileSync } from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import query from '../access/resources/query.js';
 import { ensureManifest } from '../access/primitives/vault.js';
 import { get as getConfig, getVaults, getActiveVaultId } from '../access/primitives/config.js';
 import { switchVault, releaseVault } from '../vaultSession.js';
+import { APP_VERSION } from '../appVersion.js';
 
 const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
-
-// Read once at import — package.json is inside app.asar in a packaged build, where it is
-// readable but never changes for the life of the process.
-//
-// Two candidate locations, because this module does not always sit three levels below the
-// manifest. In the repo and inside app.asar it is `src/api/routes/`, so `../../..` is right.
-// In the bundled standalone server the whole API is one file with its manifest beside it, and
-// `../../..` resolves outside the artifact — which silently reported `appVersion: null` in the
-// handshake, a field clients use as half the compatibility contract.
-const APP_VERSION = (() => {
-    const here = path.dirname(fileURLToPath(import.meta.url));
-    for (const candidate of ['../../../package.json', './package.json']) {
-        try {
-            const { version } = JSON.parse(readFileSync(path.join(here, candidate), 'utf-8'));
-            if (version) return version;
-        } catch { /* try the next location */ }
-    }
-    return null;
-})();
 
 /**
  * GET /api/vault — who this server is and what it speaks.
@@ -54,6 +33,12 @@ const APP_VERSION = (() => {
  * It deliberately does NOT carry the caller's role. The role is already on
  * `GET /api/identity`, which resolves it from the same `req.account` the guard uses — putting
  * it here as well would be a second source for one fact, and the two would eventually differ.
+ *
+ * `update` is whatever the headless server's release check last learned, and is `null` on the
+ * desktop build (which has electron-updater instead), when the check is turned off, and before
+ * the first check has answered. It is read through a getter parked on `app.locals` by
+ * `src/server/main.js` rather than imported, because this module is in the API tier and may not
+ * reach into `src/server` — and because the answer changes hours after the route was mounted.
  */
 router.get('/', catchError(async (req, res) => {
     const config = getConfig() || {};
@@ -69,6 +54,7 @@ router.get('/', catchError(async (req, res) => {
             ...(config.requireAuth ? ['requireAuth'] : []),
             ...(config.singleVault ? ['singleVault'] : []),
         ],
+        update: req.app.locals.updateStatus?.() ?? null,
     });
 }));
 

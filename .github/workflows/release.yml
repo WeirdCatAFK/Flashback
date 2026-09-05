@@ -15,8 +15,10 @@ name: Release
 #   release — the desktop installers, one per platform (matrix): Windows NSIS,
 #             Linux AppImage, and an UNSIGNED macOS .dmg (see the matrix comment)
 #   server  — calls the reusable `server.yml` with `upload: true`: the Docker image, the
-#             standalone Linux zip and both Windows zips, each built, booted and exercised,
-#             with the zips then attached to this draft
+#             standalone Linux zip and both Windows zips, each built, booted and exercised.
+#             The zips are then attached to this draft and the image — the same one that was
+#             booted, retagged rather than rebuilt — is pushed to
+#             ghcr.io/weirdcatafk/flashback-server under this version and `latest`.
 #
 # The server steps used to be spelled out here and ran ONLY on a tag, which `test.yml`
 # recorded as a known gap: a commit that broke the container or the zip stayed green until
@@ -32,6 +34,7 @@ on:
 
 permissions:
   contents: write # create the release and upload assets
+  packages: write # push the server image to GHCR (server.yml, gated on upload: true)
 
 jobs:
   release:
@@ -95,7 +98,8 @@ jobs:
 
   # The three server artifacts — Docker image, Linux zip, both Windows zips — live in
   # `server.yml`, which `build.yml` also calls on every push. One copy of the boot sequence
-  # and the API assertions, two callers; `upload: true` is the only thing a release adds.
+  # and the API assertions, two callers; `upload: true` is the only thing a release adds —
+  # and it is what turns the image from a thing that was tested into a thing anyone can pull.
   #
   # `needs: release` because those zips are attached to the draft that electron-builder
   # creates, so the installers have to land first. The gate covers the Docker image job too,

@@ -22,6 +22,10 @@
  *      second vault to move to, and a switch closes the database under every connected user.
  *   3. It binds every interface by default instead of localhost.
  *   4. It handles SIGTERM, because that is how a container is asked to stop.
+ *   5. It asks GitHub whether a newer release exists and says so in the log. The desktop app
+ *      has had that since the beta (electron-updater, notify-first); a container or a zip had
+ *      no way at all to learn a release had happened. It never updates itself, and it can be
+ *      turned off outright - see `updateCheck.js`.
  *
  * Run:  npm run server          (see docs/SERVER.md for deployment)
  */
@@ -53,6 +57,8 @@ const { closeDatabase } = await import('../api/access/primitives/database.js');
 const {
     ensureLocalAuthor, hasUsableToken, getAuthorAccount, issueToken, closeAccounts,
 } = await import('../api/access/primitives/accounts.js');
+const { APP_VERSION } = await import('../api/appVersion.js');
+const { startUpdateCheck } = await import('./updateCheck.js');
 
 // Same contract as the Electron-hosted API process: log a full stack and exit nonzero, so a
 // supervisor (systemd, Docker's restart policy, Kubernetes) sees the death and restarts,
@@ -110,9 +116,10 @@ async function ensureSomebodyCanLogIn(injected) {
  * `closeDatabase()` truncates the WAL on the way out, which is what leaves the volume
  * consistent for the next container — the whole reason this is not just `process.exit()`.
  */
-async function shutdown(api, signal) {
+async function shutdown(api, updates, signal) {
     console.log(`\n${signal} received — shutting down.`);
     try {
+        updates.stop();                // no point starting a release check on the way out
         await api.stop();              // stop accepting; in-flight requests finish
         await sealEmitter.quiesce();   // flush the review debounce and drain the commit queue
         closeDatabase();               // checkpoint the WAL
@@ -136,7 +143,11 @@ export default async function main() {
 
     await ensureSomebodyCanLogIn(authorToken);
 
-    const api = new Api({ ...config, apiToken: authorToken ?? null });
+    // Started before the API listens, but its first request is 8s out: a boot must never wait
+    // on GitHub, and an air-gapped deployment must never notice this exists.
+    const updates = startUpdateCheck({ currentVersion: APP_VERSION ?? '0.0.0' });
+
+    const api = new Api({ ...config, apiToken: authorToken ?? null, updateStatus: updates.status });
     await api.start();
 
     console.log(`Flashback Server — vault "${config.vaultName}", listening on ${config.host}:${config.port}`);
@@ -153,7 +164,7 @@ export default async function main() {
     console.log('Authentication is required for every /api route.');
 
     for (const signal of ['SIGTERM', 'SIGINT']) {
-        process.on(signal, () => { shutdown(api, signal); });
+        process.on(signal, () => { shutdown(api, updates, signal); });
     }
 }
 

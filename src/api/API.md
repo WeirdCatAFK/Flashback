@@ -1646,6 +1646,7 @@ Identity and lifecycle of the vault this server is currently serving.
 | `schemaVersion`      | number   | Highest applied migration — describes this **database**.                        |
 | `canonicalVersion`   | number   | Highest applied canonical update — describes how far the vault's **files** have been brought forward. |
 | `capabilities`       | string[] | Optional features this deployment offers, so a client can decide what to show without probing. |
+| `update`             | object\|null | The headless server's release check: `{ current, latest, available, url, checkedAt }`. `null` on a desktop build, when the check is turned off, and before the first check has answered. |
 
 The two versions are separate on purpose and are the compatibility contract: a client that understands neither should refuse to write rather than guess.
 
@@ -1658,6 +1659,8 @@ The two versions are separate on purpose and are the compatibility contract: a c
 | `singleVault` | One vault per process: `POST /api/vault/switch` and `/release` are unmounted and answer `404`. |
 
 The renderer uses these to decide whether to show its **Server** tab at all, which is why they describe the deployment rather than the person.
+
+`update` is a **notice, never an instruction**. A headless server asks GitHub once at boot and once a day whether a newer published release exists (`FLASHBACK_UPDATE_CHECK=off` disables it and makes no outbound request at all), and reports what it last learned here. Nothing downloads, and nothing restarts: the process holds the only copy of the workspace and migrations are one-way, so when to upgrade is the operator's decision. `available` is false whenever the answer is not yet known, which is why it is safe to branch on directly. The desktop build reports `null` — it has electron-updater instead, and Config → About is where that surfaces.
 
 ---
 

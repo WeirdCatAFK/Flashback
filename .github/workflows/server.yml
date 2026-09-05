@@ -6,7 +6,8 @@ name: Server
 # exactly the same build-and-boot sequence and differ only in what happens at the end:
 #
 #   build.yml    every push and PR, `upload: false` — verification only
-#   release.yml  a `v*` tag,        `upload: true`  — the same, then attach to the draft
+#   release.yml  a `v*` tag,        `upload: true`  — the same, then publish: the zips to
+#                                                     the draft, the image to GHCR
 #
 # Before this split the sequence lived only in release.yml, and `test.yml` recorded the
 # consequence in as many words: a commit that broke the container or the zip stayed green
@@ -23,10 +24,11 @@ on:
     inputs:
       upload:
         description: >-
-          Attach the built zips to the draft GitHub Release for the current tag. Only a
+          Publish what was built: attach the zips to the draft GitHub Release for the current
+          tag, and push the container image to GHCR under that version and `latest`. Only a
           tag-triggered caller may set this — `gh release upload` addresses the release by
           $GITHUB_REF_NAME, which is a branch name on any other trigger. The workflow
-          artifacts are kept either way.
+          artifacts are kept either way, and nothing is pushed to the registry.
         type: boolean
         default: false
 
@@ -78,6 +80,49 @@ jobs:
           docker logs flashback-ci 2>&1 | tail -20
           docker logs flashback-ci 2>&1 | grep -q "Shutdown complete" \
             || { echo "container did not shut down gracefully"; exit 1; }
+
+      # ── Publish ──────────────────────────────────────────────────────────────────────
+      #
+      # What is pushed is the image the steps above BOOTED — retagged, never rebuilt. That is
+      # what makes "nothing reaches the registry that did not start, answer a readiness ping
+      # and refuse an anonymous caller" a property of this workflow rather than a hope. A
+      # second build-push-action with `push: true` would produce a fresh image and assert
+      # nothing whatsoever about it.
+      #
+      # `inputs.upload` gates these, exactly as the zip uploads are gated — but the real lock
+      # is the caller's permissions. A reusable workflow runs with the permissions its caller
+      # granted, and `build.yml` grants `contents: read` and nothing else, so the every-push
+      # caller cannot push an image even if this input were set by mistake.
+      #
+      # amd64 only, deliberately. Multi-arch needs buildx with QEMU and cannot `load: true`,
+      # so an arm64 image could not be started here — it would ship untested, which is the
+      # one thing this job exists to prevent. If arm64 is wanted (plenty of home servers are),
+      # add a second push step with `platforms: linux/amd64,linux/arm64` AFTER this one, so
+      # the image that gates the release is still the one that was booted.
+      - name: Log in to GHCR
+        if: ${{ inputs.upload }}
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push the tested image
+        if: ${{ inputs.upload }}
+        run: |
+          # An image reference must be lowercase, and the owner is not.
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repo="ghcr.io/$owner/flashback-server"
+
+          # package.json, not the tag: release.yml has already refused to run if the two
+          # disagree, and this is the version the running server reports on /api/vault.
+          version=$(node -p "require('./package.json').version")
+
+          echo "publishing $repo:$version and $repo:latest"
+          for tag in "$version" latest; do
+            docker tag flashback-server:ci "$repo:$tag"
+            docker push "$repo:$tag"
+          done
 
   server-zip:
     name: Standalone zip (Linux)
@@ -280,29 +325,63 @@ jobs:
             }
           }
 
+      # Reading a status code is deliberately NOT done by catching the exception and digging
+      # `$_.Exception.Response.StatusCode.value__` out of it. That idiom is Windows PowerShell
+      # 5.1's shape (System.Net.WebException carrying an HttpWebResponse) and this job runs
+      # pwsh 7, where a failing request throws an HttpResponseException carrying an
+      # HttpResponseMessage instead — and where a connection-level failure carries no
+      # `.Response` at all. Both produced an EMPTY code and the useless message
+      # "anonymous /api expected 401, got ", with nothing said about the server. PowerShell 7's
+      # own `-SkipHttpErrorCheck` makes a 4xx an ordinary response object, so the status is
+      # read off the response and no exception shape is involved.
       - name: Exercise the API
         run: |
           $app = Resolve-Path dist-server/app
+
+          function Dump-Logs {
+            foreach ($f in 'boot.log', 'boot.err.log') {
+              $p = Join-Path $app $f
+              if (Test-Path $p) { Write-Host "-- $f --"; Get-Content $p | Write-Host }
+            }
+          }
+
+          # Prove the server is still there BEFORE asserting anything about what it answers.
+          # Without this, a process that died between steps is indistinguishable from a wrong
+          # status code. (`Start-Process` on the .cmd launcher records cmd.exe's PID, not
+          # node's — taskkill /T walks the tree so the stop steps are fine, but a liveness
+          # check has to look for the child.)
+          if (-not (Get-Process node -ErrorAction SilentlyContinue)) {
+            Dump-Logs; throw 'the server process is gone'
+          }
+          try { Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 10 | Out-Null }
+          catch { Dump-Logs; throw "the server stopped answering: $($_.Exception.Message)" }
+
           $m = Select-String -Path "$app/boot.log" -Pattern '^\s*([0-9a-f]{64})\s*$'
-          if (-not $m) { Get-Content "$app/boot.log"; throw 'no token was minted' }
+          if (-not $m) { Dump-Logs; throw 'no token was minted' }
           $token = $m.Matches[0].Groups[1].Value
           $H = @{ Authorization = "Bearer $token" }
 
           function Check($name, $expected, $method, $url, $headers) {
-            try { $code = (Invoke-WebRequest -Uri $url -Method $method -Headers $headers -UseBasicParsing -TimeoutSec 60).StatusCode }
-            catch { $code = $_.Exception.Response.StatusCode.value__ }
-            '  {0,-34} {1}' -f $name, $code
-            if ("$code" -ne "$expected") { throw "$name expected $expected, got $code" }
+            $r = Invoke-WebRequest -Uri $url -Method $method -Headers $headers `
+                   -UseBasicParsing -TimeoutSec 120 -SkipHttpErrorCheck
+            # Write-Host, not the output stream: this function RETURNS the response, and a
+            # progress line written to output would be returned along with it.
+            Write-Host ('  {0,-34} {1}' -f $name, $r.StatusCode)
+            if ("$($r.StatusCode)" -ne "$expected") {
+              Write-Host $r.Content
+              Dump-Logs
+              throw "$name expected $expected, got $($r.StatusCode)"
+            }
+            $r
           }
-          Check 'anonymous /api'      401 GET  'http://127.0.0.1:50500/api/documents/list?path=' @{}
-          Check 'authenticated /api'  200 GET  'http://127.0.0.1:50500/api/documents/list?path=' $H
-          Check 'vault/switch absent' 404 POST 'http://127.0.0.1:50500/api/vault/switch'        $H
-          Check 'seal log'            200 GET  'http://127.0.0.1:50500/api/seal/log?depth=1'    $H
+          Check 'anonymous /api'      401 GET  'http://127.0.0.1:50500/api/documents/list?path=' @{} | Out-Null
+          Check 'authenticated /api'  200 GET  'http://127.0.0.1:50500/api/documents/list?path=' $H  | Out-Null
+          Check 'vault/switch absent' 404 POST 'http://127.0.0.1:50500/api/vault/switch'        $H  | Out-Null
+          Check 'seal log'            200 GET  'http://127.0.0.1:50500/api/seal/log?depth=1'    $H  | Out-Null
 
           foreach ($fmt in 'pdf', 'epub') {
-            $body = (Invoke-WebRequest "http://127.0.0.1:50500/api/reader/read?path=t.$fmt" -Headers $H -UseBasicParsing -TimeoutSec 120).Content
-            if ($body -match '"error"') { throw "$fmt extraction failed: $body" }
-            "  $fmt extraction ok"
+            $r = Check "$fmt extraction" 200 GET "http://127.0.0.1:50500/api/reader/read?path=t.$fmt" $H
+            if ($r.Content -match '"error"') { throw "$fmt extraction failed: $($r.Content)" }
           }
 
       # Windows has no signals. `Stop-Process` and `taskkill` map to TerminateProcess, so no
@@ -314,6 +393,14 @@ jobs:
       - name: Survive a hard kill and reopen
         run: |
           $app = Resolve-Path dist-server/app
+
+          function Dump-Logs {
+            foreach ($f in 'boot2.log', 'boot2.err.log') {
+              $p = Join-Path $app $f
+              if (Test-Path $p) { Write-Host "-- $f --"; Get-Content $p | Write-Host }
+            }
+          }
+
           taskkill /PID (Get-Content "$app/pid.txt").Trim() /T /F
           Start-Sleep -Seconds 2
           if (-not (Test-Path "$app/data/ci/ci.db-wal")) { throw 'expected an unchecked WAL after a hard kill' }
@@ -328,7 +415,7 @@ jobs:
               "reopened after ${i}s"
               break
             } catch {
-              if ($i -eq 60) { Get-Content "$app/boot2.log", "$app/boot2.err.log"; throw 'never reopened' }
+              if ($i -eq 60) { Dump-Logs; throw 'never reopened' }
               Start-Sleep -Seconds 1
             }
           }
@@ -336,9 +423,13 @@ jobs:
           # accounts.db is outside the vault and is the one store nothing can rebuild: the first
           # token must still work, and no second one may be minted.
           $token = (Select-String -Path "$app/boot.log" -Pattern '^\s*([0-9a-f]{64})\s*$').Matches[0].Groups[1].Value
-          $body = (Invoke-WebRequest 'http://127.0.0.1:50500/api/documents/list?path=' -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing).Content
+          $r = Invoke-WebRequest 'http://127.0.0.1:50500/api/documents/list?path=' `
+                 -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing -SkipHttpErrorCheck
+          if ($r.StatusCode -ne 200) {
+            Dump-Logs; throw "the first token no longer works: $($r.StatusCode) $($r.Content)"
+          }
           foreach ($doc in 't.pdf', 't.epub') {
-            if ($body -notmatch [regex]::Escape($doc)) { throw "$doc did not survive the hard kill: $body" }
+            if ($r.Content -notmatch [regex]::Escape($doc)) { throw "$doc did not survive the hard kill: $($r.Content)" }
           }
           if (Select-String -Path "$app/boot2.log" -Pattern 'AUTHOR TOKEN') { throw 'a second token was minted — the accounts store did not persist' }
           '  vault and access list both survived'

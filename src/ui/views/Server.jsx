@@ -119,6 +119,16 @@ function ServerIdentity({ connection }) {
         <dd className="srv-dim">
           {info?.appVersion ?? "—"}
           {info && <> · {t("schema")} {info.schemaVersion} · {t("files")} {info.canonicalVersion}</>}
+          {/* Only ever a notice. Nothing here updates the server, and upgrading it is the
+              operator's decision to make from the machine it runs on. */}
+          {info?.update?.available && (
+            <p className="srv-update">
+              {t("Version {version} is available.").replace("{version}", info.update.latest)}{" "}
+              {info.update.url && (
+                <a href={info.update.url} target="_blank" rel="noreferrer">{t("Release notes")}</a>
+              )}
+            </p>
+          )}
         </dd>
       </dl>
 

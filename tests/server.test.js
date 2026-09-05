@@ -44,6 +44,8 @@ for (const key of SERVER_ENV) delete process.env[key];
 // Files, which creates the workspace directory) from whatever config.json says at import
 // time. serverConfig has to be able to run before that happens.
 const { applyServerConfig } = await import('../src/server/serverConfig.js');
+// Pure and importable before anything opens a vault — no config, no database, no network.
+const { compareVersions, updateCheckEnabled, startUpdateCheck } = await import('../src/server/updateCheck.js');
 
 const VAULT = 'servedvault';
 process.env.FLASHBACK_PORT = '0';
@@ -279,7 +281,57 @@ describe('Flashback Server', () => {
         });
     });
 
-    // ── 4. Shutting down without losing anything ──────────────────────────────
+    // ── 4. Knowing there is a newer release ───────────────────────────────
+
+    // A server that cannot be told about a release is a server nobody upgrades. The check
+    // itself talks to github.com and is not exercised here — what is pinned is the ordering
+    // rule it depends on, and the promise that a deployment can switch it off.
+    describe('update check', () => {
+        it('orders versions the way a release ladder means them', () => {
+            assert.equal(compareVersions('0.4.1', '0.5.0'), -1);
+            assert.equal(compareVersions('0.5.0', '0.4.1'), 1);
+            assert.equal(compareVersions('0.4.1', '0.4.1'), 0);
+            assert.equal(compareVersions('0.4.1', 'v0.4.2'), -1, 'a leading v is a tag, not a version');
+            assert.equal(compareVersions('0.9.0', '0.10.0'), -1, 'numeric, not lexicographic');
+        });
+
+        it('does not mistake a prerelease for an upgrade over the release it qualifies', () => {
+            assert.equal(compareVersions('0.5.0', '0.5.0-rc1'), 1);
+            assert.equal(compareVersions('0.5.0-rc1', '0.5.0'), -1);
+        });
+
+        it('has no opinion about a version it cannot parse', () => {
+            // A malformed tag is not evidence of an update, and telling somebody to upgrade
+            // to nothing is worse than saying nothing.
+            assert.equal(compareVersions('0.4.1', 'nightly'), 0);
+            assert.equal(compareVersions(undefined, '0.5.0'), 0);
+        });
+
+        it('is on by default and off when the deployment says so', () => {
+            assert.equal(updateCheckEnabled({}), true);
+            for (const value of ['off', 'OFF', 'false', '0', 'no']) {
+                assert.equal(updateCheckEnabled({ FLASHBACK_UPDATE_CHECK: value }), false, value);
+            }
+            assert.equal(updateCheckEnabled({ FLASHBACK_UPDATE_CHECK: 'on' }), true);
+        });
+
+        it('makes no request when it is off, and reports nothing', () => {
+            const off = startUpdateCheck({ currentVersion: '0.4.1', enabled: false });
+            assert.equal(off.status(), null);
+            off.stop();
+        });
+
+        it('reports null on the handshake until a check has answered', async () => {
+            // The Api under test was built without an updateStatus getter, which is also the
+            // desktop build's shape. `null` has to be a legal answer, not a missing field.
+            const res = await fetch(`${baseUrl}/api/vault`, { headers: auth() });
+            const body = await res.json();
+            assert.ok('update' in body, 'the field must always be present for a client to branch on');
+            assert.equal(body.update, null);
+        });
+    });
+
+    // ── 5. Shutting down without losing anything ──────────────────────────────
 
     describe('graceful shutdown', () => {
         it('checkpoints the WAL so the volume is consistent for the next container', async () => {

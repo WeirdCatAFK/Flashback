@@ -33,7 +33,9 @@ concurrency:
 
 # Stated rather than left to the repository default: nothing here publishes, and `server.yml`
 # inherits the caller's permissions — so the workflow that runs on every branch and every
-# pull request cannot write to a release even if its `upload` input were set by mistake.
+# pull request cannot write to a release, or push a container image to GHCR, even if its
+# `upload` input were set by mistake. `release.yml` is the only caller that grants
+# `contents: write` and `packages: write`.
 permissions:
   contents: read
 

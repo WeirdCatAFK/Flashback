@@ -97,6 +97,15 @@
   color: var(--color-fg-secondary);
 }
 
+/* A newer release exists. Accented, because it is the one line in these facts that asks the
+   reader to do something — but a line, not a banner: upgrading a server is not a click. */
+.srv-update {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+}
+.srv-update a { color: inherit; }
+
 /* --- the token, shown once ----------------------------------------------- */
 
 .srv-token {

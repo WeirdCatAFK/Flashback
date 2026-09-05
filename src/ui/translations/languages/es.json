@@ -1166,5 +1166,6 @@
   "You can change this later in Settings, and keep a different address for a particular vault.": "Puedes cambiarlo más adelante en Configuración, y usar otra dirección en una bóveda concreta.",
   "Stamped as": "Se firma como",
   "Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and an administrator can read yours. Off by default.": "Escribe un resumen diario de tus revisiones (cantidad, tasa de aprobación, racha) y te deja agregar tus propias reflexiones. Todos los que estudian aquí comparten un mismo historial, y un administrador puede leer el tuyo. Apagado por defecto.",
-  "Everyone studying on this server shares one log history, and an administrator can read your summaries and anything you write.": "Todos los que estudian en este servidor comparten un mismo historial de registros, y un administrador puede leer tus resúmenes y todo lo que escribas."
+  "Everyone studying on this server shares one log history, and an administrator can read your summaries and anything you write.": "Todos los que estudian en este servidor comparten un mismo historial de registros, y un administrador puede leer tus resúmenes y todo lo que escribas.",
+  "Release notes": "Notas de la versión"
 }

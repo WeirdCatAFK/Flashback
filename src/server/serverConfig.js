@@ -26,6 +26,10 @@
  *   FLASHBACK_USER_NAME         identity new work is stamped with (default: OS account)
  *   FLASHBACK_USER_EMAIL        — must be set together with the name
  *   USER_DATA_PATH              the data volume                  (read by config.js itself)
+ *
+ * One server variable is deliberately NOT handled here: FLASHBACK_UPDATE_CHECK. It gates an
+ * outbound request, not a stored setting, so `updateCheck.js` reads it directly rather than
+ * persisting it to config.json where an operator would then have two places to turn it off.
  */
 
 import process from 'process';

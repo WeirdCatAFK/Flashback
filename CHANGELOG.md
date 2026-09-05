@@ -2,6 +2,47 @@
 
 ## Unreleased
 
+### Added — a published server image, and a server that knows when it is behind
+
+`docs/SERVER.md` has always told operators that upgrading is `docker compose pull` and that
+rolling back is pinning the previous tag. Neither was true: CI built the container and threw it
+away, so there was no image to pull and no tag to pin.
+
+Every tagged release now publishes one to GitHub Container Registry:
+
+```
+ghcr.io/weirdcatafk/flashback-server:<version>
+ghcr.io/weirdcatafk/flashback-server:latest
+```
+
+It is the same image CI booted — started on a real volume, checked for readiness, checked that
+an anonymous `/api` call is refused, checked that it shuts down cleanly — retagged and pushed,
+never rebuilt. Nothing reaches the registry that did not start. `linux/amd64` only for now: an
+arm64 image cannot be booted on the x64 runner, and shipping one untested would give up the
+point of the exercise.
+
+Pin a version with `FLASHBACK_VERSION` in `.env`, which is what makes a rollback possible —
+subject to the standing caution that migrations are one-way.
+
+The server also asks GitHub once at boot and once a day whether a newer release exists, and says
+so in the log and on the `/api/vault` handshake, where a connected desktop client shows it in the
+**Server** tab. It downloads nothing and restarts nothing: this process holds the only copy of
+the workspace, and when to upgrade is yours to decide. `FLASHBACK_UPDATE_CHECK=off` disables the
+request entirely.
+
+### Fixed — `.env` did nothing under Docker Compose
+
+Cloning the repository, copying `.env.example` to `.env` and running `docker compose up --build`
+ran the hardcoded defaults and gave no hint why. Compose reads `./.env` for *substitution*, and
+every value in `docker-compose.yml` was a literal with nothing to substitute into.
+
+Every setting is now `${NAME:-default}`, so a `.env` beside `docker-compose.yml` configures the
+deployment — including the published port, which `env_file:` could never have reached. Precedence,
+top wins: your shell's environment, then `.env`, then the defaults in the compose file, then
+`/data/.env` inside the container. Two Compose-only variables come with it: `FLASHBACK_VERSION`
+(which image tag to run) and `FLASHBACK_BIND_ADDR` (the host interface the port is published on,
+still loopback by default, so exposing the server stays a deliberate act).
+
 ### Added — Flashback Server for Windows
 
 The headless server was published for Linux only. Every release now also carries two Windows

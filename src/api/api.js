@@ -82,6 +82,8 @@ class api {
  * @param {string} [config.logFormat="dev"] - The log format to use.
  * @param {string} [config.host="localhost"] - The host to bind to.
  * @param {boolean} [config.isLocalhost=true] - Whether to bind to localhost or all interfaces.
+ * @param {() => object|null} [config.updateStatus] - Getter for the headless server's release
+ *   check. Omitted by the desktop build; the handshake then reports `update: null`.
  */
   constructor(config = {}) {
     this.app = express();
@@ -114,6 +116,13 @@ class api {
     // app, where switching vaults is a normal thing to do. See build() for what it removes.
     this.singleVault = config.singleVault ?? false;
 
+    // A getter, not a value: the headless server's release check answers minutes after boot
+    // and again the next day, and `routes/vault.js` has to report whatever it knows at the
+    // time it is called. Parked on `app.locals` in build() so the route reads it without the
+    // API tier importing anything from `src/server`. Absent on the desktop build, which has
+    // electron-updater instead — the handshake then reports `update: null`.
+    this.updateStatus = typeof config.updateStatus === "function" ? config.updateStatus : null;
+
     if (!this.isLocalhost && this.host === "localhost") {
       console.warn(
         "Warning: isLocalhost is false, but host is set to localhost. Binding to all interfaces (0.0.0.0)."
@@ -126,6 +135,8 @@ class api {
   /*Builds the api as you would normally in express, take into consideration
  that is asynchronous and runs along the constructor*/
   async build() {
+    this.app.locals.updateStatus = this.updateStatus;
+
     // Middleware mounting
     // @ts-ignore — cors is a valid RequestHandler, TypeScript infers it too broadly
     this.app.use(cors);
