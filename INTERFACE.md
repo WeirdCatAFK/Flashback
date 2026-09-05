@@ -501,7 +501,7 @@ Highlights tab work with any renderer unchanged.
 
 ## IPC Surface
 
-The preload script exposes exactly one namespace: `window.flashback`. New IPC channels must be added to both `preload.js` (as a `contextBridge` method) and `main.js` (as an `ipcMain.handle` handler). The renderer never imports from `electron` directly.
+The preload script exposes exactly one namespace: `window.flashback`. New IPC channels must be added to both `preload.cjs` (as a `contextBridge` method) and `main.js` (as an `ipcMain.handle` handler). The renderer never imports from `electron` directly.
 
 Current channels:
 

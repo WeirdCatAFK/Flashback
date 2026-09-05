@@ -449,6 +449,98 @@ The href must already appear in that clip's body. That check is what keeps this 
 
 ---
 
+### `GET /api/documents/tags`
+
+Every tag name in the vault.
+
+**Response** `200` — `{ tags }`.
+
+---
+
+### `GET /api/documents/tags/usage`
+
+Every tag with how many entities carry it — the Manage tab's tag list.
+
+**Response** `200` — `{ tags }`, each `{ name, count }`.
+
+---
+
+### `GET /api/documents/tags/entity`
+
+The three-tier tag state of one file or folder. See `DATAMODEL.md` § Tags for why exclusion is
+a stored fact rather than the absence of a tag.
+
+| Param      | In    | Type    | Required | Description                                   |
+| ---------- | ----- | ------- | -------- | --------------------------------------------- |
+| `path`     | query | string  | Yes      | Relative path to the file or folder.          |
+| `isFolder` | query | boolean | No       | `"true"` to resolve the path as a folder.     |
+
+**Response** `200` — `{ direct, inherited, excluded }`. `direct` and `inherited` come from the
+index; `excluded` is read from the sidecar, which is where it is canonical.
+
+**Errors** `400` path required · `404` entity not found.
+
+---
+
+### `GET /api/documents/sidecar`
+
+The raw `.flashback` sidecar for a file or folder, verbatim.
+
+| Param      | In    | Type    | Required | Description                               |
+| ---------- | ----- | ------- | -------- | ----------------------------------------- |
+| `path`     | query | string  | Yes      | Relative path to the file or folder.      |
+| `isFolder` | query | boolean | No       | `"true"` to resolve the path as a folder. |
+
+**Response** `200` — the sidecar JSON as-is. The document's etag rides in the **`ETag` header**
+rather than the body, because callers parse the body as the canonical format and an extra field
+would look like part of it. Pass that value back as `ifMatch` on a write.
+
+**Errors** `400` path required · `404` sidecar not found.
+
+---
+
+### `GET /api/documents/by-hash/:hash`
+
+Resolves a `globalHash` to a location — how the renderer turns a clicked `flashback://` link
+into a path to open.
+
+| Param  | In   | Type   | Required | Description                 |
+| ------ | ---- | ------ | -------- | --------------------------- |
+| `hash` | path | string | Yes      | The document's `globalHash`. |
+
+**Response** `200` — `{ relativePath, name }`.
+
+**Errors** `404` Document not found.
+
+---
+
+### `POST /api/documents/links/sync`
+
+Re-derives one document's `flashback://` link edges from its body. Writes are already synced on
+save; this is the manual repair path.
+
+**Body** `{ path }`.
+
+**Response** `200` — `{ ok: true }`.
+
+**Errors** `400` path required.
+
+---
+
+### `POST /api/documents/import/obsidian`
+
+Imports an Obsidian vault as a zip, one document per note. See `DATAMODEL.md` for the
+metadata-leakage rules (frontmatter, comments, tags, clozes).
+
+**Body** `multipart/form-data` — `file` (the zip, required), `targetPath` (destination folder,
+defaults to the workspace root).
+
+**Response** `201` — the importer's result summary.
+
+**Errors** `400` file required.
+
+---
+
 ## Reader `/api/reader`
 
 Paginated, read-only **text extraction** for documents whose bodies are not decodable text (PDF, EPUB, saved web clips), plus character-window reads of ordinary text files, plus the **media** those documents carry — an EPUB's figures, a clip's downloaded pictures and sound. Built for the MCP server — which has no renderer — but not restricted to it: the card form's media pickers are the other client of the media half. Backed by [`access/orchestration/mcpReader.js`](./access/ACCESS.md#mcpreaderjs); see there for the extraction rules and cache.
@@ -1469,6 +1561,18 @@ is what lets the client say so instead of showing a raw sidecar path.
 
 Paging is cursor-based because git history is a linked list, not an indexable array. A page
 shorter than `limit` means history ended.
+
+---
+
+### `GET /api/seal/commit/:oid/files`
+
+The paths one commit touched, for expanding a row in the history view.
+
+| Param | In   | Type   | Required | Description                  |
+| ----- | ---- | ------ | -------- | ---------------------------- |
+| `oid` | path | string | Yes      | The commit's object id, from `GET /api/seal/log`. |
+
+**Response** `200` — the commit's changed paths against its parent.
 
 ---
 

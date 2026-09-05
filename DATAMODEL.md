@@ -439,11 +439,15 @@ Tier 3 — Package import (built on the orchestration tier, loaded on demand by 
 **Rules that keep this stable long-term:**
 
 - `query.js` and `files.js` never import each other.
-- `srs.js` and `documents.js` never import each other.
+- **`srs.js` never imports `documents.js`.** The reverse is deliberate: `documents.js` imports
+  `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` grade a card that
+  lives in a sidecar, so the sidecar write and the schedule write have to be one operation. The
+  dependency runs one way only, which is the property that matters — the scheduler knows nothing
+  about files, so it stays testable without a workspace and a rebuild can re-derive schedules
+  without replaying document history.
 - `documents.js` may be imported by any Tier 3 orchestrator that needs to create/update real
-  workspace files as part of a larger operation — currently `subscriptions.js` and
-  `obsidianImport.js`. (Previously written as a `subscriptions.js`-only exception; no longer
-  accurate now that `obsidianImport.js` exists.)
+  workspace files as part of a larger operation — currently `subscriptions.js` (issue merge),
+  `obsidianImport.js` (one document per note) and `doctor.js` (re-indexes documents from disk).
 - Raw `db.prepare()` calls outside `query.js` are not allowed, except a single `PRAGMA table_info(Decks)` schema-introspection check in `decks.js` (not a data query).
 - Filesystem access outside `files.js` is not allowed (except temp-dir work in orchestrators).
 
@@ -1171,6 +1175,26 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 **Session-ordering columns record how a card was PRESENTED, not how it was graded.** They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. **A reader must treat NULL as "not recorded", never as distance 0**: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
 
 **Only the grade is stored, never the typed answer.** That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
+
+---
+
+### Table: FsrsParameters
+
+One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
+
+| Column        | Type         | Description                                                                                                                        |
+| ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| id            | integer (PK) | Unique identifier.                                                                                                                  |
+| account_id    | text         | An account id from `accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| weights_json  | text         | The 21 fitted weights, JSON-encoded. Consumed by `fsrs.js`; absent means the hand-rolled defaults are used.                          |
+| optimized_at  | timestamp    | When the fit was last run.                                                                                                          |
+| review_count  | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                        |
+
+`UNIQUE(account_id)` — one row per person, replaced on each optimize run.
+
+**One row per account, not one per vault.** The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
+
+Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the logs and therefore the input, so a rebuilt vault falls back to the default weights until each person re-optimizes. That is the same cost a rebuild has always carried for review history, not a new one.
 
 ---
 

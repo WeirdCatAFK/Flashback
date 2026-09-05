@@ -16,7 +16,7 @@ access/
                             doctor · diary · mcpReader · cardHealth · sequencer
                             ankiImport · obsidianImport   (package import, built on the rest of Tier 3)
                             fsrs · ankiPackage · sequencing (pure helpers — no DB, no IO into the vault)
-  resources/       Tier 2   query · files · pathLock, safeFetch (pure — no DB, no IO)
+  resources/       Tier 2   query · files · pathLock, safeFetch, cardRemovalBudget (pure — no DB, no IO)
   primitives/      Tier 1   config · database · accounts · vault
                             sqliteAdapter (the async driver both stores are built on)
 ```
@@ -30,8 +30,8 @@ Filenames on disk are lowercase (`query.js`, `files.js`, `config.js`, `database.
 **Import rules:**
 - **Spaced-repetition reads and writes take an explicit `scope`.** An account id, or the literal `'owner'` for the vault's Author (`requestContext.js` `OWNER_SCOPE`). Resolve it **once** at the orchestrator's entry point with `currentScope()` — `srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js` and `decks.js` all do — and pass it down. `query.js` never reads it ambiently and **throws on a missing one** rather than defaulting: whose data a statement returns is not something a call site should have to go somewhere else to find out, and a default would answer that question wrongly in silence. A handful of sites name `OWNER_SCOPE` outright and each says why in a comment — reconciling against a sidecar, writing a canonical file, or Seal's rollback snapshot. See `DATAMODEL.md` § Per-user progress.
 - `query.js` and `files.js` never import each other.
-- **`srs.js` never imports `documents.js`.** The reverse is not true and is not meant to be: `documents.js` imports `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` are document operations — they grade a card that lives in a sidecar, and the sidecar write and the schedule write have to happen in one server operation. The dependency runs one way only, which is the property that matters: the scheduler knows nothing about files, so it stays testable without a workspace and a rebuild can re-derive schedules without replaying document history. (This bullet used to read "never import each other", which the code has never matched.)
-- `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). This was previously written as "only `Subscriptions.js`" before `obsidianImport.js` was added; treat it as "any orchestrator that needs real files may import `documents.js`," not a single-module exception.
+- **`srs.js` never imports `documents.js`.** The reverse is not true and is not meant to be: `documents.js` imports `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` are document operations — they grade a card that lives in a sidecar, and the sidecar write and the schedule write have to happen in one server operation. The dependency runs one way only, which is the property that matters: the scheduler knows nothing about files, so it stays testable without a workspace and a rebuild can re-derive schedules without replaying document history.
+- `documents.js` may be imported by other Tier 3 modules that need to create/update real workspace files as part of a larger operation — currently `subscriptions.js` (issue merge), `obsidianImport.js` (vault import creates one document per note), and `doctor.js` (re-indexes documents from disk). The rule is "any orchestrator that needs real files", not a fixed list.
 - `doctor.js` is read-only toward the canonical layer: it re-derives the SQLite index from the on-disk files and sidecars but never writes document content or regenerates a `globalHash`. It imports `documents.js`, `decks.js`, `files.js`, `query.js`, and Seal.
 - `mcpReader.js` imports `files.js` and nothing else — it is a read-only reader, so it needs neither the index nor an orchestrator.
 - **Canonical updates do not live in this tier.** Versioned rewrites of the sidecars and `_decks/*.json` are `config/UpdateRunner.js` + `config/updates/`, the document-driven counterpart of `config/migrations/` — see `config/updates/UPDATES.md`. The runner imports *downward* into this layer (`files.js`, `query.js`, `decks.js`) exactly as `routes/` does; nothing in `access/` imports it back, apart from `files.js` and `decks.js` reading `LATEST_VERSION` from the dependency-free `config/updates/registry.js` to stamp new files.
@@ -208,6 +208,34 @@ it at boot, before the server accepts a request. The two Doctor entry points are
 are part of a larger gap: `doctor.js` takes no path lock anywhere, and it rewrites documents as
 well as decks. Fixing that is a Doctor-wide question (it most likely wants `withStructure`
 around a whole run) and does not belong in `decks.js`.
+
+---
+
+### `cardRemovalBudget.js`
+How many flashcards one account may delete, per request and per rolling hour. Pure — imports
+nothing at all — so `tests/cardRemovalBudget.test.js` runs with no vault and no native module,
+like `pathLock.js` and `safeFetch.js`.
+
+`PUT /api/documents/metadata` is COLLABORATOR-gated on purpose: cards, highlights and tags all
+live in the sidecar, so a collaborator who could not write metadata could not annotate. But the
+write is a whole-object replacement, and `documents._syncDocumentFlashcards` deletes every
+indexed card absent from what arrived — so `{"flashcards": []}` erased a document's entire card
+set, canonical file and index together, from the role meant to annotate rather than reshape.
+
+Removing a card *is* annotating, so the operation stays open and the **volume** is bounded
+instead. Two limits: **per request** (the one that matters — it makes "delete this document's
+two hundred cards in one call" impossible) and **per rolling hour** (bounds a patient caller,
+turning an instant wipe into something slow enough to notice). Admins and the Author are exempt.
+
+- `check(accountId, count, limits)` — verdict only, no state change.
+- `consume(accountId, count)` — charges the budget, called only after the write succeeds.
+
+**This is a rate limit, not an authorization boundary.** The role table is still the boundary;
+this stops that boundary's one deliberately-wide door from being a trapdoor. The counter lives
+in this process and resets on restart — the same honesty as `pathLock.js`, and the right scope
+given one API process per vault, but it is not a durable quota. Limits come from
+`config.getCardRemovalLimits()` (`cardRemovalsPerHour` / `cardRemovalsPerRequest`, defaults 20
+and 10), read fresh from disk so tightening them after an incident needs no restart.
 
 ---
 
