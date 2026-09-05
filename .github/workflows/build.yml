@@ -14,9 +14,10 @@
 # Node 20, matching `release.yml` rather than `test.yml`'s 22: an installer should be built
 # the way a released installer is built, or this checks a configuration nobody ships.
 #
-# What is NOT here: the Docker image and the standalone server zips. Those stay
-# release-cadence in `release.yml` for the reasons stated there — they are slow and what
-# they protect is a release artifact.
+# The server artifacts are here too, via the reusable `server.yml` — the Docker image, the
+# standalone Linux zip and both Windows zips, each built, booted and exercised against a
+# real API. `release.yml` calls that same file with `upload: true`, so the assertions this
+# workflow runs on every commit are literally the ones a release runs.
 
 name: Build
 
@@ -29,6 +30,12 @@ on:
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+# Stated rather than left to the repository default: nothing here publishes, and `server.yml`
+# inherits the caller's permissions — so the workflow that runs on every branch and every
+# pull request cannot write to a release even if its `upload` input were set by mistake.
+permissions:
+  contents: read
 
 jobs:
   build:
@@ -83,3 +90,12 @@ jobs:
           path: ${{ matrix.path }}
           retention-days: 7
           if-no-files-found: error
+
+  # Every server artifact release.yml builds, minus the upload. This is the gap `test.yml`
+  # documented and deliberately left open; it is closed here rather than there because it is
+  # a build, not a test, and because these jobs are slow enough to want their own workflow.
+  server:
+    name: Server
+    uses: ./.github/workflows/server.yml
+    with:
+      upload: false

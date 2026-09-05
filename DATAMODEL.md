@@ -14,8 +14,6 @@ The Flashback system maintains data in **two synchronized layers**:
    - Optimized for fast querying and consumption by the Flashback API.
    - Contains normalized and indexed representations of canonical data (flashcards, tags, review logs, presence metrics).
 
----
-
 ## Vault Structure
 
 All user data is scoped to a **vault** — a named, self-contained directory. An install may hold several; `config.json` carries a `vaults[]` registry and an `activeVaultId` pointer, and keeps the flat `vaultName`/`isCustomPath`/`customPath` fields as the projection of whichever vault is active. Both data layers for a given vault live inside it.
@@ -110,7 +108,7 @@ The etag has two halves, `"<body>.<sidecar>"`, because a document is two files w
 different owners — see `src/api/API.md` § Concurrent writes for how a write is checked against
 the half it replaces. Clients treat the string as opaque.
 
-### `createdBy` 
+### `createdBy`
 
 Every sidecar records who created it. The value is a **git author line** — `Name <email>` —
 resolved from the local user identity (below) at the moment the file is created:
@@ -684,10 +682,10 @@ It has a second, smaller payoff: migration 010 backfills to a literal, so it nee
 
 ### Two canonical homes
 
-| Whose | Canonical home | Travels with a copied vault | Versioned by Seal |
-|---|---|---|---|
-| The owner's | the `.flashback` sidecar | yes | yes |
-| Everyone else's | `accounts.db` → `AccountProgress` | no | no |
+| Whose           | Canonical home                         | Travels with a copied vault | Versioned by Seal |
+| --------------- | -------------------------------------- | --------------------------- | ----------------- |
+| The owner's     | the`.flashback` sidecar              | yes                         | yes               |
+| Everyone else's | `accounts.db` → `AccountProgress` | no                          | no                |
 
 Both project into the vault database's `CardProgress`, which is derived and rebuildable like everything else there.
 
@@ -719,9 +717,9 @@ Where a person has read to in a document — a PDF page, an EPUB location, a cha
 
 ### One home, not two
 
-| Whose | Canonical home | Travels with a copied vault | Versioned by Seal |
-|---|---|---|---|
-| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no | no |
+| Whose                          | Canonical home                      | Travels with a copied vault | Versioned by Seal |
+| ------------------------------ | ----------------------------------- | --------------------------- | ----------------- |
+| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no                          | no                |
 
 This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
 
@@ -744,12 +742,12 @@ Keying by hash also means a position **survives a rename or a move** for free, a
 
 A position is a `unit` plus a format-specific locator, expressed in **the same vocabulary `mcpReader` paginates by** rather than a fifth one — that is what lets a stored position bound a text read.
 
-| Format | `unit` | Locator | Addresses the reader with |
-|---|---|---|---|
-| `.pdf` | `page` | `{ page }` | `index` |
-| `.epub` | `section` | `{ cfi, href, section }` | `index`=`href` |
-| `.md` `.txt` `.clip` | `chars` | `{ offset }` | `offset` |
-| `.youtube` | `segment` | `{ seconds }` | `at` |
+| Format                     | `unit`    | Locator                    | Addresses the reader with |
+| -------------------------- | ----------- | -------------------------- | ------------------------- |
+| `.pdf`                   | `page`    | `{ page }`               | `index`                 |
+| `.epub`                  | `section` | `{ cfi, href, section }` | `index`=`href`        |
+| `.md` `.txt` `.clip` | `chars`   | `{ offset }`             | `offset`                |
+| `.youtube`               | `segment` | `{ seconds }`            | `at`                    |
 
 The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers are *readable-section* ordinals — it skips spine items with no text, such as covers and plates — so they are **not** the spine indices the renderer knows. The bridge is `href`, which `info()` reports per section and `read()` accepts as a string `index`. The CFI resumes the renderer; the href addresses the reader; neither ordinal is converted into the other.
 
@@ -945,7 +943,7 @@ Ordering is seeded (`mulberry32`), so a session is reproducible from its seed an
 | reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                                                                    |
 | name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                                                                  |
 | origin       | varchar(500) | Provenance marker:`'ai'` = created by an AI assistant (via the MCP server); `NULL` = handmade (UI, imports). Set once at creation, never edited afterwards. Mirrored in the sidecar card's `origin` field (canonical). |
-| presence     | float        | Familiarity/strength metric (derived from reviews). The document-level counterpart is `Documents.presence`; both are the **owner's**, because they are mirrored into the canonical layer.                                     |
+| presence     | float        | Familiarity/strength metric (derived from reviews). The document-level counterpart is`Documents.presence`; both are the **owner's**, because they are mirrored into the canonical layer.                             |
 | fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                                                            |
 | card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent.                                             |
 
@@ -959,20 +957,20 @@ Ordering is seeded (`mulberry32`), so a session is reproducible from its seed an
 
 One person's schedule for one card. See § Per-user progress for why it exists and where each person's canonical copy lives.
 
-| Column          | Type         | Description                                                                                                                                                              |
-| --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| id              | integer (PK) | Unique identifier.                                                                                                                                                       |
-| flashcard_id    | integer (FK) | The card. **(ON DELETE CASCADE)**                                                                                                                                        |
-| account_id      | text         | An account id from `accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`.                          |
-| level           | integer      | Number of consecutive positive recalls (Leitner box).                                                                                                                    |
-| sm2_reps        | integer      | Repetition count under SM-2, separate from `level`. Defaults to 0.                                                                                                       |
-| last_recall     | timestamp    | Last time this person recalled this card.                                                                                                                                |
-| fsrs_stability  | float        | FSRS-6 latent stability, in days. NULL until this person has rated the card under FSRS.                                                                                  |
-| fsrs_difficulty | float        | FSRS-6 latent difficulty.                                                                                                                                                |
-| fsrs_due        | timestamp    | Explicit next-due datetime under FSRS (the other schedulers derive theirs from `last_recall` + interval).                                                                 |
-| fsrs_state      | integer      | FSRS card state; 0 = new. Defaults to 0.                                                                                                                                 |
-| fsrs_reps       | integer      | FSRS review count. Defaults to 0.                                                                                                                                        |
-| fsrs_lapses     | integer      | FSRS lapse count. Defaults to 0.                                                                                                                                         |
+| Column          | Type         | Description                                                                                                                                                   |
+| --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id              | integer (PK) | Unique identifier.                                                                                                                                            |
+| flashcard_id    | integer (FK) | The card.**(ON DELETE CASCADE)**                                                                                                                        |
+| account_id      | text         | An account id from`accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| level           | integer      | Number of consecutive positive recalls (Leitner box).                                                                                                         |
+| sm2_reps        | integer      | Repetition count under SM-2, separate from`level`. Defaults to 0.                                                                                           |
+| last_recall     | timestamp    | Last time this person recalled this card.                                                                                                                     |
+| fsrs_stability  | float        | FSRS-6 latent stability, in days. NULL until this person has rated the card under FSRS.                                                                       |
+| fsrs_difficulty | float        | FSRS-6 latent difficulty.                                                                                                                                     |
+| fsrs_due        | timestamp    | Explicit next-due datetime under FSRS (the other schedulers derive theirs from`last_recall` + interval).                                                    |
+| fsrs_state      | integer      | FSRS card state; 0 = new. Defaults to 0.                                                                                                                      |
+| fsrs_reps       | integer      | FSRS review count. Defaults to 0.                                                                                                                             |
+| fsrs_lapses     | integer      | FSRS lapse count. Defaults to 0.                                                                                                                              |
 
 `UNIQUE(flashcard_id, account_id)`.
 
@@ -1196,7 +1194,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | ------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id                  | integer (PK) | Unique identifier.                                                                                                                                  |
 | flashcard_id        | integer (FK) | Reviewed flashcard.**(ON DELETE CASCADE)**                                                                                                    |
-| account_id          | varchar(64)  | **Whose review this was**: an account id, or `'owner'`. NOT NULL, defaults to `'owner'`. Indexed. See § Per-user progress.                     |
+| account_id          | varchar(64)  | **Whose review this was**: an account id, or `'owner'`. NOT NULL, defaults to `'owner'`. Indexed. See § Per-user progress.               |
 | timestamp           | timestamp    | When the review occurred.                                                                                                                           |
 | outcome             | integer      | Result of recall (e.g., success, failure).                                                                                                          |
 | ease_factor         | float        | Spaced repetition ease factor.                                                                                                                      |
@@ -1217,13 +1215,13 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 
 One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
 
-| Column        | Type         | Description                                                                                                                        |
-| ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| id            | integer (PK) | Unique identifier.                                                                                                                  |
-| account_id    | text         | An account id from `accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
-| weights_json  | text         | The 21 fitted weights, JSON-encoded. Consumed by `fsrs.js`; absent means the hand-rolled defaults are used.                          |
-| optimized_at  | timestamp    | When the fit was last run.                                                                                                          |
-| review_count  | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                        |
+| Column       | Type         | Description                                                                                                                                                   |
+| ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| id           | integer (PK) | Unique identifier.                                                                                                                                            |
+| account_id   | text         | An account id from`accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| weights_json | text         | The 21 fitted weights, JSON-encoded. Consumed by`fsrs.js`; absent means the hand-rolled defaults are used.                                                  |
+| optimized_at | timestamp    | When the fit was last run.                                                                                                                                    |
+| review_count | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                                                |
 
 `UNIQUE(account_id)` — one row per person, replaced on each optimize run.
 
@@ -1243,7 +1241,7 @@ Per-account because the verdict is about how the card is *built* but the evidenc
 | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
 | id                  | integer (PK) | Unique identifier.                                                                                         |
 | flashcard_id        | integer (FK) | The card.**(ON DELETE CASCADE)**                                                                     |
-| account_id          | varchar(64)  | Whose analysis this is: an account id, or`'owner'`. UNIQUE together with `flashcard_id`.             |
+| account_id          | varchar(64)  | Whose analysis this is: an account id, or`'owner'`. UNIQUE together with `flashcard_id`.               |
 | epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
 | epoch_reason        | varchar(20)  | What moved the watermark:`edit`, `recovered`, `dismissed`.                                           |
 | content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation.                                |
@@ -1263,7 +1261,7 @@ One row per **currently-raised** flag, per person. `UNIQUE(flashcard_id, account
 | ------------------ | ------------ | ---------------------------------------------------------------------- |
 | id                 | integer (PK) | Unique identifier.                                                     |
 | flashcard_id       | integer (FK) | The flagged card.**(ON DELETE CASCADE)**                         |
-| account_id         | varchar(64)  | Whose evidence raised it: an account id, or`'owner'`.            |
+| account_id         | varchar(64)  | Whose evidence raised it: an account id, or`'owner'`.                |
 | kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`.       |
 | confidence         | varchar(20)  | `moderate` or `high`.                                              |
 | score              | float        | How strongly the detector fired (0–1).                                |

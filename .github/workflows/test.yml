@@ -9,11 +9,11 @@
 #   test    — the suite, on Linux (the platform the server actually deploys to)
 #   lint    — advisory for now, see below
 #
-# The server BUILD is not checked here. The Docker image and the standalone Linux zip are
-# built and booted by `release.yml` on a `v*` tag instead: both are slow, both give the same
-# answer for every commit on a branch, and what they protect is a release artifact rather
-# than the code a commit changes. The tradeoff is deliberate and worth stating plainly — a
-# commit that breaks the container or the zip now stays green until someone cuts a tag.
+# No BUILD is checked here — not the desktop installers, not the server image, not the
+# zips. `build.yml` owns all of that and runs on the same trigger; the split is by kind of
+# answer, so a red X names either "the code is wrong" or "it does not package", never both.
+# (Until build.yml existed, packaging was checked only on a `v*` tag, and this paragraph
+# said so.)
 
 name: Tests
 
