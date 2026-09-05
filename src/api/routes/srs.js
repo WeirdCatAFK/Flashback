@@ -219,10 +219,25 @@ router.get('/statistics', catchError(async (req, res) => {
 //   maxNew=<n>             — new cards to introduce per session (stored in localStorage)
 //   minPriority=<n>        — only include cards whose pedagogical category priority >= n
 //   folder=<relPath>       — restrict to a folder subtree
+//   document=<relPath>     — restrict to one document
 //   deck=<hash>            — restrict to cards in a specific deck
 //   tag=<name>             — restrict to cards tagged with this name (repeatable)
+//   excludeFolder=<relPath>   — hold back a folder subtree (repeatable)
+//   excludeDocument=<relPath> — hold back one document (repeatable)
+//   excludeDeck=<hash>        — hold back a deck's cards (repeatable)
+//   excludeTag=<name>         — hold back cards carrying this effective tag (repeatable)
+//   read=only              — hold back cards drawn from material the caller has not read past
 //   order=interleaved|shuffle|priority — presentation order (localStorage `fb-trainer-order`)
 //   seed=<n>               — fixed PRNG seed; for tests and reproducing a reported session
+//
+// The exclusions exist because the include filters cannot express the shape the problem
+// actually has when a bulk import lands: nobody wants to enumerate the twelve folders they
+// still want in order to park the one that just arrived.
+//
+// `read=only` is composed here rather than inside srs.js, exactly like vaultCompleteness
+// below and for the same reason — readProgress reaches the filesystem, and the scheduler may
+// not import anything that does. studyFilter() returns two plain lists and the scheduler
+// never learns what they mean.
 //
 // Selection and sequencing are composed here, never folded into each other: SRS.getDue
 // decides WHICH cards are due purely from due dates, then the sequencer decides the ORDER
@@ -234,6 +249,7 @@ router.get('/statistics', catchError(async (req, res) => {
 router.get('/due', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const folder = req.query.folder ? norm(req.query.folder) : null;
+    const document = req.query.document ? norm(req.query.document) : null;
     const deck = req.query.deck || null;
     const rawTags = req.query.tag;
     const tags = rawTags ? [].concat(rawTags).filter(Boolean) : null;
@@ -242,7 +258,25 @@ router.get('/due', catchError(async (req, res) => {
     const order = req.query.order || 'interleaved';
     const seed = req.query.seed != null ? parseInt(req.query.seed, 10) : null;
 
-    const result = await SRS.getDue({ algorithm, folder, deck, tags: tags?.length ? tags : null, maxNew, minPriority });
+    // Repeatable, using the same idiom as `tag`: Express hands over a string for one
+    // occurrence and an array for several, and `[].concat` flattens both to a list.
+    const list = (raw, map = (v) => v) => {
+        const values = raw ? [].concat(raw).filter(Boolean).map(map) : [];
+        return values.length ? values : null;
+    };
+    const excludeFolders = list(req.query.excludeFolder, norm);
+    const excludeDocuments = list(req.query.excludeDocument, norm);
+    const excludeDecks = list(req.query.excludeDeck);
+    const excludeTags = list(req.query.excludeTag);
+
+    const readGate = req.query.read === 'only'
+        ? await readProgress.studyFilter({ scope: currentScope() })
+        : null;
+
+    const result = await SRS.getDue({
+        algorithm, folder, document, deck, tags: tags?.length ? tags : null, maxNew, minPriority,
+        readGate, excludeFolders, excludeDocuments, excludeDecks, excludeTags,
+    });
     const sequenced = await sequencer.sequence({
         due: result.due,
         newCards: result.new,

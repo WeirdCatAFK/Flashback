@@ -1238,6 +1238,181 @@ describe('Flashback API', () => {
 
     // ── SRS Algorithm Migration ───────────────────────────────────────────
 
+    // Selecting a session by what it must NOT contain, and by how far you have read.
+    //
+    // Both are about the same problem from opposite ends: a bulk import lands and its four
+    // hundred cards are suddenly due all at once. The include filters cannot express it —
+    // nobody wants to enumerate the twelve folders they still want in order to park the one
+    // that just arrived — and the read gate answers it without any enumeration at all.
+    describe('Session scoping — exclusions and the read gate', () => {
+        const ROOT = 'ScopeExclTest';
+        const IMPORT = `${ROOT}/Import`;
+        const KEEP = 'excl-keep-001';
+        const DUMP_A = 'excl-dump-001';
+        const DUMP_B = 'excl-dump-002';
+        const EARLY = 'excl-read-early';
+        const LATE = 'excl-read-late';
+        let soloHash, taggedSoloHash, deckHash;
+
+        const dueSet = async (qs) => {
+            const res = await fetch(`${baseUrl}/api/srs/due?maxNew=200${qs ? '&' + qs : ''}`);
+            assert.equal(res.status, 200, `?${qs} should succeed`);
+            const body = await res.json();
+            // Selection happens upstream of the sequencer, so the queue is the honest answer:
+            // a filter that reached due/new but not the queue would still show the user cards
+            // they asked not to see.
+            return new Set(body.queue.map(c => c.global_hash));
+        };
+
+        before(async () => {
+            await createFolder(ROOT);
+            await createFolder('Import', ROOT);
+
+            await createFile('keep.md', ROOT);
+            await updateFile(`${ROOT}/keep.md`, '# Keep', {
+                flashcards: [{ globalHash: KEEP, vanillaData: { frontText: 'Keep', backText: 'A' } }],
+            });
+
+            await createFile('dump.md', IMPORT);
+            await updateFile(`${IMPORT}/dump.md`, '# Dump', {
+                flashcards: [
+                    { globalHash: DUMP_A, vanillaData: { frontText: 'Dump A', backText: 'A' } },
+                    { globalHash: DUMP_B, vanillaData: { frontText: 'Dump B', backText: 'A' } },
+                ],
+            });
+
+            // Two standalone cards: one plain, one carrying a direct tag of its own.
+            soloHash = (await (await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Solo Q', backText: 'A', cardType: 'basic',
+            })).json()).globalHash;
+            taggedSoloHash = (await (await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Tagged solo Q', backText: 'A', cardType: 'basic', tags: ['excl-tag'],
+            })).json()).globalHash;
+
+            deckHash = (await (await post(`${baseUrl}/api/decks`, { name: 'Excludable Deck' })).json()).globalHash;
+            await post(`${baseUrl}/api/decks/${deckHash}/entries`, {
+                cardHash: DUMP_A, documentPath: `${IMPORT}/dump.md`,
+            });
+
+            // A document read part of the way through, with a card either side of the mark.
+            // Highlights and cards go in ONE sidecar write: a metadata write is a whole-object
+            // write, so creating the highlights first and the cards second would drop them.
+            await createFile('read.md', ROOT);
+            await updateFile(`${ROOT}/read.md`, undefined, {
+                highlights: [
+                    { id: 'hl-excl-early', type: 'pdf_bbox', page: 5, color: 'amber', text: 'early' },
+                    { id: 'hl-excl-late', type: 'pdf_bbox', page: 300, color: 'amber', text: 'late' },
+                ],
+                flashcards: [
+                    { globalHash: EARLY, vanillaData: { frontText: 'Early', backText: 'A', location: { type: 'highlight', id: 'hl-excl-early' } } },
+                    { globalHash: LATE, vanillaData: { frontText: 'Late', backText: 'A', location: { type: 'highlight', id: 'hl-excl-late' } } },
+                ],
+            });
+            await put(`${baseUrl}/api/progress`, {
+                path: `${ROOT}/read.md`, unit: 'page', position: { page: 50 }, total: 300,
+            });
+        });
+
+        it('excludeFolder removes a subtree — and keeps standalone cards', async () => {
+            const q = await dueSet(`excludeFolder=${encodeURIComponent(IMPORT)}`);
+            assert.ok(!q.has(DUMP_A) && !q.has(DUMP_B), 'the excluded subtree is gone');
+            assert.ok(q.has(KEEP), 'a sibling folder is untouched');
+            // `d` is a LEFT JOIN, so a standalone card has a NULL folder_id and
+            // `NULL NOT IN (...)` is never true. Without the IS NULL arm this exclusion
+            // would silently delete every document-less card in the vault along with it.
+            assert.ok(q.has(soloHash), 'a card in no folder cannot be in the excluded one');
+        });
+
+        it('excludeFolder reaches descendants, not just the named folder', async () => {
+            const q = await dueSet(`excludeFolder=${encodeURIComponent(ROOT)}`);
+            assert.ok(!q.has(KEEP) && !q.has(DUMP_A), 'the whole tree goes');
+            assert.ok(q.has(soloHash));
+        });
+
+        it('excludeDocument removes one file and nothing around it', async () => {
+            const q = await dueSet(`excludeDocument=${encodeURIComponent(`${IMPORT}/dump.md`)}`);
+            assert.ok(!q.has(DUMP_A) && !q.has(DUMP_B));
+            assert.ok(q.has(KEEP) && q.has(soloHash));
+        });
+
+        it('takes several exclusions at once', async () => {
+            const q = await dueSet(
+                `excludeDocument=${encodeURIComponent(`${IMPORT}/dump.md`)}` +
+                `&excludeDocument=${encodeURIComponent(`${ROOT}/keep.md`)}`,
+            );
+            assert.ok(!q.has(DUMP_A) && !q.has(DUMP_B) && !q.has(KEEP));
+            assert.ok(q.has(soloHash));
+        });
+
+        it('excludeDeck removes a deck\'s cards only', async () => {
+            const q = await dueSet(`excludeDeck=${encodeURIComponent(deckHash)}`);
+            assert.ok(!q.has(DUMP_A), 'the deck member is gone');
+            assert.ok(q.has(DUMP_B), 'its neighbour in the same document stays');
+        });
+
+        it('excludeTag removes a tagged card only', async () => {
+            const q = await dueSet('excludeTag=excl-tag');
+            assert.ok(!q.has(taggedSoloHash), 'the tagged card is gone');
+            assert.ok(q.has(soloHash) && q.has(KEEP), 'untagged cards stay');
+        });
+
+        it('document= scopes to a single file, the counterpart of folder=', async () => {
+            const q = await dueSet(`document=${encodeURIComponent(`${ROOT}/keep.md`)}`);
+            assert.deepEqual([...q], [KEEP],
+                'a positive document scope is strict: a card in no document is not in this one');
+        });
+
+        it('read=only offers what is behind the mark and holds back what is ahead', async () => {
+            const q = await dueSet('read=only');
+            assert.ok(q.has(EARLY), 'page 5, read to page 50');
+            assert.ok(!q.has(LATE), 'page 300, read to page 50');
+            assert.ok(!q.has(KEEP), 'a document never opened contributes nothing');
+            assert.ok(q.has(soloHash), 'a standalone card is drawn from no reading');
+
+            const off = await dueSet('');
+            assert.ok(off.has(LATE) && off.has(KEEP), 'and all of it comes back with the gate off');
+        });
+
+        it('read=only still fills the new-card allowance', async () => {
+            // The proof that the gate ran in SQL rather than over the returned rows:
+            // getDueFlashcards slices the new pile to maxNew AFTER its WHERE clause, so a
+            // filter applied afterwards would quietly turn "3 new cards" into however few
+            // of the first three survived — here, one.
+            await createFile('reachable.md', ROOT);
+            const reachable = ['excl-r-1', 'excl-r-2', 'excl-r-3'];
+            await updateFile(`${ROOT}/reachable.md`, undefined, {
+                highlights: [
+                    { id: 'hl-excl-near', type: 'pdf_bbox', page: 2, color: 'amber', text: 'near' },
+                    { id: 'hl-excl-far', type: 'pdf_bbox', page: 90, color: 'amber', text: 'far' },
+                ],
+                flashcards: [
+                    // The unreachable card comes first, so a post-filter would eat the allowance.
+                    { globalHash: 'excl-far-1', vanillaData: { frontText: 'Far 1', backText: 'A', location: { type: 'highlight', id: 'hl-excl-far' } } },
+                    ...reachable.map((h, n) => ({
+                        globalHash: h,
+                        vanillaData: { frontText: `Reachable ${n}`, backText: 'A', location: { type: 'highlight', id: 'hl-excl-near' } },
+                    })),
+                ],
+            });
+            await put(`${baseUrl}/api/progress`, {
+                path: `${ROOT}/reachable.md`, unit: 'page', position: { page: 10 }, total: 100,
+            });
+
+            const res = await fetch(
+                `${baseUrl}/api/srs/due?read=only&maxNew=3&document=${encodeURIComponent(`${ROOT}/reachable.md`)}`);
+            const body = await res.json();
+            assert.equal(body.counts.new, 3, 'the allowance is filled from eligible cards, not from the first three');
+        });
+
+        it('composes with the include filters rather than replacing them', async () => {
+            const q = await dueSet(
+                `folder=${encodeURIComponent(ROOT)}&excludeFolder=${encodeURIComponent(IMPORT)}`);
+            assert.ok(q.has(KEEP), 'inside the scope and not excluded');
+            assert.ok(!q.has(DUMP_A), 'inside the scope but excluded');
+            assert.ok(!q.has(soloHash), 'the positive folder filter still drops document-less cards');
+        });
+    });
+
     describe('SRS Algorithm Migration', () => {
         const ROOT = 'MigrateApiTest';
 

@@ -723,10 +723,30 @@ class SRSService {
     // `algorithm` decides how dueness is computed; when the caller can't supply it
     // (no browser, so no localStorage) it's inferred from review history rather than
     // assumed — see detectAlgorithm. The echoed `algorithm` is the one actually used.
-    async getDue({ algorithm: requested = null, folder = null, deck = null, tags = null, maxNew = 20, minPriority = 0, scope: scopeArg = null } = {}) {
+    //
+    // Every filter here is a pass-through. `readGate` is the one that looks like it should be
+    // more: it is `readProgress.studyFilter()`'s output, composed at the route layer and handed
+    // down as two opaque lists, because this module may not import an orchestrator that reaches
+    // the filesystem (ACCESS.md — "srs.js never imports documents.js"). It arrives pre-resolved
+    // so the scheduler stays ignorant of reading, exactly as it stays ignorant of the graph.
+    //
+    // All of it is applied inside the SQL rather than to the returned rows, and that is load
+    // bearing: getDueFlashcards slices the new-card pile to `maxNew` AFTER its WHERE clause, so
+    // filtering afterwards would quietly turn "20 new cards" into however few survived.
+    async getDue({
+        algorithm: requested = null, folder = null, document = null, deck = null, tags = null,
+        maxNew = 20, minPriority = 0, readGate = null,
+        excludeFolders = null, excludeDocuments = null, excludeDecks = null, excludeTags = null,
+        scope: scopeArg = null,
+    } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const result = await query.getDueFlashcards({ algorithm, folder, deck, tags, maxNew, minPriority }, scope);
+        const result = await query.getDueFlashcards({
+            algorithm, folder, document, deck, tags, maxNew, minPriority,
+            readDocuments: readGate?.documents ?? null,
+            readExcludeCards: readGate?.excludeCards ?? null,
+            excludeFolders, excludeDocuments, excludeDecks, excludeTags,
+        }, scope);
         return {
             algorithm,
             due: result.due,

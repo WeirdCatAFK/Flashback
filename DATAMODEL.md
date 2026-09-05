@@ -769,6 +769,41 @@ There is no status column. **Finished is derived**: `far_pct >= 0.95`. Real docu
 
 A missing row means **never started** and is never backfilled to a zero row — the same convention `CardProgress` uses, and what lets a rollup count unread documents without inventing records for them.
 
+### Studying what you have read
+
+`GET /api/srs/due?read=only` gates a study session on these marks — the answer to a four
+hundred card import landing on a book you are forty pages into. `readProgress.studyFilter()`
+returns two plain lists and the scheduler is handed them pre-resolved, because `srs.js` may not
+import an orchestrator that reaches the filesystem; the composition happens at the route layer,
+exactly as `vaultCompleteness` already does.
+
+The two lists are deliberately asymmetric, and that asymmetry is the policy:
+
+- **A document is gated on being opened at all.** One never opened is absent from the allow
+  list, which holds its whole pile back.
+- **A card is held back only on positive evidence** that its anchor sits past the furthest mark.
+  Unresolvable positions stay in the session: an EPUB CFI (not orderable — see below), a
+  Markdown inline highlight (no offsets), a card with no anchor. Standalone cards are drawn from
+  no document and are never gated.
+
+So the filter hides work it can prove you have not reached, never work it merely cannot locate.
+A finished document short-circuits before its sidecar is even read: 0.95 exists so back matter
+nobody reads does not keep a book permanently short of the line, and re-deriving a page bound
+from that figure would hold back the last 5% of its cards on the same technicality.
+
+Nothing is rescheduled — a held-back card is simply not offered this session, and reappears when
+the flag comes off. Cost is one accounts query, one subtree query, and one sidecar read per
+*partially* read document, once per session.
+
+**Where a card sits is read from the sidecar, not from `FlashcardReference`.** The anchor the UI
+and the MCP server actually write is `{type:'highlight', id}`, which carries no `data`, so the
+indexed row is `(type='highlight', NULL, NULL, NULL, NULL)` — the geometry is on the highlight.
+`readProgress._cardPositions()` joins the two by `flashcards[].location.id → highlights[].id`,
+and explicitly **not** by the highlight's `cardHashes[]`: that array is documented above as an
+optional mirror and is never populated (every renderer initialises it to `[]` and no
+card-creation path writes to it). Reading it was why `coverage()` reported "cannot tell" for
+every document carded the way the app itself cards them.
+
 ### Rollups
 
 A folder rollup counts documents in its subtree: `finished`, `inProgress` (a position exists and is not finished), and `unread` (no position at all). `percent` is the mean across *every* document in the subtree with unread counting as 0, so the figure describes the folder rather than only the parts already touched. A document with no denominator counts as `inProgress` and never as `finished`, and stays in the total — dropping it would flatter the number.

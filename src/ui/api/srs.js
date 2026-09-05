@@ -40,15 +40,27 @@ export const getFsrsInfo = () =>
 // Returns { queue, sessionId, order, relaxation, due, new, counts, nextDue }. `queue` is
 // the session already in presentation order — the server sequenced it, so the caller must
 // NOT re-sort it. `order` mirrors the `fb-trainer-order` preference.
-export const getDue = ({ algorithm, folder, deck, tags, maxNew, minPriority, order } = {}) => {
+export const getDue = ({
+  algorithm, folder, document, deck, tags, maxNew, minPriority, order,
+  readOnly, exclude,
+} = {}) => {
   const qs = new URLSearchParams();
   if (algorithm)    qs.set('algorithm', algorithm);
   if (folder)       qs.set('folder',    folder);
+  if (document)     qs.set('document',  document);
   if (deck)         qs.set('deck',      deck);
   if (tags?.length) tags.forEach(t => qs.append('tag', t));
   if (maxNew != null) qs.set('maxNew',  String(maxNew));
   if (minPriority > 0) qs.set('minPriority', String(minPriority));
   if (order)        qs.set('order',     order);
+  // Only what the reader has already reached. Held back cards are not rescheduled — they
+  // are simply not offered this session, and reappear the moment the toggle comes off.
+  if (readOnly)     qs.set('read', 'only');
+  // Repeatable, one param per exclusion, mirroring `tag`.
+  exclude?.folders?.forEach(f => qs.append('excludeFolder', f));
+  exclude?.documents?.forEach(d => qs.append('excludeDocument', d));
+  exclude?.decks?.forEach(d => qs.append('excludeDeck', d.hash ?? d));
+  exclude?.tags?.forEach(t => qs.append('excludeTag', t));
   const q = qs.toString();
   return request('GET', `/api/srs/due${q ? `?${q}` : ''}`);
 };

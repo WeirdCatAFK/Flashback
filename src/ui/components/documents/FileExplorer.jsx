@@ -361,6 +361,7 @@ function FileNode({ name, path, globalHash, flashcardCount = 0, progress = null,
     e.stopPropagation();
     onCtxMenu(e, {
       isFolder: false,
+      filePath: path,
       triggerRename: () => { setDraft(name); setRenaming(true); },
       doDelete: async () => { await deleteItem(path, false); onRefresh(); },
     });
@@ -733,7 +734,7 @@ function ClipUrlModal({ targetPath, onClose, onCreated }) {
 
 // ── Root ──────────────────────────────────────────────────────────────────────
 
-export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudyFolder }) {
+export default function FileExplorer({ workspaceName = 'Workspace', onSelect, onDoubleSelect, selectedPath, openPaths, toggleOpen, relocatePaths, onStudy }) {
   const { t } = useT();
   const { can } = useSession();
   const [items, setItems]       = useState([]);
@@ -894,8 +895,16 @@ export default function FileExplorer({ workspaceName = 'Workspace', onSelect, on
   // would 403. Hidden rather than disabled — a context menu of dead entries is worse than a
   // short one (see the hide/disable rule in the M5 plan).
   const ctxItems = ctxMenu ? dropDanglingSeparators([
+    ...(!ctxMenu.isFolder && !ctxMenu.isRoot && ctxMenu.filePath ? [
+      { label: t('Study document'), action: () => onStudy?.({ document: ctxMenu.filePath }) },
+      // The direct route from "this import just landed" to a session without it. Additive:
+      // the trainer merges an exclude-launch into whatever scope is already running.
+      { label: t('Leave out of study'), action: () => onStudy?.({ exclude: { documents: [ctxMenu.filePath] } }) },
+      { separator: true },
+    ] : []),
     ...(ctxMenu.isFolder ? [
-      { label: t('Study folder'), action: () => onStudyFolder?.(ctxMenu.folderPath) },
+      { label: t('Study folder'), action: () => onStudy?.({ folder: ctxMenu.folderPath }) },
+      { label: t('Leave out of study'), action: () => onStudy?.({ exclude: { folders: [ctxMenu.folderPath] } }) },
       ...(can('annotate') ? [
         { label: t('Edit tags'),    action: () => setTagsTarget(ctxMenu.folderPath) },
         { label: t('Set color'),    action: () => {

@@ -74,6 +74,35 @@
 
 .scope-chip button:hover { opacity: 1; }
 
+/* An exclusion is not a scope in a different colour — it is the opposite instruction, so
+   it reads in the muted "removed" register rather than the accent one. Colour alone would
+   not carry that: the "Except" in the label is what actually says it, and the strike-out
+   on the path is there for the glance. */
+.scope-chip--exclude {
+  border-color: var(--color-border);
+  border-style: dashed;
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--color-fg-secondary) 45%, transparent);
+}
+
+.scope-chip--exclude button { text-decoration: none; }
+
+/* The second row of pickers, revealed by "− Exclude". Indented and labelled so the
+   dashed buttons in it cannot be mistaken for the include row above. */
+.trainer-scope-bar--exclude {
+  padding-left: 10px;
+  border-left: 2px solid var(--color-border);
+}
+
+.scope-exclude-label {
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
 
 /* ── Tag input (chip + autocomplete) ──────────────────────────────────────── */
 
@@ -447,6 +476,25 @@
   color: var(--color-fg-secondary);
 }
 
+/* Quieter than "Start a new session": this offers to widen a filter, it does not
+   announce the end of anything. */
+.trainer-summary-btn {
+  margin-top: 4px;
+  padding: 5px 14px;
+  border-radius: 99px;
+  border: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 80ms, color 80ms;
+}
+
+.trainer-summary-btn:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
 .trainer-summary-breakdown {
   display: flex;
   gap: 8px;
@@ -677,6 +725,17 @@
   background: var(--color-accent-subtle);
 }
 
+.scope-picker-btn--active {
+  border-style: solid;
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.scope-picker-item-label:disabled {
+  color: var(--color-fg-secondary);
+  cursor: default;
+}
+
 .scope-picker-dropdown {
   position: fixed;
   z-index: 1200;
@@ -811,6 +870,21 @@
   font-size: 11px;
   color: var(--color-fg-secondary);
   white-space: nowrap;
+}
+
+.trainer-setting-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.trainer-setting-check input {
+  accent-color: var(--color-accent);
+  cursor: pointer;
 }
 
 .trainer-algo-toggle {

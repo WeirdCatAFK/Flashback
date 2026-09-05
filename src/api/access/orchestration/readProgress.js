@@ -367,45 +367,87 @@ class ReadProgress {
     // ---------------------------------------------------------------- coverage
 
     /**
-     * The deepest point in a document that any flashcard is anchored to, in `unit`.
+     * Where each of a document's flashcards sits inside it, expressed in `unit`.
      *
      * Cards are vault-wide — only *schedules* are personal — so this is not scoped. It is read
-     * from the sidecar rather than from FlashcardReference because a highlight-anchored card
-     * keeps its position in the highlight, and the sidecar holds both in one place.
+     * from the sidecar rather than from `FlashcardReference` because the anchor the UI actually
+     * writes keeps its geometry on the HIGHLIGHT, and `FlashcardReference` stores only what was
+     * on the card: a `{type:'highlight', id}` location has no `data`, so the indexed row is
+     * `(type='highlight', NULL, NULL, NULL, NULL)`. The sidecar holds the card and the
+     * highlight registry in one place, which is the only place the two can be joined.
      *
-     * Returns null for `section`: an EPUB card is anchored by CFI, and CFIs are not orderable
-     * without epub.js resolving them against the live book. Saying "unknown" is the honest
-     * answer; guessing an ordinal from a CFI string is not.
+     * The join is by `flashcards[].location.id` -> `highlights[].id`, NOT by the highlight's
+     * `cardHashes[]`. That array is documented as an optional mirror and is never populated:
+     * every renderer initialises it to `[]` and no card-creation path writes to it. Reading it
+     * was why this resolved nothing for any card the app itself made.
+     *
+     * A `null` value means "this card cannot be located", which is a different answer from
+     * "this card is at 0" and is never collapsed into one. Sources of null:
+     *   - `unit === 'section'` — an EPUB card is anchored by CFI, and CFIs are not orderable
+     *     without epub.js resolving them against the live book. Guessing an ordinal from a CFI
+     *     string is not an answer.
+     *   - a Markdown highlight, which anchors inline as `<mark data-hl>` and carries no offsets.
+     *   - a card with no `location` at all, or one whose anchor type does not speak this unit.
+     *
+     * @returns {Map<string, number|null>} card globalHash -> position in `unit`
+     */
+    _cardPositions(meta, unit) {
+        const positions = new Map();
+        const cards = meta?.flashcards ?? [];
+        if (unit === "section") {
+            for (const card of cards) if (card?.globalHash) positions.set(card.globalHash, null);
+            return positions;
+        }
+
+        const byId = new Map();
+        for (const h of meta?.highlights ?? []) if (h?.id) byId.set(h.id, h);
+
+        // Both anchor generations reduce to the same three shapes once resolved, so the unit
+        // decides which field to read and the anchor decides which object to read it from.
+        const inUnit = (type, d) => {
+            if (!d) return null;
+            if (unit === "page") {
+                return (type === "pdf_location" || type === "pdf_bbox") && Number.isFinite(d.page)
+                    ? d.page : null;
+            }
+            if (unit === "segment") {
+                return type === "video_timestamp" && Number.isFinite(d.start) ? d.start : null;
+            }
+            if (unit === "chars") {
+                if (type !== "text_offset" && type !== "clip_range") return null;
+                const end = d.end ?? d.start;
+                return Number.isFinite(end) ? end : null;
+            }
+            return null;
+        };
+
+        for (const card of cards) {
+            if (!card?.globalHash) continue;
+            const loc = card?.vanillaData?.location;
+            let at = null;
+            if (loc?.type === "highlight" && loc.id) {
+                const h = byId.get(loc.id);
+                if (h) at = inUnit(h.type, h);
+            } else if (loc?.data) {
+                at = inUnit(loc.type, loc.data);
+            }
+            positions.set(card.globalHash, at);
+        }
+        return positions;
+    }
+
+    /**
+     * The deepest point in a document that any flashcard is anchored to, in `unit`.
+     *
+     * `null` when nothing could be located — no cards, or none whose anchor speaks this unit.
+     * Distinguishing that from "no cards at all" is `coverage`'s job, not this one's.
      */
     _deepestCard(meta, unit) {
-        if (unit === "section") return null;
-        const at = [];
-
-        for (const card of meta?.flashcards ?? []) {
-            const loc = card?.vanillaData?.location;
-            if (!loc?.data) continue;
-            if (unit === "page" && loc.type === "pdf_location" && Number.isFinite(loc.data.page)) {
-                at.push(loc.data.page);
-            }
-            if (unit === "segment" && loc.type === "video_timestamp" && Number.isFinite(loc.data.start)) {
-                at.push(loc.data.start);
-            }
-            if (unit === "chars" && loc.type === "text_offset") {
-                const end = loc.data.end ?? loc.data.start;
-                if (Number.isFinite(end)) at.push(end);
-            }
+        let deepest = null;
+        for (const at of this._cardPositions(meta, unit).values()) {
+            if (at != null && (deepest === null || at > deepest)) deepest = at;
         }
-
-        // Highlight-anchored cards — the preferred anchor type — keep their position on the
-        // highlight, so a card contributes only when its highlight is actually carded.
-        for (const h of meta?.highlights ?? []) {
-            if (!h?.cardHashes?.length) continue;
-            if (unit === "chars" && Number.isFinite(h.end)) at.push(h.end);
-            if (unit === "page" && Number.isFinite(h.page)) at.push(h.page);
-            if (unit === "segment" && h.type === "video_timestamp" && Number.isFinite(h.start)) at.push(h.start);
-        }
-
-        return at.length ? Math.max(...at) : null;
+        return deepest;
     }
 
     /**
@@ -452,6 +494,88 @@ class ReadProgress {
             // Distinguishes "nothing to do" from "cannot tell", which `gap: null` alone cannot.
             gapKnown: cards === 0 || cardedTo != null,
         };
+    }
+
+    /**
+     * The two lists a study session needs in order to offer only what the caller has read.
+     *
+     * Reading is not the scheduler's business, so this returns plain data and the composition
+     * happens at the route layer — the same arrangement `/api/srs/statistics` already uses for
+     * `vaultCompleteness`, and for the same reason: `srs.js` must not import an orchestrator
+     * that reaches the filesystem (see ACCESS.md, "srs.js never imports documents.js").
+     *
+     *   documents    — every path the caller has ANY position in. A document never opened is
+     *                  simply absent, which is what holds its whole pile back.
+     *   excludeCards — the card hashes that are PROVABLY ahead of the mark.
+     *
+     * The asymmetry between those two is deliberate and is the whole policy: a document is
+     * gated by whether it was opened at all, but an individual card is only ever held back on
+     * positive evidence. A card whose position cannot be resolved — an EPUB CFI, a Markdown
+     * inline highlight, a card with no anchor — stays in the session. The filter hides work it
+     * can prove you have not reached, never work it merely cannot locate. Standalone cards
+     * appear in neither list: they are drawn from no document, so there is nothing to have read.
+     *
+     * Cost: one accounts query and one subtree query, then one sidecar read per PARTIALLY-read
+     * document. Documents never opened cost nothing, and finished ones are short-circuited
+     * before the sidecar is touched.
+     */
+    async studyFilter({ scope: scopeArg } = {}) {
+        const scope = this._scope(scopeArg);
+        const abs = this.files.safePath("");
+        const [docs, rows] = await Promise.all([
+            this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep),
+            listReadProgress(getVaultId(), scope),
+        ]);
+        const index = this._indexByHash(docs);
+
+        const documents = [];
+        const excludeCards = [];
+
+        for (const row of rows) {
+            const doc = index.get(row.doc_hash);
+            if (!doc) continue;                      // a position whose document is gone
+            documents.push(doc.relative_path);
+
+            // Finished means finished: 0.95 exists precisely so back matter nobody reads does
+            // not keep a book permanently short of the line, and re-deriving a page bound from
+            // it would hold back the last 5% of cards on that technicality.
+            if (row.far_pct != null && row.far_pct >= FINISHED_PCT) continue;
+
+            const shape = this._shape(row, doc.relative_path);
+            const bound = this._boundOf(shape);
+            if (bound == null) continue;             // no usable mark -> hold nothing back
+
+            const meta = this.files.getMetadata(doc.relative_path);
+            if (!meta) continue;
+            for (const [hash, at] of this._cardPositions(meta, shape.unit)) {
+                if (at != null && at > bound) excludeCards.push(hash);
+            }
+        }
+
+        return { documents, excludeCards };
+    }
+
+    /**
+     * The furthest mark as a scalar in the document's own unit, or null when there isn't one.
+     *
+     * Prefers the locator over the percentage because the locator is what card positions are
+     * compared against; `readingBound` makes the opposite choice, and correctly so — it is
+     * converting into the READER's vocabulary, which may not be the stored one.
+     *
+     * The `chars` fallback matters: `_shape` deletes a character offset once the body has been
+     * edited underneath it, and the percentage it keeps is still a sound bound over the new
+     * length. Without the fallback, editing a note would silently unhold every card in it.
+     */
+    _boundOf(shape) {
+        const direct = shape.unit === "page" ? shape.furthest?.page
+            : shape.unit === "chars" ? shape.furthest?.offset
+                : shape.unit === "segment" ? shape.furthest?.seconds
+                    : null;
+        if (Number.isFinite(direct)) return direct;
+        if (shape.unit === "chars" && shape.furthestPercent != null && Number.isFinite(shape.total)) {
+            return shape.furthestPercent * shape.total;
+        }
+        return null;
     }
 
     // ---------------------------------------------------------------- rollups

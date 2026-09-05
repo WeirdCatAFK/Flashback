@@ -47,6 +47,7 @@ const { default: Documents } = await import('../src/api/access/orchestration/doc
 const { default: Doctor } = await import('../src/api/access/orchestration/doctor.js');
 const { default: readProgress, FINISHED_PCT } = await import('../src/api/access/orchestration/readProgress.js');
 const { default: query } = await import('../src/api/access/resources/query.js');
+const { default: Files } = await import('../src/api/access/resources/files.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
 const { getVaultId, ensureManifest } = await import('../src/api/access/primitives/vault.js');
@@ -57,6 +58,7 @@ const { ROLES } = await import('../src/shared/roles.js');
 
 const docs = new Documents();
 const doctor = new Doctor();
+const files = new Files();
 const FOLDER = 'ReadProgressTest';
 const bookRel = path.join(FOLDER, 'book.md');
 
@@ -322,6 +324,174 @@ describe('Read progress', () => {
             assert.equal(cov.cardedTo, null);
             assert.equal(cov.gap, null);
             assert.equal(cov.gapKnown, false, 'unknown must not read as "fully carded"');
+        });
+    });
+
+    // --- 6c. The anchor the app actually writes ---------------------------------------
+
+    describe('highlight-anchored cards', () => {
+        // Every card the UI or the MCP server creates from a selection carries
+        // `location: {type:'highlight', id}` and no `data` — the geometry lives on the
+        // highlight. Resolving only the legacy `{type:'pdf_location', data:{...}}` form meant
+        // coverage reported "cannot tell" for every document carded the way the app cards them.
+        const withHighlight = async (name, highlight, cardHash = null) => {
+            const rel = path.join(FOLDER, name);
+            const hid = `h_${name}`;
+            await docs.importFile(name, FOLDER, Buffer.from(`# ${name}`), {
+                globalHash: crypto.randomUUID(),
+                highlights: [{ id: hid, color: 'amber', text: 'passage', ...highlight }],
+                flashcards: [{
+                    globalHash: cardHash ?? crypto.randomUUID(),
+                    vanillaData: {
+                        frontText: 'Q', backText: 'A',
+                        location: { type: 'highlight', id: hid },
+                    },
+                }],
+            });
+            return rel;
+        };
+
+        it('locates a card through the highlight it is anchored to', async () => {
+            const rel = await withHighlight('hl-pdf.md', { type: 'pdf_bbox', page: 88 });
+            await readProgress.set(rel, { unit: 'page', position: { page: 120 }, total: 200 });
+
+            const cov = await readProgress.coverage(rel);
+            assert.equal(cov.cardedTo, 88, 'the position is on the highlight, not on the card');
+            assert.deepEqual(cov.gap, { from: 88, to: 120 });
+            assert.equal(cov.gapKnown, true);
+        });
+
+        it('reads character offsets off a text highlight', async () => {
+            const rel = await withHighlight('hl-text.md', { type: 'text_offset', start: 400, end: 433 });
+            await readProgress.set(rel, { unit: 'chars', position: { offset: 900 }, total: 1200 });
+
+            const cov = await readProgress.coverage(rel);
+            assert.equal(cov.cardedTo, 433, 'the END of the passage is how far it carries you');
+        });
+
+        it('reads seconds off a video highlight', async () => {
+            const rel = await withHighlight('hl-video.md', { type: 'video_timestamp', start: 61, end: 75 });
+            await readProgress.set(rel, { unit: 'segment', position: { seconds: 300 }, total: 600 });
+
+            assert.equal((await readProgress.coverage(rel)).cardedTo, 61);
+        });
+
+        it('still says it cannot tell for a Markdown highlight, which carries no offsets', async () => {
+            const rel = await withHighlight('hl-inline.md', {});
+            await readProgress.set(rel, { unit: 'chars', position: { offset: 500 }, total: 1000 });
+
+            const cov = await readProgress.coverage(rel);
+            assert.equal(cov.cardedTo, null, 'an inline <mark> anchors by text, not by offset');
+            assert.equal(cov.gapKnown, false, 'and unknown must never read as "fully carded"');
+        });
+
+        it('resolves through location.id, not through the cardHashes mirror', async () => {
+            // The old resolver's second loop was gated on `highlights[].cardHashes`, an
+            // optional mirror every renderer initialises to [] and no card path ever writes.
+            const rel = await withHighlight('hl-mirror.md', { type: 'pdf_bbox', page: 12 });
+            await readProgress.set(rel, { unit: 'page', position: { page: 30 }, total: 60 });
+            const stored = files.getMetadata(rel);
+            assert.deepEqual(stored.highlights[0].cardHashes ?? [], [],
+                'the anchor is the card location.id; this array stays empty');
+            assert.equal((await readProgress.coverage(rel)).cardedTo, 12);
+        });
+    });
+
+    // --- 6d. Studying only what you have read ----------------------------------------
+
+    describe('studyFilter', () => {
+        const SF = 'StudyFilterTest';
+        const rel = (name) => path.join(SF, name);
+        let ahead, behind;
+
+        before(async () => {
+            await docs.createFolder(SF);
+
+            // One document, two cards: one behind the mark, one well past it.
+            behind = crypto.randomUUID();
+            ahead = crypto.randomUUID();
+            await docs.importFile('textbook.md', SF, Buffer.from('# Textbook'), {
+                globalHash: crypto.randomUUID(),
+                highlights: [
+                    { id: 'h_early', type: 'pdf_bbox', page: 12, color: 'amber', text: 'early' },
+                    { id: 'h_late', type: 'pdf_bbox', page: 290, color: 'amber', text: 'late' },
+                ],
+                flashcards: [
+                    { globalHash: behind, vanillaData: { frontText: 'early', backText: 'A', location: { type: 'highlight', id: 'h_early' } } },
+                    { globalHash: ahead, vanillaData: { frontText: 'late', backText: 'A', location: { type: 'highlight', id: 'h_late' } } },
+                ],
+            });
+            await readProgress.set(rel('textbook.md'), { unit: 'page', position: { page: 50 }, total: 300 });
+        });
+
+        it('holds back only the cards it can prove are ahead of the mark', async () => {
+            const gate = await readProgress.studyFilter();
+            assert.ok(gate.documents.includes(rel('textbook.md')), 'a document you have opened is allowed');
+            assert.ok(gate.excludeCards.includes(ahead), 'page 290, read to page 50');
+            assert.ok(!gate.excludeCards.includes(behind), 'page 12 is behind you');
+        });
+
+        it('leaves a document you have never opened out of the allow list entirely', async () => {
+            await docs.importFile('untouched.md', SF, Buffer.from('# Untouched'), {
+                globalHash: crypto.randomUUID(),
+            });
+            const gate = await readProgress.studyFilter();
+            assert.ok(!gate.documents.includes(rel('untouched.md')),
+                'holding its whole pile back is what absence from this list means');
+        });
+
+        it('holds nothing back in a finished document', async () => {
+            const late = crypto.randomUUID();
+            await docs.importFile('finished.md', SF, Buffer.from('# Finished'), {
+                globalHash: crypto.randomUUID(),
+                highlights: [{ id: 'h_end', type: 'pdf_bbox', page: 199, color: 'amber', text: 'end' }],
+                flashcards: [{ globalHash: late, vanillaData: { frontText: 'Q', backText: 'A', location: { type: 'highlight', id: 'h_end' } } }],
+            });
+            await readProgress.set(rel('finished.md'), {
+                unit: 'page', position: { page: 190 }, percent: 1, total: 200, mode: 'manual',
+            });
+
+            const gate = await readProgress.studyFilter();
+            assert.ok(gate.documents.includes(rel('finished.md')));
+            assert.ok(!gate.excludeCards.includes(late),
+                'finished is finished — 0.95 exists so back matter does not keep a book short');
+        });
+
+        it('holds nothing back in an EPUB, whose CFIs are not orderable', async () => {
+            const anywhere = crypto.randomUUID();
+            await docs.importFile('epubish.md', SF, Buffer.from('# Epub'), {
+                globalHash: crypto.randomUUID(),
+                highlights: [{ id: 'h_cfi', type: 'pdf_bbox', page: 400, color: 'amber', text: 'x' }],
+                flashcards: [{ globalHash: anywhere, vanillaData: { frontText: 'Q', backText: 'A', location: { type: 'highlight', id: 'h_cfi' } } }],
+            });
+            await readProgress.set(rel('epubish.md'), {
+                unit: 'section', position: { cfi: 'epubcfi(/6/14!/4/2)', href: 'ch07.xhtml', section: 7 },
+            });
+
+            const gate = await readProgress.studyFilter();
+            assert.ok(gate.documents.includes(rel('epubish.md')), 'you have opened it');
+            assert.ok(!gate.excludeCards.includes(anywhere),
+                'a section ordinal cannot be compared to a page, so nothing is provable');
+        });
+
+        it('never holds back a card it cannot locate', async () => {
+            const loose = crypto.randomUUID();
+            await docs.importFile('unanchored2.md', SF, Buffer.from('# Loose'), {
+                globalHash: crypto.randomUUID(),
+                flashcards: [{ globalHash: loose, vanillaData: { frontText: 'Q', backText: 'A' } }],
+            });
+            await readProgress.set(rel('unanchored2.md'), { unit: 'page', position: { page: 2 }, total: 500 });
+
+            const gate = await readProgress.studyFilter();
+            assert.ok(!gate.excludeCards.includes(loose),
+                'the filter hides what it can prove you have not reached, not what it cannot find');
+        });
+
+        it('gives each person their own gate', async () => {
+            const hers = await asAccount(rita, () => readProgress.studyFilter());
+            assert.ok(!hers.documents.includes(rel('textbook.md')),
+                'Rita has not opened it, so none of its cards are offered to her');
+            assert.ok(!hers.excludeCards.includes(ahead));
         });
     });
 

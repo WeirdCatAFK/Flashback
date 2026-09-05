@@ -1085,8 +1085,14 @@ Returns the cards to study now, **already in presentation order**.
 | `maxNew`      | number | New cards to introduce this session.                               |
 | `minPriority` | number | Only cards whose pedagogical category priority ≥ this.            |
 | `folder`      | string | Restrict to a folder subtree.                                      |
+| `document`    | string | Restrict to one document.                                          |
 | `deck`        | string | Restrict to a deck's cards.                                        |
 | `tag`         | string | Restrict to a tag — **direct or inherited**. Repeatable.           |
+| `excludeFolder`   | string | Hold back a folder subtree. Repeatable.                        |
+| `excludeDocument` | string | Hold back one document. Repeatable.                            |
+| `excludeDeck`     | string | Hold back a deck's cards, by `globalHash`. Repeatable.         |
+| `excludeTag`      | string | Hold back cards carrying this **effective** tag. Repeatable.   |
+| `read`        | string | `only` — offer only cards drawn from material the caller has read past. |
 | `order`       | string | `interleaved` (default) \| `shuffle` \| `priority`.             |
 | `seed`        | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports. |
 
@@ -1096,7 +1102,28 @@ Returns the cards to study now, **already in presentation order**.
 
 Selection and sequencing are composed here but never folded together: the scheduler picks *which* cards from due dates alone, then the sequencer picks *what order*. Topology never moves a card across days. Full model in `DATAMODEL.md` § Session Sequencing.
 
-`tag` matches a card's **effective** tags — direct ones plus those inherited from its folder, document or deck (`InheritedTags`, already exclusion-resolved). Matching direct tags only would make the filter select nothing for almost every tag the picker offers, since tags are normally applied to containers rather than to individual cards.
+`tag` matches a card's **effective** tags — direct ones plus those inherited from its folder, document or deck (`InheritedTags`, already exclusion-resolved). Matching direct tags only would make the filter select nothing for almost every tag the picker offers, since tags are normally applied to containers rather than to individual cards. `excludeTag` is the same expression negated, for the same reason and more urgently: the user is asking for something to be *gone*, and a direct-only match would show it to them anyway.
+
+**Every exclusion keeps standalone cards.** A card with no document is in no folder and in no
+document, so it cannot be in an excluded one. This is not symmetric with the positive filters,
+which drop document-less cards on purpose: "cards in this folder" excludes them, "cards not in
+this folder" plainly includes them. (In SQL the trap is that `NULL NOT IN (…)` is never true, so
+the naive predicate would delete every standalone card in the vault along with the exclusion.)
+
+`read=only` gates the session on **read progress** (`DATAMODEL.md` § Read progress). Two rules,
+and the asymmetry between them is the whole policy:
+
+- A document the caller has **never opened** contributes nothing at all.
+- Inside a document they have opened, a card is held back only when its anchor is **provably**
+  ahead of their furthest mark. A card whose position cannot be resolved — an EPUB CFI, a
+  Markdown inline highlight, a card with no anchor — stays in the session, as does every
+  standalone card. The gate hides work it can prove you have not reached, never work it merely
+  cannot locate.
+
+Nothing is rescheduled: a held-back card is not offered *this session* and reappears the moment
+the flag comes off. Both the exclusions and the gate are applied during **selection**, so
+`maxNew` still fills from eligible cards rather than from whichever of the first `maxNew`
+happened to survive.
 
 ---
 
