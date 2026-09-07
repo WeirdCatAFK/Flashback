@@ -560,7 +560,7 @@ The diary lives at `{vaultPath}/diary/` — a **sibling of `workspace/`, not ins
 
 The owner keeps the unprefixed layout — the same unmarked-owner shape as `OWNER_SCOPE` in the database — so no existing file moves, no git rename appears in anyone's history, and a vault written before accounts existed reads back unchanged.
 
-**One repo covers all of it, so one git history holds several people's prose.** That is a real property to state to the people involved, not an oversight: a shared vault's diary is not a private local diary, and it is what M5's "Logs" rebrand and its privacy warning exist to say out loud.
+**One repo covers all of it, so one git history holds several people's prose.** That is a real property to state to the people involved, not an oversight: a shared vault's diary is not a private local diary, and it is what the remote-only "Logs" name and its privacy warning exist to say out loud. (Locally the view is still called "Diary", because there the name is true — see `src/ui/diaryLabels.js`.)
 
 Two consequences follow from the sibling location:
 

@@ -126,10 +126,11 @@ Connecting to a server as a Reader used to look exactly like being the Author: e
   them. Their highlights live in the body as marks in the prose, so annotating one rewrites the
   whole file. A PDF's or an EPUB's highlights live in the sidecar and are open to Collaborators
   as before.
-- **The Diary is now called Logs.** Only the name changed — the route, the directory and your
-  opt-in are untouched. On a server it now says plainly that one shared history holds every
-  studier's entries and that an administrator can read yours; on a local vault, where that
-  would be false, it says nothing.
+- **The Diary is called Logs on a server, and stays the Diary on your own vault.** Only the
+  name changes with it — the route, the directory and your opt-in are untouched either way. On
+  a server it now says plainly that one shared history holds every studier's entries and that
+  an administrator can read yours; on a local vault, where both the warning and the rename
+  would be false, it is the Diary you have always had.
 
 The desktop app is unchanged: a local vault resolves to the Author and every control behaves
 exactly as before.

@@ -149,6 +149,15 @@ Navigation is never hidden by role. A Reader keeps Documents, Trainer, Stats and
 changes is what they can *do* there. The one exception is the **Server** tab, which is absent on
 a local vault because there is nothing behind it — see `remoteOnly` in `App.jsx`'s `NAV_ITEMS`.
 
+One nav item is **renamed by the connection rather than by the role**: the study record is
+**"Diary"** on a local vault and **"Logs"** on a remote server, because on a server one git
+history holds several people's prose and an admin can read it — a private-journal name would
+promise privacy the deployment cannot deliver, and locally it is simply true. Both label sets
+live in `src/ui/diaryLabels.js` (`diaryLabels(t, shared)`, `isSharedVault(connection)`); only
+the label moves, never `/api/diary`, `diary/` or `fb-diary-enabled`. `connection` reaches
+`DiaryView` and `ConfigView` as a prop from `App.jsx`, which owns the one `useConnection()`
+subscription — do not call that hook in a leaf view.
+
 Where a control is an editor rather than a button, prefer **read-only over hidden**: the
 Inspector's tag list, a deck's tags and the Manage tab's categories all still render their
 values without the role, because the values are information even to someone who cannot change

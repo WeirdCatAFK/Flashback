@@ -9,6 +9,7 @@ import { migrateProgress, optimizeFsrs, getFsrsInfo } from "../api/srs";
 import { THEMES } from "../themes";
 import { useT } from "../translations";
 import { LanguagePicker, Rich } from "../translations/components.jsx";
+import { diaryLabels, isSharedVault } from "../diaryLabels.js";
 import {
   THEME_VARS,
   saveCustomTheme,
@@ -833,8 +834,10 @@ export default function ConfigView({
   const [restartPending, setRestartPending] = useState(false);
   const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder } = useSrsPrefs();
   const { enabled: diaryEnabled, setEnabled: setDiaryEnabled } = useDiaryPref();
-  // The privacy half of the Logs copy is true only where other people can read it.
-  const isRemote = connection?.kind === 'remote';
+  // Both halves of the study-record copy turn on where the vault lives: the name ("Diary"
+  // here, "Logs" on a server) and the privacy sentence, which is only true where other
+  // people can read it.
+  const studyRecord = diaryLabels(t, isSharedVault(connection));
 
   // Algorithm migration confirm state.
   const [pendingAlgo, setPendingAlgo] = useState(null); // algorithm the user selected but hasn't confirmed
@@ -1097,15 +1100,15 @@ export default function ConfigView({
         </table>
       </section>
 
-      {/* "Logs" here, `fb-diary-enabled` and /api/diary underneath — see the note on
-          navLabels() in App.jsx for why only the label moved. */}
+      {/* "Diary" locally, "Logs" on a server — `fb-diary-enabled` and /api/diary underneath
+          either way. See diaryLabels.js for why only the label moves. */}
       <section className="config-section">
-        <h2 className="config-heading">{t('Logs')}</h2>
+        <h2 className="config-heading">{studyRecord.title}</h2>
         <table className="config-table">
           <tbody>
             <tr>
               <td>
-                <label htmlFor="diary-enabled">{t('Study log')}</label>
+                <label htmlFor="diary-enabled">{studyRecord.prefLabel}</label>
               </td>
               <td>
                 <label className="config-checkbox">
@@ -1117,11 +1120,7 @@ export default function ConfigView({
                   />
                   <span>{t('Record a daily summary when a study session finishes')}</span>
                 </label>
-                <p className="config-hint">
-                  {isRemote
-                    ? t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and an administrator can read yours. Off by default.')
-                    : t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Off by default.')}
-                </p>
+                <p className="config-hint">{studyRecord.prefHint}</p>
               </td>
             </tr>
           </tbody>
@@ -1288,6 +1287,9 @@ export default function ConfigView({
           <section className="config-section">
             <h2 className="config-heading">{t('AI Assistant')}</h2>
             <McpIntegration />
+            {/* "diary", not "Logs", and NOT gated on the connection: this whole block reads
+                the local Electron config and governs the local MCP server against the local
+                vault's diary/ — which is a private diary whatever the app is pointed at. */}
             <label className="config-checkbox config-checkbox--spaced" htmlFor="diary-access-select">
               <span>{t('What AI assistants may read from your diary')}</span>
             </label>

@@ -24,6 +24,7 @@ import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { invalidateData } from "./utils/dataBus";
 import { useT } from "./translations";
+import { diaryLabels, isSharedVault } from "./diaryLabels.js";
 import useConnection from "./hooks/useConnection.js";
 import { SessionProvider } from "./session.jsx";
 import { getPref, setPref, setActiveVaultScope } from "./prefs.js";
@@ -68,8 +69,11 @@ const NAV_ITEMS = [
  *      string literals, so those keys would never reach a translator.
  *
  * Called during render, every key a literal: both problems gone.
+ *
+ * Takes `shared` for the same reason `diaryLabels()` does: the study record is a private
+ * diary on a local vault and a shared log on a server, and the tab has to say which.
  */
-function navLabels(t) {
+function navLabels(t, shared) {
   return {
     documents:  t("Documents"),
     flashcards: t("Flashcards"),
@@ -77,11 +81,9 @@ function navLabels(t) {
     graph:      t("Graph"),
     trainer:    t("Trainer"),
     stats:      t("Statistics"),
-    // "Logs", not "Diary". On a shared server the entries sit in one git repo alongside
-    // everyone else's and an admin can read them, so the private-journal name would be a
-    // lie. The routes, the directory and the `fb-diary-enabled` pref keep their names —
-    // renaming those would be a migration that silently reset everyone's opt-in.
-    diary:      t("Logs"),
+    // "Diary" locally, "Logs" on a server — see diaryLabels.js for why the name moves and
+    // why nothing underneath it does.
+    diary:      diaryLabels(t, shared).title,
     seal:       t("Seal"),
     manage:     t("Manage"),
     server:     t("Server"),
@@ -91,7 +93,6 @@ function navLabels(t) {
 
 export default function App() {
   const { t } = useT();
-  const labels = navLabels(t);
   const [activeView, setActiveView] = useState("documents");
 
   const [theme, setTheme] = useState(() => {
@@ -115,6 +116,9 @@ export default function App() {
   // The vault (or remote server) the app is currently pointed at. Changing it re-points
   // the API client and bumps connectionId, which is used as a remount key below.
   const { connection, connectionId } = useConnection();
+  // Where we are pointed decides one nav label — see diaryLabels.js.
+  const shared = isSharedVault(connection);
+  const labels = navLabels(t, shared);
 
   const [selectedPath, setSelectedPath] = useState(null);
   // Persist which folders are expanded so the tree reopens the way the user

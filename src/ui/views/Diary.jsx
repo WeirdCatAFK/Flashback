@@ -6,14 +6,17 @@ import { listDiary, getSummary, getEntry, saveEntry, rebuildSummaries } from "..
 import { LoadingState, ErrorState, EmptyState } from "../components/shared/StateView";
 import IconDiary from "../components/icons/IconDiary";
 import { useT } from "../translations";
+import { diaryLabels, isSharedVault } from "../diaryLabels.js";
 
 /**
- * Logs — a per-day study record living OUTSIDE the workspace (see DATAMODEL.md § Diary).
+ * The per-day study record, living OUTSIDE the workspace (see DATAMODEL.md § Diary).
  *
- * Called "Diary" everywhere below the UI — the route is `/api/diary`, the directory is
- * `diary/`, the preference is `fb-diary-enabled` — and renaming any of those would be a
- * migration that bought nothing and silently reset everyone's opt-in. The LABEL changed
- * because on a shared server the name was misleading: see the privacy note rendered below.
+ * Titled "Diary" on a local vault and "Logs" on a remote server — only the label moves, and
+ * `diaryLabels.js` holds both halves and the reason. Everything below the UI keeps the one
+ * name: the route is `/api/diary`, the directory is `diary/`, the preference is
+ * `fb-diary-enabled`, and renaming any of those would be a migration that bought nothing and
+ * silently reset everyone's opt-in.
+ *
  * Two pieces per date: a machine-written summary (rendered read-only from JSON) and
  * an optional user-written markdown entry. This view deliberately offers no flashcard
  * creation or highlighting — the diary is metadata about studying, not study material,
@@ -234,7 +237,9 @@ export default function DiaryView({ isActive, connection }) {
   const { t, locale } = useT();
   // Only on a remote. On a local vault the warning would be false — there is one account and
   // nobody else to read anything — and a false warning teaches people to ignore true ones.
-  const shared = connection?.kind === 'remote';
+  // The same fact renames the view: "Diary" here, "Logs" there (diaryLabels.js).
+  const shared = isSharedVault(connection);
+  const labels = diaryLabels(t, shared);
   const today = useMemo(() => todayIso(), []);
   const [selectedDate, setSelectedDate] = useState(today);
 
@@ -307,14 +312,14 @@ export default function DiaryView({ isActive, connection }) {
     return [{ date: today, hasSummary: false, hasEntry: false }, ...list];
   }, [dates, today]);
 
-  if (dates === null) return <LoadingState message={t('Loading logs…')} />;
+  if (dates === null) return <LoadingState message={labels.loading} />;
 
   return (
     <div className="diary">
       <aside className="diary-rail">
         <div className="diary-rail-head">
           <IconDiary size={18} />
-          <span>{t('Logs')}</span>
+          <span>{labels.title}</span>
         </div>
         {datesError && <p className="diary-rail-error">{t('Couldn’t load dates.')}</p>}
         <ul className="diary-date-list">
