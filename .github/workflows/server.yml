@@ -306,25 +306,23 @@ jobs:
             ]));
           "
 
-      - name: Boot it via the .cmd launcher
-        run: |
-          $app = Resolve-Path dist-server/app
-          $env:FLASHBACK_PORT = '50500'
-          $env:FLASHBACK_HOST = '127.0.0.1'
-          $env:FLASHBACK_VAULT_NAME = 'ci'
-          $p = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot.log" -RedirectStandardError "$app/boot.err.log"
-          $p.Id | Out-File "$app/pid.txt"
-          foreach ($i in 1..60) {
-            try {
-              Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 2 | Out-Null
-              "ready after ${i}s"
-              break
-            } catch {
-              if ($i -eq 60) { Get-Content "$app/boot.log", "$app/boot.err.log"; throw 'never became ready' }
-              Start-Sleep -Seconds 1
-            }
-          }
-
+      # ONE step for the whole life of this server, where the Linux job uses three.
+      #
+      # A background process does not survive a step boundary on Windows the way it does on
+      # Linux, and the two jobs' launch verbs are exactly where that difference lives:
+      # `nohup ... &` detaches from the session, so the Linux server outlives the shell that
+      # started it, while `Start-Process` leaves the child attached to the step's console and
+      # to its process tree — both of which go away when the step's pwsh exits. The symptom was
+      # precise about it: the boot step's readiness probe got its 200 and `GET / 200` is the
+      # last line in boot.log, then the very next step found no node process at all, with
+      # nothing further in the server's own logs. Nothing this server does exits silently
+      # (every crash path logs a stack, SIGTERM logs "Shutdown complete", and both update-check
+      # timers are unref'd), so "gone without a word" is something done TO it from outside.
+      #
+      # So each server here now boots, is exercised and is killed inside a single step. The
+      # liveness check is `$server.HasExited` rather than `Get-Process node`: cmd.exe waits on
+      # node, so the launcher's own exit is the exact signal, and it carries an exit code.
+      #
       # Reading a status code is deliberately NOT done by catching the exception and digging
       # `$_.Exception.Response.StatusCode.value__` out of it. That idiom is Windows PowerShell
       # 5.1's shape (System.Net.WebException carrying an HttpWebResponse) and this job runs
@@ -334,7 +332,7 @@ jobs:
       # "anonymous /api expected 401, got ", with nothing said about the server. PowerShell 7's
       # own `-SkipHttpErrorCheck` makes a 4xx an ordinary response object, so the status is
       # read off the response and no exception shape is involved.
-      - name: Exercise the API
+      - name: Boot it, exercise the API, and hard-kill it
         run: |
           $app = Resolve-Path dist-server/app
 
@@ -345,13 +343,33 @@ jobs:
             }
           }
 
+          $env:FLASHBACK_PORT = '50500'
+          $env:FLASHBACK_HOST = '127.0.0.1'
+          $env:FLASHBACK_VAULT_NAME = 'ci'
+          $server = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot.log" -RedirectStandardError "$app/boot.err.log"
+
+          Write-Host '--- booting ---'
+          foreach ($i in 1..60) {
+            try {
+              Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 2 | Out-Null
+              "ready after ${i}s"
+              break
+            } catch {
+              # A launcher that has already exited will never answer; say so now rather than
+              # spending a minute proving it.
+              if ($server.HasExited) {
+                Dump-Logs; throw "the server exited during startup with code $($server.ExitCode)"
+              }
+              if ($i -eq 60) { Dump-Logs; throw 'never became ready' }
+              Start-Sleep -Seconds 1
+            }
+          }
+
+          Write-Host '--- exercising the API ---'
           # Prove the server is still there BEFORE asserting anything about what it answers.
-          # Without this, a process that died between steps is indistinguishable from a wrong
-          # status code. (`Start-Process` on the .cmd launcher records cmd.exe's PID, not
-          # node's — taskkill /T walks the tree so the stop steps are fine, but a liveness
-          # check has to look for the child.)
-          if (-not (Get-Process node -ErrorAction SilentlyContinue)) {
-            Dump-Logs; throw 'the server process is gone'
+          # Without this, a process that died is indistinguishable from a wrong status code.
+          if ($server.HasExited) {
+            Dump-Logs; throw "the server exited with code $($server.ExitCode)"
           }
           try { Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 10 | Out-Null }
           catch { Dump-Logs; throw "the server stopped answering: $($_.Exception.Message)" }
@@ -384,13 +402,20 @@ jobs:
             if ($r.Content -match '"error"') { throw "$fmt extraction failed: $($r.Content)" }
           }
 
-      # Windows has no signals. `Stop-Process` and `taskkill` map to TerminateProcess, so no
-      # SIGTERM handler runs and "Shutdown complete" can never be asserted from outside the
-      # console — Ctrl+C reaches the handler, but that is not drivable from CI. So this asserts
-      # the property that actually matters after an ungraceful stop on Windows: the vault
-      # recovers. The kill leaves the whole database in an unread WAL (ci.db stays at 4 KB), so
-      # a second boot that lists both documents has genuinely replayed it.
-      - name: Survive a hard kill and reopen
+          # Windows has no signals. `Stop-Process` and `taskkill` map to TerminateProcess, so no
+          # SIGTERM handler runs and "Shutdown complete" can never be asserted from outside the
+          # console — Ctrl+C reaches the handler, but that is not drivable from CI. So the next
+          # step asserts the property that actually matters after an ungraceful stop on Windows:
+          # the vault recovers. The kill happens HERE, in the step that owns the process, and
+          # leaves the whole database in an unread WAL (ci.db stays at 4 KB) for it to replay.
+          Write-Host '--- hard kill ---'
+          taskkill /PID $server.Id /T /F
+          Start-Sleep -Seconds 2
+          if (-not (Test-Path "$app/data/ci/ci.db-wal")) { throw 'expected an unchecked WAL after a hard kill' }
+          '  killed, WAL left unchecked'
+
+      # A second boot that lists both documents has genuinely replayed that WAL.
+      - name: Reopen after the hard kill
         run: |
           $app = Resolve-Path dist-server/app
 
@@ -401,20 +426,20 @@ jobs:
             }
           }
 
-          taskkill /PID (Get-Content "$app/pid.txt").Trim() /T /F
-          Start-Sleep -Seconds 2
-          if (-not (Test-Path "$app/data/ci/ci.db-wal")) { throw 'expected an unchecked WAL after a hard kill' }
-
           $env:FLASHBACK_PORT = '50500'
           $env:FLASHBACK_HOST = '127.0.0.1'
           $env:FLASHBACK_VAULT_NAME = 'ci'
-          $p = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot2.log" -RedirectStandardError "$app/boot2.err.log"
+          $server = Start-Process -FilePath "$app/flashback-server.cmd" -WorkingDirectory $app -PassThru -WindowStyle Hidden -RedirectStandardOutput "$app/boot2.log" -RedirectStandardError "$app/boot2.err.log"
           foreach ($i in 1..60) {
             try {
               Invoke-WebRequest 'http://127.0.0.1:50500/' -UseBasicParsing -TimeoutSec 2 | Out-Null
               "reopened after ${i}s"
               break
             } catch {
+              # A WAL replay that dies takes the launcher with it — report the code, don't wait.
+              if ($server.HasExited) {
+                Dump-Logs; throw "the reopened server exited with code $($server.ExitCode)"
+              }
               if ($i -eq 60) { Dump-Logs; throw 'never reopened' }
               Start-Sleep -Seconds 1
             }
@@ -433,7 +458,7 @@ jobs:
           }
           if (Select-String -Path "$app/boot2.log" -Pattern 'AUTHOR TOKEN') { throw 'a second token was minted — the accounts store did not persist' }
           '  vault and access list both survived'
-          taskkill /PID $p.Id /T /F
+          taskkill /PID $server.Id /T /F
 
       - name: Keep the zips as a workflow artifact
         uses: actions/upload-artifact@v4
