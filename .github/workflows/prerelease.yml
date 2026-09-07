@@ -1,0 +1,214 @@
+# Prerelease — everything a release runs, on a commit that has not been tagged yet.
+#
+# This exists to fix an ordering problem `npm run release` has always had. The tag is what
+# triggers `release.yml`, so the build's verdict arrives AFTER the tag is public: a broken
+# packaging change is discovered as a `v0.4.2` that exists, points at a commit that cannot
+# be built, and has to be deleted from the remote. Untagging is not a thing you do quietly.
+#
+# So: run this first, from the Actions tab, on the branch you intend to release. It runs the
+# same suite, the same three installers and the same server artifacts a tag would, publishes
+# NOTHING, and creates no tag. Green here means `npm run release` is safe to run.
+#
+# It is also the reason the heavy builds no longer run on every commit. `build.yml` used to
+# do the installer matrix and the server artifacts on every push to every branch, which is
+# where this repo's Actions minutes went — macOS runners bill at 10x and Windows at 2x, and
+# almost none of those runs were ever going to be released. That check is not deleted, it is
+# moved to the point where its answer is worth paying for. The fast feedback loop stays on
+# every push: `test.yml` is the suite plus lint on one Linux runner, which is cheap.
+#
+# The tradeoff, stated plainly: a packaging break can now sit undetected on a branch until
+# someone runs this. That is the deal — it is caught before a tag exists, which is the thing
+# that actually mattered, rather than within minutes of the push that caused it.
+
+name: Prerelease
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to verify: patch | minor | major | an explicit x.y.z'
+        required: false
+        default: 'patch'
+        type: string
+
+# Manual and expensive, so a second run does not cancel the first — someone who starts two
+# is more likely to want both answers than to have changed their mind. (The opposite of
+# test.yml, where a new push genuinely makes the previous answer irrelevant.)
+concurrency:
+  group: prerelease
+  cancel-in-progress: false
+
+# Read-only, and this is the guarantee that matters here: `server.yml` inherits its caller's
+# permissions, so even with `upload: true` passed by mistake this workflow could not push an
+# image to GHCR or write to a Release. `release.yml` is the only caller that grants either.
+permissions:
+  contents: read
+
+jobs:
+  # What WOULD be released, and whether it can be. Runs first and cheaply, so a version that
+  # is already tagged fails in seconds instead of after three installer builds.
+  plan:
+    name: Release plan
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.plan.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Tags, so the "already released" guard can actually see them. The default
+          # shallow fetch has none, and the guard would pass on every version ever cut.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # scripts/release.js --dry-run, not a reimplementation of it: the version math and
+      # the tag guard have exactly one definition, and it is the one the developer runs.
+      # No `npm ci` — the script imports nothing but node builtins.
+      #
+      # The input goes through the environment rather than being interpolated into the
+      # shell. Only someone with write access can dispatch this, so it is not much of a
+      # vector, but a `${{ }}` expression pasted into a `run:` block is a shell injection
+      # by construction and there is no reason to write one.
+      - id: plan
+        env:
+          BUMP: ${{ inputs.version }}
+        run: node scripts/release.js --dry-run "$BUMP"
+
+  # The suite and lint, from test.yml itself rather than a copy.
+  test:
+    name: Tests
+    uses: ./.github/workflows/test.yml
+
+  # The installer matrix release.yml runs, with `--publish never` instead of
+  # `--publish always`. That flag is the entire difference, and it is the guarantee that a
+  # prerelease cannot touch a GitHub Release.
+  #
+  # Node 20, matching release.yml rather than test.yml's 22: an installer verified here
+  # must be built the way the released one is, or this checks a configuration nobody ships.
+  #
+  # Gated on BOTH cheap jobs, and that ordering is the cost decision this workflow exists to
+  # make. `plan` is seconds and catches an already-tagged version; `test` is a couple of
+  # Linux minutes. Three installers across three platforms is the expensive part — macOS
+  # bills at 10x — and a red suite means you are not releasing anyway, so building them
+  # would be pure waste. The price is a few minutes of wall clock on the happy path, paid to
+  # avoid the whole matrix on the unhappy one.
+  installers:
+    name: ${{ matrix.name }}
+    needs: [plan, test]
+    strategy:
+      # Off, so one platform's breakage does not hide another's — the point of building
+      # three. A prerelease that stopped at the first failure would need three round trips.
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: Windows (NSIS)
+            build: npm run dist:win -- --publish never
+            artifact: windows-nsis
+            path: dist/*.exe
+          - os: ubuntu-latest
+            name: Linux (AppImage)
+            build: npm run dist:linux -- --publish never
+            artifact: linux-appimage
+            path: dist/*.AppImage
+          # Unsigned, and arm64 rather than x64 — the runner is Apple Silicon and
+          # electron-rebuild compiles better-sqlite3 for the host arch. See release.yml.
+          - os: macos-latest
+            name: macOS (dmg, arm64)
+            build: npm run dist:mac -- --publish never
+            artifact: macos-dmg
+            path: dist/*.dmg
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - run: npm ci
+
+      # No-op off macOS. On the mac runner there is no certificate to find, so this makes
+      # the unsigned build a decision recorded here rather than a keychain lookup that can
+      # fail for reasons of its own.
+      - name: Build the installer
+        run: ${{ matrix.build }}
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      # These are the point of running this before a tag: install the real artifact on a
+      # real machine and check the thing actually launches. Retention is short because the
+      # Releases page is the distribution channel, not this.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          retention-days: 7
+          if-no-files-found: error
+
+  # The Docker image, the Linux zip and both Windows zips — each built, booted against a
+  # real volume, and checked to refuse an anonymous caller and stop cleanly. Same file
+  # release.yml calls; `upload: false` is the only difference.
+  server:
+    name: Server
+    needs: [plan, test]
+    uses: ./.github/workflows/server.yml
+    with:
+      upload: false
+
+  # One place to look for the answer, and the command to run next.
+  #
+  # `if: always()` with explicit result checks rather than plain `needs:` — a needs-gated
+  # job SKIPS when a dependency fails, and a skipped job reads as a grey dash rather than a
+  # red X. The whole purpose of this job is to be unambiguous about whether to tag, so it
+  # has to run on failure and say so.
+  verdict:
+    name: Verdict
+    if: always()
+    needs: [plan, test, installers, server]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Summarize
+        env:
+          VERSION: ${{ needs.plan.outputs.version }}
+          RESULTS: >-
+            plan=${{ needs.plan.result }}
+            tests=${{ needs.test.result }}
+            installers=${{ needs.installers.result }}
+            server=${{ needs.server.result }}
+        run: |
+          {
+            echo "## Prerelease — v${VERSION:-?}"
+            echo
+            echo "| Check | Result |"
+            echo "|---|---|"
+            for pair in $RESULTS; do
+              echo "| ${pair%%=*} | ${pair#*=} |"
+            done
+            echo
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          failed=0
+          for pair in $RESULTS; do
+            [ "${pair#*=}" = "success" ] || failed=1
+          done
+
+          if [ "$failed" = "0" ]; then
+            {
+              echo "Everything a release runs is green on this commit, and no tag was created."
+              echo
+              echo '```'
+              echo "npm run release -- ${VERSION:-patch}"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "Prerelease green — safe to tag v${VERSION}."
+          else
+            echo "**Do not tag.** Something above is not green." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::Prerelease failed — do not run npm run release."
+            exit 1
+          fi

@@ -20,12 +20,17 @@ name: Release
 #             booted, retagged rather than rebuilt — is pushed to
 #             ghcr.io/weirdcatafk/flashback-server under this version and `latest`.
 #
-# The server steps used to be spelled out here and ran ONLY on a tag, which `test.yml`
-# recorded as a known gap: a commit that broke the container or the zip stayed green until
-# someone cut a tag. They now live in `server.yml` and run on every push through
-# `build.yml`; this workflow calls the same file and adds the upload. A failed installer
-# build skips the server call — on a tag that is not shipping anyway, which is the right
-# coupling to accept.
+# The server steps used to be spelled out here and ran ONLY on a tag: a commit that broke
+# the container or the zip stayed green until someone cut a tag. They now live in
+# `server.yml`, which `prerelease.yml` also calls; this workflow calls the same file and
+# adds the upload. A failed installer build skips the server call — on a tag that is not
+# shipping anyway, which is the right coupling to accept.
+#
+# By the time this runs, everything below should already have passed on this exact commit
+# via `prerelease.yml`. That is the intended order — run Prerelease from the Actions tab,
+# then `npm run release` — because the tag is what triggers this workflow, so a failure
+# here is a failure discovered after the tag is public. Nothing enforces the order; the
+# tag is still the trigger and always was.
 
 on:
   push:
@@ -97,8 +102,8 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
   # The three server artifacts — Docker image, Linux zip, both Windows zips — live in
-  # `server.yml`, which `build.yml` also calls on every push. One copy of the boot sequence
-  # and the API assertions, two callers; `upload: true` is the only thing a release adds —
+  # `server.yml`, which `prerelease.yml` also calls. One copy of the boot sequence and the
+  # API assertions, two callers; `upload: true` is the only thing a release adds —
   # and it is what turns the image from a thing that was tested into a thing anyone can pull.
   #
   # `needs: release` because those zips are attached to the draft that electron-builder

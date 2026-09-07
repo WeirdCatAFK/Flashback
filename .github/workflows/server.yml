@@ -5,15 +5,19 @@ name: Server
 # A reusable workflow (`workflow_call`) rather than a set of jobs, because two callers need
 # exactly the same build-and-boot sequence and differ only in what happens at the end:
 #
-#   build.yml    every push and PR, `upload: false` — verification only
-#   release.yml  a `v*` tag,        `upload: true`  — the same, then publish: the zips to
-#                                                     the draft, the image to GHCR
+#   prerelease.yml  manual, before a tag, `upload: false` — verification only
+#   release.yml     a `v*` tag,           `upload: true`  — the same, then publish: the zips
+#                                                           to the draft, the image to GHCR
 #
-# Before this split the sequence lived only in release.yml, and `test.yml` recorded the
-# consequence in as many words: a commit that broke the container or the zip stayed green
-# until someone cut a tag. Copying the steps into build.yml would have closed that gap and
-# opened a worse one — two copies of a two-hundred-line smoke test drift the first time
-# either is edited. This file is the one copy.
+# Before this split the sequence lived only in release.yml, so a commit that broke the
+# container or the zip stayed green until someone cut a tag — by which point the tag was
+# already public. Copying the steps into the verification workflow would have closed that
+# gap and opened a worse one: two copies of a two-hundred-line smoke test drift the first
+# time either is edited. This file is the one copy.
+#
+# The verification caller used to be `build.yml`, which ran on every push. It is now
+# `prerelease.yml`, which is dispatched by hand before a release — same call, same input,
+# far fewer runner minutes. See the note at the top of prerelease.yml for the tradeoff.
 #
 # Ordering against the desktop installers is the CALLER's business, not this file's: the
 # zips upload into a draft release that electron-builder creates, so release.yml gates its
@@ -91,8 +95,8 @@ jobs:
       #
       # `inputs.upload` gates these, exactly as the zip uploads are gated — but the real lock
       # is the caller's permissions. A reusable workflow runs with the permissions its caller
-      # granted, and `build.yml` grants `contents: read` and nothing else, so the every-push
-      # caller cannot push an image even if this input were set by mistake.
+      # granted, and `prerelease.yml` grants `contents: read` and nothing else, so the
+      # verification caller cannot push an image even if this input were set by mistake.
       #
       # amd64 only, deliberately. Multi-arch needs buildx with QEMU and cannot `load: true`,
       # so an arm64 image could not be started here — it would ship untested, which is the

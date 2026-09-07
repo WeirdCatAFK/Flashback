@@ -10,10 +10,14 @@
 #   lint    — advisory for now, see below
 #
 # No BUILD is checked here — not the desktop installers, not the server image, not the
-# zips. `build.yml` owns all of that and runs on the same trigger; the split is by kind of
-# answer, so a red X names either "the code is wrong" or "it does not package", never both.
-# (Until build.yml existed, packaging was checked only on a `v*` tag, and this paragraph
-# said so.)
+# zips. `prerelease.yml` owns all of that; the split is by kind of answer, so a red X names
+# either "the code is wrong" or "it does not package", never both.
+#
+# The two run on different triggers, and that is deliberate. This workflow is cheap — two
+# Linux jobs — so it runs on every push and is the fast feedback loop. Packaging is three
+# platforms, and macOS bills at 10x, so it runs when someone is about to release rather
+# than on every commit. It used to run on every push too (`build.yml`, now folded into
+# prerelease.yml); the tradeoff of moving it is written up at the top of that file.
 
 name: Tests
 
@@ -21,6 +25,11 @@ on:
   push:
     branches: ['**']
   pull_request:
+  # Also callable, so `prerelease.yml` runs THIS suite rather than a copy of it. Same
+  # argument as server.yml being reusable: a prerelease that ran its own transcription of
+  # these two jobs would drift from them, and the drift would show up as a release that
+  # passed a check nobody actually runs. One copy, three triggers.
+  workflow_call:
 
 # A new push to the same branch makes the previous run's answer irrelevant.
 concurrency:
