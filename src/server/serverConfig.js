@@ -34,6 +34,7 @@
 
 import process from 'process';
 import * as config from '../api/access/primitives/config.js';
+import { vaultNameError } from '../shared/vaultName.js';
 
 /** Reads an env var, treating whitespace-only as unset. */
 function env(name) {
@@ -42,6 +43,15 @@ function env(name) {
     const trimmed = String(raw).trim();
     return trimmed === '' ? undefined : trimmed;
 }
+
+/** What each `vaultNameError()` code means for an operator setting an env var. */
+const VAULT_NAME_PROBLEMS = {
+    'required': 'must not be empty',
+    'invalid-chars': 'must be a single path component — no "/", "\\", ".." or control characters',
+    'too-long': 'is longer than 64 characters',
+    'reserved': 'collides with a file the install keeps beside its vaults (config.json, accounts.db, logs)',
+    'trailing-dot': 'must not end with a dot or a space',
+};
 
 /**
  * Merges the environment into `config.json` and returns the config the server should run
@@ -70,8 +80,29 @@ export function applyServerConfig() {
     merged.host = env('FLASHBACK_HOST') ?? '0.0.0.0';
     merged.isLocalhost = merged.host === 'localhost' || merged.host === '127.0.0.1';
 
+    // The vault name is a path component, and `getVaultPath()` joins it onto the volume root
+    // with no validation of its own — so "shared/v2" quietly nests a vault a level down and
+    // "../elsewhere" resolves outside the volume entirely. Neither fails at boot; both fail
+    // later as an empty vault where the real one was expected, which is the worst shape a
+    // storage bug can take. The desktop app has always validated this (Setup, the vault
+    // manager, the rename IPC all call vaultNameError); the server path never did.
+    //
+    // Validated ONLY when the variable is actually set. A name already sitting in
+    // config.json is left alone even if it would fail these rules today — this merge is
+    // non-destructive by contract, and refusing to boot over a vault that has been serving
+    // fine would turn a lint into an outage. The check bites when someone hands us a new
+    // name, which is when it can still do some good.
     const vaultName = env('FLASHBACK_VAULT_NAME');
-    if (vaultName !== undefined) merged.vaultName = vaultName;
+    if (vaultName !== undefined) {
+        const problem = vaultNameError(vaultName);
+        if (problem) {
+            throw new Error(
+                `FLASHBACK_VAULT_NAME ${VAULT_NAME_PROBLEMS[problem] ?? `is not usable (${problem})`}: ` +
+                `"${vaultName}"`
+            );
+        }
+        merged.vaultName = vaultName;
+    }
 
     // Split on commas, not on whitespace: an origin cannot contain a comma, and this way a
     // value with a stray space around an entry still does what its author meant.

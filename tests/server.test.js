@@ -44,6 +44,10 @@ for (const key of SERVER_ENV) delete process.env[key];
 // Files, which creates the workspace directory) from whatever config.json says at import
 // time. serverConfig has to be able to run before that happens.
 const { applyServerConfig } = await import('../src/server/serverConfig.js');
+// Already in the module cache — serverConfig.js imports it — so this adds no side effect.
+// Needed because applyServerConfig() ends on a config.get(), which repopulates the module
+// cache: a test that hand-edits config.json on disk has to drop that cache to be seen.
+const serverTestConfig = await import('../src/api/access/primitives/config.js');
 // Pure and importable before anything opens a vault — no config, no database, no network.
 const { compareVersions, updateCheckEnabled, startUpdateCheck } = await import('../src/server/updateCheck.js');
 
@@ -139,6 +143,62 @@ describe('Flashback Server', () => {
                 assert.throws(() => applyServerConfig(), /FLASHBACK_PORT/);
             } finally {
                 process.env.FLASHBACK_PORT = saved;
+                applyServerConfig();
+            }
+        });
+
+        it('refuses a vault name that is not a single path component', () => {
+            // getVaultPath() joins this straight onto the volume root, so a separator nests
+            // the vault a level down and `..` puts it outside the volume — and neither
+            // fails at boot. It surfaces later as an empty vault where the real one was,
+            // which is why this has to be caught at the point the name is handed over.
+            const saved = process.env.FLASHBACK_VAULT_NAME;
+            const rejected = [
+                'shared/v2',        // separator: nests below the volume root
+                'shared\\v2',       // the Windows one, for a zip deployment
+                '..',               // climbs out of the volume
+                '../elsewhere',
+                'config.json',      // collides with the install's own files, which sit
+                'accounts.db',      // beside the vault directories rather than inside one
+                'logs',
+                'trailing.',        // Windows strips it, so the folder made is not the one asked for
+            ];
+            // Note what is NOT here: the empty string. env() treats whitespace-only as
+            // unset on purpose — docker-compose.yml writes `${FLASHBACK_AUTHOR_TOKEN:-}`
+            // and friends, so an unset compose variable arrives as "". That has to keep
+            // meaning "leave config.json alone", not "refuse to boot".
+            try {
+                for (const name of rejected) {
+                    process.env.FLASHBACK_VAULT_NAME = name;
+                    assert.throws(
+                        () => applyServerConfig(),
+                        /FLASHBACK_VAULT_NAME/,
+                        `expected "${name}" to be refused`
+                    );
+                }
+            } finally {
+                process.env.FLASHBACK_VAULT_NAME = saved;
+                applyServerConfig();
+            }
+        });
+
+        it('leaves an already-configured vault name alone even if it breaks the rules', () => {
+            // The merge is non-destructive by contract, and a vault that has been serving
+            // fine must not become a boot failure because the rules got stricter. The guard
+            // is about a name being handed over NOW, not about auditing the volume.
+            const saved = process.env.FLASHBACK_VAULT_NAME;
+            const configPath = path.join(ROOT, 'config.json');
+            const before = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
+            fs.writeFileSync(configPath, JSON.stringify({ ...before, vaultName: 'logs' }, null, 2));
+            serverTestConfig.reload();
+            delete process.env.FLASHBACK_VAULT_NAME;
+            try {
+                const { config: merged } = applyServerConfig();
+                assert.equal(merged.vaultName, 'logs');
+            } finally {
+                fs.writeFileSync(configPath, JSON.stringify(before, null, 2));
+                serverTestConfig.reload();
+                process.env.FLASHBACK_VAULT_NAME = saved;
                 applyServerConfig();
             }
         });

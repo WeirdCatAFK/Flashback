@@ -33,6 +33,18 @@ RUN npm ci --omit=dev \
 
 COPY src/ ./src/
 
+# `scripts/` is here for exactly one file: `pure-token.js`, the terminal recovery path for a
+# lost author token. It opens accounts.db directly and needs no running API, which is what
+# makes it the way back into a deployment nobody can authenticate to any more — and
+# docs/SERVER.md tells operators to reach it with `docker compose exec flashback npm run
+# pure-token`. Without this line that command is a MODULE_NOT_FOUND, and the documented
+# recovery path does not exist in the image it documents.
+#
+# The whole directory rather than the one file: the rest is a handful of small dev scripts
+# that pull in no dependencies of their own, and a COPY narrowed to a single file is the kind
+# of thing that silently stops matching when a script grows a helper.
+COPY scripts/ ./scripts/
+
 
 FROM node:22-bookworm-slim AS runtime
 
@@ -48,6 +60,7 @@ WORKDIR /app
 
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/src ./src
+COPY --from=build /app/scripts ./scripts
 COPY package.json ./
 
 # Run as the `node` user the base image already provides. Only /data is chown'd: it is the
