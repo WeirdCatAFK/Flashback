@@ -54,8 +54,7 @@ const VAULT_NAME_PROBLEMS = {
 };
 
 /**
- * Merges the environment into `config.json` and returns the config the server should run
- * with. Must be called BEFORE `openVault()` — it can change which vault that opens.
+ * Merges the environment into `config.json` and returns the config the server should run with.
  *
  * @returns {{config: object, authorToken: string|undefined}}
  */
@@ -74,24 +73,9 @@ export function applyServerConfig() {
         merged.port = parsed;
     }
 
-    // A server binds every interface by default — the opposite of the desktop app, where
-    // localhost-only is the safe answer. `isLocalhost` is kept consistent with `host` rather
-    // than left to contradict it, because api.js warns and overrides when they disagree.
     merged.host = env('FLASHBACK_HOST') ?? '0.0.0.0';
     merged.isLocalhost = merged.host === 'localhost' || merged.host === '127.0.0.1';
 
-    // The vault name is a path component, and `getVaultPath()` joins it onto the volume root
-    // with no validation of its own — so "shared/v2" quietly nests a vault a level down and
-    // "../elsewhere" resolves outside the volume entirely. Neither fails at boot; both fail
-    // later as an empty vault where the real one was expected, which is the worst shape a
-    // storage bug can take. The desktop app has always validated this (Setup, the vault
-    // manager, the rename IPC all call vaultNameError); the server path never did.
-    //
-    // Validated ONLY when the variable is actually set. A name already sitting in
-    // config.json is left alone even if it would fail these rules today — this merge is
-    // non-destructive by contract, and refusing to boot over a vault that has been serving
-    // fine would turn a lint into an outage. The check bites when someone hands us a new
-    // name, which is when it can still do some good.
     const vaultName = env('FLASHBACK_VAULT_NAME');
     if (vaultName !== undefined) {
         const problem = vaultNameError(vaultName);
@@ -104,8 +88,6 @@ export function applyServerConfig() {
         merged.vaultName = vaultName;
     }
 
-    // Split on commas, not on whitespace: an origin cannot contain a comma, and this way a
-    // value with a stray space around an entry still does what its author meant.
     const origins = env('FLASHBACK_ALLOWED_ORIGINS');
     if (origins !== undefined) {
         merged.allowedOrigins = origins.split(',').map((o) => o.trim()).filter(Boolean);
@@ -113,18 +95,6 @@ export function applyServerConfig() {
 
     merged.logFormat = env('FLASHBACK_LOG_FORMAT') ?? current.logFormat ?? 'combined';
 
-    // Who this install stamps its own work as. Without it the identity is derived from the
-    // OS account, which in a container is the `node` user — so every document created here
-    // and every Seal commit is authored by "node <node@flashback.local>". That is not wrong
-    // so much as useless, and it is baked into a git history that outlives the container.
-    //
-    // Both halves or neither: `config.getIdentity()` only accepts a pair where both are
-    // non-empty, and writing half of one would silently fall back to the derived default
-    // while looking configured.
-    //
-    // Caveat worth knowing: `ensureLocalAuthor()` builds the Author account from this the
-    // FIRST time it runs. Setting it later changes what background work is stamped with,
-    // but does not rename an Author who already exists — use PATCH /api/accounts/:id.
     const userName = env('FLASHBACK_USER_NAME');
     const userEmail = env('FLASHBACK_USER_EMAIL');
     if (userName && userEmail) {
@@ -133,13 +103,8 @@ export function applyServerConfig() {
         throw new Error('FLASHBACK_USER_NAME and FLASHBACK_USER_EMAIL must be set together.');
     }
 
-    // Refuse anonymous callers, and refuse to boot with no way to authenticate. This is the
-    // whole difference between "a dev server on loopback" and "a service on a network", and
-    // it is set here rather than in the shared constructor so the desktop app can never
-    // acquire it by accident.
     merged.requireAuth = true;
 
-    // One vault per server: /api/vault/switch and /release are unmounted (see api.js).
     merged.singleVault = true;
 
     if (!config.set(merged)) throw new Error('Could not write config.json.');

@@ -16,18 +16,6 @@ export const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
 
 export const MAX_NAME_LENGTH = 64;
 
-// A vault is a directory inside the app's userData folder, so its name cannot collide
-// with something Electron or the app already keeps there. `config.json`, `accounts.db`
-// and `logs` are ours; the rest are Chromium's own state directories, and a vault that
-// shadowed one would be corrupted by the browser process rather than by anything
-// Flashback does.
-//
-// `accounts.db` earns its place for the same reason `config.json` does, and is the one
-// name here whose collision would be silent AND unrecoverable: it is the install's access
-// list and every non-owner's study schedule, it sits directly in baseDir beside the vault
-// directories, and it is the one store in the app that cannot be rebuilt from anything.
-// The `-wal`/`-shm` siblings are not listed — SQLite derives those from the database path,
-// so a name that cannot shadow `accounts.db` cannot shadow them either.
 export const RESERVED_NAMES = new Set([
     'config.json', 'accounts.db', 'logs',
     'cache', 'code cache', 'gpucache', 'dawncache', 'shadercache', 'graphitedawncache',
@@ -37,17 +25,13 @@ export const RESERVED_NAMES = new Set([
 
 /**
  * @param {string} name
- * @returns {'required'|'invalid-chars'|'too-long'|'reserved'|'trailing-dot'|null}
- *          null when the name is usable.
+ * @returns {'required'|'invalid-chars'|'too-long'|'reserved'|'trailing-dot'|null} null when the name is usable.
  */
 export function vaultNameError(name) {
     const v = (name ?? '').trim();
     if (!v) return 'required';
     if (INVALID_NAME.test(v)) return 'invalid-chars';
     if (v.length > MAX_NAME_LENGTH) return 'too-long';
-    // Windows silently strips a trailing dot or space from a directory name, so the folder
-    // created would not be the one asked for — and the mismatch only surfaces later, as a
-    // vault that cannot be found.
     if (/[. ]$/.test(v)) return 'trailing-dot';
     if (RESERVED_NAMES.has(v.toLowerCase())) return 'reserved';
     return null;

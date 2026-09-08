@@ -23,9 +23,9 @@ Layer 1 — Client         src/ui/api/client.js
 
 ## Layer 1  Client (`src/ui/api/client.js`)
 
-The client is initialized once on startup with the base URL **and API token** received from Electron via IPC. After that it is a transparent request wrapper that attaches `Authorization: Bearer <token>` to every request.
+The client is initialized once on startup with the base URL and API token received from Electron via IPC. After that it is a transparent request wrapper that attaches `Authorization: Bearer <token>` to every request.
 
-**Startup flow:**
+Startup flow:
 
 ```
 Electron main  →  ipcMain.handle('get-api-url' / 'get-api-token')  →  reads config.json  →  returns URL + token
@@ -34,7 +34,7 @@ React renderer →  window.flashback.getApiUrl()/getApiToken()       →  initCl
 
 The preload script (`src/electron/preload.cjs`) bridges IPC to the renderer using `contextBridge`. The renderer never imports from `electron` directly. The `.cjs` extension is required because Electron's sandboxed preload context is CommonJS-only — it does not support ES module `import` even when the project has `"type": "module"` in `package.json`.
 
-**Exports:**
+Exports:
 
 - `initClient(url, token?)` — called once in `index.jsx` before the React tree mounts; stores the base URL and bearer token.
 - `request(method, path, body?)` — JSON request (token attached), throws on non-2xx.
@@ -91,22 +91,22 @@ Server state (data fetched from the API) is fetched through the `api/*.js` modul
 `useState`/`useEffect` inside the view that needs it. Local UI state (which panel is open,
 current selection) lives in `useState` or `useReducer` in the same place.
 
-> **TanStack is not installed.** Neither TanStack Query nor TanStack Virtual is a dependency of
+> TanStack is not installed. Neither TanStack Query nor TanStack Virtual is a dependency of
 > this project, and nothing in `src/ui` imports either. The two sections below that describe
 > them — "TanStack Query conventions" and "Virtualize long lists" — are a design intention that
 > was never adopted, kept here because the *reasoning* in them still governs how this app is
-> written. Read them as rationale, not as instructions: **do not add TanStack to satisfy them**,
+> written. Read them as rationale, not as instructions: do not add TanStack to satisfy them,
 > and do not write `useQuery` in a new view. The rules that are actually in force are the ones
 > in this section — fetch through `api/*.js`, keep the result local to the view, do not lift it
 > into Context.
 
-**Do not lift server state into a parent component or React Context.** Each view fetches its own data. This scopes re-renders and makes views independently loadable.
+Do not lift server state into a parent component or React Context. Each view fetches its own data. This scopes re-renders and makes views independently loadable.
 
 #### The one exception: session identity
 
 `src/ui/session.jsx` provides `SessionProvider`, and `src/ui/sessionContext.js` the
-`useSession()` / `useCan()` hooks that read it. It holds **who you are on the connected vault
-and what that lets you do** — nothing else.
+`useSession()` / `useCan()` hooks that read it. It holds who you are on the connected vault
+and what that lets you do — nothing else.
 
 The rule above is about *vault data*: documents, cards, decks, statistics. Lifting those into a
 provider is how a React app ends up with one god-object and no idea what refetches when, and
@@ -116,14 +116,14 @@ sibling of `connection` in `hooks/useConnection.js`: one object, fetched once fr
 the *leaves* — the delete item inside a file-tree context menu, the edit button on a card — so
 the alternative is drilling a prop through Documents → tree → node → menu in most views.
 
-The boundary is the whole point: **identity and permission, nothing else.** Anything describing
+The boundary is the whole point: identity and permission, nothing else. Anything describing
 the vault's contents still belongs to the view that shows it.
 
 Two properties worth knowing:
 
 - On a local vault the account resolves to the Author, every capability answers true, and the
   desktop UI is unchanged. That is what made this safe to add everywhere at once.
-- It **fails closed, but not silently.** If the identity call fails there is no optimistic
+- It fails closed, but not silently. If the identity call fails there is no optimistic
   fallback to the Author: `role` stays null, every capability answers false, and `error` is set
   so the title bar can say "Role unknown" rather than leaving someone in front of an app that
   has quietly lost half its buttons. A 401 is an answer and is not retried; anything else is
@@ -137,20 +137,20 @@ Capabilities come from `src/shared/roles.js` (`CAPABILITIES`, `can(role, capabil
 drift from the guard that would refuse it. Two rules, because either one alone gets it wrong in
 a different direction:
 
-- **Hide** a control that is categorically not this person's: New document, Delete, Import,
+- Hide a control that is categorically not this person's: New document, Delete, Import,
   Rollback, Rebuild, the authoring tabs. A Reader's app should read as a *reading* app, not an
   authoring one with half its buttons broken.
-- **Disable, with the reason in the `title`**, where the control sits beside something they
+- Disable, with the reason in the `title`, where the control sits beside something they
   *can* do and its absence would be mysterious — the Edit button at the foot of a card's
   statistics panel, say. Use `capabilityHint(t, capability)` from `src/ui/roleLabels.js`, which
   names the role required.
 
 Navigation is never hidden by role. A Reader keeps Documents, Trainer, Stats and Logs; what
-changes is what they can *do* there. The one exception is the **Server** tab, which is absent on
+changes is what they can *do* there. The one exception is the Server tab, which is absent on
 a local vault because there is nothing behind it — see `remoteOnly` in `App.jsx`'s `NAV_ITEMS`.
 
-One nav item is **renamed by the connection rather than by the role**: the study record is
-**"Diary"** on a local vault and **"Logs"** on a remote server, because on a server one git
+One nav item is renamed by the connection rather than by the role: the study record is
+"Diary" on a local vault and "Logs" on a remote server, because on a server one git
 history holds several people's prose and an admin can read it — a private-journal name would
 promise privacy the deployment cannot deliver, and locally it is simply true. Both label sets
 live in `src/ui/diaryLabels.js` (`diaryLabels(t, shared)`, `isSharedVault(connection)`); only
@@ -158,7 +158,7 @@ the label moves, never `/api/diary`, `diary/` or `fb-diary-enabled`. `connection
 `DiaryView` and `ConfigView` as a prop from `App.jsx`, which owns the one `useConnection()`
 subscription — do not call that hook in a leaf view.
 
-Where a control is an editor rather than a button, prefer **read-only over hidden**: the
+Where a control is an editor rather than a button, prefer read-only over hidden: the
 Inspector's tag list, a deck's tags and the Manage tab's categories all still render their
 values without the role, because the values are information even to someone who cannot change
 them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
@@ -206,10 +206,10 @@ const GraphView      = lazy(() => import('./views/GraphView'));
 
 | space                                | what reports it                                                                                                                                                                                                                                                 |
 | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **viewport** (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered **outside** `#app-shell` (portaled to `document.body`)                                                          |
-| **layout** (unzoomed CSS px)   | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered **inside** `#app-shell` — **`position: fixed` included**, because `zoom` scales a fixed element's own offsets without making it a containing block |
+| viewport (zoom-multiplied) | `getBoundingClientRect()`, a `MouseEvent`'s `clientX`/`clientY`, `window.innerWidth`/`innerHeight`, and anything rendered outside `#app-shell` (portaled to `document.body`)                                                          |
+| layout (unzoomed CSS px)   | `offsetWidth`/`clientWidth`, inline `style.left/top/width`, and everything rendered inside `#app-shell` — `position: fixed` included, because `zoom` scales a fixed element's own offsets without making it a containing block |
 
-**The rule: position every floating overlay in layout space.** An overlay inside `#app-shell` needs nothing extra. One portaled to `document.body` carries `zoom: var(--ui-zoom, 1)` in its own CSS so it scales with the document it annotates (`SelectionToolbar.css`). Geometry arriving in viewport space is converted at the point of **capture**, never at render — that way every placement constant downstream stays plain layout px and no call site has to know any of this.
+The rule: position every floating overlay in layout space. An overlay inside `#app-shell` needs nothing extra. One portaled to `document.body` carries `zoom: var(--ui-zoom, 1)` in its own CSS so it scales with the document it annotates (`SelectionToolbar.css`). Geometry arriving in viewport space is converted at the point of capture, never at render — that way every placement constant downstream stays plain layout px and no call site has to know any of this.
 
 `src/ui/utils/uiZoom.js` is the only module that reads `--ui-zoom`: `getUiZoom()`, `toLayoutRect()`, `layoutViewport()`, plus `useUiZoomChange()` for overlays that must dismiss when the anchor moves (a zoom change is as invalidating as a scroll). `GraphView.css` is the one deliberate exception — it counter-zooms with `zoom: calc(1 / var(--ui-zoom, 1))` because its D3 transform math is in root pixels.
 
@@ -253,7 +253,7 @@ If a piece of state only affects one subtree, it belongs in that subtree — not
 
 Wrap a component in `React.memo` only when:
 
-- it is demonstrably slow to render, **and**
+- it is demonstrably slow to render, and
 - its props can be made stable (objects and functions must be memoized with `useMemo`/`useCallback` before being passed in).
 
 `useMemo` and `useCallback` on their own have a cost. They are only valuable when they prevent a downstream re-render.
@@ -262,7 +262,7 @@ Wrap a component in `React.memo` only when:
 
 Rendering 500 DOM nodes at once is slow regardless of React optimizations, and the lists that
 can get there are the file tree, review history, search results and the graph node list. The
-intended answer was **TanStack Virtual**; it was never adopted. What exists instead is paging at
+intended answer was TanStack Virtual; it was never adopted. What exists instead is paging at
 the API: the card browser reads `GET /api/decks/cards` with `limit`/`offset`, and `GET
 /api/search` caps at 100 results (20 by default). The file tree renders one folder at a time and
 is not bounded — a folder with thousands of documents in it is the case this section is still
@@ -302,7 +302,7 @@ components/
     renderers/             Per-filetype editors (Markdown, Text, …) + helpers
 ```
 
-**Rules:**
+Rules:
 
 - A component used by exactly one view belongs in that view's folder, next to
   the component that owns it — not in a flat shared pool.
@@ -335,7 +335,7 @@ TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
 `epub` → `EpubRenderer`, `youtube` → `YoutubeRenderer`, `clip` → `ClipRenderer`, else
 `PlaceholderRenderer`.
 
-**The registry is one table doing two jobs, and they cannot be separated.** Each entry pairs
+The registry is one table doing two jobs, and they cannot be separated. Each entry pairs
 a `lazy()` import of the component with its `editable`, `supportsHighlight`,
 `tracksProgress` and `ownsReadingBar` flags. The
 components are lazy because pdf.js, epub.js and TipTap are about a megabyte between them and
@@ -387,7 +387,7 @@ reports where the reader gets to through `onProgress`, and it publishes `goToSta
 guard, the write debounce and the auto-versus-manual rule all live in `useReadProgress`, so a
 renderer reports as often as it likes and never decides when to write.
 
-**Where the bar goes is the editor's decision, not the renderer's.** A format with no chrome
+Where the bar goes is the editor's decision, not the renderer's. A format with no chrome
 of its own (Markdown, text, clips) gets the standalone `.doc-reading-bar` strip above the
 document. A format that already draws a toolbar — PDF, EPUB, YouTube — sets `ownsReadingBar`
 and receives the same element through the `readingBar` prop to place inside that toolbar. Two
@@ -398,7 +398,7 @@ never enters a lazy chunk — only its mount point moves — and its `inline` va
 surface and shortens the position text (`p. 12`, not `Page 12 of 40`) so it reads as one item
 in a toolbar rather than a transplanted row.
 
-**The scroll container is rarely the renderer's own element.** `findScroller`
+The scroll container is rarely the renderer's own element. `findScroller`
 (`renderers/scroller.js`) walks up from any element until it finds one that both overflows
 and has something to scroll. Markdown, text and clips need it because TipTap, CodeMirror and a
 plain div each put the scrollbar somewhere different; PDF needs it because *nothing it owns
@@ -406,26 +406,26 @@ scrolls at all* — `.doc-editor-renderer` does. Attaching a `scroll` listener t
 of the real scroller silently never fires, and measuring page positions against a container
 that itself scrolls reads page 1 forever, which is exactly how PDF progress was broken.
 
-**Resume waits for a pair, not an order.** `initialProgress` arrives from the network and the
+Resume waits for a pair, not an order. `initialProgress` arrives from the network and the
 body arrives from disk or a parser; either can win. Every renderer guards with a `resumedRef`
 and an effect depending on both, rather than assuming the position is there when the body
 loads.
 
-Positions are expressed in **the reader's units** (`page`, `section`, `chars`, `segment`), not
+Positions are expressed in the reader's units (`page`, `section`, `chars`, `segment`), not
 in whatever the renderer finds convenient, because the same locator has to address
 `/api/reader` for MCP reads. Two consequences worth knowing before adding a format:
 
-- **EPUB stores a CFI *and* an `href`.** `mcpReader` numbers only sections that have text, so
+- EPUB stores a CFI *and* an `href`. `mcpReader` numbers only sections that have text, so
   its ordinals are not epub.js's spine indices. The CFI resumes the renderer, the href
   addresses the reader, and neither is converted into the other.
-- **Text formats are a scroll fraction.** No text renderer keeps a character offset —
+- Text formats are a scroll fraction. No text renderer keeps a character offset —
   Markdown keeps no offset state at all — so `useScrollProgress` measures the scrollbar and
   derives the offset from the percentage. It is a sound bound for "do not read past here", not
   a cursor, and `body_etag` marks it stale once the body is edited underneath it.
 
 `readOnly` is set by `DocumentEditor` from the `editDocumentBody` capability, and it applies to
 exactly the renderers with `editable = true` (Markdown and text). Those two are the formats
-whose highlights live **in the body** as marks in the prose, so annotating one is the same
+whose highlights live in the body as marks in the prose, so annotating one is the same
 `PUT /api/documents/file` as editing it — admin. Every other renderer persists highlights
 through `PUT /metadata` (collaborator) and is unaffected, which is why a Collaborator can
 annotate a PDF but not a note. That is a fact about where the data lives, not a gap in the
@@ -447,7 +447,7 @@ pdf: {
 
 ### Building a highlightable renderer
 
-Editor-backed renderers do **not** re-implement the load/save/dirty/draft
+Editor-backed renderers do not re-implement the load/save/dirty/draft
 lifecycle. They call `useHighlightableRenderer`, which owns all of it (including
 the empty-state save guard and Ctrl+S) and delegates only what differs:
 
@@ -466,7 +466,7 @@ const { editor, loading, conflict, reloadFromDisk, overwrite } = useHighlightabl
 
 The hook captures the document's `etag` when it loads content and sends it back as `ifMatch` on
 every save (see API.md § Concurrent writes). If the document changed underneath, the write is
-refused and the hook sets `conflict` — **the draft stays in the editor**, because it is the
+refused and the hook sets `conflict` — the draft stays in the editor, because it is the
 user's typing and losing it is the exact failure this guards against.
 
 A renderer with an editable body renders the shared banner and hands it the two ways out:
@@ -482,8 +482,8 @@ being decided about stays visible behind it.
 
 The caller renders its own `<EditorContent>` wrapper, so markup and CSS stay
 per-renderer. `MarkdownRenderer` and `TextRenderer` are the reference
-implementations: markdown anchors highlights **inline** (`<mark data-hl>`, no
-load-time apply step); plain text anchors them by **character offset** in the
+implementations: markdown anchors highlights inline (`<mark data-hl>`, no
+load-time apply step); plain text anchors them by character offset in the
 sidecar and re-applies on load.
 
 ### The highlight command contract
@@ -514,7 +514,7 @@ The preload script exposes exactly one namespace: `window.flashback`. New IPC ch
 
 Current channels:
 
-**Vault, identity and connection channels** are the exception to "the renderer talks to the API over HTTP": the vault registry, the user identity and remote credentials belong to the machine rather than to any one vault, so they live in the main process. The identity channels are a deliberate split — main **writes** it (it owns the `user` key in `config.json`), while what would actually be *stamped* is resolved by the API and read from `GET /api/identity`, so the override → global → default precedence exists in one place instead of two that drift. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
+Vault, identity and connection channels are the exception to "the renderer talks to the API over HTTP": the vault registry, the user identity and remote credentials belong to the machine rather than to any one vault, so they live in the main process. The identity channels are a deliberate split — main writes it (it owns the `user` key in `config.json`), while what would actually be *stamped* is resolved by the API and read from `GET /api/identity`, so the override → global → default precedence exists in one place instead of two that drift. `get-active-connection` returns a `{url, token}` pair for *either* the local API or a remote Flashback Server — that sameness is why switching vaults and connecting to a remote are one mechanism in the UI (`useConnection` → `initClient` → a `connectionId` remount key), not two.
 
 | Channel                   | Direction        | Purpose                                                                                                                                                                                                 |
 | ------------------------- | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -539,11 +539,11 @@ Current channels:
 | `window-close`          | renderer → main | Close the window (hides to tray unless quitting)                                                                                                                                                        |
 | `list-vaults`           | renderer → main | Registered local vaults +`activeVaultId`, each with resolved `path`/`active`/`missing`                                                                                                          |
 | `create-vault`          | renderer → main | Create and register an empty vault;`{ ok, vault?, error? }`                                                                                                                                           |
-| `rename-vault`          | renderer → main | Release the DB, move folder**and** `{name}.db`, switch back, repair the index                                                                                                                   |
+| `rename-vault`          | renderer → main | Release the DB, move folderand `{name}.db`, switch back, repair the index                                                                                                                   |
 | `remove-vault`          | renderer → main | Unregister a vault. Never deletes files                                                                                                                                                                 |
-| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process, **and point the app at the local API** — it is a local-vault action, so it also leaves any remote                                                    |
+| `switch-vault`          | renderer → main | Ask the API to open another local vault in-process, and point the app at the local API — it is a local-vault action, so it also leaves any remote                                                    |
 | `open-vault-from-disk`  | renderer → main | Directory picker; adopts an existing vault where it stands                                                                                                                                              |
-| `get-identity`          | renderer → main | What is**stored**: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
+| `get-identity`          | renderer → main | What isstored: `{ user, override, suggested, activeVaultId }`. What is *stamped* comes from `GET /api/identity`; `suggested` is available before the API exists, for the setup wizard |
 | `set-identity`          | renderer → main | Set the global`{name, email}`; both halves required. `{ ok, error?, field?, code? }`                                                                                                                |
 | `set-vault-identity`    | renderer → main | Set or (with`null`) clear this vault's identity override                                                                                                                                              |
 | `list-remotes`          | renderer → main | Registered Flashback Servers (`{id, label, url, hasToken}`) — never a token                                                                                                                          |
@@ -558,7 +558,7 @@ Current channels:
 Which of the two places the app is pointed at lives in `src/electron/connection.js`, not in
 `main.js` — one flag, and `useLocalVault()` is the only thing that clears it by intent, so
 every route home goes through the same call. `connectionForRemote` reads the registry and
-never the network, so an **unreachable remote resolves forever**: nothing times out and drops
+never the network, so an unreachable remote resolves forever: nothing times out and drops
 you back to a local vault, which is why the deliberate route has to work. It is pinned by
 `tests/connection.test.js`, which runs under plain Node because the module takes its
 dependencies as arguments and imports no Electron.
@@ -635,9 +635,9 @@ mechanism requires no changes — only the `THEMES` array and the CSS declaratio
 
 ### Rules
 
-- **Never hardcode colors.** Every color value in every component stylesheet must reference a
+- Never hardcode colors. Every color value in every component stylesheet must reference a
   CSS variable from the list above.
-- **Never read the theme in JavaScript.** Components must not branch on the theme name; use
+- Never read the theme in JavaScript. Components must not branch on the theme name; use
   CSS variables and let the cascade do the work.
-- **All new variables must be added to every theme.** If a new semantic slot is needed, add it
+- All new variables must be added to every theme. If a new semantic slot is needed, add it
   to all `[data-theme]` blocks at the same time.

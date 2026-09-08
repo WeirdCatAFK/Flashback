@@ -67,11 +67,6 @@ export function getAccountsPath() {
     return path.join(getBaseDir(), "accounts.db");
 }
 
-// The schema is created here rather than in `defaults/SchemaSQL.js` and is never seen by
-// MigrationRunner: that runner is the vault database's, and pointing it at a second store
-// would give one version counter two meanings. `AccountsSchemaVersion` is this store's own
-// marker, and `REPAIRS` below is what records itself in it — the CREATE-IF-NOT-EXISTS schema
-// can add a table or a column but cannot correct rows that are already wrong.
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS Accounts (
     id          TEXT PRIMARY KEY,
@@ -130,31 +125,10 @@ CREATE TABLE IF NOT EXISTS ReadProgress (
 CREATE INDEX IF NOT EXISTS idx_read_progress_scope ON ReadProgress(vault_id, scope, updated_at);
 `;
 
-/**
- * Repairs recorded against `AccountsSchemaVersion`, applied in order after `SCHEMA`.
- *
- * This store has no MigrationRunner: it is created by `CREATE TABLE IF NOT EXISTS` on every
- * open, which handles new tables and columns but cannot fix rows that are already wrong.
- * The version table was put there for exactly this and had gone unused until now.
- *
- * Each entry must be safe to run against a store that has never held the bad data, since a
- * fresh install records the same version without having needed the repair.
- */
+/** Repairs recorded against `AccountsSchemaVersion`, applied in order after `SCHEMA`. */
 export const REPAIRS = [
     {
         version: 1,
-        // EPUB percentages were written on two different scales. epub.js reports no usable
-        // percentage until its locations index finishes building in the background, and the
-        // gap used to be filled server-side with `position.section / total` — a SPINE-item
-        // ratio, which counts covers and nav pages and is not weighted by how much text is
-        // behind you. A book sitting 22% into its text recorded 48%.
-        //
-        // That number then froze: `auto` may only ever advance the furthest mark, so every
-        // honest report afterwards was rejected as a regression.
-        //
-        // Only the two percentages go. The locator columns are untouched, so every book still
-        // resumes exactly where it was — the repair costs a number that was wrong and nothing
-        // else, and the percentage refills on the correct scale at the next relocation.
         sql: "UPDATE ReadProgress SET pos_pct = NULL, far_pct = NULL WHERE unit = 'section'",
     },
 ];
@@ -173,8 +147,6 @@ function applyRepairs(raw) {
 
 const adapter = createSqliteAdapter({
     resolvePath: getAccountsPath,
-    // Runs against the fresh handle before anything queries it. Synchronous, and idempotent
-    // via IF NOT EXISTS, so opening an existing store costs three no-op DDL statements.
     onOpen: (raw) => { raw.exec(SCHEMA); applyRepairs(raw); },
 });
 
@@ -185,10 +157,6 @@ export const closeAccounts = adapter.closeDatabase;
 
 /** @returns {boolean} whether the store is currently open. */
 export const isAccountsOpen = adapter.isOpen;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /** @returns {string} a fresh opaque token. Same shape and entropy as `config.apiToken`. */
 export function generateToken() {
@@ -214,10 +182,6 @@ function publicAccount(row) {
         createdAt: row.created_at,
     };
 }
-
-// ---------------------------------------------------------------------------
-// Reads
-// ---------------------------------------------------------------------------
 
 /** @returns {Promise<object|null>} */
 export async function getAccount(id) {
@@ -271,19 +235,11 @@ export async function getToken(tokenId) {
     };
 }
 
-// `last_used_at` is genuinely useful — it is how an admin tells a live token from an
-// abandoned one — but writing it per request would mean one write per card in a review
-// session. Throttled in memory: at most one write per token per minute. The cache is
-// per-process and lost on restart, which costs nothing but an extra write.
 const TOUCH_INTERVAL_MS = 60_000;
 const lastTouched = new Map();
 
 /**
  * Resolves a presented token to the account behind it.
- *
- * Refuses a revoked token and a deactivated account, which are separate decisions: revoking
- * one token leaves the person's other tokens working, deactivating the account stops all of
- * them at once.
  *
  * @param {string} token plaintext, as presented by the caller.
  * @returns {Promise<{account: object, tokenId: string}|null>}
@@ -316,10 +272,6 @@ export async function hasUsableToken() {
     return !!row;
 }
 
-// ---------------------------------------------------------------------------
-// Writes
-// ---------------------------------------------------------------------------
-
 /**
  * @param {{name: string, email: string, role: string}} account
  * @returns {Promise<object>} the created account.
@@ -338,8 +290,7 @@ export async function createAccount({ name, email, role }) {
 }
 
 /**
- * Changes an account's role and/or active flag. Callers enforce WHO may make the change —
- * this only enforces what the data allows.
+ * Changes an account's role and/or active flag.
  *
  * @param {string} id
  * @param {{role?: string, active?: boolean}} changes
@@ -359,7 +310,7 @@ export async function updateAccount(id, { role, active } = {}) {
 }
 
 /**
- * Issues a token. The plaintext comes back here and NOWHERE else, ever again.
+ * Issues a token.
  *
  * @param {string} accountId
  * @param {string} [label] free text, so an admin can tell a laptop from a phone.
@@ -379,8 +330,7 @@ export async function issueToken(accountId, label = "") {
 }
 
 /**
- * Revokes a token. Idempotent — re-revoking keeps the original timestamp, so the record of
- * when access actually ended is not overwritten by a second click.
+ * Revokes a token.
  *
  * @returns {Promise<boolean>} whether a token was found.
  */
@@ -394,11 +344,6 @@ export async function revokeToken(tokenId) {
 
 /**
  * Issues a new PURE TOKEN and revokes every previous Author token.
- *
- * The pure token is what proves ownership of the vault: there is one Author, and rotating is
- * the only way to change what proves you are them. Both halves happen in one transaction —
- * a rotation that revoked the old token but failed to write the new one would lock the owner
- * out of their own deployment, and terminal recovery would be the only way back.
  *
  * @param {string} [label]
  * @returns {Promise<{token: string, accountId: string, revoked: number}>}
@@ -421,32 +366,11 @@ export async function rotatePureToken(label = "Pure token") {
     })();
 }
 
-// ---------------------------------------------------------------------------
-// Provisioning
-// ---------------------------------------------------------------------------
-
 /** The label the desktop install's adopted token carries, so it is recognisable in a list. */
 export const LOCAL_TOKEN_LABEL = "This install";
 
 /**
- * Brings the store to a serviceable state, idempotently. Called from `Api.start()`.
- *
- * Two steps, and the second is what makes this milestone invisible on a desktop install:
- *
- *   1. If there is no Author, create one from the local identity — the same name and email
- *      that already stamp `createdBy` and Seal commits. A local vault has exactly one person
- *      and they own it; that is Flashback's normal mode of operation, not a special case.
- *
- *   2. If `config.apiToken` is set, make sure it resolves to that Author. The renderer, the
- *      MCP server and the test suite already hold that token, so adopting it means nothing
- *      they do has to change.
- *
- * Step 2 also RE-ENABLES the token if it was previously revoked, which looks alarming and is
- * not. `config.apiToken` is a plaintext secret sitting in a file next to the vault database:
- * anyone who can read it can already read every document in the vault directly. Refusing to
- * honour it would buy no security and would brick the desktop app after any pure-token
- * rotation, with no way to recover from inside the app. A server has no `apiToken` in its
- * config, so this step does nothing there.
+ * Brings the store to a serviceable state, idempotently.
  *
  * @param {string|null} [apiToken]
  * @returns {Promise<object>} the Author account.
@@ -476,17 +400,6 @@ export async function ensureLocalAuthor(apiToken = null) {
     return author;
 }
 
-// ---------------------------------------------------------------------------
-// Durable per-account progress
-// ---------------------------------------------------------------------------
-//
-// The vault database's CardProgress is derived and rebuildable; this is what it is rebuilt
-// FROM for everyone who is not the owner. Callers are `srs.js` (on every graded review) and
-// `doctor.js` (read-only, when re-projecting after a rebuild).
-//
-// Deliberately dumb: no scheduling logic, no interpretation of the numbers, no knowledge of
-// which algorithm produced them. It stores a snapshot of nine fields and hands them back.
-
 /** The nine schedule fields plus ease, in the order the statements below use them. */
 const PROGRESS_FIELDS = [
     "level", "sm2_reps", "last_recall", "ease_factor",
@@ -494,17 +407,10 @@ const PROGRESS_FIELDS = [
     "fsrs_state", "fsrs_reps", "fsrs_lapses",
 ];
 
-// The counters are NOT NULL in both this table and the vault's CardProgress; the rest are
-// genuinely absent for a card the caller's algorithm has never touched. Writing null into a
-// counter would fail the constraint on a snapshot that is otherwise perfectly valid.
 const PROGRESS_DEFAULTS = { sm2_reps: 0, fsrs_state: 0, fsrs_reps: 0, fsrs_lapses: 0 };
 
 /**
- * Records one account's schedule for one card. Upsert: a review overwrites the snapshot
- * rather than appending, because this table holds current state, not history.
- *
- * Never call this for the owner — their canonical copy is the sidecar, and a second
- * canonical copy is how the two drift. `srs.js` guards on the scope before it gets here.
+ * Records one account's schedule for one card.
  *
  * @param {string} vaultId    from vault.json
  * @param {string} accountId  a real account id, never OWNER_SCOPE
@@ -533,10 +439,6 @@ export async function getAccountProgress(vaultId, accountId, cardHash) {
 /**
  * Every non-owner snapshot for a vault, for the Doctor to re-project into CardProgress.
  *
- * Rows belonging to accounts that no longer exist are excluded rather than deleted: the
- * cross-store reference carries no foreign key, so nothing cascades, and quietly dropping
- * a row here on a *read* would turn a temporarily-missing account into permanent data loss.
- *
  * @param {string} vaultId
  * @param {string|null} accountId  restrict to one account, or null for all of them
  */
@@ -557,45 +459,11 @@ export async function deleteAccountProgress(vaultId, accountId, cardHash) {
     ).run(vaultId, accountId, cardHash);
 }
 
-// ---------------------------------------------------------------------------
-// Read progress
-// ---------------------------------------------------------------------------
-//
-// Where one person has read to in one document. It is here rather than in the vault database
-// or a sidecar, and the reasoning differs from AccountProgress above in one important way:
-// this table holds EVERYONE's positions, the owner's included, under the same OWNER_SCOPE
-// sentinel the rest of the app uses.
-//
-// The owner's SRS schedule lives in the sidecar because a graded card is a fact worth
-// versioning and worth carrying to whoever receives a copy of the folder. A reading position
-// is neither. It also moves continuously — seal.js justifies its review debounce with
-// "nobody will ever roll back to the state of a card between two answers", and a scroll
-// position is that argument several orders of magnitude over. Sidecar storage would mean a
-// commit stream for the act of reading, and a sidecar write that skipped Seal would leave
-// permanent working-tree drift for the Doctor to sweep up later.
-//
-// The other half of the argument is permissions: PUT /api/documents/metadata is guarded at
-// COLLABORATOR, so a Reader cannot write a sidecar at all. Reading is not editing.
-//
-// So: no sidecar field, no vault-DB projection, no Seal commit, nothing for the Doctor to
-// rebuild. The cost is that positions do not travel with a copied vault folder — the same
-// bargain the access list and every reader's schedule already make.
-//
-// `scope` carries an account id OR the literal 'owner', which is why it has no foreign key to
-// Accounts: the sentinel is not a row there. Rows whose account has since been deleted are
-// filtered on read, exactly as listAccountProgress does, and for the same reason.
-//
-// Keyed by the document's globalHash, so a position survives a rename or a move for free and
-// a copied document correctly starts unread (copy regenerates identities).
-
 /** The stored columns, in the order the statements below use them. */
 const READ_FIELDS = ["unit", "total", "pos", "pos_pct", "far", "far_pct", "body_etag"];
 
 /**
- * Records where one person has read to in one document. Upsert: current state, not history.
- *
- * Unlike saveAccountProgress, this one IS called for the owner. Read progress has no second
- * canonical home for the two to drift apart from.
+ * Records where one person has read to in one document.
  *
  * @param {string} vaultId   from vault.json
  * @param {string} scope     an account id, or OWNER_SCOPE
@@ -622,14 +490,7 @@ export async function getReadProgress(vaultId, scope, docHash) {
 }
 
 /**
- * Every position one person holds in a vault — the folder rollup and the "what am I in the
- * middle of" listing both read the whole set once and join it in memory, which is what keeps
- * a 500-document folder to one query instead of 500.
- *
- * A row is returned when its scope is the owner sentinel or names an account that still
- * exists. Deleted accounts are filtered here, never deleted: nothing cascades across the
- * store boundary, and dropping a row on a read would make a temporarily-missing account
- * permanent data loss.
+ * Every position one person holds in a vault.
  *
  * @param {string} vaultId
  * @param {string|null} scope  restrict to one scope, or null for every scope in the vault

@@ -27,8 +27,8 @@ export const version = 1;
 export const description = 'type_answer: move the compared answer from backText into answerText';
 
 /**
- * Splits one card. Exported so the runner's callers (and the tests) can reason about a
- * single card without walking a vault.
+ * Splits one card.
+ *
  * @param {object} card a flashcard as stored in a sidecar or a deck entry snapshot
  * @returns {boolean} true when the card was changed
  */
@@ -59,17 +59,10 @@ export function up(meta, kind) {
         return entries.reduce((changed, e) => (e?.card ? splitCard(e.card) : false) || changed, false);
     }
 
-    // Folder sidecars hold no cards.
     return false;
 }
 
-/**
- * Brings the derived index in line after the canonical files have been rewritten.
- *
- * Migration 008 already did this on the upgrade path, but the two halves must not depend on
- * running in the same session: a Vault Doctor rebuild in between re-derives the old shape
- * from whatever the files said at the time.
- */
+/** Brings the derived index in line after the canonical files have been rewritten. */
 export async function derived(query) {
     return await query.backfillTypeAnswerAnswerText();
 }

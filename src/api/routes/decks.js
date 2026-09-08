@@ -5,9 +5,6 @@ import { FLAG_KINDS } from '../access/orchestration/cardHealth.js';
 
 const router = Router();
 const decks = new Decks();
-// Needed only by /:hash/purge, to delete document-anchored cards out of their source
-// sidecar. Composed here rather than inside decks.js, which never imports documents.js
-// — the same arrangement routes/flashcards.js uses to delete a single card.
 const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
@@ -15,22 +12,18 @@ const catchError = (fn) => (req, res, next) =>
         if (err.message?.includes('already in deck')) return res.status(409).json({ error: err.message });
         if (err.message?.includes('not found')) return res.status(404).json({ error: err.message });
         if (err.message?.includes('system deck')) return res.status(403).json({ error: err.message });
-        // Belt-and-suspenders: never let a raw fs error (absolute path, username) reach a
-        // client. decks.js self-heals a missing deck file (see _readOrRebuild), so this
-        // should be rare, but a permissions error or similar could still surface one.
         if (err.code === 'ENOENT' || err.code === 'EACCES' || err.code === 'EPERM') {
             return res.status(500).json({ error: 'Deck storage is temporarily unavailable — try again.' });
         }
         next(err);
     });
 
-// GET /api/decks
+/** Every deck with its entry count. */
 router.get('/', catchError(async (req, res) => {
     res.json(await decks.listDecks());
 }));
 
-// POST /api/decks
-// Body: { name, description? }
+/** Creates a deck. */
 router.post('/', catchError(async (req, res) => {
     const { name, description = '' } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
@@ -38,17 +31,11 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-// GET /api/decks/cards?search=&level=&cardType=&origin=&flagged=&flagKind=&sortBy=&sortDir=&limit=&offset=
-//
-// `flagged=1` restricts to cards carrying a live card-health flag, `flagKind` to one
-// signature. This is the vault-wide view of what the classifier has raised — a filter on
-// the card browser rather than a separate inbox, so flagged cards stay in the one place
-// cards are already hunted down. Each row's `flags` is a comma-joined kind list.
+/** The card browser: a filtered, sorted, paged view of every card in the vault. */
 router.get('/cards', catchError(async (req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
     const cardType = req.query.cardType || null;
-    // 'ai' → only AI-created cards, 'human' → only cards not created by an AI assistant
     const origin = ['ai', 'human'].includes(req.query.origin) ? req.query.origin : null;
     const flagKind = FLAG_KINDS.includes(req.query.flagKind) ? req.query.flagKind : null;
     const flagged = flagKind !== null || req.query.flagged === '1' || req.query.flagged === 'true';
@@ -62,43 +49,30 @@ router.get('/cards', catchError(async (req, res) => {
     res.json({ cards, total, limit, offset });
 }));
 
-// GET /api/decks/:hash
+/** One deck's metadata. */
 router.get('/:hash', catchError(async (req, res) => {
     res.json(await decks.getDeck(req.params.hash));
 }));
 
-// PUT /api/decks/:hash
-// Body: { name?, description? }
+/** Updates a deck's name, description or tags. */
 router.put('/:hash', catchError(async (req, res) => {
     const { name, description } = req.body;
     await decks.updateDeck(req.params.hash, { name, description });
     res.json({ ok: true });
 }));
 
-// DELETE /api/decks/:hash — removes the deck only. The cards survive as standalone
-// cards in the system deck. To destroy them too, use POST /:hash/purge below.
+/** Deletes a deck, leaving its cards in place. */
 router.delete('/:hash', catchError(async (req, res) => {
     await decks.deleteDeck(req.params.hash);
     res.json({ ok: true });
 }));
 
-// GET /api/decks/:hash/contents
-// What erasing this deck *and its cards* would destroy — counts split by standalone
-// vs document-anchored, plus how many cards another (non-system) deck also holds.
-// Read-only; exists so a client can say exactly what it is about to delete.
+/** A deck's cards with the caller's schedule joined on. */
 router.get('/:hash/contents', catchError(async (req, res) => {
     res.json(await decks.getContentsSummary(req.params.hash));
 }));
 
-// POST /api/decks/:hash/purge
-// Body: { includeShared?: boolean }
-//
-// Deletes the deck AND its cards. Deliberately a separate route rather than a flag on
-// DELETE /:hash, so the non-destructive delete can never become destructive by accident.
-//
-// Cards are deleted before the deck: card deletions go through sealEmitter.edit(), which
-// is debounced, and deleteDeck()'s sealEmitter.delete() then flushes them — so the whole
-// erase lands in one commit instead of one per card.
+/** Deletes a deck and every card that lives only in it. */
 router.post('/:hash/purge', catchError(async (req, res) => {
     const includeShared = req.body?.includeShared === true;
     const { hash } = req.params;
@@ -108,8 +82,6 @@ router.post('/:hash/purge', catchError(async (req, res) => {
     for (const cardHash of standalone) {
         await decks.deleteStandaloneCard(cardHash);
     }
-    // Document-anchored cards live in their source sidecar, so they need the same
-    // unlink-then-delete pair routes/flashcards.js uses for a single card.
     for (const { hash: cardHash, documentPath } of anchored) {
         await decks.removeCardEverywhere(cardHash);
         await docs.deleteFlashcard(documentPath, cardHash);
@@ -119,16 +91,14 @@ router.post('/:hash/purge', catchError(async (req, res) => {
     res.json({ ok: true, deleted: standalone.length + anchored.length, kept });
 }));
 
-// PUT /api/decks/:hash/tags
-// Body: { tags: string[] } — replaces the deck's tags; they flow to member cards.
+/** Replaces a deck's tags, re-flowing them to its cards. */
 router.put('/:hash/tags', catchError(async (req, res) => {
     const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
     const saved = await decks.setTags(req.params.hash, tags);
     res.json({ ok: true, tags: saved });
 }));
 
-// POST /api/decks/:hash/entries
-// Body: { cardHash, documentPath?, inlineCard? }
+/** Adds a card to a deck. */
 router.post('/:hash/entries', catchError(async (req, res) => {
     const { cardHash, documentPath, inlineCard } = req.body;
     if (!cardHash) return res.status(400).json({ error: 'cardHash required' });
@@ -136,7 +106,7 @@ router.post('/:hash/entries', catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-// DELETE /api/decks/:hash/entries/:cardHash
+/** Removes a card from a deck. */
 router.delete('/:hash/entries/:cardHash', catchError(async (req, res) => {
     await decks.removeEntry(req.params.hash, req.params.cardHash);
     res.json({ ok: true });

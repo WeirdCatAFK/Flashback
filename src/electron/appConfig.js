@@ -19,14 +19,17 @@ const FALLBACK = {
     vaultName: 'default',
 };
 
+/** Absolute path of config.json. */
 export function getConfigPath() {
     return path.join(app.getPath('userData'), 'config.json');
 }
 
+/** Whether config.json has been written yet. */
 export function configExists() {
     return fs.existsSync(getConfigPath());
 }
 
+/** Reads and parses config.json. */
 export function readConfig() {
     try {
         return JSON.parse(fs.readFileSync(getConfigPath(), 'utf-8'));
@@ -35,6 +38,7 @@ export function readConfig() {
     }
 }
 
+/** Merges fields into config.json on disk. */
 export function writeConfig(config) {
     fs.mkdirSync(path.dirname(getConfigPath()), { recursive: true });
     fs.writeFileSync(getConfigPath(), JSON.stringify(config, null, 2));
@@ -43,9 +47,6 @@ export function writeConfig(config) {
 
 /**
  * Read-modify-write against what is currently on disk.
- *
- * The re-read is the point: the API process writes the active-vault pointer to this same
- * file, so a mutation applied to a stale in-memory copy would silently revert it.
  *
  * @param {(config: object) => object|void} mutate - mutates in place, or returns a replacement.
  * @returns {object} the config as written.

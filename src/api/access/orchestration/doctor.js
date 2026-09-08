@@ -37,9 +37,6 @@ import { getVaultId } from '../primitives/vault.js';
 import { listAccountProgress } from '../primitives/accounts.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
-// The DB stores relative_path with the platform separator (path.sep), the
-// walker uses path.join (also platform), and git paths use '/'. Everything is
-// normalized to '/' once, at comparison time — the #1 cross-layer trap.
 const norm = p => (p ?? '').split(/[\\/]+/).filter(Boolean).join('/');
 const depth = p => norm(p).split('/').length;
 
@@ -53,6 +50,7 @@ export default class Doctor {
 
     /**
      * Read-only whole-vault consistency report.
+     *
      * @returns {Promise<object>} see shape below; every array holds workspace-relative paths.
      */
     async checkIndex() {
@@ -63,7 +61,6 @@ export default class Doctor {
         const dbDocs = await this.query.getAllDocuments();
         const dbFolders = await this.query.getAllFolders();
 
-        // --- Folders ---
         const walkFolderByPath = new Map(walk.folders.map(f => [norm(f.relPath), f]));
         const dbFolderPaths = new Set(dbFolders.map(f => norm(f.relative_path)).filter(p => p !== ''));
 
@@ -76,14 +73,13 @@ export default class Doctor {
             corruptSidecars: walk.folders.filter(f => f.sidecarCorrupt).map(f => f.relPath),
         };
 
-        // --- Documents ---
         const walkDocByPath = new Map(await walk.documents.map(d => [norm(d.relPath), d]));
         const dbDocByPath = new Map(dbDocs.map(d => [norm(d.relative_path), d]));
 
         const missingInDb = [];
         const modified = [];
         const corruptDocSidecars = [];
-        const hashOwners = new Map(); // sidecar globalHash → [paths]
+        const hashOwners = new Map();
 
         for (const wd of walk.documents) {
             if (wd.sidecarCorrupt) { corruptDocSidecars.push(wd.relPath); continue; }
@@ -115,7 +111,6 @@ export default class Doctor {
             untracked: walk.strayItems,
         };
 
-        // --- Media (both directions) ---
         const dbMedia = await this.query.getAllMedia();
         const missingOnDisk = dbMedia.filter(m => !fs.existsSync(m.absolute_path)).map(m => m.relative_path);
         const dbMediaAbs = new Set(dbMedia.map(m => norm(m.absolute_path)));
@@ -139,7 +134,7 @@ export default class Doctor {
             seal: { drift: await sealTools.inspect() },
             counts: {
                 documents: dbDocs.length,
-                folders: Math.max(0, dbFolders.length - 1), // exclude the root row
+                folders: Math.max(0, dbFolders.length - 1),
                 flashcards: await this.query.getFlashcardCount(),
                 standaloneCards: await this.query.getStandaloneCardCount(),
                 pendingLinks: await this.query.getPendingLinkCount(),
@@ -148,16 +143,10 @@ export default class Doctor {
         };
     }
 
-    // Shallow drift detection for a document present in both layers. syncIndex's
-    // reindex is idempotent and wholesale, so these reasons only need to answer
-    // "does this doc need a reindex", not enumerate every difference.
     async _diffDocument(meta, dbDoc) {
         const reasons = [];
         if (meta.globalHash && meta.globalHash !== dbDoc.global_hash) reasons.push('hashChanged');
 
-        // OWNER_SCOPE: this compares the DATABASE against the SIDECAR, and the sidecar holds
-        // the owner's progress. Comparing it against a reader's schedule would report drift on
-        // every document a reader has studied.
         const dbCards = await this.query.getFlashcardsByDocument(dbDoc.id, OWNER_SCOPE);
         const dbByHash = new Map(dbCards.map(c => [c.global_hash, c]));
         const metaCards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
@@ -183,13 +172,10 @@ export default class Doctor {
     }
 
     /**
-     * Applies the check report. Disk is the source of truth; SRS progress is
-     * preserved by _syncDocumentFlashcards' max-merge. Idempotent — a second
-     * run reports zero actions.
+     * Applies the check report.
+     *
      * @param {object} [options]
-     * @param {boolean} [options.sealDrift=true] - bind remaining out-of-band changes
-     *   (including deletions) into one `reconcile:` commit afterward. Post-rollback
-     *   there is no drift, so no commit is created.
+     * @param {boolean} [options.sealDrift=true] - bind remaining out-of-band changes (including deletions) into one `reconcile:` commit afterward. Post-rollback there is no drift, so no commit is created.
      * @returns {Promise<{ actions: object, skipped: object, warnings: string[], sealedOid: string|null, report: object }>}
      */
     async syncIndex({ sealDrift = true } = {}) {
@@ -207,7 +193,6 @@ export default class Doctor {
         const warnings = [];
         const conflictPaths = new Set(report.documents.hashConflicts.flatMap(c => c.paths.map(norm)));
 
-        // 1. Folders on disk but not in the index — parents before children.
         for (const relPath of [...report.folders.missingInDb].sort((a, b) => depth(a) - depth(b))) {
             try {
                 await this.documents.indexFolder(relPath);
@@ -217,9 +202,6 @@ export default class Doctor {
             }
         }
 
-        // 2. Documents on disk but not in the index. Hash conflicts are never
-        //    auto-resolved — regenerating a globalHash would sever deck entries
-        //    and links pointing at it (hashes are immutable by design).
         for (const relPath of report.documents.missingInDb) {
             if (conflictPaths.has(norm(relPath))) continue;
             try {
@@ -230,7 +212,6 @@ export default class Doctor {
             }
         }
 
-        // 3. Documents present in both layers but drifted.
         for (const { relPath } of report.documents.modified) {
             if (conflictPaths.has(norm(relPath))) continue;
             try {
@@ -241,8 +222,6 @@ export default class Doctor {
             }
         }
 
-        // 4. Deletions — shallowest folders first so FK cascades make the
-        //    contained rows' individual deletions no-ops.
         for (const relPath of [...report.folders.orphanedInDb].sort((a, b) => depth(a) - depth(b))) {
             try {
                 await this.documents.removeFromIndex(relPath, true);
@@ -262,7 +241,6 @@ export default class Doctor {
             }
         }
 
-        // 5. Media, both directions.
         for (const relPath of report.media.missingOnDisk) {
             await this.query.deleteMediaByAbsPath(this.files.safePath(relPath));
             actions.mediaRowsRemoved++;
@@ -276,11 +254,8 @@ export default class Doctor {
             }
         }
 
-        // 6. Decks (file wins).
         actions.decks = await this.decks.repairFromFiles();
 
-        // 7. Bind the out-of-band changes this sync just reconciled (plus the
-        //    idempotent sidecar rewrites reindexing may have produced) into history.
         const sealedOid = sealDrift ? await sealTools.commitDrift() : null;
 
         return {
@@ -299,10 +274,7 @@ export default class Doctor {
 
     /**
      * Wipes all derived content and re-indexes the entire canonical layer.
-     * Rerunnable but not atomic past the wipe: per-item failures are collected
-     * into warnings instead of aborting, so a partial rebuild is finished by
-     * running it again. ReviewLogs history does not survive (a synthetic log
-     * entry preserves each card's latest ease factor).
+     *
      * @returns {Promise<{ summary: object, warnings: string[] }>}
      */
     async rebuildIndex() {
@@ -310,13 +282,10 @@ export default class Doctor {
         const walk = this.files.walkWorkspace();
         const warnings = [];
 
-        // Card categories must exist before any insertFlashcard call — unknown
-        // category names are silently dropped at the query layer.
         await this._ensureCategories(walk, warnings);
 
         await this.query.wipeDerivedContent();
 
-        // Root folder row, then every folder in pre-order.
         await this.documents.indexFolder('');
         let foldersIndexed = 0;
         for (const f of walk.folders) {
@@ -342,15 +311,11 @@ export default class Doctor {
             }
         }
 
-        // One final top-down inheritance pass from the root guards against any
-        // ordering gaps (indexFolder propagates recursively).
         await this.documents.indexFolder('');
 
-        // Decks + standalone cards from inline snapshots.
         const deckResult = await this.decks.rebuildFromFiles();
         warnings.push(...deckResult.warnings);
 
-        // Media registration.
         let mediaRegistered = 0;
         for (const dirRel of walk.mediaDirs) {
             const absDir = this.files.safePath(dirRel);
@@ -365,9 +330,6 @@ export default class Doctor {
             }
         }
 
-        // Preserve SM-2 ease: the sidecar carries each card's last easeFactor,
-        // but getLatestEaseFactors() reads it from ReviewLogs — re-seed one
-        // synthetic log row per card that had one.
         let easeRestored = 0;
         for (const d of walk.documents) {
             for (const fc of d.meta?.flashcards ?? []) {
@@ -380,15 +342,6 @@ export default class Doctor {
             }
         }
 
-        // Everyone else's schedules come back from the accounts store, which is the only
-        // place they exist outside this database. The owner's have already been restored above
-        // by the sidecar walk; this is the other half of that same guarantee, and the reason
-        // AccountProgress is written on every non-owner review in the first place.
-        //
-        // READ-ONLY toward the accounts store, and that limit is not incidental. The Doctor
-        // rebuilds derived data from canonical data; AccountProgress IS canonical, is not
-        // reconstructible from anything on disk, and sits in the one file in the app that a
-        // rebuild must never be able to damage.
         const { restored: progressRestored, warnings: progressWarnings } = await this._restoreAccountProgress();
         warnings.push(...progressWarnings);
 
@@ -430,18 +383,7 @@ export default class Doctor {
         }
     }
 
-    /**
-     * Re-projects every non-owner's durable schedule into CardProgress.
-     *
-     * Keyed by card `globalHash` on the way in, because a rebuild reassigns every row id in
-     * this database and only the hash survives it — that is exactly why AccountProgress stores
-     * a hash and not a flashcard_id.
-     *
-     * A snapshot whose card is gone is skipped and kept: the card may be coming back on the
-     * next sync (a sidecar temporarily missing, a rollback mid-flight), and a rebuild is not
-     * the moment to decide somebody's study history is garbage. Nothing here writes to the
-     * accounts store.
-     */
+    /** Re-projects every non-owner's durable schedule into CardProgress. */
     async _restoreAccountProgress() {
         const warnings = [];
         let restored = 0;
@@ -450,8 +392,6 @@ export default class Doctor {
         try {
             snapshots = await listAccountProgress(getVaultId());
         } catch (err) {
-            // A vault with no accounts store yet, or an unreadable one, must not abort a
-            // rebuild that has already put the owner's vault back together.
             warnings.push(`Could not read per-account progress: ${err.message}`);
             return { restored: 0, warnings };
         }
@@ -471,9 +411,6 @@ export default class Doctor {
                     fsrs_reps: snap.fsrs_reps,
                     fsrs_lapses: snap.fsrs_lapses,
                 });
-                // SM-2 reads its ease back out of the latest review log, and review logs do
-                // not survive a rebuild for anybody. Re-seed the same synthetic row the owner
-                // gets, so a reader's SM-2 schedule is not silently reset to the 2.5 default.
                 if (snap.ease_factor != null) {
                     await this.query.insertSyntheticReviewLog(
                         card.id, snap.ease_factor, snap.level ?? 0, snap.account_id,

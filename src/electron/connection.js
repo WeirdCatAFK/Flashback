@@ -35,7 +35,6 @@
  * @param {(config: object) => string} deps.apiBaseUrl            local API base URL
  */
 export function createConnectionState({ readConfig, connectionForRemote, apiBaseUrl }) {
-    // null = the local vault. Set to a remote's id while the user is working on a remote.
     let activeRemoteId = null;
 
     /** The local API and whichever vault it currently has open. */
@@ -52,19 +51,12 @@ export function createConnectionState({ readConfig, connectionForRemote, apiBase
     }
 
     return {
-        /**
-         * Where the renderer should point right now.
-         *
-         * A remote that has disappeared from the registry falls back to local and clears the
-         * flag — the app must not be pointed at a place that no longer exists. An unreachable
-         * one does NOT, because reachability is not knowable from here and a server that is
-         * merely restarting is not a server you have left.
-         */
+        /** Where the renderer should point right now. */
         current() {
             if (activeRemoteId) {
                 const remote = connectionForRemote(activeRemoteId);
                 if (remote) return remote;
-                activeRemoteId = null;   // the remote was removed underneath us
+                activeRemoteId = null;
             }
             return localConnection();
         },
@@ -75,11 +67,7 @@ export function createConnectionState({ readConfig, connectionForRemote, apiBase
             return this.current();
         },
 
-        /**
-         * Point back at the local API. Idempotent, and the ONLY way the flag is cleared by
-         * intent — every path that lands the user on a local vault goes through here, so a
-         * new one cannot forget to.
-         */
+        /** Point back at the local API. */
         useLocalVault() {
             activeRemoteId = null;
             return this.current();

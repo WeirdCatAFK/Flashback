@@ -8,9 +8,6 @@ import {
 } from "../defaults/DefaultData.js";
 import runMigrations from "../MigrationRunner.js";
 
-// Only tables that exist in SchemaSQL.js belong here.
-// Migration-managed tables (Highlights, SchemaVersion) are NOT listed —
-// they're guaranteed by runMigrations(), not the schema validator.
 const requiredTables = [
   "Flashcards",
   "FlashcardContent",
@@ -32,6 +29,7 @@ const requiredTables = [
 
 /**
  * Checks if a table with the given name exists in the database.
+ *
  * @param {string} name The name of the table to check.
  * @returns {boolean} True if the table exists, false otherwise.
  */
@@ -42,13 +40,9 @@ async function tableExists(name) {
   return !!row;
 }
 
-/**
- * Performs the core database schema and default data initialization.
- * This function should NOT start its own transaction.
- */
+/** Performs the core database schema and default data initialization. */
 async function performRebuild() {
   try {
-    // Remove manual transaction control from schema if present to avoid nested transactions
     const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, "");
     await db.exec(cleanSchema);
 
@@ -84,13 +78,6 @@ async function performRebuild() {
 /**
  * Rebuilds the database schema and populates default data in a single transaction.
  *
- * The transaction wrapper is built PER CALL, not once at module load. `db.transaction()`
- * returns a function bound to the connection that created it, so a module-level constant
- * would still point at the first vault's connection after a vault switch closed it — and
- * the failure mode was silent: validation of the new vault died with "the database
- * connection is not open", fell through to a rebuild that used the same dead handle, and
- * left the new vault with no schema at all.
- *
  * @returns {boolean} True if the database was rebuilt and initialized successfully.
  */
 async function rebuildDatabase() {
@@ -98,10 +85,8 @@ async function rebuildDatabase() {
 }
 
 /**
- * Validates the database by performing a quick integrity check and
- * checking for the presence of all required tables. If any
- * errors are found, the database is rebuilt from the schema and
- * default data is inserted.
+ * Validates the database by performing a quick integrity check and checking for the presence of all required tables.
+ *
  * @returns {boolean} True if the database is valid or was successfully repaired.
  */
 async function validateDatabase() {
@@ -135,10 +120,6 @@ async function validateDatabase() {
     try {
       return await handleRebuild();
     } catch (rebuildErr) {
-      // The last thing that can go wrong at startup, and the one worth being loud
-      // about: the index could not be validated AND could not be rebuilt. Returning
-      // a bare `false` left the caller reporting "validation failed" with no cause,
-      // which is the hardest possible version of this to diagnose from a user's log.
       console.error("Database rebuild failed:", rebuildErr.message);
       return false;
     }
@@ -149,12 +130,6 @@ async function validateDatabaseWithMigrations() {
   const ok = await validateDatabase();
   if (ok) {
     try {
-      // Awaited. Un-awaited, the runner returned a pending promise, this function resolved
-      // "validated", and the migrations carried on in the background — so a caller's first
-      // query could reach a table a migration had not created yet, and a migration that threw
-      // did it outside this try/catch and surfaced as an unhandled rejection instead of a
-      // fatal startup error. It only ever worked because the migrations happened to finish
-      // first; migration 010 does enough work not to.
       await runMigrations(db);
     } catch (err) {
       console.error('Migration runner failed:', err.message);

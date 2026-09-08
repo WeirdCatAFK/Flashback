@@ -32,7 +32,7 @@ export default class Media {
 
     /**
      * Resolves a media entry by its SHA-256 hash.
-     * Used by the API route to stream the file to the client.
+     *
      * @param {string} hash
      * @returns {{ id, hash, name, relative_path, absolute_path }}
      * @throws if the hash is unknown or the file is missing on disk
@@ -48,9 +48,7 @@ export default class Media {
 
     /**
      * Resolves a media asset by its location relative to the owning document.
-     * Vanilla flashcards reference media as `./media/<name>` paths rather than
-     * hashes, so this serves them without a DB lookup. The name is basename-only
-     * to keep the lookup inside the document's own media/ dir.
+     *
      * @param {string} relDocPath - relative path to the document that owns the media
      * @param {string} name - media file name (e.g. "front-1a2b3c4d.png")
      * @returns {string} absolute path to the file on disk
@@ -67,16 +65,11 @@ export default class Media {
 
     /**
      * Lists all files inside a folder's media/ subdirectory.
-     * Cross-references DB entries to include hash info where available.
+     *
      * @param {string} folderRelPath - relative path to the parent folder
      * @returns {Array<{ name, relativePath, absolutePath, hash|null }>}
      */
     async list(folderRelPath) {
-        // safePath, not a bare join: `folderRelPath` arrives from the query string, and
-        // the route's path.normalize() keeps a leading `..` intact rather than removing
-        // it — so `?path=../../..` walked straight out of the vault and listed whatever
-        // `media/` directory it found there. This was the only workspace join in the
-        // codebase that resolved a caller-supplied path without asserting containment.
         const absDir = this.files.safePath(path.join(folderRelPath, 'media'));
         if (!fs.existsSync(absDir)) return [];
 
@@ -94,7 +87,6 @@ export default class Media {
 
     /**
      * Adds a vanilla media asset (image or sound for front/back) to a flashcard.
-     * Orchestrates: FS write → sidecar update → DB registration → Seal commit.
      *
      * @param {string} relDocPath - relative path to the document
      * @param {string} flashcardHash - globalHash of the target flashcard
@@ -108,10 +100,8 @@ export default class Media {
         const cardIdx = meta?.flashcards?.findIndex(f => f.globalHash === flashcardHash) ?? -1;
         if (cardIdx === -1) throw new Error(`Flashcard ${flashcardHash} not found in ${relDocPath}`);
 
-        // FS write + sidecar update (Files layer)
         this.files.addVanillaData(relDocPath, buffer, name, type, position, cardIdx);
 
-        // DB registration
         const mediaRel = path.join(path.dirname(relDocPath), 'media', name);
         const mediaAbs = this.files.safePath(mediaRel);
         const hash = crypto.createHash('sha256').update(buffer).digest('hex');
@@ -125,7 +115,6 @@ export default class Media {
 
     /**
      * Removes a media file from a document's media/ directory.
-     * Cleans up: FS file → all sidecar references (both vanillaData and customData) → DB entry → Seal commit.
      *
      * @param {string} relDocPath - relative path to the document that owns the media
      * @param {string} mediaName - filename to remove (e.g. "diagram.png")
@@ -134,10 +123,8 @@ export default class Media {
         const mediaRel = path.join(path.dirname(relDocPath), 'media', mediaName);
         const mediaAbs = this.files.safePath(mediaRel);
 
-        // FS delete + sidecar cleanup (handles both vanillaData and customData refs)
         this.files.removeCustomMedia(relDocPath, mediaName);
 
-        // DB cleanup
         await db.transaction(async () => {
             await this.query.deleteMediaByAbsPath(mediaAbs);
         })();
@@ -147,7 +134,7 @@ export default class Media {
 
     /**
      * Drops DB entries for media files that no longer exist on disk within a folder.
-     * Safe to call at any time — purely additive from the FS perspective.
+     *
      * @param {string} folderRelPath
      * @returns {Array} orphaned entries that were removed from the DB
      */

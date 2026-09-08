@@ -21,8 +21,6 @@ export async function shouldRun(db) {
 
 export async function up(db) {
 
-    // ── DocumentLinks queue ───────────────────────────────────────────────────
-
     await db.exec(`
         CREATE TABLE IF NOT EXISTS DocumentLinks (
             id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -35,8 +33,6 @@ export async function up(db) {
 
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash)`);
     await db.exec(`CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash)`);
-
-    // ── "link" ConnectionType ─────────────────────────────────────────────────
 
     await db.prepare(
         `INSERT OR IGNORE INTO ConnectionTypes (name, is_directed) VALUES ('link', 1)`

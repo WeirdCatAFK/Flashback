@@ -43,7 +43,6 @@ export async function up(db) {
         }
     };
 
-    // ── Flashcards: FSRS per-card state ───────────────────────────────────────
     // Guarded here as well as in shouldRun(): up() also runs when the SchemaVersion row for
     // this migration is absent, which is every rebuilt database — and a rebuilt database is
     // built from the modern SchemaSQL, where these columns are gone on purpose.
@@ -56,7 +55,6 @@ export async function up(db) {
         ['fsrs_lapses', 'fsrs_lapses INTEGER NOT NULL DEFAULT 0'],
     ]);
 
-    // ── ReviewLogs: real rating + post-review FSRS snapshot ───────────────────
     await addColumns('ReviewLogs', [
         ['rating', 'rating INTEGER'],
         ['fsrs_stability', 'fsrs_stability FLOAT'],
@@ -65,7 +63,6 @@ export async function up(db) {
         ['fsrs_state', 'fsrs_state INTEGER'],
     ]);
 
-    // ── FsrsParameters: active weight vector for the vault ────────────────────
     await db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
         id           INTEGER PRIMARY KEY AUTOINCREMENT,
         weights_json TEXT NOT NULL,

@@ -17,14 +17,6 @@ const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim
 export default class Decks {
     constructor() {
         this.query = query;
-        // Creating `_decks/` stays here: it is pure filesystem work, synchronous, and a
-        // precondition of every write this class makes. Callers that never run the boot
-        // sequence (ankiImport, tests) still construct a Decks and expect to write a deck.
-        //
-        // Checking the SYSTEM DECK does not stay here — that reads the schema, the data
-        // layer is async now, and a constructor cannot await it. vaultSession's
-        // ensureVaultDirs() awaits onVaultOpened() instead, which is how query, cardHealth
-        // and mcpReader already worked.
         this._ensureDecksDir();
     }
 
@@ -34,22 +26,12 @@ export default class Decks {
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     }
 
-    /**
-     * Where this vault's canonical deck JSON lives.
-     *
-     * A getter for the same reason as Files.workspaceRoot: this class is instantiated
-     * once at import (routes/decks.js, routes/flashcards.js) and must follow a vault
-     * switch rather than stay pinned to whichever vault was active at startup.
-     */
+    /** Where this vault's canonical deck JSON lives. */
     get decksPath() {
         return path.join(getWorkspacePath(), DECKS_DIR);
     }
 
-    /**
-     * Per-vault setup: create `_decks/` and make sure the system deck's file exists.
-     * Runs from the constructor at boot, and again from vaultSession.switchVault() —
-     * a freshly created vault reaches its first request with neither in place.
-     */
+    /** Per-vault setup: create `_decks/` and make sure the system deck's file exists. */
     async onVaultOpened() {
         this._ensureDecksDir();
         await this._ensureSystemDeckFile();
@@ -60,8 +42,6 @@ export default class Decks {
         if (!cols.find(c => c.name === 'is_system')) return;
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) return;
-        // _readOrRebuild both ensures the file exists AND recovers any DeckEntries
-        // the DB still knows about, instead of always starting from an empty deck.
         await this._readOrRebuild(systemDeck.global_hash, systemDeck);
     }
 
@@ -69,54 +49,11 @@ export default class Decks {
         return path.join(this.decksPath, `${globalHash}.json`);
     }
 
-    // Workspace-relative path to a deck's canonical JSON, used as the Seal commit
-    // label. Always forward-slashed (normPath in seal.js would convert it anyway,
-    // but keeping it canonical here matches the `<action>: <path>` messages that
-    // documents.js emits for sidecars).
     _sealRelPath(globalHash) {
         return `${DECKS_DIR}/${globalHash}.json`;
     }
 
-    /**
-     * Serializes one deck file's writes against every other writer of that deck.
-     *
-     * The hazard is narrower than "two read-modify-writes interleave", and worth naming
-     * precisely. A plain read-modify-write here cannot interleave today: `_read` and
-     * `_write` are both synchronous and nothing awaits between them, so JavaScript's own
-     * single thread makes the pair atomic. That is an accident of the current statement
-     * order, not a property anyone maintains — one `await` inserted between the read and
-     * the write reintroduces the race silently.
-     *
-     * What is broken *now* is the **optimistic write plus rollback** in `addEntry` and
-     * `removeEntry`. Both write the deck file BEFORE opening their database transaction and,
-     * if it throws, rewrite the file from the in-memory snapshot they took before it:
-     *
-     *     this._write(deckHash, file);          // optimistic
-     *     try { await db.transaction(...)(); }  // yields — another request runs here
-     *     catch { file.entries.pop(); this._write(deckHash, file); }   // stale snapshot
-     *
-     * A concurrent `addEntry` on the same deck lands during that transaction. The failing
-     * one then rolls back to a state that never existed and erases it — a *failed* request
-     * destroying a *successful* one's work, and leaving the file holding fewer entries than
-     * `DeckEntries` does. That mismatch surfaces later as a Doctor `entryMismatch`, which
-     * `repairFromFiles()` resolves toward the file, making the loss permanent.
-     *
-     * Unreachable on the desktop (one user, one request in flight); reachable the moment two
-     * people share a deck on a server build. `tests/conflicts.test.js` pins it, and that test
-     * fails if this lock is removed.
-     *
-     * The key is the deck's workspace-relative path, so a deck write and a document write
-     * share one key space and a structural operation (`withStructure`) excludes both.
-     *
-     * **Never nest this.** `withDocument` chains per path and takes a shared tree hold, so
-     * a re-entrant call on the same key waits on a promise only the outer call can resolve.
-     * Every public mutator below takes exactly one, and the private helpers
-     * (`_read`, `_write`, `_readOrRebuild`, `_ensureSystemDeckFile`) take none — which is
-     * why `createStandaloneCard` reaches for `_readOrRebuild` rather than the
-     * `_ensureSystemDeckFile` + `_read` pair it used to, and why `updateDeck` no longer
-     * ensures a file it is not writing. `removeCardEverywhere` is deliberately unlocked:
-     * it loops over `removeEntry`, which locks each deck on its own.
-     */
+    /** Serializes one deck file's writes against every other writer of that deck. */
     _withDeckFile(globalHash, fn) {
         return withDocument(this._sealRelPath(globalHash), fn);
     }
@@ -125,11 +62,6 @@ export default class Decks {
         return JSON.parse(fs.readFileSync(this._filePath(globalHash), 'utf-8'));
     }
 
-    // Reads a deck's canonical JSON, rebuilding it from the DB if the file is
-    // unexpectedly missing (e.g. deleted out-of-band). Seal versions deck writes,
-    // but a live desync still needs an immediate recovery source, and the
-    // DeckEntries table is the next-best truth. This turns a desync into a
-    // self-heal instead of a raw fs crash reaching the caller.
     async _readOrRebuild(globalHash, deckRow) {
         try {
             return this._read(globalHash);
@@ -138,13 +70,11 @@ export default class Decks {
             const entries = (await this.query.getDeckEntries(deckRow.id, currentScope())).map((e) => {
                 const entry = { cardHash: e.card_hash, documentPath: e.document_path };
                 if (e.inline_card) {
-                    try { entry.card = JSON.parse(e.inline_card); } catch { /* ignore malformed snapshot */ }
+                    try { entry.card = JSON.parse(e.inline_card); } catch { }
                 }
                 return entry;
             });
             const rebuilt = {
-                // The entries come from inline snapshots the DB mirrored off an already
-                // current file, so the rebuild is current by construction.
                 formatVersion: LATEST_VERSION,
                 globalHash,
                 name: deckRow.name,
@@ -169,10 +99,12 @@ export default class Decks {
         if (fs.existsSync(p)) fs.unlinkSync(p);
     }
 
+    /** Every deck with its entry count. */
     async listDecks() {
         return await this.query.getAllDecks();
     }
 
+    /** Creates a deck and its canonical `_decks/<uuid>.json` file. */
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
         return await this._withDeckFile(globalHash, () => this._createDeckLocked(globalHash, name, description));
@@ -180,8 +112,6 @@ export default class Decks {
 
     async _createDeckLocked(globalHash, name, description) {
         const now = new Date().toISOString();
-        // formatVersion: deck files are canonical too, so they carry the same version stamp
-        // sidecars do (see config/updates/UPDATES.md).
         const file = {
             formatVersion: LATEST_VERSION,
             globalHash, name, description, tags: [], created: now, modified: now, entries: [],
@@ -196,12 +126,11 @@ export default class Decks {
             this._remove(globalHash);
             throw err;
         }
-        // A new deck file is a structural op: create() flushes any pending debounced
-        // edits first so commit order stays chronological.
         await sealEmitter.create(this._sealRelPath(globalHash));
         return globalHash;
     }
 
+    /** One deck's metadata. */
     async getDeck(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -210,8 +139,6 @@ export default class Decks {
         return { ...deck, entries, entry_count: entries.length, tags };
     }
 
-    // Resolves existing tag names to their Tags row ids (skipping unknown names).
-    // Callers must ensure the tags exist first (via _syncNodeTags).
     async _tagIdsForNames(tagNames) {
         const ids = [];
         for (const name of tagNames) {
@@ -221,17 +148,6 @@ export default class Decks {
         return ids;
     }
 
-    // Makes the given tag names a node's exact set of direct tags, creating any that
-    // don't exist and pruning those left unreferenced. Mirrors documents._syncTags.
-    //
-    // Serves two kinds of node, and the distinction is worth stating. On a DECK node the
-    // direct 'tag' connection is what keeps a deck-only tag alive in getAllTags(). On a
-    // STANDALONE CARD node it is the card's own tag list — the counterpart of the `tags`
-    // array a document-anchored card carries in its sidecar. A standalone card has no
-    // sidecar to hold one, which is why tags were long treated as a document concept;
-    // the derived layer never made that assumption (getDueFlashcards, getSessionFacets
-    // and _searchFlashcards all match `tag` connections straight off `f.node_id`), so the
-    // card node has always been the right place to put it.
     async _syncNodeTags(nodeId, tagNames) {
         const tagNodeIds = [];
         for (const name of tagNames) {
@@ -247,8 +163,6 @@ export default class Decks {
         await this.query.syncNodeTags(nodeId, tagNodeIds);
     }
 
-    // Pushes a deck's direct tags down onto every current member card as inherited
-    // tags. Tags must already exist (call _syncNodeTags first).
     async _propagateTagsToCards(deck, tagNames) {
         if (!deck.node_id) return;
         const tagIds = await this._tagIdsForNames(tagNames);
@@ -258,8 +172,7 @@ export default class Decks {
         }
     }
 
-    // Replaces a deck's tags, syncing the deck node's direct tags and re-propagating
-    // them to every member card. Persists to the canonical deck file and seals.
+    /** Replaces a deck's tags, re-flowing them to its member cards. */
     async setTags(globalHash, tags) {
         return await this._withDeckFile(globalHash, () => this._setTagsLocked(globalHash, tags));
     }
@@ -282,6 +195,7 @@ export default class Decks {
         return clean;
     }
 
+    /** Updates a deck's name or description. */
     async updateDeck(globalHash, { name, description }) {
         return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description }));
     }
@@ -290,9 +204,6 @@ export default class Decks {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
-        // No _ensureSystemDeckFile() here. It rebuilt a file this method does not write
-        // (unless the system deck IS the target, in which case the next line does the same
-        // work), and under the lock it would be a second acquisition of a second key.
         const file = await this._readOrRebuild(globalHash, deck);
         if (name !== undefined) file.name = name;
         if (description !== undefined) file.description = description;
@@ -308,6 +219,7 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(globalHash));
     }
 
+    /** Deletes a deck and its file, leaving its cards in place. */
     async deleteDeck(globalHash) {
         return await this._withDeckFile(globalHash, () => this._deleteDeckLocked(globalHash));
     }
@@ -319,15 +231,13 @@ export default class Decks {
 
         this._remove(globalHash);
         await db.transaction(async () => {
-            // Drop the deck's direct tags first so any left unreferenced are pruned.
-            // Deleting the Decks row then fires delete_deck_node, cascading the deck's
-            // Connections (and their InheritedTags) off every member card.
             if (deck.node_id) await this._syncNodeTags(deck.node_id, []);
             await this.query.deleteDeck(deck.id);
         })();
         await sealEmitter.delete(this._sealRelPath(globalHash));
     }
 
+    /** Adds a card to a deck, in the file and the index. */
     async addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
         return await this._withDeckFile(deckHash, () =>
             this._addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }));
@@ -359,7 +269,6 @@ export default class Decks {
                     const cardNodeId = await this.query.getFlashcardNodeIdByHash(cardHash);
                     if (cardNodeId) {
                         await this.query.insertDeckConnection(deck.node_id, cardNodeId);
-                        // A freshly-added card inherits the deck's current tags immediately.
                         const tagIds = await this._tagIdsForNames(await this.query.getDirectTagNames(deck.node_id));
                         if (tagIds.length) await this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
                     }
@@ -370,11 +279,10 @@ export default class Decks {
             this._write(deckHash, file);
             throw err;
         }
-        // Debounced edit — a bulk import that adds many cards to one deck batches
-        // into a single commit rather than one per card (see #3).
         await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
+    /** Removes a card from a deck, in the file and the index. */
     async removeEntry(deckHash, cardHash) {
         return await this._withDeckFile(deckHash, () => this._removeEntryLocked(deckHash, cardHash));
     }
@@ -406,18 +314,9 @@ export default class Decks {
     }
 
     /**
-     * Describes what erasing a deck *and its cards* would destroy, so the caller can
-     * say so before doing it. Read-only.
+     * Describes what erasing a deck *and its cards* would destroy, so the caller can say so before doing it.
      *
-     * Two distinctions the caller can't make on its own:
-     *  - standalone vs document-anchored, because deleting the latter takes cards out
-     *    of the user's notes, which is a different kind of loss
-     *  - "shared" cards, meaning cards another **non-system** deck also holds. The
-     *    system deck is every standalone card's automatic home, so counting it would
-     *    mark all of them shared and nothing would ever be deletable.
-     *
-     * @returns {{ total, standalone, documentAnchored, documents: string[],
-     *             shared: number, otherDecks: string[] }}
+     * @returns {{ total, standalone, documentAnchored, documents: string[], shared: number, otherDecks: string[] }}
      */
     async getContentsSummary(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
@@ -429,17 +328,10 @@ export default class Decks {
         let standalone = 0;
         let documentAnchored = 0;
         let shared = 0;
-        // Split the shared cards the same way, so a caller that spares them can still
-        // report an accurate breakdown of what remains doomed rather than subtracting
-        // a total it can't attribute.
         let sharedStandalone = 0;
         let sharedDocumentAnchored = 0;
 
         for (const entry of entries) {
-            // Where a card lives comes from the Flashcards→Documents join, not from
-            // DeckEntries.document_path: the latter is whatever the client sent when the
-            // entry was added — possibly with foreign path separators — while the join is
-            // the canonical path the deletion path can actually resolve.
             const documentPath = await this._cardDocumentPath(entry.card_hash);
             if (documentPath) {
                 documentAnchored++;
@@ -470,13 +362,7 @@ export default class Decks {
         };
     }
 
-    /**
-     * Card hashes an erase would actually destroy, split by where they live so the
-     * caller can route each to the right deletion path.
-     *
-     * `includeShared` decides the fate of cards another non-system deck also holds:
-     * false (default) leaves them alone — the deck row's removal unlinks them anyway.
-     */
+    /** Card hashes an erase would actually destroy, split by where they live so the caller can route each to the right deletion path. */
     async getPurgeTargets(globalHash, { includeShared = false } = {}) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -490,9 +376,6 @@ export default class Decks {
                 .some(d => !d.is_system && d.id !== deck.id);
             if (isShared && !includeShared) { kept++; continue; }
 
-            // Canonical path from the join — see getContentsSummary. Passing
-            // DeckEntries.document_path straight to documents.deleteFlashcard fails with
-            // "not found in DB" whenever the client wrote it with '/' on Windows.
             const documentPath = await this._cardDocumentPath(entry.card_hash);
             if (documentPath) anchored.push({ hash: entry.card_hash, documentPath });
             else standalone.push(entry.card_hash);
@@ -503,29 +386,11 @@ export default class Decks {
 
     /** A card's source document path, or null when it is standalone. */
     async _cardDocumentPath(cardHash) {
-        // OWNER_SCOPE: only `document_path` is read here. The scope argument is mandatory
-        // because the same statement also returns a level, and there is no way to ask for
-        // half a row — so the honest answer is to name the scope whose level would be
-        // meaningful if anyone did read it.
         return (await this.query.getFlashcardContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
     }
 
     /**
-     * Unlinks a card from every deck that holds it — canonical JSON, DeckEntries row,
-     * and deck connection alike.
-     *
-     * `DeckEntries` keys on `card_hash` instead of a `Flashcards` foreign key, so
-     * nothing cascades when a card row is deleted. Destroying a card without this left
-     * a dangling entry in every deck's file and in the DB, and the deck went on listing
-     * a card that no longer existed.
-     *
-     * **Must run before the card row is deleted** — `removeEntry` looks up the card's
-     * node to unlink the deck connection, and that node is gone afterwards.
-     *
-     * Deliberately takes no deck-file lock of its own: it loops over `removeEntry`, which
-     * locks each deck as it goes. Locking here as well would be a re-entrant acquisition on
-     * the first holder's key, and the loop was never atomic across decks anyway — a failure
-     * partway through has always left the earlier decks unlinked.
+     * Unlinks a card from every deck that holds it — canonical JSON, DeckEntries row, and deck connection alike.
      *
      * @param {string} cardHash - globalHash of the card being destroyed.
      * @returns {Promise<number>} how many decks the card was removed from.
@@ -538,22 +403,16 @@ export default class Decks {
         return holders.length;
     }
 
-    // `flagged`/`flagKind` filter to cards carrying a live card-health flag. Pure
-    // pass-through: the join lives in query.js, so this needs no cardHealth import and
-    // the card browser and the MCP's list_cards get the filter through the one path they
-    // already share.
+    /** The card browser: a filtered, sorted, paged view of every card in the vault. */
     async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         return await this.query.getAllFlashcards({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset }, currentScope());
     }
 
+    /** How many cards match the card browser's current filters. */
     async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
         return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind }, currentScope());
     }
 
-    // Builds the canonical content snapshot stored alongside a standalone card's
-    // deck entry (file entry.card + DeckEntries.inline_card). Standalone cards
-    // have no document sidecar, so this snapshot is their only canonical-layer
-    // representation — without it they'd be unrecoverable after a DB rebuild.
     _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
         const cleanTags = cleanTagNames(tags);
         return {
@@ -561,19 +420,10 @@ export default class Decks {
             cardType,
             category,
             ...(origin ? { origin } : {}),
-            // Omitted when empty, exactly like `origin` above: every snapshot written
-            // before this existed has no `tags` key, and absent already means "no tags".
-            // Emitting an empty array instead would rewrite every entry in the file on
-            // the next save without changing what any of them mean.
             ...(cleanTags.length ? { tags: cleanTags } : {}),
             vanillaData: {
                 frontText: frontText || null,
                 backText: backText || null,
-                // type_answer only: the compared value, kept apart from backText so the
-                // back face can carry notes that are never graded. Written as a string
-                // (never null) and omitted entirely for the other types — a missing or
-                // null answerText is exactly what marks a card as predating the split,
-                // and canonical update 001 keys off that.
                 ...(cardType === 'type_answer' ? { answerText: answerText ?? '' } : {}),
                 media: media || {},
             },
@@ -581,8 +431,7 @@ export default class Decks {
         };
     }
 
-    // The three standalone-card methods all write ONE file — the system deck's — so they
-    // resolve it first (a read, safe outside the lock) and hold that one key for the body.
+    /** Creates a card with no document, held by the system deck. */
     async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
@@ -607,8 +456,6 @@ export default class Decks {
                 category, cardType, name, origin,
                 level: 0, sm2Reps: 0, fileIndex: 0,
             }, OWNER_SCOPE);
-            // The card's own tags, direct on its node — the same shape
-            // _syncDocumentFlashcards gives an anchored card from its sidecar.
             if (snapshot.tags) await this._syncNodeTags(nodeId, snapshot.tags);
             const position = await this.query.getDeckEntryCount(systemDeck.id);
             await this.query.insertDeckEntry({
@@ -625,22 +472,16 @@ export default class Decks {
             }
         })();
 
-        // _readOrRebuild, not the _ensureSystemDeckFile + _read pair this used to run:
-        // it is the same recovery in one call, on the one key already held.
         const file = await this._readOrRebuild(systemDeck.global_hash, systemDeck);
         file.entries.push({ cardHash: globalHash, documentPath: null, card: snapshot });
         file.modified = new Date().toISOString();
         this._write(systemDeck.global_hash, file);
 
-        // Editing the system deck's file. Debounced so a bulk standalone-card
-        // import (e.g. an MCP-driven batch) collapses into one commit (see #3).
         await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         return globalHash;
     }
 
-    // Resolves any card (standalone or document-anchored) to its content plus
-    // source document path — the lookup clients need to route an edit to the
-    // right layer (sidecar RMW vs. the standalone endpoints).
+    /** One card with its content, document path and media refs. */
     async getCard(hash) {
         const card = await this.query.getFlashcardContentByHash(hash, currentScope());
         if (!card) throw new Error(`Card not found: ${hash}`);
@@ -656,13 +497,7 @@ export default class Decks {
             customHtml: card.custom_html,
             category: card.category,
             documentPath: card.document_path ?? null,
-            // The card's OWN tags (direct on its node), never the ones it inherits from a
-            // document, folder or deck — an editor that showed those would offer to remove
-            // something it cannot remove from here. For an anchored card this mirrors the
-            // sidecar's `tags`; for a standalone card the node is the only copy.
             tags: card.node_id ? await this.query.getDirectTagNames(card.node_id) : [],
-            // Stored references, not URLs — resolve them against `documentPath`
-            // (GET /api/media/file) before handing them to a renderer.
             media: {
                 front_img: card.front_img ?? null,
                 back_img: card.back_img ?? null,
@@ -672,10 +507,10 @@ export default class Decks {
         };
     }
 
+    /** Updates a card that lives in a deck file rather than a sidecar. */
     async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
-        // No system deck means no canonical file to protect — the DB half still runs.
         if (!systemDeck) return await this._updateStandaloneCardLocked(hash, fields, null);
         return await this._withDeckFile(systemDeck.global_hash, () =>
             this._updateStandaloneCardLocked(hash, fields, systemDeck));
@@ -690,9 +525,6 @@ export default class Decks {
         if (category && !await this.query.getCategoryByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
-        // Partial update: fields the caller omits keep their stored values —
-        // a bare category or name change must not wipe the card's text.
-        // The read that feeds a canonical `_decks/*.json` snapshot, so: the owner's.
         const existing = await this.query.getFlashcardContentByHash(hash, OWNER_SCOPE);
         const merged = {
             frontText: frontText !== undefined ? frontText : existing.frontText,
@@ -702,10 +534,7 @@ export default class Decks {
             cardType: cardType !== undefined ? cardType : existing.card_type,
             category: category !== undefined ? category : existing.category,
             customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
-            origin: existing.origin ?? null, // provenance is set at creation and never edited
-            // Omitted means unchanged, like every other field here — but the snapshot is
-            // rewritten whole, so "unchanged" has to be read back explicitly or the file
-            // would lose the tags it already had.
+            origin: existing.origin ?? null,
             tags: tags !== undefined ? cleanTagNames(tags) : await this.query.getDirectTagNames(existing.node_id),
             media: {
                 front_img: existing.front_img || null,
@@ -730,11 +559,12 @@ export default class Decks {
                     file.modified = new Date().toISOString();
                     this._write(systemDeck.global_hash, file);
                 }
-            } catch { /* best-effort, mirrors deleteStandaloneCard */ }
+            } catch { }
             await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         }
     }
 
+    /** Deletes a standalone card and unlinks it from every deck. */
     async deleteStandaloneCard(hash) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) return await this._deleteStandaloneCardLocked(hash, null);
@@ -760,15 +590,14 @@ export default class Decks {
                 file.entries = file.entries.filter(e => e.cardHash !== hash);
                 file.modified = new Date().toISOString();
                 this._write(systemDeck.global_hash, file);
-            } catch { /* best-effort */ }
+            } catch { }
             await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
         }
     }
 
-    // --- Vault Doctor support ---
-
     /**
      * Enumerates and parses every canonical deck file in _decks/.
+     *
      * @returns {Array<{ globalHash: string, data: object|null }>} data is null for malformed JSON.
      */
     async listDeckFiles() {
@@ -786,20 +615,9 @@ export default class Decks {
     }
 
     /**
-     * Applies `transform` to every canonical deck file, rewriting the ones it changed and
-     * re-syncing their `DeckEntries.inline_card` mirrors.
+     * Applies `transform` to every canonical deck file, rewriting the ones it changed and re-syncing their `DeckEntries.inline_card` mirrors.
      *
-     * This is the deck-side entry point for canonical updates — the counterpart of walking
-     * the workspace for document sidecars — so that deck file IO stays inside this module.
-     * The transform receives the whole file (a deck carries its standalone cards inline
-     * under `entries[].card`, and an update may need to touch the deck's own fields too).
-     *
-     * It deliberately emits no Seal event: the caller binds the whole pass into a single
-     * `reconcile:` commit rather than one edit per deck. A file that cannot be parsed, or
-     * whose transform throws, is reported and left exactly as found.
-     *
-     * @param {(deckFile: object) => boolean} transform mutates the file in place; returns
-     *   true when it changed something.
+     * @param {(deckFile: object) => boolean} transform mutates the file in place; returns true when it changed something.
      * @returns {{ filesRewritten: number, corruptFiles: string[], failed: Array<{hash: string, error: string}> }}
      */
     async mapDeckFiles(transform) {
@@ -820,8 +638,6 @@ export default class Decks {
             data.modified = new Date().toISOString();
             this._write(globalHash, data);
 
-            // The DB's inline snapshots mirror the file, so they follow it wholesale rather
-            // than the caller having to say which entries moved.
             const deck = await this.query.getDeckByHash(globalHash);
             if (deck) {
                 await db.transaction(async () => {
@@ -839,10 +655,8 @@ export default class Decks {
 
     /**
      * Compares _decks/*.json files against the Decks/DeckEntries tables.
-     * Read-only.
-     * @returns {{ fileWithoutDb: string[], dbWithoutFile: string[], corruptFiles: string[],
-     *             entryMismatches: Array<{ deckHash, missingInDb: string[], missingInFile: string[] }>,
-     *             danglingEntries: Array<{ deckHash, cardHash }> }}
+     *
+     * @returns {{ fileWithoutDb: string[], dbWithoutFile: string[], corruptFiles: string[], entryMismatches: Array<{ deckHash, missingInDb: string[], missingInFile: string[] }>, danglingEntries: Array<{ deckHash, cardHash }> }}
      */
     async diagnoseDecks() {
         const files = await this.listDeckFiles();
@@ -883,9 +697,6 @@ export default class Decks {
         return { fileWithoutDb, dbWithoutFile, corruptFiles, entryMismatches, danglingEntries };
     }
 
-    // Inserts a deck (+ entries + graph connections) into the DB from its
-    // canonical JSON. isSystem is only honored when no system deck exists yet —
-    // the invariant is exactly one.
     async _importDeckFile(globalHash, data) {
         await db.transaction(async () => {
             const isSystem = data.isSystem && !await this.query.getSystemDeck() ? 1 : 0;
@@ -896,9 +707,6 @@ export default class Decks {
                 isSystem,
             });
             const deck = await this.query.getDeckByHash(globalHash);
-            // for...of rather than forEach: the body writes through the data layer, which
-            // is async, and an async forEach callback would fire every iteration
-            // concurrently and return before any of them finished.
             for (const [i, e] of (data.entries ?? []).entries()) {
                 await this.query.insertDeckEntry({
                     deckId, cardHash: e.cardHash,
@@ -911,18 +719,12 @@ export default class Decks {
                     if (cardNodeId) await this.query.insertDeckConnection(deck.node_id, cardNodeId);
                 }
             }
-            // Register the deck's own direct tags now; propagation to member cards
-            // is deferred to _propagateAllDeckTags() once every card row exists
-            // (documents/standalone cards may still be rebuilding at this point).
             if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
                 await this._syncNodeTags(deck.node_id, data.tags);
             }
         })();
     }
 
-    // Final Doctor pass: re-pushes every deck's direct tags onto its member cards.
-    // Runs after all documents/standalone cards are rebuilt so no card is missed
-    // by ordering (a deck may reference a card whose row was created after the deck).
     async _propagateAllDeckTags() {
         await db.transaction(async () => {
             for (const deck of await this.query.getAllDecks()) {
@@ -933,12 +735,8 @@ export default class Decks {
     }
 
     /**
-     * Applies deck diagnosis: files without DB rows are imported (file wins),
-     * DB rows without files self-heal via _readOrRebuild (DB is the next-best
-     * truth there), and entry mismatches resolve in the file's favor — normal
-     * ops write the file first, so it is the canonical side.
-     * Dangling entries (card hash with no Flashcards row) are left for rebuild,
-     * which can restore them from inline_card snapshots.
+     * Applies deck diagnosis: files without DB rows are imported, DB rows without files self-heal via `_readOrRebuild`.
+     *
      * @returns {{ decksImported: number, deckFilesRebuilt: number, entriesAdded: number, entriesRemoved: number }}
      */
     async repairFromFiles() {
@@ -986,10 +784,8 @@ export default class Decks {
     }
 
     /**
-     * Full _decks/*.json → DB import for the Doctor's rebuild path. Assumes the
-     * deck tables were just wiped. Standalone cards are restored from their
-     * inline_card snapshots (level resets to 0 — a standalone card's SRS state
-     * has no canonical-layer home). Guarantees exactly one system deck.
+     * Full _decks/*.json → DB import for the Doctor's rebuild path.
+     *
      * @returns {{ decks: number, restoredCards: number, warnings: string[] }}
      */
     async rebuildFromFiles() {
@@ -1010,7 +806,6 @@ export default class Decks {
                 continue;
             }
 
-            // Restore document-less cards from their content snapshots.
             for (const e of f.data.entries ?? []) {
                 if (!e.card || e.documentPath || await this.query.getFlashcardByHash(e.cardHash)) continue;
                 try {
@@ -1026,9 +821,6 @@ export default class Decks {
                             origin: e.card.origin ?? null,
                             level: 0, sm2Reps: 0, fileIndex: 0,
                         }, OWNER_SCOPE);
-                        // The card's own tags come back with it. Unlike its level — which has
-                        // no canonical home and honestly resets — these were written to the
-                        // snapshot precisely so a rebuild could restore them.
                         if (e.card.tags?.length) await this._syncNodeTags(nodeId, e.card.tags);
                         const deck = await this.query.getDeckByHash(f.globalHash);
                         if (deck?.node_id) {
@@ -1043,7 +835,6 @@ export default class Decks {
             }
         }
 
-        // The system deck must exist even if its file was lost.
         if (!await this.query.getSystemDeck()) {
             const globalHash = crypto.randomUUID();
             await this.query.insertDeck({ globalHash, name: 'Cards', description: '', isSystem: 1 });
@@ -1052,7 +843,6 @@ export default class Decks {
             decksImported++;
         }
 
-        // Every card row now exists — flow each deck's tags down to its members.
         await this._propagateAllDeckTags();
 
         return { decks: decksImported, restoredCards, warnings };

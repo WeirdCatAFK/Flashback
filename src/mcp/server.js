@@ -16,11 +16,6 @@ import { registerReadTools } from './tools/read.js';
 import { registerWriteTools } from './tools/write.js';
 import { getBaseUrl } from './client.js';
 
-// Shown to the model up front, before any tool is called — this is the place for
-// concepts that don't belong on any single tool's schema (data-model shape, field
-// semantics, cross-tool relationships). Added after live testing showed an agent
-// had to reverse-engineer the deck/level model from a stack trace and incidental
-// return payloads instead of being told; see Backlog.md #38/#39 discussion.
 const INSTRUCTIONS = `
 Flashback is a local spaced-repetition knowledge vault. A few things aren't obvious from
 individual tool schemas alone:

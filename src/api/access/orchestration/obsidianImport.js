@@ -15,9 +15,6 @@ import db from '../primitives/database.js';
 
 const CLOZE_PATTERN = /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g;
 
-// Templater's non-cloze {{...}} placeholders (e.g. `# {{title}}`) are syntactically identical
-// to a bare Flashback inline cloze (`{{word}}`), so they can only be told apart heuristically:
-// Templater placeholders show up in headings and use a small fixed set of core variable names.
 const TEMPLATER_CORE_VARS = new Set(['title', 'date', 'time', 'folder', 'cursor']);
 function isTemplaterPlaceholderLine(line) {
     if (/^#{1,6}\s/.test(line.trim())) return true;
@@ -34,6 +31,7 @@ export default class ObsidianImport {
 
     /**
      * Imports an Obsidian vault ZIP package into the workspace.
+     *
      * @param {Buffer} fileBuffer
      * @param {string} targetRelPath
      * @returns {Promise<{ ok: boolean, path: string }>}
@@ -51,7 +49,6 @@ export default class ObsidianImport {
             const zip = new AdmZip(tempZipPath);
             zip.extractAllTo(tempRoot, true);
 
-            // Find the vault root — exclude the written vault.zip from the entry count
             let vaultRoot = tempRoot;
             const rootEntries = fs.readdirSync(tempRoot, { withFileTypes: true })
                 .filter(e => e.name !== 'vault.zip' && !e.name.startsWith('.'));
@@ -64,7 +61,6 @@ export default class ObsidianImport {
             const importFolderRel = path.join(targetRelPath, importFolderName);
             await this.documents.createFolder(importFolderName, targetRelPath);
 
-            // First pass: Crawl and build note title/path -> globalHash map
             const noteMap = new Map();
             const mdFiles = [];
             const mediaFiles = [];
@@ -72,7 +68,7 @@ export default class ObsidianImport {
             const firstPassCrawl = (currentDir, relDir) => {
                 const entries = fs.readdirSync(currentDir, { withFileTypes: true });
                 for (const entry of entries) {
-                    if (entry.name.startsWith('.')) continue; // Skip hidden/system files
+                    if (entry.name.startsWith('.')) continue;
                     const fullPath = path.join(currentDir, entry.name);
                     const currentRel = path.join(relDir, entry.name);
 
@@ -84,7 +80,6 @@ export default class ObsidianImport {
                             const nameWithoutExt = path.basename(entry.name, '.md');
                             const relPathKey = currentRel.replace(/\\/g, '/');
                             
-                            // Generate deterministic globalHash UUID
                             const docHashRaw = `obsidian-doc-${relPathKey}`;
                             const docHash = crypto.createHash('sha256').update(docHashRaw).digest('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
                             
@@ -97,7 +92,6 @@ export default class ObsidianImport {
                                 globalHash: docHash
                             });
                         } else {
-                            // Collect potential media files to process
                             const mediaExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.mp3', '.wav', '.ogg', '.pdf'];
                             if (mediaExtensions.includes(ext)) {
                                 mediaFiles.push({
@@ -111,7 +105,6 @@ export default class ObsidianImport {
             };
             firstPassCrawl(vaultRoot, "");
 
-            // Second pass: Crawl and import files, converting links and creating flashcards
             const secondPassCrawl = async (currentDir, destRelDir) => {
                 const entries = fs.readdirSync(currentDir, { withFileTypes: true });
                 for (const entry of entries) {
@@ -130,7 +123,6 @@ export default class ObsidianImport {
 
                             let content = fs.readFileSync(fullPath, 'utf-8');
 
-                            // Parse tags
                             const tags = [];
                             const frontmatterMatch = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
                             if (frontmatterMatch) {
@@ -161,14 +153,9 @@ export default class ObsidianImport {
                                 }
                             }
 
-                            // Strip the frontmatter block now that tags have been extracted from it —
-                            // otherwise the raw --- ... --- YAML leaks as literal text in the note body.
                             content = content.replace(/^---\r?\n[\s\S]*?\r?\n---\r?\n?/, '');
-                            // Strip Obsidian %% ... %% comments (never meant to be visible content).
                             content = content.replace(/%%[\s\S]*?%%/g, '');
 
-                            // Inline tags: match #tag, ignoring anything inside fenced code blocks
-                            // (Dataview query syntax like #dv/list or #type/books is not a real tag).
                             const contentForTags = content.replace(/```[\s\S]*?```/g, '');
                             const inlineTagMatches = contentForTags.matchAll(/(?:^|\s)#([a-zA-Z0-9_\-/]+)/g);
                             for (const m of inlineTagMatches) {
@@ -178,11 +165,9 @@ export default class ObsidianImport {
                                 }
                             }
 
-                            // Resolve media attachments referenced in this markdown file
                             const mediaDirRel = path.join(destRelDir, 'media');
                             const mediaDirAbs = this.files.safePath(mediaDirRel);
 
-                            // Helper to copy and register media
                             const resolveMedia = async (fileName) => {
                                 const mFile = mediaFiles.find(f => f.name.toLowerCase() === fileName.toLowerCase());
                                 if (!mFile) return null;
@@ -209,7 +194,6 @@ export default class ObsidianImport {
                                 return copiedName;
                             };
 
-                            // Replace Obsidian images ![[image.png]] with standard markdown ![](./media/image.png)
                             content = content.replace(/!\[\[([^\]]+)\]\]/g, async (match, mediaRef) => {
                                 const copied = await resolveMedia(mediaRef.trim());
                                 if (copied) {
@@ -218,7 +202,6 @@ export default class ObsidianImport {
                                 return match;
                             });
 
-                            // Convert Obsidian [[wiki links]] to Flashback links
                             content = content.replace(/\[\[([^\]|#\n]+)(?:#[^\]|#\n]+)?(?:\|([^\]\n]+))?\]\]/g, (match, target, alias) => {
                                 const targetClean = target.trim();
                                 const aliasClean = alias ? alias.trim() : targetClean;
@@ -232,14 +215,12 @@ export default class ObsidianImport {
                                 return `[${aliasClean}](flashback://${targetHash})`;
                             });
 
-                            // Parse Flashcards
                             const flashcards = [];
                             const lines = content.split(/\r?\n/);
                             for (let i = 0; i < lines.length; i++) {
                                 const line = lines[i];
 
                                 if (line.includes(' :: ') && !line.includes(' ::: ')) {
-                                    // Basic card: Front :: Back
                                     const parts = line.split(' :: ');
                                     const front = parts[0].trim();
                                     const back = parts[1].trim();
@@ -260,7 +241,6 @@ export default class ObsidianImport {
                                         customData: { html: "" }
                                     });
                                 } else if (line.includes(' ::: ')) {
-                                    // Cloze card: Text ::: Extra
                                     const parts = line.split(' ::: ');
                                     const front = parts[0].trim();
                                     const extra = parts[1].trim();
@@ -282,7 +262,6 @@ export default class ObsidianImport {
                                         customData: { html: "" }
                                     });
                                 } else if (line.includes('{{') && line.includes('}}') && !isTemplaterPlaceholderLine(line)) {
-                                    // Inline cloze card (no extra section)
                                     const cleanedFront = line.replace(CLOZE_PATTERN, '{{$1}}').trim();
                                     const cardHashRaw = `obsidian-cloze-inline-${globalHash}-${i}`;
                                     const cardHash = crypto.createHash('sha256').update(cardHashRaw).digest('hex').replace(/(.{8})(.{4})(.{4})(.{4})(.{12})/, "$1-$2-$3-$4-$5");
@@ -300,7 +279,6 @@ export default class ObsidianImport {
                                         customData: { html: "" }
                                     });
                                 } else if (line.includes('#card')) {
-                                    // Multiline basic card: Question #card \n Answer
                                     const front = line.replace('#card', '').trim();
                                     const back = lines[i + 1]?.trim() || '';
                                     if (front && back) {
@@ -331,7 +309,6 @@ export default class ObsidianImport {
 
                             await this.documents.importFile(entry.name, destRelDir, content, fileMetadata);
                         } else {
-                            // Copy static asset
                             const destAbs = this.files.safePath(entryDestRel);
                             const destDir = path.dirname(destAbs);
                             if (!fs.existsSync(destDir)) {
@@ -339,7 +316,6 @@ export default class ObsidianImport {
                             }
                             fs.copyFileSync(fullPath, destAbs);
 
-                            // Register media if needed
                             const mediaExtensions = ['.png', '.jpg', '.jpeg', '.gif', '.mp3', '.wav', '.ogg', '.pdf'];
                             if (mediaExtensions.includes(ext)) {
                                 const fileBuf = fs.readFileSync(destAbs);

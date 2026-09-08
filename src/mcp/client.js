@@ -7,16 +7,13 @@
 const baseUrl = () => process.env.FLASHBACK_API_URL || 'http://localhost:50500';
 const apiToken = () => process.env.FLASHBACK_API_TOKEN || null;
 
-// The Electron host injects FLASHBACK_API_TOKEN when it launches this server (see
-// getMcpServerConfig in electron/main.js); attach it to every request. Also tag every
-// request as coming from the MCP server so the API can apply the AI-assistant privacy
-// gate on the diary (see src/api/routes/diary.js) without affecting the renderer.
 function authHeaders(extra = {}) {
   const token = apiToken();
   const base = { ...extra, 'X-Flashback-Client': 'mcp' };
   return token ? { ...base, Authorization: `Bearer ${token}` } : base;
 }
 
+/** Performs an authenticated API request and returns the parsed JSON. */
 export async function request(method, path, body = null) {
   const options = { method, headers: authHeaders({ 'Content-Type': 'application/json' }) };
   if (body !== null) options.body = JSON.stringify(body);
@@ -30,8 +27,8 @@ export async function request(method, path, body = null) {
 }
 
 /**
- * `request` for a route that answers with bytes rather than JSON — today only
- * `/api/reader/image`. Failures still come back as JSON, so they parse identically.
+ * `request` for a route that answers with bytes rather than JSON — today only `/api/reader/image`.
+ *
  * @returns {Promise<{ buffer: Buffer, mimeType: string }>}
  */
 export async function requestBuffer(path) {
@@ -46,6 +43,7 @@ export async function requestBuffer(path) {
   };
 }
 
+/** Posts multipart form data to the API. */
 export async function upload(path, formData) {
   const res = await fetch(`${baseUrl()}${path}`, { method: 'POST', body: formData, headers: authHeaders() });
   if (!res.ok) {
@@ -55,6 +53,7 @@ export async function upload(path, formData) {
   return res.json();
 }
 
+/** The API base URL this server talks to. */
 export function getBaseUrl() {
   return baseUrl();
 }

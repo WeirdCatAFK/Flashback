@@ -48,10 +48,6 @@ function refuse(message) {
 /**
  * Whether an IP literal points somewhere that is not the public internet.
  *
- * A deny-list of ranges rather than an allow-list of one, because the job is to name every
- * family that reaches back inside; anything that is not an IP at all is refused outright,
- * since nothing here can vouch for it.
- *
  * @param {string} ip
  * @returns {boolean}
  */
@@ -60,29 +56,28 @@ export function isPrivateAddress(ip) {
 
     if (version === 4) {
         const [a, b] = ip.split(".").map(Number);
-        if (a === 0) return true;                          // "this network"
-        if (a === 10) return true;                         // RFC1918
-        if (a === 127) return true;                        // loopback
-        if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
-        if (a === 169 && b === 254) return true;           // link-local — cloud metadata
-        if (a === 172 && b >= 16 && b <= 31) return true;  // RFC1918
-        if (a === 192 && b === 168) return true;           // RFC1918
-        if (a === 192 && b === 0) return true;             // IETF protocol assignments
-        if (a >= 224) return true;                         // multicast + reserved + broadcast
+        if (a === 0) return true;
+        if (a === 10) return true;
+        if (a === 127) return true;
+        if (a === 100 && b >= 64 && b <= 127) return true;
+        if (a === 169 && b === 254) return true;
+        if (a === 172 && b >= 16 && b <= 31) return true;
+        if (a === 192 && b === 168) return true;
+        if (a === 192 && b === 0) return true;
+        if (a >= 224) return true;
         return false;
     }
 
     if (version === 6) {
-        const s = ip.toLowerCase().split("%")[0];          // drop any zone index
-        if (s === "::" || s === "::1") return true;        // unspecified + loopback
-        // ::ffff:10.0.0.1 and friends: a v4 address wearing a v6 hat.
+        const s = ip.toLowerCase().split("%")[0];
+        if (s === "::" || s === "::1") return true;
         if (s.startsWith("::ffff:")) {
             const mapped = s.slice("::ffff:".length);
             return net.isIP(mapped) === 4 ? isPrivateAddress(mapped) : true;
         }
-        if (/^f[cd]/.test(s)) return true;                 // fc00::/7 unique-local
-        if (/^fe[89ab]/.test(s)) return true;              // fe80::/10 link-local
-        if (s.startsWith("ff")) return true;               // multicast
+        if (/^f[cd]/.test(s)) return true;
+        if (/^fe[89ab]/.test(s)) return true;
+        if (s.startsWith("ff")) return true;
         return false;
     }
 
@@ -93,10 +88,7 @@ export function isPrivateAddress(ip) {
  * Refuses a URL that is not a plain http(s) address on the public internet.
  *
  * @param {string} rawUrl
- * @param {{ allowPrivate?: boolean }} [opts] `allowPrivate` is the escape hatch for an
- *   install that genuinely means to clip from its own intranet (config
- *   `allowPrivateNetworkFetch`). It disables the address check and nothing else — the
- *   scheme restriction stands either way.
+ * @param {{ allowPrivate?: boolean }} [opts] `allowPrivate` is the escape hatch for an install that genuinely means to clip from its own intranet (config `allowPrivateNetworkFetch`). It disables the address check and nothing else — the scheme restriction stands either way.
  * @returns {Promise<URL>} the parsed, permitted URL.
  * @throws {Error & { status: number }} if the address is not one we will fetch.
  */
@@ -108,15 +100,13 @@ export async function assertFetchableUrl(rawUrl, { allowPrivate = false } = {}) 
         throw refuse(`Not a valid web address: ${rawUrl}`);
     }
 
-    // Not merely "not http": `file:` and `data:` are how a fetch of a remote page turns
-    // into a read of the local disk.
     if (url.protocol !== "http:" && url.protocol !== "https:") {
         throw refuse(`Only http and https addresses can be fetched, not ${url.protocol}`);
     }
 
     if (allowPrivate) return url;
 
-    const host = url.hostname.replace(/^\[|\]$/g, ""); // strip an IPv6 literal's brackets
+    const host = url.hostname.replace(/^\[|\]$/g, "");
 
     if (net.isIP(host)) {
         if (isPrivateAddress(host)) throw refuse(`That address is on a private network: ${host}`);
@@ -125,11 +115,6 @@ export async function assertFetchableUrl(rawUrl, { allowPrivate = false } = {}) 
 
     if (PRIVATE_NAMES.test(host)) throw refuse(`That address is on a private network: ${host}`);
 
-    // A name that does not resolve is NOT refused here, and the distinction matters: the
-    // control is "does this name point somewhere private", not "does this name exist".
-    // undici resolves through the same OS resolver this does, so a lookup we cannot answer
-    // is a fetch that cannot connect either — refusing would buy no safety and would turn
-    // every DNS hiccup into "blocked address", which is a lie about what went wrong.
     let addresses = [];
     try {
         addresses = await dns.lookup(host, { all: true });
@@ -145,10 +130,6 @@ export async function assertFetchableUrl(rawUrl, { allowPrivate = false } = {}) 
 
 /**
  * `fetch`, with every hop of the redirect chain checked by assertFetchableUrl.
- *
- * Same signature and same return value as `fetch`, so a call site swaps one for the other.
- * `redirect` is forced to "manual": following redirects is the whole reason this exists,
- * and letting undici do it would hide every hop but the first.
  *
  * @param {string} rawUrl
  * @param {RequestInit} [init]
@@ -168,7 +149,6 @@ export async function safeFetch(rawUrl, init = {}, opts = {}) {
             : null;
         if (!location) return response;
 
-        // A relative Location is legal and common; resolve it against the hop just made.
         try {
             target = new URL(location, url.href).href;
         } catch {

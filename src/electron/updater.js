@@ -10,22 +10,22 @@ import log from './logger.js';
 
 const { autoUpdater } = electronUpdater;
 
-autoUpdater.autoDownload = false;        // notify-first: never fetch without consent
-autoUpdater.autoInstallOnAppQuit = true; // once downloaded, apply on next quit
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.logger = log;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 let mainWindow = null;
 let wired = false;
 
+/** Streams one updater status object to the renderer. */
 function send(payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('update-status', payload);
   }
 }
 
-// Wire the autoUpdater event stream to the renderer and schedule background checks.
-// No-ops in a non-packaged build (dev has no app-update.yml and would throw on check).
+/** Arms the notify-first update check; no-ops unless the app is packaged. */
 export function initUpdater(win, { isPackaged }) {
   mainWindow = win;
   if (!isPackaged || wired) return;
@@ -38,22 +38,22 @@ export function initUpdater(win, { isPackaged }) {
   autoUpdater.on('download-progress', (p) => send({ state: 'downloading', percent: Math.round(p?.percent ?? 0) }));
   autoUpdater.on('update-downloaded', (info) => send({ state: 'downloaded', version: info?.version }));
 
-  // Check a few seconds after launch (let the window settle), then once a day.
   setTimeout(() => checkForUpdates().catch((e) => log.warn('Startup update check failed:', e)), 8000);
   setInterval(() => checkForUpdates().catch((e) => log.warn('Scheduled update check failed:', e)), DAY_MS);
 }
 
-// Returns the available version string, or null when already up to date.
+/** Asks GitHub Releases whether a newer version exists. */
 export async function checkForUpdates() {
   const result = await autoUpdater.checkForUpdates();
   return result?.updateInfo?.version ?? null;
 }
 
+/** Downloads a pending update; only ever called from a user click. */
 export async function downloadUpdate() {
   await autoUpdater.downloadUpdate();
 }
 
-// Quits and installs the downloaded update immediately (called on user click).
+/** Quits and installs a downloaded update. */
 export function quitAndInstall() {
   autoUpdater.quitAndInstall();
 }

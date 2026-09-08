@@ -58,8 +58,8 @@
 const WINDOW_MS = 60 * 60 * 1000;
 
 /**
- * accountId → array of `{ at, count }`, oldest first. Pruned on every read, so an account
- * that stops removing cards stops costing anything but its (empty) array on the next sweep.
+ * accountId → array of `{ at, count }`, oldest first.
+ *
  * @type {Map<string, Array<{ at: number, count: number }>>}
  */
 const removals = new Map();
@@ -79,19 +79,11 @@ function prune(accountId, now) {
 /**
  * Whether this account may remove `count` more cards right now.
  *
- * Does NOT consume — deliberately. The caller checks before it has written anything and
- * consumes only once the write has actually happened, so a removal that fails for an
- * unrelated reason (a stale etag, a transaction rollback) does not spend budget the caller
- * never used.
- *
  * @param {string} accountId
  * @param {number} count how many cards this request would remove.
  * @param {{ perHour: number, perRequest: number }} limits
  * @param {number} [now] injectable clock, for tests.
- * @returns {{ allowed: boolean, used: number, remaining: number, resetAt: number|null,
- *             retryAfter: number, reason: 'per_request'|'per_hour'|null }}
- *   `resetAt` is an epoch-ms timestamp: when the oldest counted removal ages out and some
- *   budget comes back. Null when nothing is currently counted.
+ * @returns {{ allowed: boolean, used: number, remaining: number, resetAt: number|null, retryAfter: number, reason: 'per_request'|'per_hour'|null }} `resetAt` is an epoch-ms timestamp: when the oldest counted removal ages out and some budget comes back. Null when nothing is currently counted.
  */
 export function check(accountId, count, limits, now = Date.now()) {
     const perHour = Math.max(0, Number(limits?.perHour ?? 0));
@@ -103,9 +95,6 @@ export function check(accountId, count, limits, now = Date.now()) {
     const resetAt = live.length ? live[0].at + WINDOW_MS : null;
     const retryAfter = resetAt ? Math.max(1, Math.ceil((resetAt - now) / 1000)) : 0;
 
-    // Per-request first: it is the limit with something to say about a request that is
-    // oversized on its own, and naming the hourly budget for it would be a misleading
-    // answer ("wait an hour" does not help — the request is too big at any hour).
     if (count > perRequest) {
         return { allowed: false, used, remaining, resetAt, retryAfter, reason: 'per_request' };
     }
@@ -116,8 +105,7 @@ export function check(accountId, count, limits, now = Date.now()) {
 }
 
 /**
- * Records `count` removals against this account. Call it after the removal has actually
- * been applied, never before.
+ * Records `count` removals against this account.
  *
  * @param {string} accountId
  * @param {number} count

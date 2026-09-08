@@ -11,13 +11,7 @@ import * as u001 from './001_type_answer_split.js';
 
 export const UPDATES = [u001];
 
-/**
- * The version a canonical file is at once every update has been applied to it.
- * A file with no `formatVersion` key is version 0: either it predates versioning, or it was
- * written by a caller that assembled its own metadata object. Either way the runner treats
- * it as needing every update — which is safe precisely because each update is idempotent
- * per item (see UPDATES.md).
- */
+/** The version a canonical file is at once every update has been applied to it. */
 export const LATEST_VERSION = UPDATES.reduce((max, u) => Math.max(max, u.version), 0);
 
 /** The updates an item at `itemVersion` still needs, in ascending order. */

@@ -13,8 +13,6 @@ export const description = 'Pre-beta schema changes: card columns, Highlights, i
 
 export async function up(db) {
 
-    // ── Flashcards: new columns ───────────────────────────────────────────────
-
     const flashcardCols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
 
     if (!flashcardCols.includes('card_type')) {
@@ -38,8 +36,6 @@ export async function up(db) {
         ).run();
     }
 
-    // ── Highlights table ──────────────────────────────────────────────────────
-
     await db.exec(`CREATE TABLE IF NOT EXISTS Highlights (
         id          INTEGER PRIMARY KEY AUTOINCREMENT,
         document_id INTEGER REFERENCES Documents(id) ON DELETE CASCADE,
@@ -57,8 +53,6 @@ export async function up(db) {
     await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(global_hash)');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id)');
 
-    // ── Performance indexes ───────────────────────────────────────────────────
-
     const indexes = [
         'CREATE INDEX IF NOT EXISTS idx_folders_parent_id ON Folders(parent_id)',
         'CREATE INDEX IF NOT EXISTS idx_folders_absolute_path ON Folders(absolute_path)',
@@ -70,8 +64,6 @@ export async function up(db) {
     for (const ddl of indexes) {
         await db.exec(ddl);
     }
-
-    // ── Deck nodes ────────────────────────────────────────────────────────────
 
     // Add 'Deck' node type if missing
     await db.prepare(`

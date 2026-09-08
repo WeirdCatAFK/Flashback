@@ -22,59 +22,44 @@ export const DEFAULT_WEIGHTS = [
     3.0004, 0.7536, 0.3332, 0.1437, 0.2,
 ];
 
-// Card lifecycle states (stored as integers in Flashcards.fsrs_state).
 export const STATE = { NEW: 0, LEARNING: 1, REVIEW: 2, RELEARNING: 3 };
 
-const STABILITY_MIN = 0.01;      // stability floor (days)
+const STABILITY_MIN = 0.01;
 const DIFFICULTY_MIN = 1;
 const DIFFICULTY_MAX = 10;
-const INTERVAL_MAX = 36500;      // ~100 years
+const INTERVAL_MAX = 36500;
 const DAY_MS = 86400000;
 
 const clamp = (x, lo, hi) => Math.min(hi, Math.max(lo, x));
 
-// Decay is a free FSRS-6 parameter (w[20]); FACTOR falls out of it so that
-// retrievability at t = interval equals exactly the requested retention.
 function decayFactor(w) {
     const decay = -w[20];
     const factor = Math.pow(0.9, 1 / decay) - 1;
     return { decay, factor };
 }
 
-/**
- * Probability of recall after `elapsedDays` given stability `S`.
- * R(t,S) = (1 + FACTOR * t/S)^DECAY. R(0,S) = 1, monotonically decreasing.
- */
+/** Probability of recall after `elapsedDays` given stability `S`. */
 export function retrievability(elapsedDays, stability, weights = DEFAULT_WEIGHTS) {
     const { decay, factor } = decayFactor(weights);
     const t = Math.max(0, elapsedDays);
     return Math.pow(1 + factor * (t / stability), decay);
 }
 
-/**
- * Interval (whole days) that lets stability `S` decay to exactly
- * `requestRetention`. Inverse of retrievability(). Clamped to [1, INTERVAL_MAX].
- */
+/** Interval (whole days) that lets stability `S` decay to exactly `requestRetention`. */
 export function intervalFromStability(stability, requestRetention, weights = DEFAULT_WEIGHTS) {
     const { decay, factor } = decayFactor(weights);
     const raw = (stability / factor) * (Math.pow(requestRetention, 1 / decay) - 1);
     return clamp(Math.round(raw), 1, INTERVAL_MAX);
 }
 
-// Initial stability for a first-ever review at grade G: S0 = w[G-1].
 function initialStability(grade, w) {
     return Math.max(STABILITY_MIN, w[grade - 1]);
 }
 
-// Initial difficulty: D0(G) = w[4] - exp(w[5]*(G-1)) + 1, clamped to [1,10].
 function initialDifficulty(grade, w) {
     return clamp(w[4] - Math.exp(w[5] * (grade - 1)) + 1, DIFFICULTY_MIN, DIFFICULTY_MAX);
 }
 
-// Difficulty update with linear damping + mean reversion toward D0(Easy).
-//   ΔD  = -w[6] * (G - 3)
-//   D'  = D + ΔD * (10 - D) / 9        (linear damping: less change when hard)
-//   D'' = w[7] * D0(4) + (1 - w[7]) * D'   (revert toward the "Easy" anchor)
 function nextDifficulty(difficulty, grade, w) {
     const deltaD = -w[6] * (grade - 3);
     const damped = difficulty + deltaD * (10 - difficulty) / 9;
@@ -82,9 +67,6 @@ function nextDifficulty(difficulty, grade, w) {
     return clamp(reverted, DIFFICULTY_MIN, DIFFICULTY_MAX);
 }
 
-// Stability after a successful recall (G >= 2) at retrievability R.
-//   S' = S * (1 + exp(w8)*(11-D)*S^-w9 * (exp(w10*(1-R))-1) * hard * easy)
-// hard penalty applies on "Hard" (G=2); easy bonus applies on "Easy" (G=4).
 function recallStability(difficulty, stability, R, grade, w) {
     const hard = grade === 2 ? w[15] : 1;
     const easy = grade === 4 ? w[16] : 1;
@@ -98,9 +80,6 @@ function recallStability(difficulty, stability, R, grade, w) {
     return Math.max(STABILITY_MIN, stability * (1 + inc));
 }
 
-// Stability after a lapse (G = 1) at retrievability R.
-//   S'_f = w11 * D^-w12 * ((S+1)^w13 - 1) * exp(w14*(1-R))
-// Guarded so post-lapse stability never exceeds the pre-lapse value.
 function forgetStability(difficulty, stability, R, w) {
     const sf =
         w[11] *
@@ -110,17 +89,12 @@ function forgetStability(difficulty, stability, R, w) {
     return clamp(sf, STABILITY_MIN, stability);
 }
 
-// Stability update for a same-day (short-term) review.
-//   S' = S * exp(w17 * (G - 3 + w18)) * S^-w19
 function shortTermStability(stability, grade, w) {
     const s = stability * Math.exp(w[17] * (grade - 3 + w[18])) * Math.pow(stability, -w[19]);
     return Math.max(STABILITY_MIN, s);
 }
 
-/**
- * State for a card seen for the very first time.
- * Returns the full FSRS record; `submitReview` persists it and derives `due`.
- */
+/** State for a card seen for the very first time. */
 export function initialCard(grade, now, weights = DEFAULT_WEIGHTS, requestRetention = 0.9) {
     const stability = initialStability(grade, weights);
     const difficulty = initialDifficulty(grade, weights);
@@ -140,9 +114,7 @@ export function initialCard(grade, now, weights = DEFAULT_WEIGHTS, requestRetent
 /**
  * Advance a card's FSRS state by one review.
  *
- * @param {object} card  { stability, difficulty, state, reps, lapses, last_review }
- *                       — a never-reviewed card (state NEW / no stability) is
- *                       routed to initialCard().
+ * @param {object} card  { stability, difficulty, state, reps, lapses, last_review } — a never-reviewed card (state NEW / no stability) is routed to initialCard().
  * @param {number} grade 1..4 (Again/Hard/Good/Easy)
  * @param {Date|string|number} now  review timestamp
  * @param {number[]} weights        21-element weight vector
@@ -164,7 +136,6 @@ export function nextState(card, grade, now, weights = DEFAULT_WEIGHTS, requestRe
     let lapses = card.lapses ?? 0;
 
     if (elapsedDays < 1) {
-        // Same-day repeat (learning steps) — short-term memory update.
         stability = shortTermStability(card.stability, grade, w);
         state = grade === 1 ? STATE.RELEARNING : STATE.LEARNING;
         if (grade === 1) lapses += 1;
@@ -190,44 +161,31 @@ export function nextState(card, grade, now, weights = DEFAULT_WEIGHTS, requestRe
     };
 }
 
-// ── Per-vault optimizer ──────────────────────────────────────────────────────
-//
-// Fits the 21 weights to the vault's own review history by minimizing the binary
-// cross-entropy between predicted recall (retrievability) and observed outcomes
-// (rating > 1 = recalled). Pure and deterministic — `access/orchestration/srs.js` loads the
-// history via query and persists the result.
-
-// Minimum rated reviews before fitting is worthwhile; below this we keep defaults.
 export const MIN_OPTIMIZE_REVIEWS = 400;
 
-// FSRS-6 parameter bounds. Each gradient step is clamped into these so the fitted
-// weights stay in the physically meaningful range the model was designed for.
 export const WEIGHT_BOUNDS = [
-    [0.001, 100], [0.001, 100], [0.001, 100], [0.001, 100], // w0..w3  initial stability per grade
-    [1, 10],      // w4  base difficulty
-    [0.001, 4],   // w5  difficulty grade curve
-    [0.001, 4],   // w6  difficulty delta
-    [0.001, 0.75],// w7  difficulty mean-reversion
-    [0, 4.5],     // w8  recall stability scale
-    [0, 0.8],     // w9  recall stability stability-exponent
-    [0.001, 3.5], // w10 recall stability retrievability term
-    [0.001, 5],   // w11 forget stability scale
-    [0.001, 0.25],// w12 forget stability difficulty-exponent
-    [0.001, 0.9], // w13 forget stability stability-exponent
-    [0, 4],       // w14 forget stability retrievability term
-    [0, 1],       // w15 hard penalty
-    [1, 6],       // w16 easy bonus
-    [0, 2],       // w17 short-term scale
-    [0, 2],       // w18 short-term offset
-    [0, 0.8],     // w19 short-term stability-exponent
-    [0.1, 0.8],   // w20 decay
+    [0.001, 100], [0.001, 100], [0.001, 100], [0.001, 100],
+    [1, 10],
+    [0.001, 4],
+    [0.001, 4],
+    [0.001, 0.75],
+    [0, 4.5],
+    [0, 0.8],
+    [0.001, 3.5],
+    [0.001, 5],
+    [0.001, 0.25],
+    [0.001, 0.9],
+    [0, 4],
+    [0, 1],
+    [1, 6],
+    [0, 2],
+    [0, 2],
+    [0, 0.8],
+    [0.1, 0.8],
 ];
 
-const LOSS_EPS = 1e-6; // keep log() away from 0/1
+const LOSS_EPS = 1e-6;
 
-// Group flat, (flashcard_id, id)-ordered rows into per-card grade sequences.
-// Only cards with >= 2 reviews contribute: the first review establishes S0 and
-// has no prior state to predict, so it carries no loss.
 function groupHistories(histories) {
     const byCard = new Map();
     for (const r of histories) {
@@ -243,8 +201,6 @@ function groupHistories(histories) {
     return seqs;
 }
 
-// Cap total work for very large vaults by keeping whole-card sequences until the
-// review budget is spent (sequences are already grouped, so cards stay intact).
 function capSeqs(seqs, maxReviews) {
     if (!maxReviews) return seqs;
     let total = 0;
@@ -257,9 +213,6 @@ function capSeqs(seqs, maxReviews) {
     return out;
 }
 
-// Mean binary cross-entropy of predicted vs. actual recall, replaying each card's
-// state with `nextState`. The prediction at review i is retrievability(elapsed,
-// S) where S is the stability *after* review i-1.
 function bceLoss(seqs, weights) {
     let sum = 0;
     let n = 0;
@@ -280,8 +233,6 @@ function bceLoss(seqs, weights) {
     return n > 0 ? sum / n : 0;
 }
 
-// Central-difference numerical gradient of the loss w.r.t. each weight. Step size
-// scales with the weight's magnitude so tiny and large params both move sensibly.
 function numericalGradient(seqs, w) {
     const grad = new Array(w.length).fill(0);
     for (let i = 0; i < w.length; i++) {
@@ -298,21 +249,13 @@ function numericalGradient(seqs, w) {
 /**
  * Fit the 21 weights from a vault's rated review history.
  *
- * @param {Array<{flashcard_id:number, timestamp:string, rating:number}>} histories
- *        rows ordered by (flashcard_id, id) — i.e. query.getAllReviewHistories()
+ * @param {Array<{flashcard_id:number, timestamp:string, rating:number}>} histories rows ordered by (flashcard_id, id) — i.e. query.getAllReviewHistories()
  * @param {object} [opts] iterations / learningRate / minReviews / maxReviews overrides
- * @returns {object} { optimized, weights, loss, initialLoss, reviewCount,
- *                     usableReviews, minReviews, reason? }
- *          `weights`/`loss` describe the best vector found; when there is too
- *          little data `optimized` is false and defaults are returned unchanged.
+ * @returns {object} { optimized, weights, loss, initialLoss, reviewCount, usableReviews, minReviews, reason? } `weights`/`loss` describe the best vector found; when there is too little data `optimized` is false and defaults are returned unchanged.
  */
 export function optimize(histories, opts = {}) {
     const {
         minReviews = MIN_OPTIMIZE_REVIEWS,
-        // Fitting is O(reviews × iterations) and runs synchronously in the API
-        // process, so cap the training set to a representative slice — a few
-        // thousand reviews already pin the 21 weights, and this keeps the button
-        // responsive (~seconds) even for very large vaults.
         maxReviews = 5000,
         iterations = 60,
         learningRate = 0.04,
@@ -338,8 +281,6 @@ export function optimize(histories, opts = {}) {
     }
 
     const w = DEFAULT_WEIGHTS.slice();
-    // Adam keeps a sane step size per parameter despite the weights spanning
-    // three orders of magnitude (w[7] ≈ 0.007 vs w[3] ≈ 16).
     const m = new Array(w.length).fill(0);
     const v = new Array(w.length).fill(0);
     const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
@@ -379,7 +320,6 @@ export function optimize(histories, opts = {}) {
     };
 }
 
-// ── date coercion helpers ────────────────────────────────────────────────────
 function asDate(v) {
     return v instanceof Date ? v : new Date(v);
 }

@@ -18,14 +18,7 @@ import query from '../resources/query.js';
 import { currentScope } from '../../requestContext.js';
 import { orderCards, distance, CONFUSABLE_THRESHOLD } from './sequencing.js';
 
-// getDue() hands us raw DB rows (snake_case); the ordering engine speaks the client's
-// camelCase shape. This module is the single place that knows about the split — every card
-// entering `orderCards` goes through `normalize()` first. Getting this wrong is silent: the
-// queue still holds every card exactly once, it just stops meaning anything.
 const hashOf = (card) => card.global_hash ?? card.globalHash;
-// A missing priority reads as 0 (the most foundational tier), matching getDue()'s own
-// COALESCE — but a *mis-read* priority collapses every card into that tier, which is why the
-// snake_case name has to be consulted here rather than defaulted past.
 const priorityOf = (card) => card.categoryPriority ?? card.category_priority ?? 0;
 const normalize = (cards) => cards.map(c => ({
     ...c,
@@ -33,17 +26,7 @@ const normalize = (cards) => cards.map(c => ({
     categoryPriority: priorityOf(c),
 }));
 
-/**
- * Session entry point: order a due set and stamp it with a session id.
- *
- * `order` mirrors the client's `fb-trainer-order` preference:
- *   interleaved — graph-aware (default)
- *   shuffle     — random within tiers, no graph reads
- *   priority    — the pre-sequencing behaviour, kept so a user can opt back out
- *
- * Never throws on account of the graph: if facets can't be read, the session falls back to
- * a shuffle and the user still gets to study.
- */
+/** Session entry point: order a due set and stamp it with a session id. */
 export async function sequence({ due = [], newCards = [], order = 'interleaved', seed = null } = {}) {
     const cards = normalize([...due, ...newCards]);
     const sessionId = randomUUID();
@@ -53,8 +36,6 @@ export async function sequence({ due = [], newCards = [], order = 'interleaved',
         return { sessionId, order: 'priority', relaxation: 'none', queue: cards };
     }
 
-    // An empty facet map makes every pair read as FAR_DISTANCE, so orderCards degrades to a
-    // plain within-tier shuffle without a special case — and without touching the database.
     if (order === 'shuffle') {
         return {
             sessionId,
@@ -85,21 +66,11 @@ export async function sequence({ due = [], newCards = [], order = 'interleaved',
     return { sessionId, order: 'interleaved', relaxation, queue };
 }
 
-/**
- * Ordering telemetry for one review, computed from what was ACTUALLY presented.
- *
- * The client reports the card shown immediately before this one, so a card re-queued after
- * a failed grade is measured at its real position rather than the one the sequencer planned.
- * Returns nulls rather than zeros when there's nothing to measure — a review with no logged
- * ordering must never read as "shown next to its sibling".
- */
+/** Ordering telemetry for one review, computed from what was ACTUALLY presented. */
 export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope = null }) {
     if (!sessionId || !cardHash) return { prevDistance: null, nearestSiblingLag: null };
 
     try {
-        // A session id is a uuid and so is already unique, but the read is scoped anyway:
-        // "what was shown before this card" is a question about one person's session, and an
-        // unscoped read here would be a scoping bug waiting for the day ids stop being uuids.
         const history = await query.getSessionReviewOrder(sessionId, scope ?? currentScope());
         const facets = await query.getSessionFacets(
             [...new Set([...history.map(r => r.globalHash), cardHash, prevCardHash].filter(Boolean))],
@@ -107,7 +78,6 @@ export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope
 
         const prevDistance = prevCardHash ? distance(prevCardHash, cardHash, facets) : null;
 
-        // Walk back through what was actually shown for the nearest confusable sibling.
         let nearestSiblingLag = null;
         for (let i = history.length - 1; i >= 0; i--) {
             if (distance(history[i].globalHash, cardHash, facets) <= CONFUSABLE_THRESHOLD) {
@@ -118,7 +88,6 @@ export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope
 
         return { prevDistance, nearestSiblingLag };
     } catch (err) {
-        // Telemetry must never cost the user a graded review.
         console.error('ordering telemetry failed:', err);
         return { prevDistance: null, nearestSiblingLag: null };
     }

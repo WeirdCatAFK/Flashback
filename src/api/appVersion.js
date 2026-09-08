@@ -26,7 +26,7 @@ export const APP_VERSION = (() => {
         try {
             const { version } = JSON.parse(readFileSync(path.join(here, candidate), 'utf-8'));
             if (version) return version;
-        } catch { /* try the next location */ }
+        } catch {}
     }
     return null;
 })();

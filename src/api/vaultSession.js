@@ -21,9 +21,6 @@ import Decks from "./access/orchestration/decks.js";
 import cardHealth from "./access/orchestration/cardHealth.js";
 import mcpReader from "./access/orchestration/mcpReader.js";
 
-// True while switchVault() is between tearing the old vault down and finishing the new
-// one's validation. api.js reads this and answers /api/* with 503 for the duration, so no
-// request can observe a half-open vault.
 let switching = false;
 
 /** @returns {boolean} whether a vault switch is in flight. */
@@ -31,46 +28,21 @@ export function isSwitching() {
     return switching;
 }
 
-/**
- * Resets the module-scope singletons that cache something vault-shaped.
- *
- * Each of these would otherwise serve the previous vault's data. They are listed
- * explicitly rather than discovered, so adding a new cache to a singleton is a visible
- * decision to add it here too.
- */
+/** Resets the module-scope singletons that cache something vault-shaped. */
 async function resetVaultScopedCaches() {
-    await query.onVaultOpened();       // NodeTypes/ConnectionTypes ids — per-database autoincrements
-    await cardHealth.onVaultOpened();  // session index + the vault's own median answer length
-    await mcpReader.onVaultOpened();   // extraction cache keyed by relative path, no vault component
+    await query.onVaultOpened();
+    await cardHealth.onVaultOpened();
+    await mcpReader.onVaultOpened();
 }
 
-/**
- * Creates the directories and canonical files a vault cannot answer a request without.
- * A brand-new vault reaches here with nothing but an empty database.
- *
- * `Files` still does its work in the constructor — it only touches the filesystem, which is
- * synchronous. `Decks` cannot: it reads the schema to decide whether the system deck exists,
- * and the data layer is async now, so its setup is an awaited call rather than a constructor
- * side effect. Must run after validate(), because Decks queries the schema.
- */
+/** Creates the directories and canonical files a vault cannot answer a request without. */
 async function ensureVaultDirs() {
-    new Files();                          // workspace/
-    await new Decks().onVaultOpened();    // workspace/_decks/ + the system deck's JSON
+    new Files();
+    await new Decks().onVaultOpened();
 }
 
 /**
  * Brings the vault config.js currently points at into a fully serviceable state.
- *
- * This is the boot sequence, extracted from main.js so that starting the process and
- * switching vaults run the same code rather than two implementations that drift. The
- * three stages and their ordering constraints are unchanged:
- *
- *   1. validate() — config, then `PRAGMA integrity_check` + schema + migrations. Rebuilds
- *      the schema from scratch for an empty database, which is exactly what a
- *      newly-created vault is. Fatal.
- *   2. Seal — must be up before stage 3, which ends in a commit.
- *   3. Canonical updates — never fatal; every read path tolerates an un-updated file, so
- *      a failure logs and the next open retries rather than locking the user out.
  *
  * @param {{onFatal?: (msg: string) => void}} [options]
  * @returns {Promise<boolean>} false when validation failed and the vault is unusable.
@@ -110,21 +82,6 @@ export async function openVault({ onFatal } = {}) {
 /**
  * Switches the API to a different local vault, in process.
  *
- * The ordering is the entire safety argument, so it is worth reading as a sequence rather
- * than a list of steps:
- *
- *   1. Quiesce Seal FIRST. Its 2-second edit debounce resolves the repo directory and the
- *      commit author when it fires, not when it was armed — a timer left running would
- *      stage the old vault's sidecar paths into the new vault's git repo. Flushing rather
- *      than cancelling means those edits land in the vault they belong to.
- *   2. Close the database, checkpointing the WAL, so the old vault is left consistent on
- *      disk and its files are free for a rename.
- *   3. Move the pointer. Nothing has re-derived a path yet.
- *   4. Re-open. Everything downstream resolves against the new vault from here.
- *
- * `switching` is raised across the whole sequence and lowered in a finally, so a failure
- * part-way cannot wedge the API into permanent 503s.
- *
  * @param {{id: string, name: string, isCustomPath?: boolean, customPath?: string}} entry
  * @returns {Promise<{ok: true, vault: object}|{ok: false, error: string}>}
  */
@@ -155,10 +112,7 @@ export async function switchVault(entry) {
 }
 
 /**
- * Releases the active vault without opening another — used before the Electron host
- * renames a vault's folder on disk, since Windows will not rename a directory holding an
- * open file handle. The next database access re-opens lazily through the Proxy in
- * database.js, so there is no matching "resume".
+ * Releases the active vault without opening another — used before the Electron host renames a vault's folder on disk, since Windows will not rename a…
  *
  * @returns {Promise<void>}
  */

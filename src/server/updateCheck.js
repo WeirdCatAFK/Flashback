@@ -37,12 +37,6 @@ const STARTUP_DELAY_MS = 8000;
 /**
  * Compares two versions the way a release ladder means them.
  *
- * Pure, exported and dependency-free so `tests/server.test.js` can pin it without a network or
- * a vault. Not a full semver implementation and does not pretend to be: it compares the numeric
- * triple and treats any suffix as *older* than the release it qualifies, which is the one rule
- * that matters here — `0.5.0-rc1` must not look like an upgrade over `0.5.0`. Anything
- * unparseable answers 0 ("no opinion"), because a malformed tag is not evidence of an update.
- *
  * @param {string} a
  * @param {string} b
  * @returns {-1|0|1} negative if `a` is older than `b`.
@@ -59,7 +53,6 @@ export function compareVersions(a, b) {
     for (let i = 0; i < 3; i++) {
         if (x.n[i] !== y.n[i]) return x.n[i] < y.n[i] ? -1 : 1;
     }
-    // Equal triples: a prerelease is older than the release it qualifies.
     if (x.pre && !y.pre) return -1;
     if (!x.pre && y.pre) return 1;
     return 0;
@@ -73,10 +66,6 @@ export function updateCheckEnabled(env = process.env) {
 
 /**
  * Starts the checker and returns a getter for whatever it last learned.
- *
- * The getter — rather than a value — is what lets `routes/vault.js` report a fact that changes
- * hours after the route was mounted, without the API tier importing anything from `src/server`.
- * `main.js` hands it to the `Api` constructor, which parks it on `app.locals`.
  *
  * @param {object}  options
  * @param {string}  options.currentVersion  what this build is.
@@ -92,8 +81,8 @@ export function startUpdateCheck({ currentVersion, enabled = updateCheckEnabled(
         return { status: () => null, stop: () => {} };
     }
 
+    /** Asks GitHub for the latest release and logs a notice; never downloads. */
     async function check() {
-        // A User-Agent is not politeness here — api.github.com refuses a request without one.
         const response = await safeFetch(RELEASES_URL, {
             headers: {
                 'User-Agent': `Flashback-Server/${currentVersion}`,
@@ -126,13 +115,10 @@ export function startUpdateCheck({ currentVersion, enabled = updateCheckEnabled(
 
     const tick = () => {
         check().catch((err) => {
-            // Warn and carry on, every time. This is the least important thing the process does.
             console.warn(`Update check failed: ${err?.message || err}`);
         });
     };
 
-    // `unref()` on both, so a pending timer can never hold the process open during a shutdown
-    // the operator asked for.
     const startup = setTimeout(tick, STARTUP_DELAY_MS);
     const daily = setInterval(tick, DAY_MS);
     startup.unref?.();

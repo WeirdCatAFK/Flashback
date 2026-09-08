@@ -4,13 +4,11 @@ const k = knex({ client: 'sqlite3', useNullAsDefault: true });
 
 const tables = [];
 
-// Helper to add table to the list
 const addTable = (name, builder) => {
     const sql = k.schema.createTable(name, builder).toString();
     tables.push(sql.replace(/^create table /i, 'create table if not exists '));
 };
 
-// 1. Nodes & Types
 addTable('NodeTypes', (table) => {
     table.increments('id').primary();
     table.string('name', 500).index();
@@ -21,7 +19,6 @@ addTable('Nodes', (table) => {
     table.integer('type_id').references('id').inTable('NodeTypes');
 });
 
-// 2. Folders
 addTable('Folders', (table) => {
     table.increments('id').primary();
     table.string('global_hash', 500);
@@ -34,7 +31,6 @@ addTable('Folders', (table) => {
     table.float('presence').index();
 });
 
-// 3. Documents
 addTable('Documents', (table) => {
     table.increments('id').primary();
     table.integer('folder_id').references('id').inTable('Folders').onDelete('CASCADE');
@@ -48,17 +44,12 @@ addTable('Documents', (table) => {
     table.float('presence').index();
 });
 
-// 4. Flashcard Components
 addTable('FlashcardContent', (table) => {
     table.increments('id').primary();
     table.text('custom_html');
     table.text('render_html');
     table.string('frontText', 500);
     table.string('backText', 500);
-    // type_answer only: the value the reviewer's typed answer is compared against.
-    // `backText` is then free prose shown after checking (a mnemonic, a why), which is
-    // never compared. NULL means the card predates the split and its answer is still in
-    // `backText` — see DATAMODEL.md § Flashcard Types and migration 008.
     table.string('answerText', 500);
     table.string('front_img', 500);
     table.string('back_img', 500);
@@ -72,7 +63,6 @@ addTable('FlashcardReference', (table) => {
     table.float('start');
     table.float('end');
     table.integer('page');
-    // Fix: use .text() for JSON storage in SQLite (no native json affinity)
     table.text('bbox');
 });
 
@@ -83,7 +73,6 @@ addTable('PedagogicalCategories', (table) => {
     table.text('description');
 });
 
-// 5. Flashcards
 addTable('Flashcards', (table) => {
     table.increments('id').primary();
     table.string('global_hash', 500).notNullable();
@@ -92,12 +81,6 @@ addTable('Flashcards', (table) => {
     table.integer('category_id').references('id').inTable('PedagogicalCategories');
     table.integer('content_id').notNullable().references('id').inTable('FlashcardContent');
     table.integer('reference_id').references('id').inTable('FlashcardReference');
-    // NO SRS STATE HERE. A card's schedule belongs to a PERSON, not to the card — see
-    // CardProgress below and migration 010, which moved `level`, `sm2_reps`, `last_recall`
-    // and the six `fsrs_*` columns off this table. Do not reintroduce them: a column that
-    // still reads is worse than one that throws, and the whole point of dropping them was
-    // that a query which forgets to scope itself must fail loudly rather than quietly
-    // serve one person another person's schedule.
     table.string('name', 255).index();
     table.string('origin', 500);
     table.float('presence').index();
@@ -105,21 +88,6 @@ addTable('Flashcards', (table) => {
     table.string('card_type', 50).notNullable().defaultTo('basic');
 });
 
-// One person's schedule for one card. Split off Flashcards by migration 010 so that several
-// people can study one vault without grading each other's cards.
-//
-// `account_id` is an account id from the accounts store, or the literal 'owner'. There is no
-// foreign key and there cannot be one: accounts live in `{baseDir}/accounts.db`, a different
-// database file entirely, deliberately outside the vault so a copied vault carries no access
-// list. 'owner' is the Author, stored as a sentinel rather than their uuid for exactly the
-// same reason — a vault copied to another install must keep its owner progress instead of
-// orphaning every row. See requestContext.js OWNER_SCOPE.
-//
-// A missing row means "never reviewed by this person", which is already what a zero level and
-// a NULL last_recall meant. So every read COALESCEs and no backfill-on-first-review is needed.
-//
-// Derived, like everything else in this database. The owner's copy of it is canonical in the
-// `.flashback` sidecar; everyone else's is canonical in the accounts store's AccountProgress.
 addTable('CardProgress', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable()
@@ -128,7 +96,6 @@ addTable('CardProgress', (table) => {
     table.integer('level');
     table.integer('sm2_reps').notNullable().defaultTo(0);
     table.timestamp('last_recall').index();
-    // FSRS-6 per-card state (used when the active algorithm is 'fsrs')
     table.float('fsrs_stability');
     table.float('fsrs_difficulty');
     table.timestamp('fsrs_due');
@@ -138,7 +105,6 @@ addTable('CardProgress', (table) => {
     table.unique(['flashcard_id', 'account_id']);
 });
 
-// 6. Highlights
 addTable('Highlights', (table) => {
     table.increments('id').primary();
     table.integer('document_id').references('id').inTable('Documents').onDelete('CASCADE');
@@ -153,51 +119,26 @@ addTable('Highlights', (table) => {
     table.timestamp('created_at').defaultTo(k.fn.now());
 });
 
-// 7. Logs & Tags
 addTable('ReviewLogs', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable().references('id').inTable('Flashcards').onDelete('CASCADE');
-    // WHOSE review this was: an account id, or 'owner' for the vault's Author (see
-    // requestContext.js OWNER_SCOPE). NOT NULL with a default rather than nullable, because
-    // NULL already means "not recorded" for the ordering columns below and an ambiguous
-    // sentinel here would silently fold one person's history into everyone's statistics.
-    // Indexed as (account_id, flashcard_id) down in the index block, NEVER on its own: a
-    // vault has one account per person and most have exactly one, so an index on this column
-    // alone matches nearly every row — and SQLite's planner, seeing an equality match on an
-    // indexed column, will take it and abandon a far better join order. It did: the diary's
-    // per-deck rollup went from 24ms to 500ms on a real vault the day the scope column landed.
     table.string('account_id', 64).notNullable().defaultTo('owner');
     table.timestamp('timestamp').index();
     table.integer('outcome').index();
     table.float('ease_factor').index();
     table.integer('level').index();
-    // Which scheduler graded this review ('leitner' | 'sm2' | 'fsrs'). The active
-    // algorithm is a browser preference, so this is the only place the server can
-    // learn it — see access/orchestration/srs.js detectAlgorithm(). NULL on pre-migration rows.
     table.string('algorithm', 20);
-    // FSRS: the real 1–4 grade + post-review state snapshot (for undo & fitting)
     table.integer('rating');
     table.float('fsrs_stability');
     table.float('fsrs_difficulty');
     table.timestamp('fsrs_due');
     table.integer('fsrs_state');
-    // How this card was PRESENTED, not how it was graded — written by the trainer so a
-    // retention dip after interleaving turned on can be told apart from a regression.
-    // See migrations/009_session_ordering.js. All NULL for reviews submitted outside a
-    // trainer session (e.g. the MCP server); NULL means "not recorded", never "distance 0".
     table.string('session_id', 64).index();
     table.integer('session_position');
     table.integer('prev_distance');
     table.integer('nearest_sibling_lag');
 });
 
-// Active FSRS weight vector, ONE ROW PER ACCOUNT (seeded lazily with published defaults on
-// first read). Derived data, so it lives in the DB.
-//
-// Per-account and not per-vault because the weights are a fitted model of one person's
-// forgetting curve. Applying the owner's fitted weights to a reader's schedule would not be
-// a small inaccuracy — it would schedule that reader against someone else's memory. This is
-// also why /api/srs/optimize is a reader-level action rather than an administrative one.
 addTable('FsrsParameters', (table) => {
     table.increments('id').primary();
     table.string('account_id', 64).notNullable().defaultTo('owner');
@@ -207,36 +148,18 @@ addTable('FsrsParameters', (table) => {
     table.unique(['account_id']);
 });
 
-// Card health — derived failure-signature classification (see migration 007 and
-// DATAMODEL.md § Card Health). Deliberately absent from the `.flashback` sidecars:
-// a flag is recomputable from ReviewLogs + the card's content, and sealing one would
-// mean a git commit on every failed review.
-//
-// CardHealth is the *analysis watermark*, one row per evaluated card. A flag is a live
-// judgement, not a permanent scar — once the user addresses a card (edits it, or reviews
-// it back up to strength) analysis restarts from `epoch_at`, so history from before the
-// fix is never held against the card that replaced it.
 addTable('CardHealth', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable()
         .references('id').inTable('Flashcards').onDelete('CASCADE');
-    // Per (card, account): the verdict is about how the card is built, but the evidence is
-    // one person's interval trajectory, so two people can be mid-analysis on the same card
-    // at different watermarks. An edit needs no cross-account bump — each row compares
-    // against the card's CURRENT content_fingerprint on its own next evaluation, so a
-    // rewritten card invalidates everyone's analysis lazily and for free.
     table.string('account_id', 64).notNullable().defaultTo('owner');
     table.timestamp('epoch_at');
-    table.string('epoch_reason', 20);      // 'edit' | 'recovered' | 'dismissed'
+    table.string('epoch_reason', 20);
     table.string('content_fingerprint', 64);
     table.timestamp('updated_at');
     table.unique(['flashcard_id', 'account_id']);
 });
 
-// One row per currently-raised flag. UNIQUE(flashcard_id, kind) because a card either
-// currently reads as a mouthful or it doesn't — re-raising refreshes the evidence rather
-// than stacking duplicates. `dismissed_at` suppresses a flag the user has already ruled
-// on instead of deleting it, so it stops re-announcing itself on every later failure.
 addTable('CardFlags', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable()
@@ -261,11 +184,9 @@ addTable('Tags', (table) => {
     table.float('presence');
 });
 
-// 8. Connections
 addTable('ConnectionTypes', (table) => {
     table.increments('id').primary();
     table.string('name', 255).index();
-    // Fix: use integer instead of boolean for SQLite compatibility (0/1)
     table.integer('is_directed');
 });
 
@@ -282,7 +203,6 @@ addTable('InheritedTags', (table) => {
     table.integer('tag_id').references('id').inTable('Tags').onDelete('CASCADE');
 });
 
-// 9. Document Links (hash-based queue; no FK constraints — resolves lazily on import)
 addTable('DocumentLinks', (table) => {
     table.increments('id').primary();
     table.string('source_hash', 500).notNullable();
@@ -291,7 +211,6 @@ addTable('DocumentLinks', (table) => {
     table.unique(['source_hash', 'target_hash']);
 });
 
-// 10. Decks
 addTable('Decks', (table) => {
     table.increments('id').primary();
     table.integer('node_id').references('id').inTable('Nodes');
@@ -312,22 +231,12 @@ addTable('DeckEntries', (table) => {
     table.text('inline_card');
 });
 
-// Canonical-layer updates this vault has finished (config/UpdateRunner.js), as opposed to
-// SchemaVersion which tracks schema changes to this derived database. Separate mechanisms
-// because a canonical rewrite does file IO and ends in a Seal commit, neither of which
-// belongs inside a migration's transaction.
-//
-// This table is an OPTIMISATION, not the source of truth: it lets startup skip walking the
-// vault when nothing is pending. The authority is the `formatVersion` stamped on each
-// canonical file, so a sidecar restored from a backup or an old Seal commit still says what
-// it is. A row is written only once a pass completes with nothing skipped.
 addTable('CanonicalVersion', (table) => {
     table.integer('version').primary();
     table.timestamp('applied_at').defaultTo(k.fn.now());
     table.text('description');
 });
 
-// 10. Media & Subscriptions
 addTable('Media', (table) => {
     table.increments('id').primary();
     table.string('hash', 500).unique().index();
@@ -345,7 +254,6 @@ addTable('Subscriptions', (table) => {
     table.timestamp('last_sync').defaultTo(k.fn.now());
 });
 
-// Trigger and additional setup SQL
 const extraSQL = `
 PRAGMA foreign_keys = ON;
 

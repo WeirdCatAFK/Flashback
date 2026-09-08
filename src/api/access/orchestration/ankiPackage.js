@@ -29,24 +29,10 @@ export const VERSION_LEGACY_1 = 1;
 export const VERSION_LEGACY_2 = 2;
 export const VERSION_LATEST = 3;
 
-// zstd frame magic (RFC 8878 §3.1.1). Anki's own `meta` says which generation a
-// package claims to be, but sniffing the bytes is what we actually branch on —
-// a package that lies, or that we had to discover by filename because it had no
-// `meta`, still decodes correctly.
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
 const isZstd = (buf) => buf.length >= 4 && buf.subarray(0, 4).equals(ZSTD_MAGIC);
 const unzstd = (buf) => (isZstd(buf) ? zlib.zstdDecompressSync(buf) : buf);
-
-/* ------------------------------------------------------------------ *
- * Minimal protobuf reader
- *
- * We need five scalar fields across four flat messages, so a full protobuf
- * runtime would be disproportionate — this is the same hand-rolled approach
- * `fsrs.js` takes to the FSRS-6 math. The one thing it must do properly is skip
- * fields it does not know by wire type, so a future Anki schema that adds fields
- * does not break the reader.
- * ------------------------------------------------------------------ */
 
 function readVarint(buf, pos) {
     let result = 0n;
@@ -61,11 +47,7 @@ function readVarint(buf, pos) {
     throw new Error('Malformed protobuf: truncated varint');
 }
 
-/**
- * Decodes one protobuf message into `Map<fieldNumber, value[]>`. Varints arrive
- * as BigInt, length-delimited fields as Buffer. Repeated fields keep every
- * occurrence, which is how `MediaEntries.entries` is read.
- */
+/** Decodes one protobuf message into `Map<fieldNumber, value[]>`. */
 function decodeMessage(buf) {
     const fields = new Map();
     if (!buf || buf.length === 0) return fields;
@@ -91,7 +73,6 @@ function decodeMessage(buf) {
                 break;
             }
             case 5: value = buf.subarray(pos, pos + 4); pos += 4; break;
-            // 3/4 are the deprecated start/end-group types. Anki emits neither.
             default: throw new Error(`Malformed protobuf: unsupported wire type ${wireType}`);
         }
 
@@ -105,10 +86,6 @@ const pbNum = (msg, no, fallback = 0) => (msg.has(no) ? Number(msg.get(no)[0]) :
 const pbStr = (msg, no, fallback = '') => (msg.has(no) ? msg.get(no)[0].toString('utf-8') : fallback);
 const pbRepeated = (msg, no) => msg.get(no) ?? [];
 
-/* ------------------------------------------------------------------ *
- * Package opening
- * ------------------------------------------------------------------ */
-
 const COLLECTION_BY_VERSION = {
     [VERSION_LEGACY_1]: 'collection.anki2',
     [VERSION_LEGACY_2]: 'collection.anki21',
@@ -117,9 +94,6 @@ const COLLECTION_BY_VERSION = {
 
 function detectCollectionFile(tempRoot, declaredVersion) {
     const preferred = COLLECTION_BY_VERSION[declaredVersion];
-    // Newest first regardless of what `meta` claimed — a package carrying both a
-    // real .anki21b and a legacy stub .anki2 (Anki writes the stub so old clients
-    // fail loudly rather than silently importing nothing) must use the newer one.
     const candidates = [preferred, 'collection.anki21b', 'collection.anki21', 'collection.anki2'].filter(Boolean);
 
     for (const name of candidates) {
@@ -139,15 +113,7 @@ function versionFromCollectionName(name) {
     return VERSION_LEGACY_1;
 }
 
-/**
- * Reads the `media` entry into `{ zipEntryName: originalFilename }` — the shape
- * the legacy JSON map already had, so media lookup downstream is version-blind.
- *
- * Legacy packages store that JSON object directly. Latest stores a protobuf
- * `MediaEntries { repeated MediaEntry entries = 1 }`, where each
- * `MediaEntry { name = 1, size = 2, sha1 = 3, optional legacy_zip_filename = 255 }`
- * is keyed by its *index* in the list unless `legacy_zip_filename` overrides it.
- */
+/** Reads the `media` entry into `{ zipEntryName: originalFilename }`. */
 function readMediaMap(tempRoot) {
     const mediaPath = path.join(tempRoot, 'media');
     if (!fs.existsSync(mediaPath)) return {};
@@ -160,15 +126,11 @@ function readMediaMap(tempRoot) {
         return {};
     }
 
-    // The legacy map is JSON; try it first and fall through to protobuf. Sniffing
-    // the content rather than trusting the declared version keeps the two paths
-    // independent of `meta` being present or honest.
     const text = raw.toString('utf-8');
     if (text.trimStart().startsWith('{')) {
         try {
             return JSON.parse(text);
         } catch {
-            // Not JSON after all — fall through to the protobuf reader.
         }
     }
 
@@ -213,8 +175,6 @@ export function openPackage(buffer, tempRoot) {
     const collectionName = detectCollectionFile(tempRoot, version);
     if (!version) version = versionFromCollectionName(collectionName);
 
-    // better-sqlite3 needs a real file, so a compressed collection is written back
-    // out decompressed rather than opened from memory.
     let collectionPath = path.join(tempRoot, collectionName);
     const collectionBytes = fs.readFileSync(collectionPath);
     const zstd = isZstd(collectionBytes);
@@ -227,12 +187,7 @@ export function openPackage(buffer, tempRoot) {
 }
 
 /**
- * Reads a numbered media file out of an extracted package, transparently
- * decompressing it.
- *
- * The returned bytes are always the *original* asset, which matters beyond
- * correctness: `ankiImport` hashes them to dedupe against `Media`, so the same
- * PNG imported from a legacy package and from a zstd one has to produce one row.
+ * Reads a numbered media file out of an extracted package, transparently decompressing it.
  *
  * @returns {Buffer|null} null when the entry is absent
  */
@@ -242,27 +197,10 @@ export function readMediaFile(tempRoot, zipEntryName) {
     return unzstd(fs.readFileSync(srcPath));
 }
 
-/* ------------------------------------------------------------------ *
- * Collection reading
- * ------------------------------------------------------------------ */
-
-// Schema 15+ stores nested deck names with \x1f between components
-// (`NativeDeckName::from_human_name` joins on it); the schema 11 JSON used the
-// human-readable "::". Normalizing here means callers only ever see "::".
-// split/join rather than a regex: \x1f is a control character, and embedding it in
-// a literal regex trips no-control-regex for no benefit here.
 const humanDeckName = (name) => String(name ?? '').split('\x1f').join('::');
 
 /**
- * Reads decks and notetypes from an open Anki collection, normalizing both
- * schema generations onto one shape:
- *
- *   models[id] = { id, name, type, sortf, css,
- *                  flds:  [{ ord, name, description }],
- *                  tmpls: [{ ord, name, qfmt, afmt }] }
- *
- * `type` keeps Anki's numbering (0 = normal, 1 = cloze) because the importer's
- * card-type detection already reads it that way.
+ * Reads decks and notetypes from an open Anki collection, normalizing both schema generations onto one shape.
  *
  * @param {import('better-sqlite3').Database} ankiDb
  */
@@ -282,8 +220,6 @@ function readModernCollection(ankiDb) {
     }
 
     const models = {};
-    // `notetypes` has no `kind` column — the cloze flag lives in the protobuf
-    // config, alongside the css and sort field.
     for (const nt of ankiDb.prepare('SELECT id, name, config FROM notetypes').all()) {
         const cfg = decodeMessage(nt.config);
 

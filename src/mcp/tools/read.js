@@ -2,20 +2,9 @@ import { z } from 'zod';
 import { request, requestBuffer } from '../client.js';
 import cardGuide from '../skills/flashbackCards.js';
 
-// A picture inside a captured document is the one thing here a model has to SEE
-// rather than read — there is no text form of a diagram — so view_book_image and
-// view_clip_image return real image content blocks. That is a deliberate, narrow
-// exception to the rule that document bodies reach this server as text or not at all
-// (CLAUDE.md § MCP server), and it turns on the picture BEING the content: it does
-// not generalize to rasterized PDF pages or any document body. Sound is outside it
-// too — nothing can play audio to a model, so view_clip_image refuses one. The
-// ceiling stops a single full-page plate from swallowing a context window; nothing
-// here resizes an image.
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
-// The guide is Markdown meant to be read as prose. JSON-stringifying it would bury it in
-// escapes for no gain, so it goes back verbatim.
 const asMarkdown = (text) => ({ content: [{ type: 'text', text }] });
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
@@ -23,8 +12,6 @@ const asError = (err) => ({
 });
 const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
-// Wraps a tool handler so a failed fetch (API down, 404, etc.) comes back as a
-// clean tool error instead of an unhandled rejection.
 const safe = (fn) => async (args) => {
   try {
     return await fn(args);
@@ -33,6 +20,7 @@ const safe = (fn) => async (args) => {
   }
 };
 
+/** Builds a query string, dropping null and undefined values. */
 function qs(params) {
   const parts = [];
   for (const [key, value] of Object.entries(params)) {
@@ -48,9 +36,8 @@ function qs(params) {
 
 const GUIDE_SECTIONS = Object.keys(cardGuide.references);
 
+/** Registers every read-only MCP tool on the server. */
 export function registerReadTools(server) {
-  // Registered first because it is the tool that should be called first. Everything else
-  // here reads the vault; this one explains what to do with what you read.
   server.registerTool(
     'get_card_guide',
     {
@@ -80,8 +67,6 @@ export function registerReadTools(server) {
         );
       }
       const ref = cardGuide.references[section];
-      // Reachable when a caller bypasses the schema (the tests do). Naming the valid
-      // sections beats an undefined body that reads like an empty guide.
       if (!ref) {
         return {
           content: [{ type: 'text', text: `No such guide section: "${section}". Available: ${GUIDE_SECTIONS.join(', ')}.` }],
@@ -157,15 +142,10 @@ export function registerReadTools(server) {
     },
     safe(async ({ path }) => {
       const data = await request('GET', `/api/documents/read${qs({ path })}`);
-      // A PDF/EPUB/media body is bytes. Decoding it would hand back megabytes of
-      // mojibake, so say what the file is and route to the tool that CAN read it —
-      // with its real unit count, so the next call is obvious.
       if (data.binary) {
         const kb = data.size != null ? `${Math.max(1, Math.round(data.size / 1024)).toLocaleString()} KB` : 'unknown size';
         const cards = data.metadata?.flashcards?.length ?? 0;
         const highlights = data.metadata?.highlights?.length ?? 0;
-        // Best-effort: if the format is extractable, lead with that. A failure here
-        // (unsupported format, scanned PDF) just means no such line.
         let readable = null;
         try {
           const info = await request('GET', `/api/reader/info${qs({ path })}`);
@@ -176,7 +156,7 @@ export function registerReadTools(server) {
           } else if (info.note) {
             readable = `- read_document_text does not help here: ${info.note}`;
           }
-        } catch { /* not an extractable format — the other routes still apply */ }
+        } catch { }
 
         return {
           content: [{
@@ -196,9 +176,6 @@ export function registerReadTools(server) {
           }],
         };
       }
-      // A .youtube stub's readable content is its transcript, which lives in the
-      // sidecar and can be large. Keep it out of read_document (which dumps the whole
-      // sidecar) and steer to read_document_text, mirroring the binary branch above.
       if (typeof path === 'string' && path.toLowerCase().endsWith('.youtube')) {
         const cues = data.metadata?.source?.transcript;
         if (Array.isArray(cues)) {
@@ -379,19 +356,12 @@ export function registerReadTools(server) {
       },
     },
     safe(async ({ path, href }) => {
-      // An asset still on the web has no bytes to serve, and /media-file will not go
-      // and get them — fetching is a POST, on purpose. Saving it first is a no-op for
-      // one already in the vault.
       const saved = await request('POST', '/api/documents/clip/asset', { path, href });
       const soundRefusal = asToolError(
         `"${href}" is a sound file, and nothing here can play one to you. Use its caption, alt ` +
         `text and heading from list_clip_media to decide what it is, then attach it with ` +
         `attach_clip_media.`,
       );
-      // `kind` comes from the clip's own markup — an <audio> is a sound whatever its
-      // file name suggests — so this refuses without asking for the bytes twice. The
-      // save above has already pulled the sound into the vault, which is where
-      // attach_clip_media would have wanted it anyway.
       if (saved.kind === 'audio') return soundRefusal;
 
       const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${qs({ path, href: saved.href })}`);
@@ -667,7 +637,6 @@ export function registerReadTools(server) {
     },
     safe(async ({ limit } = {}) => {
       const log = await request('GET', `/api/seal/log${qs({ limit })}`);
-      // Flatten isomorphic-git's log shape to what a model actually needs.
       const entries = (log ?? []).map((e) => ({
         ref: e.oid,
         message: e.commit?.message?.trim() ?? '',
@@ -677,12 +646,6 @@ export function registerReadTools(server) {
       return asText(entries);
     }),
   );
-
-  // ── Diary (privacy-gated) ──────────────────────────────────────────────────
-  // The diary is a personal, per-day record of study activity kept OUTSIDE the
-  // workspace (never in the graph, search, or cards). These tools are read-only and
-  // are refused with a 403 unless the user has explicitly allowed AI-assistant access
-  // in Flashback → Config → AI Assistant. Dates are 'YYYY-MM-DD' (UTC).
 
   server.registerTool(
     'diary_list',
@@ -739,11 +702,6 @@ export function registerReadTools(server) {
       return asText(data);
     }),
   );
-
-  // ---------------------------------------------------------------------------
-  // Read progress — where the USER has read to. Every tool here is about the caller;
-  // none of them can reach anyone else's positions.
-  // ---------------------------------------------------------------------------
 
   server.registerTool(
     'get_read_progress',

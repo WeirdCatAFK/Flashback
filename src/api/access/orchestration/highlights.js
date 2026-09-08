@@ -10,18 +10,14 @@ class Highlights {
         this.query = query;
     }
 
+    /** One document's highlights. */
     getHighlights(relPath) {
         const sidecar = this.files.getMetadata(relPath, false);
         return sidecar?.highlights ?? [];
     }
 
     /**
-     * Annotated highlight listing — every highlight enriched with the context an
-     * agent (or list view) needs to act on it without re-deriving the data model:
-     * the highlighted text, surrounding document context, and which flashcards
-     * already anchor to it. Vault-wide when `path` is omitted (documents come
-     * from the derived Highlights table; per-document detail always comes from
-     * the sidecar, the canonical layer).
+     * Annotated highlight listing: every highlight enriched with the context needed to act on it without re-deriving the data.
      *
      * @param {object} [opts]
      * @param {string|null} [opts.path]  Restrict to one document.
@@ -38,9 +34,6 @@ class Highlights {
             const highlights = sidecar?.highlights ?? [];
             if (!highlights.length) continue;
 
-            // Cards anchored to each highlight: the flashcards[] side of the
-            // relationship ({type:'highlight', id} locations) is authoritative;
-            // the optional cardHashes[] mirror on the highlight entry is merged in.
             const anchored = new Map();
             for (const fc of sidecar?.flashcards ?? []) {
                 const loc = fc?.vanillaData?.location;
@@ -50,8 +43,6 @@ class Highlights {
                 }
             }
 
-            // Only text-bodied formats get context extraction — decoding a PDF
-            // or media file through readFile would produce garbage.
             let body = null;
             if (/\.(md|txt)$/i.test(relPath)) {
                 try { body = this.files.readFile(relPath).content; } catch { body = null; }
@@ -82,10 +73,6 @@ class Highlights {
         return results.sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
     }
 
-    // Best-effort recovery of a highlight's text and its surrounding passage.
-    // Sources, in order: the sidecar `text` snapshot, then character offsets
-    // (plain-text anchors only — clip_range offsets index rendered textContent,
-    // not the file body), then locating the snapshot verbatim in the body.
     _resolveTextAndContext(h, body) {
         const CONTEXT = 200;
         let text = typeof h.text === 'string' && h.text.length ? h.text : null;
@@ -113,13 +100,7 @@ class Highlights {
         return { text, context };
     }
 
-    // Every one of these is a read-modify-write of the document's sidecar, so each takes the
-    // document lock before its database transaction. Consistent order with documents.js —
-    // path lock first, database lock second — which is what keeps the two from deadlocking.
-    //
-    // A highlight is an ENTITY inside the sidecar, not the sidecar itself: two people
-    // highlighting different passages of one document both succeed, and only the same
-    // highlight can conflict.
+    /** Creates a highlight in the index and the sidecar. */
     async createHighlight(relPath, data) {
         return await withDocument(relPath, () => this._createHighlightLocked(relPath, data));
     }
@@ -129,9 +110,6 @@ class Highlights {
         const highlight = {
             id: globalHash,
             type: data.type ?? 'text_offset',
-            // Snapshot of the highlighted text (see DATAMODEL.md's sidecar spec) —
-            // used by list views and re-anchoring, and the only recoverable
-            // "what does this highlight say" for non-text formats.
             text: typeof data.text === 'string' && data.text.length ? data.text : null,
             start: data.start ?? null,
             end: data.end ?? null,
@@ -166,6 +144,7 @@ class Highlights {
         })();
     }
 
+    /** Updates a highlight's colour, note or anchor. */
     async updateHighlight(relPath, hash, data, { ifMatch } = {}) {
         return await withDocument(relPath, () => this._updateHighlightLocked(relPath, hash, data, ifMatch));
     }
@@ -176,8 +155,6 @@ class Highlights {
             let updated = null;
             const highlights = (sidecar.highlights ?? []).map(h => {
                 if (h.id !== hash) return h;
-                // Same-entity conflict check: the caller may pass the etag of the highlight
-                // it read (Files.entityEtag). Omitted means no check, as everywhere else.
                 if (ifMatch && this.files.entityEtag(h) !== ifMatch) {
                     throw Object.assign(
                         new Error('This highlight changed since you last read it.'),
@@ -194,6 +171,7 @@ class Highlights {
         })();
     }
 
+    /** Deletes a highlight from the index and the sidecar. */
     async deleteHighlight(relPath, hash) {
         return await withDocument(relPath, () => this._deleteHighlightLocked(relPath, hash));
     }
@@ -207,7 +185,7 @@ class Highlights {
         })();
     }
 
-    // Called from Documents._syncDocumentHighlights when a file is imported.
+    /** Reconciles a document's Highlights rows against its sidecar. */
     async syncFromSidecar(documentId, highlightsData) {
         if (!Array.isArray(highlightsData) || highlightsData.length === 0) return;
         await this.query.syncDocumentHighlights(documentId, highlightsData);

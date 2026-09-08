@@ -196,8 +196,6 @@ The counterweight is not coarseness but selection. Do not card what the user alr
 5. Read a sample back to verify rendering, especially anything with symbols or escapes.
 6. Report what was made, and flag anything deliberately omitted and why.`,
 
-    // Loaded only when asked for by name, the way a Claude Skill's references/ dir works:
-    // the guide is large, and most card-authoring turns never need the deeper patterns.
     references: {
         'knowledge-types': {
             title: 'Prompt patterns by knowledge type',

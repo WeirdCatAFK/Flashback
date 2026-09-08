@@ -1,22 +1,22 @@
 ﻿# Flashback Data Model Specification
 
-The Flashback system maintains data in **two synchronized layers**:
+The Flashback system maintains data in two synchronized layers:
 
-1. **Canonical Data Layer**
+1. Canonical Data Layer
 
    - Stored as `.flashback` files in the user’s file tree.
    - Human-readable JSON format (hidden by default for convenience).
    - Serves as the _source of truth_ for documents, annotations, flashcards, tags, and media references.
    - Designed for portability, packaging, and sharing of study materials.
-2. **Derived Data Layer**
+2. Derived Data Layer
 
-   - Stored in a **SQLite database** at `{vaultName}/{vaultName}.db` inside the active vault directory.
+   - Stored in a SQLite database at `{vaultName}/{vaultName}.db` inside the active vault directory.
    - Optimized for fast querying and consumption by the Flashback API.
    - Contains normalized and indexed representations of canonical data (flashcards, tags, review logs, presence metrics).
 
 ## Vault Structure
 
-All user data is scoped to a **vault** — a named, self-contained directory. An install may hold several; `config.json` carries a `vaults[]` registry and an `activeVaultId` pointer, and keeps the flat `vaultName`/`isCustomPath`/`customPath` fields as the projection of whichever vault is active. Both data layers for a given vault live inside it.
+All user data is scoped to a vault — a named, self-contained directory. An install may hold several; `config.json` carries a `vaults[]` registry and an `activeVaultId` pointer, and keeps the flat `vaultName`/`isCustomPath`/`customPath` fields as the projection of whichever vault is active. Both data layers for a given vault live inside it.
 
 ```
 {baseDir}/                        ← app data directory (or customPath if configured)
@@ -41,9 +41,9 @@ It sits at the vault root rather than inside `workspace/` on purpose. `workspace
 
 `ensureManifest()` is idempotent and runs on every vault open, which is how vaults created before manifests existed acquire an id — on their next launch, with no migration and no schema change.
 
-**A copied vault keeps its id.** That is intended: two copies of the same vault are the same vault as far as a future sync is concerned, and telling them apart is a job for whatever compares their histories, not for the identity itself.
+A copied vault keeps its id. That is intended: two copies of the same vault are the same vault as far as a future sync is concerned, and telling them apart is a job for whatever compares their histories, not for the identity itself.
 
-`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable — which the config resolver honours wherever it is set, Electron or not. Renaming a vault updates its registry entry and moves the vault directory **and** the `{vaultName}.db` inside it together, then re-derives the index so the stored `absolute_path` columns stop pointing at the old folder. The `workspace/` subdirectory is the root of the Seal git repository.
+`baseDir` resolves to `app.getPath(‘userData’)` in the Electron process and is passed to the API as the `USER_DATA_PATH` environment variable — which the config resolver honours wherever it is set, Electron or not. Renaming a vault updates its registry entry and moves the vault directory and the `{vaultName}.db` inside it together, then re-derives the index so the stored `absolute_path` columns stop pointing at the old folder. The `workspace/` subdirectory is the root of the Seal git repository.
 
 ---
 
@@ -51,14 +51,14 @@ It sits at the vault root rather than inside `workspace/` on purpose. `workspace
 
 Every project (e.g., a course) is organized in a regular directory tree. Each folder and file may have an associated `.flashback` file storing metadata and flashcard data.
 
-**Example: raw file tree**Inteligencia_Artificial
+Example: raw file treeInteligencia_Artificial
 
 ├── Clase060824.ipynb
 ├── clase070824.ipynb
 ├── datasets
 │   └── breast_cancer_data.pdf
 
-**Example: file tree with `.flashback` data**
+Example: file tree with `.flashback` data
 
 ```
 wwwInteligencia_Artificial
@@ -76,13 +76,13 @@ wwwInteligencia_Artificial
 ### Canonical file versioning
 
 Every canonical file — folder sidecar, file sidecar, and `_decks/*.json` — carries a
-**`formatVersion`** integer saying which canonical updates it has been through:
+`formatVersion` integer saying which canonical updates it has been through:
 
 ```json
 { "formatVersion": 1, "globalHash": "…", "tags": [] }
 ```
 
-This is the canonical layer's equivalent of `SchemaVersion`, but recorded **per file** rather
+This is the canonical layer's equivalent of `SchemaVersion`, but recorded per file rather
 than once per vault, and that is deliberate. A canonical file can arrive from anywhere — a
 backup, another machine, a Seal rollback to a commit from a year ago — so it has to be
 self-describing: `config/UpdateRunner.js` reads the stamp, applies only the updates that file
@@ -110,18 +110,18 @@ the half it replaces. Clients treat the string as opaque.
 
 ### `createdBy`
 
-Every sidecar records who created it. The value is a **git author line** — `Name <email>` —
+Every sidecar records who created it. The value is a git author line — `Name <email>` —
 resolved from the local user identity (below) at the moment the file is created:
 
 ```json
 { "createdBy": "Daniel <daniel@example.com>", "createdAt": "2026-08-17T…" }
 ```
 
-It is written once and **never rewritten**: every write site is `metadata.createdBy || …`,
+It is written once and never rewritten: every write site is `metadata.createdBy || …`,
 so an edit, a move, or a canonical update leaves it exactly as it was. That is what makes it
 provenance — a claim about the past, which a later change of identity does not falsify.
 
-**A reader must tolerate three shapes.** Files created before this existed carry the *vault
+A reader must tolerate three shapes. Files created before this existed carry the *vault
 name* (`"dreams"`, `"work"`), because that was what the stamp reached for when there was no
 concept of a person; those are deliberately left alone rather than backfilled. Files created
 since carry `Name <email>`. A file that arrives from a Flashback Server will carry whatever
@@ -147,7 +147,7 @@ Who this install stamps work as, in git's terms. One `user` key, outside any vau
 
 Resolution (`access/primitives/config.js` — `getIdentity()`, `getAuthorString()`) is
 `user.perVault[activeVaultId]` → `user` → derived from the OS account
-(`<osuser>@flashback.local`). A pair only counts when **both** halves are non-empty; a name
+(`<osuser>@flashback.local`). A pair only counts when both halves are non-empty; a name
 with no address cannot produce an author line, so a half-filled entry falls through instead
 of yielding `Daniel <>`. There is always an answer, because unlike git the app cannot refuse
 to write a file for want of one.
@@ -156,8 +156,8 @@ Two consumers, and they are deliberately the same value so a file and the commit
 created it cannot disagree about who made them: a new sidecar's `createdBy`, and the Seal
 commit author.
 
-The per-vault override lives under `user`, **not** on the `vaults[]` registry entry and
-**not** in `vault.json`: "which address I use where" is a fact about the person, and it must
+The per-vault override lives under `user`, not on the `vaults[]` registry entry and
+not in `vault.json`: "which address I use where" is a fact about the person, and it must
 not travel with a copied vault folder to someone else's machine. Keying by vault id rather
 than by name also means renaming a vault does not orphan its override.
 
@@ -166,7 +166,7 @@ Config. Skipping the step writes no `user` key rather than storing the derived d
 though it were chosen — the resolved value is identical either way, but `source` then
 honestly reports `default`.
 
-**This is not authentication.** Nothing validates the name or the address and nothing gates
+This is not authentication. Nothing validates the name or the address and nothing gates
 on either. Writes are Electron-IPC-only (main owns the `user` key, as it owns `apiToken`,
 `vaults[]` and `remotes[]`, and `set-config` preserves it from disk so a stale renderer form
 cannot clobber it); `GET /api/identity` is read-only and exists so the MCP server
@@ -257,21 +257,21 @@ is its access token, a separate mechanism entirely.
 
 Reference data varies from the types of documents, so the data might change according to the document. Reference values indicate on which part of the document references the flashcard
 
-- **Markdown / Text Documents (preferred):**
+- Markdown / Text Documents (preferred):
   - `{"type": "highlight", "id": "h_3f9a1c0b2"}`
     (anchors to a highlight in the document's `highlights[]`; the highlight is stored
     inline as a `<mark data-hl="...">` so it survives edits to surrounding text)
-- **Text Documents (legacy):**
+- Text Documents (legacy):
   - `{"type": "text_offset", "data": {"start": 123, "end": 150}}`
     (character offsets; fragile — shifts when the document is edited. Superseded by `highlight`.)
-- **PDFs / clips / videos (preferred = highlight-anchored):**
+- PDFs / clips / videos (preferred = highlight-anchored):
   - In practice these formats also use `{"type": "highlight", "id": "..."}`; the
     anchor geometry lives on the highlight registry entry, not the card. The
     highlight's own `type` encodes the strategy (see below). The legacy direct
     forms `{"type": "pdf_location"|"video_timestamp", "data": {...}}` are still
     accepted by `FlashcardReference` but the UI no longer emits them.
 
-**Highlight anchor types** (the `type` field on each `highlights[]` entry / the
+Highlight anchor types (the `type` field on each `highlights[]` entry / the
 `Highlights.type` column — free-text, no migration needed to add more):
 
 | `type`            | Producer                     | Position encoding                                                               |
@@ -280,7 +280,7 @@ Reference data varies from the types of documents, so the data might change acco
 | *(inline)*        | Markdown                     | `<mark data-hl>` in the body; no offsets                                      |
 | `pdf_bbox`        | `PdfRenderer`              | `page` + `bbox {x,y,width,height}` in PDF units (scale=1)                   |
 | `clip_range`      | `ClipRenderer` (web clips) | `start`/`end` char offsets into rendered `textContent`, `text` fallback |
-| `video_timestamp` | `YoutubeRenderer`          | `start`/`end` in **seconds** into the video                           |
+| `video_timestamp` | `YoutubeRenderer`          | `start`/`end` in seconds into the video                           |
 
 ## Flashcard Types
 
@@ -291,7 +291,7 @@ Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAU
 | `basic`       | Standard two-sided flip. Front and back are independent text + media blocks.                                                                                                                                                                                                                                                                                                                                                                 |
 | `reversible`  | Same data as basic, but direction (`forward` / `reverse`) is randomised per session so the card tests in both directions.                                                                                                                                                                                                                                                                                                                |
 | `cloze`       | Text with`{{blank}}` markers. Front shows underlined gaps; back reveals the filled words highlighted in amber. Both sides share the same `frontText` (stored in `vanillaData.frontText` and `vanillaData.backText`).                                                                                                                                                                                                                 |
-| `type_answer` | Question in`frontText`; expected answer in `answerText`; optional post-review notes in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to **`answerText` only** (case-insensitive trim) and shows a correct/wrong verdict before grading; the back then shows the answer with the notes underneath, so a card can carry a mnemonic without changing what is graded. |
+| `type_answer` | Question in`frontText`; expected answer in `answerText`; optional post-review notes in `backText`. The front face shows an inline text input + Check button. The Trainer compares the typed value to `answerText` only (case-insensitive trim) and shows a correct/wrong verdict before grading; the back then shows the answer with the notes underneath, so a card can carry a mnemonic without changing what is graded. |
 | `custom`      | Full HTML stored in`customData.html`. Rendered in a sandboxed `<iframe srcdoc>` (no network access). `vanillaData` fields are unused and kept empty.                                                                                                                                                                                                                                                                                   |
 
 ### Sidecar representation per type
@@ -337,17 +337,17 @@ Every flashcard has a `cardType` field (stored as `card_type TEXT NOT NULL DEFAU
 
 ### Media references
 
-All media slots (`front_img`, `back_img`, `front_sound`, `back_sound`) store a **SHA-256 hash string**, not a file path. The hash is resolved at runtime via `GET /api/media?hash=<hash>`. The `Media` table maps hashes to absolute paths on disk. All non-custom card types support the four media slots.
+All media slots (`front_img`, `back_img`, `front_sound`, `back_sound`) store a SHA-256 hash string, not a file path. The hash is resolved at runtime via `GET /api/media?hash=<hash>`. The `Media` table maps hashes to absolute paths on disk. All non-custom card types support the four media slots.
 
 ### Backward compatibility
 
 Sidecars written before `cardType` was introduced may carry `"isCustom": true` instead of `"cardType"`. The renderer resolves this with: `card.cardType ?? (card.isCustom ? 'custom' : 'basic')`.
 
-A `type_answer` card written before `answerText` existed keeps its expected answer in `backText` and has no `answerText` key at all. Readers resolve this with one rule — **the compared value is `answerText`, falling back to `backText` when it is absent or empty; notes exist only when `answerText` does** — implemented once per side in `typeAnswerParts()` (`src/ui/components/shared/flashcardFields.js`) and `answerBody()` (`access/orchestration/cardHealth.js`).
+A `type_answer` card written before `answerText` existed keeps its expected answer in `backText` and has no `answerText` key at all. Readers resolve this with one rule — the compared value is `answerText`, falling back to `backText` when it is absent or empty; notes exist only when `answerText` does — implemented once per side in `typeAnswerParts()` (`src/ui/components/shared/flashcardFields.js`) and `answerBody()` (`access/orchestration/cardHealth.js`).
 
-Vaults are migrated to the new shape by **canonical update 001** (`config/updates/001_type_answer_split.js` — sidecars + `_decks/*.json`, sealed as one `reconcile:` commit) and its paired schema migration 008 (the `FlashcardContent.answerText` column and its backfill). The fallback is kept regardless: a Seal rollback can restore a pre-split sidecar at any time, so correctness never depends on the update having run.
+Vaults are migrated to the new shape by canonical update 001 (`config/updates/001_type_answer_split.js` — sidecars + `_decks/*.json`, sealed as one `reconcile:` commit) and its paired schema migration 008 (the `FlashcardContent.answerText` column and its backfill). The fallback is kept regardless: a Seal rollback can restore a pre-split sidecar at any time, so correctness never depends on the update having run.
 
-Compatibility runs **forwards only**. The rule above lets a current build read a pre-split card; it cannot help a build released *before* `answerText`, which has no such rule to apply. Such a build still opens a migrated vault and reviews every other card type, but grades `type_answer` against the now-empty `backText` (unanswerable), and its standalone-card writer drops `answerText` entirely on the next edit. See `config/updates/UPDATES.md` § One-way updates and the downgrade warning in `CHANGELOG.md`.
+Compatibility runs forwards only. The rule above lets a current build read a pre-split card; it cannot help a build released *before* `answerText`, which has no such rule to apply. Such a build still opens a migrated vault and reviews every other card type, but grades `type_answer` against the now-empty `backText` (unanswerable), and its standalone-card writer drops `answerText` entirely on the next edit. See `config/updates/UPDATES.md` § One-way updates and the downgrade warning in `CHANGELOG.md`.
 
 ---
 
@@ -355,12 +355,12 @@ Compatibility runs **forwards only**. The rule above lets a current build read a
 
 Flashback supports two complementary metadata systems:
 
-1. **Tags**
+1. Tags
 
    - Can be applied at folder, file, or flashcard level.
    - Tags propagate downward (inheritance), creating implicit relationships between items across the tree.
    - This allows cross-cutting connections beyond strict file hierarchy (e.g., two unrelated flashcards both tagged `"Linear Algebra"`).
-2. **Categories**
+2. Categories
 
    - Define the pedagogical role of a flashcard.
    - Default categories, grouped by priority:| Priority | Category        | Description                                    |
@@ -434,10 +434,10 @@ Tier 3 — Package import (built on the orchestration tier, loaded on demand by 
                       plus files/query directly for media copying and tag/link extraction.
 ```
 
-**Rules that keep this stable long-term:**
+Rules that keep this stable long-term:
 
 - `query.js` and `files.js` never import each other.
-- **`srs.js` never imports `documents.js`.** The reverse is deliberate: `documents.js` imports
+- `srs.js` never imports `documents.js`. The reverse is deliberate: `documents.js` imports
   `srs.js` and holds it as `this.srs`, because `submitReview`/`undoReview` grade a card that
   lives in a sidecar, so the sidecar write and the schedule write have to be one operation. The
   dependency runs one way only, which is the property that matters — the scheduler knows nothing
@@ -509,10 +509,10 @@ For folder operations, all contained file and sidecar paths are staged in the sa
 
 SRS progress (`level`, `ease_factor`, `last_recall`) lives in the database and is not embedded in git history. Rolling back the canonical layer therefore presents a conflict between content state and review progress. `SealTools.rollback(ref, keepSrsProgress)` handles this:
 
-- **`keepSrsProgress: true` (default)** — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
-- **`keepSrsProgress: false`** — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
+- `keepSrsProgress: true` (default) — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
+- `keepSrsProgress: false` — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
 
-In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the **Vault Doctor** (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
+In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the Vault Doctor (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
 
 ### Out-of-band Change Detection
 
@@ -524,25 +524,25 @@ In both cases the derived layer must be reconciled to the rolled-back sidecars b
 
 Only `.flashback` sidecar paths are returned. This drift feeds the Seal view's "Loose pages" panel and is one input to the Vault Doctor, which reconciles each category against the derived layer:
 
-- **added** — index the new sidecar into the database (`documents.indexDocument` / `indexFolder`)
-- **modified** — re-sync the sidecar's flashcards and metadata (`documents.reindexDocument`)
-- **deleted** — remove the corresponding document or folder from the database (`documents.removeFromIndex`)
+- added — index the new sidecar into the database (`documents.indexDocument` / `indexFolder`)
+- modified — re-sync the sidecar's flashcards and metadata (`documents.reindexDocument`)
+- deleted — remove the corresponding document or folder from the database (`documents.removeFromIndex`)
 
-The Doctor's `checkIndex()` does **not** rely on `inspect()` alone (it is blind after a rollback, see above) — it walks the workspace and compares against the DB directly, using git drift only as supplementary context. `SealTools.commitDrift()` is the inverse of `inspect()`: it stages *all* out-of-band changes (including deletions, and non-sidecar files) into one `reconcile:` commit so a later rollback treats them as real history.
+The Doctor's `checkIndex()` does not rely on `inspect()` alone (it is blind after a rollback, see above) — it walks the workspace and compares against the DB directly, using git drift only as supplementary context. `SealTools.commitDrift()` is the inverse of `inspect()`: it stages *all* out-of-band changes (including deletions, and non-sidecar files) into one `reconcile:` commit so a later rollback treats them as real history.
 
 ---
 
 ## Diary — Study Record
 
-The **diary** is an opt-in, per-day record of study activity implemented in `src/api/access/orchestration/diary.js` (`/api/diary`). It is deliberately **not** part of the knowledge graph: it is metadata *about* studying, not study material.
+The diary is an opt-in, per-day record of study activity implemented in `src/api/access/orchestration/diary.js` (`/api/diary`). It is deliberately not part of the knowledge graph: it is metadata *about* studying, not study material.
 
 ### Purpose
 
-When enabled, a machine-written **summary** is derived from `ReviewLogs` every time a study session completes, and the user may optionally add a free-form markdown **entry** for any day. The diary powers a review-history view and can feed AI assistants (privacy-gated, below).
+When enabled, a machine-written summary is derived from `ReviewLogs` every time a study session completes, and the user may optionally add a free-form markdown entry for any day. The diary powers a review-history view and can feed AI assistants (privacy-gated, below).
 
 ### Repository Layout
 
-The diary lives at `{vaultPath}/diary/` — a **sibling of `workspace/`, not inside it**:
+The diary lives at `{vaultPath}/diary/` — a sibling of `workspace/`, not inside it:
 
 ```
 {baseDir}/
@@ -560,18 +560,18 @@ The diary lives at `{vaultPath}/diary/` — a **sibling of `workspace/`, not ins
 
 The owner keeps the unprefixed layout — the same unmarked-owner shape as `OWNER_SCOPE` in the database — so no existing file moves, no git rename appears in anyone's history, and a vault written before accounts existed reads back unchanged.
 
-**One repo covers all of it, so one git history holds several people's prose.** That is a real property to state to the people involved, not an oversight: a shared vault's diary is not a private local diary, and it is what the remote-only "Logs" name and its privacy warning exist to say out loud. (Locally the view is still called "Diary", because there the name is true — see `src/ui/diaryLabels.js`.)
+One repo covers all of it, so one git history holds several people's prose. That is a real property to state to the people involved, not an oversight: a shared vault's diary is not a private local diary, and it is what the remote-only "Logs" name and its privacy warning exist to say out loud. (Locally the view is still called "Diary", because there the name is true — see `src/ui/diaryLabels.js`.)
 
 Two consequences follow from the sibling location:
 
-- **Invisible for free.** The file walker (`files.walkWorkspace`), global search, and the knowledge graph only descend inside `workspaceRoot`, so diary files never appear in search results, graph output, the file explorer, or flashcard anchoring — with no exclusion code. No flashcards can be created on diary files.
-- **Its own git repo.** Seal's repo root *is* `workspace/`, so it does not track the diary. `diary.js` therefore carries a separate `isomorphic-git` repo, initialised **lazily on first write** (never at startup — the feature is opt-in on the client, and an opted-out vault stays clean). Commits follow the same `<action>: <path>` convention with actions `summary` and `entry`. Writes are atomic (temp + rename).
+- Invisible for free. The file walker (`files.walkWorkspace`), global search, and the knowledge graph only descend inside `workspaceRoot`, so diary files never appear in search results, graph output, the file explorer, or flashcard anchoring — with no exclusion code. No flashcards can be created on diary files.
+- Its own git repo. Seal's repo root *is* `workspace/`, so it does not track the diary. `diary.js` therefore carries a separate `isomorphic-git` repo, initialised lazily on first write (never at startup — the feature is opt-in on the client, and an opted-out vault stays clean). Commits follow the same `<action>: <path>` convention with actions `summary` and `entry`. Writes are atomic (temp + rename).
 
-Summary and entry are **independent files joined only by their date key** — neither is a sidecar of the other. A summary can exist with no entry (the common case); an entry can exist with no summary (a rest-day journal). There is **one cumulative summary per date**: multiple sessions in a day regenerate the same file.
+Summary and entry are independent files joined only by their date key — neither is a sidecar of the other. A summary can exist with no entry (the common case); an entry can exist with no summary (a rest-day journal). There is one cumulative summary per date: multiple sessions in a day regenerate the same file.
 
 ### Summary schema (v2)
 
-Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is the user's **local calendar day** (`date(timestamp, 'localtime')` in SQLite), matching the Stats view. It is local rather than UTC because the API runs on the user's own machine, so its clock is the one they were studying by — bucketing in UTC filed an evening session west of Greenwich under the next day's summary. Every day-keyed reader (diary aggregates, the Stats heatmap/streak, the client's "today") must use the same boundary or they disagree with each other.
+Summaries are derived data: fully regenerable from `ReviewLogs`. `generateSummary` is idempotent and cumulative — regenerating a past date reproduces the same file (modulo `generatedAt`), which makes corruption recoverable and powers the "rebuild diary" command (`POST /api/diary/rebuild`). The day boundary is the user's local calendar day (`date(timestamp, 'localtime')` in SQLite), matching the Stats view. It is local rather than UTC because the API runs on the user's own machine, so its clock is the one they were studying by — bucketing in UTC filed an evening session west of Greenwich under the next day's summary. Every day-keyed reader (diary aggregates, the Stats heatmap/streak, the client's "today") must use the same boundary or they disagree with each other.
 
 ```json
 {
@@ -594,21 +594,21 @@ Summaries are **derived data**: fully regenerable from `ReviewLogs`. `generateSu
 Field notes:
 
 - `newCards` = cards whose earliest-ever real review falls on this date; `failed` counts `outcome = 0` rows; `passRate = (reviews - failed) / reviews`.
-- **v2** splits the day's reviews on the same acquisition boundary the Stats view uses (`LEARNING_REVIEWS` in `access/orchestration/srs.js`): a review is *learning* while it is among its card's first N reviews **ever** (not just today's), *review* afterwards. `reviewPassRate` is the honest retention figure for the day; `learningPassRate` shows how new material landed. Either is `null` when that phase had no reviews. `passRate` keeps its v1 meaning (all reviews) so v1 summaries stay readable; re-run "rebuild diary" to backfill the v2 fields.
+- v2 splits the day's reviews on the same acquisition boundary the Stats view uses (`LEARNING_REVIEWS` in `access/orchestration/srs.js`): a review is *learning* while it is among its card's first N reviews ever (not just today's), *review* afterwards. `reviewPassRate` is the honest retention figure for the day; `learningPassRate` shows how new material landed. Either is `null` when that phase had no reviews. `passRate` keeps its v1 meaning (all reviews) so v1 summaries stay readable; re-run "rebuild diary" to backfill the v2 fields.
 - `byDeck` is a per-deck view (a card in two decks counts once per deck); `byDocument` covers document-anchored cards only. `struggledCards` is capped at 10, most-failed first (`front` is `(custom card)` for custom-HTML cards).
-- `streak` is computed **as of the summary's date** (not wall-clock "now"), so regeneration stays idempotent.
+- `streak` is computed as of the summary's date (not wall-clock "now"), so regeneration stays idempotent.
 - Synthetic rebuild logs (`outcome IS NULL`, seeded by the Vault Doctor to preserve SM-2 ease) are excluded from every aggregate.
-- `timeSpentMs` and a session count were intentionally **omitted** in v1 — neither is cheaply derivable from `ReviewLogs` (no per-review duration, no session id), and v1 adds no new tracking.
+- `timeSpentMs` and a session count were intentionally omitted in v1 — neither is cheaply derivable from `ReviewLogs` (no per-review duration, no session id), and v1 adds no new tracking.
 
 ### AI-assistant privacy gate
 
-The diary holds personal reflections, so access by the MCP server (a *separate* process — see the MCP server notes) is gated by the **`mcpDiaryAccess`** setting in `config.json` (default off), chosen in Config → AI Assistant. It has three levels: **`none`** closes the whole diary namespace, **`summaries`** exposes the machine-derived study summaries and the day list but keeps the personal written entries (the `/entry` routes) private, and **`full`** opens everything. (The flag used to be a boolean; `true` is still read as `full` and `false` as `none` for back-compat.) Enforcement is server-side: the MCP client tags every request with `X-Flashback-Client: mcp`, and `routes/diary.js` returns `403` for MCP-tagged requests according to the level. The setting is read **fresh from disk** (`config.getMcpDiaryAccess`, fail-closed — any unrecognized value → `none`) so changing it takes effect without an API restart. The React renderer sends no such header, so the in-app Diary view is never gated. The read-only tools are `diary_list`, `diary_get_summary`, and `diary_get_entry` (the last requires `full`).
+The diary holds personal reflections, so access by the MCP server (a *separate* process — see the MCP server notes) is gated by the `mcpDiaryAccess` setting in `config.json` (default off), chosen in Config → AI Assistant. It has three levels: `none` closes the whole diary namespace, `summaries` exposes the machine-derived study summaries and the day list but keeps the personal written entries (the `/entry` routes) private, and `full` opens everything. (The flag used to be a boolean; `true` is still read as `full` and `false` as `none` for back-compat.) Enforcement is server-side: the MCP client tags every request with `X-Flashback-Client: mcp`, and `routes/diary.js` returns `403` for MCP-tagged requests according to the level. The setting is read fresh from disk (`config.getMcpDiaryAccess`, fail-closed — any unrecognized value → `none`) so changing it takes effect without an API restart. The React renderer sends no such header, so the in-app Diary view is never gated. The read-only tools are `diary_list`, `diary_get_summary`, and `diary_get_entry` (the last requires `full`).
 
 ---
 
 ## Accounts — who may reach this install
 
-`{baseDir}/accounts.db`. A third store, alongside the canonical files and the derived vault database, and the only one that belongs to neither layer: it describes **people and access**, not knowledge.
+`{baseDir}/accounts.db`. A third store, alongside the canonical files and the derived vault database, and the only one that belongs to neither layer: it describes people and access, not knowledge.
 
 ### Why it is outside the vault
 
@@ -616,16 +616,16 @@ A vault folder is meant to be copied, moved, backed up onto a stick and handed t
 
 Three consequences follow, and each is load-bearing:
 
-- **The Vault Doctor must never touch it.** The Doctor's whole premise is that the derived layer can be thrown away and re-derived from the canonical files. There is no canonical form of an account, so a rebuild that swept this in would delete every token in the deployment with no way back but the terminal.
-- **It cannot be reconstructed.** Everything else in a Flashback install can: sidecars rebuild the index, Seal rebuilds the sidecars. Nothing rebuilds this. **It is a backup obligation**, and the only one in the app.
+- The Vault Doctor must never touch it. The Doctor's whole premise is that the derived layer can be thrown away and re-derived from the canonical files. There is no canonical form of an account, so a rebuild that swept this in would delete every token in the deployment with no way back but the terminal.
+- It cannot be reconstructed. Everything else in a Flashback install can: sidecars rebuild the index, Seal rebuilds the sidecars. Nothing rebuilds this. It is a backup obligation, and the only one in the app.
 
-  On a **server** deployment that obligation is the whole backup story in one sentence, and it
+  On a server deployment that obligation is the whole backup story in one sentence, and it
   is worth stating in deployment terms rather than leaving to inference: the volume holds
   `config.json`, `accounts.db` and the vault. `accounts.db` sits *outside* the vault, so a
   vault backup does not contain it — and it is the only copy of both the access list and every
   non-owner's schedule. The workspace is canonical and must be backed up too; the derived
   database is the one thing a Vault Doctor rebuild can reproduce. See `docs/SERVER.md`.
-- **It is not re-opened on a vault switch.** Accounts belong to the install; a person does not stop being the owner because they opened a different vault.
+- It is not re-opened on a vault switch. Accounts belong to the install; a person does not stop being the owner because they opened a different vault.
 
 ### Shape
 
@@ -644,13 +644,13 @@ AccountsSchemaVersion(version, applied_at)
 
 Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
 
-`AccountsSchemaVersion` records this store's own **repairs** (`REPAIRS` in `accounts.js`), applied in order right after the schema on every open and skipped once their version is present. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows that are already wrong, which is what the counter is for. Repair 1 clears `pos_pct`/`far_pct` on every `unit = 'section'` row: EPUB percentages had been written on two different scales (see § Read progress), and the locator columns are deliberately left alone so every book still resumes exactly where it was.
+`AccountsSchemaVersion` records this store's own repairs (`REPAIRS` in `accounts.js`), applied in order right after the schema on every open and skipped once their version is present. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows that are already wrong, which is what the counter is for. Repair 1 clears `pos_pct`/`far_pct` on every `unit = 'section'` row: EPUB percentages had been written on two different scales (see § Read progress), and the locator columns are deliberately left alone so every book still resumes exactly where it was.
 
-`AccountProgress` is the durable home of every **non-owner's** study schedule, and it is in this file for the same reason the access list is: it must not travel with a copied vault. See § Per-user progress. Keyed by `card_hash` (a card's `globalHash`) rather than a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it; keyed by `vault_id` because this store is install-scoped and an install can hold several vaults.
+`AccountProgress` is the durable home of every non-owner's study schedule, and it is in this file for the same reason the access list is: it must not travel with a copied vault. See § Per-user progress. Keyed by `card_hash` (a card's `globalHash`) rather than a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it; keyed by `vault_id` because this store is install-scoped and an install can hold several vaults.
 
 `role` is one of `reader` < `collaborator` < `admin` < `author` (`src/shared/roles.js`), a strict ladder where each role can do everything below it. Exactly one Author exists; several Admins may.
 
-Deactivating an **account** and revoking a **token** are deliberately separate: revoking one token leaves that person's other devices working, deactivating the account stops all of them at once.
+Deactivating an account and revoking a token are deliberately separate: revoking one token leaves that person's other devices working, deactivating the account stops all of them at once.
 
 ### Tokens
 
@@ -658,25 +658,25 @@ Only `sha256(token)` is stored. The plaintext is returned exactly once, when the
 
 `last_used_at` is written at most once per token per minute (throttled in process memory), because writing it per request would mean one write per card in a review session.
 
-The **pure token** is the Author's, and it is what proves ownership of a deployment. Issuing a new one revokes every previous Author token in the same transaction — a rotation that revoked the old and failed to write the new would lock the owner out of their own vault. `npm run pure-token` does the same thing against the file directly, for a deployment whose API is stopped or refusing everyone; physical access to `accounts.db` is the authorization, which is the same bargain every database makes.
+The pure token is the Author's, and it is what proves ownership of a deployment. Issuing a new one revokes every previous Author token in the same transaction — a rotation that revoked the old and failed to write the new would lock the owner out of their own vault. `npm run pure-token` does the same thing against the file directly, for a deployment whose API is stopped or refusing everyone; physical access to `accounts.db` is the authorization, which is the same bargain every database makes.
 
 ### On a desktop install
 
 Nothing above is visible. `Api.start()` provisions one Author from the local identity in `config.json` (§ Local user identity) and adopts the existing `apiToken` as its token, so the renderer and the MCP server present what they always presented. Every request is that Author, and the Author may do everything — which is exactly how Flashback behaved before accounts existed.
 
-Adoption also **re-enables** that token if a rotation had revoked it. `config.apiToken` is a plaintext secret in a file beside the vault database: anyone who can read it can already read every document directly, so refusing to honour it would buy nothing and would brick the desktop app with no in-app way back. A served deployment has no `apiToken` in its config, so the step does nothing there.
+Adoption also re-enables that token if a rotation had revoked it. `config.apiToken` is a plaintext secret in a file beside the vault database: anyone who can read it can already read every document directly, so refusing to honour it would buy nothing and would brick the desktop app with no in-app way back. A served deployment has no `apiToken` in its config, so the step does nothing there.
 
 ---
 
 ## Per-user progress
 
-A card's schedule is a property of a **person**, not of the card. Before migration 010 it lived on the `Flashcards` row (`level`, `sm2_reps`, `last_recall`, the six `fsrs_*`), which is exactly right for one user and unusable the moment two people study one vault — they would grade each other's cards.
+A card's schedule is a property of a person, not of the card. Before migration 010 it lived on the `Flashcards` row (`level`, `sm2_reps`, `last_recall`, the six `fsrs_*`), which is exactly right for one user and unusable the moment two people study one vault — they would grade each other's cards.
 
 ### The owner sentinel
 
-Everything derived from a review is keyed by an **account scope**: an account id, or the literal `'owner'` (`src/api/requestContext.js`, `OWNER_SCOPE`).
+Everything derived from a review is keyed by an account scope: an account id, or the literal `'owner'` (`src/api/requestContext.js`, `OWNER_SCOPE`).
 
-`'owner'` is the vault's Author, and deliberately **not** their account id. Account ids live in `accounts.db`, which is install-scoped and does not travel with a copied vault. Stamping the Author's uuid into the vault database would orphan every row of owner progress the moment someone copied the folder to another install — the vault would arrive with a full history belonging to nobody present. The sentinel survives the copy and means "whoever owns these files here", which is the sense the sidecar has always carried.
+`'owner'` is the vault's Author, and deliberately not their account id. Account ids live in `accounts.db`, which is install-scoped and does not travel with a copied vault. Stamping the Author's uuid into the vault database would orphan every row of owner progress the moment someone copied the folder to another install — the vault would arrive with a full history belonging to nobody present. The sentinel survives the copy and means "whoever owns these files here", which is the sense the sidecar has always carried.
 
 It has a second, smaller payoff: migration 010 backfills to a literal, so it needs no account lookup and nothing about the accounts store has to exist when the vault database is migrated.
 
@@ -689,31 +689,31 @@ It has a second, smaller payoff: migration 010 backfills to a literal, so it nee
 
 Both project into the vault database's `CardProgress`, which is derived and rebuildable like everything else there.
 
-A reader's progress cannot go in the sidecar, and the reason is not convenience: it would seal one person's study record into a git history that travels with the folder to whoever receives a copy. So **a non-owner's review writes no file and produces no Seal commit** — `documents.submitReview` and `undoReview` return early for a non-owner scope. Reading is not editing.
+A reader's progress cannot go in the sidecar, and the reason is not convenience: it would seal one person's study record into a git history that travels with the folder to whoever receives a copy. So a non-owner's review writes no file and produces no Seal commit — `documents.submitReview` and `undoReview` return early for a non-owner scope. Reading is not editing.
 
 ### What is durable and what is not
 
-Only the schedule **snapshot** is mirrored to `AccountProgress`. Review logs are not, so losing the vault database still costs everyone their history, their card-health verdicts and their optimizer input — precisely what a Doctor rebuild has always cost the owner. The contract is unchanged, not weakened.
+Only the schedule snapshot is mirrored to `AccountProgress`. Review logs are not, so losing the vault database still costs everyone their history, their card-health verdicts and their optimizer input — precisely what a Doctor rebuild has always cost the owner. The contract is unchanged, not weakened.
 
 `ease_factor` is on `AccountProgress` although `CardProgress` has no such column: SM-2's ease is read back out of the latest review log, and there are no review logs in the accounts store. The Doctor re-seeds it as a synthetic log row during a rebuild, exactly as it already does for the owner.
 
-The mirror is written **inside** the vault transaction and **after** the vault write. If it throws, the vault write rolls back with it, so the derived layer can never be ahead of the durable one. If the commit fails after the mirror succeeded, the durable copy is ahead and a rebuild re-projects it. Losing a graded review is the failure worth preventing; replaying one is not.
+The mirror is written inside the vault transaction and after the vault write. If it throws, the vault write rolls back with it, so the derived layer can never be ahead of the durable one. If the commit fails after the mirror succeeded, the durable copy is ahead and a rebuild re-projects it. Losing a graded review is the failure worth preventing; replaying one is not.
 
 ### Rebuild
 
-`doctor.rebuildIndex()` restores the owner's progress from the sidecars, then re-projects every other account's from `AccountProgress` for this `vault_id`. It is **read-only toward the accounts store** — it may read a snapshot to re-project it and must never write or delete one. A snapshot whose card is gone is skipped and kept, not pruned: the card may be returning on the next sync, and a rebuild is not the moment to decide somebody's study history is garbage.
+`doctor.rebuildIndex()` restores the owner's progress from the sidecars, then re-projects every other account's from `AccountProgress` for this `vault_id`. It is read-only toward the accounts store — it may read a snapshot to re-project it and must never write or delete one. A snapshot whose card is gone is skipped and kept, not pruned: the card may be returning on the next sync, and a rebuild is not the moment to decide somebody's study history is garbage.
 
 Neither cross-store reference (`CardProgress.account_id`, `AccountProgress.vault_id`) carries a foreign key, and neither can: they point across database files. Nothing cascades. Deleting an account leaves orphaned `CardProgress` rows in every vault; deactivating one deliberately keeps their progress, so a reactivated reader resumes rather than restarts.
 
 ### Resolving the scope
 
-Resolved **once**, at each orchestrator's entry point (`srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js`, `decks.js`), and passed down explicitly. `query.js` never reads it ambiently, and it **refuses a missing scope** rather than defaulting — defaulting to the owner would hand the owner's schedule to whoever forgot the argument, silently, which is the exact bug the split exists to prevent.
+Resolved once, at each orchestrator's entry point (`srs.js`, `cardHealth.js`, `diary.js`, `sequencer.js`, `decks.js`), and passed down explicitly. `query.js` never reads it ambiently, and it refuses a missing scope rather than defaulting — defaulting to the owner would hand the owner's schedule to whoever forgot the argument, silently, which is the exact bug the split exists to prevent.
 
 A few call sites name `OWNER_SCOPE` outright, and each is a place where the data genuinely belongs to the files rather than to the caller: reconciling against a sidecar (`_syncDocumentFlashcards`, the Doctor's drift check), writing a canonical file (`_decks/*.json` snapshots, an Anki import's carried-over schedule, `Documents.presence`), and Seal's rollback snapshot — which rewinds the workspace and must not rewind a reader's studying along with it.
 
 ## Read progress
 
-Where a person has read to in a document — a PDF page, an EPUB location, a character offset, a video timestamp. Captured automatically as they read and overridable by hand. Like a schedule, it is a property of a **person**; unlike a schedule, it is stored in exactly one place for everybody.
+Where a person has read to in a document — a PDF page, an EPUB location, a character offset, a video timestamp. Captured automatically as they read and overridable by hand. Like a schedule, it is a property of a person; unlike a schedule, it is stored in exactly one place for everybody.
 
 ### One home, not two
 
@@ -723,24 +723,24 @@ Where a person has read to in a document — a PDF page, an EPUB location, a cha
 
 This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
 
-- **A position moves continuously.** `seal.js` justifies coalescing review commits with "nobody will ever roll back to the state of a card between two answers"; a scroll position is that argument several orders of magnitude over. Storing it in the sidecar would turn the act of reading into a commit stream — and writing the sidecar *without* sealing is worse, since `stageAll` stages only named paths, so the file would sit as permanent working-tree drift for the Doctor to sweep into a `reconcile:` commit later.
-- **A Reader must be able to record one.** `PUT /api/documents/metadata` is `collaborator`-gated, so a Reader cannot write a sidecar at all. Reading is not editing — the same sentence that governs a reader's review, applied to its purest case.
+- A position moves continuously. `seal.js` justifies coalescing review commits with "nobody will ever roll back to the state of a card between two answers"; a scroll position is that argument several orders of magnitude over. Storing it in the sidecar would turn the act of reading into a commit stream — and writing the sidecar *without* sealing is worse, since `stageAll` stages only named paths, so the file would sit as permanent working-tree drift for the Doctor to sweep into a `reconcile:` commit later.
+- A Reader must be able to record one. `PUT /api/documents/metadata` is `collaborator`-gated, so a Reader cannot write a sidecar at all. Reading is not editing — the same sentence that governs a reader's review, applied to its purest case.
 
-So **recording a position writes no file and produces no Seal commit, for anybody**. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
+So recording a position writes no file and produces no Seal commit, for anybody. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
 
-The cost is stated rather than hidden: **reading positions do not travel with a copied vault folder**, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
+The cost is stated rather than hidden: reading positions do not travel with a copied vault folder, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
 
 ### Identity
 
-Keyed by the document's **canonical `globalHash`, read from the sidecar** — not by `Documents.global_hash`. That column is derived and can disagree with the sidecar (`importFile` does not always carry a caller-supplied hash into the index), and a Doctor rebuild re-derives it *from* the sidecar; a position keyed to the indexed value would be silently orphaned by that rebuild. This is the same reasoning that keys `AccountProgress` by `card_hash` rather than a row id: only canonical identity survives a rebuild. When a write finds the two disagree it corrects the indexed column toward the canonical one — a repair the Doctor would perform anyway.
+Keyed by the document's canonical `globalHash`, read from the sidecar — not by `Documents.global_hash`. That column is derived and can disagree with the sidecar (`importFile` does not always carry a caller-supplied hash into the index), and a Doctor rebuild re-derives it *from* the sidecar; a position keyed to the indexed value would be silently orphaned by that rebuild. This is the same reasoning that keys `AccountProgress` by `card_hash` rather than a row id: only canonical identity survives a rebuild. When a write finds the two disagree it corrects the indexed column toward the canonical one — a repair the Doctor would perform anyway.
 
-Keying by hash also means a position **survives a rename or a move** for free, and correctly does **not** follow a `copy`, which regenerates identities.
+Keying by hash also means a position survives a rename or a move for free, and correctly does not follow a `copy`, which regenerates identities.
 
 `scope` holds an account id or the literal `'owner'`, so — unlike `AccountProgress.account_id` — it carries no foreign key to `Accounts`: the sentinel is not a row there. Rows whose account has since been deleted are filtered on read, never deleted, for the reason `listAccountProgress` gives: quietly dropping a row on a read would turn a temporarily-missing account into permanent data loss.
 
 ### Units
 
-A position is a `unit` plus a format-specific locator, expressed in **the same vocabulary `mcpReader` paginates by** rather than a fifth one — that is what lets a stored position bound a text read.
+A position is a `unit` plus a format-specific locator, expressed in the same vocabulary `mcpReader` paginates by rather than a fifth one — that is what lets a stored position bound a text read.
 
 | Format                     | `unit`    | Locator                    | Addresses the reader with |
 | -------------------------- | ----------- | -------------------------- | ------------------------- |
@@ -749,23 +749,23 @@ A position is a `unit` plus a format-specific locator, expressed in **the same v
 | `.md` `.txt` `.clip` | `chars`   | `{ offset }`             | `offset`                |
 | `.youtube`               | `segment` | `{ seconds }`            | `at`                    |
 
-The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers are *readable-section* ordinals — it skips spine items with no text, such as covers and plates — so they are **not** the spine indices the renderer knows. The bridge is `href`, which `info()` reports per section and `read()` accepts as a string `index`. The CFI resumes the renderer; the href addresses the reader; neither ordinal is converted into the other.
+The EPUB row carries the one non-obvious mapping: `mcpReader`'s section numbers are *readable-section* ordinals — it skips spine items with no text, such as covers and plates — so they are not the spine indices the renderer knows. The bridge is `href`, which `info()` reports per section and `read()` accepts as a string `index`. The CFI resumes the renderer; the href addresses the reader; neither ordinal is converted into the other.
 
 Two honest approximations, recorded rather than hidden. A `chars` position is a scroll fraction, because no text renderer keeps a character offset (Markdown keeps no offset state at all), and the reader offset is derived from the percentage — a sound bound, not a precise cursor. And a `chars` offset is invalidated by editing the body, so `body_etag` records what it was measured against; when it no longer matches, the percentage is kept and the absolute offset is dropped rather than pretending it still points somewhere.
 
 `total` is always supplied by the writer and never computed server-side: `mcpReader.info()` performs a full extraction, so deriving a denominator on read would make a 500-document folder listing parse 500 PDFs. A position without one is still a valid resume point; it simply has no percentage.
 
-**One document, one percentage scale.** For `page`, `chars` and `segment` the locator and the percentage are the same scale, so `_percentOf` derives `locator / total` when the writer sends none. For `section` it derives **nothing**, and an EPUB that sends no `percent` stores none — because the three EPUB vocabularies above do not divide into one another. A spine index over a spine count counts covers and nav pages and is unweighted by text length; the percentage the renderer sends is how much prose is actually behind you.
+One document, one percentage scale. For `page`, `chars` and `segment` the locator and the percentage are the same scale, so `_percentOf` derives `locator / total` when the writer sends none. For `section` it derives nothing, and an EPUB that sends no `percent` stores none — because the three EPUB vocabularies above do not divide into one another. A spine index over a spine count counts covers and nav pages and is unweighted by text length; the percentage the renderer sends is how much prose is actually behind you.
 
 Filling the gap anyway is what broke it. epub.js reports no usable percentage until its `locations` index finishes building in the background, and while that ran the server supplied a spine ratio instead — so one column held two scales, a book 22% through its text recorded 48%, and since `auto` may only ever advance `far_pct`, that inflated figure then rejected every honest report behind it. The renderer now withholds the percentage until the index is real and re-publishes once it lands; the server derives nothing for `section`; and repair 1 (§ accounts.db) cleared the rows already written that way.
 
 ### Current, furthest, and finished
 
-Two marks are kept. `pos` is where you are; `far` is the furthest you have reached. An `auto` write always moves `pos` and advances `far` only forward, so scrolling back to check something never costs you your place; a `manual` write sets both and **may move `far` backwards**, because an explicit correction has to be obeyable.
+Two marks are kept. `pos` is where you are; `far` is the furthest you have reached. An `auto` write always moves `pos` and advances `far` only forward, so scrolling back to check something never costs you your place; a `manual` write sets both and may move `far` backwards, because an explicit correction has to be obeyable.
 
-There is no status column. **Finished is derived**: `far_pct >= 0.95`. Real documents end in indices, endnotes and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; "mark as finished" writes exactly 1.0 and always clears the bar.
+There is no status column. Finished is derived: `far_pct >= 0.95`. Real documents end in indices, endnotes and back matter nobody reads, so requiring 1.0 would leave finished books permanently at 99%; "mark as finished" writes exactly 1.0 and always clears the bar.
 
-A missing row means **never started** and is never backfilled to a zero row — the same convention `CardProgress` uses, and what lets a rollup count unread documents without inventing records for them.
+A missing row means never started and is never backfilled to a zero row — the same convention `CardProgress` uses, and what lets a rollup count unread documents without inventing records for them.
 
 ### Studying what you have read
 
@@ -777,9 +777,9 @@ exactly as `vaultCompleteness` already does.
 
 The two lists are deliberately asymmetric, and that asymmetry is the policy:
 
-- **A document is gated on being opened at all.** One never opened is absent from the allow
+- A document is gated on being opened at all. One never opened is absent from the allow
   list, which holds its whole pile back.
-- **A card is held back only on positive evidence** that its anchor sits past the furthest mark.
+- A card is held back only on positive evidence that its anchor sits past the furthest mark.
   Unresolvable positions stay in the session: an EPUB CFI (not orderable — see below), a
   Markdown inline highlight (no offsets), a card with no anchor. Standalone cards are drawn from
   no document and are never gated.
@@ -793,11 +793,11 @@ Nothing is rescheduled — a held-back card is simply not offered this session, 
 the flag comes off. Cost is one accounts query, one subtree query, and one sidecar read per
 *partially* read document, once per session.
 
-**Where a card sits is read from the sidecar, not from `FlashcardReference`.** The anchor the UI
+Where a card sits is read from the sidecar, not from `FlashcardReference`. The anchor the UI
 and the MCP server actually write is `{type:'highlight', id}`, which carries no `data`, so the
 indexed row is `(type='highlight', NULL, NULL, NULL, NULL)` — the geometry is on the highlight.
 `readProgress._cardPositions()` joins the two by `flashcards[].location.id → highlights[].id`,
-and explicitly **not** by the highlight's `cardHashes[]`: that array is documented above as an
+and explicitly not by the highlight's `cardHashes[]`: that array is documented above as an
 optional mirror and is never populated (every renderer initialises it to `[]` and no
 card-creation path writes to it). Reading it was why `coverage()` reported "cannot tell" for
 every document carded the way the app itself cards them.
@@ -806,71 +806,71 @@ every document carded the way the app itself cards them.
 
 A folder rollup counts documents in its subtree: `finished`, `inProgress` (a position exists and is not finished), and `unread` (no position at all). `percent` is the mean across *every* document in the subtree with unread counting as 0, so the figure describes the folder rather than only the parts already touched. A document with no denominator counts as `inProgress` and never as `finished`, and stays in the total — dropping it would flatter the number.
 
-A **subscription rollup is a folder rollup labelled with a magazine**, and nothing more. `Subscriptions` records what a publisher installed (`magazine_id`, `issue_id`, `version`, `target_path`, `last_sync`); it is not account-scoped and has no completion notion, so per-person progress over its target folder is the only place "how far through is this reader" can come from. The label is the whole difference between "12 of 47 documents" and "12 of 47 issues".
+A subscription rollup is a folder rollup labelled with a magazine, and nothing more. `Subscriptions` records what a publisher installed (`magazine_id`, `issue_id`, `version`, `target_path`, `last_sync`); it is not account-scoped and has no completion notion, so per-person progress over its target folder is the only place "how far through is this reader" can come from. The label is the whole difference between "12 of 47 documents" and "12 of 47 issues".
 
 ---
 
 # Derived data model
 
 Derived data for faster optimized querying.
-The Flashback schema is organized around the **Flashcard** as the atomic unit of knowledge.Supporting entities capture content, references, pedagogical context, relationships, and user review history.
+The Flashback schema is organized around the Flashcard as the atomic unit of knowledge.Supporting entities capture content, references, pedagogical context, relationships, and user review history.
 
-- **Flashcards**
+- Flashcards
 
   - Core unit of memory representation.
   - Links to `FlashcardContent` (text, media), optional `FlashcardReference` (position in document), and `PedagogicalCategories`.
   - Connected to the knowledge graph via a `node_id` (in `Nodes`).
   - Trackable attributes like `last_recall`, `name`, and `presence`.
-- **FlashcardContent**
+- FlashcardContent
 
   - Stores the actual front/back text, media (images, sounds), and optional rendered/custom HTML.
-- **FlashcardReference**
+- FlashcardReference
 
   - Anchors a flashcard to a document position, page, or bounding box.
   - Allows spatial or positional memory association.
-- **Highlights**
+- Highlights
 
   - A document-scoped colored span (or PDF region) that exists independently of any flashcard; a flashcard optionally anchors to one via its `reference`'s `{type: 'highlight', id}`.
   - Synced from the owning document's sidecar `highlights[]` array on every save, not written through the flashcard-creation path.
-- **Documents** and **Folders**
+- Documents and Folders
 
   - Hierarchical organization of knowledge sources.
   - Each has a `node_id` for integration into the graph.
   - Both can carry a `presence` metric for measuring familiarity.
-- **PedagogicalCategories**
+- PedagogicalCategories
 
   - Defines priority for reviewing flashcards (e.g., definitions before concepts).
-- **Tags**
+- Tags
 
   - Labels to organize and cluster concepts.
   - Tags inherit through `Connections` using `InheritedTags`.
-- **Connections** and **ConnectionTypes**
+- Connections and ConnectionTypes
 
   - Define graph edges between `Nodes`. Connection types in active use: `connection`, `disconnection` (an explicit override that suppresses a same-pair `connection` edge), `inheritance`, `tag`, `reference`, `deck`, `link`.
   - `is_directed` marks whether the relationship has directionality (`inheritance` and `reference` are directed; the rest are not).
-- **Nodes** and **NodeTypes**
+- Nodes and NodeTypes
 
   - Universal graph nodes that can represent flashcards, documents, folders, tags, or decks.
   - Provide flexible abstraction for connections. A `DELETE` trigger on each typed table removes the corresponding `Nodes` row automatically.
-- **Media**
+- Media
 
   - Repository of static assets (images, audio, etc.), retrievable by `hash` or `name`.
-- **ReviewLogs**
+- ReviewLogs
 
   - Tracks spaced repetition history per flashcard.
   - Includes `timestamp`, `outcome`, `ease_factor`, and `level` for performance analysis.
   - `algorithm` records which scheduler graded each review. The active algorithm is a browser preference, so this row is the only way the API — and through it the MCP server, which has no browser — can know which scheduler a vault is actually on (`srs.detectAlgorithm()`). NULL on rows written before migration 006.
-- **Decks** and **DeckEntries**
+- Decks and DeckEntries
 
   - A deck is a user-curated, named collection of flashcard references (linked by hash, not copied). Canonical storage is a JSON file per deck under `workspace/_decks/`; the DB tables are a queryable mirror kept in sync on every write.
   - One deck is flagged `is_system` and holds every standalone (document-less) flashcard, so those cards still participate in deck-scoped study sessions.
-  - A deck may carry `tags` (stored in its `_decks/<uuid>.json` and as direct tags on the deck's graph node). Deck tags **flow down to member cards** as inherited tags, stored on the deck→card `Connections` row (type `deck`) — the same `InheritedTags` mechanism folders use, so a card carries the union of its document-chain tags and every deck it belongs to. Adding a card to a tagged deck tags it immediately; removing it (or deleting/retagging the deck) revokes those tags via `InheritedTags`' cascade on `connection_id`. Decks have no parent, so their own tags are direct-only (never inherited).
-  - A **standalone card carries its own tags** the way an anchored card carries them in its sidecar: canonically in the system deck's entry snapshot (`entries[].card.tags`, omitted when empty, so every snapshot written before this is read correctly as untagged), and derived as direct `tag` connections on the card's node. That node has always been where the derived layer looks — `getDueFlashcards`, `getSessionFacets` and `_searchFlashcards` all match tags straight off `f.node_id` — so a standalone card is filterable, searchable and study-scopable by its own tags exactly like any other. The deck tags above are separate and additive: those arrive as *inherited* tags on the deck→card edge, and a card's effective set is the union.
-- **DocumentLinks**
+  - A deck may carry `tags` (stored in its `_decks/<uuid>.json` and as direct tags on the deck's graph node). Deck tags flow down to member cards as inherited tags, stored on the deck→card `Connections` row (type `deck`) — the same `InheritedTags` mechanism folders use, so a card carries the union of its document-chain tags and every deck it belongs to. Adding a card to a tagged deck tags it immediately; removing it (or deleting/retagging the deck) revokes those tags via `InheritedTags`' cascade on `connection_id`. Decks have no parent, so their own tags are direct-only (never inherited).
+  - A standalone card carries its own tags the way an anchored card carries them in its sidecar: canonically in the system deck's entry snapshot (`entries[].card.tags`, omitted when empty, so every snapshot written before this is read correctly as untagged), and derived as direct `tag` connections on the card's node. That node has always been where the derived layer looks — `getDueFlashcards`, `getSessionFacets` and `_searchFlashcards` all match tags straight off `f.node_id` — so a standalone card is filterable, searchable and study-scopable by its own tags exactly like any other. The deck tags above are separate and additive: those arrive as *inherited* tags on the deck→card edge, and a card's effective set is the union.
+- DocumentLinks
 
   - A hash-keyed queue of `flashback://` wiki-style links found in Markdown documents, resolved lazily so a link to a not-yet-imported document is still recorded.
   - Rendered as `link`-type graph edges between Document nodes.
-- **Subscriptions**
+- Subscriptions
 
   - Tracks magazine/course subscriptions. One row per `magazine_id`.
   - Stores the current `issue_id`, `version`, `target_path` (where in the workspace the content lives), and `last_sync` timestamp.
@@ -882,16 +882,16 @@ The Flashback schema is organized around the **Flashcard** as the atomic unit of
 
 Two separate decisions, deliberately kept apart:
 
-- **Selection** — *which* cards are due today. Owned entirely by the scheduler (`srs.js`, `query.getDueFlashcards`) and decided from due dates alone.
-- **Sequencing** — the *order* those cards are presented in. Owned by `sequencer.js` / `sequencing.js`.
+- Selection — *which* cards are due today. Owned entirely by the scheduler (`srs.js`, `query.getDueFlashcards`) and decided from due dates alone.
+- Sequencing — the *order* those cards are presented in. Owned by `sequencer.js` / `sequencing.js`.
 
-**Topology never moves a card across days.** Nothing in sequencing may pull a card forward or defer one to engineer a comparison; that would corrupt the retention estimates, which are already hard to read through new-card noise. The two are composed at the route layer (`routes/srs.js` `GET /due`), never folded into each other — the same arrangement `cardHealth.js` uses to stay out of the scheduler.
+Topology never moves a card across days. Nothing in sequencing may pull a card forward or defer one to engineer a comparison; that would corrupt the retention estimates, which are already hard to read through new-card noise. The two are composed at the route layer (`routes/srs.js` `GET /due`), never folded into each other — the same arrangement `cardHealth.js` uses to stay out of the scheduler.
 
 ### Why interleave
 
 Before this existed, the trainer presented cards in creation order: both sort stages were stable sorts on `category_priority` alone, so every tie resolved to rowid order and cards authored together from one document arrived together, every session, in the same sequence. That is blocked practice. It inflates within-session accuracy while producing knowledge bound to the thematic cue — the shared context does the retrieving, and a shuffled recall attempt the next day doesn't supply it.
 
-So graph proximity is used as a **spacing signal, not a grouping one**. Confusable cards still co-occur inside a session, because that is where discrimination is learned, but separated by unrelated material.
+So graph proximity is used as a spacing signal, not a grouping one. Confusable cards still co-occur inside a session, because that is where discrimination is learned, but separated by unrelated material.
 
 ### Approximate distance
 
@@ -899,21 +899,21 @@ A real BFS over `Nodes`/`Connections` is more machinery than the signal justifie
 
 | d | relationship                                                               |
 | - | -------------------------------------------------------------------------- |
-| 1 | same document, shared tag, or same immediate folder —**confusable** |
+| 1 | same document, shared tag, or same immediate folder —confusable |
 | 2 | shared deck, or their documents are directly linked                        |
 | 3 | documents share an ancestor folder within two levels                       |
 | 4 | nothing in common                                                          |
 
 ### Constraints
 
-- **Hard** — two cards at d ≤ 1 must be separated by at least `MIN_LAG` (4) items.
-- **Soft** — prefer the medium-to-high band (`TARGET_DISTANCE` 3), *not* the maximum. Always jumping as far as possible makes every transition the same kind of jump and the relational structure itself never gets retrieved.
-- **Soft** — a **weak** card (new, or level ≤ 2) may take a same-cluster run of up to `WEAK_RUN_MAX` (3) so the learner can extract the pattern before discriminating under load. Per-card, outgrown automatically as strength rises; never a mode the user selects.
+- Hard — two cards at d ≤ 1 must be separated by at least `MIN_LAG` (4) items.
+- Soft — prefer the medium-to-high band (`TARGET_DISTANCE` 3), *not* the maximum. Always jumping as far as possible makes every transition the same kind of jump and the relational structure itself never gets retrieved.
+- Soft — a weak card (new, or level ≤ 2) may take a same-cluster run of up to `WEAK_RUN_MAX` (3) so the learner can extract the pattern before discriminating under load. Per-card, outgrown automatically as strength rises; never a mode the user selects.
 - Pedagogical tiers are an outer partition — sequencing happens *within* a tier, so a definition is never reordered behind the exercise built on it.
 
 ### Degradation ladder
 
-Reported as `relaxation` on the `/due` response. **Failure degrades toward randomness, never toward clusters** — a shuffle is already better than blocking.
+Reported as `relaxation` on the `/due` response. Failure degrades toward randomness, never toward clusters — a shuffle is already better than blocking.
 
 | rung               | trigger                                                                                                                         |
 | ------------------ | ------------------------------------------------------------------------------------------------------------------------------- |
@@ -937,19 +937,19 @@ Ordering is seeded (`mulberry32`), so a session is reproducible from its seed an
 | id           | integer (PK) | Unique identifier for each flashcard.                                                                                                                                                                                        |
 | global_hash  | varchar(500) | Global hash for deduplication and synchronization.                                                                                                                                                                           |
 | node_id      | integer (FK) | Links flashcard into the knowledge graph.                                                                                                                                                                                    |
-| document_id  | integer (FK) | References the source document, if any.**(ON DELETE CASCADE)**                                                                                                                                                         |
+| document_id  | integer (FK) | References the source document, if any.(ON DELETE CASCADE)                                                                                                                                                         |
 | category_id  | integer (FK) | Pedagogical category (e.g., definition, concept).                                                                                                                                                                            |
 | content_id   | integer (FK) | Points to the flashcard’s content (front/back).                                                                                                                                                                             |
 | reference_id | integer (FK) | Anchors flashcard to a document position.                                                                                                                                                                                    |
 | name         | varchar(500) | Optional descriptive name of the flashcard.                                                                                                                                                                                  |
 | origin       | varchar(500) | Provenance marker:`'ai'` = created by an AI assistant (via the MCP server); `NULL` = handmade (UI, imports). Set once at creation, never edited afterwards. Mirrored in the sidecar card's `origin` field (canonical). |
-| presence     | float        | Familiarity/strength metric (derived from reviews). The document-level counterpart is`Documents.presence`; both are the **owner's**, because they are mirrored into the canonical layer.                             |
+| presence     | float        | Familiarity/strength metric (derived from reviews). The document-level counterpart is`Documents.presence`; both are the owner's, because they are mirrored into the canonical layer.                             |
 | fileIndex    | integer      | Position of the flashcard within its source file.                                                                                                                                                                            |
 | card_type    | text         | Card variant:`basic`, `reversible`, `cloze`, `type_answer`, or `custom`. Defaults to `’basic’`. Added via live migration on first startup if the column is absent.                                             |
 
-**No schedule columns.** `level`, `sm2_reps`, `last_recall` and the six `fsrs_*` columns lived here until migration 010 moved them into `CardProgress` and dropped them from this table. Dropping rather than deprecating was deliberate: a stale column that still reads turns "this query forgot to scope itself" from a hard error into one person quietly studying another person's schedule.
+No schedule columns. `level`, `sm2_reps`, `last_recall` and the six `fsrs_*` columns lived here until migration 010 moved them into `CardProgress` and dropped them from this table. Dropping rather than deprecating was deliberate: a stale column that still reads turns "this query forgot to scope itself" from a hard error into one person quietly studying another person's schedule.
 
-`document_id` is nullable — a **standalone card** (created from the Flashcards browser, not anchored to any document) has `document_id = NULL` and lives only in the DB plus an entry in the reserved system deck's JSON file (see `Decks` below).
+`document_id` is nullable — a standalone card (created from the Flashcards browser, not anchored to any document) has `document_id = NULL` and lives only in the DB plus an entry in the reserved system deck's JSON file (see `Decks` below).
 
 ---
 
@@ -960,8 +960,8 @@ One person's schedule for one card. See § Per-user progress for why it exists a
 | Column          | Type         | Description                                                                                                                                                   |
 | --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id              | integer (PK) | Unique identifier.                                                                                                                                            |
-| flashcard_id    | integer (FK) | The card.**(ON DELETE CASCADE)**                                                                                                                        |
-| account_id      | text         | An account id from`accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| flashcard_id    | integer (FK) | The card.(ON DELETE CASCADE)                                                                                                                        |
+| account_id      | text         | An account id from`accounts.db`, or the literal `'owner'`. No foreign key — it points into a different database file. Defaults to `'owner'`. |
 | level           | integer      | Number of consecutive positive recalls (Leitner box).                                                                                                         |
 | sm2_reps        | integer      | Repetition count under SM-2, separate from`level`. Defaults to 0.                                                                                           |
 | last_recall     | timestamp    | Last time this person recalled this card.                                                                                                                     |
@@ -974,7 +974,7 @@ One person's schedule for one card. See § Per-user progress for why it exists a
 
 `UNIQUE(flashcard_id, account_id)`.
 
-**A missing row means "never reviewed by this person"** — which is exactly what a zero `level` and a NULL `last_recall` already meant. Every reader COALESCEs, so a row appears on a card's first review rather than at creation, and nothing has to be seeded when a card is imported.
+A missing row means "never reviewed by this person" — which is exactly what a zero `level` and a NULL `last_recall` already meant. Every reader COALESCEs, so a row appears on a card's first review rather than at creation, and nothing has to be seeded when a card is imported.
 
 ---
 
@@ -983,7 +983,7 @@ One person's schedule for one card. See § Per-user progress for why it exists a
 | Column      | Type         | Description                                                                                                  |
 | ----------- | ------------ | ------------------------------------------------------------------------------------------------------------ |
 | id          | integer (PK) | Unique identifier.                                                                                           |
-| document_id | integer (FK) | Owning document.**(ON DELETE CASCADE)**                                                                |
+| document_id | integer (FK) | Owning document.(ON DELETE CASCADE)                                                                |
 | global_hash | varchar(500) | UUID, unique — the id referenced by a flashcard's`location: { type: 'highlight', id }`.                   |
 | type        | varchar(50)  | Anchoring strategy:`text_offset` (default), `pdf_bbox`, `clip_range`, `video_timestamp` (free-text). |
 | start       | float        | Start offset/position (meaning depends on`type`).                                                          |
@@ -1033,7 +1033,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column        | Type         | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | ------------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id            | integer (PK) | Unique identifier.                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| deck_id       | integer (FK) | Owning deck.**(ON DELETE CASCADE)**                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| deck_id       | integer (FK) | Owning deck.(ON DELETE CASCADE)                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | card_hash     | varchar(500) | `global_hash` of the referenced flashcard — decks link to cards, they don't copy them.                                                                                                                                                                                                                                                                                                                                                                               |
 | document_path | varchar(500) | Relative path of the card's source document, if any (denormalized for display without a join).                                                                                                                                                                                                                                                                                                                                                                          |
 | position      | integer      | Insertion order within the deck; defaults to 0. No manual reordering UI exists yet.                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -1076,7 +1076,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column        | Type         | Description                                         |
 | ------------- | ------------ | --------------------------------------------------- |
 | id            | integer (PK) | Unique document identifier.                         |
-| folder_id     | integer (FK) | Parent folder.**(ON DELETE CASCADE)**         |
+| folder_id     | integer (FK) | Parent folder.(ON DELETE CASCADE)         |
 | node_id       | integer (FK) | Integration into graph.                             |
 | global_hash   | varchar(500) | Hash for deduplication/sync.                        |
 | relative_path | varchar(500) | Relative path to file.                              |
@@ -1095,7 +1095,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | id            | integer (PK) | Unique folder identifier.                                    |
 | global_hash   | varchar(500) | Hash for deduplication.                                      |
 | node_id       | integer (FK) | Integration into graph.                                      |
-| parent_id     | integer (FK) | Parent folder.**(ON DELETE CASCADE, nullable = root)** |
+| parent_id     | integer (FK) | Parent folder.(ON DELETE CASCADE, nullable = root) |
 | relative_path | varchar(500) | Relative path to folder.                                     |
 | absolute_path | varchar(500) | Absolute path to folder.                                     |
 | name          | varchar(500) | Folder name.                                                 |
@@ -1121,7 +1121,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | -------- | ------------ | ---------------------------------------------------- |
 | id       | integer (PK) | Unique identifier.                                   |
 | name     | varchar(500) | Tag label.                                           |
-| node_id  | integer (FK) | Integration into graph.**(ON DELETE CASCADE)** |
+| node_id  | integer (FK) | Integration into graph.(ON DELETE CASCADE) |
 | origin   | varchar(500) | Source identifier (e.g., subscription magazine_id).  |
 | presence | float        | Familiarity/usage score.                             |
 
@@ -1132,8 +1132,8 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column     | Type         | Description                               |
 | ---------- | ------------ | ----------------------------------------- |
 | id         | integer (PK) | Unique identifier for connection.         |
-| origin_id  | integer (FK) | Source node.**(ON DELETE CASCADE)** |
-| destiny_id | integer (FK) | Target node.**(ON DELETE CASCADE)** |
+| origin_id  | integer (FK) | Source node.(ON DELETE CASCADE) |
+| destiny_id | integer (FK) | Target node.(ON DELETE CASCADE) |
 | type_id    | integer (FK) | Type of connection.                       |
 
 ---
@@ -1183,8 +1183,8 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column        | Type         | Description                                                   |
 | ------------- | ------------ | ------------------------------------------------------------- |
 | id            | integer (PK) | Unique identifier.                                            |
-| connection_id | integer (FK) | Connection carrying the tag.**(ON DELETE CASCADE)**     |
-| tag_id        | integer (FK) | Tag applied through inheritance.**(ON DELETE CASCADE)** |
+| connection_id | integer (FK) | Connection carrying the tag.(ON DELETE CASCADE)     |
+| tag_id        | integer (FK) | Tag applied through inheritance.(ON DELETE CASCADE) |
 
 ---
 
@@ -1193,8 +1193,8 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column              | Type         | Description                                                                                                                                         |
 | ------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id                  | integer (PK) | Unique identifier.                                                                                                                                  |
-| flashcard_id        | integer (FK) | Reviewed flashcard.**(ON DELETE CASCADE)**                                                                                                    |
-| account_id          | varchar(64)  | **Whose review this was**: an account id, or `'owner'`. NOT NULL, defaults to `'owner'`. Indexed. See § Per-user progress.               |
+| flashcard_id        | integer (FK) | Reviewed flashcard.(ON DELETE CASCADE)                                                                                                    |
+| account_id          | varchar(64)  | Whose review this was: an account id, or `'owner'`. NOT NULL, defaults to `'owner'`. Indexed. See § Per-user progress.               |
 | timestamp           | timestamp    | When the review occurred.                                                                                                                           |
 | outcome             | integer      | Result of recall (e.g., success, failure).                                                                                                          |
 | ease_factor         | float        | Spaced repetition ease factor.                                                                                                                      |
@@ -1205,9 +1205,9 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | prev_distance       | integer      | Approximate graph distance (1–4) to the card presented immediately before. NULL for a session's first review.                                      |
 | nearest_sibling_lag | integer      | Items since the nearest*confusable* sibling (same document, shared tag, same parent folder) appeared in this session. NULL when none preceded it. |
 
-**Session-ordering columns record how a card was PRESENTED, not how it was graded.** They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. **A reader must treat NULL as "not recorded", never as distance 0**: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
+Session-ordering columns record how a card was PRESENTED, not how it was graded. They exist because interleaving (see § Session Sequencing) deliberately trades within-session accuracy for delayed retention: pass rates are *expected* to drop when it is enabled, and without this context that dip is indistinguishable from a regression in the scheduler, the classifier, or the content. All four are written by `routes/srs.js` from `sequencer.measureOrdering()` and are NULL for every caller with no session — the MCP server, scripts, the Flashcards view. A reader must treat NULL as "not recorded", never as distance 0: a review with no logged ordering is not a review that happened next to its sibling. No backfill exists or is possible — presentation order was never recorded, and inventing one would poison the measurement these columns exist to make.
 
-**Only the grade is stored, never the typed answer.** That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
+Only the grade is stored, never the typed answer. That is the binding constraint on Card Health below: error-content analysis (edit distance between successive wrong answers, matching a wrong answer against another card's back) is not possible from this table. Persisting typed answers for `type_answer` cards would unlock much stronger signals and is a candidate for a future additive migration.
 
 ---
 
@@ -1218,14 +1218,14 @@ One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
 | Column       | Type         | Description                                                                                                                                                   |
 | ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id           | integer (PK) | Unique identifier.                                                                                                                                            |
-| account_id   | text         | An account id from`accounts.db`, or the literal `'owner'`. **No foreign key** — it points into a different database file. Defaults to `'owner'`. |
+| account_id   | text         | An account id from`accounts.db`, or the literal `'owner'`. No foreign key — it points into a different database file. Defaults to `'owner'`. |
 | weights_json | text         | The 21 fitted weights, JSON-encoded. Consumed by`fsrs.js`; absent means the hand-rolled defaults are used.                                                  |
 | optimized_at | timestamp    | When the fit was last run.                                                                                                                                    |
 | review_count | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                                                |
 
 `UNIQUE(account_id)` — one row per person, replaced on each optimize run.
 
-**One row per account, not one per vault.** The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
+One row per account, not one per vault. The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
 
 Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the logs and therefore the input, so a rebuilt vault falls back to the default weights until each person re-optimizes. That is the same cost a rebuild has always carried for review history, not a new one.
 
@@ -1233,34 +1233,34 @@ Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the 
 
 ### Table: CardHealth
 
-The **analysis watermark**, one row per evaluated card **per account**. A card-health flag is a live judgement, not a permanent scar: once the user *addresses* a card, analysis restarts from that moment, so review history from before the fix is never held against the card that replaced it.
+The analysis watermark, one row per evaluated card per account. A card-health flag is a live judgement, not a permanent scar: once the user *addresses* a card, analysis restarts from that moment, so review history from before the fix is never held against the card that replaced it.
 
 Per-account because the verdict is about how the card is *built* but the evidence is one person's interval trajectory — two people can sit at different watermarks on the same card, and one person's dismissal is not everyone's.
 
 | Column              | Type         | Description                                                                                                |
 | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
 | id                  | integer (PK) | Unique identifier.                                                                                         |
-| flashcard_id        | integer (FK) | The card.**(ON DELETE CASCADE)**                                                                     |
+| flashcard_id        | integer (FK) | The card.(ON DELETE CASCADE)                                                                     |
 | account_id          | varchar(64)  | Whose analysis this is: an account id, or`'owner'`. UNIQUE together with `flashcard_id`.               |
 | epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
 | epoch_reason        | varchar(20)  | What moved the watermark:`edit`, `recovered`, `dismissed`.                                           |
 | content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation.                                |
 | updated_at          | timestamp    | Last write.                                                                                                |
 
-`content_fingerprint` is how an edit is detected **without an edit hook**. `cardHealth.buildContext()` compares the card's current fingerprint against the stored one and resets the epoch on a mismatch, so an edit arriving through *any* path — the PUT route, the MCP server, a Seal rollback, a Vault Doctor reindex — invalidates the card's flags without those paths knowing the classifier exists. That check is per-account and lazy, which is what makes an edit cost nothing for people who are not looking at the card.
+`content_fingerprint` is how an edit is detected without an edit hook. `cardHealth.buildContext()` compares the card's current fingerprint against the stored one and resets the epoch on a mismatch, so an edit arriving through *any* path — the PUT route, the MCP server, a Seal rollback, a Vault Doctor reindex — invalidates the card's flags without those paths knowing the classifier exists. That check is per-account and lazy, which is what makes an edit cost nothing for people who are not looking at the card.
 
-**The edit hook is the one cross-account operation.** `cardHealth.onCardEdited()` takes no scope: it clears *every* account's flags on the card and moves every account's watermark at once. The lazy fingerprint check would get each account there eventually, one failing review at a time, but a reader who never touched the card should not go on being warned about text they can see has been rewritten.
+The edit hook is the one cross-account operation. `cardHealth.onCardEdited()` takes no scope: it clears *every* account's flags on the card and moves every account's watermark at once. The lazy fingerprint check would get each account there eventually, one failing review at a time, but a reader who never touched the card should not go on being warned about text they can see has been rewritten.
 
 ---
 
 ### Table: CardFlags
 
-One row per **currently-raised** flag, per person. `UNIQUE(flashcard_id, account_id, kind)`: for a given reader a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
+One row per currently-raised flag, per person. `UNIQUE(flashcard_id, account_id, kind)`: for a given reader a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
 
 | Column             | Type         | Description                                                            |
 | ------------------ | ------------ | ---------------------------------------------------------------------- |
 | id                 | integer (PK) | Unique identifier.                                                     |
-| flashcard_id       | integer (FK) | The flagged card.**(ON DELETE CASCADE)**                         |
+| flashcard_id       | integer (FK) | The flagged card.(ON DELETE CASCADE)                         |
 | account_id         | varchar(64)  | Whose evidence raised it: an account id, or`'owner'`.                |
 | kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`.       |
 | confidence         | varchar(20)  | `moderate` or `high`.                                              |
@@ -1275,18 +1275,18 @@ One row per **currently-raised** flag, per person. `UNIQUE(flashcard_id, account
 
 ### Card Health — lifecycle
 
-Classification runs **only when a card has just failed**. There is no reason to guess at why a card is failing when it isn't, and criticising a card that is working is the failure mode the design exists to avoid.
+Classification runs only when a card has just failed. There is no reason to guess at why a card is failing when it isn't, and criticising a card that is working is the failure mode the design exists to avoid.
 
 | Trigger                                                  | Effect                                                                                                                       |
 | -------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
 | Failing review (`outcome = 0`, or FSRS `rating = 1`) | Classify over the epoch window; upsert flags. A dismissed row is refreshed but stays suppressed.                             |
-| Passing review reaching**level ≥ 3**              | Recovery: delete live flags, stamp`epoch_reason = 'recovered'`.                                                            |
+| Passing review reachinglevel ≥ 3              | Recovery: delete live flags, stamp`epoch_reason = 'recovered'`.                                                            |
 | Passing review below level 3                             | Nothing. A mouthful passes constantly at a one-day interval — treating any pass as success would make the flag unreachable. |
-| Content edit                                             | Delete**all** flags including dismissed ones; stamp `epoch_reason = 'edit'`. A rewritten card is judged fresh.       |
+| Content edit                                             | Deleteall flags including dismissed ones; stamp `epoch_reason = 'edit'`. A rewritten card is judged fresh.       |
 | Dismiss                                                  | Set`dismissed_at` on that one kind (a card can carry both guards); move the watermark.                                     |
 | Undo review                                              | Re-classify against the shortened ledger, so a flag never cites a review that no longer exists.                              |
 
-Both tables are **derived**: absent from `.flashback` sidecars, recomputable from `ReviewLogs` plus card content, and never sealed — a flag written canonically would mean a git commit on every failed review. They are cleared by `query.wipeDerivedContent()`, so a Vault Doctor `rebuildIndex` (which destroys `ReviewLogs` history) takes card health with it and cards re-earn their flags from new review behaviour.
+Both tables are derived: absent from `.flashback` sidecars, recomputable from `ReviewLogs` plus card content, and never sealed — a flag written canonically would mean a git commit on every failed review. They are cleared by `query.wipeDerivedContent()`, so a Vault Doctor `rebuildIndex` (which destroys `ReviewLogs` history) takes card health with it and cards re-earn their flags from new review behaviour.
 
 Detector semantics, the mouthful/probe discriminator and the guard-precedence rule are documented in `src/api/access/ACCESS.md` § `cardHealth.js`.
 
@@ -1307,7 +1307,7 @@ Detector semantics, the mouthful/probe discriminator and the guard-precedence ru
 
 ### Table: CanonicalVersion
 
-Which **canonical updates** this vault has finished — the counterpart of `SchemaVersion`, which tracks changes to this derived database. Written by `config/UpdateRunner.js` only after a pass completes with nothing skipped; a pass that skipped a file leaves no row and is retried on the next launch.
+Which canonical updates this vault has finished — the counterpart of `SchemaVersion`, which tracks changes to this derived database. Written by `config/UpdateRunner.js` only after a pass completes with nothing skipped; a pass that skipped a file leaves no row and is retried on the next launch.
 
 | Column      | Type         | Description                                          |
 | ----------- | ------------ | ---------------------------------------------------- |
@@ -1315,4 +1315,4 @@ Which **canonical updates** this vault has finished — the counterpart of `Sche
 | applied_at  | timestamp    | When the pass completed.                             |
 | description | text         | The update's one-line summary.                       |
 
-This table is an **optimisation, not the source of truth**: it is what lets startup skip walking every sidecar when nothing is pending. The authority is the `formatVersion` stamped on each canonical file (see § Canonical file versioning), so losing this table costs one redundant walk, not correctness.
+This table is an optimisation, not the source of truth: it is what lets startup skip walking every sidecar when nothing is pending. The authority is the `formatVersion` stamped on each canonical file (see § Canonical file versioning), so losing this table costs one redundant walk, not correctness.

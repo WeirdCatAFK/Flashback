@@ -71,4 +71,22 @@ export default [
       ],
     },
   },
+  {
+    // Comments are JSDoc above the thing they describe, and rationale lives in the
+    // co-located .md rather than in the source. These two rules catch trailing comments
+    // only; "no comment inside a function body" has no core rule and stays review
+    // discipline. Scoped to the trees that have been through the normalization pass --
+    // add src/ui once it has, and decide separately about tests/ and scripts/.
+    files: [
+      "src/api/**/*.js",
+      "src/electron/**/*.js",
+      "src/server/**/*.js",
+      "src/mcp/**/*.js",
+      "src/shared/**/*.js",
+    ],
+    rules: {
+      "no-inline-comments": "error",
+      "line-comment-position": ["error", { position: "above" }],
+    },
+  },
 ];

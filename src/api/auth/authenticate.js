@@ -26,6 +26,7 @@ import { runWithAccount } from "../requestContext.js";
 
 /**
  * Pulls a token out of a request, from either place a client may put it.
+ *
  * @returns {string|null}
  */
 export function extractToken(req) {
@@ -41,22 +42,14 @@ const UNAUTHORIZED = { error: "Unauthorized: missing or invalid API token" };
  * Builds the `/api` authentication middleware.
  *
  * @param {object}  options
- * @param {boolean} options.tokenConfigured  whether this install has an `apiToken` at all.
- *   False only in the standalone flows (`dev:api`, `dev:web`) that never run Electron, which
- *   is the one process that mints one.
- * @param {boolean} options.requireAuth  refuse anonymous callers even when no token is
- *   configured. Set by the server entry point; never by the desktop app.
+ * @param {boolean} options.tokenConfigured  whether this install has an `apiToken` at all. False only in the standalone flows (`dev:api`, `dev:web`) that never run Electron, which is the one process that mints one.
+ * @param {boolean} options.requireAuth  refuse anonymous callers even when no token is configured. Set by the server entry point; never by the desktop app.
  * @returns {import('express').RequestHandler}
  */
 export function authenticate({ tokenConfigured, requireAuth }) {
     return (req, res, next) => {
         const presented = extractToken(req);
 
-        // No credential at all. On a guarded install that is simply a 401. On an unguarded
-        // one — a loopback dev server with no Electron to mint a token — it is how every
-        // request has always arrived, and the caller is the person sitting at the machine.
-        // Treating them as the Author keeps `dev:api` and `dev:web` working exactly as they
-        // did, while still giving the role table a subject to check.
         if (!presented) {
             if (tokenConfigured || requireAuth) return res.status(401).json(UNAUTHORIZED);
             return getAuthorAccount().then(
@@ -65,7 +58,7 @@ export function authenticate({ tokenConfigured, requireAuth }) {
                     req.account = author;
                     runWithAccount(author, next);
                 },
-                next,   // a store failure is a 500 through the error handler, not a 401
+                next,
             );
         }
 

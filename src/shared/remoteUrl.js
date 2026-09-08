@@ -31,7 +31,7 @@ const UNSPECIFIED = new Set(["0.0.0.0", "[::]", "::"]);
 export function unusableUrlReason(url) {
     let host;
     try {
-        host = new URL(url).hostname;   // an IPv6 literal keeps its brackets here
+        host = new URL(url).hostname;
     } catch {
         return "That is not a valid URL.";
     }

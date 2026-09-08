@@ -27,31 +27,11 @@ import { guard } from './auth/permissions.js';
 import { ensureLocalAuthor, hasUsableToken } from './access/primitives/accounts.js';
 import { isSwitching } from './vaultSession.js';
 
-// Keep the API token out of the request log.
-//
-// The auth guard accepts the token as `?token=` as well as a Bearer header, because a
-// browser-initiated load cannot set a header — a PDF page, an <img>, an <audio>. The
-// renderer therefore appends it to every asset URL (ui/api/client.js appendToken), and
-// morgan is mounted BEFORE the guard, with `:url` resolving to `req.originalUrl`, query
-// string and all. The result was the vault's master credential written to the rotating
-// log file thousands of times over an ordinary reading session.
-//
-// Overriding the token is how morgan registers its own built-ins, so this replaces `:url`
-// for EVERY format — `dev` on the desktop, `combined` on a server, and whatever an
-// operator sets through FLASHBACK_LOG_FORMAT. Doing it at each call site would miss the
-// ones nobody thought of, which is exactly how this got here.
 morgan.token('url', (req) =>
     String(req.originalUrl || req.url || '').replace(/([?&]token=)[^&]*/gi, '$1[redacted]'),
 );
 
-/**
- * Every router this API serves, keyed by its mount name under `/api/`.
- *
- * A map rather than seventeen `app.use` lines because that key is used twice: once to build
- * the URL, and once as the lookup into the permission table. Exported so
- * `tests/accounts.test.js` can assert the two never drift — a router added here with no rule
- * in `auth/permissions.js` fails the suite instead of silently resolving to author-only.
- */
+/** Every router this API serves, keyed by its mount name under `/api/`. */
 export const ROUTERS = {
   documents: documentsRouter,
   media: mediaRouter,
@@ -76,51 +56,29 @@ export const ROUTERS = {
 class api {
 /**
  * Constructor for the api class.
- * 
+ *
  * @param {object} config - Configuration options for the api.
  * @param {number} [config.port=3000] - The port number to bind to.
  * @param {string} [config.logFormat="dev"] - The log format to use.
  * @param {string} [config.host="localhost"] - The host to bind to.
  * @param {boolean} [config.isLocalhost=true] - Whether to bind to localhost or all interfaces.
- * @param {() => object|null} [config.updateStatus] - Getter for the headless server's release
- *   check. Omitted by the desktop build; the handshake then reports `update: null`.
+ * @param {() => object|null} [config.updateStatus] - Getter for the headless server's release check. Omitted by the desktop build; the handshake then reports `update: null`.
  */
   constructor(config = {}) {
     this.app = express();
 
-    //Default options
-    // `??`, not `||`: port 0 means "let the OS pick a free one", which is a real value and
-    // the one the test suite and the benchmark ask for. `||` silently turned it into 3000,
-    // so nothing was ever ephemeral — two Api instances in one process collided with
-    // EADDRINUSE, and a developer with something else on 3000 saw the suite fail to boot.
     this.port = config.port ?? 3000;
     this.logFormat = config.logFormat || "dev";
 
-    //Ip binding options
     this.host = config.host || "localhost";
     this.isLocalhost = config.isLocalhost ?? true;
 
-    // The install's own token. It is no longer a shared secret compared byte-for-byte:
-    // start() adopts it as the Author account's token, so a request carrying it resolves
-    // to a person with a role like any other. When none is configured (standalone dev
-    // without the Electron app, the only process that mints one) an anonymous caller is
-    // treated as the Author — see auth/authenticate.js.
     this.apiToken = config.apiToken || null;
 
-    // Refuse to serve anonymous callers even with no token configured. The desktop app
-    // never sets this; the headless server entry point (M4) always does, because an open
-    // deployment is a very different mistake from an open loopback dev server.
     this.requireAuth = config.requireAuth ?? false;
 
-    // One vault per process. Set by the headless server entry point, never by the desktop
-    // app, where switching vaults is a normal thing to do. See build() for what it removes.
     this.singleVault = config.singleVault ?? false;
 
-    // A getter, not a value: the headless server's release check answers minutes after boot
-    // and again the next day, and `routes/vault.js` has to report whatever it knows at the
-    // time it is called. Parked on `app.locals` in build() so the route reads it without the
-    // API tier importing anything from `src/server`. Absent on the desktop build, which has
-    // electron-updater instead — the handshake then reports `update: null`.
     this.updateStatus = typeof config.updateStatus === "function" ? config.updateStatus : null;
 
     if (!this.isLocalhost && this.host === "localhost") {
@@ -132,79 +90,37 @@ class api {
 
     this.build();
   }
-  /*Builds the api as you would normally in express, take into consideration
- that is asynchronous and runs along the constructor*/
+  /** Builds the Express app: middleware, guards and every router. */
   async build() {
     this.app.locals.updateStatus = this.updateStatus;
 
-    // Middleware mounting
     // @ts-ignore — cors is a valid RequestHandler, TypeScript infers it too broadly
     this.app.use(cors);
     this.app.use(morgan(this.logFormat));
-    // Bodies are whole documents and whole sidecars, not small form posts: a
-    // metadata write PUTs the entire sidecar (every highlight, card and tag of a
-    // book-length document), so body-parser's 100kb default cuts highlighting off
-    // once a document accumulates enough of them. 50mb is well above any realistic
-    // sidecar or markdown body while still bounding a runaway request.
     this.app.use(express.json({ limit: '50mb' }));
     this.app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-    // Readiness ping — stays open (unauthenticated) so the renderer can gate on it
-    // before it has fetched the token, and health checks don't need credentials.
     this.app.get("/", (req, res) => {
       res.status(200).send("Welcome to flashback");
     });
 
-    // YouTube embed proxy. The renderer is served from file:// in the packaged app,
-    // which has an opaque origin and sends no Referer — and since late 2025 YouTube
-    // rejects such embeds with "Error 153 (video player configuration error)". This
-    // page is served over the real http://localhost origin, so the embedded player
-    // gets a valid origin/referrer and authorizes. It carries no vault data, so it
-    // sits OUTSIDE the /api token guard (keeping the token out of the iframe URL and
-    // the Referer YouTube sees). The renderer iframes it and drives it via postMessage.
     this.app.get("/embed/youtube", (req, res) => {
       const videoId = String(req.query.v || "").replace(/[^A-Za-z0-9_-]/g, "").slice(0, 24);
       res.set("Content-Type", "text/html; charset=utf-8");
       res.send(renderYoutubeEmbed(videoId));
     });
 
-    // Auth guard for everything under /api: resolves the presented token to an account and
-    // attaches it as `req.account`, which the role guards below compare against. Browser-
-    // initiated loads that can't set headers (PDF/media URLs, <img>/<audio>) pass the token
-    // as ?token=.
     this.app.use('/api', authenticate({
       tokenConfigured: !!this.apiToken,
       requireAuth: this.requireAuth,
     }));
 
-    // Vault-switch gate. A switch closes the database and re-points every path resolver;
-    // a request served mid-sequence would read a closed handle or, worse, mix the two
-    // vaults. This refuses NEW requests for the duration.
-    //
-    // It used to be able to lean on better-sqlite3 being synchronous, so that no single
-    // query could straddle the swap and only the async work (Seal git operations, file IO)
-    // needed guarding. The data layer is async now, so that guarantee is gone: a request
-    // already in flight can have queued statements on either side of closeDatabase(). The
-    // gate still closes the door on new work, which is what keeps a switch bounded, but a
-    // request that started before the switch can still fail against a closed handle.
-    //
-    // Deliberately AFTER the auth guard (an unauthenticated caller learns nothing about
-    // vault state) and after /vault's own routes are unreachable — 503 + Retry-After is
-    // what tells the renderer to keep polling rather than surface an error.
     this.app.use('/api', (req, res, next) => {
       if (!isSwitching()) return next();
       res.set('Retry-After', '1');
       return res.status(503).json({ error: 'Vault switch in progress', switching: true });
     });
 
-    // Single-vault gate. A server serves ONE vault, so switching is not a capability it
-    // has — and it is not merely useless there but actively harmful: a switch closes the
-    // database and re-points every path resolver under every connected user at once.
-    //
-    // Mounted ahead of the router loop below so these two routes are genuinely absent (404)
-    // rather than present-and-refused (403). A client discovering capabilities should see a
-    // server that cannot switch, not one that could if you were more important.
-    // `GET /api/vault` — the identity handshake every remote depends on — and `/list` stay.
     if (this.singleVault) {
       this.app.use('/api/vault', (req, res, next) => {
         if (req.method === 'POST' && (req.path === '/switch' || req.path === '/release')) {
@@ -214,38 +130,20 @@ class api {
       });
     }
 
-    // Route mounting.
-    //
-    // Every router carries a guard('<mount>') in front of it, and the mount name is the key
-    // into the one permission table in auth/permissions.js. Keeping the check here rather
-    // than inside handlers means the whole access policy is readable in one file, and a
-    // router mounted WITHOUT an entry in that table resolves to `author` — it fails closed
-    // and loudly instead of quietly serving everyone. tests/accounts.test.js asserts that
-    // every name below has a rule.
     for (const [mount, router] of Object.entries(ROUTERS)) {
       this.app.use(`/api/${mount}`, guard(mount), router);
     }
 
-    // 404
     this.app.use((req, res) => {
       res.status(404).json({ code: 404, message: "Url no encontrada" });
     });
 
-    // Global error handler — catches thrown errors and async rejections from all routes
     // eslint-disable-next-line no-unused-vars
     this.app.use((err, req, res, next) => {
       console.error(err);
-      // Body-parser rejections carry a status; surfacing them as 500 hides what
-      // actually happened (e.g. an oversized sidecar) from the client.
       if (err.type === 'entity.too.large') {
         return res.status(413).json({ error: 'Request body too large' });
       }
-      // An explicit 4xx from the access layer is a statement about the REQUEST, not about
-      // the server: a stale write (409), a missing document (404). Several routers already
-      // unwrap this in their own catchError; doing it here as well means a router that
-      // forgot to cannot turn "you are out of date" into "the server broke".
-      // Only 4xx — a stray 5xx from something we called upstream is our failure, not the
-      // client's, and stays a 500.
       if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
         const body = { error: err.message };
         if (err.code) body.code = err.code;
@@ -255,23 +153,10 @@ class api {
       res.status(500).json({ error: err.message ?? 'Internal server error' });
     });
   }
-  /**
-   * Provisions the accounts store, then listens.
-   *
-   * The provisioning lives here rather than in `vaultSession.openVault()` on purpose: the
-   * accounts store is scoped to the INSTALL, not to a vault, so it must not be re-derived
-   * every time the active vault changes. `start()` is the one path every real boot, every
-   * test and any embedder already takes, and it runs exactly once.
-   */
+  /** Provisions the accounts store, then listens. */
   async start() {
-    // Adopts this install's `apiToken` as the Author's token, creating the Author from the
-    // local identity if the store is new. This is what makes the milestone invisible on a
-    // desktop install: the renderer and the MCP server keep presenting the token they
-    // already hold, and it keeps working.
     await ensureLocalAuthor(this.apiToken);
 
-    // A served deployment with no way to authenticate is an open deployment. Desktop never
-    // sets requireAuth, so this can only fire where it is meant to.
     if (this.requireAuth && !(await hasUsableToken())) {
       throw new Error(
         'requireAuth is set but no usable token exists. Mint one with `npm run pure-token` before starting.',
@@ -290,7 +175,7 @@ class api {
         });
     });
   }
-  /*Stops the api after being started */
+  /** Stops listening and releases the port. */
   async stop() {
     return new Promise((resolve, reject) => {
       if (this.server) {
@@ -310,17 +195,8 @@ class api {
   }
 }
 
-// Standalone embed shell served by GET /embed/youtube. Runs the YouTube IFrame
-// API from this page's real http://localhost origin (so the late-2025 referrer/
-// origin check passes) and bridges the minimal control surface the renderer needs
-// over postMessage: parent → { cmd: 'seek'|'seekQuiet'|'mark' }, iframe → { event:
-// 'ready'|'error'|'markAt'|'progressAt' }. `progressAt` is the reading-position feed —
-// the IFrame API has no timeupdate, so the embed polls its own player while it is
-// playing rather than the renderer polling across the frame boundary.
-// Uses youtube-nocookie + strict-origin-when-cross-origin, the
-// combination YouTube documents for embeds. `videoId` is pre-sanitized by the route.
 function renderYoutubeEmbed(videoId) {
-  const safeId = JSON.stringify(videoId); // already ^[A-Za-z0-9_-]$ filtered; quote for JS
+  const safeId = JSON.stringify(videoId);
   return `<!doctype html>
 <html>
 <head>

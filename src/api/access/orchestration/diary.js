@@ -35,42 +35,22 @@ import query from "../resources/query.js";
 import { currentScope, isOwnerScope } from "../../requestContext.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
-// v2 added the acquisition/review split to `retention` (see buildSummary).
 export const DIARY_SCHEMA_VERSION = 2;
 const STRUGGLED_CAP = 10;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// The git repo root. ONE repo for the whole diary, whoever is writing into it.
 function diaryRoot() { return path.join(getVaultPath(), "diary"); }
 
-/**
- * Where one person's diary lives, relative to the repo root.
- *
- * The owner keeps the unprefixed layout the diary has always had — `summaries/`, `entries/`
- * — so no existing file moves, no git rename appears in anyone's history, and a vault written
- * before accounts existed reads back unchanged. Everyone else gets
- * `accounts/<accountId>/`. It is the same shape as the OWNER_SCOPE sentinel in the database:
- * the owner is the unmarked case, deliberately, because they are the one whose record has to
- * survive being copied to an install that has never heard of these account ids.
- *
- * One repo covers all of it, so one git history holds several people's prose. That is a real
- * property to be honest about rather than an oversight — it is what M5's "Logs" rebrand and
- * its privacy warning exist to state to the people involved. It is not a private local diary
- * once a vault is shared, and the app has to say so.
- */
+/** Where one person's diary lives, relative to the repo root. */
 function scopeDir(scope) { return isOwnerScope(scope) ? "" : `accounts/${scope}/`; }
 
 function summariesDir(scope) { return path.join(diaryRoot(), ...scopeDir(scope).split("/").filter(Boolean), "summaries"); }
 function entriesDir(scope) { return path.join(diaryRoot(), ...scopeDir(scope).split("/").filter(Boolean), "entries"); }
 function summaryAbs(date, scope) { return path.join(summariesDir(scope), `summary-${date}.json`); }
 function entryAbs(date, scope) { return path.join(entriesDir(scope), `entry-${date}.md`); }
-// git filepaths are relative to the diary repo root, always forward-slashed.
 function summaryRel(date, scope) { return `${scopeDir(scope)}summaries/summary-${date}.json`; }
 function entryRel(date, scope) { return `${scopeDir(scope)}entries/entry-${date}.md`; }
 
-// The date key for "now" — the user's local calendar day, matching
-// date(timestamp, 'localtime') in query.js. Not toISOString(), which would file an
-// evening session west of Greenwich under tomorrow.
 function todayLocal() {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, "0");
@@ -88,15 +68,11 @@ class Diary {
         return explicit ?? currentScope();
     }
 
-    // ---------- git plumbing (own repo, mirrors Seal's atomic-commit pattern) ----------
-
     _author() {
         const config = getConfig();
         return { name: config?.vaultName || "flashback", email: "diary@flashback.local" };
     }
 
-    // Ensures this person's {summaries,entries}/ exist and the git repo is initialized.
-    // Lazy: called by every write, never at startup, so an opted-out vault stays clean.
     async _ensureInit(scope) {
         fs.mkdirSync(summariesDir(scope), { recursive: true });
         fs.mkdirSync(entriesDir(scope), { recursive: true });
@@ -107,7 +83,6 @@ class Diary {
         if (!initialized) await git.init({ fs, dir: root });
     }
 
-    // Atomic write (temp + rename) so a crash mid-write never leaves a half file.
     _atomicWrite(absFile, content) {
         const tmp = `${absFile}.tmp-${process.pid}-${Date.now()}`;
         fs.writeFileSync(tmp, content);
@@ -120,12 +95,6 @@ class Diary {
         await git.commit({ fs, dir: root, message, author: this._author() });
     }
 
-    // ---------- summaries ----------
-
-    // Study-streak lengths AS OF `date`, derived from the full set of active days.
-    // Computing relative to the date (not wall-clock "now") keeps regeneration of a
-    // past summary idempotent. `current` = consecutive active days ending on `date`
-    // (0 if `date` itself had no activity); `longest` = longest run among days <= date.
     async _streakAsOf(date, scope) {
         const DAY = 86400000;
         const days = (await query.getReviewActivityDays(scope)).filter(d => d <= date);
@@ -147,9 +116,7 @@ class Diary {
         return { current, longest };
     }
 
-    // Assembles the summary object for a date purely from ReviewLogs. No IO beyond
-    // reads; returns null when the day has no real reviews (so we never litter the
-    // diary with empty summaries).
+    /** Derives one day's summary from the review ledger, without writing it. */
     async buildSummary(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -160,8 +127,6 @@ class Diary {
         const failed = totals.failed ?? 0;
         const passRate = reviews > 0 ? (reviews - failed) / reviews : null;
 
-        // Split the day's reviews on the same acquisition/review boundary the Stats
-        // view uses: a day spent on new material reads as a low pass rate otherwise.
         const phase = await query.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date, scope);
         const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
 
@@ -188,8 +153,8 @@ class Diary {
                 failed,
             },
             retention: {
-                passRate,                              // every review of the day
-                reviewPassRate: rate(phase.review),    // cards past their learning phase
+                passRate,
+                reviewPassRate: rate(phase.review),
                 learningPassRate: rate(phase.learning),
                 reviewCount: phase.review.total,
                 learningCount: phase.learning.total,
@@ -201,10 +166,7 @@ class Diary {
         };
     }
 
-    // Writes (or overwrites) the summary for a date and commits it. Cumulative and
-    // idempotent: a later session on the same day just regenerates the whole file
-    // from the now-larger log set. Returns the summary, or null if the day had no
-    // reviews (nothing written).
+    /** Derives and stores one day's summary; idempotent. */
     async generateSummary(date = todayLocal(), scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -216,7 +178,7 @@ class Diary {
         return summary;
     }
 
-    // Rebuild every summary from ReviewLogs (the "rebuild diary" command). Idempotent.
+    /** Re-derives every summary in a date range. */
     async rebuildAll(scopeArg) {
         const scope = this._scope(scopeArg);
         const days = await query.getReviewActivityDays(scope);
@@ -232,6 +194,7 @@ class Diary {
         return count;
     }
 
+    /** One day's stored summary. */
     getSummary(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -240,12 +203,11 @@ class Diary {
         try {
             return JSON.parse(fs.readFileSync(abs, "utf-8"));
         } catch {
-            return null; // corrupt summary — regenerable via generateSummary/rebuildAll
+            return null;
         }
     }
 
-    // ---------- entries ----------
-
+    /** One day's written entry. */
     getEntry(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -253,9 +215,7 @@ class Diary {
         return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
     }
 
-    // Writes the user's markdown entry for a date. Lazy: saving empty content for a
-    // date with no existing entry is a no-op, so opening a day without typing never
-    // litters an empty file. Returns { created, empty }.
+    /** Writes one day's entry and commits it to the diary repo. */
     async saveEntry(date, content, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -271,14 +231,10 @@ class Diary {
         return { created: !existed, empty: text.trim() === "" };
     }
 
-    // ---------- listing ----------
-
-    // Merged, date-descending list of days that have a summary and/or an entry,
-    // optionally bounded by inclusive `from`/`to` (YYYY-MM-DD). Each item:
-    // { date, hasSummary, hasEntry }. Returns [] when diary/ doesn't exist yet.
+    /** Every day this person has a summary or an entry for, newest first. */
     list({ from = null, to = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
-        const dates = new Map(); // date -> { hasSummary, hasEntry }
+        const dates = new Map();
         const collect = (dir, re, key) => {
             if (!fs.existsSync(dir)) return;
             for (const name of fs.readdirSync(dir)) {

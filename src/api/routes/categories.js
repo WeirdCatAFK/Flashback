@@ -6,12 +6,12 @@ const router = Router();
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(next);
 
-// GET /api/categories
+/** Every pedagogical category. */
 router.get('/', catchError(async (req, res) => {
     res.json(await query.getCategories());
 }));
 
-// POST /api/categories — { name, priority?, description? }
+/** Creates a category. */
 router.post('/', catchError(async (req, res) => {
     const { name, priority = 0, description = '' } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
@@ -23,7 +23,7 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ id });
 }));
 
-// PUT /api/categories/:id — { name?, priority?, description? }
+/** Renames or re-describes a category. */
 router.put('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
     const { name, priority, description } = req.body;
@@ -35,7 +35,7 @@ router.put('/:id', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-// DELETE /api/categories/:id
+/** Deletes a category. */
 router.delete('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
     const count = await query.getCategoryUsageCount(id);

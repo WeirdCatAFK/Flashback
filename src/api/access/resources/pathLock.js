@@ -91,8 +91,7 @@ class PathLock {
     }
 
     /**
-     * Runs `fn` with the whole tree held exclusively. Nothing else — document write or
-     * structural operation — runs until it resolves.
+     * Runs `fn` with the whole tree held exclusively.
      *
      * @template T
      * @param {() => Promise<T>} fn
@@ -108,8 +107,8 @@ class PathLock {
     }
 
     /**
-     * True when nothing holds the lock. For tests and for shutdown checks; never branch on
-     * it to decide whether to lock — that is a race by construction.
+     * True when nothing holds the lock.
+     *
      * @returns {boolean}
      */
     isIdle() {
@@ -119,17 +118,7 @@ class PathLock {
             && this._waitingReaders.length === 0;
     }
 
-    // ---------- internals ----------
-    //
-    // Both acquire loops are wake-all-and-re-check rather than hand-off: whoever is woken
-    // re-tests its own condition and re-queues if it lost the race. That costs a few extra
-    // microtasks under contention and removes the class of bug where a hand-off resolves a
-    // waiter whose condition changed between the wake and the resume.
-
     async _acquireShared() {
-        // Queue behind a structural operation that HOLDS the tree or is WAITING for it.
-        // Waiting counts, and it is the whole anti-starvation rule: without it a steady
-        // stream of document edits would postpone a move indefinitely.
         while (this._structureHeld || this._waitingWriters.length > 0) {
             await new Promise(resolve => this._waitingReaders.push(resolve));
         }
@@ -138,8 +127,6 @@ class PathLock {
 
     _releaseShared() {
         this._documentCount--;
-        // Only a writer can be unblocked by the last document write finishing; other
-        // document writes were never blocked by this one.
         if (this._documentCount === 0) this._wake(this._waitingWriters);
     }
 
@@ -152,8 +139,6 @@ class PathLock {
 
     _releaseExclusive() {
         this._structureHeld = false;
-        // Writers first: a second structural operation that was already waiting should not
-        // have to queue behind the documents that piled up behind the first one.
         if (this._waitingWriters.length > 0) this._wake(this._waitingWriters);
         else this._wake(this._waitingReaders);
     }
@@ -164,18 +149,11 @@ class PathLock {
         for (const resolve of waiting) resolve();
     }
 
-    /**
-     * Chains `fn` onto whatever is already queued for this path, so two writes to one
-     * document never overlap. The chain entry is deleted only if nothing else joined it,
-     * which is what keeps the map from growing with every document ever written.
-     */
+    /** Chains `fn` onto whatever is already queued for this path, so two writes to one document never overlap. */
     async _runExclusiveOnPath(k, fn) {
         const previous = this._perPath.get(k) ?? Promise.resolve();
         let release;
         const mine = new Promise(resolve => { release = resolve; });
-        // Held in a variable, not recomputed: `previous.then(...)` returns a NEW promise on
-        // every call, so comparing against a fresh one below would never match and the map
-        // would grow by one entry per document written, forever.
         const tail = previous.then(() => mine);
         this._perPath.set(k, tail);
 
@@ -184,8 +162,6 @@ class PathLock {
             return await fn();
         } finally {
             release();
-            // Only the last writer in the chain clears the entry; if someone else joined
-            // behind us they have already replaced the tail and are still waiting on it.
             if (this._perPath.get(k) === tail) this._perPath.delete(k);
         }
     }

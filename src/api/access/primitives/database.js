@@ -23,7 +23,7 @@ const adapter = createSqliteAdapter({ resolvePath: getDatabasePath });
 
 /**
  * Opens (or re-opens) the connection for whatever vault config.js currently points at.
- * Closes any previous handle first, so callers cannot leak a connection by mistake.
+ *
  * @returns {import('better-sqlite3').Database} the raw handle, for callers that need it.
  */
 export const openDatabase = adapter.openDatabase;

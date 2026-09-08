@@ -8,8 +8,7 @@ const subs = new Subscriptions();
 const upload = multer({ storage: multer.memoryStorage() });
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// POST /api/subscriptions/import
-// Multipart: file field + body { magazineId, targetPath? }
+/** Imports a magazine or course issue, merging it into the subscription. */
 router.post('/import', upload.single('file'), catchError(async (req, res) => {
     const { magazineId, targetPath = '' } = req.body;
     if (!req.file || !magazineId) {
@@ -19,7 +18,7 @@ router.post('/import', upload.single('file'), catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-// GET /api/subscriptions/:magazineId
+/** One subscription's tracked issues. */
 router.get('/:magazineId', catchError(async (req, res) => {
     const sub = await query.getSubscription(req.params.magazineId);
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });

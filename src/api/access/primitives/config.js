@@ -6,17 +6,7 @@ import { defaultIdentityFrom } from "../../../shared/identity.js";
 
 let cache = null;
 
-// USER_DATA_PATH wins wherever it is set, Electron or not.
-//
-// This used to honour the env var only under Electron and fall back to `<cwd>/data`
-// otherwise — while _baseDir() below honoured it unconditionally. So a plain-Node process
-// with USER_DATA_PATH set (every test file, and `dev:api`) read its config from one place
-// and resolved its VAULT relative to another. It went unnoticed because nothing outside
-// Electron ever wrote vaultName: every test shared `<cwd>/data/config.json`, read the same
-// default vault name out of it, and located its vault correctly by accident.
-//
-// A vault switch writes vaultName, which turns that split into cross-contamination — one
-// test file leaving its active vault in the shared config for the next one to open.
+/** Absolute path of config.json. */
 function getConfigPath() {
     if (process.env.USER_DATA_PATH) {
         return path.join(process.env.USER_DATA_PATH, "config.json");
@@ -25,6 +15,7 @@ function getConfigPath() {
     return path.join(process.cwd(), "data", "config.json");
 }
 
+/** The parsed config, cached until `reload()`. */
 export function get() {
     if (cache) return cache;
 
@@ -49,28 +40,12 @@ export function get() {
     }
 }
 
-/**
- * Drops the cached config so the next get() re-reads from disk.
- *
- * config.json has TWO writers — the Electron main process (which owns the vault registry,
- * the api token, the remotes and the user identity) and this module — so the cache goes
- * stale whenever main writes. Dropping it is also what makes a per-vault identity override
- * take effect: getIdentity() reads through get() and has no cache of its own.
- *
- * Every path resolver below is a pure per-call function over get(), which is what
- * makes a vault switch a matter of moving the pointer and calling this, rather than
- * restarting the process.
- */
+/** Drops the cached config so the next get() re-reads from disk. */
 export function reload() {
     cache = null;
 }
 
-/**
- * Reads config.json straight off disk, bypassing the cache.
- *
- * Used by writers that must not clobber a concurrent change from the Electron main
- * process: merge into what is actually on disk, never into a cache that may predate it.
- */
+/** Reads config.json straight off disk, bypassing the cache. */
 function readFresh() {
     try {
         return JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
@@ -79,13 +54,7 @@ function readFresh() {
     }
 }
 
-/**
- * The install's data directory — where `config.json` lives, and the parent of every vault.
- *
- * Exported because it is not only a step on the way to a vault path any more: the accounts
- * store sits HERE rather than inside a vault, so that copying a vault folder to someone else
- * carries no access list with it.
- */
+/** The install's data directory — where `config.json` lives, and the parent of every vault. */
 export function getBaseDir() {
     return process.env.USER_DATA_PATH || path.join(process.cwd(), "data");
 }
@@ -94,6 +63,7 @@ function _baseDir() {
     return getBaseDir();
 }
 
+/** Absolute path of the active vault directory. */
 export function getVaultPath() {
     const config = get();
     const vaultName = config.vaultName || "default";
@@ -104,24 +74,19 @@ export function getVaultPath() {
     return path.join(_baseDir(), vaultName);
 }
 
+/** Absolute path of the active vault's `workspace/`. */
 export function getWorkspacePath() {
     return path.join(getVaultPath(), "workspace");
 }
 
+/** Absolute path of the active vault's SQLite database. */
 export function getDatabasePath() {
     const config = get();
     const vaultName = config.vaultName || "default";
     return path.join(getVaultPath(), `${vaultName}.db`);
 }
 
-// How much of the diary AI assistants reaching the API through the MCP server may
-// read. Three levels: 'none' (closed), 'summaries' (machine-derived study summaries
-// only — the personal written entries stay private), 'full' (summaries + entries).
-// Authorization boundary for a SEPARATE process, so it lives in config.json (like
-// apiToken) — not a renderer localStorage pref. Read FRESH from disk (bypassing the
-// module cache) so toggling it in Config takes effect without an API restart. Fails
-// CLOSED: any unrecognized value or read/parse error → 'none'. Default 'none'.
-// Back-compat: the flag used to be a boolean (true = full, false = none).
+/** How much of the diary the MCP server may read, read fresh from disk. */
 export function getMcpDiaryAccess() {
     try {
         const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
@@ -134,21 +99,9 @@ export function getMcpDiaryAccess() {
     }
 }
 
-// How many flashcards one account may delete, per request and per rolling hour.
-//
-// A server-level safety limit, so it belongs here beside mcpDiaryAccess rather than in
-// renderer localStorage: it constrains what a REMOTE caller may do, and a limit the caller
-// configures is not a limit. See access/resources/cardRemovalBudget.js for what it is for
-// and — importantly — what it is not.
-//
-// Read fresh from disk for the same reason getMcpDiaryAccess is: an operator tightening
-// this after an incident should not have to restart the API to make it bite.
-//
-// Fails to the DEFAULTS rather than to zero. A missing or corrupt config must not wedge
-// every card deletion in the vault; the defaults are already conservative, and the
-// permission table remains the actual authorization boundary either way.
 export const CARD_REMOVAL_DEFAULTS = { perHour: 20, perRequest: 10 };
 
+/** The per-request and per-hour card-removal budget. */
 export function getCardRemovalLimits() {
     const positiveInt = (v, fallback) =>
         Number.isInteger(v) && v >= 0 ? v : fallback;
@@ -163,24 +116,9 @@ export function getCardRemovalLimits() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Vault registry
-//
-// config.json carries a `vaults[]` registry and an `activeVaultId` pointer, but it ALSO
-// keeps the original flat `vaultName`/`isCustomPath`/`customPath` fields as the projection
-// of whichever vault is active. That redundancy is deliberate and load-bearing: every
-// existing consumer of those fields — getVaultPath() above, getDatabasePath(), the diary's
-// storage root — keeps working untouched, and a config.json written by an older build
-// still opens. The registry is purely additive.
-//
-// Authorship is NOT one of those consumers any more: the Seal commit author and the
-// `createdBy` stamp read getIdentity() below. The vault is a place; those want a person.
-// ---------------------------------------------------------------------------
-
 /**
- * The registered vaults. Synthesizes a single-entry registry from the flat fields when
- * `vaults[]` is absent, which is what an install predating the registry looks like — so
- * callers never have to special-case the un-migrated shape.
+ * The registered vaults.
+ *
  * @returns {Array<{id: string|null, name: string, isCustomPath: boolean, customPath: string}>}
  */
 export function getVaults() {
@@ -200,16 +138,7 @@ export function getActiveVaultId() {
 }
 
 /**
- * Points the config at a different vault and drops the cache, so every path resolver in
- * this module answers for the new vault on its next call.
- *
- * Writes the flat projection AND the pointer together — they must never disagree, since
- * the flat fields are what actually resolve paths. Merges into a fresh disk read so a
- * registry entry Electron main added moments ago is not lost.
- *
- * This only moves the pointer. Closing the old database, quiescing Seal and re-running
- * validation are the caller's job — see src/api/vaultSession.js, which is the only thing
- * that should call this.
+ * Points the config at a different vault and drops the cache, so every path resolver in this module answers for the new vault on its next call.
  *
  * @param {{id: string, name: string, isCustomPath?: boolean, customPath?: string}} entry
  * @returns {boolean}
@@ -231,10 +160,6 @@ export function setActiveVault(entry) {
 /**
  * Registered remote Flashback Server instances, with credentials stripped.
  *
- * A remote's token is never stored here — Electron main holds it encrypted via safeStorage
- * — so this is safe to hand to any authenticated caller. `hasToken` is the only thing said
- * about the credential.
- *
  * @returns {Array<{id: string, label: string, url: string, hasToken: boolean}>}
  */
 export function getRemotes() {
@@ -249,9 +174,8 @@ export function getRemotes() {
 }
 
 /**
- * Extra browser origins allowed to reach this API, on top of the ones config/cors.js
- * derives for itself. Empty on a normal desktop install; this is the field a Flashback
- * Server deployment sets to name its own web client.
+ * Extra browser origins allowed to reach this API, on top of the ones config/cors.js derives for itself.
+ *
  * @returns {string[]}
  */
 export function getAllowedOrigins() {
@@ -262,36 +186,11 @@ export function getAllowedOrigins() {
 /**
  * Whether this install may fetch a user-supplied URL that resolves onto a private network.
  *
- * Off by default, and the default is the interesting half: the clipper fetches an address
- * someone hands it, from inside whatever network this process runs in. On a server that is
- * the deployment's private network (cloud metadata included); on the desktop it is the
- * user's own LAN, reachable by anything driving the MCP server. See
- * `access/resources/safeFetch.js` for the whole argument.
- *
- * The field exists for the install that genuinely means to clip from its own intranet
- * wiki, which is a real thing to want and impossible for us to tell apart from the outside.
  * @returns {boolean}
  */
 export function getAllowPrivateNetworkFetch() {
     return get()?.allowPrivateNetworkFetch === true;
 }
-
-// ---------------------------------------------------------------------------
-// Local user identity
-//
-// Who is using this install, in git's terms: a self-asserted name and email under a single
-// `user` key, plus an optional per-vault override keyed by vault id. It mirrors
-// `git config --global user.email` against a repo-local one, and it is deliberately NOT
-// authentication — nothing validates it and nothing gates on it. When remotes arrive they
-// authenticate with access tokens; a server must treat everything here as client-asserted.
-//
-// The override lives under `user`, not on the vaults[] registry entry, because "which
-// address I use where" is a fact about the person. It must also not travel with a copied
-// vault folder to someone else's machine — config.json stays behind, vault.json would not.
-//
-// Read through get(), which reload() already clears on every vault switch, so the override
-// follows the active vault by the same mechanism the path resolvers use.
-// ---------------------------------------------------------------------------
 
 /** A {name, email} pair only counts if BOTH halves are present — half-filled is not set. */
 function usable(identity) {
@@ -300,26 +199,17 @@ function usable(identity) {
     return name && email ? { name, email } : null;
 }
 
-/**
- * Falls back to the OS account. Unlike git we cannot refuse to write a file for want of an
- * identity, so there is always an answer.
- *
- * Shaped by the shared helper rather than here, because the setup wizard pre-fills its
- * identity step from the same rule via the Electron host — the address it offers and the
- * one that would be stamped if the user skipped the step must be the same string.
- */
+/** Falls back to the OS account. */
 function derivedIdentity() {
     let username = "";
     try {
         username = os.userInfo().username || "";
-    } catch { /* no OS user info (some sandboxes) — the helper's own fallback stands */ }
+    } catch { }
     return defaultIdentityFrom(username);
 }
 
 /**
  * The identity to stamp on work done in the active vault.
- *
- * Precedence: this vault's override → the global identity → derived from the OS account.
  *
  * @returns {{name: string, email: string, source: "vault"|"global"|"default"}}
  */
@@ -341,10 +231,6 @@ export function getIdentity() {
 /**
  * The same identity as one string: `Name <email>`.
  *
- * This is what a sidecar's `createdBy` records and what a git author line looks like, and
- * they are deliberately the same value — a file and the commit that created it should not
- * disagree about who made them.
- *
  * @returns {string}
  */
 export function getAuthorString() {
@@ -352,6 +238,7 @@ export function getAuthorString() {
     return `${name} <${email}>`;
 }
 
+/** Merges fields into config.json and drops the cache. */
 export function set(config) {
     const configPath = getConfigPath();
     try {

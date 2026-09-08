@@ -7,40 +7,14 @@ const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-// The diary is opt-in on the client (a localStorage preference). The server does
-// not gate on that flag — it simply never creates diary/ until a write endpoint is
-// called, which only happens when the feature is enabled. See src/api/access/orchestration/diary.js.
-
-// Privacy gate for AI assistants. The MCP server (a separate process) tags every
-// request with `X-Flashback-Client: mcp`; the diary holds personal reflections, so
-// access is closed to MCP unless the user opted in (config.json `mcpDiaryAccess`,
-// toggled in Config → AI Assistant). Three levels: 'none' closes the whole namespace,
-// 'summaries' exposes the machine-derived study summaries and the day list but keeps
-// the personal written entries private, 'full' opens everything. The React renderer
-// sends no such header, so the in-app Diary view is never affected.
-//
-// WHAT THIS IS AND IS NOT. It is enforced on the server, so our MCP server cannot talk
-// itself past it and a model cannot argue its way in. It is NOT a boundary against a
-// determined caller: the gate keys off a header the client chooses to send, so anything
-// holding FLASHBACK_API_TOKEN — including a model with shell access, which is the actual
-// threat model here — reads the diary at any setting simply by omitting the header.
-// Closing that needs the MCP server to authenticate as its own account with its own role,
-// rather than presenting the Author's token and labelling itself. Until then this is a
-// guard rail for the assistant we ship, not a wall around the diary, and Config says so.
 router.use((req, res, next) => {
     if (req.get('X-Flashback-Client') !== 'mcp') return next();
-    const access = getMcpDiaryAccess(); // 'none' | 'summaries' | 'full'
+    const access = getMcpDiaryAccess();
     if (access === 'none') {
         return res.status(403).json({
             error: 'Diary access for AI assistants is disabled. Enable it in Flashback → Config → AI Assistant.',
         });
     }
-    // In summaries-only mode the personal written entries (the /entry routes) stay
-    // private, even though the derived summaries are readable.
-    //
-    // normalizePath, not req.path: Express matches routes case-insensitively, so
-    // `/Entry/2026-01-01` reaches the entry handler while a raw startsWith('/entry')
-    // sees nothing to block. Same hole the permission table had — one fix, one source.
     if (access === 'summaries' && normalizePath(req.path).startsWith('/entry')) {
         return res.status(403).json({
             error: 'AI assistants can read your daily summaries but not your written diary entries. Change this in Flashback → Config → AI Assistant.',
@@ -49,11 +23,7 @@ router.use((req, res, next) => {
     next();
 });
 
-// POST /api/diary/summary
-// Body: { date? }  (defaults to today, UTC)
-// Regenerates (cumulative, idempotent) the day's summary from ReviewLogs. Called by
-// the client when a study session completes. Returns { ok, summary } — summary is
-// null when the day had no real reviews (nothing written).
+/** Derives the caller's daily summary from their review logs; idempotent. */
 router.post('/summary', catchError(async (req, res) => {
     const date = req.body?.date;
     if (date != null && !DATE_RE.test(date)) {
@@ -63,22 +33,20 @@ router.post('/summary', catchError(async (req, res) => {
     res.json({ ok: true, summary });
 }));
 
-// POST /api/diary/rebuild
-// Re-derives every summary from ReviewLogs. Idempotent. Returns { ok, count }.
+/** Re-derives a range of daily summaries. */
 router.post('/rebuild', catchError(async (req, res) => {
     const count = await diary.rebuildAll();
     res.json({ ok: true, count });
 }));
 
-// GET /api/diary?from=YYYY-MM-DD&to=YYYY-MM-DD
-// Date-descending list of days that have a summary and/or entry.
+/** The caller's diary days, newest first. */
 router.get('/', catchError(async (req, res) => {
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
     res.json(await diary.list({ from, to }));
 }));
 
-// GET /api/diary/summary/:date  → the rendered-from-JSON summary, or 404.
+/** One day's derived study summary. */
 router.get('/summary/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
@@ -87,16 +55,14 @@ router.get('/summary/:date', catchError((req, res) => {
     res.json(summary);
 }));
 
-// GET /api/diary/entry/:date  → { date, content } (content '' when no entry exists).
+/** One day's written entry. */
 router.get('/entry/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     res.json({ date, content: diary.getEntry(date) ?? '' });
 }));
 
-// PUT /api/diary/entry/:date
-// Body: { content }  — saves the user's markdown reflection (lazy: empty content for
-// a date with no existing entry is a no-op). Returns { ok, created, empty }.
+/** Writes one day's entry. */
 router.put('/entry/:date', catchError(async (req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });

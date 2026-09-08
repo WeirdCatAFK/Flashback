@@ -13,14 +13,6 @@ const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => (p ? path.normalize(p) : p);
 
-// Body writes are limited to the formats the app can actually edit — the same set
-// DocumentEditor's pickRenderer() gives an editable renderer. Every other format is
-// read-only in the app (a viewer), so a body write can only come from outside it,
-// and document bodies are not versioned by Seal: an overwrite is unrecoverable.
-// Clip/YouTube bodies are written by their own routes through documents.js, not here.
-//
-// The set itself lives in files.js, which also decides what an etag covers — the two have to
-// draw the line in the same place or a conflict is reported for a body nobody could write.
 const EDITABLE_EXTENSIONS = EDITABLE_BODY_EXTENSIONS;
 const isEditableBody = (relPath) => EDITABLE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
 
@@ -31,16 +23,10 @@ const isClientError = (err) => CLIENT_ERROR_PHRASES.some(p => err.message?.inclu
 
 const catchError = (fn) => (req, res, next) =>
   Promise.resolve(fn(req, res, next)).catch((err) => {
-    // An explicit status on the error (e.g. 404/422 from the access layer) wins over
-    // the message-phrase heuristics below. A stale write carries the etag the document
-    // actually has, so the client can re-read and retry without a second round trip to
-    // find out what it missed.
     if (err.status) {
       const body = { error: err.message };
       if (err.code) body.code = err.code;
       if (err.etag !== undefined) body.etag = err.etag;
-      // A refused card removal (429) says when the allowance refills, in the header a
-      // client already knows how to read rather than only in the prose.
       if (err.retryAfter) res.set('Retry-After', String(err.retryAfter));
       return res.status(err.status).json(body);
     }
@@ -49,7 +35,7 @@ const catchError = (fn) => (req, res, next) =>
     next(err);
   });
 
-// GET /api/documents/list?path=
+/** One folder's documents and subfolders. */
 router.get(
   "/list",
   catchError(async (req, res) => {
@@ -58,11 +44,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/read?path=
-// Text documents come back decoded in `content`. Binary ones (PDF, EPUB, media)
-// come back with `content: null` and `binary: true` — their bytes belong to
-// /api/documents/raw — but still carry their sidecar `metadata`, which is what
-// the PDF/EPUB renderers actually want from this endpoint.
+/** A document's body and sidecar. */
 router.get(
   "/read",
   catchError((req, res) => {
@@ -70,14 +52,11 @@ router.get(
     if (!relPath) return res.status(400).json({ error: "path required" });
     const { content, encoding, binary, size } = docs.files.readFile(relPath);
     const metadata = docs.files.getMetadata(relPath);
-    // `etag` is the version an editor sends back as `ifMatch` when it saves. Derived from
-    // the bytes on disk, so it is right even when the change came from a Doctor rebuild, a
-    // Seal rollback, or another program — see Files.etag().
     res.json({ content, encoding, binary, size, metadata, etag: docs.files.etag(relPath) });
   }),
 );
 
-// GET /api/documents/raw?path= — serve the file as binary (PDF, images, etc.)
+/** A document's bytes, for the renderer to decode. */
 router.get(
   "/raw",
   catchError((req, res) => {
@@ -88,7 +67,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/search?q=
+/** Searches names and metadata across the workspace. */
 router.get(
   "/search",
   catchError(async (req, res) => {
@@ -98,9 +77,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/search/content?q=&limit=
-// Substring search over text document bodies (which live on disk, not in the
-// DB) — returns per-document match counts and context snippets.
+/** Searches document bodies, returning matching snippets. */
 router.get(
   "/search/content",
   catchError(async (req, res) => {
@@ -111,9 +88,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/links?path=
-// flashback:// link edges for one document: outgoing, backlinks, and pending
-// (linked hashes whose target document doesn't exist yet).
+/** A document's outgoing links and backlinks. */
 router.get(
   "/links",
   catchError(async (req, res) => {
@@ -128,7 +103,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/graph
+/** Nodes and edges for the graph view. */
 router.get(
   "/graph",
   catchError(async (req, res) => {
@@ -136,7 +111,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/tags
+/** Every tag in the vault. */
 router.get(
   "/tags",
   catchError(async (req, res) => {
@@ -144,8 +119,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/tags/usage
-// Returns [{ name, count }] — every tag and how many entities apply it directly.
+/** How many documents and cards carry each tag. */
 router.get(
   "/tags/usage",
   catchError(async (req, res) => {
@@ -153,8 +127,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/tags/entity?path=&isFolder=
-// Returns { direct, inherited, excluded } for a specific file or folder.
+/** The effective tags on one document or folder. */
 router.get(
   "/tags/entity",
   catchError(async (req, res) => {
@@ -176,8 +149,7 @@ router.get(
   }),
 );
 
-// GET /api/documents/sidecar?path=&isFolder=
-// Returns the raw sidecar JSON for a file or folder.
+/** A document's raw `.flashback` sidecar. */
 router.get(
   "/sidecar",
   catchError((req, res) => {
@@ -186,15 +158,13 @@ router.get(
     const isFolder = req.query.isFolder === "true";
     const sidecar = docs.files.getMetadata(relPath, isFolder);
     if (!sidecar) return res.status(404).json({ error: "sidecar not found" });
-    // The body is the sidecar verbatim — callers parse it as one — so the version rides in
-    // the header rather than inventing a field that would look like part of the format.
     const etag = docs.files.etag(relPath, isFolder);
     if (etag) res.set("ETag", etag);
     res.json(sidecar);
   }),
 );
 
-// GET /api/documents/export?path=
+/** Streams a document and its media as a package. */
 router.get(
   "/export",
   catchError((req, res) => {
@@ -205,8 +175,7 @@ router.get(
   }),
 );
 
-// POST /api/documents/folder
-// Body: { name, parentPath? }
+/** Creates a folder and its sidecar. */
 router.post(
   "/folder",
   catchError(async (req, res) => {
@@ -217,8 +186,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/file
-// Body: { name, parentPath? }
+/** Creates a document. */
 router.post(
   "/file",
   catchError(async (req, res) => {
@@ -229,18 +197,7 @@ router.post(
   }),
 );
 
-// PUT /api/documents/file
-// Body: { path, content, metadata?, ifMatch? }
-//
-// `ifMatch` is the `etag` this document carried when the caller read it. If the document has
-// changed since, the write is refused with 409 { error, code: 'stale', etag } and nothing is
-// written; the caller re-reads and decides. OMITTING it means no check — every caller written
-// before this existed (the MCP server, the test suite, scripts/seed.js) keeps working, and
-// the single-writer desktop case they serve has no conflict to detect. A server build makes
-// it mandatory, because that is the first configuration with a second writer.
-// A `content` write is restricted to editable text formats (see EDITABLE_EXTENSIONS);
-// metadata-only writes are allowed on any document, which is how the PDF/EPUB
-// renderers save their sidecars.
+/** Writes a document's body; text formats only. */
 router.put(
   "/file",
   catchError(async (req, res) => {
@@ -259,8 +216,7 @@ router.put(
   }),
 );
 
-// PUT /api/documents/metadata
-// Body: { path, metadata, isFolder?, ifMatch? }   — see PUT /file for the ifMatch contract.
+/** Writes a document's sidecar metadata. */
 router.put(
   "/metadata",
   catchError(async (req, res) => {
@@ -276,8 +232,7 @@ router.put(
   }),
 );
 
-// DELETE /api/documents
-// Body: { path, isFolder? }
+/** Deletes a document or folder and its index rows. */
 router.delete(
   "/",
   catchError(async (req, res) => {
@@ -288,8 +243,7 @@ router.delete(
   }),
 );
 
-// POST /api/documents/move
-// Body: { srcPath, destPath, isFolder? }
+/** Moves a document or folder, re-pointing media and inherited tags. */
 router.post(
   "/move",
   catchError(async (req, res) => {
@@ -302,8 +256,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/copy
-// Body: { srcPath, destPath, isFolder? }
+/** Copies a document or folder, assigning fresh identities to the copy. */
 router.post(
   "/copy",
   catchError(async (req, res) => {
@@ -316,8 +269,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/rename
-// Body: { path, newName, isFolder? }
+/** Renames a document or folder in place. */
 router.post(
   "/rename",
   catchError(async (req, res) => {
@@ -330,8 +282,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/import
-// Multipart: file field + body { name, parentPath? }
+/** Imports a file from disk into the workspace. */
 router.post(
   "/import",
   upload.single("file"),
@@ -344,8 +295,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/youtube
-// JSON body { url, parentPath? } — captures a YouTube URL as a .youtube reference doc
+/** Creates a `.youtube` document from a video URL. */
 router.post(
   "/youtube",
   catchError(async (req, res) => {
@@ -356,8 +306,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/clip
-// JSON body { url, parentPath? } — fetches a web page and stores a readable .clip snapshot
+/** Clips a web page into a `.clip` document. */
 router.post(
   "/clip",
   catchError(async (req, res) => {
@@ -368,8 +317,7 @@ router.post(
   }),
 );
 
-// PUT /api/documents/youtube
-// JSON body { path, url } — populates an existing (blank) .youtube file from a URL
+/** Re-points a `.youtube` document at a different video. */
 router.put(
   "/youtube",
   catchError(async (req, res) => {
@@ -380,10 +328,7 @@ router.put(
   }),
 );
 
-// POST /api/documents/youtube/transcript
-// JSON body { path, lang? } — fetches the video's captions into the .youtube
-// document's sidecar so its spoken content becomes readable. 422 when the video
-// has no usable captions.
+/** Fetches a video's captions into the sidecar's `source.transcript`. */
 router.post(
   "/youtube/transcript",
   catchError(async (req, res) => {
@@ -394,8 +339,7 @@ router.post(
   }),
 );
 
-// PUT /api/documents/clip
-// JSON body { path, url } — populates an existing (blank) .clip file from a URL
+/** Re-clips a `.clip` document from its source URL. */
 router.put(
   "/clip",
   catchError(async (req, res) => {
@@ -406,12 +350,7 @@ router.put(
   }),
 );
 
-// POST /api/documents/clip/asset
-// JSON body { path, href } — downloads one of a clip's remote pictures or sounds
-// into the vault and points the clip at the local copy. Clipping itself saves no
-// assets; this is what saves the ones a card actually uses. `href` must be a src
-// already present in that clip's body, which is what keeps this from being a
-// general-purpose downloader. An href that is already local is a no-op success.
+/** Downloads one of a clip's remote assets into the vault. */
 router.post(
   "/clip/asset",
   catchError(async (req, res) => {
@@ -422,8 +361,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/import/zip
-// Multipart: file field + body { targetPath? }
+/** Imports a `.zip` package exported by this app. */
 router.post(
   "/import/zip",
   upload.single("file"),
@@ -436,7 +374,6 @@ router.post(
     );
     await fs.writeFile(tempPath, req.file.buffer);
     try {
-      // Auto-detect package type by inspecting Zip content
       const { default: AdmZip } = await import("adm-zip");
       const zip = new AdmZip(tempPath);
       let isAnki = false;
@@ -456,9 +393,6 @@ router.post(
       }
 
       if (isAnki) {
-        // An Anki package is not imported here. Its notetypes have arbitrary named
-        // fields, so the caller is handed the inventory to map onto card slots and
-        // comes back to POST /import/anki with a mapping and this session id.
         const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
         const importer = new AnkiImport();
         const report = await importer.analyze(req.file.buffer);
@@ -479,7 +413,6 @@ router.post(
         return res.status(201).json(result);
       }
 
-      // Default to Flashback ZIP package
       await docs.processZipPackage(tempPath, targetPath);
       res.status(201).json({ ok: true });
     } finally {
@@ -488,11 +421,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/import/anki/analyze
-// Multipart: file field
-// Reads the package without importing it and returns the notetype inventory —
-// fields, sample notes and a suggested field→slot mapping — plus a sessionId that
-// keeps the extraction on disk so the apply call needs no second upload.
+/** Inspects an `.apkg` and suggests a field-to-slot mapping, holding the extraction under a session id. */
 router.post(
   "/import/anki/analyze",
   upload.single("file"),
@@ -504,11 +433,7 @@ router.post(
   }),
 );
 
-// GET /api/documents/import/anki/media?sessionId=…&name=…
-// Streams one asset out of a live analyze() session so the mapping UI can preview
-// images and play sounds before anything is imported. Read-only; nothing is written
-// to the vault. Loaded by <img>/<audio>, so it authenticates by `?token=` like the
-// other media routes rather than an Authorization header.
+/** Serves one media file from a held Anki extraction. */
 router.get(
   "/import/anki/media",
   catchError(async (req, res) => {
@@ -523,11 +448,7 @@ router.get(
   }),
 );
 
-// POST /api/documents/import/anki
-// Multipart: file field + body { targetPath?, mapping?, sessionId? }
-// `mapping` is `{ [notetypeId]: { cardType, slots } }` as JSON; notetypes it omits
-// fall back to the same suggestion analyze() reported. Supply `sessionId` to reuse
-// an earlier analyze() extraction instead of re-uploading the package.
+/** Applies an analyzed `.apkg` import with the caller's field mapping. */
 router.post(
   "/import/anki",
   upload.single("file"),
@@ -552,8 +473,7 @@ router.post(
   }),
 );
 
-// POST /api/documents/import/obsidian
-// Multipart: file field + body { targetPath? }
+/** Imports an Obsidian vault directory. */
 router.post(
   "/import/obsidian",
   upload.single("file"),
@@ -567,10 +487,7 @@ router.post(
   }),
 );
 
-
-// GET /api/documents/by-hash/:hash
-// Resolves a globalHash to { relativePath, name } — used by the renderer to
-// navigate flashback:// links on click.
+/** Resolves a document `globalHash` to its path. */
 router.get(
   '/by-hash/:hash',
   catchError(async (req, res) => {
@@ -580,8 +497,7 @@ router.get(
   }),
 );
 
-// POST /api/documents/links/sync
-// Manually re-syncs flashback:// link connections for a document.
+/** Re-derives a document's `flashback://` links from its body. */
 router.post(
   '/links/sync',
   catchError(async (req, res) => {

@@ -15,13 +15,11 @@ const catchError = fn => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(err => {
         if (isNotFound(err)) return res.status(404).json({ error: err.message });
         if (err.message?.startsWith('Unknown category')) return res.status(400).json({ error: err.message });
-        // A media name that is not a plain file name is a malformed request, not a server
-        // fault — Files.mediaName refuses it before anything reaches the disk.
         if (err.message?.startsWith('Invalid media name')) return res.status(400).json({ error: err.message });
         next(err);
     });
 
-// GET /api/media?hash=
+/** Serves one asset's bytes. */
 router.get('/', catchError(async (req, res) => {
     const { hash } = req.query;
     if (!hash) return res.status(400).json({ error: 'hash required' });
@@ -29,11 +27,7 @@ router.get('/', catchError(async (req, res) => {
     res.sendFile(entry.absolute_path);
 }));
 
-// GET /api/media/list?path=
-// `absolutePath` is dropped on the way out. It is genuinely useful inside the process —
-// media.list() still returns it, and the orchestrator tests assert against it — but over
-// HTTP it tells a caller where the vault sits on the host's disk and nothing they can use:
-// every client addresses an asset by `relativePath` or by hash.
+/** Every asset a document carries. */
 router.get('/list', catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? '');
     const items = await media.list(folderPath);
@@ -41,10 +35,7 @@ router.get('/list', catchError(async (req, res) => {
     res.json(items.map(({ absolutePath, ...rest }) => rest));
 }));
 
-// GET /api/media/file?docPath=&name=
-// Serves a flashcard media asset by its location relative to the owning
-// document — vanilla cards store media as `./media/<name>` paths (not hashes),
-// so this is how the renderer resolves them to a streamable URL.
+/** Serves one asset by name. */
 router.get('/file', catchError((req, res) => {
     const docPath = norm(req.query.docPath);
     const { name } = req.query;
@@ -52,7 +43,6 @@ router.get('/file', catchError((req, res) => {
     res.sendFile(media.serveByPath(docPath, name));
 }));
 
-// Field → { type, position } mapping for the four vanilla media slots.
 const VANILLA_MEDIA_FIELDS = {
     front_img:   { type: 'image', position: 'front' },
     back_img:    { type: 'image', position: 'back'  },
@@ -61,23 +51,16 @@ const VANILLA_MEDIA_FIELDS = {
 };
 
 const vanillaUpload = upload.fields([
-    { name: 'file',       maxCount: 1 }, // legacy attach-to-existing-card slot
+    { name: 'file',       maxCount: 1 },
     ...Object.keys(VANILLA_MEDIA_FIELDS).map((name) => ({ name, maxCount: 1 })),
 ]);
 
-// POST /api/media/vanilla
-// Two modes on one endpoint:
-//   • Create:  body { docPath, card: <JSON> } + optional file fields
-//              front_img | back_img | front_sound | back_sound.
-//              Creates the card and attaches media in one call → { ok, card }.
-//   • Attach:  multipart `file` + body { docPath, flashcardHash, name, type, position }
-//              attaches one media file to an already-existing card (legacy).
+/** Attaches an asset to a vanilla card slot. */
 router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
     const files = req.files || {};
     const { docPath } = req.body;
     if (!docPath) return res.status(400).json({ error: 'docPath required' });
 
-    // --- Create mode ---
     if (req.body.card != null) {
         let cardData;
         try { cardData = JSON.parse(req.body.card); }
@@ -93,7 +76,6 @@ router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
         return res.status(201).json({ ok: true, card });
     }
 
-    // --- Attach mode (existing card) ---
     const { flashcardHash, name, type, position } = req.body;
     const file = files.file?.[0];
     if (!file || !flashcardHash || !name || !type || !position) {
@@ -103,8 +85,7 @@ router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-// POST /api/media/custom
-// Multipart: file field + body { docPath, flashcardHash, name }
+/** Attaches an asset to a custom card. */
 router.post('/custom', upload.single('file'), catchError(async (req, res) => {
     const { docPath, flashcardHash, name } = req.body;
     if (!req.file || !docPath || !flashcardHash || !name) {
@@ -114,8 +95,7 @@ router.post('/custom', upload.single('file'), catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-// DELETE /api/media
-// Body: { docPath, mediaName }
+/** Detaches an asset and deletes it when nothing else references it. */
 router.delete('/', catchError(async (req, res) => {
     const { docPath, mediaName } = req.body;
     if (!docPath || !mediaName) return res.status(400).json({ error: 'docPath and mediaName required' });
@@ -123,8 +103,7 @@ router.delete('/', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-// POST /api/media/reconcile
-// Body: { folderPath }
+/** Re-derives the Media table from what is on disk. */
 router.post('/reconcile', catchError(async (req, res) => {
     const folderPath = norm(req.body.folderPath ?? '');
     const orphans = await media.reconcile(folderPath);

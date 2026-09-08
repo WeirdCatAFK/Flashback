@@ -64,7 +64,6 @@ export async function shouldRun(db) {
 }
 
 export async function up(db) {
-    // ---- 1. CardProgress ---------------------------------------------------------
     await db.exec(`CREATE TABLE IF NOT EXISTS CardProgress (
         id              INTEGER PRIMARY KEY AUTOINCREMENT,
         flashcard_id    INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
@@ -83,7 +82,6 @@ export async function up(db) {
     await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id)');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_last_recall ON CardProgress(last_recall)');
 
-    // ---- 2. Backfill the owner's rows from Flashcards -----------------------------
     // Only cards that actually carry state. A card with nothing but defaults is a card
     // nobody has reviewed, and every read COALESCEs a missing row to exactly those
     // defaults — so skipping it is lossless, and it keeps the table shaped the way new
@@ -108,13 +106,11 @@ export async function up(db) {
         `);
     }
 
-    // ---- 3. ReviewLogs gains an owner ---------------------------------------------
     if (!await hasColumn(db, 'ReviewLogs', 'account_id')) {
         await db.exec("ALTER TABLE ReviewLogs ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
     }
     await db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_account ON ReviewLogs(account_id)');
 
-    // ---- 4. FSRS weights become one row per account -------------------------------
     // The weights are a fitted model of one person's forgetting curve; sharing them across
     // accounts would schedule a reader against someone else's memory.
     if (!await hasColumn(db, 'FsrsParameters', 'account_id')) {
@@ -126,7 +122,6 @@ export async function up(db) {
                    WHERE id NOT IN (SELECT MAX(id) FROM FsrsParameters GROUP BY account_id)`);
     await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_fsrsparameters_account ON FsrsParameters(account_id)');
 
-    // ---- 5. CardHealth and CardFlags: rebuilt, not altered -------------------------
     // Both need their UNIQUE constraint widened, and a UNIQUE declared inline in a CREATE
     // TABLE is backed by an sqlite_autoindex that DROP INDEX cannot touch. Vaults carry one
     // of two lineages here — migration 007's raw DDL (inline UNIQUE, autoindex) or
@@ -176,7 +171,6 @@ export async function up(db) {
     await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id)');
     await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)');
 
-    // ---- 6. Drop the nine columns off Flashcards ----------------------------------
     // SQLite refuses to drop a column that any index mentions, so the indexes go first.
     // Read them out of sqlite_master rather than naming them: which ones exist depends on
     // whether this vault's Flashcards table came from SchemaSQL or from migration 001.

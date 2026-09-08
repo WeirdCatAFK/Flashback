@@ -24,15 +24,6 @@ import { unusableUrlReason } from "../shared/remoteUrl.js";
 
 const MANIFEST_NAME = "vault.json";
 
-// ---------------------------------------------------------------------------
-// Paths and manifests
-//
-// A parallel implementation of src/api/access/primitives/vault.js, and deliberately so:
-// that one always answers for the ACTIVE vault, because the whole access layer is built
-// around a single active vault. Main needs to inspect an arbitrary directory — one the
-// user just picked, or one it is about to create — so it takes the path as an argument.
-// ---------------------------------------------------------------------------
-
 function baseDirFor(entry) {
     return entry.isCustomPath && entry.customPath ? entry.customPath : app.getPath("userData");
 }
@@ -65,11 +56,7 @@ function stampManifestAt(root, name) {
     return manifest;
 }
 
-/**
- * Does this directory hold a vault? Mirrors inspectVaultDir() in the API's vault.js.
- * A manifest is NOT required — vaults created before manifests existed have none, and
- * refusing those would make a user's own older vault un-openable.
- */
+/** Does this directory hold a vault? */
 function looksLikeVault(dir) {
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return "Not a directory.";
     if (!fs.existsSync(path.join(dir, "workspace"))) return "No workspace/ folder — not a Flashback vault.";
@@ -77,15 +64,7 @@ function looksLikeVault(dir) {
     return null;
 }
 
-// ---------------------------------------------------------------------------
-// Registry
-// ---------------------------------------------------------------------------
-
-/**
- * Makes sure config.json has a vaults[] registry, synthesizing one from the flat fields
- * when it does not — which is what every install upgrading into this feature looks like.
- * Idempotent; called once before the API is spawned.
- */
+/** Makes sure config.json has a vaults[] registry, synthesizing one from the flat fields when it does not — which is what every install upgrading into… */
 export function ensureRegistry() {
     const config = readConfig();
     if (Array.isArray(config.vaults) && config.vaults.length && config.activeVaultId) return config;
@@ -95,8 +74,6 @@ export function ensureRegistry() {
         isCustomPath: !!config.isCustomPath,
         customPath: config.customPath || "",
     };
-    // Stamp the existing vault so it acquires an identity on this launch rather than
-    // waiting for the API — main needs the id to write a coherent registry right now.
     entry.id = stampManifestAt(vaultRoot(entry), entry.name).id;
 
     return updateConfig((c) => {
@@ -131,11 +108,7 @@ function nameTaken(name, exceptId = null) {
     );
 }
 
-/**
- * Registers a new, empty vault. Creates the directory and its workspace/ but NOT the
- * database — the API builds the schema when it first opens the vault, which is the same
- * path a brand-new install takes and therefore the one that stays tested.
- */
+/** Registers a new, empty vault. */
 export function createVault(name) {
     const err = vaultNameError(name);
     if (err) return { ok: false, error: `Invalid vault name (${err}).` };
@@ -160,11 +133,7 @@ export function createVault(name) {
     return { ok: true, vault: { ...entry, path: root } };
 }
 
-/**
- * Registers a vault directory the user picked off disk — a vault restored from a backup,
- * carried over from another machine, or one this install has simply forgotten.
- * Adopts rather than copies: the folder stays where it is.
- */
+/** Registers a vault directory the user picked off disk — a vault restored from a backup, carried over from another machine, or one this install has… */
 export function adoptVault(dirPath) {
     const problem = looksLikeVault(dirPath);
     if (problem) return { ok: false, error: problem };
@@ -184,11 +153,7 @@ export function adoptVault(dirPath) {
     return { ok: true, vault: { ...entry, path: dirPath } };
 }
 
-/**
- * Unregisters a vault. Never touches the files — "remove" here means "stop listing it",
- * which is the only reversible meaning. Deleting a vault is the file manager's job, and
- * making it a button next to "switch" is how someone loses a year of notes.
- */
+/** Unregisters a vault. */
 export function removeVault(id) {
     const { vaults, activeVaultId } = listVaults();
     if (id === activeVaultId) return { ok: false, error: "Switch to another vault before removing this one." };
@@ -198,10 +163,6 @@ export function removeVault(id) {
     updateConfig((c) => { c.vaults = c.vaults.filter((v) => v.id !== id); });
     return { ok: true };
 }
-
-// ---------------------------------------------------------------------------
-// Talking to the API process
-// ---------------------------------------------------------------------------
 
 async function apiPost(pathname, body = {}) {
     const config = readConfig();
@@ -222,6 +183,7 @@ async function apiPost(pathname, body = {}) {
 
 /**
  * Switches the running API to another registered vault.
+ *
  * @returns {Promise<{ok: true, vault: object}|{ok: false, error: string}>}
  */
 export async function switchVault(id) {
@@ -239,23 +201,7 @@ export async function switchVault(id) {
     }
 }
 
-/**
- * Renames a vault, moving its folder AND its database file together.
- *
- * The old implementation (the `set-config` handler) renamed only the directory, so
- * `{vaultName}.db` kept its old filename, `getDatabasePath()` looked for a file that was
- * no longer there, and the next launch built a BLANK vault beside the real data. It also
- * renamed while the API still held WAL handles on that database.
- *
- * The order below is what fixes both:
- *   1. /api/vault/release — checkpoint the WAL and close the handle, or Windows refuses
- *      to rename a directory that is in use.
- *   2. Rename the directory, then the .db inside it.
- *   3. Update the registry, then switch the API onto the new location.
- *   4. Doctor sync — every Documents/Folders/Media row stores an absolute_path containing
- *      the old folder name, and re-deriving the index from the canonical files is what
- *      repairs them. Without this, media stops loading.
- */
+/** Renames a vault, moving its folder AND its database file together. */
 export async function renameVault(id, newName) {
     const err = vaultNameError(newName);
     if (err) return { ok: false, error: `Invalid vault name (${err}).` };
@@ -278,9 +224,6 @@ export async function renameVault(id, newName) {
 
         fs.renameSync(oldRoot, newRoot);
 
-        // The database is named after the vault, so it has to move with it or the vault
-        // opens empty. Best-effort on the WAL siblings: they are normally gone after the
-        // checkpoint in /release, but a crash could leave one behind.
         for (const suffix of ["", "-wal", "-shm"]) {
             const from = path.join(newRoot, `${entry.name}.db${suffix}`);
             const to = path.join(newRoot, `${trimmed}.db${suffix}`);
@@ -298,7 +241,6 @@ export async function renameVault(id, newName) {
     if (wasActive) {
         const result = await switchVault(id);
         if (!result.ok) return result;
-        // Stale absolute_path rows point into the old folder name.
         try {
             await apiPost("/api/doctor/sync", { sealDrift: false });
         } catch (e) {
@@ -313,14 +255,7 @@ export async function renameVault(id, newName) {
     return { ok: true, vault: { ...entry, name: trimmed, path: newRoot } };
 }
 
-// ---------------------------------------------------------------------------
-// Remotes
-// ---------------------------------------------------------------------------
-
-/**
- * The registry as the renderer sees it. Encrypted tokens are never included — `hasToken`
- * is the only thing said about a credential.
- */
+/** The registry as the renderer sees it. */
 export function listRemotes() {
     const remotes = readConfig().remotes ?? [];
     return remotes.map((r) => ({ id: r.id, label: r.label, url: r.url, hasToken: !!r.tokenEnc }));
@@ -332,15 +267,7 @@ function normalizeUrl(url) {
     return trimmed;
 }
 
-
-/**
- * Registers a remote Flashback Server.
- *
- * The token is encrypted with Electron's safeStorage (the OS keychain / DPAPI / libsecret)
- * before it is written. If encryption is unavailable — a Linux box with no keyring — the
- * remote is refused rather than stored in plain text: config.json is a readable file in
- * the user's data directory, and this credential belongs to a machine that is not theirs.
- */
+/** Registers a remote Flashback Server. */
 export function addRemote({ label, url, token }) {
     const normalized = normalizeUrl(url);
     if (!normalized) return { ok: false, error: "Enter a full URL, including http:// or https://." };
@@ -359,15 +286,6 @@ export function addRemote({ label, url, token }) {
         tokenEnc = safeStorage.encryptString(token).toString("base64");
     }
 
-    // A remote is a server AND a credential, not a server. Two entries on one address are
-    // the ordinary case for a shared vault, not a mistake to collapse: an Author token and a
-    // Reader token are two different people on the same server, and the entire point of a
-    // role is that they see different things. Keying the registry by URL alone made the
-    // second one silently overwrite the first.
-    //
-    // So the NAME identifies an entry and only an exact (address, name) repeat replaces —
-    // which is still exactly what re-adding to update an expired token looks like, since the
-    // name defaults to the address when the field is left blank.
     const name = (label || normalized).trim();
     const entry = { id: crypto.randomUUID(), label: name, url: normalized, tokenEnc };
     updateConfig((c) => {
@@ -377,6 +295,7 @@ export function addRemote({ label, url, token }) {
     return { ok: true, remote: { id: entry.id, label: entry.label, url: entry.url, hasToken: !!tokenEnc } };
 }
 
+/** Forgets a remote and its stored credential. */
 export function removeRemote(id) {
     updateConfig((c) => { c.remotes = (c.remotes ?? []).filter((r) => r.id !== id); });
     return { ok: true };
@@ -393,18 +312,11 @@ function remoteToken(id) {
     }
 }
 
-/**
- * Handshakes with a remote: GET /api/vault, the endpoint the local API answers too.
- * Used both by the "Test" button and by the switch, so a broken remote is reported before
- * the renderer is pointed at it rather than after.
- */
+/** Handshakes with a remote: GET /api/vault, the endpoint the local API answers too. */
 export async function testRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return { ok: false, error: "No such remote." };
 
-    // Checked here too, not only at registration: a remote saved before this existed would
-    // otherwise still pass the probe and strand the renderer. `useRemote` calls this before
-    // repointing, so refusing here is what keeps a bad URL from being switched to at all.
     const unusable = unusableUrlReason(remote.url);
     if (unusable) return { ok: false, error: unusable };
 
@@ -422,14 +334,7 @@ export async function testRemote(id) {
     }
 }
 
-/**
- * What the renderer needs to point its API client at a remote: the URL and, yes, the
- * token — a browser fetch cannot send a header it does not have.
- *
- * This is the one place a decrypted credential leaves main, and it is the same trust
- * boundary `get-api-token` already crosses for the local API. It is handed only to our own
- * renderer over IPC, never written anywhere, and never returned by listRemotes().
- */
+/** What the renderer needs to point its API client at a remote: the URL and, yes, the token — a browser fetch cannot send a header it does not have. */
 export function connectionForRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return null;

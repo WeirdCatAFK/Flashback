@@ -15,18 +15,12 @@ import os from "os";
 import { readConfig, updateConfig } from "./appConfig.js";
 import { identityError, defaultIdentityFrom } from "../shared/identity.js";
 
-/**
- * What to offer someone who has set nothing — the setup wizard's pre-fill.
- *
- * Shaped by the same shared helper the API's resolver falls back to, so the address the
- * wizard suggests is exactly the one that would be stamped if the step were skipped.
- * Derived here rather than fetched because setup runs BEFORE the API process exists.
- */
+/** What to offer someone who has set nothing — the setup wizard's pre-fill. */
 export function suggestedIdentity() {
     let username = "";
     try {
         username = os.userInfo().username || "";
-    } catch { /* no OS user info — the helper's own fallback stands */ }
+    } catch { }
     return defaultIdentityFrom(username);
 }
 
@@ -41,13 +35,7 @@ function clean(identity) {
 /**
  * What is stored, for the settings form.
  *
- * `suggested` rides along so a caller with nothing stored — the setup wizard, or Config on
- * a fresh install — can show what would be used instead of an empty field.
- *
- * @returns {{user: {name: string, email: string},
- *            override: {name: string, email: string}|null,
- *            suggested: {name: string, email: string},
- *            activeVaultId: string|null}}
+ * @returns {{user: {name: string, email: string}, override: {name: string, email: string}|null, suggested: {name: string, email: string}, activeVaultId: string|null}}
  */
 export function getStoredIdentity() {
     const config = readConfig();
@@ -64,9 +52,7 @@ export function getStoredIdentity() {
 }
 
 /**
- * Sets the global identity. Both halves are required together — a name with no address
- * cannot produce an author line, so a half-filled identity is refused rather than stored
- * and silently ignored by the resolver.
+ * Sets the global identity.
  *
  * @param {{name: string, email: string}} identity
  * @returns {{ok: true}|{ok: false, error: string, field?: string, code?: string}}
@@ -86,10 +72,6 @@ export function setIdentity(identity) {
 
 /**
  * Sets or clears one vault's identity override.
- *
- * Keyed by vault id rather than by name, so renaming a vault does not orphan its override.
- * Passing null deletes the key outright — an empty object left behind would read as "an
- * override exists" to anything scanning the map.
  *
  * @param {string} vaultId
  * @param {{name: string, email: string}|null} identity

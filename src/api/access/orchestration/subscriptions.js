@@ -15,9 +15,7 @@ export default class Subscriptions {
         this.documents = new Documents();
     }
 
-    /**
-     * Imports and merges a magazine issue into the user's local workspace.
-     */
+    /** Imports and merges a magazine issue into the user's local workspace. */
     async importIssue(magazineId, issueData, targetRelPath) {
         console.log(`Importing issue from ${magazineId} into ${targetRelPath}`);
 
@@ -26,7 +24,6 @@ export default class Subscriptions {
         const processedPaths = new Set();
 
         try {
-            // 1. Unpack
             await fs.mkdir(tempRoot, { recursive: true });
             await fs.writeFile(tempIssuePath, issueData);
 
@@ -36,14 +33,12 @@ export default class Subscriptions {
             const importRootPath = path.join(tempRoot, issueFolderName);
             zip.extractAllTo(tempRoot, true);
 
-            // 2. Read issue metadata 
             let issueMetadata = null;
             try {
                 const rootMetaPath = path.join(importRootPath, '.flashback');
                 issueMetadata = JSON.parse(await fs.readFile(rootMetaPath, 'utf-8'));
             } catch {}
 
-            // 3. Crawler
             const crawl = async (currentPath, destRelPath) => {
                 const entries = await fs.readdir(currentPath, { withFileTypes: true });
 
@@ -105,7 +100,6 @@ export default class Subscriptions {
 
             await crawl(importRootPath, targetRelPath);
 
-            // 4. Update Subscriptions table & Root Metadata
             if (issueMetadata && issueMetadata.subscription) {
                 const sub = issueMetadata.subscription;
                 await this.documents.query.upsertSubscription({
@@ -120,7 +114,6 @@ export default class Subscriptions {
                 await this.documents.updateMetadata(targetRelPath, targetMeta, true);
             }
 
-            // 5. Deletion of removed content
             const targetFolder = await this.documents.query.getFolderByPath(targetRelPath);
             if (targetFolder) {
                 const prefix = targetFolder.absolute_path + path.sep;
@@ -140,7 +133,6 @@ export default class Subscriptions {
                     }
                 }
             }
-
         } catch (error) {
             console.error(`Failed to import issue:`, error);
             throw error;

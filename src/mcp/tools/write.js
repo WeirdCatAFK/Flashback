@@ -4,15 +4,19 @@ import fs from 'node:fs/promises';
 import nodePath from 'node:path';
 import { request, requestBuffer, upload } from '../client.js';
 
+/** Wraps a value as an MCP text content block. */
 const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+/** Wraps a message as an MCP error result. */
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
   isError: true,
 });
+/** Wraps a thrown error as an MCP tool error result. */
 const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
 
+/** Registers every mutating MCP tool on the server. */
 export function registerWriteTools(server) {
   server.registerTool(
     'create_flashcard',
@@ -50,8 +54,6 @@ export function registerWriteTools(server) {
         }
         if (path) {
           if (highlightHash) {
-            // Verify the anchor exists so we never write a dangling reference.
-            // Sidecar highlights carry their hash in `id`.
             const { highlights } = await request('GET', `/api/highlights?path=${encodeURIComponent(path)}`);
             if (!highlights?.some((h) => h.id === highlightHash)) {
               return asToolError(`No highlight ${highlightHash} in ${path}. Read the document's sidecar (read_document) or create one with create_highlight first.`);
@@ -63,15 +65,13 @@ export function registerWriteTools(server) {
             'card',
             JSON.stringify({
               cardType,
-              origin: 'ai', // provenance marker — every MCP-created card carries it
+              origin: 'ai',
               name: name || undefined,
               category: category || undefined,
               tags: tags && tags.length ? tags : undefined,
               vanillaData: {
                 frontText: frontText || '',
                 backText: backText || '',
-                // Only type_answer has a compared value distinct from its back text; on
-                // every other type the key would be dead weight in the sidecar.
                 ...(cardType === 'type_answer' ? { answerText: answerText || '' } : {}),
                 media: {},
                 location: highlightHash ? { type: 'highlight', id: highlightHash } : undefined,
@@ -80,8 +80,6 @@ export function registerWriteTools(server) {
             }),
           );
           const data = await upload('/api/media/vanilla', formData);
-          // Normalize against the standalone branch below — this one returns the full
-          // sidecar card object under `card`, that one returns a bare { globalHash }.
           return asText({ globalHash: data.card?.globalHash, documentPath: path, cardType, category: category ?? null });
         }
         const data = await request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, tags, origin: 'ai' });
@@ -141,11 +139,6 @@ export function registerWriteTools(server) {
         tags: z.array(z.string()).optional().describe('Replaces the card\'s own tags — not what it inherits from a document, folder or deck. Works on standalone cards too.'),
       },
     },
-    // One call: PUT /api/flashcards/:hash resolves whether the card lives in a
-    // document's sidecar or the system deck and merges the patch server-side. This
-    // used to fetch the sidecar, splice the card and save the whole file back, which
-    // silently reverted anything else written to that sidecar in between — the same
-    // race delete_flashcard was moved off.
     async ({ globalHash, frontText, backText, answerText, name, cardType, category, customHtml, tags }) => {
       try {
         const data = await request('PUT', `/api/flashcards/${encodeURIComponent(globalHash)}`,
@@ -170,10 +163,6 @@ export function registerWriteTools(server) {
         documentPath: z.string().optional().describe('Ignored — the server resolves the card\'s source document itself. Accepted only so existing calls keep working.'),
       },
     },
-    // One server-side call: the API resolves whether the card lives in a document's
-    // sidecar or the system deck, unlinks it from every deck, and deletes it. This
-    // used to be a sidecar read-modify-write from here, which raced any concurrent
-    // write to the same sidecar and left the card's deck entries dangling.
     async ({ globalHash }) => {
       try {
         const data = await request('DELETE', `/api/flashcards/${encodeURIComponent(globalHash)}`);
@@ -470,12 +459,6 @@ export function registerWriteTools(server) {
         const query = `?path=${encodeURIComponent(bookPath)}&href=${encodeURIComponent(href)}`;
         const { buffer, mimeType } = await requestBuffer(`/api/reader/image${query}`);
 
-        // Default to the book's own file name plus a short unique suffix — the same
-        // scheme documents.createFlashcard uses, and for the same reason: a document's
-        // media/ dir is shared by all its cards, and files.addVanillaData refuses to
-        // overwrite. Book figures have fixed names ("fig1.png"), so without this the
-        // second card built from one diagram would fail. An explicit `name` is honoured
-        // as given, collision and all, because asking for a name means meaning it.
         const fromBook = nodePath.basename(String(href).split('?')[0]);
         const ext = nodePath.extname(fromBook);
         const base = nodePath.basename(fromBook, ext).replace(/[^\w.-]+/g, '_') || 'image';
@@ -526,27 +509,12 @@ export function registerWriteTools(server) {
     },
     async ({ clipPath, href, documentPath, flashcardHash, position, name }) => {
       try {
-        // Save it into the clip first. Clipping downloads no media, so the asset is
-        // usually still on the site it came from, and /media-file will not go and get
-        // it — fetching is a POST, on purpose. A no-op for one already in the vault.
         const saved = await request('POST', '/api/documents/clip/asset', { path: clipPath, href });
         const query = `?path=${encodeURIComponent(clipPath)}&href=${encodeURIComponent(saved.href)}`;
         const { buffer, mimeType } = await requestBuffer(`/api/reader/media-file${query}`);
 
-        // The slot follows the bytes, not a parameter: a caller who had to say
-        // "this is a sound" could say it wrong, and a mp3 in an image slot fails
-        // silently at review time rather than here.
         const type = /^audio\//i.test(mimeType ?? '') ? 'sound' : 'image';
 
-        // Default to the asset's own file name plus a short unique suffix, for the
-        // same reason attach_book_image does: a document's media/ dir is shared by all
-        // its cards and files.addVanillaData refuses to overwrite. A clip asset's name
-        // is a content hash, so without this the second card built from one picture
-        // would fail. An explicit `name` is honoured as given, collision and all.
-        // Named from the href, which for an asset still on the web is its URL and
-        // says something ("Common_nightingale.jpg") where the vault's content-hash
-        // name would not. A URL with no extension borrows the one the save derived
-        // from the server's content type.
         const fromClip = nodePath.basename(String(href).split('?')[0].split('#')[0]);
         const ext = nodePath.extname(fromClip) || nodePath.extname(saved.name || '');
         const base = nodePath.basename(fromClip, nodePath.extname(fromClip)).replace(/[^\w.-]+/g, '_') || type;
@@ -597,9 +565,6 @@ export function registerWriteTools(server) {
         let text = snippet || null;
         if (snippet) {
           const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
-          // Character offsets only mean something in a decoded text body; a PDF or
-          // EPUB anchors by page/bbox or CFI, which the app computes from a real
-          // selection. Say so plainly instead of failing on a null body.
           if (doc.binary || doc.content == null) {
             return asToolError(
               `${path} is a binary document (PDF/EPUB/media), so text-offset highlights do not apply to it. ` +
@@ -616,12 +581,10 @@ export function registerWriteTools(server) {
         } else if (start == null || end == null) {
           return asToolError('Provide either `snippet`, or both `start` and `end`.');
         } else {
-          // Offset mode: snapshot the covered text anyway so the highlight is
-          // self-describing in list_highlights and survives re-anchoring.
           try {
             const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
             text = doc.content?.slice(start, end) || null;
-          } catch { /* snapshot is best-effort */ }
+          } catch { }
         }
         const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note, text });
         return asText(data);
@@ -675,10 +638,6 @@ export function registerWriteTools(server) {
     },
   );
 
-  // Pedagogical categories are create/update only by design — there is no
-  // delete_category tool. Categories are referenced by every flashcard that
-  // carries one, so removing a name would orphan those cards; the vault's
-  // migration policy is strictly additive. Rename or re-prioritize instead.
   server.registerTool(
     'create_category',
     {

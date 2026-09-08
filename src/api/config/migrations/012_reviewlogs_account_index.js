@@ -45,7 +45,8 @@ export async function shouldRun(db) {
     ).get();
     if (!hasReviewLogs) return false;
     const cols = (await db.pragma('table_info(ReviewLogs)')).map(c => c.name);
-    if (!cols.includes('account_id')) return false; // pre-010 vault; 010 runs first and creates both
+    // pre-010 vault; 010 runs first and creates both
+    if (!cols.includes('account_id')) return false;
 
     const composite = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='index' AND name=?",

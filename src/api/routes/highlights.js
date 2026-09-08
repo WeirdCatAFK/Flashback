@@ -6,7 +6,7 @@ const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-// GET /api/highlights?path=<relPath>
+/** One document's highlights. */
 router.get('/', catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -14,9 +14,7 @@ router.get('/', catchError((req, res) => {
     res.json({ highlights });
 }));
 
-// GET /api/highlights/annotated?path=&color=&uncarded=&limit=
-// Highlights enriched with highlighted text, surrounding document context, and
-// the flashcards already anchored to each one. Vault-wide when path is omitted.
+/** Every highlight enriched with the context needed to act on it. */
 router.get('/annotated', catchError(async (req, res) => {
     const relPath = norm(req.query.path) || null;
     const color = req.query.color || null;
@@ -26,8 +24,7 @@ router.get('/annotated', catchError(async (req, res) => {
     res.json({ highlights: all.slice(0, limit), total: all.length });
 }));
 
-// POST /api/highlights
-// Body: { path, type, start, end, page, bbox, color, note }
+/** Creates a highlight and anchors it in the sidecar. */
 router.post('/', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -35,8 +32,7 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ ok: true, highlight });
 }));
 
-// PUT /api/highlights/:hash
-// Body: { path, color, note }
+/** Updates a highlight's colour, note or anchor. */
 router.put('/:hash', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -44,7 +40,7 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true, highlight });
 }));
 
-// DELETE /api/highlights/:hash?path=<relPath>
+/** Deletes a highlight. */
 router.delete('/:hash', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });

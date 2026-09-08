@@ -27,23 +27,11 @@ async function appliedVersions(db) {
     );
 }
 
-/**
- * Runs all pending migrations in version order.
- * Each migration executes in its own transaction; a failed migration
- * halts the runner and rethrows so startup fails loudly.
- */
+/** Runs all pending migrations in version order. */
 export default async function runMigrations(db) {
     await ensureVersionTable(db);
     const applied = await appliedVersions(db);
 
-    // A migration runs if it hasn't been recorded yet, OR if its optional
-    // shouldRun() guard says its artifacts are still missing (handles the case
-    // where a migration was recorded but its tables were later dropped).
-    //
-    // shouldRun is async and MUST be awaited. `.filter(m => m.shouldRun?.(db))` reads
-    // naturally and is wrong: an async function returns a Promise, every Promise is truthy,
-    // so every guarded migration re-ran on every single boot. That was survivable only
-    // because each one happened to be idempotent — migration 010 is not, and cannot be.
     const pending = [];
     for (const m of MIGRATIONS) {
         if (!applied.has(m.version) || (m.shouldRun && await m.shouldRun(db))) pending.push(m);
@@ -58,9 +46,6 @@ export default async function runMigrations(db) {
 
     for (const migration of pending) {
         await db.transaction(async () => {
-            // Awaited. Since the data layer went async, an un-awaited up() returns a pending
-            // promise, the transaction body resolves, and COMMIT lands BEFORE the migration's
-            // statements do — so a failure half-way through could no longer roll back.
             await migration.up(db);
             await record.run(migration.version, migration.description);
         })();

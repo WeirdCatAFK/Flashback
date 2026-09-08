@@ -17,8 +17,6 @@ import fs from "fs";
 import crypto from "crypto";
 import { getVaultPath, get as getConfig } from "./config.js";
 
-// Bumped only if the manifest's own shape changes. Unrelated to the sidecar
-// `formatVersion` ladder in config/updates/ — nothing here is canonical user data.
 export const MANIFEST_VERSION = 1;
 
 const MANIFEST_NAME = "vault.json";
@@ -29,9 +27,8 @@ function manifestPath() {
 
 /**
  * Reads the active vault's manifest.
- * @returns {{id: string, name: string, createdAt: string, manifestVersion: number}|null}
- *          null when the file is missing or unreadable — callers treat that as
- *          "not stamped yet" and call ensureManifest().
+ *
+ * @returns {{id: string, name: string, createdAt: string, manifestVersion: number}|null} null when the file is missing or unreadable — callers treat that as "not stamped yet" and call ensureManifest().
  */
 export function readManifest() {
     try {
@@ -44,15 +41,6 @@ export function readManifest() {
 
 /**
  * Stamps the active vault with a manifest if it does not already have one.
- *
- * Idempotent: an existing manifest is returned untouched, so this is safe to call on
- * every boot and every vault switch. That is how vaults created before this existed
- * acquire an id — on their next launch, without a migration.
- *
- * The `name` field is a convenience copy of `vaultName` for humans reading the file and
- * for adopting a vault folder whose registry entry was lost; `id` is the only value
- * anything should key on. It is deliberately NOT rewritten when the vault is renamed,
- * because that would make the file mutable for no gain — the registry holds the live name.
  *
  * @returns {{id: string, name: string, createdAt: string, manifestVersion: number}}
  */
@@ -75,6 +63,7 @@ export function ensureManifest() {
 
 /**
  * The active vault's stable id, stamping one if the vault has never been stamped.
+ *
  * @returns {string}
  */
 export function getVaultId() {
@@ -82,13 +71,7 @@ export function getVaultId() {
 }
 
 /**
- * Does this directory look like a Flashback vault? Used when adopting a folder the user
- * picked off disk, where we have no registry entry to trust.
- *
- * The test is the two things every vault has regardless of age: a `workspace/` directory
- * (the Seal repo / canonical layer) and a `*.db` beside it. A manifest is NOT required —
- * a vault created before this file existed has none, and refusing to adopt it would make
- * older vaults unopenable.
+ * Does this directory look like a Flashback vault?
  *
  * @param {string} dir - Absolute path to inspect.
  * @returns {{ok: true, dbFile: string}|{ok: false, reason: string}}

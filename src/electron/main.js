@@ -12,12 +12,9 @@ import * as vaults from "./vaults.js";
 import { createConnectionState } from "./connection.js";
 import { getStoredIdentity, setIdentity, setVaultIdentity } from "./identity.js";
 
-// Reconstruct __dirname for ES Modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Process-level crash handlers: log with a full stack and (for exceptions) show the
-// user a dialog pointing at the log file, instead of dying silently in a packaged build.
 process.on("uncaughtException", (err) => {
   log.error("Uncaught exception in main process:", err);
   try {
@@ -25,7 +22,7 @@ process.on("uncaughtException", (err) => {
       "Flashback encountered an error",
       `${err?.stack || err}\n\nA log was written to:\n${getLogPath()}`,
     );
-  } catch { /* dialog can be unavailable before app 'ready' — the log line is enough */ }
+  } catch { }
 });
 process.on("unhandledRejection", (reason) => {
   log.error("Unhandled promise rejection in main process:", reason);
@@ -37,12 +34,7 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 
-// Resolve an app icon path in both dev and prod. In dev the icons sit in the repo
-// root (two levels up from src/electron); once packaged they're copied next to the
-// asar via electron-builder's `extraResources`, so they must be read from
-// `process.resourcesPath` — reading them from inside the asar fails (they're not in
-// `files`), which is why the tray icon was missing in the packaged build.
-// Windows renders .ico crisply; the tray on Linux/macOS wants a PNG.
+/** Absolute path of the tray and window icon for this platform. */
 function getIconPath(ext = process.platform === 'win32' ? 'ico' : 'png') {
   const file = `flashback.${ext}`;
   return app.isPackaged
@@ -50,6 +42,7 @@ function getIconPath(ext = process.platform === 'win32' ? 'ico' : 'png') {
     : path.join(__dirname, '../../', file);
 }
 
+/** Builds the system tray icon and its menu; Quit is the only exit. */
 function createTray() {
   const icon = nativeImage.createFromPath(getIconPath());
   tray = new Tray(icon);
@@ -77,7 +70,6 @@ function createTray() {
 
   tray.setContextMenu(contextMenu);
 
-  // Optional: Double-clicking the tray icon opens the app
   tray.on('double-click', () => {
     if (mainWindow) {
       mainWindow.show();
@@ -86,6 +78,7 @@ function createTray() {
   });
 }
 
+/** Creates the frameless main window and wires its close-to-tray behaviour. */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -100,7 +93,6 @@ function createWindow() {
     icon: getIconPath()
   });
 
-  // Load content
   if (isDev()) {
     mainWindow.loadURL("http://localhost:51234");
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -108,11 +100,6 @@ function createWindow() {
     mainWindow.loadFile("dist-react/index.html");
   }
 
-  // True for a real external destination (web article links, YouTube, mailto)
-  // that should open in the user's default browser rather than hijacking the
-  // single app window. Same-origin http (the Vite dev server / HMR reloads) is
-  // left alone so development keeps working; in a packaged build the app is
-  // served from file://, so every http(s) link is external.
   const isExternalLink = (url) => {
     try {
       const u = new URL(url);
@@ -127,10 +114,6 @@ function createWindow() {
     } catch { return false; }
   };
 
-  // Block any Electron-level navigation to flashback:// — these are internal
-  // document links that React handles via onClickCapture + IPC; the OS must
-  // never see them as protocol URLs. External web links (clipped articles,
-  // video sources) open in the default browser instead of replacing the app.
   mainWindow.webContents.on('will-navigate', (event, url) => {
     if (url.startsWith('flashback://')) {
       event.preventDefault();
@@ -143,9 +126,6 @@ function createWindow() {
     }
   });
 
-  // target="_blank" / window.open (e.g. the clip's source link, YouTube's own
-  // in-player links) must never spawn a second Electron window — route real web
-  // URLs to the default browser and deny the popup entirely.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     if (url.startsWith('flashback://')) {
       mainWindow.webContents.send('flashback-navigate', url.slice('flashback://'.length));
@@ -155,11 +135,7 @@ function createWindow() {
     return { action: 'deny' };
   });
 
-  // --- TRAY MODE LOGIC ---
-  // Intercept the close event. 
-  // If the user clicks 'X', hide the window but keep the app (and API) running.
   mainWindow.on('close', (event) => {
-    // On first run (no config yet, or --onboarding flag) close normally, don't hide to tray.
     if (!isQuitting && !isFirstRun()) {
       event.preventDefault();
       mainWindow.hide();
@@ -167,20 +143,15 @@ function createWindow() {
     }
   });
 
-  // Start the notify-first update checker (no-op unless packaged) once the window
-  // exists so status events have somewhere to go.
   initUpdater(mainWindow, { isPackaged: app.isPackaged });
 }
 
+/** True when no config.json exists, or when --onboarding was passed. */
 function isFirstRun() {
   return forceOnboarding || !configExists();
 }
 
-// The Electron main process owns the API token: it mints one (persisted in
-// config.json) if missing, BEFORE spawning the API, so the API process reads an
-// already-present token and there is a single writer (no split-brain with the API
-// process). Called ahead of every spawn(). Returns the token, or null if config.json
-// doesn't exist yet (first run, before onboarding writes it).
+/** Mints and persists the API token if config.json has none; main is its sole minter. */
 function ensureApiToken() {
   if (!configExists()) return null;
   const config = readConfig();
@@ -195,36 +166,23 @@ function ensureApiToken() {
   return config.apiToken;
 }
 
-// IPC: window controls (custom title bar)
 ipcMain.on('window-minimize', () => mainWindow?.minimize());
 ipcMain.on('window-maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow.maximize());
 ipcMain.on('window-close',    () => mainWindow?.close());
 
-// IPC: renderer asks for the API base URL once on startup
 ipcMain.handle('get-api-url', () => {
   const config = readConfig();
   return `http://${config.host ?? 'localhost'}:${config.port ?? 50500}`;
 });
 
-// IPC: renderer asks for the API token once on startup (paired with get-api-url in
-// client init). By the time the renderer runs, config.json already holds the token
-// (minted by ensureApiToken/complete-setup before the API was spawned).
 ipcMain.handle('get-api-token', () => readConfig().apiToken ?? null);
 
-// IPC: first-run detection — true when config.json does not yet exist or --onboarding passed
 ipcMain.handle('is-first-run', () => isFirstRun());
 
-// IPC: onboarding writes initial config, then starts the API in-process and
-// reloads the renderer. Avoids app.relaunch() which would re-pass --onboarding
-// and break the npm-run-all dev setup by killing the Vite server on exit.
 ipcMain.handle('complete-setup', (_event, config) => {
   try {
-    // Mint the API token into the very first config write so the API process
-    // (spawned just below) reads an already-guarded config.
     if (!config.apiToken) config.apiToken = crypto.randomBytes(32).toString('hex');
     writeConfig(config);
-    // Register the vault the wizard just described, so the app starts with a registry
-    // rather than acquiring one on its second launch.
     vaults.ensureRegistry();
     forceOnboarding = false;
   } catch (err) {
@@ -235,36 +193,8 @@ ipcMain.handle('complete-setup', (_event, config) => {
   return { ok: true };
 });
 
-// IPC: renderer reads the full config object
 ipcMain.handle('get-config', () => readConfig());
 
-// IPC: renderer writes a new config object.
-//
-// Vault identity fields are NOT writable here any more. This handler used to rename the
-// vault folder when `vaultName` changed — but it renamed only the directory and not the
-// `{vaultName}.db` inside it, so the next launch looked for a database that was no longer
-// there and quietly built a blank vault beside the real data. Renaming now goes through
-// `rename-vault`, which closes the database first and moves both together.
-//
-// `user` is on the list for the same reason: it has its own IPC, and Config's `form` is
-// loaded once from get-config. Without this, saving the Server section after editing the
-// identity would write back the name and email the form read on mount.
-//
-// The fields are preserved from disk rather than rejected, so an older renderer (or a
-// stale `form` object in Config) cannot corrupt the pointer by round-tripping a whole
-// config object it read before a vault switch.
-// An ALLOWLIST, not a list of exceptions. It used to be the other way round — everything
-// the renderer sent was written except a handful of protected keys — which quietly made
-// `apiToken`, `allowedOrigins` and `allowPrivateNetworkFetch` renderer-writable, none of
-// which any screen edits. A renderer running hostile code (a malicious PDF, a bad
-// dependency) could pin a token it already knew and widen the CORS allowlist to match,
-// turning a renderer compromise into durable access. A denylist protects what someone
-// remembered; an allowlist protects what nobody has thought of yet.
-//
-// These five are exactly what Config edits: RESTART_FIELDS in views/Config.jsx plus the
-// AI-assistant diary selector. Everything else — the vault pointer, the registries, `user`,
-// the token — keeps whatever is on disk, so an older renderer round-tripping a stale `form`
-// object it read before a vault switch still cannot corrupt anything.
 const RENDERER_WRITABLE_FIELDS = [
   'port', 'host', 'logFormat', 'isLocalhost', 'mcpDiaryAccess',
 ];
@@ -282,14 +212,6 @@ ipcMain.handle('set-config', (_event, newConfig) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// IPC: vault management
-//
-// The registry lives here; the switch itself happens in the API process (see
-// electron/vaults.js for why). Every handler returns { ok } so the renderer can render an
-// error inline rather than through an exception.
-// ---------------------------------------------------------------------------
-
 ipcMain.handle('list-vaults', () => vaults.listVaults());
 
 ipcMain.handle('create-vault', (_event, name) => vaults.createVault(name));
@@ -302,12 +224,6 @@ ipcMain.handle('rename-vault', async (_event, id, name) => {
   return result;
 });
 
-// Switching vault is a LOCAL-VAULT action, so it also lands the app on the local API. That
-// second half used to be missing: `vaults.switchVault()` really did move the local API onto
-// the chosen vault, but the connection still reported the remote, so the broadcast carried
-// the place the renderer was already on and nothing re-pointed. Because both the title-bar
-// switcher and the vault manager route here while you are on a remote, that made a
-// misconfigured server impossible to leave without restarting the app.
 ipcMain.handle('switch-vault', async (_event, id) => {
   const result = await vaults.switchVault(id);
   if (result.ok) {
@@ -317,8 +233,6 @@ ipcMain.handle('switch-vault', async (_event, id) => {
   return result;
 });
 
-// Adopt a vault folder the user picks off disk — a backup, another machine's vault, or
-// one this install has forgotten. The folder is registered where it is, never copied.
 ipcMain.handle('open-vault-from-disk', async () => {
   const picked = await dialog.showOpenDialog(mainWindow, {
     title: 'Open a Flashback vault',
@@ -328,15 +242,6 @@ ipcMain.handle('open-vault-from-disk', async () => {
   return vaults.adoptVault(picked.filePaths[0]);
 });
 
-// ---------------------------------------------------------------------------
-// IPC: local user identity
-//
-// Writes live here because main owns the `user` key in config.json, the same way it owns
-// apiToken, vaults[] and remotes[]. Reads of what is STORED come from here too; what would
-// actually be stamped is resolved by the API and read over HTTP from GET /api/identity, so
-// the precedence rule exists in exactly one place.
-// ---------------------------------------------------------------------------
-
 ipcMain.handle('get-identity', () => getStoredIdentity());
 
 ipcMain.handle('set-identity', (_event, identity) => setIdentity(identity ?? {}));
@@ -344,36 +249,23 @@ ipcMain.handle('set-identity', (_event, identity) => setIdentity(identity ?? {})
 ipcMain.handle('set-vault-identity', (_event, vaultId, identity) =>
     setVaultIdentity(vaultId ?? readConfig().activeVaultId, identity ?? null));
 
-// ---------------------------------------------------------------------------
-// IPC: remotes
-// ---------------------------------------------------------------------------
-
 ipcMain.handle('list-remotes', () => vaults.listRemotes());
 ipcMain.handle('add-remote', (_event, remote) => vaults.addRemote(remote ?? {}));
 ipcMain.handle('remove-remote', (_event, id) => vaults.removeRemote(id));
 ipcMain.handle('test-remote', (_event, id) => vaults.testRemote(id));
 
-// ---------------------------------------------------------------------------
-// IPC: the active connection
-//
-// The renderer talks to EITHER the local API or a remote Flashback Server, and the two
-// are the same shape — a base URL and a token — so one channel describes both. Switching
-// to a remote leaves the local API process running and idle; nothing is torn down.
-// ---------------------------------------------------------------------------
-
-// Which place the renderer is pointed at. Lives in its own module so the rule that gets you
-// BACK to a local vault is in one testable place — see connection.js for the bug that
-// scattering it caused, and tests/connection.test.js.
 const connection = createConnectionState({
   readConfig,
   connectionForRemote: vaults.connectionForRemote,
   apiBaseUrl,
 });
 
+/** Where the renderer is currently pointed: the local vault, or a remote with its decrypted token. */
 function currentConnection() {
   return connection.current();
 }
 
+/** Pushes the current connection to the renderer over IPC. */
 function broadcastConnection() {
   mainWindow?.webContents.send('connection-changed', currentConnection());
 }
@@ -387,8 +279,6 @@ ipcMain.handle('use-local-vault', () => {
 });
 
 ipcMain.handle('use-remote', async (_event, id) => {
-  // Handshake before repointing, so a bad URL or a rejected token is reported here
-  // instead of as a wall of failed requests once the renderer has already switched.
   const probe = await vaults.testRemote(id);
   if (!probe.ok) return probe;
 
@@ -397,29 +287,20 @@ ipcMain.handle('use-remote', async (_event, id) => {
   return { ok: true, connection: currentConnection(), identity: probe.identity };
 });
 
-// IPC: renderer requests a full app restart
 ipcMain.handle('restart-app', () => {
-  // app.exit() force-quits without firing before-quit, so kill the API child
-  // here to avoid leaving an orphaned server bound to the port across the relaunch.
   killApi();
   app.relaunch();
   app.exit(0);
 });
 
-// IPC: renderer reads the app userData path (used for path preview in onboarding)
 ipcMain.handle('get-user-data-path', () => app.getPath('userData'));
 
-// IPC: renderer reads the running app version (Config → About)
 ipcMain.handle('get-app-version', () => app.getVersion());
 
-// IPC: renderer forwards an uncaught error (window.onerror / unhandledrejection) into
-// the shared log file so front-end crashes aren't lost in packaged builds.
 ipcMain.on('renderer-error', (_event, payload) => {
   log.error('[renderer]', payload);
 });
 
-// IPC: update lifecycle (notify-first). Checks/downloads only run in a packaged build;
-// in dev they short-circuit with a friendly message rather than throwing.
 ipcMain.handle('updater-check', async () => {
   if (!app.isPackaged) return { ok: false, dev: true, error: 'Updates are only available in the packaged app.' };
   try {
@@ -444,17 +325,7 @@ ipcMain.handle('updater-install', () => {
   return { ok: true };
 });
 
-// Resolves the MCP server config a user should paste into Claude Code's .mcp.json
-// or Claude Desktop's claude_desktop_config.json. The server itself (src/mcp/server.js)
-// is a plain Node/HTTP client of this app's own API — see src/mcp/ — so all that's
-// needed here is telling an MCP host how to launch it and where the API is.
-//
-// Packaged: the script lives inside app.asar, and end users won't have Node.js
-// installed separately, so we point the "command" at this app's own executable
-// with ELECTRON_RUN_AS_NODE=1 — Electron's bundled Node runs the script directly
-// (and, critically, its asar-aware fs patches mean it can read the script and its
-// node_modules straight out of app.asar; a system `node` binary could not).
-// Dev: plain `node`, matching what's already verified to work during development.
+/** The .mcp.json snippet shown in Config, with FLASHBACK_API_TOKEN injected. */
 function getMcpServerConfig() {
   const serverPath = path.join(__dirname, '../mcp/server.js');
   const config = readConfig();
@@ -475,7 +346,6 @@ function getMcpServerConfig() {
   };
 }
 
-// IPC: renderer asks for a ready-to-paste MCP config snippet (Config → AI Assistant)
 ipcMain.handle('get-mcp-config', () => {
   const flashback = getMcpServerConfig();
   return {
@@ -485,7 +355,6 @@ ipcMain.handle('get-mcp-config', () => {
   };
 });
 
-// Single Instance Lock (Recommended)
 const gotTheLock = app.requestSingleInstanceLock();
 
 if (!gotTheLock) {
@@ -501,15 +370,14 @@ if (!gotTheLock) {
 
   app.on("ready", () => {
     if (!isFirstRun()) {
-      ensureApiToken();          // mint the token (upgrades from a pre-token install) before the API starts
-      vaults.ensureRegistry();   // synthesize vaults[] from the flat fields on an upgrading install
-      spawn();                   // API only runs when there's a config to read
+      ensureApiToken();
+      vaults.ensureRegistry();
+      spawn();
       createTray();
     }
     createWindow();
   });
 
-  // MacOS Dock click behavior
   app.on("activate", () => {
     if (mainWindow && !mainWindow.isVisible()) {
         mainWindow.show();
@@ -517,9 +385,6 @@ if (!gotTheLock) {
   });
 }
 
-// Handle explicit quit request. Tear the API utility process down ourselves —
-// Electron won't reliably reap it while it holds a listening socket, so leaving
-// it to chance is what let the app "not fully close" after Quit.
 app.on('before-quit', () => {
   isQuitting = true;
   killApi();

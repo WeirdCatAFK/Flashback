@@ -26,52 +26,23 @@ import newFileMetadata from "../../config/defaults/FlashbackFile.js";
 import newFolderMetadata from "../../config/defaults/FlashbackFolder.js";
 import { LATEST_VERSION } from "../../config/updates/registry.js";
 
-// How much of a file is sniffed to decide text-vs-binary. Git uses the same idea
-// (a NUL byte in the first 8 KB ⇒ binary): cheap, and it never has to load a
-// 200 MB video to find out it is not prose.
 const BINARY_SNIFF_BYTES = 8000;
 
-// Container formats whose bytes are a document in their own right, never a body to
-// read or edit — checked by extension because the sniff alone is not enough: an
-// uncompressed PDF can be pure ASCII, and "decoding" it yields its source syntax,
-// not its prose. Their text is reached through mcpReader; their bytes through
-// /api/documents/raw. Formats that are always NUL-heavy (images, audio, video) do
-// not need listing — the sniff catches them and anything else unforeseen.
 const BINARY_EXTENSIONS = new Set([
     ".pdf", ".epub", ".zip", ".apkg", ".docx", ".xlsx", ".pptx", ".odt",
 ]);
 
-/**
- * The formats whose BODY a user can write — the ones with an editable renderer. Everything
- * else in the vault is a viewer: `PUT /api/documents/file` refuses a `content` write for it,
- * and only its sidecar ever changes.
- *
- * Exported and shared with `routes/documents.js` on purpose. It used to be declared there
- * alone, and `etag()` has to draw the line in exactly the same place: a format whose body is
- * hashed but not writable would report a conflict nobody could have caused, and one that is
- * writable but not hashed would miss the conflict that matters.
- */
+/** The formats whose BODY a user can write — the ones with an editable renderer. */
 export const EDITABLE_BODY_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text"]);
 
 /**
  * True when the file should never be decoded as text.
- * UTF-16/32 text is full of NUL bytes by design, so a chardet verdict of one of
- * those wins over the NUL test.
+ *
  * @param {string} relPath - used for the format check.
  * @param {Buffer} sample - the first bytes of the file.
  * @param {string|null} encoding - chardet's guess, if any.
  */
-/**
- * Who to stamp a new sidecar's `createdBy` with.
- *
- * The account behind the current request when there is one, the install's local identity
- * otherwise. On a desktop install those are the same person, because the Author account is
- * seeded from that identity — so this changes nothing there. On a server the install is a
- * machine, and only the request knows who actually created the file.
- *
- * Deliberately the same string Seal uses for the commit author: a file and the commit that
- * created it must not disagree about who made them.
- */
+/** Who to stamp a new sidecar's `createdBy` with. */
 function stampedBy() {
     return currentAuthorString(getAuthorString);
 }
@@ -83,29 +54,12 @@ function looksBinary(relPath, sample, encoding) {
 }
 
 export default class Files {
-    /**
-     * Constructor for the Files class.
-     * 
-     * If the config provides a custom path it will be used instead to mount files elsewhere.
-     * If the custom path is not absolute, an error will be thrown.
-     * If the config does not provide a custom path, the USER_DATA_PATH environment variable will be used.
-     * If the USER_DATA_PATH environment variable is not defined, an error will be thrown.
-     * The workspace root will be set to the provided path or the default path.
-     * If the workspace root does not exist, it will be created recursively.
-     */
+    /** Constructor for the Files class. */
     constructor() {
         this._ensureRoot();
     }
 
-    /**
-     * The workspace root of the ACTIVE vault.
-     *
-     * A getter, not a field snapshotted in the constructor, because these instances are
-     * module-scope singletons created at import (routes/documents.js, doctor.js, media.js,
-     * …) and the active vault can change under them when the user switches. Resolving per
-     * access is what keeps safePath() — and every caller that reads `files.workspaceRoot`
-     * to relativize a stored absolute path — pointed at the right vault.
-     */
+    /** The workspace root of the ACTIVE vault. */
     get workspaceRoot() {
         return getWorkspacePath();
     }
@@ -119,27 +73,17 @@ export default class Files {
         return root;
     }
 
-    // ---------- HELPERS ----------
-
     /**
      * Safely resolves a path relative to the workspace root.
-     * If the path is absolute or traverses outside of the workspace, an error is thrown.
+     *
      * @param {string} anyPath - The path to be resolved.
      * @returns {string} The resolved path.
      * @throws {Error} If the path is absolute or traverses outside of the workspace.
      */
     safePath(anyPath) {
-        // Normalize and resolve relative to workspace root
         const resolvedPath = path.resolve(this.workspaceRoot, anyPath);
         const relative = path.relative(this.workspaceRoot, resolvedPath);
 
-        // Prevent traversal outside workspace.
-        //
-        // Carries a status, like the refusals in mcpReader.js and safeFetch.js: a path that
-        // leaves the vault is a statement about the REQUEST, and api.js's error handler
-        // already turns a 4xx `err.status` into that response. Without it every caller had
-        // to recognise the message by hand, and the ones that did not answered 500 — which
-        // reads as "the server broke" for what is a malformed argument.
         if (relative.startsWith("..") || path.isAbsolute(relative)) {
             throw Object.assign(
                 new Error(`Path traversal outside of workspace is not allowed: ${anyPath}`),
@@ -153,18 +97,6 @@ export default class Files {
     /**
      * Validates the NAME of an asset in a document's `media/` directory.
      *
-     * A media name is a plain file name and never a path. It is joined onto the owning
-     * document's own `media/` directory AND written into the sidecar as `./media/<name>`,
-     * so a name carrying a separator puts the file and its reference out of step even
-     * where it does not escape the workspace — and where it does escape, `path.join`
-     * walks out of the vault with it (`..`), while `path.resolve` abandons the base
-     * directory altogether for an absolute or drive-relative one.
-     *
-     * Refused rather than rewritten: every legitimate name is generated server-side
-     * (`documents._createFlashcardLocked`, `_cacheRemoteAsset`) or comes from a client
-     * that already sends a bare name, so silently substituting a basename would hide the
-     * caller's bug while leaving the sidecar pointing at something else.
-     *
      * @param {string} name
      * @returns {string} the same name, once it is known to be a single path segment.
      * @throws {Error} if it is anything else.
@@ -175,8 +107,8 @@ export default class Files {
             !raw ||
             raw === "." ||
             raw === ".." ||
-            raw.includes("/") || raw.includes("\\") ||  // a separator on EITHER platform: vaults are portable
-            /^[A-Za-z]:/.test(raw) ||                  // "C:foo" — drive-relative, resolves off our base
+            raw.includes("/") || raw.includes("\\") ||
+            /^[A-Za-z]:/.test(raw) ||
             raw.includes("\0") ||
             path.isAbsolute(raw);
         if (bad) throw new Error(`Invalid media name: ${raw}`);
@@ -185,12 +117,6 @@ export default class Files {
 
     /**
      * The absolute path of one asset inside a document's own `media/` directory.
-     *
-     * The single place that turns (document, asset name) into a path on disk, so the name
-     * check above cannot be skipped by a caller that builds the path itself — which is
-     * exactly how `addVanillaData`, `addCustomMedia` and `removeCustomMedia` each came to
-     * hold their own subtly different version of it. Ends in `safePath`, so containment is
-     * asserted rather than merely implied by the name being clean.
      *
      * @param {string} anyPath - relative path of the owning document.
      * @param {string} name - the asset's file name.
@@ -203,8 +129,7 @@ export default class Files {
 
     /**
      * Checks if a file or folder exists at the given relative path.
-     * If safePath throws an error (i.e. the path is absolute or traverses outside of the workspace),
-     * it is considered non-existent and false is returned.
+     *
      * @param {string} relPath - The relative path to check for existence.
      * @returns {boolean} True if the file or folder exists, false otherwise.
      */
@@ -212,15 +137,13 @@ export default class Files {
         try {
             return fs.existsSync(this.safePath(relPath));
         } catch {
-            // If safePath throws, consider it non-existent (but rethrow might be better for caller)
             return false;
         }
     }
 
     /**
      * Computes the path to the metadata file associated with the given relative path.
-     * If isFolder is true, the path is interpreted as a folder and the metadata path is inside the folder with the name ".flashback".
-     * If isFolder is false, the path is interpreted as a file and the metadata path is the file path with ".flashback" appended.
+     *
      * @param {string} relPath - The relative path for which to compute the metadata path.
      * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
      * @returns {string} The computed metadata path.
@@ -232,7 +155,7 @@ export default class Files {
 
     /**
      * Resolve a copy name for a file to be written in the given directory.
-     * If a file with the same name already exists, increment the counter until a free name is found.
+     *
      * @param {string} dirPath - The directory in which to write the file.
      * @param {string} baseName - The base name of the file to be written (without extension).
      * @returns {string} The resolved copy name.
@@ -254,17 +177,14 @@ export default class Files {
 _regenerateIdentities(absPath) {
         let items = [];
         
-        // Process the folder itself (metadata lives inside it at .flashback)
-        // We assume the caller (copy) handled the creation/copying, we just update metadata.
         const folderRel = path.relative(this.workspaceRoot, absPath);
         
         let folderMeta = this.getMetadata(folderRel, true);
-        if (!folderMeta) folderMeta = newFolderMetadata(); // Fallback
+        if (!folderMeta) folderMeta = newFolderMetadata();
         
-        // REGENERATE IDENTITY
         const oldFolderHash = folderMeta.globalHash;
         folderMeta.globalHash = crypto.randomUUID();
-        folderMeta.copiedFrom = oldFolderHash; // distinct from original
+        folderMeta.copiedFrom = oldFolderHash;
         folderMeta.createdAt = new Date().toISOString();
         
         this.writeMetadata(folderRel, folderMeta, true);
@@ -277,26 +197,21 @@ _regenerateIdentities(absPath) {
             name: path.basename(absPath)
         });
 
-        // Process Children
         const entries = fs.readdirSync(absPath, { withFileTypes: true });
         
         for (const entry of entries) {
-            // Skip metadata files themselves
             if (entry.name === '.flashback' || entry.name.endsWith('.flashback')) continue;
 
             const entryAbsPath = path.join(absPath, entry.name);
             const entryRel = path.relative(this.workspaceRoot, entryAbsPath);
 
             if (entry.isDirectory()) {
-                // Recurse
                 const childItems = this._regenerateIdentities(entryAbsPath);
                 items = items.concat(childItems);
             } else {
-                // Process File
                 let fileMeta = this.getMetadata(entryRel, false);
                 if (!fileMeta) fileMeta = newFileMetadata();
 
-                // REGENERATE IDENTITY
                 const oldFileHash = fileMeta.globalHash;
                 fileMeta.globalHash = crypto.randomUUID();
                 fileMeta.copiedFrom = oldFileHash;
@@ -331,27 +246,6 @@ _regenerateIdentities(absPath) {
     /**
      * The version of a document, for detecting a write that lost a race.
      *
-     * Two sha256 digests joined by a dot — `"<body>.<sidecar>"` — because a document is two
-     * files with two different owners, and one combined digest cannot express either of them.
-     * An editor replaces the BODY wholesale while merging the sidecar from a fresh read, so a
-     * card somebody added through the Inspector must not make that save fail; a PDF renderer
-     * writes only the sidecar and never touches the body at all. Callers treat the string as
-     * opaque and `documents._assertFresh` compares the half that the write actually replaces.
-     *
-     * `-` stands in for a half that does not exist: a body never yet written, or one of the
-     * many formats whose body is not editable (`PUT /api/documents/file` refuses a `content`
-     * write outside EDITABLE_BODY_EXTENSIONS, so those bytes cannot go stale under an editor
-     * and hashing a 50 MB PDF on every read would buy nothing).
-     *
-     * Derived on demand and stored nowhere, which is the entire argument for it. A counter —
-     * in the sidecar or in a column — has to be bumped by whoever writes, so it reports
-     * "unchanged" for a Doctor rebuild, a Seal rollback, and an edit made in another program:
-     * the three cases where a client's cached copy is most likely to be wrong. Content can
-     * only ever describe itself.
-     *
-     * Cheap by design: sidecars are kilobytes, and an editable body is text someone is
-     * typing into.
-     *
      * @param {string} relPath - workspace-relative path of the document.
      * @param {boolean} [isFolder=false] - hash a folder's own `.flashback` instead.
      * @returns {string|null} `"<body>.<sidecar>"`, or null when neither half exists.
@@ -376,15 +270,6 @@ _regenerateIdentities(absPath) {
     /**
      * The version of ONE entity inside a sidecar — a flashcard, a highlight.
      *
-     * A document's etag changes whenever anything in it does, which is the right answer for a
-     * whole-object write and the wrong one for a patch: two people editing different cards of
-     * one document are not in conflict, and telling them they are would make a shared vault
-     * unusable. A patch names its target by `globalHash`, so it can be checked against that
-     * target alone.
-     *
-     * Keys are sorted before hashing so the digest describes the entity's VALUE, not the
-     * order a particular writer happened to serialize it in.
-     *
      * @param {object|null|undefined} entity
      * @returns {string|null} hex digest, or null for a missing entity.
      */
@@ -405,8 +290,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Reads the metadata associated with the given relative path.
-     * If the path is interpreted as a folder, the metadata path is inside the folder with the name ".flashback".
-     * If the path is interpreted as a file, the metadata path is the file path with ".flashback" appended.
+     *
      * @param {string} relPath - The relative path for which to read the metadata.
      * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
      * @returns {object|null} The read metadata or null if the file does not exist or is malformed.
@@ -418,7 +302,6 @@ _regenerateIdentities(absPath) {
             const raw = fs.readFileSync(metadataPath, "utf-8");
             return JSON.parse(raw);
         } catch (err) {
-            // No swallow: let caller decide; but return null for non-critical malformed metadata
             console.error("Error reading metadata for", relPath, err);
             return null;
         }
@@ -426,20 +309,16 @@ _regenerateIdentities(absPath) {
 
     /**
      * Writes the given metadata to the path associated with the given relative path.
-     * If isFolder is true, the path is interpreted as a folder and the metadata path is inside the folder with the name ".flashback".
-     * If isFolder is false, the path is interpreted as a file and the metadata path is the file path with ".flashback" appended.
+     *
      * @param {string} relPath - The relative path for which to write the metadata.
      * @param {object} metadata - The metadata to write.
      * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
      */
     writeMetadata(relPath, metadata, isFolder = false) {
         try {
-            // Auto-assign any missing flashcard hash before it reaches disk or
-            // the DB sync — global_hash is NOT NULL and API-owned.
             this._ensureFlashcardHashes(metadata);
             const metadataPath = this._metadataPathFor(relPath, isFolder);
             this._ensureFormatVersion(metadata, metadataPath);
-            // Ensure parent folder exists
             const parent = path.dirname(metadataPath);
             if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
 
@@ -450,18 +329,8 @@ _regenerateIdentities(absPath) {
         }
     }
 
-
     /**
      * Stamps the canonical format version on a sidecar being written for the FIRST time.
-     *
-     * The templates in `config/defaults/` already carry it, but plenty of callers assemble a
-     * metadata object themselves (imports, subscriptions, tests), and an unstamped file
-     * reads as version 0 — which would send it back through every canonical update.
-     *
-     * Deliberately only for a sidecar that does not exist yet, and never an override of a
-     * version already on disk: an old file's stamp is a fact about its contents, and quietly
-     * marking it current would tell `UpdateRunner` to skip data that still needs migrating.
-     * An existing unstamped file therefore stays unstamped and belongs to the runner.
      *
      * @param {object} metadata - the object about to be written.
      * @param {string} metadataPath - absolute path of the sidecar.
@@ -475,8 +344,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Ensures that the given metadata object has a globalHash property.
-     * If the object does not have a globalHash, one is generated using crypto.randomUUID().
-     * If the object is not provided, a new object is created using either newFolderMetadata() or newFileMetadata() depending on the value of isFolder.
+     *
      * @param {object} [metadata] - The metadata object to ensure has a globalHash property.
      * @param {boolean} [isFolder=false] - Whether the metadata object is associated with a folder or a file.
      * @returns {object} The ensured metadata object with a globalHash property.
@@ -484,18 +352,14 @@ _regenerateIdentities(absPath) {
     _ensureGlobalHash(metadata, isFolder = false) {
         if (!metadata) metadata = isFolder ? newFolderMetadata() : newFileMetadata();
         if (!metadata.globalHash) {
-            // generate a stable unique id once
             metadata.globalHash = crypto.randomUUID();
         }
         return metadata;
     }
 
     /**
-     * Ensures every flashcard in the metadata has a globalHash. Like the
-     * document/folder hash, a flashcard's hash is API-owned and immutable: it is
-     * generated once (when missing) and never overwritten. Mutates in place so
-     * the same objects later handed to the DB sync carry the assigned hash, and
-     * persists it to the sidecar so it stays stable across saves.
+     * Ensures every flashcard in the metadata has a globalHash.
+     *
      * @param {object} [metadata] - The metadata object whose flashcards to ensure.
      * @returns {object} The same metadata object.
      */
@@ -507,14 +371,9 @@ _regenerateIdentities(absPath) {
         return metadata;
     }
 
-    // ---------- FILE OPERATIONS ----------
-
     /**
      * Creates a new file with the given name at the given relative path.
-     * If the file already exists at the given relative path, an error is thrown.
-     * The file is created with empty contents.
-     * The file's metadata is created and written to the file system.
-     * The globalHash of the created file is returned.
+     *
      * @param {string} relPath - The relative path to create the file in.
      * @param {string} name - The name of the file to create.
      * @returns {string} The globalHash of the created file.
@@ -532,10 +391,9 @@ _regenerateIdentities(absPath) {
         }
 
         try {
-            // ensure parent exists
             if (!fs.existsSync(dirResolved)) fs.mkdirSync(dirResolved, { recursive: true });
 
-            fs.writeFileSync(filePath, ""); // empty file
+            fs.writeFileSync(filePath, "");
 
             let metadata = newFileMetadata();
             metadata = this._ensureGlobalHash(metadata, false);
@@ -554,10 +412,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Creates a new folder with the given name at the given relative path.
-     * If the folder already exists at the given relative path, an error is thrown.
-     * The folder is created with empty contents.
-     * The folder's metadata is created and written to the file system.
-     * The globalHash of the created folder is returned.
+     *
      * @param {string} relPath - The relative path to create the folder in.
      * @param {string} name - The name of the folder to create.
      * @returns {string} The globalHash of the created folder.
@@ -594,12 +449,8 @@ _regenerateIdentities(absPath) {
     }
 
     /**
-     * Ensures a folder has a `.flashback` sidecar, writing default metadata if
-     * missing. Unlike createFolder(), this never throws if the directory already
-     * exists — it's used to backfill intermediate folders that were auto-created
-     * as plain directories (e.g. by createFile()'s recursive mkdirSync when a
-     * multi-level parentPath doesn't exist yet) without ever going through
-     * createFolder()'s sidecar-writing path.
+     * Ensures a folder has a `.flashback` sidecar, writing default metadata if missing.
+     *
      * @param {string} relPath - The relative path the folder lives in.
      * @param {string} name - The folder's own name.
      * @returns {string} The folder's globalHash (existing or newly assigned).
@@ -624,9 +475,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Renames a file or folder at the given relative path to the given new name.
-     * If the item does not exist at the given relative path, an error is thrown.
-     * If the item already exists at the given relative path with the new name, an error is thrown.
-     * The item's metadata is updated to reflect the new name, if applicable.
+     *
      * @param {string} relPath - The relative path to the item to rename.
      * @param {string} newName - The new name for the item.
      * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
@@ -634,7 +483,6 @@ _regenerateIdentities(absPath) {
      * @throws {Error} If the item already exists at the given relative path with the new name.
      */
     rename(relPath, newName, isFolder = false) {
-        // relPath is a path to the item (e.g. "notes/foo.md" or "notes/sub")
         const lower = newName.trim().toLowerCase();
         if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot rename to a .flashback name; it is reserved for Flashback metadata');
         if (isFolder && lower === 'media') throw new Error('Cannot rename a folder to "media"; it is reserved for flashcard assets');
@@ -649,20 +497,17 @@ _regenerateIdentities(absPath) {
         try {
             fs.renameSync(oldPath, newPath);
 
-            // Move metadata if file (sidecar)
             if (!isFolder) {
                 const oldMeta = `${oldPath}.flashback`;
                 const newMeta = `${newPath}.flashback`;
                 if (fs.existsSync(oldMeta)) {
                     fs.renameSync(oldMeta, newMeta);
                 } else {
-                    // If no sidecar existed (odd), create/update metadata with new name if metadata present elsewhere
                     const meta = this.getMetadata(newRel, false) || newFileMetadata();
                     meta.name = newName;
                     this.writeMetadata(newRel, meta, false);
                 }
             } else {
-                // For folders, update the internal .flashback name if exists
                 const folderMetaPath = path.join(newPath, ".flashback");
                 if (fs.existsSync(folderMetaPath)) {
                     try {
@@ -670,7 +515,6 @@ _regenerateIdentities(absPath) {
                         m.name = newName;
                         fs.writeFileSync(folderMetaPath, JSON.stringify(m, null, 2), "utf-8");
                     } catch (err) {
-                        // ignore but log
                         console.error("Failed updating folder metadata name after rename:", err);
                     }
                 }
@@ -683,9 +527,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Moves a file or folder from the given relative path to the given new relative path.
-     * If the item does not exist at the given relative path, an error is thrown.
-     * If the item already exists at the given relative path with the new name, an error is thrown.
-     * The item's metadata is updated to reflect the new path, if applicable.
+     *
      * @param {string} relPath - The relative path to the item to move.
      * @param {string} newRelPath - The new relative path to move the item to.
      * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
@@ -700,21 +542,17 @@ _regenerateIdentities(absPath) {
         if (this.exists(newRelPath)) throw new Error("Target already exists");
 
         try {
-            // Ensure parent of destination exists
             const destParent = path.dirname(newPath);
             if (!fs.existsSync(destParent)) fs.mkdirSync(destParent, { recursive: true });
 
             fs.renameSync(oldPath, newPath);
 
-            // Move sidecar if file
             if (!isFolder) {
                 const oldMeta = `${oldPath}.flashback`;
                 const newMeta = `${newPath}.flashback`;
                 if (fs.existsSync(oldMeta)) {
                     fs.renameSync(oldMeta, newMeta);
                 }
-            } else {
-                // If folder move, nothing else required — .flashback moved with folder
             }
         } catch (err) {
             console.error("Error moving:", err);
@@ -724,7 +562,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Deletes a file or folder from the given relative path.
-     * If the item does not exist at the given relative path, an error is thrown.
+     *
      * @param {string} relPath - The relative path to the item to delete.
      * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
      * @throws {Error} If the item does not exist at the given relative path.
@@ -749,10 +587,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Copies a file or folder from the given relative path to the given new relative path.
-     * If the item does not exist at the given relative path, an error is thrown.
-     * If the item already exists at the given relative path with the new name, an error is thrown.
-     * The item's metadata is updated to reflect the new path, if applicable.
-     * The item's identifier is updated to reflect the new path, if applicable.
+     *
      * @param {string} relPath - The relative path to the item to copy.
      * @param {string} newRelPath - The new relative path to copy the item to.
      * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
@@ -775,9 +610,7 @@ _regenerateIdentities(absPath) {
 
             let finalDest = dest;
 
-            // Handle name collision (rename if in same folder)
             if (fs.existsSync(dest)) {
-                // Auto-rename if collision:
                  if (srcDir === destDir || fs.existsSync(dest)) {
                     const newName = this._resolveCopyName(destDir, path.basename(dest));
                     finalDest = path.join(destDir, newName);
@@ -785,18 +618,12 @@ _regenerateIdentities(absPath) {
             }
 
             if (isFolder) {
-                // Recursive copy of content and metadata files
                 fs.cpSync(src, finalDest, { recursive: true });
                 
-                // Regenerate Identities and Return List
-                // We pass the final destination path
                 return this._regenerateIdentities(finalDest);
-
             } else {
-                // Single File Copy
                 fs.copyFileSync(src, finalDest);
                 
-                // Handle Metadata
                 const srcMeta = this.getMetadata(relPath, false);
                 let newMeta = srcMeta ? structuredClone(srcMeta) : newFileMetadata();
                 
@@ -826,19 +653,15 @@ _regenerateIdentities(absPath) {
                     name: newMeta.name
                 }];
             }
-
         } catch (error) {
             console.error("Error copying:", error);
             throw error;
         }
     }
 
-
 /**
  * Updates the content of a file at the given relative path.
- * If the file does not exist at the given relative path, an error is thrown.
- * If the given metadata is not null, the file's metadata is updated with the new values.
- * If the existing metadata has a globalHash, it is preserved in the new metadata.
+ *
  * @param {string} relPath - The relative path to the file to update.
  * @param {string} content - The new content of the file.
  * @param {object} [metadata=null] - The new metadata for the file.
@@ -850,11 +673,6 @@ _regenerateIdentities(absPath) {
     updateFile(relPath, content, metadata, encoding = "utf-8") {
         const filePath = this.safePath(relPath);
 
-        // 404, not a generic failure: the honest answer to "write this document" when the
-        // document is not there. It became reachable in normal use once writes started
-        // queueing behind a move — an edit issued a moment before the move can arrive a
-        // moment after it, addressing a path that has just stopped existing, and the client
-        // needs to be told to re-read rather than shown a server error.
         if (!this.exists(relPath)) {
             throw Object.assign(new Error("File does not exist"), { status: 404 });
         }
@@ -862,9 +680,6 @@ _regenerateIdentities(absPath) {
         try {
             const isBuffer = Buffer.isBuffer(content);
 
-            // Writing a string over a PDF/EPUB/image replaces the file with that
-            // string — and document bodies are not versioned by Seal, so it cannot
-            // be undone in-app. Buffer writes (real re-imports) still pass.
             if (!isBuffer && content != null && this.isBinaryFile(relPath)) {
                 throw new Error(
                     `Cannot overwrite the binary file ${relPath} with text content. ` +
@@ -873,15 +688,12 @@ _regenerateIdentities(absPath) {
             }
 
             if (isBuffer) {
-                // Auto-detect encoding; fall back to 'binary' for unrecognised formats
                 const detected = chardet.detect(content);
                 encoding = (detected && iconv.encodingExists(detected)) ? detected : 'binary';
                 fs.writeFileSync(filePath, content);
             } else if (content != null) {
-                fs.writeFileSync(filePath, content, { encoding: /** @type {BufferEncoding} */ (encoding) });
+                fs.writeFileSync(filePath, content, { encoding: (encoding) });
             } else {
-                // Metadata-only update: leave the body alone and keep whatever
-                // encoding the sidecar already recorded for it.
                 encoding = this.getMetadata(relPath, false)?.encoding ?? encoding;
             }
 
@@ -900,10 +712,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Adds vanilla data to the file at the given relative path.
-     * The given data is written to a file in the "media" subfolder of the file at the given relative path, named with the given name.
-     * The file's metadata is updated with the new vanilla data.
-     * If the given metadata is not null, the file's metadata is updated with the new values.
-     * If the existing metadata has a globalHash, it is preserved in the new metadata.
+     *
      * @param {string} anyPath - The relative path to the file to add vanilla data to.
      * @param {Buffer|string} data - The data to write to the file.
      * @param {string} name - The name of the file to write.
@@ -919,8 +728,6 @@ _regenerateIdentities(absPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
 
-        // Name-checked and workspace-confined before anything is created on disk: a
-        // rejected request must not leave a media/ directory behind either.
         const mediaPath = this.mediaPathFor(anyPath, name);
         const mediaDir = path.dirname(mediaPath);
         if (!fs.existsSync(mediaDir)) fs.mkdirSync(mediaDir, { recursive: true });
@@ -932,7 +739,6 @@ _regenerateIdentities(absPath) {
 
             const metadata = this.getMetadata(anyPath);
             if (!metadata || !Array.isArray(metadata.flashcards) || !metadata.flashcards[cardIndex]) {
-                // cleanup written media if invalid
                 fs.unlinkSync(mediaPath);
                 throw new Error(`Flashcard at index ${cardIndex} does not exist.`);
             }
@@ -957,7 +763,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Adds a custom media file to the given file's flashcard at the given index.
-     * If the index is null, the media file is added to the file's metadata instead.
+     *
      * @param {string} anyPath - The path to the file to add the media to.
      * @param {Buffer} data - The data of the media file.
      * @param {string} name - The name of the media file.
@@ -976,13 +782,12 @@ _regenerateIdentities(absPath) {
         if (fs.existsSync(mediaPath)) throw new Error("Media file already exists.");
 
         try {
-            fs.writeFileSync(mediaPath, data, { encoding: /** @type {BufferEncoding} */ (encoding) });
+            fs.writeFileSync(mediaPath, data, { encoding: (encoding) });
 
             const trimmedName = name.split(".")[0];
 
             const metadata = this.getMetadata(anyPath);
             if (!metadata || !Array.isArray(metadata.flashcards) || cardIndex == null || !metadata.flashcards[cardIndex]) {
-                // cleanup written media if invalid
                 fs.unlinkSync(mediaPath);
                 throw new Error(`Flashcard at index ${cardIndex} does not exist.`);
             }
@@ -1004,7 +809,7 @@ _regenerateIdentities(absPath) {
 
     /**
      * Removes a custom media file from the given file's flashcard at the given index.
-     * If the index is null, the media file is removed from the file's metadata instead.
+     *
      * @param {string} anyPath - The path to the file to remove the media from.
      * @param {string} name - The name of the media file.
      * @throws {Error} If the file does not exist, the media file does not exist, or the flashcard at the given index does not exist.
@@ -1015,13 +820,9 @@ _regenerateIdentities(absPath) {
             throw new Error("File does not exist.");
         }
 
-        // NOT path.resolve(dirname, "media", name): an absolute or drive-relative `name`
-        // discards the two segments before it, which is how a delete aimed at a document's
-        // own media/ dir could unlink any file the process could reach.
         const mediaPath = this.mediaPathFor(anyPath, name);
         try {
             if (fs.existsSync(mediaPath)) fs.unlinkSync(mediaPath);
-            // remove references in metadata if present
             const metadata = this.getMetadata(anyPath);
             if (metadata && Array.isArray(metadata.flashcards)) {
                 let changed = false;
@@ -1057,15 +858,6 @@ _regenerateIdentities(absPath) {
 
     /**
      * Reads the contents of the file at the given relative path.
-     * If the file does not exist, an error is thrown.
-     *
-     * TEXT files come back decoded, with the encoding chardet detected (falling
-     * back to utf-8). BINARY files (PDF, EPUB, images, audio, video) come back as
-     * `{ content: null, binary: true }` and are never decoded: running a PDF through
-     * iconv produces megabytes of mojibake that no caller can use — the renderers
-     * fetch those bytes from /api/documents/raw and every text-only caller
-     * (link extraction, content search, highlight context) has to skip them anyway.
-     * `size` is always the file's size on disk in bytes.
      *
      * @param {string} anyPath - The relative path to the file to read.
      * @returns {{content: string|null, encoding: string, binary: boolean, size: number}}
@@ -1081,11 +873,9 @@ _regenerateIdentities(absPath) {
         try {
             const size = fs.statSync(filePath).size;
 
-            // detect encoding with chardet, fallback to utf-8
             let encoding = chardet.detectFileSync ? chardet.detectFileSync(filePath, { sampleSize: 64 * 1024 }) : null;
             encoding = encoding || "utf-8";
 
-            // Sniff before loading the whole file: a binary hit never reads past 8 KB.
             const fd = fs.openSync(filePath, "r");
             let sample;
             try {
@@ -1117,9 +907,8 @@ _regenerateIdentities(absPath) {
     }
 
     /**
-     * The file's raw bytes, undecoded. For callers that parse a container format
-     * themselves (mcpReader extracting text from a PDF/EPUB) — going through here
-     * rather than fs keeps every path traversal check in this one layer.
+     * The file's raw bytes, undecoded.
+     *
      * @param {string} anyPath - The relative path to the file.
      * @returns {Buffer}
      * @throws {Error} If the file does not exist.
@@ -1131,8 +920,8 @@ _regenerateIdentities(absPath) {
     }
 
     /**
-     * Size in bytes and last-modified time of a file, without reading it. Used as a
-     * cheap cache key by callers that memoize expensive per-file work.
+     * Size in bytes and last-modified time of a file, without reading it.
+     *
      * @param {string} anyPath - The relative path to the file.
      * @returns {{size: number, mtimeMs: number}}
      * @throws {Error} If the file does not exist.
@@ -1145,9 +934,8 @@ _regenerateIdentities(absPath) {
     }
 
     /**
-     * Whether the file at the given relative path holds binary data (same sniff as
-     * readFile, without decoding anything). Used to keep text writes off binary
-     * files. Missing files are not binary — creating one is a text write.
+     * Whether the file at the given relative path holds binary data (same sniff as readFile, without decoding anything).
+     *
      * @param {string} anyPath - The relative path to the file.
      * @returns {boolean}
      */
@@ -1169,41 +957,17 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    // ---------- CONVENIENCE ----------
-
 /**
- * Lists all files and folders in the given relative path, excluding the .flashback
- * metadata file.
- * The returned array contains objects with the following properties:
- *   - name: The name of the file or folder.
- *   - type: The type of the file or folder, either "file" or "folder".
- *   - metadata: The metadata of the file or folder, or null if no metadata exists.
+ * Lists all files and folders in the given relative path, excluding the .flashback metadata file.
+ *
  * @param {string} relPath - The relative path to the folder to list.
  * @throws {Error} If the folder does not exist.
  * @returns {Array<object>} An array of objects containing the file or folder's name, type, and metadata.
  */
     /**
-     * Read-only recursive walk of the entire workspace canonical layer. Never
-     * writes or mutates anything (unlike _regenerateIdentities). Used by the
-     * Vault Doctor to compare disk state against the derived layer.
+     * Read-only recursive walk of the entire workspace canonical layer.
      *
-     * Skip rules: `.git` everywhere, `_decks` at the workspace root only (its
-     * canonical location — a user folder named `_decks` deeper in the tree is
-     * walked normally), `media/` directories (recorded in mediaDirs, contents
-     * not treated as documents), and sidecar files themselves (attached to
-     * their owner's entry instead).
-     *
-     * Folders are emitted in pre-order (parents before children) so callers
-     * can ingest them in array order.
-     *
-     * @returns {{
-     *   folders:   Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>,
-     *   documents: Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>,
-     *   mediaDirs: string[],
-     *   strayItems: Array<{ relPath: string, kind: 'untracked-file'|'orphan-sidecar' }>
-     * }} `meta: null` with `sidecarExists: true` means the sidecar file exists
-     *    but is malformed JSON (`sidecarCorrupt: true`); with `sidecarExists:
-     *    false` it's a ghost item that never got a sidecar.
+     * @returns {{ folders:   Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>, documents: Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>, mediaDirs: string[], strayItems: Array<{ relPath: string, kind: 'untracked-file'|'orphan-sidecar' }> }} `meta: null` with `sidecarExists: true` means the sidecar file exists but is malformed JSON (`sidecarCorrupt: true`); with `sidecarExists: false` it's a ghost item that never got a sidecar.
      */
     walkWorkspace() {
         const folders = [];
@@ -1234,7 +998,7 @@ _regenerateIdentities(absPath) {
                     });
                     walk(entryRel);
                 } else {
-                    if (entry.name === ".flashback") continue; // the parent folder's own sidecar
+                    if (entry.name === ".flashback") continue;
                     if (entry.name.endsWith(".flashback")) {
                         const owner = entry.name.slice(0, -".flashback".length);
                         if (!names.has(owner)) strayItems.push({ relPath: entryRel, kind: "orphan-sidecar" });
@@ -1258,6 +1022,7 @@ _regenerateIdentities(absPath) {
         return { folders, documents, mediaDirs, strayItems };
     }
 
+    /** One folder's documents and subfolders, with their metadata. */
     listFolder(relPath) {
         const folderPath = this.safePath(relPath);
         if (!this.exists(relPath)) throw new Error("Folder does not exist");
