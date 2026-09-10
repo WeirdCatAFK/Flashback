@@ -228,7 +228,7 @@ describe('Seal Integration Tests', () => {
             // This proves the DB is intentionally diverged from the canonical layer until reconcile runs.
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash);
             assert.equal(fc.level, 7, 'DB SRS level should be the pre-rollback value, not reset');

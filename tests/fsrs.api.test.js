@@ -58,7 +58,7 @@ describe('FSRS review loop', () => {
                p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
                p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
         FROM Flashcards f
-        LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+        LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
         WHERE f.global_hash = ?
     `).get(hash);
 

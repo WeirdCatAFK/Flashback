@@ -1561,6 +1561,10 @@ export default class Documents {
 
         await db.transaction(async () => {
             await this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
+            // The sync's orphan sweep drops the index row but deliberately leaves behavioural
+            // rows alone — a card vanishing from a sidecar is not a decision to destroy
+            // anyone's history. This IS that decision, so it purges explicitly.
+            await this.query.purgeCardBehaviour(flashcardHash);
         })();
 
         await sealEmitter.edit(relativePath + '.flashback');

@@ -37,8 +37,6 @@ import query from '../resources/query.js';
 import Documents from './documents.js';
 import Decks from './decks.js';
 import { sealEmitter, sealTools } from '../../seal/seal.js';
-import { getVaultId } from '../primitives/vault.js';
-import { listAccountProgress } from '../primitives/accounts.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
 const norm = p => (p ?? '').split(/[\\/]+/).filter(Boolean).join('/');
@@ -334,31 +332,14 @@ export default class Doctor {
             }
         }
 
-        let easeRestored = 0;
-        for (const d of walk.documents) {
-            for (const fc of d.meta?.flashcards ?? []) {
-                if (fc.globalHash == null || fc.easeFactor == null) continue;
-                const row = await this.query.getFlashcardByHash(fc.globalHash);
-                if (row) {
-                    await this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0, OWNER_SCOPE);
-                    easeRestored++;
-                }
-            }
-        }
-
-        const { restored: progressRestored, warnings: progressWarnings } = await this._restoreAccountProgress();
-        warnings.push(...progressWarnings);
-
         return {
             summary: {
                 foldersIndexed,
                 documentsIndexed,
-                progressRestored,
                 flashcards: await this.query.getFlashcardCount(),
                 decks: deckResult.decks,
                 standaloneCardsRestored: deckResult.restoredCards,
                 mediaRegistered,
-                easeFactorsRestored: easeRestored,
             },
             warnings,
         };
@@ -387,46 +368,6 @@ export default class Doctor {
         }
     }
 
-    /** Re-projects every non-owner's durable schedule into CardProgress. */
-    async _restoreAccountProgress() {
-        const warnings = [];
-        let restored = 0;
-
-        let snapshots;
-        try {
-            snapshots = await listAccountProgress(getVaultId());
-        } catch (err) {
-            warnings.push(`Could not read per-account progress: ${err.message}`);
-            return { restored: 0, warnings };
-        }
-
-        for (const snap of snapshots) {
-            const card = await this.query.getFlashcardByHash(snap.card_hash);
-            if (!card) continue;
-            try {
-                await this.query._upsertProgress(card.id, snap.account_id, {
-                    level: snap.level,
-                    sm2_reps: snap.sm2_reps,
-                    last_recall: snap.last_recall,
-                    fsrs_stability: snap.fsrs_stability,
-                    fsrs_difficulty: snap.fsrs_difficulty,
-                    fsrs_due: snap.fsrs_due,
-                    fsrs_state: snap.fsrs_state,
-                    fsrs_reps: snap.fsrs_reps,
-                    fsrs_lapses: snap.fsrs_lapses,
-                });
-                if (snap.ease_factor != null) {
-                    await this.query.insertSyntheticReviewLog(
-                        card.id, snap.ease_factor, snap.level ?? 0, snap.account_id,
-                    );
-                }
-                restored++;
-            } catch (err) {
-                warnings.push(`Could not restore progress for card ${snap.card_hash}: ${err.message}`);
-            }
-        }
-        return { restored, warnings };
-    }
 
     async _registerMediaFile(relPath) {
         const abs = this.files.safePath(relPath);

@@ -207,7 +207,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             // Verify fcHash1 updated
             const fc1 = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash1);
             assert.equal(fc1.level, 1, 'Flashcard 1 level should be updated');
@@ -380,7 +380,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash);
             assert.equal(fc.level, 5, 'Flashcard level should be updated to 5');
@@ -534,7 +534,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             const flashcard = await db.prepare(`
                 SELECT f.*, COALESCE(p.level, 0) AS level
                 FROM Flashcards f
-                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
                 WHERE f.document_id = ?
             `).get(docEntry.id);
             assert.ok(flashcard, "Flashcard should be imported");
@@ -601,7 +601,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             const dbCard = await db.prepare(`
                 SELECT COALESCE(p.level, 0) AS level, f.global_hash
                 FROM Flashcards f
-                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
                 WHERE f.document_id = ?
             `).get(fileExists.id);
             assert.ok(dbCard, "Flashcard from zip should be imported");

@@ -505,7 +505,7 @@ describe('Vault Doctor', () => {
 
             const card = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(cardHash);
             assert.equal(card.level, 6, 'SRS level recovered from sidecar');
@@ -538,8 +538,14 @@ describe('Vault Doctor', () => {
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
             assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
+            // SM-2 ease is read out of the newest review log, and those are durable now, so
+            // a card that was really reviewed keeps its ease across a rebuild without anything
+            // being re-seeded. This card never was: its 2.7 exists only as a sidecar field, and
+            // the synthetic-log re-seed that used to resurrect it is gone. Reading the sidecar
+            // to seed a card that has no progress at all returns in Stage 7 (seed-on-absence).
             const eases = await query.getLatestEaseFactors('owner');
-            assert.equal(eases.get(cardHash), 2.7, 'ease factor recovered via synthetic review log');
+            assert.equal(eases.get(cardHash), undefined,
+                'a sidecar-only ease is no longer resurrected as a synthetic review');
         });
 
         it('restores the standalone card from its inline snapshot and keeps one system deck', async () => {

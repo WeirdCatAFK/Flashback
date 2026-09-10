@@ -5,12 +5,12 @@
  *
  *   1. **Divergence.** The same card carries a different schedule for each person, and one
  *      person's reviews never move another's due list.
- *   2. **Two canonical homes.** The owner's progress goes into the `.flashback` sidecar and is
- *      sealed; everyone else's goes into `accounts.db` and produces no commit at all. A reader
- *      studying is not a reader editing.
- *   3. **Durability.** A Vault Doctor rebuild wipes the derived database. The owner's schedule
- *      comes back from the sidecars, everyone else's from AccountProgress — and the Doctor
- *      never writes to the accounts store while doing it.
+ *   2. **One canonical home.** Every schedule lives in `progress.CardProgress`, the owner under
+ *      the 'owner' sentinel. A reader's review still writes no file and seals nothing — a reader
+ *      studying is not a reader editing — but nobody's schedule is mirrored into accounts.db any
+ *      more, so there is no second copy to drift.
+ *   3. **Durability.** A Vault Doctor rebuild wipes the derived database and does not touch the
+ *      progress store, so every schedule survives it without being restored from anywhere.
  *   4. **The owner sentinel survives a vault copy.** This is the reason 'owner' is a literal
  *      and not the Author's account id: point the same vault at a fresh install whose accounts
  *      store has never heard of it, and the owner's progress is still theirs.
@@ -152,8 +152,12 @@ describe('Per-user SRS', () => {
         });
     });
 
-    // --- 2. Two canonical homes --------------------------------------------------
+    // --- 2. One canonical home ----------------------------------------------------
 
+    // There used to be two: the author's schedule in the sidecar, everyone else's in
+    // accounts.db. Every review therefore wrote two stores over two connections, and the
+    // second write happened inside the first one's transaction without being part of it.
+    // Both now live in `progress.CardProgress`, the author under the 'owner' sentinel.
     describe('where each person\'s progress is canonical', () => {
         it('writes the author\'s schedule into the sidecar', async () => {
             assert.equal(sidecarCard(cardA).level, 4);
@@ -169,24 +173,26 @@ describe('Per-user SRS', () => {
                 'a reader studying is not a reader editing — no commit');
         });
 
-        it('records the reader\'s schedule in the accounts store instead', async () => {
+        it('records the reader\'s schedule in the progress store, not the accounts store', async () => {
+            const state = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            assert.equal(state.level, 2, "the reader's own schedule is current");
+
             const snap = await accounts.getAccountProgress(getVaultId(), rita.id, cardA);
-            assert.ok(snap, 'a durable snapshot exists');
-            assert.equal(snap.level, 2, 'and it is current');
+            assert.ok(!snap, 'nothing is mirrored into the accounts store any more');
         });
 
-        it('keeps no durable accounts-store copy of the author\'s own progress', async () => {
-            // Two canonical copies is how two canonical copies drift. The author has one:
-            // the sidecar.
+        it('keeps no accounts-store copy of anybody\'s progress', async () => {
+            // accounts.db is now identity and access only. It holds no schedules at all —
+            // not the author's, and no longer any reader's either.
             const all = await accounts.listAccountProgress(getVaultId());
-            assert.ok(all.every(r => r.account_id !== OWNER_SCOPE && r.account_id !== author.id));
+            assert.deepEqual(all, []);
         });
     });
 
     // --- 3. Durability across a rebuild ------------------------------------------
 
     describe('a Vault Doctor rebuild', () => {
-        it('restores the author from the sidecars and everyone else from the accounts store', async () => {
+        it('restores everyone, because the progress store is not what a rebuild wipes', async () => {
             const beforeSnapshots = (await accounts.listAccountProgress(getVaultId())).length;
 
             await asAuthor(author, () => doctor.rebuildIndex());

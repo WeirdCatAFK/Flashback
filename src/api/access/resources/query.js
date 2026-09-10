@@ -31,7 +31,7 @@ const PROGRESS_KEYS = [
  * callers must push the scope onto their parameter list at that same point.
  */
 const PROGRESS_JOIN = (cardAlias = 'f', progressAlias = 'p') =>
-    `LEFT JOIN CardProgress ${progressAlias} ON ${progressAlias}.flashcard_id = ${cardAlias}.id AND ${progressAlias}.account_id = ?`;
+    `LEFT JOIN progress.CardProgress ${progressAlias} ON ${progressAlias}.card_hash = ${cardAlias}.global_hash AND ${progressAlias}.account_id = ?`;
 
 /**
  * Per-card "how well learned is this" score in 0..1, over a CardProgress row aliased as `t`.
@@ -388,11 +388,11 @@ class DocumentQuery {
     /** Creates or replaces one person's schedule for one card. */
     async _upsertProgress(flashcardId, scope, state) {
         await this.db.prepare(`
-            INSERT INTO CardProgress
-                (flashcard_id, account_id, level, sm2_reps, last_recall,
+            INSERT INTO progress.CardProgress
+                (card_hash, account_id, level, sm2_reps, last_recall,
                  fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET
                 level = excluded.level, sm2_reps = excluded.sm2_reps,
                 last_recall = excluded.last_recall,
                 fsrs_stability = excluded.fsrs_stability, fsrs_difficulty = excluded.fsrs_difficulty,
@@ -409,14 +409,14 @@ class DocumentQuery {
     /** One person's raw progress row for one card, or null. */
     async getCardProgress(flashcardId, scope) {
         return await this.db.prepare(
-            'SELECT * FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+            `SELECT * FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).get(flashcardId, scoped(scope)) ?? null;
     }
 
     /** Forgets one person's schedule for one card — an undo back past the first review. */
     async deleteCardProgress(flashcardId, scope) {
         await this.db.prepare(
-            'DELETE FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+            `DELETE FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).run(flashcardId, scoped(scope));
     }
 
@@ -496,14 +496,14 @@ class DocumentQuery {
     /** The shape shared by every batch writer that sets SOME columns of a progress row, by card hash, leaving the rest of that person's state alone. */
     _batchProgressStmt(assignments, selectColumns) {
         return this.db.prepare(`
-            INSERT INTO CardProgress
-                (flashcard_id, account_id, level, sm2_reps, last_recall,
+            INSERT INTO progress.CardProgress
+                (card_hash, account_id, level, sm2_reps, last_recall,
                  fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
-            SELECT f.id, ?, ${selectColumns}
+            SELECT f.global_hash, ?, ${selectColumns}
             FROM Flashcards f
-            LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = ?
+            LEFT JOIN progress.CardProgress p ON p.card_hash = f.global_hash AND p.account_id = ?
             WHERE f.global_hash = ?
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET ${assignments}
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET ${assignments}
         `);
     }
 
@@ -718,7 +718,7 @@ class DocumentQuery {
             SELECT fsrs_stability AS stability, fsrs_difficulty AS difficulty,
                    fsrs_due AS due, fsrs_state AS state,
                    fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
-            FROM CardProgress WHERE flashcard_id = ? AND account_id = ?
+            FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?
         `).get(id, scoped(scope)) ?? null;
     }
 
@@ -861,7 +861,7 @@ class DocumentQuery {
     /** How many cards this person has at or above the mastery threshold. */
     async getMasteredFlashcardCount(threshold, scope) {
         return (await this.db.prepare(
-            'SELECT COUNT(*) as c FROM CardProgress WHERE account_id = ? AND level >= ?'
+            'SELECT COUNT(*) as c FROM progress.CardProgress WHERE account_id = ? AND level >= ?'
         ).get(scoped(scope), threshold)).c;
     }
 
@@ -2298,12 +2298,22 @@ class DocumentQuery {
             .run(inlineCard, deckId, cardHash);
     }
 
-    /** Rebuild only: re-seeds one log row per card so SM-2 ease survives; `outcome` is NULL to mark it synthetic. */
-    async insertSyntheticReviewLog(flashcardId, easeFactor, level, scope) {
-        await this.db.prepare(`
-            INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
-            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, datetime('now'), NULL, ?, ?)
-        `).run(flashcardId, scoped(scope), easeFactor, level ?? 0);
+    /**
+     * Forgets everything every account ever did with one card.
+     *
+     * Deliberately NOT a cascade and deliberately not called from reconciliation. A card
+     * vanishing from a sidecar is not a decision to destroy anybody's history — it happens on a
+     * Seal rollback, on a partially written file, and on an out-of-band edit — so the orphan
+     * sweep in `documents._syncDocumentFlashcards` leaves these rows alone, exactly as
+     * DATAMODEL.md already promises for a snapshot whose card is gone. Only the two paths where
+     * a person actually asked for the card to be deleted call this.
+     *
+     * @param {string} cardHash
+     */
+    async purgeCardBehaviour(cardHash) {
+        for (const table of ['CardProgress', 'CardHealth', 'CardFlags', 'ReviewLogs']) {
+            await this.db.prepare(`DELETE FROM progress.${table} WHERE card_hash = ?`).run(cardHash);
+        }
     }
 
     /** Empties every derived table ahead of a Doctor rebuild. */
@@ -2311,7 +2321,6 @@ class DocumentQuery {
         await this.db.transaction(async () => {
             await this.db.prepare('DELETE FROM DeckEntries').run();
             await this.db.prepare('DELETE FROM InheritedTags').run();
-            await this.db.prepare('DELETE FROM CardProgress').run();
             await this.db.prepare('DELETE FROM DocumentLinks').run();
             await this.db.prepare('DELETE FROM Highlights').run();
             await this.db.prepare('DELETE FROM Flashcards').run();

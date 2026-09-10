@@ -2650,7 +2650,6 @@ describe('Flashback API', () => {
         // leaves the learning band. Reviews land ON schedule so `overdue_drift` (which
         // would rightly suppress the verdict) has nothing to fire on.
         const seedOscillatingHistory = async (cardHash) => {
-            const id = (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash)).id;
             const insert = db.prepare(`
                 INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level, algorithm)
                 VALUES (?, ?, ?, 2.5, ?, 'leitner')
@@ -2664,12 +2663,12 @@ describe('Flashback API', () => {
                 await insert.run(cardHash, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
             await db.prepare(`
-                INSERT INTO CardProgress (flashcard_id, account_id, level, last_recall)
+                INSERT INTO CardProgress (card_hash, account_id, level, last_recall)
                 VALUES (?, 'owner', 3, ?)
-                ON CONFLICT(flashcard_id, account_id)
+                ON CONFLICT(account_id, card_hash)
                 DO UPDATE SET level = excluded.level, last_recall = excluded.last_recall
             `)
-                .run(id, ago(4));
+                .run(cardHash, ago(4));
             // Baselines and session segmentation are cached for a minute; the rows above
             // appeared behind the cache's back.
             cardHealth.resetCaches();
