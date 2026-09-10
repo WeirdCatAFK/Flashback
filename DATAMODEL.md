@@ -693,7 +693,7 @@ A reader's progress cannot go in the sidecar, and the reason is not convenience:
 
 ### What is durable and what is not
 
-Only the schedule snapshot is mirrored to `AccountProgress`. Review logs are not, so losing the vault database still costs everyone their history, their card-health verdicts and their optimizer input — precisely what a Doctor rebuild has always cost the owner. The contract is unchanged, not weakened.
+This was written when review history, card-health verdicts and fitted weights all lived in the vault database and a rebuild threw them away. They now live in `{vault}/progress.db` (§ The progress store), which `wipeDerivedContent()` deliberately does not name, so **a Doctor rebuild no longer costs anyone any of them**. What a rebuild still cannot restore is anything that exists nowhere but the derived layer, which is now nothing behavioural.
 
 `ease_factor` is on `AccountProgress` although `CardProgress` has no such column: SM-2's ease is read back out of the latest review log, and there are no review logs in the accounts store. The Doctor re-seeds it as a synthetic log row during a rebuild, exactly as it already does for the owner.
 
@@ -1227,7 +1227,7 @@ One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
 
 One row per account, not one per vault. The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
 
-Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the logs and therefore the input, so a rebuilt vault falls back to the default weights until each person re-optimizes. That is the same cost a rebuild has always carried for review history, not a new one.
+Fitted from `ReviewLogs`, and stored beside it in the progress store. Both survive a Doctor rebuild, so a rebuilt vault keeps every person's fitted weights and the history they were fitted from — it does not fall back to the defaults.
 
 ---
 

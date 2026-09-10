@@ -70,8 +70,12 @@ describe('FSRS review loop', () => {
         assert.ok(cols.includes('account_id'), 'CardProgress should be keyed by account');
         const rlCols = (await await db.prepare("PRAGMA table_info('ReviewLogs')").all()).map(c => c.name);
         assert.ok(rlCols.includes('rating'));
-        const tbl = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'").get();
-        assert.ok(tbl, 'FsrsParameters table should exist');
+        const fsrsCols = (await db.pragma("table_info('FsrsParameters')")).map(c => c.name);
+        assert.ok(fsrsCols.includes('weights_json'), 'FsrsParameters should exist in the progress store');
+        const inMain = await db.prepare(
+            "SELECT name FROM main.sqlite_master WHERE type='table' AND name='FsrsParameters'",
+        ).get();
+        assert.equal(inMain, undefined, 'an empty copy in main would shadow the real one');
     });
 
     it('a first FSRS review populates stability/difficulty/due and logs the rating', async () => {

@@ -106,6 +106,8 @@ migration aborts startup — fix the `up()` function and restart.
 | 10      | `010_per_account_progress.js` | Per-account SRS progress: CardProgress + account scope on logs, health, flags and FSRS weights | Registered |
 | 11      | `011_drop_resurrected_srs_columns.js` | Drop the Flashcards SRS columns migration 004 could re-add after 010 | Registered |
 | 12      | `012_reviewlogs_account_index.js` | ReviewLogs: composite (account_id, flashcard_id) index instead of account_id alone | Registered |
+| 13      | `013_reviewlogs_to_progress.js` | ReviewLogs: move to the progress store, re-keyed by card_hash | Registered |
+| 14      | `014_card_health_to_progress.js` | CardHealth, CardFlags and FsrsParameters: move to the progress store, re-keyed by card_hash | Registered |
 
 ---
 

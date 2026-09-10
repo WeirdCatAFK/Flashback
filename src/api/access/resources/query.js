@@ -741,7 +741,7 @@ class DocumentQuery {
     /** This person's fitted FSRS weight vector. */
     async getFsrsWeights(scope) {
         const row = await this.db.prepare(
-            'SELECT weights_json, review_count, optimized_at FROM FsrsParameters WHERE account_id = ?'
+            'SELECT weights_json, review_count, optimized_at FROM progress.FsrsParameters WHERE account_id = ?'
         ).get(scoped(scope));
         if (!row) return null;
         return {
@@ -754,7 +754,7 @@ class DocumentQuery {
     /** Stores a newly fitted weight vector and what it was fitted from. */
     async setFsrsWeights(weightsJson, reviewCount, scope) {
         await this.db.prepare(`
-            INSERT INTO FsrsParameters (account_id, weights_json, optimized_at, review_count)
+            INSERT INTO progress.FsrsParameters (account_id, weights_json, optimized_at, review_count)
             VALUES (?, ?, datetime('now'), ?)
             ON CONFLICT(account_id) DO UPDATE SET
                 weights_json = excluded.weights_json,
@@ -2064,8 +2064,8 @@ class DocumentQuery {
 
         if (flagged || flagKind) {
             const kindClause = flagKind ? ' AND cf.kind = ?' : '';
-            conditions.push(`EXISTS (SELECT 1 FROM CardFlags cf
-                WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL${kindClause})`);
+            conditions.push(`EXISTS (SELECT 1 FROM progress.CardFlags cf
+                WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL${kindClause})`);
             params.push(account);
             if (flagKind) params.push(flagKind);
         }
@@ -2093,8 +2093,8 @@ class DocumentQuery {
                    pc.name as category,
                    -- Scalar subquery, not a join: the browser renders a flag chip per
                    -- row without an N+1, and a twice-flagged card stays one row.
-                   (SELECT GROUP_CONCAT(cf.kind) FROM CardFlags cf
-                     WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
+                   (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
+                     WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
             FROM Flashcards f
             ${PROGRESS_JOIN()}
             JOIN FlashcardContent c ON f.content_id = c.id
@@ -2173,16 +2173,16 @@ class DocumentQuery {
     /** This person's health watermark for a card. */
     async getCardHealth(flashcardId, scope) {
         return await this.db.prepare(
-            'SELECT * FROM CardHealth WHERE flashcard_id = ? AND account_id = ?'
+            `SELECT * FROM progress.CardHealth WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).get(flashcardId, scoped(scope)) ?? null;
     }
 
     /** Creates or updates this person's card-health row. */
     async upsertCardHealth(flashcardId, { epochAt = null, epochReason = null, contentFingerprint = null }, scope) {
         return await this.db.prepare(`
-            INSERT INTO CardHealth (flashcard_id, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
+            INSERT INTO progress.CardHealth (card_hash, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET
                 epoch_at            = excluded.epoch_at,
                 epoch_reason        = excluded.epoch_reason,
                 content_fingerprint = excluded.content_fingerprint,
@@ -2193,7 +2193,7 @@ class DocumentQuery {
     /** Records a re-evaluation that did not address the card. */
     async setCardHealthFingerprint(flashcardId, contentFingerprint, scope) {
         return await this.db.prepare(
-            'UPDATE CardHealth SET content_fingerprint = ?, updated_at = ? WHERE flashcard_id = ? AND account_id = ?'
+            `UPDATE progress.CardHealth SET content_fingerprint = ?, updated_at = ? WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).run(contentFingerprint, new Date().toISOString(), flashcardId, scoped(scope));
     }
 
@@ -2201,18 +2201,18 @@ class DocumentQuery {
     async getCardFlags(flashcardId, { includeDismissed = false } = {}, scope) {
         const filter = includeDismissed ? '' : ' AND dismissed_at IS NULL';
         return await this.db.prepare(
-            `SELECT * FROM CardFlags WHERE flashcard_id = ? AND account_id = ?${filter} ORDER BY detected_at DESC`
+            `SELECT * FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?${filter} ORDER BY detected_at DESC`
         ).all(flashcardId, scoped(scope));
     }
 
     /** Raises or refreshes a flag in place, leaving `dismissed_at` untouched. */
     async upsertCardFlag({ flashcardId, kind, confidence, score, evidence, levelAtDetection, reviewLogId }, scope) {
         return await this.db.prepare(`
-            INSERT INTO CardFlags
-                (flashcard_id, account_id, kind, confidence, score, evidence_json,
+            INSERT INTO progress.CardFlags
+                (card_hash, account_id, kind, confidence, score, evidence_json,
                  level_at_detection, detected_at, review_log_id, dismissed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(flashcard_id, account_id, kind) DO UPDATE SET
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(account_id, card_hash, kind) DO UPDATE SET
                 confidence         = excluded.confidence,
                 score              = excluded.score,
                 evidence_json      = excluded.evidence_json,
@@ -2229,7 +2229,7 @@ class DocumentQuery {
     /** Clears this person's flags on a card, optionally limited to `kinds`. */
     async deleteCardFlags(flashcardId, { kinds = null, includeDismissed = false } = {}, scope) {
         const params = [flashcardId, scoped(scope)];
-        let sql = 'DELETE FROM CardFlags WHERE flashcard_id = ? AND account_id = ?';
+        let sql = `DELETE FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`;
         if (!includeDismissed) sql += ' AND dismissed_at IS NULL';
         if (kinds?.length) {
             sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
@@ -2240,14 +2240,14 @@ class DocumentQuery {
 
     /** Clears EVERY account's flags on a card; the edit hook, see ACCESS.md. */
     async deleteAllCardFlags(flashcardId) {
-        return (await this.db.prepare('DELETE FROM CardFlags WHERE flashcard_id = ?').run(flashcardId)).changes;
+        return (await this.db.prepare(`DELETE FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)`).run(flashcardId)).changes;
     }
 
     /** Stamps a new epoch and fingerprint on every account analysed on this card, seeding the owner's row when there is none. */
     async resetAllCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }) {
         const changed = (await this.db.prepare(`
-            UPDATE CardHealth SET epoch_at = ?, epoch_reason = ?, content_fingerprint = ?, updated_at = ?
-            WHERE flashcard_id = ?
+            UPDATE progress.CardHealth SET epoch_at = ?, epoch_reason = ?, content_fingerprint = ?, updated_at = ?
+            WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)
         `).run(epochAt, epochReason, contentFingerprint, new Date().toISOString(), flashcardId)).changes;
         if (changed === 0) {
             await this.upsertCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }, OWNER_SCOPE);
@@ -2258,7 +2258,7 @@ class DocumentQuery {
     /** Marks one flag as ruled on, suppressing it without deleting it. */
     async dismissCardFlag(flashcardId, kind, scope) {
         return (await this.db.prepare(
-            'UPDATE CardFlags SET dismissed_at = ? WHERE flashcard_id = ? AND account_id = ? AND kind = ?'
+            `UPDATE progress.CardFlags SET dismissed_at = ? WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? AND kind = ?`
         ).run(new Date().toISOString(), flashcardId, scoped(scope), kind)).changes;
     }
 
@@ -2311,8 +2311,6 @@ class DocumentQuery {
         await this.db.transaction(async () => {
             await this.db.prepare('DELETE FROM DeckEntries').run();
             await this.db.prepare('DELETE FROM InheritedTags').run();
-            await this.db.prepare('DELETE FROM CardFlags').run();
-            await this.db.prepare('DELETE FROM CardHealth').run();
             await this.db.prepare('DELETE FROM CardProgress').run();
             await this.db.prepare('DELETE FROM DocumentLinks').run();
             await this.db.prepare('DELETE FROM Highlights').run();

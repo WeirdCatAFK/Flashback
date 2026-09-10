@@ -17,12 +17,13 @@
  *                   media both directions, repairs decks. By default seals
  *                   remaining out-of-band drift into one `reconcile:` commit.
  *   rebuildIndex()  Nuclear option: wipes all derived content and re-indexes
- *                   the entire canonical layer. Review history now SURVIVES it:
- *                   ReviewLogs lives in the progress store (`primitives/progress.js`),
- *                   which the wipe deliberately does not touch — that is the whole
- *                   point of the store existing. Level and ease still survive via
- *                   sidecars; standalone-card content survives via deck inline_card
- *                   snapshots but its level resets.
+ *                   the entire canonical layer. Everything behavioural now SURVIVES
+ *                   it — review history, card-health verdicts and flags, and fitted
+ *                   FSRS weights all live in the progress store
+ *                   (`primitives/progress.js`), which the wipe deliberately does not
+ *                   name. That is the whole point of the store existing. Level and
+ *                   ease still survive via sidecars; standalone-card content survives
+ *                   via deck inline_card snapshots but its level resets.
  *
  * Import rules (ACCESS.md): Tier 3 may import documents.js (subscriptions.js /
  * obsidianImport.js precedent), other Tier 3 orchestrators, Tier 2, and Seal.

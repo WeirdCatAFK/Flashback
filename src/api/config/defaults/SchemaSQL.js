@@ -139,43 +139,6 @@ addTable('ReviewLogs', (table) => {
     table.integer('nearest_sibling_lag');
 });
 
-addTable('FsrsParameters', (table) => {
-    table.increments('id').primary();
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.text('weights_json').notNullable();
-    table.timestamp('optimized_at');
-    table.integer('review_count');
-    table.unique(['account_id']);
-});
-
-addTable('CardHealth', (table) => {
-    table.increments('id').primary();
-    table.integer('flashcard_id').notNullable()
-        .references('id').inTable('Flashcards').onDelete('CASCADE');
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.timestamp('epoch_at');
-    table.string('epoch_reason', 20);
-    table.string('content_fingerprint', 64);
-    table.timestamp('updated_at');
-    table.unique(['flashcard_id', 'account_id']);
-});
-
-addTable('CardFlags', (table) => {
-    table.increments('id').primary();
-    table.integer('flashcard_id').notNullable()
-        .references('id').inTable('Flashcards').onDelete('CASCADE');
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.string('kind', 40).notNullable().index();
-    table.string('confidence', 20).notNullable();
-    table.float('score');
-    table.text('evidence_json');
-    table.integer('level_at_detection');
-    table.timestamp('detected_at');
-    table.integer('review_log_id');
-    table.timestamp('dismissed_at');
-    table.unique(['flashcard_id', 'account_id', 'kind']);
-});
-
 addTable('Tags', (table) => {
     table.increments('id').primary();
     table.string('name', 500).index();
@@ -311,8 +274,6 @@ CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash);
 CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash);
 CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id);
 CREATE INDEX IF NOT EXISTS idx_reviewlogs_account_card ON ReviewLogs(account_id, flashcard_id);
-CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id);
-CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id);
 `;
 
 const schemaSQL = tables.join(';\n')

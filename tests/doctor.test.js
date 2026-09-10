@@ -594,29 +594,54 @@ describe('Vault Doctor', () => {
     describe('the progress store survives a rebuild', () => {
         const HASH = 'doctor-survives-rebuild';
 
-        it('keeps review history when the derived layer is wiped', async () => {
+        it('keeps review history, health verdicts and fitted weights when the derived layer is wiped', async () => {
             await db.prepare(`
                 INSERT INTO progress.ReviewLogs
                     (card_hash, account_id, timestamp, outcome, ease_factor, level, rating)
                 VALUES (?, 'owner', datetime('now'), 1, 2.5, 3, 3)
             `).run(HASH);
+            await db.prepare(`
+                INSERT INTO progress.CardHealth (account_id, card_hash, epoch_at, epoch_reason, updated_at)
+                VALUES ('owner', ?, datetime('now'), 'edit', datetime('now'))
+            `).run(HASH);
+            await db.prepare(`
+                INSERT INTO progress.CardFlags (account_id, card_hash, kind, confidence, detected_at)
+                VALUES ('owner', ?, 'mouthful', 'high', datetime('now'))
+            `).run(HASH);
+            await db.prepare(`
+                INSERT OR REPLACE INTO progress.FsrsParameters (account_id, weights_json, review_count)
+                VALUES ('doctor-test-account', '[1,2,3]', 42)
+            `).run();
 
-            const count = async () => (await db.prepare(
-                'SELECT COUNT(*) AS n FROM progress.ReviewLogs WHERE card_hash = ?',
-            ).get(HASH)).n;
+            const counts = async () => ({
+                logs: (await db.prepare('SELECT COUNT(*) AS n FROM progress.ReviewLogs WHERE card_hash = ?').get(HASH)).n,
+                health: (await db.prepare('SELECT COUNT(*) AS n FROM progress.CardHealth WHERE card_hash = ?').get(HASH)).n,
+                flags: (await db.prepare('SELECT COUNT(*) AS n FROM progress.CardFlags WHERE card_hash = ?').get(HASH)).n,
+                weights: (await db.prepare("SELECT COUNT(*) AS n FROM progress.FsrsParameters WHERE account_id = 'doctor-test-account'").get()).n,
+            });
 
-            assert.equal(await count(), 1, 'seeded one log row');
+            const before = await counts();
+            assert.deepEqual(before, { logs: 1, health: 1, flags: 1, weights: 1 }, 'seeded one row each');
+
             await query.wipeDerivedContent();
-            assert.equal(await count(), 1, 'the wipe must not reach the progress store');
+
+            assert.deepEqual(await counts(), before, 'the wipe must not reach the progress store');
 
             await db.prepare('DELETE FROM progress.ReviewLogs WHERE card_hash = ?').run(HASH);
+            await db.prepare('DELETE FROM progress.CardHealth WHERE card_hash = ?').run(HASH);
+            await db.prepare('DELETE FROM progress.CardFlags WHERE card_hash = ?').run(HASH);
+            await db.prepare("DELETE FROM progress.FsrsParameters WHERE account_id = 'doctor-test-account'").run();
         });
 
-        it('keeps ReviewLogs out of the vault database entirely', async () => {
-            const shadow = await db.prepare(
-                "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = 'ReviewLogs'",
-            ).get();
-            assert.equal(shadow, undefined, 'an empty main.ReviewLogs would shadow the real one');
+        it('keeps the moved tables out of the vault database entirely', async () => {
+            const shadows = [];
+            for (const table of ['ReviewLogs', 'CardHealth', 'CardFlags', 'FsrsParameters']) {
+                const row = await db.prepare(
+                    "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+                ).get(table);
+                if (row) shadows.push(table);
+            }
+            assert.deepEqual(shadows, [], 'an empty copy in main would shadow the real one silently');
         });
     });
 });

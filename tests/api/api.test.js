@@ -2684,8 +2684,7 @@ describe('Flashback API', () => {
         const flagsOf = async () =>
             (await (await fetch(`${baseUrl}/api/flashcards/${hash}/detail`)).json()).flags;
         const healthRow = async () => await db.prepare(`
-            SELECT ch.* FROM CardHealth ch
-            JOIN Flashcards f ON f.id = ch.flashcard_id WHERE f.global_hash = ?
+            SELECT ch.* FROM CardHealth ch WHERE ch.card_hash = ?
         `).get(hash);
 
         // Each test starts from a card with the same seeded history and no flags.
@@ -2770,8 +2769,7 @@ describe('Flashback API', () => {
             await freshCard();
             await fail();
             const raisedBy = (await db.prepare(`
-                SELECT cf.review_log_id FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT cf.review_log_id FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash)).review_log_id;
 
             await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
@@ -2783,8 +2781,7 @@ describe('Flashback API', () => {
             const [flag] = await flagsOf();
             assert.equal(flag.kind, 'mouthful');
             const now = (await db.prepare(`
-                SELECT cf.review_log_id FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT cf.review_log_id FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash)).review_log_id;
             assert.notEqual(now, raisedBy, 're-evaluated rather than left stale');
             assert.ok(await db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
@@ -2824,8 +2821,7 @@ describe('Flashback API', () => {
             assert.deepEqual(again.flags, []);
             const row = await db.prepare(`
                 SELECT cf.dismissed_at FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id
-                WHERE f.global_hash = ? AND cf.kind = 'mouthful'
+                WHERE cf.card_hash = ? AND cf.kind = 'mouthful'
             `).get(hash);
             assert.ok(row?.dismissed_at, 'the row is suppressed, not deleted');
         });
@@ -2833,8 +2829,7 @@ describe('Flashback API', () => {
         it('editing a dismissed card un-suppresses it — a rewrite gets judged fresh', async () => {
             await put(`${baseUrl}/api/flashcards/${hash}`, { backText: `${LONG_ANSWER} extra` });
             const row = await db.prepare(`
-                SELECT COUNT(*) AS c FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT COUNT(*) AS c FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash);
             assert.equal(row.c, 0, 'the dismissed row is gone, not merely hidden');
         });
