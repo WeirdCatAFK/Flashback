@@ -2652,16 +2652,16 @@ describe('Flashback API', () => {
         const seedOscillatingHistory = async (cardHash) => {
             const id = (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash)).id;
             const insert = db.prepare(`
-                INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level, algorithm)
+                INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level, algorithm)
                 VALUES (?, ?, ?, 2.5, ?, 'leitner')
             `);
             const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
             for (let c = 0; c < 4; c++) {
                 const base = 44 - c * 11;
-                await insert.run(id, ago(base), 0, 1);        // lapse → box 1
-                await insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
-                await insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
-                await insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
+                await insert.run(cardHash, ago(base), 0, 1);        // lapse → box 1
+                await insert.run(cardHash, ago(base - 1), 1, 2);    // +1d  (interval 1)
+                await insert.run(cardHash, ago(base - 3), 1, 3);    // +2d  (interval 2)
+                await insert.run(cardHash, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
             await db.prepare(`
                 INSERT INTO CardProgress (flashcard_id, account_id, level, last_recall)

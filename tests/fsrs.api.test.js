@@ -86,7 +86,9 @@ describe('FSRS review loop', () => {
         // (LevelDot, box histogram, mastery counts) works under FSRS.
         assert.ok(c.level >= 1, 'level derived from the FSRS interval');
 
-        const log = await db.prepare('SELECT * FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
+        const log = await db.prepare(
+            'SELECT * FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) ORDER BY id DESC LIMIT 1',
+        ).get(c.id);
         assert.equal(log.rating, 3);
         assert.equal(log.outcome, 1);
         assert.ok(log.fsrs_stability > 0, 'log snapshots stability');
@@ -155,7 +157,9 @@ describe('FSRS review loop', () => {
         assert.equal(c.fsrs_state, 0, 'reverted to new');
         assert.equal(c.fsrs_stability, null, 'stability cleared');
         assert.equal(c.level, 0, 'level reverted to new');
-        const logs = await db.prepare('SELECT COUNT(*) AS n FROM ReviewLogs WHERE flashcard_id = ?').get(c.id);
+        const logs = await db.prepare(
+            'SELECT COUNT(*) AS n FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)',
+        ).get(c.id);
         assert.equal(logs.n, 0, 'review log removed');
     });
 });

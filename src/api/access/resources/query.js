@@ -486,9 +486,9 @@ class DocumentQuery {
         const rows = await this.db.prepare(`
             SELECT f.global_hash, lr.ease_factor
             FROM Flashcards f
-            JOIN ReviewLogs lr ON lr.flashcard_id = f.id
+            JOIN progress.ReviewLogs lr ON lr.card_hash = f.global_hash
             WHERE lr.account_id = ?
-              AND lr.id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
+              AND lr.id IN (SELECT MAX(id) FROM progress.ReviewLogs WHERE account_id = ? GROUP BY card_hash)
         `).all(account, account);
         return new Map(rows.map(r => [r.global_hash, r.ease_factor]));
     }
@@ -555,11 +555,11 @@ class DocumentQuery {
     /** Appends one row to the review ledger. */
     async insertReviewLog(data) {
         await this.db.prepare(`
-            INSERT INTO ReviewLogs
-                (flashcard_id, account_id, timestamp, outcome, ease_factor, level, algorithm,
+            INSERT INTO progress.ReviewLogs
+                (card_hash, account_id, timestamp, outcome, ease_factor, level, algorithm,
                  rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state,
                  session_id, session_position, prev_distance, nearest_sibling_lag)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             data.flashcardId, scoped(data.accountId), data.timestamp, data.outcome, data.easeFactor, data.level,
             data.algorithm ?? null,
@@ -694,9 +694,8 @@ class DocumentQuery {
     /** The order cards were actually presented in one session. */
     async getSessionReviewOrder(sessionId, scope) {
         return await this.db.prepare(`
-            SELECT rl.session_position AS position, f.global_hash AS globalHash
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            SELECT rl.session_position AS position, rl.card_hash AS globalHash
+            FROM progress.ReviewLogs rl
             WHERE rl.session_id = ? AND rl.account_id = ?
             ORDER BY rl.session_position ASC, rl.id ASC
         `).all(sessionId, scoped(scope));
@@ -706,7 +705,7 @@ class DocumentQuery {
     async getLatestReviewAlgorithm(scope) {
         return await this.db.prepare(`
             SELECT algorithm, rating
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ?
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
@@ -767,20 +766,21 @@ class DocumentQuery {
     /** Every card's review history for this person, as optimizer input. */
     async getAllReviewHistories(scope) {
         return await this.db.prepare(`
-            SELECT flashcard_id, timestamp, rating
-            FROM ReviewLogs
-            WHERE rating IS NOT NULL AND account_id = ?
-            ORDER BY flashcard_id ASC, id ASC
+            SELECT f.id AS flashcard_id, rl.timestamp, rl.rating
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
+            WHERE rl.rating IS NOT NULL AND rl.account_id = ?
+            ORDER BY f.id ASC, rl.id ASC
         `).all(scoped(scope));
     }
 
     /** Drops this person's most recent review of a card, for undo. */
     async deleteLatestReviewLog(flashcardId, scope) {
         const row = await this.db.prepare(
-            'SELECT id FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1'
+            'SELECT id FROM progress.ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? ORDER BY id DESC LIMIT 1'
         ).get(flashcardId, scoped(scope));
         if (!row) return false;
-        await this.db.prepare('DELETE FROM ReviewLogs WHERE id = ?').run(row.id);
+        await this.db.prepare('DELETE FROM progress.ReviewLogs WHERE id = ?').run(row.id);
         return true;
     }
 
@@ -789,8 +789,8 @@ class DocumentQuery {
         return await this.db.prepare(`
             SELECT id, timestamp, outcome, ease_factor, level, algorithm, rating,
                    fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
-            FROM ReviewLogs
-            WHERE flashcard_id = ? AND account_id = ?
+            FROM progress.ReviewLogs
+            WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?
             ORDER BY id ASC
         `).all(flashcardId, scoped(scope));
     }
@@ -804,8 +804,8 @@ class DocumentQuery {
                    p.last_recall, p.fsrs_stability, p.fsrs_difficulty,
                    COALESCE(p.fsrs_state, 0) AS fsrs_state, p.fsrs_due,
                    COALESCE(p.fsrs_reps, 0) AS fsrs_reps, COALESCE(p.fsrs_lapses, 0) AS fsrs_lapses,
-                   (SELECT rl.ease_factor FROM ReviewLogs rl
-                     WHERE rl.flashcard_id = f.id AND rl.account_id = ?
+                   (SELECT rl.ease_factor FROM progress.ReviewLogs rl
+                     WHERE rl.card_hash = f.global_hash AND rl.account_id = ?
                      ORDER BY rl.id DESC LIMIT 1) AS ease_factor
             FROM Flashcards f
             ${PROGRESS_JOIN()}
@@ -818,7 +818,7 @@ class DocumentQuery {
         return await this.db.prepare(`
             SELECT timestamp, outcome, ease_factor, level,
                    rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
-            FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1
+            FROM progress.ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? ORDER BY id DESC LIMIT 1
         `).get(flashcardId, scoped(scope)) ?? null;
     }
 
@@ -874,7 +874,7 @@ class DocumentQuery {
             SELECT date(timestamp, 'localtime') AS day,
                    COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             ${clause}
             GROUP BY day
             ORDER BY day ASC
@@ -891,7 +891,7 @@ class DocumentQuery {
         const stmt = this.db.prepare(`
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             ${clause}
         `);
         const account = scoped(scope);
@@ -902,11 +902,11 @@ class DocumentQuery {
     _orderedReviewsCte() {
         return `
             WITH ordered AS (
-                SELECT flashcard_id, outcome, timestamp,
+                SELECT card_hash, outcome, timestamp,
                        ROW_NUMBER() OVER (
-                           PARTITION BY flashcard_id ORDER BY timestamp ASC, id ASC
+                           PARTITION BY card_hash ORDER BY timestamp ASC, id ASC
                        ) AS rep
-                FROM ReviewLogs
+                FROM progress.ReviewLogs
                 WHERE outcome IS NOT NULL AND account_id = ?
             )
         `;
@@ -950,10 +950,11 @@ class DocumentQuery {
     async getReviewsToFirstRecall(scope) {
         return await this.db.prepare(`
             ${this._orderedReviewsCte()}
-            SELECT flashcard_id, MIN(rep) AS attempts
-            FROM ordered
-            WHERE outcome = 1
-            GROUP BY flashcard_id
+            SELECT f.id AS flashcard_id, MIN(o.rep) AS attempts
+            FROM ordered o
+            JOIN Flashcards f ON f.global_hash = o.card_hash
+            WHERE o.outcome = 1
+            GROUP BY f.id
         `).all(scoped(scope));
     }
 
@@ -961,9 +962,9 @@ class DocumentQuery {
     async getDayReviewTotals(dayIso, scope) {
         return await this.db.prepare(`
             SELECT COUNT(*) AS reviews,
-                   COUNT(DISTINCT flashcard_id) AS uniqueCards,
+                   COUNT(DISTINCT card_hash) AS uniqueCards,
                    SUM(CASE WHEN outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ? AND date(timestamp, 'localtime') = ?
         `).get(scoped(scope), dayIso);
     }
@@ -988,10 +989,10 @@ class DocumentQuery {
     async getDayNewCards(dayIso, scope) {
         return (await this.db.prepare(`
             SELECT COUNT(*) AS newCards FROM (
-                SELECT flashcard_id, MIN(date(timestamp, 'localtime')) AS firstDay
-                FROM ReviewLogs
+                SELECT card_hash, MIN(date(timestamp, 'localtime')) AS firstDay
+                FROM progress.ReviewLogs
                 WHERE outcome IS NOT NULL AND account_id = ?
-                GROUP BY flashcard_id
+                GROUP BY card_hash
                 HAVING firstDay = ?
             )
         `).get(scoped(scope), dayIso)).newCards;
@@ -1003,8 +1004,8 @@ class DocumentQuery {
             SELECT d.name AS deck,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             JOIN DeckEntries de ON de.card_hash = f.global_hash
             JOIN Decks d ON d.id = de.deck_id
             WHERE rl.outcome IS NOT NULL
@@ -1022,8 +1023,8 @@ class DocumentQuery {
             SELECT doc.relative_path AS path,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             JOIN Documents doc ON doc.id = f.document_id
             WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY doc.id
@@ -1037,8 +1038,8 @@ class DocumentQuery {
             SELECT f.global_hash AS globalHash,
                    fc.frontText AS front,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failCount
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             LEFT JOIN FlashcardContent fc ON fc.id = f.content_id
             WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY f.id
@@ -1052,7 +1053,7 @@ class DocumentQuery {
     async getReviewActivityDays(scope) {
         return (await this.db.prepare(`
             SELECT date(timestamp, 'localtime') AS day
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ?
             GROUP BY day
             ORDER BY day ASC
@@ -1109,9 +1110,9 @@ class DocumentQuery {
 
         if (algorithm === 'sm2') {
             cteParts.push(`latest_ef AS (
-                SELECT flashcard_id, ease_factor FROM ReviewLogs
+                SELECT card_hash, ease_factor FROM progress.ReviewLogs
                 WHERE account_id = ?
-                  AND id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
+                  AND id IN (SELECT MAX(id) FROM progress.ReviewLogs WHERE account_id = ? GROUP BY card_hash)
             )`);
             efParams.push(account, account);
         }
@@ -1205,7 +1206,7 @@ class DocumentQuery {
             : '';
 
         const sm2Join = algorithm === 'sm2'
-            ? 'LEFT JOIN latest_ef lr ON lr.flashcard_id = f.id'
+            ? 'LEFT JOIN latest_ef lr ON lr.card_hash = f.global_hash'
             : '';
 
         const easeFactorExpr = algorithm === 'sm2'
@@ -2161,10 +2162,11 @@ class DocumentQuery {
     /** Vault-wide review stream for session segmentation, excluding the Doctor's synthetic rebuild rows. */
     async getRecentReviewSessionRows(since, scope) {
         return await this.db.prepare(`
-            SELECT id, flashcard_id, timestamp, outcome
-            FROM ReviewLogs
-            WHERE outcome IS NOT NULL AND account_id = ? AND timestamp >= ?
-            ORDER BY timestamp ASC, id ASC
+            SELECT rl.id, f.id AS flashcard_id, rl.timestamp, rl.outcome
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
+            WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND rl.timestamp >= ?
+            ORDER BY rl.timestamp ASC, rl.id ASC
         `).all(scoped(scope), since);
     }
 
@@ -2299,8 +2301,8 @@ class DocumentQuery {
     /** Rebuild only: re-seeds one log row per card so SM-2 ease survives; `outcome` is NULL to mark it synthetic. */
     async insertSyntheticReviewLog(flashcardId, easeFactor, level, scope) {
         await this.db.prepare(`
-            INSERT INTO ReviewLogs (flashcard_id, account_id, timestamp, outcome, ease_factor, level)
-            VALUES (?, ?, datetime('now'), NULL, ?, ?)
+            INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, datetime('now'), NULL, ?, ?)
         `).run(flashcardId, scoped(scope), easeFactor, level ?? 0);
     }
 
@@ -2311,7 +2313,6 @@ class DocumentQuery {
             await this.db.prepare('DELETE FROM InheritedTags').run();
             await this.db.prepare('DELETE FROM CardFlags').run();
             await this.db.prepare('DELETE FROM CardHealth').run();
-            await this.db.prepare('DELETE FROM ReviewLogs').run();
             await this.db.prepare('DELETE FROM CardProgress').run();
             await this.db.prepare('DELETE FROM DocumentLinks').run();
             await this.db.prepare('DELETE FROM Highlights').run();

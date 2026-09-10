@@ -70,6 +70,12 @@ const asAuthor = (author, fn) => runWithAccount(author, fn);
 const ownerLevel = async (hash) => (await query.getFlashcardSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
 const sidecarCard = (hash) => docs.files.getMetadata(docRel).flashcards.find(c => c.globalHash === hash);
 
+const DOOMED_AFTER_010 = [
+    'level', 'sm2_reps', 'last_recall',
+    'fsrs_stability', 'fsrs_difficulty', 'fsrs_due',
+    'fsrs_state', 'fsrs_reps', 'fsrs_lapses',
+];
+
 describe('Per-user SRS', () => {
     let author, rita, cardA, cardB;
 
@@ -421,6 +427,94 @@ describe('Per-user SRS', () => {
                 );
             } finally {
                 fs.writeFileSync(abs, saved);
+            }
+        });
+    });
+
+    describe('migration guards after a table moves schema', () => {
+        // Regression, written before the move that needs it. Every existence guard in
+        // migrations/ was authored when `main` was the whole database, and asks
+        // `SELECT name FROM sqlite_master ...` — which reads `main` alone. Attaching the
+        // progress store made that question the wrong one: a table that has moved there is
+        // present, just not in `main`, and a guard that cannot tell "moved" from "absent"
+        // answers "still pending" on every launch.
+        //
+        // What that costs is silent. An unqualified CREATE TABLE targets `main` and its
+        // IF NOT EXISTS cannot see the attached copy, so the migration rebuilds the table
+        // empty — and an empty table in `main` SHADOWS the attached one for every
+        // unqualified read. No error, no constraint violation; every schedule in the vault
+        // simply reads as never-studied. Migration 004 would separately put back the six
+        // fsrs_* columns 010 dropped, with 011 (its cleaner) dormant for the same reason.
+        //
+        // Runs the migration runner twice for the reason the block above does: a resurrection
+        // lands on the launch AFTER the one that migrates.
+        const MOVABLE = ['CardProgress', 'FsrsParameters', 'CardHealth', 'CardFlags'];
+
+        it('leaves a moved table in the progress store and rebuilds nothing in main', async () => {
+            const os = await import('os');
+            const { createSqliteAdapter } = await import('../src/api/access/primitives/sqliteAdapter.js');
+            const { SCHEMA: PROGRESS_SCHEMA } = await import('../src/api/access/primitives/progress.js');
+            const { default: SchemaSQL } = await import('../src/api/config/defaults/SchemaSQL.js');
+
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fb-guards-'));
+            const progressPath = path.join(dir, 'progress.db');
+            const adapter = createSqliteAdapter({
+                resolvePath: () => path.join(dir, 'vault.db'),
+                onOpen: (rawDb) => {
+                    rawDb.prepare('ATTACH DATABASE ? AS progress').run(progressPath);
+                    rawDb.pragma('progress.journal_mode = WAL');
+                    rawDb.exec(PROGRESS_SCHEMA);
+                },
+            });
+            const scratch = adapter.db;
+
+            try {
+                // The same pass validators/database.js performs on a fresh vault.
+                await scratch.exec(SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, ''));
+
+                // Stand where Stages 4-5 leave the vault: these live in `progress` only.
+                // ReviewLogs is deliberately NOT dropped here — migration 013 moves it at the
+                // end of the same pass, after 009 has indexed it, and doing it up front would
+                // test a sequence that never happens.
+                for (const table of MOVABLE) {
+                    await scratch.exec(`DROP TABLE IF EXISTS main.${table}`);
+                }
+                await scratch.exec(
+                    "INSERT INTO progress.CardProgress (account_id, card_hash, level) VALUES ('owner', 'moved', 7)",
+                );
+
+                await runMigrations(scratch);
+                await runMigrations(scratch);
+
+                const inMain = [];
+                for (const table of MOVABLE) {
+                    const row = await scratch.prepare(
+                        "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+                    ).get(table);
+                    if (row) inMain.push(table);
+                }
+                assert.deepEqual(inMain, [],
+                    'a migration rebuilt a moved table in main, which shadows the real one silently');
+
+                // The shadow check proper: this is the read that returns a wrong answer
+                // rather than an error, so assert the value and not just the schema.
+                const seen = await scratch.prepare(
+                    "SELECT level FROM CardProgress WHERE card_hash = 'moved'",
+                ).get();
+                assert.equal(seen?.level, 7, 'an unqualified read must still reach the progress store');
+
+                const cols = (await scratch.pragma('table_info(Flashcards)')).map(c => c.name);
+                assert.deepEqual(DOOMED_AFTER_010.filter(c => cols.includes(c)), [],
+                    'migration 004 resurrected the columns 010 dropped, with 011 unable to clean them');
+
+                const indexes = (await scratch.prepare(
+                    "SELECT name FROM main.sqlite_master WHERE type = 'index'",
+                ).all()).map(r => r.name);
+                assert.ok(!indexes.includes('idx_cardprogress_account'),
+                    'migration 010 put back the sole-account index migration 012 exists to remove');
+            } finally {
+                adapter.closeDatabase();
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
             }
         });
     });

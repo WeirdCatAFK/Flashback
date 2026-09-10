@@ -387,12 +387,11 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should write a ReviewLog entry on each review', async () => {
-            const fc = await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash);
-            const before = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id)).c;
+            const before = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
 
             await docs.submitReview(docPath, fcHash, 3, 2.0, 4);
 
-            const after = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id)).c;
+            const after = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
             assert.equal(after, before + 1, 'A new ReviewLog entry should be created for each review');
         });
 

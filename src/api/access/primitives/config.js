@@ -86,6 +86,18 @@ export function getDatabasePath() {
     return path.join(getVaultPath(), `${vaultName}.db`);
 }
 
+/**
+ * Absolute path of the active vault's progress store.
+ *
+ * A sibling of `workspace/`, not a child: inside the vault so it travels with a copied
+ * folder, outside the workspace so Seal never versions it. See `primitives/progress.js`.
+ *
+ * @returns {string}
+ */
+export function getProgressDatabasePath() {
+    return path.join(getVaultPath(), "progress.db");
+}
+
 /** How much of the diary the MCP server may read, read fresh from disk. */
 export function getMcpDiaryAccess() {
     try {

@@ -584,4 +584,39 @@ describe('Vault Doctor', () => {
             assert.deepEqual(report.decks.dbWithoutFile, []);
         });
     });
+
+    // The reason the progress store exists. Before it, a rebuild threw away every
+    // account's review history — the Doctor's own header promised the loss — which meant
+    // the "derived" database was never actually disposable. progress.ReviewLogs carries no
+    // foreign key into the index and wipeDerivedContent deliberately does not name it, so
+    // a log row needs no card row to survive alongside it. If someone re-adds
+    // `DELETE FROM ReviewLogs` to that wipe, this is what should fail.
+    describe('the progress store survives a rebuild', () => {
+        const HASH = 'doctor-survives-rebuild';
+
+        it('keeps review history when the derived layer is wiped', async () => {
+            await db.prepare(`
+                INSERT INTO progress.ReviewLogs
+                    (card_hash, account_id, timestamp, outcome, ease_factor, level, rating)
+                VALUES (?, 'owner', datetime('now'), 1, 2.5, 3, 3)
+            `).run(HASH);
+
+            const count = async () => (await db.prepare(
+                'SELECT COUNT(*) AS n FROM progress.ReviewLogs WHERE card_hash = ?',
+            ).get(HASH)).n;
+
+            assert.equal(await count(), 1, 'seeded one log row');
+            await query.wipeDerivedContent();
+            assert.equal(await count(), 1, 'the wipe must not reach the progress store');
+
+            await db.prepare('DELETE FROM progress.ReviewLogs WHERE card_hash = ?').run(HASH);
+        });
+
+        it('keeps ReviewLogs out of the vault database entirely', async () => {
+            const shadow = await db.prepare(
+                "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = 'ReviewLogs'",
+            ).get();
+            assert.equal(shadow, undefined, 'an empty main.ReviewLogs would shadow the real one');
+        });
+    });
 });

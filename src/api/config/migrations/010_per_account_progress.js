@@ -46,6 +46,40 @@ const DOOMED_COLUMNS = [
     'fsrs_state', 'fsrs_reps', 'fsrs_lapses',
 ];
 
+/**
+ * Whether a table exists in ANY attached schema, not just `main`.
+ *
+ * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
+ * query reads `main` alone, which stopped being the whole database when the progress store
+ * was attached. A table that has moved there is still present — just not in `main`, and a
+ * guard that cannot tell "moved" from "absent" answers "still pending" forever.
+ *
+ * @param {object} db
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function tableExists(db, name) {
+    return (await db.pragma(`table_info(${name})`)).length > 0;
+}
+
+/**
+ * Whether a table is still in `main` specifically.
+ *
+ * The rewrites below ALTER, DROP and RENAME tables in place, and those verbs resolve an
+ * unqualified name to whichever schema actually holds it. Once one of these tables moves to
+ * the progress store, an ungated `DROP TABLE CardHealth` would therefore destroy the real
+ * one. This asks the narrower question the rewrites depend on: is the pre-move copy here?
+ *
+ * @param {object} db
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function mainHasTable(db, name) {
+    return !!await db.prepare(
+        "SELECT name FROM main.sqlite_master WHERE type='table' AND name = ?",
+    ).get(name);
+}
+
 async function columns(db, table) {
     return (await db.pragma(`table_info(${table})`)).map(c => c.name);
 }
@@ -55,32 +89,37 @@ async function hasColumn(db, table, column) {
 }
 
 export async function shouldRun(db) {
-    const table = await db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name = 'CardProgress'"
-    ).get();
+    const table = await tableExists(db, 'CardProgress');
     // Either half being unfinished means the vault is mid-migration: the table can exist
     // while Flashcards still carries the columns (a crash between the two halves).
     return !table || await hasColumn(db, 'Flashcards', 'level');
 }
 
 export async function up(db) {
-    await db.exec(`CREATE TABLE IF NOT EXISTS CardProgress (
-        id              INTEGER PRIMARY KEY AUTOINCREMENT,
-        flashcard_id    INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
-        account_id      TEXT NOT NULL DEFAULT 'owner',
-        level           INTEGER,
-        sm2_reps        INTEGER NOT NULL DEFAULT 0,
-        last_recall     TIMESTAMP,
-        fsrs_stability  FLOAT,
-        fsrs_difficulty FLOAT,
-        fsrs_due        TIMESTAMP,
-        fsrs_state      INTEGER NOT NULL DEFAULT 0,
-        fsrs_reps       INTEGER NOT NULL DEFAULT 0,
-        fsrs_lapses     INTEGER NOT NULL DEFAULT 0,
-        UNIQUE(flashcard_id, account_id)
-    )`);
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id)');
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_last_recall ON CardProgress(last_recall)');
+    // Only when the table is absent from EVERY schema. `shouldRun` also fires when
+    // Flashcards still carries `level` — a crash between this migration's two halves — and
+    // that repair has to survive, so this guard wraps the creation rather than the whole
+    // function. Without it an unqualified CREATE would build an empty `main.CardProgress`
+    // that shadows the real one, and every schedule in the vault would read as never-studied.
+    if (!await tableExists(db, 'CardProgress')) {
+        await db.exec(`CREATE TABLE IF NOT EXISTS CardProgress (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            flashcard_id    INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
+            account_id      TEXT NOT NULL DEFAULT 'owner',
+            level           INTEGER,
+            sm2_reps        INTEGER NOT NULL DEFAULT 0,
+            last_recall     TIMESTAMP,
+            fsrs_stability  FLOAT,
+            fsrs_difficulty FLOAT,
+            fsrs_due        TIMESTAMP,
+            fsrs_state      INTEGER NOT NULL DEFAULT 0,
+            fsrs_reps       INTEGER NOT NULL DEFAULT 0,
+            fsrs_lapses     INTEGER NOT NULL DEFAULT 0,
+            UNIQUE(flashcard_id, account_id)
+        )`);
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id)');
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_last_recall ON CardProgress(last_recall)');
+    }
 
     // Only cards that actually carry state. A card with nothing but defaults is a card
     // nobody has reviewed, and every read COALESCEs a missing row to exactly those
@@ -106,21 +145,25 @@ export async function up(db) {
         `);
     }
 
-    if (!await hasColumn(db, 'ReviewLogs', 'account_id')) {
-        await db.exec("ALTER TABLE ReviewLogs ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
+    if (await mainHasTable(db, 'ReviewLogs')) {
+        if (!await hasColumn(db, 'ReviewLogs', 'account_id')) {
+            await db.exec("ALTER TABLE ReviewLogs ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
+        }
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_account ON ReviewLogs(account_id)');
     }
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_account ON ReviewLogs(account_id)');
 
     // The weights are a fitted model of one person's forgetting curve; sharing them across
     // accounts would schedule a reader against someone else's memory.
-    if (!await hasColumn(db, 'FsrsParameters', 'account_id')) {
-        await db.exec("ALTER TABLE FsrsParameters ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
+    if (await mainHasTable(db, 'FsrsParameters')) {
+        if (!await hasColumn(db, 'FsrsParameters', 'account_id')) {
+            await db.exec("ALTER TABLE FsrsParameters ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
+        }
+        // The old setter deleted every row before inserting, so there is at most one — but a
+        // unique index that failed to build would abort the whole migration, so make sure.
+        await db.exec(`DELETE FROM FsrsParameters
+                       WHERE id NOT IN (SELECT MAX(id) FROM FsrsParameters GROUP BY account_id)`);
+        await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_fsrsparameters_account ON FsrsParameters(account_id)');
     }
-    // The old setter deleted every row before inserting, so there is at most one — but a
-    // unique index that failed to build would abort the whole migration, so make sure.
-    await db.exec(`DELETE FROM FsrsParameters
-                   WHERE id NOT IN (SELECT MAX(id) FROM FsrsParameters GROUP BY account_id)`);
-    await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_fsrsparameters_account ON FsrsParameters(account_id)');
 
     // Both need their UNIQUE constraint widened, and a UNIQUE declared inline in a CREATE
     // TABLE is backed by an sqlite_autoindex that DROP INDEX cannot touch. Vaults carry one
@@ -128,48 +171,52 @@ export async function up(db) {
     // SchemaSQL's knex output (a named unique index) — so rebuilding is both the only option
     // that works for the first and the only one that leaves the two identical afterwards.
     // Nothing holds a foreign key pointing AT these tables, so dropping them is safe.
-    await db.exec(`CREATE TABLE CardHealth_new (
-        id                  INTEGER PRIMARY KEY AUTOINCREMENT,
-        flashcard_id        INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
-        account_id          TEXT NOT NULL DEFAULT 'owner',
-        epoch_at            TIMESTAMP,
-        epoch_reason        TEXT,
-        content_fingerprint TEXT,
-        updated_at          TIMESTAMP,
-        UNIQUE(flashcard_id, account_id)
-    )`);
-    await db.exec(`INSERT INTO CardHealth_new
-        (id, flashcard_id, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
-        SELECT id, flashcard_id, 'owner', epoch_at, epoch_reason, content_fingerprint, updated_at
-        FROM CardHealth`);
-    await db.exec('DROP TABLE CardHealth');
-    await db.exec('ALTER TABLE CardHealth_new RENAME TO CardHealth');
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id)');
+    if (await mainHasTable(db, 'CardHealth')) {
+        await db.exec(`CREATE TABLE CardHealth_new (
+            id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+            flashcard_id        INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
+            account_id          TEXT NOT NULL DEFAULT 'owner',
+            epoch_at            TIMESTAMP,
+            epoch_reason        TEXT,
+            content_fingerprint TEXT,
+            updated_at          TIMESTAMP,
+            UNIQUE(flashcard_id, account_id)
+        )`);
+        await db.exec(`INSERT INTO CardHealth_new
+            (id, flashcard_id, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
+            SELECT id, flashcard_id, 'owner', epoch_at, epoch_reason, content_fingerprint, updated_at
+            FROM CardHealth`);
+        await db.exec('DROP TABLE CardHealth');
+        await db.exec('ALTER TABLE CardHealth_new RENAME TO CardHealth');
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id)');
+    }
 
-    await db.exec(`CREATE TABLE CardFlags_new (
-        id                 INTEGER PRIMARY KEY AUTOINCREMENT,
-        flashcard_id       INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
-        account_id         TEXT NOT NULL DEFAULT 'owner',
-        kind               TEXT NOT NULL,
-        confidence         TEXT NOT NULL,
-        score              FLOAT,
-        evidence_json      TEXT,
-        level_at_detection INTEGER,
-        detected_at        TIMESTAMP,
-        review_log_id      INTEGER,
-        dismissed_at       TIMESTAMP,
-        UNIQUE(flashcard_id, account_id, kind)
-    )`);
-    await db.exec(`INSERT INTO CardFlags_new
-        (id, flashcard_id, account_id, kind, confidence, score, evidence_json,
-         level_at_detection, detected_at, review_log_id, dismissed_at)
-        SELECT id, flashcard_id, 'owner', kind, confidence, score, evidence_json,
-               level_at_detection, detected_at, review_log_id, dismissed_at
-        FROM CardFlags`);
-    await db.exec('DROP TABLE CardFlags');
-    await db.exec('ALTER TABLE CardFlags_new RENAME TO CardFlags');
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id)');
-    await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)');
+    if (await mainHasTable(db, 'CardFlags')) {
+        await db.exec(`CREATE TABLE CardFlags_new (
+            id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+            flashcard_id       INTEGER NOT NULL REFERENCES Flashcards(id) ON DELETE CASCADE,
+            account_id         TEXT NOT NULL DEFAULT 'owner',
+            kind               TEXT NOT NULL,
+            confidence         TEXT NOT NULL,
+            score              FLOAT,
+            evidence_json      TEXT,
+            level_at_detection INTEGER,
+            detected_at        TIMESTAMP,
+            review_log_id      INTEGER,
+            dismissed_at       TIMESTAMP,
+            UNIQUE(flashcard_id, account_id, kind)
+        )`);
+        await db.exec(`INSERT INTO CardFlags_new
+            (id, flashcard_id, account_id, kind, confidence, score, evidence_json,
+             level_at_detection, detected_at, review_log_id, dismissed_at)
+            SELECT id, flashcard_id, 'owner', kind, confidence, score, evidence_json,
+                   level_at_detection, detected_at, review_log_id, dismissed_at
+            FROM CardFlags`);
+        await db.exec('DROP TABLE CardFlags');
+        await db.exec('ALTER TABLE CardFlags_new RENAME TO CardFlags');
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id)');
+        await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)');
+    }
 
     // SQLite refuses to drop a column that any index mentions, so the indexes go first.
     // Read them out of sqlite_master rather than naming them: which ones exist depends on

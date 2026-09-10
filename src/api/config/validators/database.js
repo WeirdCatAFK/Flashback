@@ -22,7 +22,6 @@ const requiredTables = [
   "NodeTypes",
   "ConnectionTypes",
   "InheritedTags",
-  "ReviewLogs",
   "Decks",
   "DeckEntries",
 ];

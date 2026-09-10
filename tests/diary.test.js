@@ -64,7 +64,7 @@ const localIso = (dayIso, hh) => {
 };
 const insertLog = async (fid, outcome, dayIso, hh) =>
     await db.prepare(
-        'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
+        'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
     ).run(fid, localIso(dayIso, hh), outcome, 2.5, 0);
 
 describe('Diary storage layer', () => {
@@ -194,7 +194,7 @@ describe('Diary storage layer', () => {
         // 23:00 local on DAY. In any timezone behind UTC this instant is already the
         // next UTC day, which is exactly the case that used to be misfiled.
         await db.prepare(
-            'INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
         ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
 
         try {
@@ -208,7 +208,7 @@ describe('Diary storage layer', () => {
             }
             assert.ok((await query.getReviewActivityDays('owner')).includes(DAY));
         } finally {
-            await db.prepare('DELETE FROM ReviewLogs WHERE flashcard_id = ? AND timestamp = ?')
+            await db.prepare('DELETE FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND timestamp = ?')
                 .run(fid, localIso(DAY, 23));
         }
     });
