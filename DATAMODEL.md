@@ -507,12 +507,11 @@ For folder operations, all contained file and sidecar paths are staged in the sa
 
 ### Rollback and SRS State
 
-SRS progress (`level`, `ease_factor`, `last_recall`) lives in the database and is not embedded in git history. Rolling back the canonical layer therefore presents a conflict between content state and review progress. `SealTools.rollback(ref, keepSrsProgress)` handles this:
+**There is no longer a conflict between content state and review progress, and `rollback(ref)` takes no flag.** A schedule lives in `{vault}/progress.db`, which git does not track, and the sidecar's SRS fields stopped being read — so a checkout cannot move a level in either direction. Rolling back rewinds documents and nothing else.
 
-- `keepSrsProgress: true` (default) — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
-- `keepSrsProgress: false` — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
+This replaced a `keepSrsProgress` parameter whose two branches were documented here as *snapshot-and-restore* versus *let SRS revert with the content*. The second never worked: after the checkout, the reindex that followed max-merged the sidecar against the database, and a max-merge cannot regress. Nothing tested that path, so the discrepancy sat in this file for as long as the flag existed. Removing the control was a bug fix rather than a feature removal.
 
-In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the Vault Doctor (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
+The derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the Vault Doctor (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
 
 ### Out-of-band Change Detection
 

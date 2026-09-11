@@ -4,15 +4,14 @@
  * Two classes with different responsibilities:
  *   SealEventEmitter  Primitive. Called by Documents.js after each write. Stages files and
  *                     commits to the workspace git repo. No knowledge of the database.
- *   SealTools         Orchestrator. Coordinates git operations with query.js to handle
+ *   SealTools         Orchestrator. Coordinates git operations to handle
  *                     history navigation, out-of-band change detection, and SRS-aware rollback.
  */
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getWorkspacePath, getIdentity } from "../access/primitives/config.js";
-import { currentAuthor, OWNER_SCOPE } from "../requestContext.js";
-import query from "../access/resources/query.js";
+import { currentAuthor } from "../requestContext.js";
 
 const ABSENT = 0;
 const UNCHANGED = 1;
@@ -99,8 +98,6 @@ async function stageAndCommit(action, sidecarRelPath, extraRelPaths) {
     await git.commit({ fs, dir: workspace, message: `${action}: ${normSidecar}`, author: author() });
 }
 
-const REVIEW_DEBOUNCE_MS = 2000;
-
 function editLabel(paths) {
     const sidecars = paths.filter(isSidecar);
     if (sidecars.length === 1) return sidecars[0];
@@ -111,17 +108,7 @@ function editLabel(paths) {
 /** Fired by Documents.js after each canonical write operation. */
 export class SealEventEmitter {
     constructor() {
-        this._pendingReviews = new Map();
-        this._debounceTimer = null;
-
         this._commitQueue = Promise.resolve();
-    }
-
-    _cancelDebounce() {
-        if (this._debounceTimer) {
-            clearTimeout(this._debounceTimer);
-            this._debounceTimer = null;
-        }
     }
 
     /**
@@ -137,37 +124,16 @@ export class SealEventEmitter {
     }
 
     /**
-     * Settles everything outstanding: commits the coalesced reviews — one batch per author — and waits for every queued commit to land.
+     * Waits for every queued commit to land.
+     *
+     * It used to flush a 2 s window of coalesced review commits first. Grading a card no
+     * longer writes a file, so there is nothing to coalesce and nothing to flush — draining
+     * the queue is all that is left. Kept under the same name because structural operations
+     * call it to keep commit order chronological.
      *
      * @returns {Promise<void>}
      */
     async flushEdits() {
-        this._cancelDebounce();
-
-        if (this._pendingReviews.size > 0) {
-            const pendingByPath = [...this._pendingReviews];
-            this._pendingReviews.clear();
-
-            await this._enqueue(async () => {
-                const workspace = dir();
-                const pending = pendingByPath.filter(([p]) => fs.existsSync(path.join(workspace, p)));
-                if (pending.length === 0) return;
-
-                const byAuthor = new Map();
-                for (const [p, who] of pending) {
-                    const key = `${who.name} <${who.email}>`;
-                    if (!byAuthor.has(key)) byAuthor.set(key, { who, paths: [] });
-                    byAuthor.get(key).paths.push(p);
-                }
-
-                for (const { who, paths } of byAuthor.values()) {
-                    await stageAll(workspace, paths);
-                    await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(paths)}`, author: who });
-                }
-            });
-            return;
-        }
-
         await this._commitQueue;
     }
 
@@ -180,10 +146,7 @@ export class SealEventEmitter {
         try {
             await this.flushEdits();
         } catch (err) {
-            console.error("Seal quiesce failed to flush pending edits:", err?.stack || err);
-        } finally {
-            this._cancelDebounce();
-            this._pendingReviews.clear();
+            console.error("Seal quiesce failed to drain the commit queue:", err?.stack || err);
         }
     }
 
@@ -211,8 +174,6 @@ export class SealEventEmitter {
         const who = author();
         const paths = [normPath(sidecarRelPath), ...extraRelPaths.map(normPath)];
 
-        for (const p of paths) this._pendingReviews.delete(p);
-
         await this._enqueue(async () => {
             const workspace = dir();
             const present = paths.filter(p => fs.existsSync(path.join(workspace, p)));
@@ -220,24 +181,6 @@ export class SealEventEmitter {
             await stageAll(workspace, present);
             await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(present)}`, author: who });
         });
-    }
-
-    /**
-     * Records a sidecar write caused by GRADING A CARD — a new schedule, nothing else.
-     *
-     * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar.
-     * @param {string[]} [extraRelPaths=[]] - Additional paths to stage.
-     * @returns {Promise<void>}
-     */
-    async review(sidecarRelPath, extraRelPaths = []) {
-        const who = author();
-        this._pendingReviews.set(normPath(sidecarRelPath), who);
-        for (const p of extraRelPaths) this._pendingReviews.set(normPath(p), who);
-        this._cancelDebounce();
-        this._debounceTimer = setTimeout(() => {
-            this._debounceTimer = null;
-            this.flushEdits().catch(err => console.error("[seal] flush error:", err));
-        }, REVIEW_DEBOUNCE_MS);
     }
 
     /**
@@ -255,7 +198,6 @@ export class SealEventEmitter {
         const normOldDoc = normPath(oldDocRelPath);
         const normNewDoc = normPath(newDocRelPath);
 
-        for (const p of normRemoved) this._pendingReviews.delete(p);
         await this.flushEdits();
         const who = author();
         await this._enqueue(async () => {
@@ -276,7 +218,6 @@ export class SealEventEmitter {
     async delete(sidecarRelPath, extraRelPaths = []) {
         const normSidecar = normPath(sidecarRelPath);
         const allRemoved = [...extraRelPaths, sidecarRelPath].map(normPath);
-        for (const p of allRemoved) this._pendingReviews.delete(p);
         await this.flushEdits();
         const who = author();
         await this._enqueue(async () => {
@@ -351,18 +292,18 @@ export class SealTools {
     /**
      * Restores the workspace canonical layer to the state at a given commit.
      *
+     * Touches no schedule, and could not if it tried: progress lives in `{vault}/progress.db`,
+     * which git does not track, and the sidecar's SRS fields are no longer read. This used to
+     * snapshot the owner's state around the checkout and re-apply it, behind a
+     * `keepSrsProgress` flag — a flag whose `false` branch never worked, because the reindex
+     * after a checkout max-merged the sidecar against the database and so could not regress a
+     * level. Removing it fixed a control that had always been lying.
+     *
      * @param {string} ref - Commit hash or branch name to restore to.
-     * @param {boolean} [keepSrsProgress=true] - Whether to preserve current review progress.
      * @returns {Promise<void>}
      */
-    async rollback(ref, keepSrsProgress = true) {
-        const srsSnapshot = keepSrsProgress ? await query.getAllFlashcardSrsState(OWNER_SCOPE) : null;
-
+    async rollback(ref) {
         await git.checkout({ fs, dir: dir(), ref, force: true });
-
-        if (srsSnapshot) {
-            await query.batchRestoreFlashcardSrsState(srsSnapshot, OWNER_SCOPE);
-        }
     }
 
     /**

@@ -120,7 +120,7 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 3. MODIFIED OUT-OF-BAND (SRS max-merge) ---
+    // --- 3. MODIFIED OUT-OF-BAND (the sidecar is frozen) ---
     describe('out-of-band modified document', () => {
         const rel = path.join(TEST_ROOT, 'Modified.md');
         const keepHash = crypto.randomUUID();
@@ -151,19 +151,29 @@ describe('Vault Doctor', () => {
             const entry = report.documents.modified.find(m => m.relPath.includes('Modified.md'));
             assert.ok(entry, 'document flagged as modified');
             assert.ok(entry.reasons.includes('cardSetChanged'));
-            assert.ok(entry.reasons.includes('levelAhead'));
+            // `levelAhead` is gone. It compared the sidecar's SRS fields against the live
+            // schedule, and those now diverge by design — the file is a frozen snapshot — so
+            // the reason would have fired forever and no syncIndex could ever clear it.
+            assert.ok(!entry.reasons.includes('levelAhead'));
         });
 
-        it('syncIndex adopts raised levels, never regresses, and adds the new card', async () => {
+        it('ignores the sidecar for a card that already has a schedule, and seeds the new one', async () => {
             const result = await doctor.syncIndex();
             assert.ok(result.actions.documentsReindexed >= 1);
 
             const doc = await query.getDocumentByPath(rel);
-            const byHash = new Map((await await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
+            const byHash = new Map((await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
             assert.equal(byHash.size, 3, 'new card was added');
-            assert.equal(byHash.get(keepHash).level, 4, 'raised level adopted');
-            assert.equal(byHash.get(regressHash).level, 5, 'lowered level did not regress');
-            assert.ok(byHash.has(newHash));
+
+            // Both of these had a schedule already, so the out-of-band edits to their SRS
+            // fields are ignored outright — raised and lowered alike. The old max-merge adopted
+            // the raised one; it existed because two writers owned one number, and only one
+            // does now. The file cannot move a schedule in either direction.
+            assert.equal(byHash.get(keepHash).level, 1, 'a raised level in the file is ignored');
+            assert.equal(byHash.get(regressHash).level, 5, 'and a lowered one cannot regress it');
+
+            // The genuinely new card has no schedule anywhere, so the file IS its only source.
+            assert.equal(byHash.get(newHash).level ?? 0, 0, 'the new card is seeded from the file');
         });
     });
 
@@ -538,14 +548,13 @@ describe('Vault Doctor', () => {
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
             assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
-            // SM-2 ease is read out of the newest review log, and those are durable now, so
-            // a card that was really reviewed keeps its ease across a rebuild without anything
-            // being re-seeded. This card never was: its 2.7 exists only as a sidecar field, and
-            // the synthetic-log re-seed that used to resurrect it is gone. Reading the sidecar
-            // to seed a card that has no progress at all returns in Stage 7 (seed-on-absence).
+            // SM-2 ease is read out of the newest review log. A card that was really
+            // reviewed keeps its ease across a rebuild because those logs are durable. This
+            // card never was — its 2.7 exists only as a sidecar field — so it comes back the
+            // other way: the rebuild finds no progress row, seeds the schedule from the frozen
+            // sidecar, and seeds one synthetic log to carry the ease with it.
             const eases = await query.getLatestEaseFactors('owner');
-            assert.equal(eases.get(cardHash), undefined,
-                'a sidecar-only ease is no longer resurrected as a synthetic review');
+            assert.equal(eases.get(cardHash), 2.7, 'ease seeded from the sidecar on absence');
         });
 
         it('restores the standalone card from its inline snapshot and keeps one system deck', async () => {

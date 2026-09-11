@@ -11,9 +11,9 @@
  *                   git HEAD and is blind right after a rollback (HEAD ==
  *                   workdir while the index is maximally diverged). Git drift
  *                   is included in the report as supplementary context only.
- *   syncIndex()     Applies the diff: disk is truth. Indexes new sidecars,
- *                   reindexes modified ones (SRS max-merge — never regresses
- *                   progress), removes index rows for deleted items, reconciles
+ *   syncIndex()     Applies the diff: disk is truth for CONTENT. Indexes new
+ *                   sidecars, reindexes modified ones, removes index rows for
+ *                   deleted items, reconciles
  *                   media both directions, repairs decks. By default seals
  *                   remaining out-of-band drift into one `reconcile:` commit.
  *   rebuildIndex()  Nuclear option: wipes all derived content and re-indexes
@@ -156,13 +156,6 @@ export default class Doctor {
         const metaHashes = new Set(metaCards.map(c => c.globalHash).filter(Boolean));
         if (metaHashes.size !== dbByHash.size || [...metaHashes].some(h => !dbByHash.has(h))) {
             reasons.push('cardSetChanged');
-        }
-        for (const mc of metaCards) {
-            const match = mc.globalHash ? dbByHash.get(mc.globalHash) : null;
-            if (match && ((mc.level ?? 0) > (match.level ?? 0) || (mc.sm2Reps ?? 0) > (match.sm2_reps ?? 0))) {
-                reasons.push('levelAhead');
-                break;
-            }
         }
 
         const dbTags = new Set(await this.query.getDirectTagNames(dbDoc.node_id));

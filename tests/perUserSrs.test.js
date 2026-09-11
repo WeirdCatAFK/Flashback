@@ -159,18 +159,23 @@ describe('Per-user SRS', () => {
     // second write happened inside the first one's transaction without being part of it.
     // Both now live in `progress.CardProgress`, the author under the 'owner' sentinel.
     describe('where each person\'s progress is canonical', () => {
-        it('writes the author\'s schedule into the sidecar', async () => {
-            assert.equal(sidecarCard(cardA).level, 4);
+        it('leaves the author\'s sidecar frozen — nobody writes progress to a file now', async () => {
+            // cardA was created at level 0 and the author has since graded it to 4. The file
+            // still says 0: its SRS fields are a snapshot of the day writing stopped, kept so a
+            // downgrade still finds what it expects and so a vault arriving without a progress
+            // store has something to seed from. They are not live state.
+            assert.equal(sidecarCard(cardA).level ?? 0, 0, 'the file did not move');
+            assert.equal(await ownerLevel(cardA), 4, 'the schedule did');
         });
 
-        it('leaves the sidecar untouched by a reader, and seals nothing', async () => {
+        it('seals nothing when anyone studies, reader or author', async () => {
             const before = await sealTools.log();
             await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 2));
+            await asAuthor(author, () => docs.submitReview(docRel, cardB, 1, 2.5, 1));
 
-            assert.equal(sidecarCard(cardA).level, 4, "still the author's number");
             const after = await sealTools.log();
             assert.equal(after.length, before.length,
-                'a reader studying is not a reader editing — no commit');
+                'studying is not editing — for either of them, no commit');
         });
 
         it('records the reader\'s schedule in the progress store, not the accounts store', async () => {
@@ -301,8 +306,11 @@ describe('Per-user SRS', () => {
             const stillMine = await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE);
             assert.ok(stillMine.level > 0,
                 'owner progress resolves through the sentinel, not through any account id');
-            assert.equal(sidecarCard(cardA).level, stillMine.level,
-                'and it is the same number the sidecar carries, which is what travels with a copy');
+            // The sidecar is NOT expected to agree any more: it froze at creation while the
+            // schedule moved on. What travels with a copied vault is progress.db, a sibling of
+            // workspace/ that Seal does not version — not the numbers in the file.
+            assert.notEqual(sidecarCard(cardA).level ?? 0, stillMine.level,
+                'the frozen file has drifted from the live schedule, as designed');
 
             const orphaned = await query.getFlashcardSrsStateByHash(cardA, strangerAuthorId);
             assert.equal(orphaned.level, 0,
@@ -413,11 +421,11 @@ describe('Per-user SRS', () => {
             assert.equal(state.level, 5);
         });
 
-        it('does not read the sidecar on the reader\'s path', async () => {
-            // The sidecar is read only to be mutated, which a reader never does. Proven by
-            // removing it: the owner's review needs the file and fails without it, a
-            // reader's does not. This is the property, not the timing — a future refactor
-            // that reintroduces the read would still pass every other test in this file.
+        it('does not read the sidecar on ANYONE\'s path', async () => {
+            // This used to assert an asymmetry: a reader's review ignored the sidecar, the
+            // owner's needed it and threw without it. The owner's no longer needs it either —
+            // grading writes no file for anybody — so the property is now the stronger one.
+            // Proven by removing the file and grading as both.
             const abs = docs.files.safePath(docRel) + '.flashback';
             const saved = fs.readFileSync(abs);
             fs.rmSync(abs);
@@ -425,11 +433,12 @@ describe('Per-user SRS', () => {
                 await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
                 assert.equal(
                     (await query.getFlashcardSrsStateByHash(cardA, rita.id)).level, 4,
-                    'the reader\'s review should not depend on the sidecar at all',
+                    'the reader\'s review does not depend on the sidecar',
                 );
-                await assert.rejects(
-                    () => asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 4)),
-                    'the owner\'s review DOES need the sidecar, and must still say so',
+                await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 6));
+                assert.equal(
+                    (await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE)).level, 6,
+                    'and neither does the author\'s',
                 );
             } finally {
                 fs.writeFileSync(abs, saved);

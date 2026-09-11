@@ -22,7 +22,7 @@ function scoped(scope) {
 }
 
 /** The camelCase names a caller (sidecar data, a scheduler result) uses for schedule state. */
-const PROGRESS_KEYS = [
+export const PROGRESS_KEYS = [
     'level', 'sm2Reps', 'lastRecall', 'fsrsStability', 'fsrsDifficulty',
     'fsrsDue', 'fsrsState', 'fsrsReps', 'fsrsLapses',
 ];
@@ -187,6 +187,7 @@ class DocumentQuery {
     async getFlashcardsByDocument(documentId, scope) {
         return await this.db.prepare(`
             SELECT f.id, f.node_id, f.global_hash, f.content_id, f.card_type,
+                   p.card_hash IS NOT NULL AS hasProgress,
                    p.level, p.sm2_reps, p.last_recall,
                    p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
                    p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
@@ -530,20 +531,6 @@ class DocumentQuery {
         await this.db.transaction(async (rows) => {
             for (const c of rows) await stmt.run(account, c.level, account, c.global_hash);
         })(cards);
-    }
-
-    /** Restores a batch of schedules, used by Seal rollback. */
-    async batchRestoreFlashcardSrsState(states, scope) {
-        const account = scoped(scope);
-        const stmt = this._batchProgressStmt(
-            'level = excluded.level, sm2_reps = excluded.sm2_reps, last_recall = excluded.last_recall',
-            `?, ?, ?, p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
-             COALESCE(p.fsrs_state, 0), COALESCE(p.fsrs_reps, 0), COALESCE(p.fsrs_lapses, 0)`);
-        await this.db.transaction(async (rows) => {
-            for (const s of rows) {
-                await stmt.run(account, s.level ?? 0, s.sm2_reps ?? 0, s.last_recall, account, s.global_hash);
-            }
-        })(states);
     }
 
     /** Records a graded review against this person's schedule. */
@@ -2299,6 +2286,46 @@ class DocumentQuery {
     async updateDeckEntryInlineCard(deckId, cardHash, inlineCard) {
         this.db.prepare('UPDATE DeckEntries SET inline_card = ? WHERE deck_id = ? AND card_hash = ?')
             .run(inlineCard, deckId, cardHash);
+    }
+
+    /**
+     * Whether a schedule already exists for a card, asked by hash rather than by row id.
+     *
+     * Needed because a progress row outlives the `Flashcards` row that pointed at it: a Doctor
+     * rebuild deletes and re-inserts every card, so at insert time there is no id to ask about
+     * yet, but there may very well be progress. See `_syncDocumentFlashcards`.
+     *
+     * @param {string} cardHash
+     * @param {string} scope
+     * @returns {Promise<boolean>}
+     */
+    async hasProgressForHash(cardHash, scope) {
+        const row = await this.db.prepare(
+            'SELECT 1 AS present FROM progress.CardProgress WHERE card_hash = ? AND account_id = ?',
+        ).get(cardHash, scoped(scope));
+        return !!row;
+    }
+
+    /**
+     * Seeds an SM-2 ease for a card being restored from a frozen sidecar.
+     *
+     * Ease has no `CardProgress` column: it is read back out of the newest review log. So a
+     * card seeded from the file needs one synthetic row (`outcome IS NULL`, which
+     * `getCardInsights` already excludes from review counts). Guarded by NOT EXISTS so it can
+     * never stack, and owner-only because a sidecar holds nobody else's numbers.
+     *
+     * @param {string} cardHash
+     * @param {number} easeFactor
+     * @param {number} level
+     */
+    async seedEaseFromSidecar(cardHash, easeFactor, level) {
+        await this.db.prepare(`
+            INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
+            SELECT ?, 'owner', datetime('now'), NULL, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM progress.ReviewLogs WHERE card_hash = ? AND account_id = 'owner'
+            )
+        `).run(cardHash, easeFactor, level ?? 0, cardHash);
     }
 
     /**

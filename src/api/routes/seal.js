@@ -26,11 +26,11 @@ router.get('/commit/:oid/files', catchError(async (req, res) => {
     res.json(files);
 }));
 
-/** Rewinds the workspace to a commit, preserving SRS progress by default. */
+/** Rewinds the workspace to a commit. Schedules are in the progress store and are unaffected. */
 router.post('/rollback', catchError(async (req, res) => {
-    const { ref, keepSrsProgress = true } = req.body;
+    const { ref } = req.body;
     if (!ref) return res.status(400).json({ error: 'ref required' });
-    await sealTools.rollback(ref, keepSrsProgress);
+    await sealTools.rollback(ref);
     res.json({ ok: true });
 }));
 

@@ -14,5 +14,5 @@ export const inspectDrift = () =>
 export const getCommitFiles = (oid) =>
     request('GET', `/api/seal/commit/${oid}/files`);
 
-export const rollback = (ref, keepSrsProgress = true) =>
-    request('POST', '/api/seal/rollback', { ref, keepSrsProgress });
+export const rollback = (ref) =>
+    request('POST', '/api/seal/rollback', { ref });

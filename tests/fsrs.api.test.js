@@ -99,13 +99,16 @@ describe('FSRS review loop', () => {
         assert.equal(log.level, c.level, 'log snapshots the derived level for undo');
     });
 
-    it('the sidecar mirrors the FSRS state', () => {
+    it('leaves the sidecar alone — it no longer mirrors the FSRS state', () => {
+        // The sidecar's SRS fields froze when grading stopped writing them. They are kept so a
+        // downgrade still finds what it expects, and so a vault arriving without a progress
+        // store has something to seed from — not as a mirror of anything live.
         const meta = docs.files.getMetadata(docRel);
         const card = meta.flashcards.find(f => f.globalHash === hash);
-        assert.ok(card.fsrsStability > 0);
-        assert.equal(card.fsrsState, 2);
-        assert.ok(card.fsrsDue);
-        assert.ok(card.level >= 1, 'sidecar mirrors the derived level');
+        assert.ok(!card.fsrsStability, 'no FSRS state was written to the file');
+        assert.ok(!card.fsrsState);
+        assert.ok(!card.fsrsDue);
+        assert.equal(card.level ?? 0, 0, 'and the level is still the one it was created with');
     });
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', async () => {

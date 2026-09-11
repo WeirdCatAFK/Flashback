@@ -2495,7 +2495,7 @@ describe('Flashback API', () => {
             if (log.length < 2) return; // not enough history in this run — skip gracefully
 
             const targetRef = log[1].oid;
-            const res = await post(`${baseUrl}/api/seal/rollback`, { ref: targetRef, keepSrsProgress: true });
+            const res = await post(`${baseUrl}/api/seal/rollback`, { ref: targetRef });
             assert.equal(res.status, 200);
         });
 

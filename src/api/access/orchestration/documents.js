@@ -10,7 +10,7 @@ import { withDocument, withStructure } from '../resources/pathLock.js';
 import { safeFetch } from '../resources/safeFetch.js';
 import { getAllowPrivateNetworkFetch, getCardRemovalLimits } from '../primitives/config.js';
 import cardRemovalBudget from '../resources/cardRemovalBudget.js';
-import query from '../resources/query.js';
+import query, { PROGRESS_KEYS } from '../resources/query.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
 import crypto from 'crypto';
@@ -1593,48 +1593,23 @@ export default class Documents {
         await sealEmitter.edit(relativePath + '.flashback', [mediaRel]);
     }
 
-    /** Grades a card, writing the schedule and, for the owner, the sidecar. */
+    /**
+     * Grades a card.
+     *
+     * Writes no file and produces no Seal commit, for anybody. A schedule lives in the progress
+     * store; the sidecar's SRS fields are a frozen snapshot nothing writes any more. Reading is
+     * not editing — and as of this change, neither is studying.
+     */
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const owner = isOwnerScope(opts.scope ?? currentScope());
-
-        let metadata = null;
-        let card = null;
-        if (owner) {
-            metadata = this.files.getMetadata(relativePath);
-            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
-            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
-        }
-
-        const { documentId, fsrs, scope } = await this.srs.submitReview(
+        const { documentId, scope } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
 
+        // `presence` is derived from the OWNER's levels and stored on the document, so a
+        // reader's review must not move it. It is the only thing left that the owner's review
+        // does and a reader's does not.
         if (!isOwnerScope(scope)) return;
-
-        if (!card) {
-            metadata = this.files.getMetadata(relativePath);
-            card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
-            if (!card) throw new Error(`Flashcard ${flashcardHash} not found in sidecar for ${relativePath}`);
-        }
-
-        if (algorithm === 'fsrs' && fsrs) {
-            card.fsrsStability = fsrs.stability;
-            card.fsrsDifficulty = fsrs.difficulty;
-            card.fsrsDue = fsrs.due;
-            card.fsrsState = fsrs.state;
-            card.fsrsReps = fsrs.reps;
-            card.fsrsLapses = fsrs.lapses;
-            card.level = fsrs.level;
-            card.lastRecall = fsrs.last_review;
-        } else {
-            if (algorithm === 'sm2') card.sm2Reps = newLevel; else card.level = newLevel;
-            card.easeFactor = easeFactor;
-            card.lastRecall = new Date().toISOString();
-        }
-        this.files.writeMetadata(relativePath, metadata);
-
         await this.propagatePresence(documentId);
-        await sealEmitter.review(relativePath + '.flashback');
     }
 
     /** Reverts the caller's last grade on a card. */
@@ -1642,41 +1617,6 @@ export default class Documents {
         const { document_id, restored, scope } = await this.srs.undoReview(flashcardHash, algorithm);
 
         if (!isOwnerScope(scope)) return restored;
-
-        const metadata = this.files.getMetadata(relativePath);
-        const card = metadata?.flashcards?.find(f => f.globalHash === flashcardHash);
-        if (card) {
-            if (algorithm === 'fsrs') {
-                if (restored) {
-                    card.fsrsStability = restored.stability;
-                    card.fsrsDifficulty = restored.difficulty;
-                    card.fsrsDue = restored.due;
-                    card.fsrsState = restored.state;
-                    card.fsrsReps = restored.reps;
-                    card.fsrsLapses = restored.lapses;
-                    card.level = restored.level ?? 0;
-                    if (restored.lastRecall) card.lastRecall = restored.lastRecall;
-                    else delete card.lastRecall;
-                } else {
-                    delete card.fsrsStability; delete card.fsrsDifficulty; delete card.fsrsDue;
-                    delete card.fsrsState; delete card.fsrsReps; delete card.fsrsLapses;
-                    card.level = 0;
-                    delete card.lastRecall;
-                }
-            } else {
-                const value = restored ? restored.value : 0;
-                if (algorithm === 'sm2') card.sm2Reps = value; else card.level = value;
-                if (restored) {
-                    card.easeFactor = restored.easeFactor;
-                } else {
-                    delete card.easeFactor;
-                }
-                if (restored?.lastRecall) card.lastRecall = restored.lastRecall;
-                else delete card.lastRecall;
-            }
-            this.files.writeMetadata(relativePath, metadata);
-            await sealEmitter.review(relativePath + '.flashback');
-        }
 
         if (document_id) await this.propagatePresence(document_id);
         return restored;
@@ -1767,38 +1707,61 @@ export default class Documents {
             const match = existingMap.get(fcData.globalHash);
 
             if (match) {
-                const mergedLevel = Math.max(fcData.level ?? 0, match.level ?? 0);
-                const mergedSm2Reps = Math.max(fcData.sm2Reps ?? 0, match.sm2_reps ?? 0);
-                const mergedRecall = (mergedLevel === (fcData.level ?? 0) && fcData.lastRecall)
-                    ? fcData.lastRecall
-                    : (match.last_recall ?? fcData.lastRecall);
-
-                const sidecarNewer = fcData.lastRecall
-                    && (!match.last_recall || fcData.lastRecall >= match.last_recall);
-                const fsrsFromDb = sidecarNewer ? {} : {
-                    fsrsStability: match.fsrs_stability,
-                    fsrsDifficulty: match.fsrs_difficulty,
-                    fsrsDue: match.fsrs_due,
-                    fsrsState: match.fsrs_state,
-                    fsrsReps: match.fsrs_reps,
-                    fsrsLapses: match.fsrs_lapses,
-                };
+                // SEED ON ABSENCE, NOT MERGE.
+                //
+                // The sidecar's SRS fields are a frozen snapshot — true on the day writing
+                // stopped, drifting ever since. They are read exactly once per card: to seed a
+                // schedule for a card this vault holds no progress row for. That case is real
+                // rather than theoretical, because `workspace/` can arrive on its own volume
+                // with no progress.db beside it, and zeroing a schedule whose numbers are
+                // sitting in the file would be a regression.
+                //
+                // Once a row exists the file is ignored outright. `_writeProgress` fires on any
+                // PROGRESS_KEYS entry merely being DEFINED, so ignoring it means deleting those
+                // keys — not reading them is not enough. What this replaces was a max-merge,
+                // which existed only because two writers owned one number. There is one now.
+                const payload = { ...fcData };
+                if (match.hasProgress) {
+                    for (const key of PROGRESS_KEYS) delete payload[key];
+                }
 
                 await this.query.updateFlashcard(match.id, {
-                    ...fcData,
-                    ...fsrsFromDb,
-                    level: mergedLevel,
-                    sm2Reps: mergedSm2Reps,
-                    lastRecall: mergedRecall,
+                    ...payload,
                     fileIndex: index,
                     contentId: match.content_id
                 }, OWNER_SCOPE);
+
+                // SM-2 ease has no CardProgress column — it is read back out of the newest
+                // review log — so seeding a schedule from the file has to seed one log too.
+                if (!match.hasProgress && fcData.easeFactor != null) {
+                    await this.query.seedEaseFromSidecar(
+                        fcData.globalHash, fcData.easeFactor, fcData.level ?? 0,
+                    );
+                }
                 if (Array.isArray(fcData.tags)) await this._syncTags(match.node_id, fcData.tags);
             } else {
+                // Seed-on-absence applies here too, and this branch is the one that matters
+                // most: a Doctor rebuild deletes every card row and re-inserts it, so EVERY
+                // card comes through here with a surviving progress row behind it. Writing the
+                // frozen sidecar's numbers unconditionally would zero every schedule in the
+                // vault on the first rebuild — silently, since a zeroed schedule looks exactly
+                // like a card nobody has studied.
                 const nodeId = await this.query.createNode('Flashcard');
+                const payload = { ...fcData };
+                const seeding = !await this.query.hasProgressForHash(fcData.globalHash, OWNER_SCOPE);
+                if (!seeding) {
+                    for (const key of PROGRESS_KEYS) delete payload[key];
+                }
+
                 await this.query.insertFlashcard({
-                    ...fcData, nodeId, documentId, fileIndex: index
+                    ...payload, nodeId, documentId, fileIndex: index
                 }, OWNER_SCOPE);
+
+                if (seeding && fcData.easeFactor != null) {
+                    await this.query.seedEaseFromSidecar(
+                        fcData.globalHash, fcData.easeFactor, fcData.level ?? 0,
+                    );
+                }
                 if (Array.isArray(fcData.tags)) await this._syncTags(nodeId, fcData.tags);
             }
         }
