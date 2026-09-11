@@ -632,15 +632,20 @@ Three consequences follow, and each is load-bearing:
 ```
 Accounts(id, name, email, role, created_at, active)
 AccountTokens(id, account_id → Accounts.id, token_hash, label, created_at, last_used_at, revoked_at)
-AccountProgress(vault_id, account_id → Accounts.id, card_hash,
-                level, sm2_reps, last_recall, ease_factor,
-                fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
-                updated_at)          -- PK (vault_id, account_id, card_hash)
-ReadProgress(vault_id, scope, doc_hash,
-             unit, total, pos, pos_pct, far, far_pct, body_etag,
-             updated_at)              -- PK (vault_id, scope, doc_hash)
 AccountsSchemaVersion(version, applied_at)
+
+-- FOSSILS. Migrations 015 and 016 copied these into {vault}/progress.db, where they now
+-- live as CardProgress and ReadProgress. Nothing reads or writes them here any more. They
+-- were left rather than dropped because this refactor moves by copy and never deletes the
+-- old copy in the same change; they can go in a later cleanup once those migrations soak.
+AccountProgress(vault_id, account_id → Accounts.id, card_hash, …)
+ReadProgress(vault_id, scope, doc_hash, …)
 ```
+
+**This store is identity and access, and nothing else.** It held two kinds of progress for one
+reason only — it was the single store that did not travel with a copied vault — and that reason
+stopped applying once `{vault}/progress.db` existed as a home for behavioural data that Seal does
+not version. See § Per-user progress and § Read progress.
 
 Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
 
@@ -722,7 +727,7 @@ Where a person has read to in a document — a PDF page, an EPUB location, a cha
 
 | Whose                          | Canonical home                      | Travels with a copied vault | Versioned by Seal |
 | ------------------------------ | ----------------------------------- | --------------------------- | ----------------- |
-| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no                          | no                |
+| Everyone's, the owner included | `{vault}/progress.db` → `ReadProgress` | yes                         | no                |
 
 This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
 
@@ -731,7 +736,11 @@ This deliberately breaks the symmetry of § Per-user progress, and the two reaso
 
 So recording a position writes no file and produces no Seal commit, for anybody. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
 
-The cost is stated rather than hidden: reading positions do not travel with a copied vault folder, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
+The reasons above are about *not the sidecar*; they never argued for `accounts.db` specifically. That was simply the only store that did not travel with a copied vault at the time. Migration 016 moved these rows into the progress store, beside every schedule, where they do travel — so a copied vault now carries where everyone had read to, as it already carries what everyone had learned.
+
+`accounts.db` is no longer a progress store of any kind. It answers one question — who may reach this install, and as what — and the `ReadProgress` table still sitting in it is a fossil, unread, left behind because this refactor moves by copy and never deletes the old copy in the same change.
+
+The backup obligation is now two files rather than one, with the same answer: `accounts.db` holds the access list, `{vault}/progress.db` holds everything anybody ever did. Neither can be reconstructed from anything.
 
 ### Identity
 

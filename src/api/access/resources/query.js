@@ -8,6 +8,9 @@ import db from '../primitives/database.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
 /** Returns `scope` unchanged, refusing a missing one rather than defaulting to the owner. */
+/** The stored columns of a reading position, in the order every statement writes them. */
+const READ_FIELDS = ['unit', 'total', 'pos', 'pos_pct', 'far', 'far_pct', 'body_etag'];
+
 function scoped(scope) {
     if (typeof scope !== 'string' || scope.length === 0) {
         throw new Error(
@@ -2314,6 +2317,66 @@ class DocumentQuery {
         for (const table of ['CardProgress', 'CardHealth', 'CardFlags', 'ReviewLogs']) {
             await this.db.prepare(`DELETE FROM progress.${table} WHERE card_hash = ?`).run(cardHash);
         }
+    }
+
+    /**
+     * Records where one person has read to in one document.
+     *
+     * Unlike a schedule, this was never split across two homes: it has always held everyone's
+     * position, the owner included under the sentinel. See DATAMODEL.md § Read progress for why
+     * a scroll position cannot live in a sidecar — it moves continuously, and a Reader must be
+     * able to record one at all.
+     *
+     * @param {string} scope   an account id, or OWNER_SCOPE
+     * @param {string} docHash the document's globalHash
+     * @param {object} state   subset of READ_FIELDS; `unit`, `pos` and `far` are required
+     */
+    async saveReadProgress(scope, docHash, state = {}) {
+        await this.db.prepare(`
+            INSERT INTO progress.ReadProgress
+                (account_id, doc_hash, ${READ_FIELDS.join(', ')}, updated_at)
+            VALUES (?, ?, ${READ_FIELDS.map(() => '?').join(', ')}, ?)
+            ON CONFLICT(account_id, doc_hash) DO UPDATE SET
+                ${READ_FIELDS.map(f => `${f} = excluded.${f}`).join(', ')},
+                updated_at = excluded.updated_at
+        `).run(
+            scoped(scope), docHash,
+            ...READ_FIELDS.map(f => state[f] ?? null),
+            new Date().toISOString(),
+        );
+    }
+
+    /** @returns {Promise<object|null>} one person's position in one document, or null if unread. */
+    async getReadProgress(scope, docHash) {
+        return await this.db.prepare(
+            'SELECT * FROM progress.ReadProgress WHERE account_id = ? AND doc_hash = ?',
+        ).get(scoped(scope), docHash) ?? null;
+    }
+
+    /**
+     * Every position one person holds in this vault.
+     *
+     * The scope is required rather than optional. The accounts-store version accepted null to
+     * mean "every scope", and guarded that case with `EXISTS (SELECT 1 FROM Accounts …)` so a
+     * deleted account's rows were filtered out of the result. No caller ever passed null, and
+     * `Accounts` now lives in a different file — so the parameter goes, and the cross-file check
+     * goes with it. Rows belonging to a deleted account are simply never asked for.
+     *
+     * @param {string} scope
+     */
+    async listReadProgress(scope) {
+        return await this.db.prepare(`
+            SELECT * FROM progress.ReadProgress
+            WHERE account_id = ?
+            ORDER BY updated_at DESC
+        `).all(scoped(scope));
+    }
+
+    /** Forgets one person's position in one document. */
+    async deleteReadProgress(scope, docHash) {
+        await this.db.prepare(
+            'DELETE FROM progress.ReadProgress WHERE account_id = ? AND doc_hash = ?',
+        ).run(scoped(scope), docHash);
     }
 
     /** Empties every derived table ahead of a Doctor rebuild. */

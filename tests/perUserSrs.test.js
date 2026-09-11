@@ -454,7 +454,7 @@ describe('Per-user SRS', () => {
         //
         // Runs the migration runner twice for the reason the block above does: a resurrection
         // lands on the launch AFTER the one that migrates.
-        const MOVABLE = ['CardProgress', 'FsrsParameters', 'CardHealth', 'CardFlags'];
+        const MOVABLE = ['CardProgress', 'FsrsParameters', 'CardHealth', 'CardFlags', 'ReadProgress'];
 
         it('leaves a moved table in the progress store and rebuilds nothing in main', async () => {
             const os = await import('os');

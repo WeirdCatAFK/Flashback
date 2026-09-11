@@ -641,7 +641,7 @@ describe('Vault Doctor', () => {
 
         it('keeps the moved tables out of the vault database entirely', async () => {
             const shadows = [];
-            for (const table of ['ReviewLogs', 'CardHealth', 'CardFlags', 'FsrsParameters']) {
+            for (const table of ['ReviewLogs', 'CardHealth', 'CardFlags', 'FsrsParameters', 'ReadProgress']) {
                 const row = await db.prepare(
                     "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = ?",
                 ).get(table);

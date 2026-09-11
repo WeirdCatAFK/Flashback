@@ -85,15 +85,14 @@ Outside the vault deliberately: a vault folder is meant to be copied and handed 
 
 Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
 
-It also holds two per-person tables that must not travel with a copied vault: `AccountProgress` (every non-owner's SRS schedule) and `ReadProgress` (everyone's reading position, the owner's included — see `readProgress.js`). Both are keyed by `vault_id` plus a `globalHash`, never a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it.
+**Identity and access, and nothing else.** It used to hold two per-person tables as well — `AccountProgress` (every non-owner's SRS schedule) and `ReadProgress` (everyone's reading position) — for one reason only: it was the single store that did not travel with a copied vault. Migrations 015 and 016 moved both into `{vault}/progress.db`, which Seal does not version and which therefore serves that purpose without also being the access list. The two tables remain here as unread fossils; see `primitives/progress.js`.
 
 Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
 
 - `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
 - `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
 - `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
-- `saveAccountProgress()` / `getAccountProgress()` / `listAccountProgress()` / `deleteAccountProgress()` — never called for the owner; their canonical copy is the sidecar.
-- `saveReadProgress()` / `getReadProgress()` / `listReadProgress()` / `deleteReadProgress()` — is called for the owner. Read progress has no second canonical home to drift from. `scope` carries an account id or `OWNER_SCOPE` and so has no foreign key to `Accounts`; rows whose account was deleted are filtered on read, never deleted.
+- `listAccountProgress()` / `listReadProgress()` and their siblings — **migration-only now.** Migrations 015 and 016 are the last callers; they read the fossils once and write the rows into the progress store. Nothing in the running app reaches them. The live accessors are `query.getReadProgress()` and friends, because those tables are now on the vault connection and `query.js` is the only layer allowed `db.prepare`.
 
 ### `vault.js`
 
