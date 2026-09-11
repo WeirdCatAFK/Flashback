@@ -492,7 +492,6 @@ function SealTimeline({ log, loading, loadingMore, hasMore, error, highlightOid,
 function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
     const tr = useT();
     const { t, tp } = tr;
-    const [keepSrsProgress, setKeepSrsProgress] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
 
@@ -503,7 +502,7 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
         setBusy(true);
         setError(null);
         try {
-            await onConfirm(commit.oid, keepSrsProgress);
+            await onConfirm(commit.oid);
         } catch (err) {
             setError(err.message ?? t('Restore failed'));
             setBusy(false);
@@ -545,19 +544,8 @@ function RollbackConfirmModal({ commit, newerCount, onCancel, onConfirm }) {
                 )}
             </p>
 
-            <label className="seal-modal-checkbox">
-                <input
-                    type="checkbox"
-                    checked={keepSrsProgress}
-                    onChange={e => setKeepSrsProgress(e.target.checked)}
-                    disabled={busy}
-                />
-                {t('Keep current review progress (recommended)')}
-            </label>
             <p className="seal-modal-hint">
-                {keepSrsProgress
-                    ? t('Flashcard review history and scheduling stay as they are now — only document content and structure roll back.')
-                    : t('Flashcard review history and scheduling also roll back to what they were at this point.')}
+                {t('Only document content and structure roll back. Flashcard review history and scheduling are stored separately and are not affected.')}
             </p>
 
             {error && <div className="seal-error">{error}</div>}
@@ -1010,8 +998,8 @@ export default function SealView({ isActive = false }) {
     // vs. DB comparison — sealTools.inspect() is blind here because HEAD == workdir after
     // a rollback). The banner below offers it inline; a restart also works because the
     // boot-time validator can be pointed at the same path, but Sync is the immediate fix.
-    const handleRollback = async (ref, keepSrsProgress) => {
-        await rollback(ref, keepSrsProgress);
+    const handleRollback = async (ref) => {
+        await rollback(ref);
         setConfirmTarget(null);
         setRollbackDone(true);
         refreshLog();

@@ -18,17 +18,29 @@ export const description = 'FSRS scheduler: card state columns, review snapshot,
 // (That is not hypothetical: it is what happened the first time a real vault was migrated.)
 // The ReviewLogs snapshot columns and the FsrsParameters table are untouched by 010 and are
 // still this migration's business.
+/**
+ * Whether a table exists in ANY attached schema, not just `main`.
+ *
+ * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
+ * query reads `main` alone, which stopped being the whole database when the progress store
+ * was attached. A table that has moved there is still present — just not in `main`, and a
+ * guard that cannot tell "moved" from "absent" answers "still pending" forever.
+ *
+ * @param {object} db
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function tableExists(db, name) {
+    return (await db.pragma(`table_info(${name})`)).length > 0;
+}
+
 async function supersededBy010(db) {
-    return !!await db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
-    ).get();
+    return await tableExists(db, 'CardProgress');
 }
 
 export async function shouldRun(db) {
     const cols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
-    const hasTable = await db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'"
-    ).get();
+    const hasTable = await tableExists(db, 'FsrsParameters');
     const cardStateMissing = !await supersededBy010(db) && !cols.includes('fsrs_stability');
     return cardStateMissing || !hasTable;
 }
@@ -63,10 +75,15 @@ export async function up(db) {
         ['fsrs_state', 'fsrs_state INTEGER'],
     ]);
 
-    await db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
-        id           INTEGER PRIMARY KEY AUTOINCREMENT,
-        weights_json TEXT NOT NULL,
-        optimized_at TIMESTAMP,
-        review_count INTEGER
-    )`);
+    // Guarded rather than left to `IF NOT EXISTS`: an unqualified CREATE targets `main`,
+    // and its existence check cannot see a copy that has moved to the progress store — so it
+    // would build an empty shadow that wins every unqualified read.
+    if (!await tableExists(db, 'FsrsParameters')) {
+        await db.exec(`CREATE TABLE IF NOT EXISTS FsrsParameters (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            weights_json TEXT NOT NULL,
+            optimized_at TIMESTAMP,
+            review_count INTEGER
+        )`);
+    }
 }

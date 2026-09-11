@@ -88,23 +88,6 @@ addTable('Flashcards', (table) => {
     table.string('card_type', 50).notNullable().defaultTo('basic');
 });
 
-addTable('CardProgress', (table) => {
-    table.increments('id').primary();
-    table.integer('flashcard_id').notNullable()
-        .references('id').inTable('Flashcards').onDelete('CASCADE');
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.integer('level');
-    table.integer('sm2_reps').notNullable().defaultTo(0);
-    table.timestamp('last_recall').index();
-    table.float('fsrs_stability');
-    table.float('fsrs_difficulty');
-    table.timestamp('fsrs_due');
-    table.integer('fsrs_state').notNullable().defaultTo(0);
-    table.integer('fsrs_reps').notNullable().defaultTo(0);
-    table.integer('fsrs_lapses').notNullable().defaultTo(0);
-    table.unique(['flashcard_id', 'account_id']);
-});
-
 addTable('Highlights', (table) => {
     table.increments('id').primary();
     table.integer('document_id').references('id').inTable('Documents').onDelete('CASCADE');
@@ -137,43 +120,6 @@ addTable('ReviewLogs', (table) => {
     table.integer('session_position');
     table.integer('prev_distance');
     table.integer('nearest_sibling_lag');
-});
-
-addTable('FsrsParameters', (table) => {
-    table.increments('id').primary();
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.text('weights_json').notNullable();
-    table.timestamp('optimized_at');
-    table.integer('review_count');
-    table.unique(['account_id']);
-});
-
-addTable('CardHealth', (table) => {
-    table.increments('id').primary();
-    table.integer('flashcard_id').notNullable()
-        .references('id').inTable('Flashcards').onDelete('CASCADE');
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.timestamp('epoch_at');
-    table.string('epoch_reason', 20);
-    table.string('content_fingerprint', 64);
-    table.timestamp('updated_at');
-    table.unique(['flashcard_id', 'account_id']);
-});
-
-addTable('CardFlags', (table) => {
-    table.increments('id').primary();
-    table.integer('flashcard_id').notNullable()
-        .references('id').inTable('Flashcards').onDelete('CASCADE');
-    table.string('account_id', 64).notNullable().defaultTo('owner');
-    table.string('kind', 40).notNullable().index();
-    table.string('confidence', 20).notNullable();
-    table.float('score');
-    table.text('evidence_json');
-    table.integer('level_at_detection');
-    table.timestamp('detected_at');
-    table.integer('review_log_id');
-    table.timestamp('dismissed_at');
-    table.unique(['flashcard_id', 'account_id', 'kind']);
 });
 
 addTable('Tags', (table) => {
@@ -309,10 +255,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_highlights_global_hash ON Highlights(globa
 CREATE INDEX IF NOT EXISTS idx_highlights_document_id ON Highlights(document_id);
 CREATE INDEX IF NOT EXISTS idx_doclinks_source ON DocumentLinks(source_hash);
 CREATE INDEX IF NOT EXISTS idx_doclinks_target ON DocumentLinks(target_hash);
-CREATE INDEX IF NOT EXISTS idx_cardprogress_account ON CardProgress(account_id);
 CREATE INDEX IF NOT EXISTS idx_reviewlogs_account_card ON ReviewLogs(account_id, flashcard_id);
-CREATE INDEX IF NOT EXISTS idx_cardhealth_flashcard ON CardHealth(flashcard_id);
-CREATE INDEX IF NOT EXISTS idx_cardflags_flashcard ON CardFlags(flashcard_id);
 `;
 
 const schemaSQL = tables.join(';\n')

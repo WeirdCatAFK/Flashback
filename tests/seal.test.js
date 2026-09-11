@@ -82,13 +82,12 @@ describe('Seal Integration Tests', () => {
             await docs.rename(path.join(TEST_ROOT, 'Notes_v2.md'), fileName, false);
         });
 
-        it('submitReview fires an edit commit with the sidecar path', async () => {
+        it('submitReview fires no commit at all — a schedule is not in the workspace', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
             await docs.submitReview(filePath, fcHash, 5, 2.5, 3);
             await sealEmitter.flushEdits();
-            const commits = await sealTools.log(LOG_DEPTH);
-            assert.equal(commits.length, before + 1, 'Should add one commit');
-            assert.ok(commits[0].commit.message.startsWith('edit:'), 'Commit message should start with edit:');
+            assert.equal((await sealTools.log(LOG_DEPTH)).length, before,
+                'grading writes no file, so there is nothing to seal');
         });
 
         it('delete fires a delete commit', async () => {
@@ -161,9 +160,15 @@ describe('Seal Integration Tests', () => {
             const contentCommit = (await sealTools.log(1))[0];
             assert.ok(contentCommit.stats.content > 0, 'Writing the document body should count as content');
 
-            // A review rewrites SRS state in the sidecar and nothing else — this is the
-            // shape every highlight/card/tag change takes, and what the UI labels "metadata".
-            await docs.submitReview(rel, cardHash, 5, 2.5, 3);
+            // A metadata-only write touches the sidecar and not the body — the shape every
+            // highlight/card/tag change takes, and what the UI labels "metadata". This used to
+            // be demonstrated with a review; grading no longer writes a file at all, so a tag
+            // change stands in for it.
+            await docs.updateMetadata(rel, {
+                globalHash: crypto.randomUUID(),
+                tags: ['metadata-only'],
+                flashcards: [{ globalHash: cardHash, vanillaData: { frontText: 'Q', backText: 'A' } }],
+            });
             await sealEmitter.flushEdits();
 
             const metaCommit = (await sealTools.log(1))[0];
@@ -222,20 +227,24 @@ describe('Seal Integration Tests', () => {
             );
         });
 
-        it('keepSrsProgress=true preserves DB SRS level, leaving it ahead of the rolled-back sidecar', async () => {
-            // DB was snapshotted at level=7 before rollback and re-applied after checkout.
-            // The rolled-back sidecar does not carry a level field (it was omitted on creation).
-            // This proves the DB is intentionally diverged from the canonical layer until reconcile runs.
+        it('leaves the schedule alone, because a rollback cannot reach it', async () => {
+            // There is nothing to preserve any more, and nothing that could threaten it.
+            // Schedules live in {vault}/progress.db, which git does not track, and the sidecar
+            // is no longer read for progress — so a checkout cannot move a level in either
+            // direction. This replaces a `keepSrsProgress=true` test; the flag is gone, and its
+            // `false` branch never worked, because the reindex after a checkout max-merged the
+            // sidecar against the database and so could not regress a level.
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash);
-            assert.equal(fc.level, 7, 'DB SRS level should be the pre-rollback value, not reset');
+            assert.equal(fc.level, 7, 'the graded level survives the rollback untouched');
 
             const sidecar = JSON.parse(fs.readFileSync(sidecarAbsPath, 'utf-8'));
             const sidecarLevel = sidecar.flashcards[0]?.level ?? 0;
-            assert.notEqual(fc.level, sidecarLevel, 'DB level should differ from sidecar level, confirming SRS was preserved');
+            assert.notEqual(fc.level, sidecarLevel,
+                'and the rolled-back sidecar disagrees with it, which is now permanent rather than pending a reconcile');
         });
     });
 
@@ -307,9 +316,9 @@ describe('Seal Integration Tests', () => {
 
         // Was "batches into a single edit commit", back when edit() was debounced. Authoring
         // five cards is five content changes, and each is now its own commit — you can roll
-        // back to after the third one, which the batched history could not express. Only
-        // GRADING a card is coalesced now (sealEmitter.review), because a schedule between
-        // two answers is not a state anyone rolls back to.
+        // back to after the third one, which the batched history could not express. Grading a
+        // card produces no commit at all now: a schedule is not in the workspace, so there is
+        // nothing to coalesce — `sealEmitter.review()` and its debounce are gone entirely.
         it('authoring five cards produces five edit commits, one per card', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
             for (let i = 0; i < 5; i++) {

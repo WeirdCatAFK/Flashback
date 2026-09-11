@@ -658,7 +658,7 @@ class CardHealthService {
         return (await query.getCardFlags(content.id, {}, scope)).map(row => {
             const evidence = row.evidence_json ? JSON.parse(row.evidence_json) : {};
             return {
-                id: `${row.kind}:${row.flashcard_id}`,
+                id: `${row.kind}:${row.card_hash}`,
                 kind: row.kind,
                 confidence: row.confidence,
                 score: row.score,

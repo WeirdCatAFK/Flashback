@@ -162,9 +162,9 @@ describe('Subscriptions Integration Tests', () => {
 
         // 2. Simulate user progress
         await db.prepare(`
-            INSERT INTO CardProgress (flashcard_id, account_id, level)
-            VALUES (?, 'owner', 5)
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+            INSERT INTO CardProgress (card_hash, account_id, level)
+            SELECT global_hash, 'owner', 5 FROM Flashcards WHERE id = ?
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET level = excluded.level
         `).run(fcInitial.id);
 
         // 3. Import updated issue
@@ -185,7 +185,7 @@ describe('Subscriptions Integration Tests', () => {
             SELECT fc.*, COALESCE(p.level, 0) AS level
             FROM Flashcards f
             INNER JOIN FlashcardContent fc ON f.content_id = fc.id
-            LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+            LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
             WHERE f.id = ?
         `).get(fcInitial.id);
         assert.equal(fc.level, 5, "Flashcard level should be preserved");

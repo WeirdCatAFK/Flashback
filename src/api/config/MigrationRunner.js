@@ -11,7 +11,11 @@ import * as m009 from './migrations/009_session_ordering.js';
 import * as m010 from './migrations/010_per_account_progress.js';
 import * as m011 from './migrations/011_drop_resurrected_srs_columns.js';
 import * as m012 from './migrations/012_reviewlogs_account_index.js';
-const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012];
+import * as m013 from './migrations/013_reviewlogs_to_progress.js';
+import * as m014 from './migrations/014_card_health_to_progress.js';
+import * as m015 from './migrations/015_card_progress_to_progress.js';
+import * as m016 from './migrations/016_read_progress_to_progress.js';
+const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016];
 
 async function ensureVersionTable(db) {
     await db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (

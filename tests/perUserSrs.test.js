@@ -5,12 +5,12 @@
  *
  *   1. **Divergence.** The same card carries a different schedule for each person, and one
  *      person's reviews never move another's due list.
- *   2. **Two canonical homes.** The owner's progress goes into the `.flashback` sidecar and is
- *      sealed; everyone else's goes into `accounts.db` and produces no commit at all. A reader
- *      studying is not a reader editing.
- *   3. **Durability.** A Vault Doctor rebuild wipes the derived database. The owner's schedule
- *      comes back from the sidecars, everyone else's from AccountProgress — and the Doctor
- *      never writes to the accounts store while doing it.
+ *   2. **One canonical home.** Every schedule lives in `progress.CardProgress`, the owner under
+ *      the 'owner' sentinel. A reader's review still writes no file and seals nothing — a reader
+ *      studying is not a reader editing — but nobody's schedule is mirrored into accounts.db any
+ *      more, so there is no second copy to drift.
+ *   3. **Durability.** A Vault Doctor rebuild wipes the derived database and does not touch the
+ *      progress store, so every schedule survives it without being restored from anywhere.
  *   4. **The owner sentinel survives a vault copy.** This is the reason 'owner' is a literal
  *      and not the Author's account id: point the same vault at a fresh install whose accounts
  *      store has never heard of it, and the owner's progress is still theirs.
@@ -69,6 +69,12 @@ const asAuthor = (author, fn) => runWithAccount(author, fn);
 
 const ownerLevel = async (hash) => (await query.getFlashcardSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
 const sidecarCard = (hash) => docs.files.getMetadata(docRel).flashcards.find(c => c.globalHash === hash);
+
+const DOOMED_AFTER_010 = [
+    'level', 'sm2_reps', 'last_recall',
+    'fsrs_stability', 'fsrs_difficulty', 'fsrs_due',
+    'fsrs_state', 'fsrs_reps', 'fsrs_lapses',
+];
 
 describe('Per-user SRS', () => {
     let author, rita, cardA, cardB;
@@ -146,41 +152,52 @@ describe('Per-user SRS', () => {
         });
     });
 
-    // --- 2. Two canonical homes --------------------------------------------------
+    // --- 2. One canonical home ----------------------------------------------------
 
+    // There used to be two: the author's schedule in the sidecar, everyone else's in
+    // accounts.db. Every review therefore wrote two stores over two connections, and the
+    // second write happened inside the first one's transaction without being part of it.
+    // Both now live in `progress.CardProgress`, the author under the 'owner' sentinel.
     describe('where each person\'s progress is canonical', () => {
-        it('writes the author\'s schedule into the sidecar', async () => {
-            assert.equal(sidecarCard(cardA).level, 4);
+        it('leaves the author\'s sidecar frozen — nobody writes progress to a file now', async () => {
+            // cardA was created at level 0 and the author has since graded it to 4. The file
+            // still says 0: its SRS fields are a snapshot of the day writing stopped, kept so a
+            // downgrade still finds what it expects and so a vault arriving without a progress
+            // store has something to seed from. They are not live state.
+            assert.equal(sidecarCard(cardA).level ?? 0, 0, 'the file did not move');
+            assert.equal(await ownerLevel(cardA), 4, 'the schedule did');
         });
 
-        it('leaves the sidecar untouched by a reader, and seals nothing', async () => {
+        it('seals nothing when anyone studies, reader or author', async () => {
             const before = await sealTools.log();
             await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 2));
+            await asAuthor(author, () => docs.submitReview(docRel, cardB, 1, 2.5, 1));
 
-            assert.equal(sidecarCard(cardA).level, 4, "still the author's number");
             const after = await sealTools.log();
             assert.equal(after.length, before.length,
-                'a reader studying is not a reader editing — no commit');
+                'studying is not editing — for either of them, no commit');
         });
 
-        it('records the reader\'s schedule in the accounts store instead', async () => {
+        it('records the reader\'s schedule in the progress store, not the accounts store', async () => {
+            const state = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            assert.equal(state.level, 2, "the reader's own schedule is current");
+
             const snap = await accounts.getAccountProgress(getVaultId(), rita.id, cardA);
-            assert.ok(snap, 'a durable snapshot exists');
-            assert.equal(snap.level, 2, 'and it is current');
+            assert.ok(!snap, 'nothing is mirrored into the accounts store any more');
         });
 
-        it('keeps no durable accounts-store copy of the author\'s own progress', async () => {
-            // Two canonical copies is how two canonical copies drift. The author has one:
-            // the sidecar.
+        it('keeps no accounts-store copy of anybody\'s progress', async () => {
+            // accounts.db is now identity and access only. It holds no schedules at all —
+            // not the author's, and no longer any reader's either.
             const all = await accounts.listAccountProgress(getVaultId());
-            assert.ok(all.every(r => r.account_id !== OWNER_SCOPE && r.account_id !== author.id));
+            assert.deepEqual(all, []);
         });
     });
 
     // --- 3. Durability across a rebuild ------------------------------------------
 
     describe('a Vault Doctor rebuild', () => {
-        it('restores the author from the sidecars and everyone else from the accounts store', async () => {
+        it('restores everyone, because the progress store is not what a rebuild wipes', async () => {
             const beforeSnapshots = (await accounts.listAccountProgress(getVaultId())).length;
 
             await asAuthor(author, () => doctor.rebuildIndex());
@@ -289,8 +306,11 @@ describe('Per-user SRS', () => {
             const stillMine = await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE);
             assert.ok(stillMine.level > 0,
                 'owner progress resolves through the sentinel, not through any account id');
-            assert.equal(sidecarCard(cardA).level, stillMine.level,
-                'and it is the same number the sidecar carries, which is what travels with a copy');
+            // The sidecar is NOT expected to agree any more: it froze at creation while the
+            // schedule moved on. What travels with a copied vault is progress.db, a sibling of
+            // workspace/ that Seal does not version — not the numbers in the file.
+            assert.notEqual(sidecarCard(cardA).level ?? 0, stillMine.level,
+                'the frozen file has drifted from the live schedule, as designed');
 
             const orphaned = await query.getFlashcardSrsStateByHash(cardA, strangerAuthorId);
             assert.equal(orphaned.level, 0,
@@ -401,11 +421,11 @@ describe('Per-user SRS', () => {
             assert.equal(state.level, 5);
         });
 
-        it('does not read the sidecar on the reader\'s path', async () => {
-            // The sidecar is read only to be mutated, which a reader never does. Proven by
-            // removing it: the owner's review needs the file and fails without it, a
-            // reader's does not. This is the property, not the timing — a future refactor
-            // that reintroduces the read would still pass every other test in this file.
+        it('does not read the sidecar on ANYONE\'s path', async () => {
+            // This used to assert an asymmetry: a reader's review ignored the sidecar, the
+            // owner's needed it and threw without it. The owner's no longer needs it either —
+            // grading writes no file for anybody — so the property is now the stronger one.
+            // Proven by removing the file and grading as both.
             const abs = docs.files.safePath(docRel) + '.flashback';
             const saved = fs.readFileSync(abs);
             fs.rmSync(abs);
@@ -413,14 +433,103 @@ describe('Per-user SRS', () => {
                 await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
                 assert.equal(
                     (await query.getFlashcardSrsStateByHash(cardA, rita.id)).level, 4,
-                    'the reader\'s review should not depend on the sidecar at all',
+                    'the reader\'s review does not depend on the sidecar',
                 );
-                await assert.rejects(
-                    () => asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 4)),
-                    'the owner\'s review DOES need the sidecar, and must still say so',
+                await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 6));
+                assert.equal(
+                    (await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE)).level, 6,
+                    'and neither does the author\'s',
                 );
             } finally {
                 fs.writeFileSync(abs, saved);
+            }
+        });
+    });
+
+    describe('migration guards after a table moves schema', () => {
+        // Regression, written before the move that needs it. Every existence guard in
+        // migrations/ was authored when `main` was the whole database, and asks
+        // `SELECT name FROM sqlite_master ...` — which reads `main` alone. Attaching the
+        // progress store made that question the wrong one: a table that has moved there is
+        // present, just not in `main`, and a guard that cannot tell "moved" from "absent"
+        // answers "still pending" on every launch.
+        //
+        // What that costs is silent. An unqualified CREATE TABLE targets `main` and its
+        // IF NOT EXISTS cannot see the attached copy, so the migration rebuilds the table
+        // empty — and an empty table in `main` SHADOWS the attached one for every
+        // unqualified read. No error, no constraint violation; every schedule in the vault
+        // simply reads as never-studied. Migration 004 would separately put back the six
+        // fsrs_* columns 010 dropped, with 011 (its cleaner) dormant for the same reason.
+        //
+        // Runs the migration runner twice for the reason the block above does: a resurrection
+        // lands on the launch AFTER the one that migrates.
+        const MOVABLE = ['CardProgress', 'FsrsParameters', 'CardHealth', 'CardFlags', 'ReadProgress'];
+
+        it('leaves a moved table in the progress store and rebuilds nothing in main', async () => {
+            const os = await import('os');
+            const { createSqliteAdapter } = await import('../src/api/access/primitives/sqliteAdapter.js');
+            const { SCHEMA: PROGRESS_SCHEMA } = await import('../src/api/access/primitives/progress.js');
+            const { default: SchemaSQL } = await import('../src/api/config/defaults/SchemaSQL.js');
+
+            const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'fb-guards-'));
+            const progressPath = path.join(dir, 'progress.db');
+            const adapter = createSqliteAdapter({
+                resolvePath: () => path.join(dir, 'vault.db'),
+                onOpen: (rawDb) => {
+                    rawDb.prepare('ATTACH DATABASE ? AS progress').run(progressPath);
+                    rawDb.pragma('progress.journal_mode = WAL');
+                    rawDb.exec(PROGRESS_SCHEMA);
+                },
+            });
+            const scratch = adapter.db;
+
+            try {
+                // The same pass validators/database.js performs on a fresh vault.
+                await scratch.exec(SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, ''));
+
+                // Stand where Stages 4-5 leave the vault: these live in `progress` only.
+                // ReviewLogs is deliberately NOT dropped here — migration 013 moves it at the
+                // end of the same pass, after 009 has indexed it, and doing it up front would
+                // test a sequence that never happens.
+                for (const table of MOVABLE) {
+                    await scratch.exec(`DROP TABLE IF EXISTS main.${table}`);
+                }
+                await scratch.exec(
+                    "INSERT INTO progress.CardProgress (account_id, card_hash, level) VALUES ('owner', 'moved', 7)",
+                );
+
+                await runMigrations(scratch);
+                await runMigrations(scratch);
+
+                const inMain = [];
+                for (const table of MOVABLE) {
+                    const row = await scratch.prepare(
+                        "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+                    ).get(table);
+                    if (row) inMain.push(table);
+                }
+                assert.deepEqual(inMain, [],
+                    'a migration rebuilt a moved table in main, which shadows the real one silently');
+
+                // The shadow check proper: this is the read that returns a wrong answer
+                // rather than an error, so assert the value and not just the schema.
+                const seen = await scratch.prepare(
+                    "SELECT level FROM CardProgress WHERE card_hash = 'moved'",
+                ).get();
+                assert.equal(seen?.level, 7, 'an unqualified read must still reach the progress store');
+
+                const cols = (await scratch.pragma('table_info(Flashcards)')).map(c => c.name);
+                assert.deepEqual(DOOMED_AFTER_010.filter(c => cols.includes(c)), [],
+                    'migration 004 resurrected the columns 010 dropped, with 011 unable to clean them');
+
+                const indexes = (await scratch.prepare(
+                    "SELECT name FROM main.sqlite_master WHERE type = 'index'",
+                ).all()).map(r => r.name);
+                assert.ok(!indexes.includes('idx_cardprogress_account'),
+                    'migration 010 put back the sole-account index migration 012 exists to remove');
+            } finally {
+                adapter.closeDatabase();
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
             }
         });
     });

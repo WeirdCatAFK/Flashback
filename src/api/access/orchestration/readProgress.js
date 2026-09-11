@@ -39,10 +39,6 @@
 import path from "path";
 import query from "../resources/query.js";
 import Files from "../resources/files.js";
-import { getVaultId } from "../primitives/vault.js";
-import {
-    saveReadProgress, getReadProgress, listReadProgress, deleteReadProgress,
-} from "../primitives/accounts.js";
 import { currentScope } from "../../requestContext.js";
 
 /** The units a position may be expressed in. Mirrors mcpReader's `unit` exactly. */
@@ -146,14 +142,14 @@ class ReadProgress {
     async get(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
-        const row = await getReadProgress(getVaultId(), scope, doc.global_hash);
+        const row = await query.getReadProgress(scope, doc.global_hash);
         return row ? this._shape(row, relPath) : null;
     }
 
     /** What the caller is partway through, most recently touched first. */
     async listInProgress({ scope: scopeArg, limit = 50, includeFinished = false } = {}) {
         const scope = this._scope(scopeArg);
-        const rows = await listReadProgress(getVaultId(), scope);
+        const rows = await query.listReadProgress(scope);
         if (rows.length === 0) return [];
 
         const index = this._indexByHash(await this.query.getAllDocuments());
@@ -194,9 +190,8 @@ class ReadProgress {
         }
 
         const doc = await this._docByPath(relPath);
-        const vaultId = getVaultId();
         const pct = clamp01(percent) ?? this._percentOf(unit, position, total);
-        const previous = await getReadProgress(vaultId, scope, doc.global_hash);
+        const previous = await query.getReadProgress(scope, doc.global_hash);
 
         let far = position;
         let farPct = pct;
@@ -209,7 +204,7 @@ class ReadProgress {
             }
         }
 
-        await saveReadProgress(vaultId, scope, doc.global_hash, {
+        await query.saveReadProgress(scope, doc.global_hash, {
             unit,
             total: Number.isFinite(total) ? total : (previous?.total ?? null),
             pos: JSON.stringify(position),
@@ -226,7 +221,7 @@ class ReadProgress {
     async clear(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
-        await deleteReadProgress(getVaultId(), scope, doc.global_hash);
+        await query.deleteReadProgress(scope, doc.global_hash);
     }
 
     /**
@@ -373,7 +368,7 @@ class ReadProgress {
         const abs = this.files.safePath("");
         const [docs, rows] = await Promise.all([
             this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep),
-            listReadProgress(getVaultId(), scope),
+            query.listReadProgress(scope),
         ]);
         const index = this._indexByHash(docs);
 
@@ -420,7 +415,7 @@ class ReadProgress {
         const abs = this.files.safePath(folderRelPath || "");
         const docs = await this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);
 
-        const rows = preloaded ?? await listReadProgress(getVaultId(), scope);
+        const rows = preloaded ?? await query.listReadProgress(scope);
         const index = this._indexByHash(docs);
 
         let finished = 0, inProgress = 0, sum = 0;
@@ -459,7 +454,7 @@ class ReadProgress {
     /** Everything the file explorer needs to draw one folder listing, in one call. */
     async listForFolder(folderRelPath, { scope: scopeArg, folders = [] } = {}) {
         const scope = this._scope(scopeArg);
-        const rows = await listReadProgress(getVaultId(), scope);
+        const rows = await query.listReadProgress(scope);
 
         const abs = this.files.safePath(folderRelPath || "");
         const docs = await this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);

@@ -50,7 +50,7 @@ const { default: query } = await import('../src/api/access/resources/query.js');
 const { default: Files } = await import('../src/api/access/resources/files.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
-const { getVaultId, ensureManifest } = await import('../src/api/access/primitives/vault.js');
+const { ensureManifest } = await import('../src/api/access/primitives/vault.js');
 const { sealTools } = await import('../src/api/seal/seal.js');
 const { getWorkspacePath } = await import('../src/api/access/primitives/config.js');
 const { runWithAccount, OWNER_SCOPE } = await import('../src/api/requestContext.js');
@@ -115,16 +115,17 @@ describe('Read progress', () => {
         });
 
         it('files the author under the owner sentinel, not their account id', async () => {
-            const owner = await accounts.getReadProgress(
-                getVaultId(), OWNER_SCOPE, (await query.getDocumentByPath(bookRel)).global_hash,
-            );
+            // Reading positions live in the progress store now, not accounts.db. The
+            // sentinel rule is unchanged: the Author files under 'owner', never under their
+            // own uuid, because an account id does not survive a copied vault.
+            const docHash = (await query.getDocumentByPath(bookRel)).global_hash;
+
+            const owner = await query.getReadProgress(OWNER_SCOPE, docHash);
             assert.ok(owner, 'the author resolves to OWNER_SCOPE');
             assert.equal(JSON.parse(owner.pos).page, 40);
 
-            const byId = await accounts.getReadProgress(
-                getVaultId(), author.id, (await query.getDocumentByPath(bookRel)).global_hash,
-            );
-            assert.equal(byId, undefined, 'and never to their uuid, which a copied vault would orphan');
+            const byId = await query.getReadProgress(author.id, docHash);
+            assert.equal(byId, null, 'and never to their uuid, which a copied vault would orphan');
         });
     });
 

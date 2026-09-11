@@ -81,7 +81,14 @@ export function createSqliteAdapter({ resolvePath, onOpen }) {
         return handle;
     }
 
-    /** Closes the connection, truncating the WAL on the way out. */
+    /**
+     * Closes the connection, truncating the WAL on the way out.
+     *
+     * The checkpoint is deliberately UNQUALIFIED: with no schema prefix it covers every
+     * attached database, not just `main`. That is what leaves no `-wal`/`-shm` beside the
+     * vault's progress store either, which `releaseVault()` depends on — Windows will not
+     * rename a folder holding an open file. Do not "tidy" this to `main.wal_checkpoint`.
+     */
     function closeDatabase() {
         if (!handle) return;
         try {

@@ -507,12 +507,11 @@ For folder operations, all contained file and sidecar paths are staged in the sa
 
 ### Rollback and SRS State
 
-SRS progress (`level`, `ease_factor`, `last_recall`) lives in the database and is not embedded in git history. Rolling back the canonical layer therefore presents a conflict between content state and review progress. `SealTools.rollback(ref, keepSrsProgress)` handles this:
+**There is no longer a conflict between content state and review progress, and `rollback(ref)` takes no flag.** A schedule lives in `{vault}/progress.db`, which git does not track, and the sidecar's SRS fields stopped being read — so a checkout cannot move a level in either direction. Rolling back rewinds documents and nothing else.
 
-- `keepSrsProgress: true` (default) — snapshots all current SRS state (keyed by `global_hash`) before checkout. After checkout the snapshot is re-applied in a single transaction via `query.batchRestoreFlashcardSrsState()`. Cards that no longer exist in the rolled-back layer are silently dropped.
-- `keepSrsProgress: false` — SRS reverts with the content. The sidecars carry a point-in-time snapshot of SRS state from when the commit was made, which becomes the new source of truth.
+This replaced a `keepSrsProgress` parameter whose two branches were documented here as *snapshot-and-restore* versus *let SRS revert with the content*. The second never worked: after the checkout, the reindex that followed max-merged the sidecar against the database, and a max-merge cannot regress. Nothing tested that path, so the discrepancy sat in this file for as long as the flag existed. Removing the control was a bug fix rather than a feature removal.
 
-In both cases the derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the Vault Doctor (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
+The derived layer must be reconciled to the rolled-back sidecars before the app is fully consistent. This is what the Vault Doctor (`access/orchestration/doctor.js`, `/api/doctor`) does: `syncIndex()` performs a direct workspace-walk ↔ DB comparison and applies the diff. Note that `sealTools.inspect()` is *blind right after a rollback* (HEAD == workdir, so `git.statusMatrix` reports no drift even though the index is diverged) — which is exactly why the Doctor walks the disk directly rather than relying on git status. Post-rollback there is no git drift, so the reconciling sync creates no new `reconcile:` commit.
 
 ### Out-of-band Change Detection
 
@@ -632,21 +631,26 @@ Three consequences follow, and each is load-bearing:
 ```
 Accounts(id, name, email, role, created_at, active)
 AccountTokens(id, account_id → Accounts.id, token_hash, label, created_at, last_used_at, revoked_at)
-AccountProgress(vault_id, account_id → Accounts.id, card_hash,
-                level, sm2_reps, last_recall, ease_factor,
-                fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses,
-                updated_at)          -- PK (vault_id, account_id, card_hash)
-ReadProgress(vault_id, scope, doc_hash,
-             unit, total, pos, pos_pct, far, far_pct, body_etag,
-             updated_at)              -- PK (vault_id, scope, doc_hash)
 AccountsSchemaVersion(version, applied_at)
+
+-- FOSSILS. Migrations 015 and 016 copied these into {vault}/progress.db, where they now
+-- live as CardProgress and ReadProgress. Nothing reads or writes them here any more. They
+-- were left rather than dropped because this refactor moves by copy and never deletes the
+-- old copy in the same change; they can go in a later cleanup once those migrations soak.
+AccountProgress(vault_id, account_id → Accounts.id, card_hash, …)
+ReadProgress(vault_id, scope, doc_hash, …)
 ```
+
+**This store is identity and access, and nothing else.** It held two kinds of progress for one
+reason only — it was the single store that did not travel with a copied vault — and that reason
+stopped applying once `{vault}/progress.db` existed as a home for behavioural data that Seal does
+not version. See § Per-user progress and § Read progress.
 
 Created by `access/primitives/accounts.js` itself on first open, and never seen by `MigrationRunner` — that runner belongs to the vault database, and one version counter must not mean two things.
 
 `AccountsSchemaVersion` records this store's own repairs (`REPAIRS` in `accounts.js`), applied in order right after the schema on every open and skipped once their version is present. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows that are already wrong, which is what the counter is for. Repair 1 clears `pos_pct`/`far_pct` on every `unit = 'section'` row: EPUB percentages had been written on two different scales (see § Read progress), and the locator columns are deliberately left alone so every book still resumes exactly where it was.
 
-`AccountProgress` is the durable home of every non-owner's study schedule, and it is in this file for the same reason the access list is: it must not travel with a copied vault. See § Per-user progress. Keyed by `card_hash` (a card's `globalHash`) rather than a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it; keyed by `vault_id` because this store is install-scoped and an install can hold several vaults.
+`AccountProgress` is a **fossil**. It was the durable home of every non-owner's study schedule; migration 015 copied every row into `{vault}/progress.db`'s `CardProgress`, where the owner's schedule now sits beside it under the `'owner'` sentinel. Nothing reads or writes this table any more. The rows were deliberately left rather than deleted — this refactor moves by copy and stops reading the old place, which is what keeps each step reversible — so the table can be dropped in a later cleanup once 015 has soaked. See § Per-user progress.
 
 `role` is one of `reader` < `collaborator` < `admin` < `author` (`src/shared/roles.js`), a strict ladder where each role can do everything below it. Exactly one Author exists; several Admins may.
 
@@ -680,30 +684,33 @@ Everything derived from a review is keyed by an account scope: an account id, or
 
 It has a second, smaller payoff: migration 010 backfills to a literal, so it needs no account lookup and nothing about the accounts store has to exist when the vault database is migrated.
 
-### Two canonical homes
+### One canonical home
 
-| Whose           | Canonical home                         | Travels with a copied vault | Versioned by Seal |
-| --------------- | -------------------------------------- | --------------------------- | ----------------- |
-| The owner's     | the`.flashback` sidecar              | yes                         | yes               |
-| Everyone else's | `accounts.db` → `AccountProgress` | no                          | no                |
+| Whose      | Canonical home                          | Travels with a copied vault | Versioned by Seal |
+| ---------- | --------------------------------------- | --------------------------- | ----------------- |
+| Everyone's | `{vault}/progress.db` → `CardProgress` | yes                         | no                |
 
-Both project into the vault database's `CardProgress`, which is derived and rebuildable like everything else there.
+There used to be two, and the split was the problem rather than the design. The owner's schedule was canonical in the `.flashback` sidecar; everyone else's was canonical in `accounts.db`'s `AccountProgress`; both projected into the vault database's `CardProgress`. So one concept had two homes with different rules, every review wrote two stores over two connections, and `srs.js#_mirrorProgress` performed the second write from inside the first one's transaction without being part of it — a plain `throw` between them was enough to desynchronise the pair.
 
-A reader's progress cannot go in the sidecar, and the reason is not convenience: it would seal one person's study record into a git history that travels with the folder to whoever receives a copy. So a non-owner's review writes no file and produces no Seal commit — `documents.submitReview` and `undoReview` return early for a non-owner scope. Reading is not editing.
+Now there is one table, keyed `(account_id, card_hash)`, with the owner under the `'owner'` sentinel exactly like every other scoped table. It lives beside `workspace/` rather than inside it, so it travels with a copied vault but Seal never versions it.
+
+A reader's review still writes no file and produces no Seal commit — reading is not editing, and `documents.submitReview`/`undoReview` still return early for a non-owner scope. What changed is that the owner's review is no longer special either: nothing is mirrored anywhere, because there is nowhere to mirror to.
+
+**The sidecar fields are still there and are now a frozen snapshot.** `level`, `easeFactor`, `sm2Reps`, `lastRecall` and the six `fsrs*` keys still sit in every `.flashback` file, holding whatever they held on the day writing stopped. Nothing deletes them — that is what keeps a downgrade working, since an older build still finds what it expects — and as of Stage 7 nothing writes them either. Do not read a number out of a sidecar and believe it.
 
 ### What is durable and what is not
 
-Only the schedule snapshot is mirrored to `AccountProgress`. Review logs are not, so losing the vault database still costs everyone their history, their card-health verdicts and their optimizer input — precisely what a Doctor rebuild has always cost the owner. The contract is unchanged, not weakened.
+This was written when review history, card-health verdicts and fitted weights all lived in the vault database and a rebuild threw them away. They now live in `{vault}/progress.db` (§ The progress store), which `wipeDerivedContent()` deliberately does not name, so **a Doctor rebuild no longer costs anyone any of them**. What a rebuild still cannot restore is anything that exists nowhere but the derived layer, which is now nothing behavioural.
 
-`ease_factor` is on `AccountProgress` although `CardProgress` has no such column: SM-2's ease is read back out of the latest review log, and there are no review logs in the accounts store. The Doctor re-seeds it as a synthetic log row during a rebuild, exactly as it already does for the owner.
+`CardProgress` still has no `ease_factor` column, because SM-2's ease is read back out of the newest review log — and those are durable now, in the same file, so nothing has to re-seed it. `AccountProgress.ease_factor` was the fallback for a reader whose logs a rebuild had wiped; migration 015 carries it across once as a synthetic log row (`outcome IS NULL`) for anyone who still had one, and nothing produces those any more.
 
-The mirror is written inside the vault transaction and after the vault write. If it throws, the vault write rolls back with it, so the derived layer can never be ahead of the durable one. If the commit fails after the mirror succeeded, the durable copy is ahead and a rebuild re-projects it. Losing a graded review is the failure worth preventing; replaying one is not.
+There is no mirror left to reason about. One write, one store, one transaction.
 
 ### Rebuild
 
-`doctor.rebuildIndex()` restores the owner's progress from the sidecars, then re-projects every other account's from `AccountProgress` for this `vault_id`. It is read-only toward the accounts store — it may read a snapshot to re-project it and must never write or delete one. A snapshot whose card is gone is skipped and kept, not pruned: the card may be returning on the next sync, and a rebuild is not the moment to decide somebody's study history is garbage.
+`doctor.rebuildIndex()` restores nobody's progress, because it no longer destroys any. `wipeDerivedContent()` names only the derived tables, and every behavioural table is in a different file that the wipe does not touch. The old restore path — read `AccountProgress`, re-project it, re-seed a synthetic ease log — is gone with the thing that made it necessary.
 
-Neither cross-store reference (`CardProgress.account_id`, `AccountProgress.vault_id`) carries a foreign key, and neither can: they point across database files. Nothing cascades. Deleting an account leaves orphaned `CardProgress` rows in every vault; deactivating one deliberately keeps their progress, so a reactivated reader resumes rather than restarts.
+**No foreign key reaches the progress store, and none can**: keys may not cross a schema boundary, and one written anyway is accepted at `CREATE` and then fails on every INSERT. So nothing cascades, deliberately. A card that vanishes from a sidecar leaves its rows behind — that happens on a Seal rollback, on a partially written file, and on an out-of-band edit, none of which is a decision to destroy somebody's history. Only an explicit delete purges, through `query.purgeCardBehaviour(cardHash)`, called from the two paths where a person actually asked: `documents._deleteFlashcardLocked` and the deck delete in `decks.js`. Deleting an account likewise leaves their rows; deactivating one keeps their progress, so a reactivated reader resumes rather than restarts.
 
 ### Resolving the scope
 
@@ -719,7 +726,7 @@ Where a person has read to in a document — a PDF page, an EPUB location, a cha
 
 | Whose                          | Canonical home                      | Travels with a copied vault | Versioned by Seal |
 | ------------------------------ | ----------------------------------- | --------------------------- | ----------------- |
-| Everyone's, the owner included | `accounts.db` → `ReadProgress` | no                          | no                |
+| Everyone's, the owner included | `{vault}/progress.db` → `ReadProgress` | yes                         | no                |
 
 This deliberately breaks the symmetry of § Per-user progress, and the two reasons are specific to reading rather than to studying:
 
@@ -728,7 +735,11 @@ This deliberately breaks the symmetry of § Per-user progress, and the two reaso
 
 So recording a position writes no file and produces no Seal commit, for anybody. Nothing is projected into the vault database, which means there is no second copy to drift, and a Doctor rebuild neither restores read progress nor can damage it.
 
-The cost is stated rather than hidden: reading positions do not travel with a copied vault folder, exactly as the access list and every reader's schedule already do not. `accounts.db` remains the one backup obligation in the app, and this makes it slightly weightier.
+The reasons above are about *not the sidecar*; they never argued for `accounts.db` specifically. That was simply the only store that did not travel with a copied vault at the time. Migration 016 moved these rows into the progress store, beside every schedule, where they do travel — so a copied vault now carries where everyone had read to, as it already carries what everyone had learned.
+
+`accounts.db` is no longer a progress store of any kind. It answers one question — who may reach this install, and as what — and the `ReadProgress` table still sitting in it is a fossil, unread, left behind because this refactor moves by copy and never deletes the old copy in the same change.
+
+The backup obligation is now two files rather than one, with the same answer: `accounts.db` holds the access list, `{vault}/progress.db` holds everything anybody ever did. Neither can be reconstructed from anything.
 
 ### Identity
 
@@ -811,6 +822,14 @@ A subscription rollup is a folder rollup labelled with a magazine, and nothing m
 ---
 
 # Derived data model
+
+> **Four of the tables documented below are no longer in the vault database.**
+> `CardProgress`, `ReviewLogs`, `CardHealth`, `CardFlags` and `FsrsParameters` live in
+> `{vault}/progress.db`, ATTACHed to the vault connection as the schema `progress`, and
+> are keyed by `card_hash` rather than by a row id. They are derived from *behaviour*,
+> not from the canonical files, so nothing can rebuild them and a Doctor rebuild
+> deliberately leaves them alone. Every SQL reference to them must be schema-qualified:
+> an empty same-named table in `main` would silently shadow the real one.
 
 Derived data for faster optimized querying.
 The Flashback schema is organized around the Flashcard as the atomic unit of knowledge.Supporting entities capture content, references, pedagogical context, relationships, and user review history.
@@ -959,8 +978,7 @@ One person's schedule for one card. See § Per-user progress for why it exists a
 
 | Column          | Type         | Description                                                                                                                                                   |
 | --------------- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id              | integer (PK) | Unique identifier.                                                                                                                                            |
-| flashcard_id    | integer (FK) | The card.(ON DELETE CASCADE)                                                                                                                        |
+| card_hash       | text (PK)    | The card's canonical `globalHash`. Keyed by hash and never by a row id: a Doctor rebuild reassigns every id in the vault database, and this file is not what a rebuild wipes. No foreign key — keys may not cross a schema boundary. |
 | account_id      | text         | An account id from`accounts.db`, or the literal `'owner'`. No foreign key — it points into a different database file. Defaults to `'owner'`. |
 | level           | integer      | Number of consecutive positive recalls (Leitner box).                                                                                                         |
 | sm2_reps        | integer      | Repetition count under SM-2, separate from`level`. Defaults to 0.                                                                                           |
@@ -972,7 +990,7 @@ One person's schedule for one card. See § Per-user progress for why it exists a
 | fsrs_reps       | integer      | FSRS review count. Defaults to 0.                                                                                                                             |
 | fsrs_lapses     | integer      | FSRS lapse count. Defaults to 0.                                                                                                                              |
 
-`UNIQUE(flashcard_id, account_id)`.
+`PRIMARY KEY (account_id, card_hash)`, `WITHOUT ROWID`. The scope leads because every query pins it to exactly one value.
 
 A missing row means "never reviewed by this person" — which is exactly what a zero `level` and a NULL `last_recall` already meant. Every reader COALESCEs, so a row appears on a card's first review rather than at creation, and nothing has to be seeded when a card is imported.
 
@@ -1193,7 +1211,7 @@ This table is a queryable mirror of the canonical `_decks/<uuid>.json` files und
 | Column              | Type         | Description                                                                                                                                         |
 | ------------------- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | id                  | integer (PK) | Unique identifier.                                                                                                                                  |
-| flashcard_id        | integer (FK) | Reviewed flashcard.(ON DELETE CASCADE)                                                                                                    |
+| card_hash           | text         | The card's canonical `globalHash`. Keyed by hash and never by a row id: a Doctor rebuild reassigns every id in the vault database, and this file is not what a rebuild wipes. No foreign key — keys may not cross a schema boundary. |
 | account_id          | varchar(64)  | Whose review this was: an account id, or `'owner'`. NOT NULL, defaults to `'owner'`. Indexed. See § Per-user progress.               |
 | timestamp           | timestamp    | When the review occurred.                                                                                                                           |
 | outcome             | integer      | Result of recall (e.g., success, failure).                                                                                                          |
@@ -1217,17 +1235,16 @@ One person's fitted FSRS-6 weights, written by `POST /api/srs/optimize`.
 
 | Column       | Type         | Description                                                                                                                                                   |
 | ------------ | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| id           | integer (PK) | Unique identifier.                                                                                                                                            |
 | account_id   | text         | An account id from`accounts.db`, or the literal `'owner'`. No foreign key — it points into a different database file. Defaults to `'owner'`. |
 | weights_json | text         | The 21 fitted weights, JSON-encoded. Consumed by`fsrs.js`; absent means the hand-rolled defaults are used.                                                  |
 | optimized_at | timestamp    | When the fit was last run.                                                                                                                                    |
 | review_count | integer      | How many rated reviews the fit was computed from — the honest denominator behind the weights.                                                                |
 
-`UNIQUE(account_id)` — one row per person, replaced on each optimize run.
+`PRIMARY KEY (account_id)`, `WITHOUT ROWID` — one row per person, replaced on each optimize run.
 
 One row per account, not one per vault. The weights *are* the person: they model one individual's forgetting curve, so scheduling a reader against the owner's fitted curve schedules them against someone else's memory. That is also why `/api/srs/optimize` is reader-level rather than administrative — refitting your own weights is not an act over anyone else.
 
-Derived, and derived from `ReviewLogs` specifically: a Doctor rebuild wipes the logs and therefore the input, so a rebuilt vault falls back to the default weights until each person re-optimizes. That is the same cost a rebuild has always carried for review history, not a new one.
+Fitted from `ReviewLogs`, and stored beside it in the progress store. Both survive a Doctor rebuild, so a rebuilt vault keeps every person's fitted weights and the history they were fitted from — it does not fall back to the defaults.
 
 ---
 
@@ -1239,9 +1256,8 @@ Per-account because the verdict is about how the card is *built* but the evidenc
 
 | Column              | Type         | Description                                                                                                |
 | ------------------- | ------------ | ---------------------------------------------------------------------------------------------------------- |
-| id                  | integer (PK) | Unique identifier.                                                                                         |
-| flashcard_id        | integer (FK) | The card.(ON DELETE CASCADE)                                                                     |
-| account_id          | varchar(64)  | Whose analysis this is: an account id, or`'owner'`. UNIQUE together with `flashcard_id`.               |
+| card_hash           | text (PK)    | The card's canonical `globalHash`. Keyed by hash and never by a row id: a Doctor rebuild reassigns every id in the vault database, and this file is not what a rebuild wipes. No foreign key — keys may not cross a schema boundary. |
+| account_id          | text (PK)    | Whose analysis this is: an account id, or`'owner'`. Leads the primary key.               |
 | epoch_at            | timestamp    | Analysis window start. Reviews at or before this are not evidence. NULL = the card's whole history counts. |
 | epoch_reason        | varchar(20)  | What moved the watermark:`edit`, `recovered`, `dismissed`.                                           |
 | content_fingerprint | varchar(64)  | Hash of front + back + answer + custom HTML + card type at last evaluation.                                |
@@ -1255,12 +1271,11 @@ The edit hook is the one cross-account operation. `cardHealth.onCardEdited()` ta
 
 ### Table: CardFlags
 
-One row per currently-raised flag, per person. `UNIQUE(flashcard_id, account_id, kind)`: for a given reader a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
+One row per currently-raised flag, per person. `PRIMARY KEY (account_id, card_hash, kind)`: for a given reader a card either currently reads as a mouthful or it doesn't, so re-raising refreshes the evidence in place rather than stacking duplicates.
 
 | Column             | Type         | Description                                                            |
 | ------------------ | ------------ | ---------------------------------------------------------------------- |
-| id                 | integer (PK) | Unique identifier.                                                     |
-| flashcard_id       | integer (FK) | The flagged card.(ON DELETE CASCADE)                         |
+| card_hash          | text (PK)    | The flagged card's canonical `globalHash`. No foreign key — keys may not cross a schema boundary. |
 | account_id         | varchar(64)  | Whose evidence raised it: an account id, or`'owner'`.                |
 | kind               | varchar(40)  | `mouthful`, `probe`, `overdue_drift`, `session_fatigue`.       |
 | confidence         | varchar(20)  | `moderate` or `high`.                                              |

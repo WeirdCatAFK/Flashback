@@ -58,7 +58,7 @@ describe('FSRS review loop', () => {
                p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
                p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
         FROM Flashcards f
-        LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+        LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
         WHERE f.global_hash = ?
     `).get(hash);
 
@@ -70,8 +70,12 @@ describe('FSRS review loop', () => {
         assert.ok(cols.includes('account_id'), 'CardProgress should be keyed by account');
         const rlCols = (await await db.prepare("PRAGMA table_info('ReviewLogs')").all()).map(c => c.name);
         assert.ok(rlCols.includes('rating'));
-        const tbl = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='FsrsParameters'").get();
-        assert.ok(tbl, 'FsrsParameters table should exist');
+        const fsrsCols = (await db.pragma("table_info('FsrsParameters')")).map(c => c.name);
+        assert.ok(fsrsCols.includes('weights_json'), 'FsrsParameters should exist in the progress store');
+        const inMain = await db.prepare(
+            "SELECT name FROM main.sqlite_master WHERE type='table' AND name='FsrsParameters'",
+        ).get();
+        assert.equal(inMain, undefined, 'an empty copy in main would shadow the real one');
     });
 
     it('a first FSRS review populates stability/difficulty/due and logs the rating', async () => {
@@ -86,20 +90,25 @@ describe('FSRS review loop', () => {
         // (LevelDot, box histogram, mastery counts) works under FSRS.
         assert.ok(c.level >= 1, 'level derived from the FSRS interval');
 
-        const log = await db.prepare('SELECT * FROM ReviewLogs WHERE flashcard_id = ? ORDER BY id DESC LIMIT 1').get(c.id);
+        const log = await db.prepare(
+            'SELECT * FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) ORDER BY id DESC LIMIT 1',
+        ).get(c.id);
         assert.equal(log.rating, 3);
         assert.equal(log.outcome, 1);
         assert.ok(log.fsrs_stability > 0, 'log snapshots stability');
         assert.equal(log.level, c.level, 'log snapshots the derived level for undo');
     });
 
-    it('the sidecar mirrors the FSRS state', () => {
+    it('leaves the sidecar alone — it no longer mirrors the FSRS state', () => {
+        // The sidecar's SRS fields froze when grading stopped writing them. They are kept so a
+        // downgrade still finds what it expects, and so a vault arriving without a progress
+        // store has something to seed from — not as a mirror of anything live.
         const meta = docs.files.getMetadata(docRel);
         const card = meta.flashcards.find(f => f.globalHash === hash);
-        assert.ok(card.fsrsStability > 0);
-        assert.equal(card.fsrsState, 2);
-        assert.ok(card.fsrsDue);
-        assert.ok(card.level >= 1, 'sidecar mirrors the derived level');
+        assert.ok(!card.fsrsStability, 'no FSRS state was written to the file');
+        assert.ok(!card.fsrsState);
+        assert.ok(!card.fsrsDue);
+        assert.equal(card.level ?? 0, 0, 'and the level is still the one it was created with');
     });
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', async () => {
@@ -155,7 +164,9 @@ describe('FSRS review loop', () => {
         assert.equal(c.fsrs_state, 0, 'reverted to new');
         assert.equal(c.fsrs_stability, null, 'stability cleared');
         assert.equal(c.level, 0, 'level reverted to new');
-        const logs = await db.prepare('SELECT COUNT(*) AS n FROM ReviewLogs WHERE flashcard_id = ?').get(c.id);
+        const logs = await db.prepare(
+            'SELECT COUNT(*) AS n FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)',
+        ).get(c.id);
         assert.equal(logs.n, 0, 'review log removed');
     });
 });

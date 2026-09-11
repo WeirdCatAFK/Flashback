@@ -33,7 +33,9 @@
  */
 
 import process from 'process';
+import path from 'path';
 import * as config from '../api/access/primitives/config.js';
+import { parseSize } from '../api/access/primitives/storage.js';
 import { vaultNameError } from '../shared/vaultName.js';
 
 /** Reads an env var, treating whitespace-only as unset. */
@@ -86,6 +88,36 @@ export function applyServerConfig() {
             );
         }
         merged.vaultName = vaultName;
+    }
+
+    // The canonical layer and the derived index can each sit on their own mount. Absolute
+    // only, and checked here rather than at first use: a relative path would resolve against
+    // the container's working directory, and the failure would surface as an empty vault
+    // rather than as a configuration error.
+    for (const [name, field] of [
+        ['FLASHBACK_WORKSPACE_PATH', 'workspacePath'],
+        ['FLASHBACK_INDEX_PATH', 'indexPath'],
+    ]) {
+        const value = env(name);
+        if (value === undefined) continue;
+        if (!path.isAbsolute(value)) {
+            throw new Error(`${name} must be an absolute path, got "${value}"`);
+        }
+        merged[field] = value;
+    }
+
+    // How much room this deployment actually has. Declared rather than measured because a
+    // container's statvfs reports the host's filesystem and a named volume has no quota of
+    // its own — see access/primitives/storage.js. Reporting only; nothing refuses a write.
+    const storageLimit = env('FLASHBACK_STORAGE_LIMIT');
+    if (storageLimit !== undefined) {
+        if (parseSize(storageLimit) === null) {
+            throw new Error(
+                `FLASHBACK_STORAGE_LIMIT is not a size: "${storageLimit}". ` +
+                'Use a byte count or a suffix, e.g. 10GB, 512MB, 2TiB.'
+            );
+        }
+        merged.storageLimit = storageLimit;
     }
 
     const origins = env('FLASHBACK_ALLOWED_ORIGINS');

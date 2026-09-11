@@ -120,7 +120,7 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 3. MODIFIED OUT-OF-BAND (SRS max-merge) ---
+    // --- 3. MODIFIED OUT-OF-BAND (the sidecar is frozen) ---
     describe('out-of-band modified document', () => {
         const rel = path.join(TEST_ROOT, 'Modified.md');
         const keepHash = crypto.randomUUID();
@@ -151,19 +151,29 @@ describe('Vault Doctor', () => {
             const entry = report.documents.modified.find(m => m.relPath.includes('Modified.md'));
             assert.ok(entry, 'document flagged as modified');
             assert.ok(entry.reasons.includes('cardSetChanged'));
-            assert.ok(entry.reasons.includes('levelAhead'));
+            // `levelAhead` is gone. It compared the sidecar's SRS fields against the live
+            // schedule, and those now diverge by design — the file is a frozen snapshot — so
+            // the reason would have fired forever and no syncIndex could ever clear it.
+            assert.ok(!entry.reasons.includes('levelAhead'));
         });
 
-        it('syncIndex adopts raised levels, never regresses, and adds the new card', async () => {
+        it('ignores the sidecar for a card that already has a schedule, and seeds the new one', async () => {
             const result = await doctor.syncIndex();
             assert.ok(result.actions.documentsReindexed >= 1);
 
             const doc = await query.getDocumentByPath(rel);
-            const byHash = new Map((await await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
+            const byHash = new Map((await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
             assert.equal(byHash.size, 3, 'new card was added');
-            assert.equal(byHash.get(keepHash).level, 4, 'raised level adopted');
-            assert.equal(byHash.get(regressHash).level, 5, 'lowered level did not regress');
-            assert.ok(byHash.has(newHash));
+
+            // Both of these had a schedule already, so the out-of-band edits to their SRS
+            // fields are ignored outright — raised and lowered alike. The old max-merge adopted
+            // the raised one; it existed because two writers owned one number, and only one
+            // does now. The file cannot move a schedule in either direction.
+            assert.equal(byHash.get(keepHash).level, 1, 'a raised level in the file is ignored');
+            assert.equal(byHash.get(regressHash).level, 5, 'and a lowered one cannot regress it');
+
+            // The genuinely new card has no schedule anywhere, so the file IS its only source.
+            assert.equal(byHash.get(newHash).level ?? 0, 0, 'the new card is seeded from the file');
         });
     });
 
@@ -505,7 +515,7 @@ describe('Vault Doctor', () => {
 
             const card = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(cardHash);
             assert.equal(card.level, 6, 'SRS level recovered from sidecar');
@@ -538,8 +548,13 @@ describe('Vault Doctor', () => {
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
             assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
+            // SM-2 ease is read out of the newest review log. A card that was really
+            // reviewed keeps its ease across a rebuild because those logs are durable. This
+            // card never was — its 2.7 exists only as a sidecar field — so it comes back the
+            // other way: the rebuild finds no progress row, seeds the schedule from the frozen
+            // sidecar, and seeds one synthetic log to carry the ease with it.
             const eases = await query.getLatestEaseFactors('owner');
-            assert.equal(eases.get(cardHash), 2.7, 'ease factor recovered via synthetic review log');
+            assert.equal(eases.get(cardHash), 2.7, 'ease seeded from the sidecar on absence');
         });
 
         it('restores the standalone card from its inline snapshot and keeps one system deck', async () => {
@@ -582,6 +597,66 @@ describe('Vault Doctor', () => {
             assert.deepEqual(report.media.unregistered, []);
             assert.deepEqual(report.decks.fileWithoutDb, []);
             assert.deepEqual(report.decks.dbWithoutFile, []);
+        });
+    });
+
+    // The reason the progress store exists. Before it, a rebuild threw away every
+    // account's review history — the Doctor's own header promised the loss — which meant
+    // the "derived" database was never actually disposable. progress.ReviewLogs carries no
+    // foreign key into the index and wipeDerivedContent deliberately does not name it, so
+    // a log row needs no card row to survive alongside it. If someone re-adds
+    // `DELETE FROM ReviewLogs` to that wipe, this is what should fail.
+    describe('the progress store survives a rebuild', () => {
+        const HASH = 'doctor-survives-rebuild';
+
+        it('keeps review history, health verdicts and fitted weights when the derived layer is wiped', async () => {
+            await db.prepare(`
+                INSERT INTO progress.ReviewLogs
+                    (card_hash, account_id, timestamp, outcome, ease_factor, level, rating)
+                VALUES (?, 'owner', datetime('now'), 1, 2.5, 3, 3)
+            `).run(HASH);
+            await db.prepare(`
+                INSERT INTO progress.CardHealth (account_id, card_hash, epoch_at, epoch_reason, updated_at)
+                VALUES ('owner', ?, datetime('now'), 'edit', datetime('now'))
+            `).run(HASH);
+            await db.prepare(`
+                INSERT INTO progress.CardFlags (account_id, card_hash, kind, confidence, detected_at)
+                VALUES ('owner', ?, 'mouthful', 'high', datetime('now'))
+            `).run(HASH);
+            await db.prepare(`
+                INSERT OR REPLACE INTO progress.FsrsParameters (account_id, weights_json, review_count)
+                VALUES ('doctor-test-account', '[1,2,3]', 42)
+            `).run();
+
+            const counts = async () => ({
+                logs: (await db.prepare('SELECT COUNT(*) AS n FROM progress.ReviewLogs WHERE card_hash = ?').get(HASH)).n,
+                health: (await db.prepare('SELECT COUNT(*) AS n FROM progress.CardHealth WHERE card_hash = ?').get(HASH)).n,
+                flags: (await db.prepare('SELECT COUNT(*) AS n FROM progress.CardFlags WHERE card_hash = ?').get(HASH)).n,
+                weights: (await db.prepare("SELECT COUNT(*) AS n FROM progress.FsrsParameters WHERE account_id = 'doctor-test-account'").get()).n,
+            });
+
+            const before = await counts();
+            assert.deepEqual(before, { logs: 1, health: 1, flags: 1, weights: 1 }, 'seeded one row each');
+
+            await query.wipeDerivedContent();
+
+            assert.deepEqual(await counts(), before, 'the wipe must not reach the progress store');
+
+            await db.prepare('DELETE FROM progress.ReviewLogs WHERE card_hash = ?').run(HASH);
+            await db.prepare('DELETE FROM progress.CardHealth WHERE card_hash = ?').run(HASH);
+            await db.prepare('DELETE FROM progress.CardFlags WHERE card_hash = ?').run(HASH);
+            await db.prepare("DELETE FROM progress.FsrsParameters WHERE account_id = 'doctor-test-account'").run();
+        });
+
+        it('keeps the moved tables out of the vault database entirely', async () => {
+            const shadows = [];
+            for (const table of ['ReviewLogs', 'CardHealth', 'CardFlags', 'FsrsParameters', 'ReadProgress']) {
+                const row = await db.prepare(
+                    "SELECT name FROM main.sqlite_master WHERE type = 'table' AND name = ?",
+                ).get(table);
+                if (row) shadows.push(table);
+            }
+            assert.deepEqual(shadows, [], 'an empty copy in main would shadow the real one silently');
         });
     });
 });

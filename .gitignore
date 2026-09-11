@@ -153,3 +153,6 @@ docs/superpowers
 docs/SERVER.md
 # Standalone server artifacts (scripts/package-server.js)
 dist-server
+
+# A backup
+data.bak-20260910-090245

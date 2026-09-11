@@ -106,6 +106,8 @@ migration aborts startup — fix the `up()` function and restart.
 | 10      | `010_per_account_progress.js` | Per-account SRS progress: CardProgress + account scope on logs, health, flags and FSRS weights | Registered |
 | 11      | `011_drop_resurrected_srs_columns.js` | Drop the Flashcards SRS columns migration 004 could re-add after 010 | Registered |
 | 12      | `012_reviewlogs_account_index.js` | ReviewLogs: composite (account_id, flashcard_id) index instead of account_id alone | Registered |
+| 13      | `013_reviewlogs_to_progress.js` | ReviewLogs: move to the progress store, re-keyed by card_hash | Registered |
+| 14      | `014_card_health_to_progress.js` | CardHealth, CardFlags and FsrsParameters: move to the progress store, re-keyed by card_hash | Registered |
 
 ---
 
@@ -197,6 +199,56 @@ Three rules come out of it:
 Migration 011 is the repair for vaults an affected build already launched twice, and its
 `shouldRun()` is deliberately open-ended: any doomed column found on `Flashcards` while
 `CardProgress` exists gets dropped, however it got there.
+
+## Moving a table to another schema has the same property
+
+The progress store (`access/primitives/progress.js`) is ATTACHed to the vault connection as the
+schema `progress`, and the behavioural tables move into it — `ReviewLogs` first, then
+`CardHealth`, `CardFlags`, `FsrsParameters` and `CardProgress`. Every guard written before that
+asked
+
+```js
+SELECT name FROM sqlite_master WHERE type='table' AND name = ?
+```
+
+and **an unqualified `sqlite_master` reads `main` alone.** So the day a table it probes for
+moves, the guard answers "not there yet" forever — the same liability a dropped column creates,
+one step out. Rule 1 above therefore reads more generally: *moving a table is a change to every
+earlier migration that mentions it.*
+
+What it costs is silent, which is why it is worth the paragraph. An unqualified
+`CREATE TABLE IF NOT EXISTS` targets `main` and its existence check **cannot see the attached
+copy**, so the migration rebuilds the table empty — and an empty table in `main` **shadows** the
+attached one for every unqualified read. No error, no constraint violation: every schedule in
+the vault simply reads as never-studied.
+
+Three shapes, and they need different questions:
+
+- **"Has this been built yet?"** — use `PRAGMA table_info(<name>)`, which resolves through every
+  attached schema and returns nothing only when the table exists nowhere. Migrations 001, 004,
+  007, 010 and 011 each carry a local `tableExists()` of that shape.
+- **"Is the pre-move copy still here?"** — for a rewrite that `ALTER`s, `DROP`s or `RENAME`s in
+  place, ask `main.sqlite_master` explicitly. Those verbs resolve to whichever schema holds the
+  table, so an ungated `DROP TABLE CardHealth` would destroy the real one once it has moved.
+  Migration 010's `mainHasTable()` is that question, and it gates all four of its in-place
+  rewrites.
+- **"Am I the migration that performs the move?"** — ask `main.sqlite_master` too, as migration
+  013 does. It must fire exactly while the old copy is still there.
+
+The helper is duplicated per file rather than shared on purpose: a migration is frozen history,
+and coupling several of them to one live module is how an old migration changes behaviour years
+after it shipped.
+
+Two things that are easy to get wrong:
+
+- **Indexes belong inside their table's guard, not beside it.** `CREATE INDEX … ON CardHealth`
+  with no `main.CardHealth` fails outright with `no such table: main.CardHealth` — it is not
+  skipped. Migration 009 broke exactly this way during the move.
+- **Guard `up()`, not just `shouldRun()`** — rule 2 above, and here it is the half that matters.
+  Reverting 010's `shouldRun` guard alone changes nothing, because its `up()` guard still
+  refuses to build the shadow; reverting the `up()` guard is what reintroduces the bug.
+  `tests/perUserSrs.test.js` asserts this against a scratch database whose movable tables live
+  only in `progress`, running the runner twice.
 
 ## An index on the scope column alone is a trap
 

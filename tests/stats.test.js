@@ -12,6 +12,7 @@ import validate from '../src/api/config/validate.js';
 import Documents from '../src/api/access/orchestration/documents.js';
 import SRS from '../src/api/access/orchestration/srs.js';
 import query from '../src/api/access/resources/query.js';
+import db from '../src/api/access/primitives/database.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
@@ -254,8 +255,14 @@ describe('Card insights', () => {
         await docs.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
         await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
 
-        const cardId = (await query.getFlashcardByHash(hashC)).id;
-        await query.insertSyntheticReviewLog(cardId, 2.5, 1, 'owner');
+        // Written directly rather than through a helper: nothing in the app produces these
+        // any more (the Doctor's re-seed is gone), but migration 015 can still leave one
+        // behind for a reader whose logs predate the progress store, so the classification
+        // below is still live code and still worth pinning.
+        await db.prepare(`
+            INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
+            VALUES (?, 'owner', datetime('now'), NULL, 2.5, 1)
+        `).run(hashC);
 
         const insights = await SRS.getCardInsights(hashC, { algorithm: 'leitner' });
         assert.equal(insights.history.length, 3, 'the ledger shows every stored row');

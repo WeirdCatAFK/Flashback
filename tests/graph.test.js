@@ -48,9 +48,9 @@ const addCards = async (docRel, name, folderRel, levels) => {
             vanillaData: { frontText: `${name}-Q${i}`, backText: `${name}-A${i}` },
         });
         await db.prepare(`
-            INSERT INTO CardProgress (flashcard_id, account_id, level)
-            SELECT id, 'owner', ? FROM Flashcards WHERE global_hash = ?
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+            INSERT INTO CardProgress (card_hash, account_id, level)
+            SELECT global_hash, 'owner', ? FROM Flashcards WHERE global_hash = ?
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET level = excluded.level
         `).run(level, saved.globalHash);
     }
 };
@@ -160,9 +160,9 @@ describe('Graph hierarchy — inheritance edges', () => {
                 vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
             });
             await db.prepare(`
-                INSERT INTO CardProgress (flashcard_id, account_id, level)
-                SELECT id, 'owner', ? FROM Flashcards WHERE global_hash = ?
-                ON CONFLICT(flashcard_id, account_id) DO UPDATE SET level = excluded.level
+                INSERT INTO CardProgress (card_hash, account_id, level)
+                SELECT global_hash, 'owner', ? FROM Flashcards WHERE global_hash = ?
+                ON CONFLICT(account_id, card_hash) DO UPDATE SET level = excluded.level
             `).run(level, saved.globalHash);
         }
 

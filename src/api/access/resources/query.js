@@ -8,6 +8,9 @@ import db from '../primitives/database.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
 /** Returns `scope` unchanged, refusing a missing one rather than defaulting to the owner. */
+/** The stored columns of a reading position, in the order every statement writes them. */
+const READ_FIELDS = ['unit', 'total', 'pos', 'pos_pct', 'far', 'far_pct', 'body_etag'];
+
 function scoped(scope) {
     if (typeof scope !== 'string' || scope.length === 0) {
         throw new Error(
@@ -19,7 +22,7 @@ function scoped(scope) {
 }
 
 /** The camelCase names a caller (sidecar data, a scheduler result) uses for schedule state. */
-const PROGRESS_KEYS = [
+export const PROGRESS_KEYS = [
     'level', 'sm2Reps', 'lastRecall', 'fsrsStability', 'fsrsDifficulty',
     'fsrsDue', 'fsrsState', 'fsrsReps', 'fsrsLapses',
 ];
@@ -31,7 +34,7 @@ const PROGRESS_KEYS = [
  * callers must push the scope onto their parameter list at that same point.
  */
 const PROGRESS_JOIN = (cardAlias = 'f', progressAlias = 'p') =>
-    `LEFT JOIN CardProgress ${progressAlias} ON ${progressAlias}.flashcard_id = ${cardAlias}.id AND ${progressAlias}.account_id = ?`;
+    `LEFT JOIN progress.CardProgress ${progressAlias} ON ${progressAlias}.card_hash = ${cardAlias}.global_hash AND ${progressAlias}.account_id = ?`;
 
 /**
  * Per-card "how well learned is this" score in 0..1, over a CardProgress row aliased as `t`.
@@ -184,6 +187,7 @@ class DocumentQuery {
     async getFlashcardsByDocument(documentId, scope) {
         return await this.db.prepare(`
             SELECT f.id, f.node_id, f.global_hash, f.content_id, f.card_type,
+                   p.card_hash IS NOT NULL AS hasProgress,
                    p.level, p.sm2_reps, p.last_recall,
                    p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
                    p.fsrs_state, p.fsrs_reps, p.fsrs_lapses
@@ -388,11 +392,11 @@ class DocumentQuery {
     /** Creates or replaces one person's schedule for one card. */
     async _upsertProgress(flashcardId, scope, state) {
         await this.db.prepare(`
-            INSERT INTO CardProgress
-                (flashcard_id, account_id, level, sm2_reps, last_recall,
+            INSERT INTO progress.CardProgress
+                (card_hash, account_id, level, sm2_reps, last_recall,
                  fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET
                 level = excluded.level, sm2_reps = excluded.sm2_reps,
                 last_recall = excluded.last_recall,
                 fsrs_stability = excluded.fsrs_stability, fsrs_difficulty = excluded.fsrs_difficulty,
@@ -409,14 +413,14 @@ class DocumentQuery {
     /** One person's raw progress row for one card, or null. */
     async getCardProgress(flashcardId, scope) {
         return await this.db.prepare(
-            'SELECT * FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+            `SELECT * FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).get(flashcardId, scoped(scope)) ?? null;
     }
 
     /** Forgets one person's schedule for one card — an undo back past the first review. */
     async deleteCardProgress(flashcardId, scope) {
         await this.db.prepare(
-            'DELETE FROM CardProgress WHERE flashcard_id = ? AND account_id = ?'
+            `DELETE FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).run(flashcardId, scoped(scope));
     }
 
@@ -486,9 +490,9 @@ class DocumentQuery {
         const rows = await this.db.prepare(`
             SELECT f.global_hash, lr.ease_factor
             FROM Flashcards f
-            JOIN ReviewLogs lr ON lr.flashcard_id = f.id
+            JOIN progress.ReviewLogs lr ON lr.card_hash = f.global_hash
             WHERE lr.account_id = ?
-              AND lr.id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
+              AND lr.id IN (SELECT MAX(id) FROM progress.ReviewLogs WHERE account_id = ? GROUP BY card_hash)
         `).all(account, account);
         return new Map(rows.map(r => [r.global_hash, r.ease_factor]));
     }
@@ -496,14 +500,14 @@ class DocumentQuery {
     /** The shape shared by every batch writer that sets SOME columns of a progress row, by card hash, leaving the rest of that person's state alone. */
     _batchProgressStmt(assignments, selectColumns) {
         return this.db.prepare(`
-            INSERT INTO CardProgress
-                (flashcard_id, account_id, level, sm2_reps, last_recall,
+            INSERT INTO progress.CardProgress
+                (card_hash, account_id, level, sm2_reps, last_recall,
                  fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state, fsrs_reps, fsrs_lapses)
-            SELECT f.id, ?, ${selectColumns}
+            SELECT f.global_hash, ?, ${selectColumns}
             FROM Flashcards f
-            LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = ?
+            LEFT JOIN progress.CardProgress p ON p.card_hash = f.global_hash AND p.account_id = ?
             WHERE f.global_hash = ?
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET ${assignments}
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET ${assignments}
         `);
     }
 
@@ -529,20 +533,6 @@ class DocumentQuery {
         })(cards);
     }
 
-    /** Restores a batch of schedules, used by Seal rollback. */
-    async batchRestoreFlashcardSrsState(states, scope) {
-        const account = scoped(scope);
-        const stmt = this._batchProgressStmt(
-            'level = excluded.level, sm2_reps = excluded.sm2_reps, last_recall = excluded.last_recall',
-            `?, ?, ?, p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
-             COALESCE(p.fsrs_state, 0), COALESCE(p.fsrs_reps, 0), COALESCE(p.fsrs_lapses, 0)`);
-        await this.db.transaction(async (rows) => {
-            for (const s of rows) {
-                await stmt.run(account, s.level ?? 0, s.sm2_reps ?? 0, s.last_recall, account, s.global_hash);
-            }
-        })(states);
-    }
-
     /** Records a graded review against this person's schedule. */
     async updateFlashcardReview(id, timestamp, newValue, algorithm = 'leitner', scope) {
         const current = await this.getCardProgress(id, scope) ?? {};
@@ -555,11 +545,11 @@ class DocumentQuery {
     /** Appends one row to the review ledger. */
     async insertReviewLog(data) {
         await this.db.prepare(`
-            INSERT INTO ReviewLogs
-                (flashcard_id, account_id, timestamp, outcome, ease_factor, level, algorithm,
+            INSERT INTO progress.ReviewLogs
+                (card_hash, account_id, timestamp, outcome, ease_factor, level, algorithm,
                  rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state,
                  session_id, session_position, prev_distance, nearest_sibling_lag)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             data.flashcardId, scoped(data.accountId), data.timestamp, data.outcome, data.easeFactor, data.level,
             data.algorithm ?? null,
@@ -694,9 +684,8 @@ class DocumentQuery {
     /** The order cards were actually presented in one session. */
     async getSessionReviewOrder(sessionId, scope) {
         return await this.db.prepare(`
-            SELECT rl.session_position AS position, f.global_hash AS globalHash
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            SELECT rl.session_position AS position, rl.card_hash AS globalHash
+            FROM progress.ReviewLogs rl
             WHERE rl.session_id = ? AND rl.account_id = ?
             ORDER BY rl.session_position ASC, rl.id ASC
         `).all(sessionId, scoped(scope));
@@ -706,7 +695,7 @@ class DocumentQuery {
     async getLatestReviewAlgorithm(scope) {
         return await this.db.prepare(`
             SELECT algorithm, rating
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ?
             ORDER BY timestamp DESC, id DESC
             LIMIT 1
@@ -719,7 +708,7 @@ class DocumentQuery {
             SELECT fsrs_stability AS stability, fsrs_difficulty AS difficulty,
                    fsrs_due AS due, fsrs_state AS state,
                    fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
-            FROM CardProgress WHERE flashcard_id = ? AND account_id = ?
+            FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?
         `).get(id, scoped(scope)) ?? null;
     }
 
@@ -742,7 +731,7 @@ class DocumentQuery {
     /** This person's fitted FSRS weight vector. */
     async getFsrsWeights(scope) {
         const row = await this.db.prepare(
-            'SELECT weights_json, review_count, optimized_at FROM FsrsParameters WHERE account_id = ?'
+            'SELECT weights_json, review_count, optimized_at FROM progress.FsrsParameters WHERE account_id = ?'
         ).get(scoped(scope));
         if (!row) return null;
         return {
@@ -755,7 +744,7 @@ class DocumentQuery {
     /** Stores a newly fitted weight vector and what it was fitted from. */
     async setFsrsWeights(weightsJson, reviewCount, scope) {
         await this.db.prepare(`
-            INSERT INTO FsrsParameters (account_id, weights_json, optimized_at, review_count)
+            INSERT INTO progress.FsrsParameters (account_id, weights_json, optimized_at, review_count)
             VALUES (?, ?, datetime('now'), ?)
             ON CONFLICT(account_id) DO UPDATE SET
                 weights_json = excluded.weights_json,
@@ -767,20 +756,21 @@ class DocumentQuery {
     /** Every card's review history for this person, as optimizer input. */
     async getAllReviewHistories(scope) {
         return await this.db.prepare(`
-            SELECT flashcard_id, timestamp, rating
-            FROM ReviewLogs
-            WHERE rating IS NOT NULL AND account_id = ?
-            ORDER BY flashcard_id ASC, id ASC
+            SELECT f.id AS flashcard_id, rl.timestamp, rl.rating
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
+            WHERE rl.rating IS NOT NULL AND rl.account_id = ?
+            ORDER BY f.id ASC, rl.id ASC
         `).all(scoped(scope));
     }
 
     /** Drops this person's most recent review of a card, for undo. */
     async deleteLatestReviewLog(flashcardId, scope) {
         const row = await this.db.prepare(
-            'SELECT id FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1'
+            'SELECT id FROM progress.ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? ORDER BY id DESC LIMIT 1'
         ).get(flashcardId, scoped(scope));
         if (!row) return false;
-        await this.db.prepare('DELETE FROM ReviewLogs WHERE id = ?').run(row.id);
+        await this.db.prepare('DELETE FROM progress.ReviewLogs WHERE id = ?').run(row.id);
         return true;
     }
 
@@ -789,8 +779,8 @@ class DocumentQuery {
         return await this.db.prepare(`
             SELECT id, timestamp, outcome, ease_factor, level, algorithm, rating,
                    fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
-            FROM ReviewLogs
-            WHERE flashcard_id = ? AND account_id = ?
+            FROM progress.ReviewLogs
+            WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?
             ORDER BY id ASC
         `).all(flashcardId, scoped(scope));
     }
@@ -804,8 +794,8 @@ class DocumentQuery {
                    p.last_recall, p.fsrs_stability, p.fsrs_difficulty,
                    COALESCE(p.fsrs_state, 0) AS fsrs_state, p.fsrs_due,
                    COALESCE(p.fsrs_reps, 0) AS fsrs_reps, COALESCE(p.fsrs_lapses, 0) AS fsrs_lapses,
-                   (SELECT rl.ease_factor FROM ReviewLogs rl
-                     WHERE rl.flashcard_id = f.id AND rl.account_id = ?
+                   (SELECT rl.ease_factor FROM progress.ReviewLogs rl
+                     WHERE rl.card_hash = f.global_hash AND rl.account_id = ?
                      ORDER BY rl.id DESC LIMIT 1) AS ease_factor
             FROM Flashcards f
             ${PROGRESS_JOIN()}
@@ -818,7 +808,7 @@ class DocumentQuery {
         return await this.db.prepare(`
             SELECT timestamp, outcome, ease_factor, level,
                    rating, fsrs_stability, fsrs_difficulty, fsrs_due, fsrs_state
-            FROM ReviewLogs WHERE flashcard_id = ? AND account_id = ? ORDER BY id DESC LIMIT 1
+            FROM progress.ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? ORDER BY id DESC LIMIT 1
         `).get(flashcardId, scoped(scope)) ?? null;
     }
 
@@ -861,7 +851,7 @@ class DocumentQuery {
     /** How many cards this person has at or above the mastery threshold. */
     async getMasteredFlashcardCount(threshold, scope) {
         return (await this.db.prepare(
-            'SELECT COUNT(*) as c FROM CardProgress WHERE account_id = ? AND level >= ?'
+            'SELECT COUNT(*) as c FROM progress.CardProgress WHERE account_id = ? AND level >= ?'
         ).get(scoped(scope), threshold)).c;
     }
 
@@ -874,7 +864,7 @@ class DocumentQuery {
             SELECT date(timestamp, 'localtime') AS day,
                    COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             ${clause}
             GROUP BY day
             ORDER BY day ASC
@@ -891,7 +881,7 @@ class DocumentQuery {
         const stmt = this.db.prepare(`
             SELECT COUNT(*) AS total,
                    SUM(CASE WHEN outcome = 1 THEN 1 ELSE 0 END) AS correct
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             ${clause}
         `);
         const account = scoped(scope);
@@ -902,11 +892,11 @@ class DocumentQuery {
     _orderedReviewsCte() {
         return `
             WITH ordered AS (
-                SELECT flashcard_id, outcome, timestamp,
+                SELECT card_hash, outcome, timestamp,
                        ROW_NUMBER() OVER (
-                           PARTITION BY flashcard_id ORDER BY timestamp ASC, id ASC
+                           PARTITION BY card_hash ORDER BY timestamp ASC, id ASC
                        ) AS rep
-                FROM ReviewLogs
+                FROM progress.ReviewLogs
                 WHERE outcome IS NOT NULL AND account_id = ?
             )
         `;
@@ -950,10 +940,11 @@ class DocumentQuery {
     async getReviewsToFirstRecall(scope) {
         return await this.db.prepare(`
             ${this._orderedReviewsCte()}
-            SELECT flashcard_id, MIN(rep) AS attempts
-            FROM ordered
-            WHERE outcome = 1
-            GROUP BY flashcard_id
+            SELECT f.id AS flashcard_id, MIN(o.rep) AS attempts
+            FROM ordered o
+            JOIN Flashcards f ON f.global_hash = o.card_hash
+            WHERE o.outcome = 1
+            GROUP BY f.id
         `).all(scoped(scope));
     }
 
@@ -961,9 +952,9 @@ class DocumentQuery {
     async getDayReviewTotals(dayIso, scope) {
         return await this.db.prepare(`
             SELECT COUNT(*) AS reviews,
-                   COUNT(DISTINCT flashcard_id) AS uniqueCards,
+                   COUNT(DISTINCT card_hash) AS uniqueCards,
                    SUM(CASE WHEN outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ? AND date(timestamp, 'localtime') = ?
         `).get(scoped(scope), dayIso);
     }
@@ -988,10 +979,10 @@ class DocumentQuery {
     async getDayNewCards(dayIso, scope) {
         return (await this.db.prepare(`
             SELECT COUNT(*) AS newCards FROM (
-                SELECT flashcard_id, MIN(date(timestamp, 'localtime')) AS firstDay
-                FROM ReviewLogs
+                SELECT card_hash, MIN(date(timestamp, 'localtime')) AS firstDay
+                FROM progress.ReviewLogs
                 WHERE outcome IS NOT NULL AND account_id = ?
-                GROUP BY flashcard_id
+                GROUP BY card_hash
                 HAVING firstDay = ?
             )
         `).get(scoped(scope), dayIso)).newCards;
@@ -1003,8 +994,8 @@ class DocumentQuery {
             SELECT d.name AS deck,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             JOIN DeckEntries de ON de.card_hash = f.global_hash
             JOIN Decks d ON d.id = de.deck_id
             WHERE rl.outcome IS NOT NULL
@@ -1022,8 +1013,8 @@ class DocumentQuery {
             SELECT doc.relative_path AS path,
                    COUNT(*) AS reviews,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failed
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             JOIN Documents doc ON doc.id = f.document_id
             WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY doc.id
@@ -1037,8 +1028,8 @@ class DocumentQuery {
             SELECT f.global_hash AS globalHash,
                    fc.frontText AS front,
                    SUM(CASE WHEN rl.outcome = 0 THEN 1 ELSE 0 END) AS failCount
-            FROM ReviewLogs rl
-            JOIN Flashcards f ON f.id = rl.flashcard_id
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
             LEFT JOIN FlashcardContent fc ON fc.id = f.content_id
             WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND date(rl.timestamp, 'localtime') = ?
             GROUP BY f.id
@@ -1052,7 +1043,7 @@ class DocumentQuery {
     async getReviewActivityDays(scope) {
         return (await this.db.prepare(`
             SELECT date(timestamp, 'localtime') AS day
-            FROM ReviewLogs
+            FROM progress.ReviewLogs
             WHERE outcome IS NOT NULL AND account_id = ?
             GROUP BY day
             ORDER BY day ASC
@@ -1109,9 +1100,9 @@ class DocumentQuery {
 
         if (algorithm === 'sm2') {
             cteParts.push(`latest_ef AS (
-                SELECT flashcard_id, ease_factor FROM ReviewLogs
+                SELECT card_hash, ease_factor FROM progress.ReviewLogs
                 WHERE account_id = ?
-                  AND id IN (SELECT MAX(id) FROM ReviewLogs WHERE account_id = ? GROUP BY flashcard_id)
+                  AND id IN (SELECT MAX(id) FROM progress.ReviewLogs WHERE account_id = ? GROUP BY card_hash)
             )`);
             efParams.push(account, account);
         }
@@ -1205,7 +1196,7 @@ class DocumentQuery {
             : '';
 
         const sm2Join = algorithm === 'sm2'
-            ? 'LEFT JOIN latest_ef lr ON lr.flashcard_id = f.id'
+            ? 'LEFT JOIN latest_ef lr ON lr.card_hash = f.global_hash'
             : '';
 
         const easeFactorExpr = algorithm === 'sm2'
@@ -2063,8 +2054,8 @@ class DocumentQuery {
 
         if (flagged || flagKind) {
             const kindClause = flagKind ? ' AND cf.kind = ?' : '';
-            conditions.push(`EXISTS (SELECT 1 FROM CardFlags cf
-                WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL${kindClause})`);
+            conditions.push(`EXISTS (SELECT 1 FROM progress.CardFlags cf
+                WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL${kindClause})`);
             params.push(account);
             if (flagKind) params.push(flagKind);
         }
@@ -2092,8 +2083,8 @@ class DocumentQuery {
                    pc.name as category,
                    -- Scalar subquery, not a join: the browser renders a flag chip per
                    -- row without an N+1, and a twice-flagged card stays one row.
-                   (SELECT GROUP_CONCAT(cf.kind) FROM CardFlags cf
-                     WHERE cf.flashcard_id = f.id AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
+                   (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
+                     WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
             FROM Flashcards f
             ${PROGRESS_JOIN()}
             JOIN FlashcardContent c ON f.content_id = c.id
@@ -2161,26 +2152,27 @@ class DocumentQuery {
     /** Vault-wide review stream for session segmentation, excluding the Doctor's synthetic rebuild rows. */
     async getRecentReviewSessionRows(since, scope) {
         return await this.db.prepare(`
-            SELECT id, flashcard_id, timestamp, outcome
-            FROM ReviewLogs
-            WHERE outcome IS NOT NULL AND account_id = ? AND timestamp >= ?
-            ORDER BY timestamp ASC, id ASC
+            SELECT rl.id, f.id AS flashcard_id, rl.timestamp, rl.outcome
+            FROM progress.ReviewLogs rl
+            JOIN Flashcards f ON f.global_hash = rl.card_hash
+            WHERE rl.outcome IS NOT NULL AND rl.account_id = ? AND rl.timestamp >= ?
+            ORDER BY rl.timestamp ASC, rl.id ASC
         `).all(scoped(scope), since);
     }
 
     /** This person's health watermark for a card. */
     async getCardHealth(flashcardId, scope) {
         return await this.db.prepare(
-            'SELECT * FROM CardHealth WHERE flashcard_id = ? AND account_id = ?'
+            `SELECT * FROM progress.CardHealth WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).get(flashcardId, scoped(scope)) ?? null;
     }
 
     /** Creates or updates this person's card-health row. */
     async upsertCardHealth(flashcardId, { epochAt = null, epochReason = null, contentFingerprint = null }, scope) {
         return await this.db.prepare(`
-            INSERT INTO CardHealth (flashcard_id, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(flashcard_id, account_id) DO UPDATE SET
+            INSERT INTO progress.CardHealth (card_hash, account_id, epoch_at, epoch_reason, content_fingerprint, updated_at)
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?)
+            ON CONFLICT(account_id, card_hash) DO UPDATE SET
                 epoch_at            = excluded.epoch_at,
                 epoch_reason        = excluded.epoch_reason,
                 content_fingerprint = excluded.content_fingerprint,
@@ -2191,7 +2183,7 @@ class DocumentQuery {
     /** Records a re-evaluation that did not address the card. */
     async setCardHealthFingerprint(flashcardId, contentFingerprint, scope) {
         return await this.db.prepare(
-            'UPDATE CardHealth SET content_fingerprint = ?, updated_at = ? WHERE flashcard_id = ? AND account_id = ?'
+            `UPDATE progress.CardHealth SET content_fingerprint = ?, updated_at = ? WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
         ).run(contentFingerprint, new Date().toISOString(), flashcardId, scoped(scope));
     }
 
@@ -2199,18 +2191,18 @@ class DocumentQuery {
     async getCardFlags(flashcardId, { includeDismissed = false } = {}, scope) {
         const filter = includeDismissed ? '' : ' AND dismissed_at IS NULL';
         return await this.db.prepare(
-            `SELECT * FROM CardFlags WHERE flashcard_id = ? AND account_id = ?${filter} ORDER BY detected_at DESC`
+            `SELECT * FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?${filter} ORDER BY detected_at DESC`
         ).all(flashcardId, scoped(scope));
     }
 
     /** Raises or refreshes a flag in place, leaving `dismissed_at` untouched. */
     async upsertCardFlag({ flashcardId, kind, confidence, score, evidence, levelAtDetection, reviewLogId }, scope) {
         return await this.db.prepare(`
-            INSERT INTO CardFlags
-                (flashcard_id, account_id, kind, confidence, score, evidence_json,
+            INSERT INTO progress.CardFlags
+                (card_hash, account_id, kind, confidence, score, evidence_json,
                  level_at_detection, detected_at, review_log_id, dismissed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
-            ON CONFLICT(flashcard_id, account_id, kind) DO UPDATE SET
+            VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+            ON CONFLICT(account_id, card_hash, kind) DO UPDATE SET
                 confidence         = excluded.confidence,
                 score              = excluded.score,
                 evidence_json      = excluded.evidence_json,
@@ -2227,7 +2219,7 @@ class DocumentQuery {
     /** Clears this person's flags on a card, optionally limited to `kinds`. */
     async deleteCardFlags(flashcardId, { kinds = null, includeDismissed = false } = {}, scope) {
         const params = [flashcardId, scoped(scope)];
-        let sql = 'DELETE FROM CardFlags WHERE flashcard_id = ? AND account_id = ?';
+        let sql = `DELETE FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`;
         if (!includeDismissed) sql += ' AND dismissed_at IS NULL';
         if (kinds?.length) {
             sql += ` AND kind IN (${kinds.map(() => '?').join(',')})`;
@@ -2238,14 +2230,14 @@ class DocumentQuery {
 
     /** Clears EVERY account's flags on a card; the edit hook, see ACCESS.md. */
     async deleteAllCardFlags(flashcardId) {
-        return (await this.db.prepare('DELETE FROM CardFlags WHERE flashcard_id = ?').run(flashcardId)).changes;
+        return (await this.db.prepare(`DELETE FROM progress.CardFlags WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)`).run(flashcardId)).changes;
     }
 
     /** Stamps a new epoch and fingerprint on every account analysed on this card, seeding the owner's row when there is none. */
     async resetAllCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }) {
         const changed = (await this.db.prepare(`
-            UPDATE CardHealth SET epoch_at = ?, epoch_reason = ?, content_fingerprint = ?, updated_at = ?
-            WHERE flashcard_id = ?
+            UPDATE progress.CardHealth SET epoch_at = ?, epoch_reason = ?, content_fingerprint = ?, updated_at = ?
+            WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?)
         `).run(epochAt, epochReason, contentFingerprint, new Date().toISOString(), flashcardId)).changes;
         if (changed === 0) {
             await this.upsertCardHealth(flashcardId, { epochAt, epochReason, contentFingerprint }, OWNER_SCOPE);
@@ -2256,7 +2248,7 @@ class DocumentQuery {
     /** Marks one flag as ruled on, suppressing it without deleting it. */
     async dismissCardFlag(flashcardId, kind, scope) {
         return (await this.db.prepare(
-            'UPDATE CardFlags SET dismissed_at = ? WHERE flashcard_id = ? AND account_id = ? AND kind = ?'
+            `UPDATE progress.CardFlags SET dismissed_at = ? WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ? AND kind = ?`
         ).run(new Date().toISOString(), flashcardId, scoped(scope), kind)).changes;
     }
 
@@ -2296,12 +2288,122 @@ class DocumentQuery {
             .run(inlineCard, deckId, cardHash);
     }
 
-    /** Rebuild only: re-seeds one log row per card so SM-2 ease survives; `outcome` is NULL to mark it synthetic. */
-    async insertSyntheticReviewLog(flashcardId, easeFactor, level, scope) {
+    /**
+     * Whether a schedule already exists for a card, asked by hash rather than by row id.
+     *
+     * Needed because a progress row outlives the `Flashcards` row that pointed at it: a Doctor
+     * rebuild deletes and re-inserts every card, so at insert time there is no id to ask about
+     * yet, but there may very well be progress. See `_syncDocumentFlashcards`.
+     *
+     * @param {string} cardHash
+     * @param {string} scope
+     * @returns {Promise<boolean>}
+     */
+    async hasProgressForHash(cardHash, scope) {
+        const row = await this.db.prepare(
+            'SELECT 1 AS present FROM progress.CardProgress WHERE card_hash = ? AND account_id = ?',
+        ).get(cardHash, scoped(scope));
+        return !!row;
+    }
+
+    /**
+     * Seeds an SM-2 ease for a card being restored from a frozen sidecar.
+     *
+     * Ease has no `CardProgress` column: it is read back out of the newest review log. So a
+     * card seeded from the file needs one synthetic row (`outcome IS NULL`, which
+     * `getCardInsights` already excludes from review counts). Guarded by NOT EXISTS so it can
+     * never stack, and owner-only because a sidecar holds nobody else's numbers.
+     *
+     * @param {string} cardHash
+     * @param {number} easeFactor
+     * @param {number} level
+     */
+    async seedEaseFromSidecar(cardHash, easeFactor, level) {
         await this.db.prepare(`
-            INSERT INTO ReviewLogs (flashcard_id, account_id, timestamp, outcome, ease_factor, level)
-            VALUES (?, ?, datetime('now'), NULL, ?, ?)
-        `).run(flashcardId, scoped(scope), easeFactor, level ?? 0);
+            INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
+            SELECT ?, 'owner', datetime('now'), NULL, ?, ?
+            WHERE NOT EXISTS (
+                SELECT 1 FROM progress.ReviewLogs WHERE card_hash = ? AND account_id = 'owner'
+            )
+        `).run(cardHash, easeFactor, level ?? 0, cardHash);
+    }
+
+    /**
+     * Forgets everything every account ever did with one card.
+     *
+     * Deliberately NOT a cascade and deliberately not called from reconciliation. A card
+     * vanishing from a sidecar is not a decision to destroy anybody's history — it happens on a
+     * Seal rollback, on a partially written file, and on an out-of-band edit — so the orphan
+     * sweep in `documents._syncDocumentFlashcards` leaves these rows alone, exactly as
+     * DATAMODEL.md already promises for a snapshot whose card is gone. Only the two paths where
+     * a person actually asked for the card to be deleted call this.
+     *
+     * @param {string} cardHash
+     */
+    async purgeCardBehaviour(cardHash) {
+        for (const table of ['CardProgress', 'CardHealth', 'CardFlags', 'ReviewLogs']) {
+            await this.db.prepare(`DELETE FROM progress.${table} WHERE card_hash = ?`).run(cardHash);
+        }
+    }
+
+    /**
+     * Records where one person has read to in one document.
+     *
+     * Unlike a schedule, this was never split across two homes: it has always held everyone's
+     * position, the owner included under the sentinel. See DATAMODEL.md § Read progress for why
+     * a scroll position cannot live in a sidecar — it moves continuously, and a Reader must be
+     * able to record one at all.
+     *
+     * @param {string} scope   an account id, or OWNER_SCOPE
+     * @param {string} docHash the document's globalHash
+     * @param {object} state   subset of READ_FIELDS; `unit`, `pos` and `far` are required
+     */
+    async saveReadProgress(scope, docHash, state = {}) {
+        await this.db.prepare(`
+            INSERT INTO progress.ReadProgress
+                (account_id, doc_hash, ${READ_FIELDS.join(', ')}, updated_at)
+            VALUES (?, ?, ${READ_FIELDS.map(() => '?').join(', ')}, ?)
+            ON CONFLICT(account_id, doc_hash) DO UPDATE SET
+                ${READ_FIELDS.map(f => `${f} = excluded.${f}`).join(', ')},
+                updated_at = excluded.updated_at
+        `).run(
+            scoped(scope), docHash,
+            ...READ_FIELDS.map(f => state[f] ?? null),
+            new Date().toISOString(),
+        );
+    }
+
+    /** @returns {Promise<object|null>} one person's position in one document, or null if unread. */
+    async getReadProgress(scope, docHash) {
+        return await this.db.prepare(
+            'SELECT * FROM progress.ReadProgress WHERE account_id = ? AND doc_hash = ?',
+        ).get(scoped(scope), docHash) ?? null;
+    }
+
+    /**
+     * Every position one person holds in this vault.
+     *
+     * The scope is required rather than optional. The accounts-store version accepted null to
+     * mean "every scope", and guarded that case with `EXISTS (SELECT 1 FROM Accounts …)` so a
+     * deleted account's rows were filtered out of the result. No caller ever passed null, and
+     * `Accounts` now lives in a different file — so the parameter goes, and the cross-file check
+     * goes with it. Rows belonging to a deleted account are simply never asked for.
+     *
+     * @param {string} scope
+     */
+    async listReadProgress(scope) {
+        return await this.db.prepare(`
+            SELECT * FROM progress.ReadProgress
+            WHERE account_id = ?
+            ORDER BY updated_at DESC
+        `).all(scoped(scope));
+    }
+
+    /** Forgets one person's position in one document. */
+    async deleteReadProgress(scope, docHash) {
+        await this.db.prepare(
+            'DELETE FROM progress.ReadProgress WHERE account_id = ? AND doc_hash = ?',
+        ).run(scoped(scope), docHash);
     }
 
     /** Empties every derived table ahead of a Doctor rebuild. */
@@ -2309,10 +2411,6 @@ class DocumentQuery {
         await this.db.transaction(async () => {
             await this.db.prepare('DELETE FROM DeckEntries').run();
             await this.db.prepare('DELETE FROM InheritedTags').run();
-            await this.db.prepare('DELETE FROM CardFlags').run();
-            await this.db.prepare('DELETE FROM CardHealth').run();
-            await this.db.prepare('DELETE FROM ReviewLogs').run();
-            await this.db.prepare('DELETE FROM CardProgress').run();
             await this.db.prepare('DELETE FROM DocumentLinks').run();
             await this.db.prepare('DELETE FROM Highlights').run();
             await this.db.prepare('DELETE FROM Flashcards').run();

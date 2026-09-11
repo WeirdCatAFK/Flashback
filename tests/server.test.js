@@ -36,6 +36,7 @@ fs.mkdirSync(ROOT, { recursive: true });
 const SERVER_ENV = [
     'FLASHBACK_PORT', 'FLASHBACK_HOST', 'FLASHBACK_VAULT_NAME',
     'FLASHBACK_ALLOWED_ORIGINS', 'FLASHBACK_LOG_FORMAT', 'FLASHBACK_AUTHOR_TOKEN',
+    'FLASHBACK_WORKSPACE_PATH', 'FLASHBACK_INDEX_PATH', 'FLASHBACK_STORAGE_LIMIT',
 ];
 for (const key of SERVER_ENV) delete process.env[key];
 
@@ -71,7 +72,8 @@ const { sealEmitter } = await import('../src/api/seal/seal.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const { closeDatabase } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
-const { getDatabasePath } = await import('../src/api/access/primitives/config.js');
+const { getDatabasePath, getWorkspacePath, getProgressDatabasePath } = await import('../src/api/access/primitives/config.js');
+const { parseSize } = await import('../src/api/access/primitives/storage.js');
 
 describe('Flashback Server', () => {
     let api, baseUrl, authorToken;
@@ -249,6 +251,169 @@ describe('Flashback Server', () => {
     });
 
     // ── 2. Authentication is not optional ─────────────────────────────────────
+
+
+    // The whole database separation exists so a deployment can give each mount ONE answer to
+    // "can I lose this?" — the workspace is authorial and irreplaceable, the index is
+    // rebuildable and disposable. The overrides are what express that, and they are opt-in
+    // precisely because an existing deployment has its workspace INSIDE the data volume:
+    // pointing the server at an empty root would create a second, empty vault and orphan the
+    // real one, silently.
+    describe('splitting the vault across mounts', () => {
+        // Unsetting the variables is NOT enough to undo these. applyServerConfig() is
+        // non-destructive on purpose — that is the contract a mounted volume with a
+        // hand-edited config.json depends on — so a persisted override survives its variable
+        // going away. Leaving one behind moves the workspace for every later test in this
+        // file, which surfaces as "Folder does not exist" a long way from the cause.
+        const restore = () => {
+            delete process.env.FLASHBACK_WORKSPACE_PATH;
+            delete process.env.FLASHBACK_INDEX_PATH;
+            applyServerConfig();
+
+            const file = path.join(ROOT, 'config.json');
+            const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            delete cfg.workspacePath;
+            delete cfg.indexPath;
+            fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+            serverTestConfig.reload();
+        };
+
+        it('resolves exactly as before when neither override is set', () => {
+            restore();
+            const vault = path.join(ROOT, VAULT);
+            assert.equal(getWorkspacePath(), path.join(vault, 'workspace'));
+            assert.equal(getDatabasePath(), path.join(vault, `${VAULT}.db`));
+        });
+
+        it('moves the workspace and the index independently', () => {
+            process.env.FLASHBACK_WORKSPACE_PATH = path.join(ROOT, 'canonical-mount');
+            process.env.FLASHBACK_INDEX_PATH = path.join(ROOT, 'cache-mount');
+            try {
+                applyServerConfig();
+
+                // The workspace override names the directory ITSELF — no `workspace/` is
+                // appended — because the mount IS the canonical layer.
+                assert.equal(getWorkspacePath(), path.join(ROOT, 'canonical-mount'));
+
+                // The index override names a DIRECTORY; the filename still tracks the vault
+                // name, so renaming a vault on disk still lines up.
+                assert.equal(getDatabasePath(), path.join(ROOT, 'cache-mount', `${VAULT}.db`));
+
+                // Everything else stays where it was. progress.db in particular is a sibling
+                // of the workspace by design, not a child, and does not follow it out.
+                assert.equal(getProgressDatabasePath(), path.join(ROOT, VAULT, 'progress.db'));
+            } finally {
+                restore();
+            }
+        });
+
+        it('refuses a relative path rather than resolving it against the cwd', () => {
+            // A container's working directory is an implementation detail of the image, so a
+            // relative override would fail as a mystery empty vault rather than as an error.
+            const saved = process.env.FLASHBACK_WORKSPACE_PATH;
+            process.env.FLASHBACK_WORKSPACE_PATH = './canonical';
+            try {
+                assert.throws(() => applyServerConfig(), /FLASHBACK_WORKSPACE_PATH/);
+            } finally {
+                if (saved === undefined) delete process.env.FLASHBACK_WORKSPACE_PATH;
+                else process.env.FLASHBACK_WORKSPACE_PATH = saved;
+                restore();
+            }
+        });
+
+        it('leaves the overrides alone when their variables are unset', () => {
+            // Same non-destructive contract as every other setting: a hand-edited config.json
+            // on a mounted volume must survive a restart that passes only some variables.
+            process.env.FLASHBACK_INDEX_PATH = path.join(ROOT, 'cache-mount');
+            try {
+                applyServerConfig();
+                delete process.env.FLASHBACK_INDEX_PATH;
+                applyServerConfig();
+                const onDisk = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf-8'));
+                assert.equal(onDisk.indexPath, path.join(ROOT, 'cache-mount'));
+            } finally {
+                restore();
+            }
+        });
+    });
+
+
+    // A container's statvfs reports the HOST's disk, and a Docker named volume has no quota of
+    // its own, so the ceiling has to be declared. Only the usage is measured. Reporting only:
+    // nothing here refuses a write, so there is no failure mode to test — just that the
+    // numbers are honest, the limit round-trips, and the breakdown matches the layout the
+    // volume split is built around.
+    describe('storage report', () => {
+        const restoreLimit = () => {
+            delete process.env.FLASHBACK_STORAGE_LIMIT;
+            applyServerConfig();
+            const file = path.join(ROOT, 'config.json');
+            const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            delete cfg.storageLimit;
+            fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+            serverTestConfig.reload();
+        };
+
+        it('parses the sizes an operator would actually type', () => {
+            assert.equal(parseSize('10GB'), 10 * 1024 ** 3);
+            assert.equal(parseSize('10 GiB'), 10 * 1024 ** 3, 'a space and the IEC suffix are both fine');
+            assert.equal(parseSize('512mb'), 512 * 1024 ** 2, 'case does not matter');
+            assert.equal(parseSize('1.5T'), Math.floor(1.5 * 1024 ** 4), 'a bare letter and a fraction');
+            assert.equal(parseSize('1099511627776'), 1024 ** 4, 'a raw byte count');
+            assert.equal(parseSize(4096), 4096, 'a number passes through');
+        });
+
+        it('rejects what is not a size, rather than guessing', () => {
+            for (const bad of ['', '  ', 'ten gigs', '10 parsecs', '-5GB', '0', 'GB', null, undefined]) {
+                assert.equal(parseSize(bad), null, `${JSON.stringify(bad)} should be null`);
+            }
+        });
+
+        it('refuses a limit it cannot parse at startup', () => {
+            process.env.FLASHBACK_STORAGE_LIMIT = 'lots';
+            try {
+                assert.throws(() => applyServerConfig(), /FLASHBACK_STORAGE_LIMIT/);
+            } finally {
+                restoreLimit();
+            }
+        });
+
+        it('measures the vault and reports it on the handshake, with no ceiling when none is declared', async () => {
+            restoreLimit();
+            const res = await fetch(`${baseUrl}/api/vault`, { headers: auth() });
+            assert.equal(res.status, 200);
+            const { storage } = await res.json();
+
+            assert.equal(storage.limit, null, 'nothing declared, nothing invented');
+            assert.equal(storage.remaining, null);
+            assert.ok(storage.used > 0, 'a vault that has been written to occupies something');
+            assert.ok(typeof storage.measuredAt === 'string');
+
+            // The breakdown is by durability class — the same classes the volume split
+            // separates — so it tells you which mount to grow.
+            for (const key of ['canonical', 'progress', 'index', 'accounts', 'diary']) {
+                assert.ok(Number.isInteger(storage.breakdown[key]) && storage.breakdown[key] >= 0, key);
+            }
+            const sum = Object.values(storage.breakdown).reduce((a, b) => a + b, 0);
+            assert.equal(storage.used, sum, 'used is exactly the sum of its parts');
+            assert.ok(storage.breakdown.index > 0, 'the index exists');
+            assert.ok(storage.breakdown.progress > 0, 'the progress store exists');
+        });
+
+        it('reports the declared limit and what is left of it', async () => {
+            process.env.FLASHBACK_STORAGE_LIMIT = '2GB';
+            try {
+                applyServerConfig();
+                const res = await fetch(`${baseUrl}/api/vault`, { headers: auth() });
+                const { storage } = await res.json();
+                assert.equal(storage.limit, 2 * 1024 ** 3);
+                assert.equal(storage.remaining, storage.limit - storage.used);
+                assert.ok(storage.remaining > 0);
+            } finally {
+                restoreLimit();
+            }
+        });
+    });
 
     describe('requireAuth', () => {
         it('leaves the readiness ping open, so a health check needs no credentials', async () => {

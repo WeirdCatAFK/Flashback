@@ -2495,7 +2495,7 @@ describe('Flashback API', () => {
             if (log.length < 2) return; // not enough history in this run — skip gracefully
 
             const targetRef = log[1].oid;
-            const res = await post(`${baseUrl}/api/seal/rollback`, { ref: targetRef, keepSrsProgress: true });
+            const res = await post(`${baseUrl}/api/seal/rollback`, { ref: targetRef });
             assert.equal(res.status, 200);
         });
 
@@ -2650,26 +2650,25 @@ describe('Flashback API', () => {
         // leaves the learning band. Reviews land ON schedule so `overdue_drift` (which
         // would rightly suppress the verdict) has nothing to fire on.
         const seedOscillatingHistory = async (cardHash) => {
-            const id = (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(cardHash)).id;
             const insert = db.prepare(`
-                INSERT INTO ReviewLogs (flashcard_id, timestamp, outcome, ease_factor, level, algorithm)
+                INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level, algorithm)
                 VALUES (?, ?, ?, 2.5, ?, 'leitner')
             `);
             const ago = (days) => new Date(Date.now() - days * DAY).toISOString();
             for (let c = 0; c < 4; c++) {
                 const base = 44 - c * 11;
-                await insert.run(id, ago(base), 0, 1);        // lapse → box 1
-                await insert.run(id, ago(base - 1), 1, 2);    // +1d  (interval 1)
-                await insert.run(id, ago(base - 3), 1, 3);    // +2d  (interval 2)
-                await insert.run(id, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
+                await insert.run(cardHash, ago(base), 0, 1);        // lapse → box 1
+                await insert.run(cardHash, ago(base - 1), 1, 2);    // +1d  (interval 1)
+                await insert.run(cardHash, ago(base - 3), 1, 3);    // +2d  (interval 2)
+                await insert.run(cardHash, ago(base - 7), 1, 3);    // +4d  (interval 4) — the peak
             }
             await db.prepare(`
-                INSERT INTO CardProgress (flashcard_id, account_id, level, last_recall)
+                INSERT INTO CardProgress (card_hash, account_id, level, last_recall)
                 VALUES (?, 'owner', 3, ?)
-                ON CONFLICT(flashcard_id, account_id)
+                ON CONFLICT(account_id, card_hash)
                 DO UPDATE SET level = excluded.level, last_recall = excluded.last_recall
             `)
-                .run(id, ago(4));
+                .run(cardHash, ago(4));
             // Baselines and session segmentation are cached for a minute; the rows above
             // appeared behind the cache's back.
             cardHealth.resetCaches();
@@ -2684,8 +2683,7 @@ describe('Flashback API', () => {
         const flagsOf = async () =>
             (await (await fetch(`${baseUrl}/api/flashcards/${hash}/detail`)).json()).flags;
         const healthRow = async () => await db.prepare(`
-            SELECT ch.* FROM CardHealth ch
-            JOIN Flashcards f ON f.id = ch.flashcard_id WHERE f.global_hash = ?
+            SELECT ch.* FROM CardHealth ch WHERE ch.card_hash = ?
         `).get(hash);
 
         // Each test starts from a card with the same seeded history and no flags.
@@ -2770,8 +2768,7 @@ describe('Flashback API', () => {
             await freshCard();
             await fail();
             const raisedBy = (await db.prepare(`
-                SELECT cf.review_log_id FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT cf.review_log_id FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash)).review_log_id;
 
             await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
@@ -2783,8 +2780,7 @@ describe('Flashback API', () => {
             const [flag] = await flagsOf();
             assert.equal(flag.kind, 'mouthful');
             const now = (await db.prepare(`
-                SELECT cf.review_log_id FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT cf.review_log_id FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash)).review_log_id;
             assert.notEqual(now, raisedBy, 're-evaluated rather than left stale');
             assert.ok(await db.prepare('SELECT 1 FROM ReviewLogs WHERE id = ?').get(now),
@@ -2824,8 +2820,7 @@ describe('Flashback API', () => {
             assert.deepEqual(again.flags, []);
             const row = await db.prepare(`
                 SELECT cf.dismissed_at FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id
-                WHERE f.global_hash = ? AND cf.kind = 'mouthful'
+                WHERE cf.card_hash = ? AND cf.kind = 'mouthful'
             `).get(hash);
             assert.ok(row?.dismissed_at, 'the row is suppressed, not deleted');
         });
@@ -2833,8 +2828,7 @@ describe('Flashback API', () => {
         it('editing a dismissed card un-suppresses it — a rewrite gets judged fresh', async () => {
             await put(`${baseUrl}/api/flashcards/${hash}`, { backText: `${LONG_ANSWER} extra` });
             const row = await db.prepare(`
-                SELECT COUNT(*) AS c FROM CardFlags cf
-                JOIN Flashcards f ON f.id = cf.flashcard_id WHERE f.global_hash = ?
+                SELECT COUNT(*) AS c FROM CardFlags cf WHERE cf.card_hash = ?
             `).get(hash);
             assert.equal(row.c, 0, 'the dismissed row is gone, not merely hidden');
         });

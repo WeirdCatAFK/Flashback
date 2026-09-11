@@ -304,7 +304,7 @@ describe('Concurrent writes', () => {
                 'an edit must be committed by the time its request resolves');
         });
 
-        it('still collapses a study session into one commit', async () => {
+        it('produces no commits for a study session at all', async () => {
             await sealEmitter.quiesce();
             const before = await commitCount();
 
@@ -313,8 +313,11 @@ describe('Concurrent writes', () => {
             }
             await sealEmitter.flushEdits();
 
-            assert.equal(await commitCount(), before + 1,
-                'grading cards is coalesced — a session is one commit, as it has always been');
+            // This used to assert one coalesced commit per session, which was the reason
+            // `sealEmitter.review()`'s debounce existed. A schedule is not in the workspace any
+            // more, so grading writes nothing and there is nothing to coalesce.
+            assert.equal(await commitCount(), before,
+                'studying is not editing — a session is zero commits, not one');
         });
     });
 

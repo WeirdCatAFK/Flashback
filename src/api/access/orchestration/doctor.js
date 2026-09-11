@@ -11,15 +11,19 @@
  *                   git HEAD and is blind right after a rollback (HEAD ==
  *                   workdir while the index is maximally diverged). Git drift
  *                   is included in the report as supplementary context only.
- *   syncIndex()     Applies the diff: disk is truth. Indexes new sidecars,
- *                   reindexes modified ones (SRS max-merge — never regresses
- *                   progress), removes index rows for deleted items, reconciles
+ *   syncIndex()     Applies the diff: disk is truth for CONTENT. Indexes new
+ *                   sidecars, reindexes modified ones, removes index rows for
+ *                   deleted items, reconciles
  *                   media both directions, repairs decks. By default seals
  *                   remaining out-of-band drift into one `reconcile:` commit.
  *   rebuildIndex()  Nuclear option: wipes all derived content and re-indexes
- *                   the entire canonical layer. Loses ReviewLogs history (level
- *                   and ease survive via sidecars; standalone-card content
- *                   survives via deck inline_card snapshots but its level resets).
+ *                   the entire canonical layer. Everything behavioural now SURVIVES
+ *                   it — review history, card-health verdicts and flags, and fitted
+ *                   FSRS weights all live in the progress store
+ *                   (`primitives/progress.js`), which the wipe deliberately does not
+ *                   name. That is the whole point of the store existing. Level and
+ *                   ease still survive via sidecars; standalone-card content survives
+ *                   via deck inline_card snapshots but its level resets.
  *
  * Import rules (ACCESS.md): Tier 3 may import documents.js (subscriptions.js /
  * obsidianImport.js precedent), other Tier 3 orchestrators, Tier 2, and Seal.
@@ -33,8 +37,6 @@ import query from '../resources/query.js';
 import Documents from './documents.js';
 import Decks from './decks.js';
 import { sealEmitter, sealTools } from '../../seal/seal.js';
-import { getVaultId } from '../primitives/vault.js';
-import { listAccountProgress } from '../primitives/accounts.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
 const norm = p => (p ?? '').split(/[\\/]+/).filter(Boolean).join('/');
@@ -154,13 +156,6 @@ export default class Doctor {
         const metaHashes = new Set(metaCards.map(c => c.globalHash).filter(Boolean));
         if (metaHashes.size !== dbByHash.size || [...metaHashes].some(h => !dbByHash.has(h))) {
             reasons.push('cardSetChanged');
-        }
-        for (const mc of metaCards) {
-            const match = mc.globalHash ? dbByHash.get(mc.globalHash) : null;
-            if (match && ((mc.level ?? 0) > (match.level ?? 0) || (mc.sm2Reps ?? 0) > (match.sm2_reps ?? 0))) {
-                reasons.push('levelAhead');
-                break;
-            }
         }
 
         const dbTags = new Set(await this.query.getDirectTagNames(dbDoc.node_id));
@@ -330,31 +325,14 @@ export default class Doctor {
             }
         }
 
-        let easeRestored = 0;
-        for (const d of walk.documents) {
-            for (const fc of d.meta?.flashcards ?? []) {
-                if (fc.globalHash == null || fc.easeFactor == null) continue;
-                const row = await this.query.getFlashcardByHash(fc.globalHash);
-                if (row) {
-                    await this.query.insertSyntheticReviewLog(row.id, fc.easeFactor, fc.level ?? 0, OWNER_SCOPE);
-                    easeRestored++;
-                }
-            }
-        }
-
-        const { restored: progressRestored, warnings: progressWarnings } = await this._restoreAccountProgress();
-        warnings.push(...progressWarnings);
-
         return {
             summary: {
                 foldersIndexed,
                 documentsIndexed,
-                progressRestored,
                 flashcards: await this.query.getFlashcardCount(),
                 decks: deckResult.decks,
                 standaloneCardsRestored: deckResult.restoredCards,
                 mediaRegistered,
-                easeFactorsRestored: easeRestored,
             },
             warnings,
         };
@@ -383,46 +361,6 @@ export default class Doctor {
         }
     }
 
-    /** Re-projects every non-owner's durable schedule into CardProgress. */
-    async _restoreAccountProgress() {
-        const warnings = [];
-        let restored = 0;
-
-        let snapshots;
-        try {
-            snapshots = await listAccountProgress(getVaultId());
-        } catch (err) {
-            warnings.push(`Could not read per-account progress: ${err.message}`);
-            return { restored: 0, warnings };
-        }
-
-        for (const snap of snapshots) {
-            const card = await this.query.getFlashcardByHash(snap.card_hash);
-            if (!card) continue;
-            try {
-                await this.query._upsertProgress(card.id, snap.account_id, {
-                    level: snap.level,
-                    sm2_reps: snap.sm2_reps,
-                    last_recall: snap.last_recall,
-                    fsrs_stability: snap.fsrs_stability,
-                    fsrs_difficulty: snap.fsrs_difficulty,
-                    fsrs_due: snap.fsrs_due,
-                    fsrs_state: snap.fsrs_state,
-                    fsrs_reps: snap.fsrs_reps,
-                    fsrs_lapses: snap.fsrs_lapses,
-                });
-                if (snap.ease_factor != null) {
-                    await this.query.insertSyntheticReviewLog(
-                        card.id, snap.ease_factor, snap.level ?? 0, snap.account_id,
-                    );
-                }
-                restored++;
-            } catch (err) {
-                warnings.push(`Could not restore progress for card ${snap.card_hash}: ${err.message}`);
-            }
-        }
-        return { restored, warnings };
-    }
 
     async _registerMediaFile(relPath) {
         const abs = this.files.safePath(relPath);

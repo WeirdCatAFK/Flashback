@@ -5,9 +5,7 @@
 
 import query from '../resources/query.js';
 import db from '../primitives/database.js';
-import { getVaultId } from '../primitives/vault.js';
-import { saveAccountProgress, deleteAccountProgress } from '../primitives/accounts.js';
-import { currentScope, isOwnerScope } from '../../requestContext.js';
+import { currentScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
 
 export const LEARNING_REVIEWS = 3;
@@ -103,28 +101,6 @@ class SRSService {
         return explicit ?? currentScope();
     }
 
-    /** Mirrors a non-owner's freshly-written schedule into the accounts store. */
-    async _mirrorProgress(scope, cardId, cardHash, easeFactor = null) {
-        if (isOwnerScope(scope)) return;
-        const row = await query.getCardProgress(cardId, scope);
-        if (!row) {
-            await deleteAccountProgress(getVaultId(), scope, cardHash);
-            return;
-        }
-        await saveAccountProgress(getVaultId(), scope, cardHash, {
-            level: row.level,
-            sm2_reps: row.sm2_reps,
-            last_recall: row.last_recall,
-            ease_factor: easeFactor,
-            fsrs_stability: row.fsrs_stability,
-            fsrs_difficulty: row.fsrs_difficulty,
-            fsrs_due: row.fsrs_due,
-            fsrs_state: row.fsrs_state,
-            fsrs_reps: row.fsrs_reps,
-            fsrs_lapses: row.fsrs_lapses,
-        });
-    }
-
     /** The scheduler this vault is actually being reviewed with. */
     async detectAlgorithm(scope) {
         const last = await query.getLatestReviewAlgorithm(this._scope(scope));
@@ -175,7 +151,6 @@ class SRSService {
                 const next = await this._applyFsrs(
                     fc.id, opts.rating, timestamp, opts.requestRetention, ordering, scope,
                 );
-                await this._mirrorProgress(scope, fc.id, flashcardHash);
                 return { documentId: fc.document_id, fsrs: next, scope };
             }
 
@@ -190,8 +165,6 @@ class SRSService {
                 algorithm,
                 ...ordering,
             });
-            await this._mirrorProgress(scope, fc.id, flashcardHash, easeFactor);
-
             return { documentId: fc.document_id, fsrs: null, scope };
         })();
     }
@@ -225,7 +198,6 @@ class SRSService {
                     ? { ...restored, last_review: restored.lastRecall }
                     : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null },
                     scope);
-                await this._mirrorProgress(scope, fc.id, flashcardHash);
                 return { document_id: fc.document_id, restored, scope };
             }
 
@@ -235,8 +207,6 @@ class SRSService {
                 lastRecall: prev ? prev.timestamp : null,
             };
             await query.undoFlashcardReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
-            await this._mirrorProgress(scope, fc.id, flashcardHash, restored.easeFactor);
-
             return { document_id: fc.document_id, restored, scope };
         })();
     }

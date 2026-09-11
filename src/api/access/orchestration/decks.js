@@ -582,6 +582,7 @@ export default class Decks {
         await db.transaction(async () => {
             await this.query.deleteFlashcardDeckEntries(hash);
             await this.query.deleteFlashcard(card.id);
+            await this.query.purgeCardBehaviour(hash);
         })();
 
         if (systemDeck) {

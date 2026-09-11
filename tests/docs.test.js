@@ -204,13 +204,15 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             await docs.updateFile(docPath, "# Test Content", metadata);
 
-            // Verify fcHash1 updated
+            // The card already had a schedule, so the level in the incoming sidecar is
+            // ignored — a file cannot move a schedule any more, in either direction. Its
+            // CONTENT is still adopted, which is what the next assertion checks.
             const fc1 = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash1);
-            assert.equal(fc1.level, 1, 'Flashcard 1 level should be updated');
+            assert.equal(fc1.level, 0, 'the sidecar cannot raise an existing schedule');
 
             // Verify fcHash2 deleted
             const fc2 = await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash2);
@@ -380,19 +382,18 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
-                JOIN Flashcards f ON f.id = p.flashcard_id
+                JOIN Flashcards f ON f.global_hash = p.card_hash
                 WHERE f.global_hash = ? AND p.account_id = 'owner'
             `).get(fcHash);
             assert.equal(fc.level, 5, 'Flashcard level should be updated to 5');
         });
 
         it('should write a ReviewLog entry on each review', async () => {
-            const fc = await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash);
-            const before = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id)).c;
+            const before = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
 
             await docs.submitReview(docPath, fcHash, 3, 2.0, 4);
 
-            const after = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE flashcard_id = ?').get(fc.id)).c;
+            const after = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
             assert.equal(after, before + 1, 'A new ReviewLog entry should be created for each review');
         });
 
@@ -535,7 +536,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             const flashcard = await db.prepare(`
                 SELECT f.*, COALESCE(p.level, 0) AS level
                 FROM Flashcards f
-                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
                 WHERE f.document_id = ?
             `).get(docEntry.id);
             assert.ok(flashcard, "Flashcard should be imported");
@@ -602,7 +603,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             const dbCard = await db.prepare(`
                 SELECT COALESCE(p.level, 0) AS level, f.global_hash
                 FROM Flashcards f
-                LEFT JOIN CardProgress p ON p.flashcard_id = f.id AND p.account_id = 'owner'
+                LEFT JOIN CardProgress p ON p.card_hash = f.global_hash AND p.account_id = 'owner'
                 WHERE f.document_id = ?
             `).get(fileExists.id);
             assert.ok(dbCard, "Flashcard from zip should be imported");

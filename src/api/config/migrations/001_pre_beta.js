@@ -11,6 +11,22 @@
 export const version = 1;
 export const description = 'Pre-beta schema changes: card columns, Highlights, indexes, Deck nodes';
 
+/**
+ * Whether a table exists in ANY attached schema, not just `main`.
+ *
+ * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
+ * query reads `main` alone, which stopped being the whole database when the progress store
+ * was attached. A table that has moved there is still present — just not in `main`, and a
+ * guard that cannot tell "moved" from "absent" answers "still pending" forever.
+ *
+ * @param {object} db
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function tableExists(db, name) {
+    return (await db.pragma(`table_info(${name})`)).length > 0;
+}
+
 export async function up(db) {
 
     const flashcardCols = (await db.prepare("PRAGMA table_info('Flashcards')").all()).map(c => c.name);
@@ -26,9 +42,7 @@ export async function up(db) {
     // is absent — which is every rebuilt database, and a rebuilt database is built from the
     // modern SchemaSQL where the column is gone on purpose. Adding it back would leave a
     // stale, always-zero column beside the real one in CardProgress.
-    const supersededBy010 = !!await db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
-    ).get();
+    const supersededBy010 = await tableExists(db, 'CardProgress');
 
     if (!supersededBy010 && !flashcardCols.includes('sm2_reps')) {
         await db.prepare(

@@ -24,14 +24,28 @@ const DOOMED_COLUMNS = [
     'fsrs_state', 'fsrs_reps', 'fsrs_lapses',
 ];
 
+/**
+ * Whether a table exists in ANY attached schema, not just `main`.
+ *
+ * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
+ * query reads `main` alone, which stopped being the whole database when the progress store
+ * was attached. A table that has moved there is still present — just not in `main`, and a
+ * guard that cannot tell "moved" from "absent" answers "still pending" forever.
+ *
+ * @param {object} db
+ * @param {string} name
+ * @returns {Promise<boolean>}
+ */
+async function tableExists(db, name) {
+    return (await db.pragma(`table_info(${name})`)).length > 0;
+}
+
 async function columns(db, table) {
     return (await db.pragma(`table_info(${table})`)).map(c => c.name);
 }
 
 async function resurrected(db) {
-    const migrated = await db.prepare(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name='CardProgress'"
-    ).get();
+    const migrated = await tableExists(db, 'CardProgress');
     // Without CardProgress the vault has not reached 010 yet, and these columns are the real
     // ones holding real progress. Dropping them there would delete every schedule in the
     // vault, so the check is deliberately conjunctive.
@@ -55,7 +69,7 @@ export async function up(db) {
         "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='Flashcards' AND sql IS NOT NULL"
     ).all();
     for (const idx of indexes) {
-        if (doomed.some(c => new RegExp(`\b${c}\b`).test(idx.sql))) {
+        if (doomed.some(c => new RegExp(`\\b${c}\\b`).test(idx.sql))) {
             await db.exec(`DROP INDEX IF EXISTS "${idx.name}"`);
         }
     }

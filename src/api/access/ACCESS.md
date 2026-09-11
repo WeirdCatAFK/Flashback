@@ -85,15 +85,14 @@ Outside the vault deliberately: a vault folder is meant to be copied and handed 
 
 Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
 
-It also holds two per-person tables that must not travel with a copied vault: `AccountProgress` (every non-owner's SRS schedule) and `ReadProgress` (everyone's reading position, the owner's included — see `readProgress.js`). Both are keyed by `vault_id` plus a `globalHash`, never a row id, because a Doctor rebuild reassigns every row id in the vault database and only the hash survives it.
+**Identity and access, and nothing else.** It used to hold two per-person tables as well — `AccountProgress` (every non-owner's SRS schedule) and `ReadProgress` (everyone's reading position) — for one reason only: it was the single store that did not travel with a copied vault. Migrations 015 and 016 moved both into `{vault}/progress.db`, which Seal does not version and which therefore serves that purpose without also being the access list. The two tables remain here as unread fossils; see `primitives/progress.js`.
 
 Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
 
 - `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
 - `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
 - `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
-- `saveAccountProgress()` / `getAccountProgress()` / `listAccountProgress()` / `deleteAccountProgress()` — never called for the owner; their canonical copy is the sidecar.
-- `saveReadProgress()` / `getReadProgress()` / `listReadProgress()` / `deleteReadProgress()` — is called for the owner. Read progress has no second canonical home to drift from. `scope` carries an account id or `OWNER_SCOPE` and so has no foreign key to `Accounts`; rows whose account was deleted are filtered on read, never deleted.
+- `listAccountProgress()` / `listReadProgress()` and their siblings — **migration-only now.** Migrations 015 and 016 are the last callers; they read the fossils once and write the rows into the progress store. Nothing in the running app reaches them. The live accessors are `query.getReadProgress()` and friends, because those tables are now on the vault connection and `query.js` is the only layer allowed `db.prepare`.
 
 ### `vault.js`
 
@@ -101,6 +100,16 @@ Vault identity. `vault.json` at the vault root — a stable UUID that outlives r
 
 - `readManifest()` / `ensureManifest()` / `getVaultId()` — `ensureManifest()` is idempotent, which is how vaults predating it acquire an id on their next launch instead of needing a migration.
 - `inspectVaultDir(dir)` — does an arbitrary directory hold a vault? Tests for `workspace/` + a `*.db`; a manifest is not required, or an older vault could never be adopted.
+
+### `storage.js`
+
+How much room the vault occupies, and how much it is allowed. Imports `config` only, the same shape as `vault.js`; reads the filesystem but touches no sidecar and no database, so it owes `files.js` and `query.js` nothing.
+
+The ceiling is **declared** (`config.storageLimit`, from `FLASHBACK_STORAGE_LIMIT`) and only the usage is measured, because a container's `statvfs` reports the host's disk rather than the volume that was provisioned, and a Docker named volume has no quota of its own. Reporting only — nothing here refuses a write.
+
+- `getStorageReport({ fresh })` — `{ limit, used, remaining, breakdown, measuredAt }`. The breakdown is by durability class (`canonical`, `progress`, `index`, `accounts`, `diary`) — the classes the volume split separates, so the figures say which mount to grow. Cached for a minute; `fresh` bypasses it.
+- `parseSize(value)` — a byte count or a binary-suffixed size (`10GB`, `512 MiB`, `1.5T`) to bytes, or `null`. Powers of 1024 throughout, because that is what every provider quotes and what `df` prints.
+- `onVaultOpened()` — drops the cache; called from `vaultSession.js` beside the other vault-scoped caches.
 
 ---
 
@@ -322,7 +331,7 @@ Link write ordering (important): the sidecar's `links[]` array is derived from c
 The DB-registration core of `importFile` is factored out as `_registerDocumentDerived({name, fileRelPath, absPath, encoding, metadata})` (row + inheritance + tags + flashcards + highlights in one transaction; no filesystem writes, no Seal). It is shared with a set of read-only indexing methods used by the Vault Doctor — these re-derive the index from the on-disk files without writing document content, regenerating identities, or emitting Seal events:
 
 - `indexDocument(relPath)` — index an on-disk document that has no DB row (delegates to `reindexDocument` if a row already exists); adopts the sidecar's `globalHash`, ensures ancestor folders exist, then resolves pending `flashback://` links.
-- `reindexDocument(relPath)` — refresh an existing document's rows from its sidecar: adopt the sidecar `globalHash`, max-merge flashcard SRS state (a level lowered out-of-band never regresses the DB), and replace tags/highlights/links wholesale so out-of-band removals propagate.
+- `reindexDocument(relPath)` — refresh an existing document's rows from its sidecar: adopt the sidecar `globalHash`, replace tags/highlights/links wholesale so out-of-band removals propagate, and **seed** a schedule only for a card that has none. The sidecar's SRS fields are a frozen snapshot: read once to seed a card with no progress row (a vault can arrive as `workspace/` with no `progress.db`), ignored entirely once one exists. This replaced a max-merge, which existed only because two writers owned one number.
 - `indexFolder(relPath)` — ensure a folder row exists (`''` = the workspace root) and re-run tag inheritance; recursive top-down.
 - `removeFromIndex(relPath, isFolder)` — drop the index rows for a path deleted on disk (no filesystem writes).
 
@@ -440,7 +449,7 @@ Orchestrator for document-scoped highlights — a highlight is a first-class ent
 Keeps the derived SQLite index consistent with the canonical `.flashback` layer. The index can drift from disk via out-of-band edits, Seal rollbacks, crashes, or DB corruption; the Doctor closes that loop with three operations (mounted at `/api/doctor`):
 
 - `checkIndex()` — read-only whole-vault report. A direct workspace-walk ↔ DB comparison (via `files.walkWorkspace()`), *not* `sealTools.inspect()`, which diffs against git HEAD and is blind right after a rollback (HEAD == workdir while the index is maximally diverged); git drift is included as supplementary context only. Reports folders/documents `missingInDb`/`orphanedInDb`, `modified` (with reasons), `hashConflicts` (duplicate `globalHash`), media both directions, deck diagnosis, and counts. All cross-layer joins normalize `relative_path` to `/` once (the DB stores `path.sep`, git uses `/` — the #1 trap).
-- `syncIndex({sealDrift=true})` — applies the report; disk is the source of truth. Indexes new items, reindexes modified ones (SRS max-merge, never regresses progress), removes rows for deleted items, reconciles media both directions, repairs decks. Skips (never auto-resolves) hash conflicts, corrupt sidecars, and untracked files, reporting them instead — a `globalHash` is never regenerated. By default seals remaining out-of-band drift into one `reconcile:` commit (`sealTools.commitDrift()`). Idempotent. Refuses to run if `PRAGMA integrity_check` fails, directing the caller to rebuild.
+- `syncIndex({sealDrift=true})` — applies the report; disk is the source of truth for CONTENT. Indexes new items, reindexes modified ones (a schedule is seeded only where none exists; the sidecar can neither raise nor lower an existing one), removes rows for deleted items, reconciles media both directions, repairs decks. Skips (never auto-resolves) hash conflicts, corrupt sidecars, and untracked files, reporting them instead — a `globalHash` is never regenerated. By default seals remaining out-of-band drift into one `reconcile:` commit (`sealTools.commitDrift()`). Idempotent. Refuses to run if `PRAGMA integrity_check` fails, directing the caller to rebuild.
 - `rebuildIndex()` — nuclear option. Wipes all derived content (`query.wipeDerivedContent()`, keeping only schema/seed tables) and re-indexes the entire canonical layer. Pre-creates any missing card categories (unknown categories are silently dropped at insert), restores standalone cards from deck inline snapshots, and re-seeds one synthetic `ReviewLogs` row per card to preserve its SM-2 ease. ReviewLogs *history* does not survive (levels and ease do, via the sidecars). Rerunnable but not atomic past the wipe: per-item failures collect into `warnings`.
 
 ---

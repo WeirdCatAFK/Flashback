@@ -51,6 +51,7 @@ fs.writeFileSync(
 );
 
 const { default: db, closeDatabase } = await import('../src/api/access/primitives/database.js');
+const { getProgressDatabasePath } = await import('../src/api/access/primitives/config.js');
 
 after(() => {
     closeDatabase();
@@ -281,5 +282,64 @@ describe('nested transactions', () => {
             await db.transaction(async () => { await insert('nested'); })();
         })();
         assert.deepEqual(await values(), ['nested']);
+    });
+});
+
+// The progress store rides on this same connection as the attached schema `progress`.
+// These tests pin the three properties that are load-bearing rather than incidental, and
+// each of them was verified against SQLite before being asserted here.
+describe('attached progress store', () => {
+    it('is attached, and its tables live there rather than in main', async () => {
+        const schemas = (await db.pragma('database_list')).map((r) => r.name);
+        assert.ok(schemas.includes('progress'), `expected a progress schema, got ${schemas.join(', ')}`);
+
+        const there = (await db.prepare(
+            "SELECT name FROM progress.sqlite_master WHERE type = 'table' AND name = 'CardProgress'",
+        ).all()).length;
+        assert.equal(there, 1, 'CardProgress should exist in the progress schema');
+
+        assert.ok(fs.existsSync(getProgressDatabasePath()), 'progress.db should exist on disk');
+    });
+
+    // journal_mode is a property of a FILE, not of a connection. The adapter's WAL pragma
+    // applies to `main` only, so an attached database opens in `delete` mode unless told
+    // otherwise — two files side by side with different durability and locking behaviour.
+    it('runs the attached file in WAL too', async () => {
+        const mode = (await db.pragma('progress.journal_mode'))[0].journal_mode;
+        assert.equal(mode, 'wal');
+    });
+
+    // The reason the progress store is attached rather than given its own adapter: one
+    // transaction, one queue, both files. A throw must roll back the pair. This is the
+    // control-flow window that today's cross-store mirror in srs.js cannot close — it is
+    // NOT a claim about crash atomicity, which WAL does not give across attached files.
+    it('rolls back main and progress together when the body throws', async () => {
+        await db.exec("DELETE FROM progress.CardProgress WHERE card_hash = 'adapter-rollback'");
+        await assert.rejects(
+            db.transaction(async () => {
+                await db.prepare(
+                    "INSERT INTO progress.CardProgress (account_id, card_hash, level) VALUES ('owner', 'adapter-rollback', 3)",
+                ).run();
+                await insert('paired');
+                throw new Error('paired boom');
+            })(),
+            /paired boom/,
+        );
+
+        const left = await db.prepare(
+            "SELECT count(*) AS n FROM progress.CardProgress WHERE card_hash = 'adapter-rollback'",
+        ).get();
+        assert.equal(left.n, 0, 'the progress write must not survive the rollback');
+    });
+
+    // `transaction()` calls live() — which opens the handle and runs onOpen, hence the
+    // ATTACH — before it issues BEGIN. If that order ever inverted, the ATTACH would be
+    // attempted inside an open transaction and the first statement here would throw.
+    it('attaches before BEGIN, so a transaction may be the first thing a connection does', async () => {
+        closeDatabase();
+        await db.transaction(async () => {
+            const schemas = (await db.pragma('database_list')).map((r) => r.name);
+            assert.ok(schemas.includes('progress'));
+        })();
     });
 });
