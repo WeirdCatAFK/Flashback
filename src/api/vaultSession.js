@@ -20,6 +20,7 @@ import Files from "./access/resources/files.js";
 import Decks from "./access/orchestration/decks.js";
 import cardHealth from "./access/orchestration/cardHealth.js";
 import mcpReader from "./access/orchestration/mcpReader.js";
+import storage from "./access/primitives/storage.js";
 
 let switching = false;
 
@@ -33,6 +34,7 @@ async function resetVaultScopedCaches() {
     await query.onVaultOpened();
     await cardHealth.onVaultOpened();
     await mcpReader.onVaultOpened();
+    storage.onVaultOpened();
 }
 
 /** Creates the directories and canonical files a vault cannot answer a request without. */

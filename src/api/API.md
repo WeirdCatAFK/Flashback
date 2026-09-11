@@ -1668,6 +1668,7 @@ Response `200`
 | `canonicalVersion` | number       | Highest applied canonical update — describes how far the vault'sfiles have been brought forward.                                                                                 |
 | `capabilities`     | string[]     | Optional features this deployment offers, so a client can decide what to show without probing.                                                                                              |
 | `update`           | object\|null | The headless server's release check:`{ current, latest, available, url, checkedAt }`. `null` on a desktop build, when the check is turned off, and before the first check has answered. |
+| `storage`          | object       | What the vault occupies, and what it is allowed: `{ limit, used, remaining, breakdown, measuredAt }`. See below.                                                                          |
 
 The two versions are separate on purpose and are the compatibility contract: a client that understands neither should refuse to write rather than guess.
 
@@ -1680,6 +1681,18 @@ The two versions are separate on purpose and are the compatibility contract: a c
 | `singleVault` | One vault per process:`POST /api/vault/switch` and `/release` are unmounted and answer `404`.                   |
 
 The renderer uses these to decide whether to show its Server tab at all, which is why they describe the deployment rather than the person.
+
+`storage` is measured on the way out and cached for a minute, since the handshake runs on every connection:
+
+| Field         | Type         | Description                                                                                                                                                                                    |
+| ------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `limit`       | number\|null | Bytes this deployment is allowed, from `FLASHBACK_STORAGE_LIMIT`. `null` when nothing was declared — and it has to be declared, because a container's `statvfs` reports the host's disk, not the volume you provisioned, and a Docker named volume has no quota at all. |
+| `used`        | number       | Bytes the vault occupies now: exactly the sum of `breakdown`.                                                                                                                                  |
+| `remaining`   | number\|null | `limit - used`, floored at 0; `null` when `limit` is.                                                                                                                                          |
+| `breakdown`   | object       | `{ canonical, progress, index, accounts, diary }`, in bytes — by **durability class**, which is what tells an operator which mount to grow. `index` is the one figure that can be ignored: the Doctor rebuilds it and it carries nobody's history. |
+| `measuredAt`  | string       | ISO timestamp of the walk this report came from.                                                                                                                                              |
+
+Reporting only. Nothing refuses a write past `limit`; a deployment that runs out of disk fails the way any other one does. The number that helps an operator is what the vault costs today, not a wall to hit.
 
 `update` is a notice, never an instruction. A headless server asks GitHub once at boot and once a day whether a newer published release exists (`FLASHBACK_UPDATE_CHECK=off` disables it and makes no outbound request at all), and reports what it last learned here. Nothing downloads, and nothing restarts: the process holds the only copy of the workspace and migrations are one-way, so when to upgrade is the operator's decision. `available` is false whenever the answer is not yet known, which is why it is safe to branch on directly. The desktop build reports `null` — it has electron-updater instead, and Config → About is where that surfaces.
 

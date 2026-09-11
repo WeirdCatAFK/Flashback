@@ -2,6 +2,7 @@ import { Router } from 'express';
 import query from '../access/resources/query.js';
 import { ensureManifest } from '../access/primitives/vault.js';
 import { get as getConfig, getVaults, getActiveVaultId } from '../access/primitives/config.js';
+import { getStorageReport } from '../access/primitives/storage.js';
 import { switchVault, releaseVault } from '../vaultSession.js';
 import { APP_VERSION } from '../appVersion.js';
 
@@ -24,6 +25,11 @@ router.get('/', catchError(async (req, res) => {
             ...(config.singleVault ? ['singleVault'] : []),
         ],
         update: req.app.locals.updateStatus?.() ?? null,
+
+        // Measured, except `limit`, which cannot be: a container's statvfs reports the host's
+        // disk, and a Docker named volume has no quota of its own. See primitives/storage.js.
+        // Cached for a minute, because the handshake runs on every connection.
+        storage: getStorageReport(),
     });
 }));
 

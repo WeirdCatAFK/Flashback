@@ -75,14 +75,56 @@ services:
       # empty FLASHBACK_ALLOWED_ORIGINS leaves whatever config.json already holds alone.
       FLASHBACK_AUTHOR_TOKEN: "${FLASHBACK_AUTHOR_TOKEN:-}"
 
-    # Everything the deployment owns lives here: config.json, accounts.db, and the vault
-    # (workspace/, its git repo, the derived database, the diary).
+      # Split the vault across mounts. Both are ABSOLUTE container paths, and both are unset
+      # by default so the layout below stays exactly as it has always been. See the volumes
+      # block; read the migration note there before setting either on a running deployment.
+      #
+      # FLASHBACK_WORKSPACE_PATH: "/canonical"
+      # FLASHBACK_INDEX_PATH: "/cache"
+
+      # How much room the vault actually has — the volume you provisioned, not what `df`
+      # inside the container claims. Reporting only, on GET /api/vault; nothing is refused.
+      FLASHBACK_STORAGE_LIMIT: "${FLASHBACK_STORAGE_LIMIT:-}"
+
+    # ── One volume by default ────────────────────────────────────────────────────────────
     #
-    # Back this up. `accounts.db` is the one store in the app that cannot be rebuilt from
-    # anything — it holds who may reach this install AND every non-owner's study schedule.
-    # The vault database is rebuildable by the Vault Doctor; the workspace is not.
+    # Everything the deployment owns lives here: config.json, accounts.db, and the vault
+    # (workspace/ and its git repo, progress.db, the derived database, the diary).
+    #
+    # Back this up. TWO stores in here cannot be rebuilt from anything: `accounts.db` holds
+    # who may reach this install, and `progress.db` holds every person's schedule, review
+    # history, card-health verdicts and fitted FSRS weights. The derived database is
+    # rebuildable by the Vault Doctor; the workspace is not rebuildable by anything.
     volumes:
       - flashback-data:/data
+
+      # ── Or three, one per durability class ──────────────────────────────────────────
+      #
+      # Uncomment these (and the two variables in `environment:` above) to give each mount a
+      # single answer to "can I lose this?":
+      #
+      #   /canonical   workspace/       authorial, git-versioned   BACK UP
+      #   /data        progress.db, accounts.db, config.json       BACK UP
+      #   /cache       {vaultName}.db   derived index              THROWAWAY
+      #
+      # A BIND MOUNT for the canonical layer, deliberately. A named volume would work, but it
+      # buries your documents under /var/lib/docker/volumes where only root and `docker cp`
+      # can reach them — and the whole premise of the canonical layer is that it is ordinary
+      # files you can grep, rsync and copy to a stick. It must stay a real local filesystem:
+      # NFS or SMB is fine, S3FS and other FUSE layers are not, because git needs real locking.
+      #
+      # Set ownership ONCE before the first start — the container runs as uid 1000 and a fresh
+      # host directory is root-owned:
+      #
+      #   mkdir -p ./workspace && sudo chown -R 1000:1000 ./workspace
+      #
+      # MIGRATING AN EXISTING DEPLOYMENT IS NOT JUST UNCOMMENTING THIS. Your workspace is
+      # currently INSIDE flashback-data; pointing the server at an empty /canonical makes it
+      # create a new empty one and quietly orphan the real one. Copy it across first — the
+      # recipe is in docs/SERVER.md § The volumes, and what each one is worth.
+      #
+      # - ${FLASHBACK_CANONICAL_DIR:-./workspace}:/canonical
+      # - flashback-cache:/cache
 
     # The default 10s is not enough: shutdown flushes Seal's pending commits and checkpoints
     # the WAL, and being killed mid-checkpoint is how a restart loses recent writes.
@@ -90,3 +132,8 @@ services:
 
 volumes:
   flashback-data:
+
+  # Only used by the split layout above. Safe to destroy and recreate: the Vault Doctor
+  # rebuilds the index from the canonical files, and since migrations 013-016 it no longer
+  # takes anybody's schedule or history with it.
+  # flashback-cache:

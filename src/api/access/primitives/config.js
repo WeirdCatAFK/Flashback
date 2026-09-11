@@ -74,16 +74,55 @@ export function getVaultPath() {
     return path.join(_baseDir(), vaultName);
 }
 
-/** Absolute path of the active vault's `workspace/`. */
-export function getWorkspacePath() {
-    return path.join(getVaultPath(), "workspace");
+/**
+ * An explicitly configured root, or null when the vault's own layout should be used.
+ *
+ * A server deployment can put the canonical files and the derived index on their own mounts,
+ * so that each volume has ONE answer to "can I lose this?" — the workspace is authorial and
+ * irreplaceable, the index is rebuildable and disposable. Both default to null, which is what
+ * keeps the desktop app and every existing deployment on the layout they already have.
+ *
+ * Absolute only. A relative override would resolve against whatever the process happened to be
+ * started from, which for a container is an implementation detail of the image.
+ *
+ * @param {string|undefined} value
+ * @param {string} field
+ * @returns {string|null}
+ */
+function explicitRoot(value, field) {
+    if (typeof value !== "string" || value.trim() === "") return null;
+    const root = value.trim();
+    if (!path.isAbsolute(root)) {
+        throw new Error(`config.${field} must be an absolute path, got "${root}"`);
+    }
+    return root;
 }
 
-/** Absolute path of the active vault's SQLite database. */
+/**
+ * Absolute path of the active vault's `workspace/` — the canonical, git-versioned layer.
+ *
+ * `workspacePath` overrides it wholesale: the configured directory IS the workspace, not a
+ * parent to append `workspace/` to. Seal's repo root, `Files.workspaceRoot` and `mcpReader`
+ * all resolve through here, so one override moves the whole canonical layer.
+ */
+export function getWorkspacePath() {
+    return explicitRoot(get()?.workspacePath, "workspacePath")
+        ?? path.join(getVaultPath(), "workspace");
+}
+
+/**
+ * Absolute path of the active vault's SQLite database — the derived index.
+ *
+ * `indexPath` names a DIRECTORY to hold it, not the file: the filename stays `{vaultName}.db`
+ * so a vault renamed on disk still lines up. This is the one store a deployment may put on
+ * throwaway storage, which only became true once every behavioural table moved to the progress
+ * store (migrations 013-016).
+ */
 export function getDatabasePath() {
     const config = get();
     const vaultName = config.vaultName || "default";
-    return path.join(getVaultPath(), `${vaultName}.db`);
+    const root = explicitRoot(config?.indexPath, "indexPath");
+    return path.join(root ?? getVaultPath(), `${vaultName}.db`);
 }
 
 /**

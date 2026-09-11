@@ -101,6 +101,16 @@ Vault identity. `vault.json` at the vault root — a stable UUID that outlives r
 - `readManifest()` / `ensureManifest()` / `getVaultId()` — `ensureManifest()` is idempotent, which is how vaults predating it acquire an id on their next launch instead of needing a migration.
 - `inspectVaultDir(dir)` — does an arbitrary directory hold a vault? Tests for `workspace/` + a `*.db`; a manifest is not required, or an older vault could never be adopted.
 
+### `storage.js`
+
+How much room the vault occupies, and how much it is allowed. Imports `config` only, the same shape as `vault.js`; reads the filesystem but touches no sidecar and no database, so it owes `files.js` and `query.js` nothing.
+
+The ceiling is **declared** (`config.storageLimit`, from `FLASHBACK_STORAGE_LIMIT`) and only the usage is measured, because a container's `statvfs` reports the host's disk rather than the volume that was provisioned, and a Docker named volume has no quota of its own. Reporting only — nothing here refuses a write.
+
+- `getStorageReport({ fresh })` — `{ limit, used, remaining, breakdown, measuredAt }`. The breakdown is by durability class (`canonical`, `progress`, `index`, `accounts`, `diary`) — the classes the volume split separates, so the figures say which mount to grow. Cached for a minute; `fresh` bypasses it.
+- `parseSize(value)` — a byte count or a binary-suffixed size (`10GB`, `512 MiB`, `1.5T`) to bytes, or `null`. Powers of 1024 throughout, because that is what every provider quotes and what `df` prints.
+- `onVaultOpened()` — drops the cache; called from `vaultSession.js` beside the other vault-scoped caches.
+
 ---
 
 ## Tier 2 — Single-resource access
