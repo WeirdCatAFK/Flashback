@@ -1,0 +1,72 @@
+/* SourceUrlForm — the centered card that asks for a URL. */
+
+.srcform {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-12) var(--space-6);
+  overflow-y: auto;
+}
+
+.srcform-card {
+  width: 100%;
+  max-width: var(--size-4xl);
+  padding: var(--space-6);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.srcform-title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.srcform-hint {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.srcform-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.srcform-input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-2) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  outline: none;
+}
+
+.srcform-input:focus { border-color: var(--color-accent); }
+
+.srcform-btn {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.srcform-btn:hover:not(:disabled) { filter: brightness(1.05); }
+.srcform-btn:disabled { opacity: 0.55; cursor: default; }
+
+.srcform-error {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}

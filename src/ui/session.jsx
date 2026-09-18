@@ -32,9 +32,9 @@
  * leaving someone staring at an app that has quietly lost half its buttons.
  */
 
-import { useEffect, useMemo, useState } from 'react';
-import { getEffectiveIdentity } from './api/identity.js';
-import { SessionContext, buildSessionValue } from './sessionContext.js';
+import { useEffect, useMemo, useState } from "react";
+import { getEffectiveIdentity } from "./api/identity.js";
+import { SessionContext, buildSessionValue } from "./sessionContext.js";
 
 /**
  * @param {{connectionId?: number, children: React.ReactNode}} props
@@ -42,49 +42,58 @@ import { SessionContext, buildSessionValue } from './sessionContext.js';
  *   remounts its tree on that key, so this is belt and braces for any caller that does not.
  */
 export function SessionProvider({ connectionId, children }) {
-    const [state, setState] = useState({ account: null, identity: null, loading: true, error: null });
+  const [state, setState] = useState({
+    account: null,
+    identity: null,
+    loading: true,
+    error: null,
+  });
 
-    useEffect(() => {
-        let cancelled = false;
-        let timer = null;
-        setState((s) => ({ ...s, loading: true, error: null }));
+  useEffect(() => {
+    let cancelled = false;
+    let timer = null;
+    setState((s) => ({ ...s, loading: true, error: null }));
 
-        // Retried, because this provider wraps the TITLE BAR and therefore sits outside
-        // AppGate — the component whose whole job is waiting for the API to answer. Switching
-        // between two local vaults restarts the database underneath us, so the first attempt
-        // can easily land while nothing is listening. Without a retry that transient failure
-        // would be permanent for the session: role null, every capability false, and a user
-        // staring at an app that has silently lost half its controls until they switch again.
-        const attempt = (remaining) => {
-            getEffectiveIdentity()
-                .then((data) => {
-                    if (cancelled) return;
-                    setState({
-                        account: data?.account ?? null,
-                        identity: data ? { name: data.name, email: data.email, source: data.source } : null,
-                        loading: false,
-                        error: null,
-                    });
-                })
-                .catch((err) => {
-                    if (cancelled) return;
-                    // A 401 is an answer, not an outage: the token is wrong and retrying will
-                    // not fix it. Only keep trying while the server is failing to respond.
-                    const transient = remaining > 0 && !/\b401\b|unauthor/i.test(err?.message ?? '');
-                    if (transient) {
-                        timer = setTimeout(() => attempt(remaining - 1), 1000);
-                        return;
-                    }
-                    // No optimistic default — see the header.
-                    setState({ account: null, identity: null, loading: false, error: err?.message || String(err) });
-                });
-        };
-        attempt(5);
+    const attempt = (remaining) => {
+      getEffectiveIdentity()
+        .then((data) => {
+          if (cancelled) return;
+          setState({
+            account: data?.account ?? null,
+            identity: data
+              ? { name: data.name, email: data.email, source: data.source }
+              : null,
+            loading: false,
+            error: null,
+          });
+        })
+        .catch((err) => {
+          if (cancelled) return;
+          const transient =
+            remaining > 0 && !/\b401\b|unauthor/i.test(err?.message ?? "");
+          if (transient) {
+            timer = setTimeout(() => attempt(remaining - 1), 1000);
+            return;
+          }
+          setState({
+            account: null,
+            identity: null,
+            loading: false,
+            error: err?.message || String(err),
+          });
+        });
+    };
+    attempt(5);
 
-        return () => { cancelled = true; if (timer) clearTimeout(timer); };
-    }, [connectionId]);
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
+  }, [connectionId]);
 
-    const value = useMemo(() => buildSessionValue(state), [state]);
+  const value = useMemo(() => buildSessionValue(state), [state]);
 
-    return <SessionContext.Provider value={value}>{children}</SessionContext.Provider>;
+  return (
+    <SessionContext.Provider value={value}>{children}</SessionContext.Provider>
+  );
 }

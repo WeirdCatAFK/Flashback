@@ -1,0 +1,152 @@
+/* Manage — vault-wide metadata (pedagogical categories + tags). Follows the same
+   flat, quiet language as Config: sectioned by thin dividers, uppercase section
+   labels, generous breathing room. All colors are theme tokens. */
+
+.mng-view {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8) var(--space-12);
+  background: var(--color-bg-base);
+}
+
+.mng-body {
+  max-width: var(--size-7xl);
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+
+.mng-header {
+  margin-bottom: var(--space-8);
+}
+
+.mng-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.mng-lede {
+  margin-top: var(--space-1);
+  max-width: 60ch;
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+/* ── Section ──────────────────────────────────────────────────────────────── */
+
+.mng-section {
+  padding-bottom: var(--space-8);
+  margin-bottom: var(--space-8);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.mng-section:last-child {
+  padding-bottom: 0;
+  margin-bottom: 0;
+  border-bottom: none;
+}
+
+.mng-section-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-1);
+}
+
+.mng-section-hint {
+  margin: 0;
+}
+
+.mng-tag-chip {
+  gap: var(--space-2);
+}
+
+.mng-tag-count {
+  opacity: 0.7;
+}
+
+.mng-section-head {
+  margin-bottom: var(--space-4);
+}
+
+/* ── Categories table ─────────────────────────────────────────────────────── */
+
+.mng-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.mng-th {
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+  padding: 0 var(--space-2) var(--space-2);
+}
+.mng-th:first-child { padding-left: 0; }
+
+.mng-th--priority { width: var(--size-xs); }
+.mng-th--action { width: var(--control-2xl); }
+
+.mng-cat-row td {
+  padding: var(--space-1) var(--space-2);
+  vertical-align: middle;
+}
+.mng-cat-row td:first-child { padding-left: 0; }
+.mng-cat-row td:last-child { padding-right: 0; }
+
+.mng-table .field {
+  width: 100%;
+}
+
+.mng-input--priority {
+  width: var(--size-xs);
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.mng-add-row td {
+  padding-top: var(--space-4);
+}
+
+/* ── Tags ─────────────────────────────────────────────────────────────────── */
+
+.mng-tag-filter {
+  max-width: var(--size-xl);
+  margin-bottom: var(--space-4);
+}
+
+.mng-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+/* Matches the Inspector's "direct" tag chip so tags read the same everywhere. */
+
+.mng-tag-count {
+  min-width: var(--control-xs);
+  text-align: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-secondary);
+  background: var(--color-bg-surface);
+  border-radius: var(--radius-pill);
+  padding: var(--space-0-5) var(--space-1);
+}
+
+.mng-empty {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.mng-error {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}

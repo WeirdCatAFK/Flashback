@@ -1,3 +1,7 @@
+/**
+ * IconConfig — the SVG glyph for the Config tab.
+ */
+
 export default function IconConfig({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

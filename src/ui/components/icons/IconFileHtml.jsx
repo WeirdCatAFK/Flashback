@@ -1,3 +1,7 @@
+/**
+ * IconFileHtml — the SVG glyph for an HTML or clip file in the tree.
+ */
+
 export default function IconFileHtml({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>

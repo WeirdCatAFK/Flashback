@@ -1,3 +1,7 @@
+/**
+ * IconFile — the SVG glyph for a generic file in the tree.
+ */
+
 export default function IconFile({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 16" fill="none"

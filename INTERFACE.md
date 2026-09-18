@@ -58,9 +58,19 @@ api/subscriptions.js /api/subscriptions/*
 api/seal.js          /api/seal/*
 api/doctor.js        /api/doctor/*   (checkIndex / syncIndex / rebuildIndex — Vault Doctor)
 api/reader.js        /api/reader/*   (an EPUB's images: list, <img> src, and as a File)
+api/embed.js         the API's /embed/* pages (the YouTube player proxy)
+api/desktop.js       window.flashback (Electron IPC) — config, window controls, updates, the MCP snippet
+api/identity.js      /api/identity + the get-identity IPC;  api/vaults.js  /api/vault + the vault/remote IPCs
 ```
 
-(Not every domain is listed here — `decks`, `highlights`, `categories`, `search`, `flashcards` each have a sibling module too.)
+(Not every domain is listed here — `decks`, `highlights`, `categories`, `search`, `flashcards`, `progress`, `diary`, `accounts`, `tags` each have a sibling module too.)
+
+`api/desktop.js` is the one exception to "one file per router": it wraps the preload bridge so
+that no view touches `window.flashback` directly and a `dev:web` session without Electron gets
+a clear error rather than an undefined call. `index.jsx` and `hooks/useConnection.js` still
+call the bridge themselves — they are the bootstrap. URL builders (`rawDocumentUrl`,
+`mediaFileUrl`, `youtubeEmbedUrl`) live beside the requests for their domain, so `client.js`
+stays the only file that knows the base URL.
 
 Function signatures mirror the route they call. Parameters match the backend's required fields exactly so there is no translation layer to maintain:
 
@@ -77,13 +87,44 @@ export const createFile = (name, parentPath) =>
 
 ## Layer 3 — Views (`src/ui/views/`)
 
-Views are the only layer allowed to use React hooks and own server state. Each view file corresponds to one full screen of the application.
+Views are the only layer allowed to own server state. Each view is a **folder** holding one
+screen of the application and everything private to it:
 
 ```
-views/DocumentsView.jsx
-views/FlashcardsView.jsx
-views/GraphView.jsx
+views/trainer/
+  Trainer.jsx            markup + handlers; the default export
+  Trainer.css
+  useTrainerSession.js   state, effects, API calls
+  queue.js               pure reducers over the session queue (tested)
+  grading.js             pure scheduling maths (tested)
+  Reviewer.jsx           private subcomponents, one component per file or a few in one
+  ScopeBar.jsx  SessionSummary.jsx  useDueCards.js  useTrainerScope.js  useReviewer.js  …
 ```
+
+`App.jsx` lazy-loads `views/<name>/<Name>.jsx`; `views/graphMetrics.js` is the one file kept
+at the top level, because `tests/graph.test.js` imports it by that path.
+
+### Logic and rendering
+
+Three kinds of file, told apart by what they export:
+
+| file           | exports                              | may import                                  |
+| -------------- | ------------------------------------ | ------------------------------------------- |
+| `Name.jsx`     | components only                      | hooks, pure modules, `api/*`, other components |
+| `useName.js`   | hooks only                           | `api/*`, pure modules, other hooks           |
+| `name.js`      | plain functions and constants, no React | other pure modules, `translations/format.js` |
+
+The `.jsx` is markup plus handlers: it calls one or two hooks, destructures, and renders.
+State, effects and API calls live in the hook. Anything that can be computed without React —
+ordering, geometry, parsing, validation, formatting — lives in a pure module with explicit
+`.js` extensions on its imports, so `node --test` can load it with no bundler and no DOM
+(`tests/ui.*.test.js`). A pure module that needs a translated string takes `t` as an argument
+and is tested with the identity function. `react-refresh/only-export-components` is what
+enforces the first row, and the gate runs lint with `--max-warnings 0` for that reason.
+
+DOM-touching helpers that are not React (a TreeWalker over a clip body, a canvas painter) are
+plain `.js` too, split so the arithmetic is a separate function from the DOM walk — see
+`renderers/clip/ranges.js` versus `clipHighlights.js`, or `views/graph/paint.js`.
 
 ### State ownership
 
@@ -91,16 +132,7 @@ Server state (data fetched from the API) is fetched through the `api/*.js` modul
 `useState`/`useEffect` inside the view that needs it. Local UI state (which panel is open,
 current selection) lives in `useState` or `useReducer` in the same place.
 
-> TanStack is not installed. Neither TanStack Query nor TanStack Virtual is a dependency of
-> this project, and nothing in `src/ui` imports either. The two sections below that describe
-> them — "TanStack Query conventions" and "Virtualize long lists" — are a design intention that
-> was never adopted, kept here because the *reasoning* in them still governs how this app is
-> written. Read them as rationale, not as instructions: do not add TanStack to satisfy them,
-> and do not write `useQuery` in a new view. The rules that are actually in force are the ones
-> in this section — fetch through `api/*.js`, keep the result local to the view, do not lift it
-> into Context.
-
-Do not lift server state into a parent component or React Context. Each view fetches its own data. This scopes re-renders and makes views independently loadable.
+Do not lift server state into a parent component or React Context. Each view fetches its own data. This scopes re-renders and makes views independently loadable. When a write succeeds, refresh exactly the data it invalidated: `utils/dataBus`'s `invalidateData()` / `useDataInvalidation()` is the one broadcast, and every view that subscribes refetches.
 
 #### The one exception: session identity
 
@@ -164,38 +196,57 @@ values without the role, because the values are information even to someone who 
 them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
 whose save is refused invites someone to type a page and lose it.
 
-### TanStack Query conventions — *not in force; see "State ownership" above*
+---
 
-TanStack Query is not a dependency. What survives from this section is the invalidation
-discipline: when a write succeeds, refresh exactly the data it invalidated and nothing more.
-In this codebase that is `utils/dataBus`'s `useDataInvalidation`, not a `queryClient`.
+## Size tokens
 
-```js
-// Reading — data is cached and shared across the view
-const { data, isLoading } = useQuery({
-  queryKey: ['folder', path],
-  queryFn: () => listFolder(path),
-});
+Every spacing, radius, type size, control height, box size, z-index, duration and easing in a
+stylesheet under `src/ui/` is a token from `src/ui/index.css`'s `:root` block. Per-file CSS
+declares no px, ms, `cubic-bezier()`, hex or `rgb()` of its own; `npm run check:tokens`
+(`scripts/check-tokens.js`) fails on any that appears, and `check:ui` runs it.
 
-// Writing — invalidate the relevant query key on success
-const { mutate } = useMutation({
-  mutationFn: ({ name, parentPath }) => createFile(name, parentPath),
-  onSuccess: () => queryClient.invalidateQueries({ queryKey: ['folder', path] }),
-});
-```
+| family    | tokens                                                                                                  |
+| --------- | ------------------------------------------------------------------------------------------------------- |
+| spacing   | `--space-0-5` 2 · `-1` 4 · `-2` 8 · `-3` 12 · `-4` 16 · `-5` 20 · `-6` 24 · `-8` 32 · `-10` 40 · `-12` 48 · `-16` 64 |
+| radius    | `--radius-sm` 4 · `-md` 6 · `-lg` 10 · `-pill`                                                          |
+| type      | `--text-xs` 11 · `-sm` 12 · `-base` 14 · `-md` 16 · `-lg` 20 · `-xl` 28 · `-2xl` 40                     |
+| controls  | `--control-xs` 20 · `-sm` 24 · `-md` 28 · `-lg` 32 · `-xl` 36 · `-2xl` 40 · `-bar` 48 — heights of buttons, inputs, rows |
+| icons     | `--icon-sm` 14 · `-md` 16 · `-lg` 20 · `-xl` 24                                                          |
+| sizes     | `--size-xs` 80 … `--size-9xl` 1240 — the large-box ladder: panels, popovers, dialogs, prose measures    |
+| z-index   | `--z-raised` 1 · `-sticky` 10 · `-floating` 100 · `-modal` 1000 · `-popover` 1100                       |
+| motion    | `--dur-fast` 120 · `-base` 200 · `-slow` 300; `--ease-out`, `--ease-in-out`                              |
+| focus     | `--shadow-focus` — the one ring every focusable control shares                                          |
 
-Query keys must be specific enough that invalidation is targeted. A key of `['folder']` invalidates everything; `['folder', path]` invalidates only the affected folder.
+**Snapping.** When a value is not on a ladder, take the nearest step; a tie rounds **down**,
+so the UI keeps the density it has rather than drifting looser (13px text became `--text-sm`,
+6px gaps `--space-1`, 14px padding `--space-3`). Do not add a step to fit a value; find the
+step the value should have been.
+
+**Allowed literals.** `0`; `1px`/`2px` on `border*`, `outline*` and as a hairline
+`width`/`height`; offsets inside `transform`/`translate`, `text-shadow`, `background-*`,
+`letter-spacing`; `@media` parameters (CSS forbids `var()` there); `animation` durations
+of 400ms and up (a keyframe's tempo is its own thing). Anything else is a finding.
+
+**Stacking.** Anything transient that dismisses on outside click — a Popover, the context
+menu, the selection toolbar — sits at `--z-popover`, *above* `--z-modal`, because a popover
+can open from inside a dialog and never coexists with a dialog opened after it. Renderer
+overlays (a clip's save button, the PDF rubber band) are `--z-floating`; sticky toolbars
+`--z-sticky`.
+
+**Colours** stay per-theme and are covered under Theme tokens; two platform constants
+(`--color-window-close`, `--color-media-bg`, `--color-white`) sit on `:root` because they
+are the same in every theme by design.
 
 ---
 
 ## App Shell (`src/ui/App.jsx`)
 
-`App.jsx` owns the top-level navigation state (which view is active) and nothing else. Views are lazy-loaded with `React.lazy` and wrapped in `Suspense` so they are only bundled and fetched when first visited.
+`App.jsx` owns the top-level navigation state (which view is active) and the handful of things that cross views — theme and zoom, the study hand-over to the Trainer, whose progress Stats and Graph show, and the dialogs opened from the title bar. Views are lazy-loaded with `React.lazy` and wrapped in `Suspense` so they are only bundled and fetched when first visited.
 
 ```js
-const DocumentsView  = lazy(() => import('./views/DocumentsView'));
-const FlashcardsView = lazy(() => import('./views/FlashcardsView'));
-const GraphView      = lazy(() => import('./views/GraphView'));
+const DocumentsView  = lazy(() => import('./views/documents/Documents'));
+const FlashcardsView = lazy(() => import('./views/flashcards/Flashcards'));
+const GraphView      = lazy(() => import('./views/graph/GraphView'));
 ```
 
 `App.jsx` does not fetch data, does not hold server state, and does not know what the active view renders. It only switches between views.
@@ -227,9 +278,11 @@ const token = await window.flashback.getApiToken();
 initClient(url, token);
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    <QueryClientProvider client={queryClient}>
-      <App />
-    </QueryClientProvider>
+    <TranslationProvider>
+      <ConfirmProvider>
+        <App />
+      </ConfirmProvider>
+    </TranslationProvider>
   </StrictMode>
 );
 ```
@@ -258,12 +311,11 @@ Wrap a component in `React.memo` only when:
 
 `useMemo` and `useCallback` on their own have a cost. They are only valuable when they prevent a downstream re-render.
 
-### 3. Long lists — *aspirational; TanStack Virtual is not installed*
+### 3. Long lists
 
 Rendering 500 DOM nodes at once is slow regardless of React optimizations, and the lists that
-can get there are the file tree, review history, search results and the graph node list. The
-intended answer was TanStack Virtual; it was never adopted. What exists instead is paging at
-the API: the card browser reads `GET /api/decks/cards` with `limit`/`offset`, and `GET
+can get there are the file tree, review history, search results and the graph node list. There
+is no virtualization dependency; what exists is paging at the API: the card browser reads `GET /api/decks/cards` with `limit`/`offset`, and `GET
 /api/search` caps at 100 results (20 by default). The file tree renders one folder at a time and
 is not bounded — a folder with thousands of documents in it is the case this section is still
 about. Keep new lists paged for the same reason, and do not add a virtualization dependency to
@@ -283,51 +335,91 @@ If a value can be computed from existing state or query data, compute it during 
 
 ### `src/ui/components/`
 
-Components are grouped by the view they belong to. A component used by only one
-view lives in that view's feature folder; a component reused across views lives
-in `shared/`.
+Shared components are named after the things a person sees — a card, a deck, a document, a
+highlight, a vault, an account — so `<CardRow>` or `<DeckPurgeDialog>` is understood without
+opening it. What has no domain name lives one layer down, in `base/`.
 
 ```
 components/
-  AppGate.jsx            App-shell gate — blocks rendering until the API answers
-  shared/                Generic, reusable across any view (ContextMenu, ProgressDialog)
-  icons/                 SVG icon components + fileIconMap
-  documents/             Everything for the Documents view
-    DocumentEditor.jsx     Editor shell (tabs, selection toolbar, dirty/draft state)
-    FileExplorer.jsx       Workspace file tree
-    EditorTabBar.jsx
-    SelectionToolbar.jsx
-    HighlightRemoveDialog.jsx
-    inspector/             Inspector panel and its tabs (Cards, Highlights, …)
-    renderers/             Per-filetype editors (Markdown, Text, …) + helpers
+  base/        what has no domain name: Modal, Popover, Toggle, ProgressBar, StatTile,
+               ConfirmDialog, ContextMenu, StateView (Loading/Error/Empty), TagChipInput,
+               ProgressDialog, ConflictBanner — and base.css, the class vocabulary below
+  account/     RoleBadge, IdentitySection, ProgressScopePicker
+  vault/       VaultManager, VaultSwitcher
+  shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, KeybindingsEditor, OnboardingTour
+  flashcard/   Flashcard, CardRow, CardDetailModal, FlashcardForm, FlashcardEditor,
+               StandaloneCardModal, BookImagePicker, ClipMediaPicker, ReviewStrip, RetentionCurve,
+               flashcardFields.js
+  deck/        DeckPurgeDialog, AnkiMappingModal
+  highlight/   SelectionToolbar, HighlightRemoveDialog
+  document/    DocumentEditor (+ useDocumentEditor, useSelectionToolbar, useHighlightActions,
+               tabsState.js), EditorTabBar, ReadingBar, useReadProgress
+    explorer/  FileExplorer, FolderNode, FileNode, TreeParts, ExplorerDialogs,
+               names.js, dragDrop.js, contextMenu.js, useExplorerTree, useFolderChildren,
+               useRename, useDropTarget
+    inspector/ Inspector and its four tabs
+    renderers/ registry.js, highlights.js, highlightId.js, scroller.js,
+               useHighlightableRenderer, useScrollProgress, Renderer.css, SourceUrlForm
+      markdown/ text/ pdf/ epub/ youtube/ clip/   one folder per format
+  icons/       SVG glyphs + fileIconMap.js
 ```
 
-Rules:
+**Placement rule.** A component used by one view lives in that view's folder. One that names
+a thing the person sees in more than one place lives in `components/<thing>/`. One with no
+domain name lives in `components/base/`. `hooks/` holds hooks with no domain either
+(`useImports`, `usePersisted`, `useContainerSize`, `useThemeVersion`, `useConnection`,
+`useKeybindings`).
 
-- A component used by exactly one view belongs in that view's folder, next to
-  the component that owns it — not in a flat shared pool.
-- A component used by two or more views belongs in `shared/` and must be usable
-  from any view without modification.
-- `shared/` and `icons/` components are presentational: no server state. (View
-  feature components may import from `api/` — e.g. `FileExplorer`, the Inspector
-  tabs, and the renderers do.)
-- Import depth from a feature folder: `../../api/...` from `documents/`,
-  `../../../api/...` from `documents/inspector/` and `documents/renderers/`.
+**`base.css` is the presentation vocabulary**, imported once from `index.jsx`. A pattern is a
+CSS class when it carries no state, a11y or geometry, and a React component when it does:
+
+| class                                                             | for                                              |
+| ----------------------------------------------------------------- | ------------------------------------------------ |
+| `.btn` `--primary` `--danger` `--danger-quiet` `--ghost` `--accent-quiet` `--sm` `--lg` `--icon` `--block`; `.btn-close` | every button that is not a grade button or an activity-bar tab |
+| `.badge` `--accent` `--danger` `--outline`                        | an uppercase micro-label                          |
+| `.chip` `--muted` `--danger` + `.chip__remove`                    | a removable token                                 |
+| `.eyebrow`, `.header-row`, `.section-header`, `.panel`, `.toolbar`, `.divider-v` | section chrome                          |
+| `.field` `--sm`                                                   | the one input override (uses `--color-border-strong`) |
+| `.spinner`, `.progress`, `.stat-tile`, `.toggle`, `.popover`     | the interiors of the base components              |
+| `.muted`                                                          | secondary text                                    |
+
+A per-view stylesheet keeps only layout and what is genuinely particular to that view. When a
+view needs a button that looks different from `.btn`, it adds a modifier class beside `btn`,
+not a parallel button.
+
+**Popover** (`base/Popover.jsx`) is the one anchored overlay: it portals to `document.body`,
+positions from the anchor's rect converted to shell-layout space (`utils/uiZoom.js`), flips at
+the viewport edge, and dismisses on outside mousedown, Escape, scroll, resize and a zoom
+change. Menus, pickers and suggestion lists render their items inside it with
+`.popover__item` / `__heading` / `__sep`; none of them own position math.
+
+**Modal** (`base/Modal.jsx`) is every dialog: portal, `role="dialog"`, focus trap, Escape,
+backdrop click, `size`, `placement="top"` for the search palette, `dismissible={false}` for
+progress. The dialog's stylesheet styles its interior only; the chrome is Modal's.
 
 ### File naming
 
-| What                          | Convention                |
-| ----------------------------- | ------------------------- |
-| View files                    | `PascalCaseView.jsx`    |
-| Shared components             | `PascalCase.jsx`        |
-| API modules                   | `camelCase.js`          |
-| Per-component styles (if any) | `PascalCase.module.css` |
+| What                | Convention                                        |
+| ------------------- | ------------------------------------------------- |
+| Views               | `views/<name>/<Name>.jsx` + `<Name>.css`          |
+| Components          | `PascalCase.jsx` + `PascalCase.css` beside it     |
+| Hooks               | `useName.js`                                      |
+| Pure modules        | `camelCase.js`, imports with explicit `.js`       |
+| API modules         | `api/camelCase.js`                                |
+
+### Comments
+
+The convention is the backend's, enforced by `eslint.config.js` on `src/ui/**` too: a
+`/** … */` header at the top of every file saying what the module is; one sentence of JSDoc per
+function, with `@param`/`@returns` only where the signature does not already say it; no
+comments inside function bodies, no section banners, no trailing comments. Rationale lives
+here, in the section for the area it belongs to.
 
 ---
 
 ## Renderers & the Highlight Contract
 
-`components/documents/renderers/` holds one editor per file type plus the shared
+`components/document/renderers/` holds one editor per file type plus the shared
 highlight machinery. `DocumentEditor` chooses a renderer through
 `renderers/registry.js` and talks to it through a fixed prop contract — it never imports
 TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
@@ -574,70 +666,373 @@ dependencies as arguments and imports no Electron.
 
 ---
 
-## Theme System
+## Rationale by area
+
+What the comment pass took out of the source, kept here by area. Each entry is a decision that
+is not derivable from the code and that a future change is likely to reverse by accident.
+
+### App shell (`App.jsx`, `components/shell/`, `components/vault/`)
+
+- **`AppGate` is keyed on the connection.** Views stay mounted after their first visit (the
+  view-slot keep-alive), so switching vault or connecting to a remote must unmount everything
+  inside the gate or the previous vault's documents, cards and graph stay on screen. Remounting
+  the gate also resets its latched `ready`, so a local switch waits for the API to finish
+  re-opening instead of firing reads at a closing database. `SessionProvider` wraps the *whole*
+  shell, title bar included, and is keyed the same way so pointing elsewhere re-asks who you are.
+- **`VaultManager` mounts outside the gate.** It is the thing that ordered the switch, so it
+  has to outlive the remount long enough to report a failure rather than vanish with the vault
+  it was leaving. `VaultSwitcher` lives in the title bar for the same reason and therefore
+  survives a switch: it closes itself by hand and re-reads the registry with `connection` in
+  its deps, or every row keeps the `active` flag the server sent *before* the switch.
+- **Going to the vault the local API already has open is a re-point, never a switch** — no
+  database work, nothing that can fail. That is the way home from a misconfigured or
+  unreachable remote. Only a *different* vault needs `switchVault`.
+- **App-level state that holds a vault path resets on a connection change** (`fb-open-folders`,
+  the trainer scope hand-over, `progressAccount`), and a remote-only view is left behind when
+  the app goes local, or its nav button disappears while its panel stays up with nothing in it.
+- **The onboarding tour is gated by localStorage only**, never `config.json`, so replaying it
+  from Config can never re-trigger the setup wizard. It mounts inside the gate because it points
+  at the real nav. Views are lazy, so after switching view it retries across a few frames until
+  the target element exists.
+- **Title bar:** the product name leads (it is what the window is), the active vault sits
+  beside it (it is the part that changes), then the role badge (renders nothing locally). The
+  current-vault marker is a dot, not a tick — a tick reads as "done", and the question the menu
+  answers is "which one am I in".
+- **Search:** the `tag:`/`deck:`/`doc:`/`in:` prefixes are literal query syntax and must
+  survive translation. Filter mode renders a flat list; global mode groups by type.
+
+### Trainer (`views/trainer/`)
+
+- **Never re-sort the queue.** The server sequenced it — by pedagogical tier, then by graph
+  distance within each tier. The previous client sort was a stable sort on category priority
+  alone, so every tie resolved to creation order and a session always played back in the order
+  the cards were authored. `isNew` is not a column; it is which bucket the server put the card in.
+- **A failed card is re-queued within its tier, at least `REQUEUE_LAG` cards later**
+  (`queue.js insertIndexFor`). Two constraints in this order: never past the tier boundary (a
+  failed Definition must not fall behind the Exercises built on it); never immediately (re-showing
+  a card you just failed tests recognition, not recall). The lag mirrors the sequencer's own
+  `MIN_LAG`. Clamping to the tier end, never to index 0: one card past the boundary is a smaller
+  price than no lag at all.
+- **Grading** (`grading.js`): FSRS sends a rating and the server computes the schedule;
+  Leitner/SM-2 are computed here and posted back. Leitner "Again" floors at level 1 — level 0
+  would make the card permanently due every session; SM-2 level 0 already gives one day. The
+  ease clamp is 1.3–3.0. A `type_answer` card grades only `answerText` — its `backText` is
+  post-review notes the reviewer was never asked to reproduce (on a pre-split card `backText` is
+  the answer, resolved by `flashcardFields.js`). An empty notes field is not a missing back.
+- **The UI advances optimistically, and a failed write is never silent** — it is a dismissible
+  banner, so an optimistic advance cannot hide lost progress.
+- **Undo** restores the snapshot taken before the last grade, reverses the review on the
+  server, and rewinds the presentation trace too: the undone log row is deleted server-side, so
+  leaving the position advanced would put a gap in the session's ordering record. The trace
+  counts what was actually shown (a re-queued card advances the position again), and
+  `prevCardHash` is the card seen immediately before, not the one the sequencer planned. The
+  undo shortcut lives on the parent so it works from the summary after the reviewer unmounts.
+- **Card-health flags are reported at the end of the session, never mid-card.** Interrupting a
+  review to say the card is badly built is the wrong moment; only failures reach the list, keyed
+  by hash so a card that fails twice is named once.
+- **Scope.** Exclusions are a set, not a slot — several bulk imports is the case they exist
+  for. An "exclude this" launch from the explorer is additive and merges into the live scope; a
+  study launch with the same scope as a running session does not reset it. Every scope change
+  drops the queue so the next fetch auto-starts. Excluded scopes render as chips too, on their
+  own row — a silent exclusion is indistinguishable from an empty vault. The empty state names
+  the filter that emptied the session rather than claiming the day is done. `fb-trainer-read-only`
+  is vault-scoped because it is about this vault's reading positions.
+- **Re-fetch on tab activation only when no session is running** — mid-session a refetch
+  would clear the queue to loading and reset the progress bar. The diary summary is recorded at
+  session end only when opted in, best-effort, and swallowed on failure (the server derives it
+  idempotently from `ReviewLogs`).
+
+### Graph (`views/graph/`)
+
+- **Drop links whose endpoints are not in the node set**, both when building the data and
+  after every filter — react-force-graph-2d crashes with "node not found" on an orphan.
+- **Mass comes from `links`, not raw edges**, computed once in `buildGraphData` rather than in
+  the visible subset: a tag's mass is a property of the vault and must not change because a
+  folder was toggled off. The system deck links to nearly every standalone card, so it gets its
+  own toggle like Origin folders.
+- **`themeVer` in the colour memo's deps is load-bearing.** Every value comes from
+  `getComputedStyle`, a dependency React cannot see; drop it and the graph keeps the previous
+  theme's colours.
+- **The animation loop is on-demand.** react-force-graph exposes no repaint call, so
+  `autoPauseRedraw` is toggled off for a short window after load, hover or selection while the
+  per-node lerps (entrance fade ~700ms, hover scale, focus dim ~800ms) settle. Per-node state is
+  mutated in the paint loop and never triggers renders.
+- **Force tuning** (`forces.js`): short-range repulsion for local legibility, collide as the
+  no-overlap floor, links plus a weak inward pull for clumping — unbounded repulsion produced an
+  evenly scattered field where no community could form. Overriding link strength discards d3's
+  1/min(degree) heuristic, so degree is recomputed and kept as the base. Learnedness shortens
+  and stiffens edges and pulls nodes inward, so mastered material contracts into knots.
+- **Halos** (`paint.js paintHalos`) are one blended pass beneath links and nodes so neighbouring
+  halos merge into a lit region. Size from mass, opacity from the learned rate, on separate
+  channels so "a lot, half-known" out-reads "a little, perfectly known". `lighter` blending
+  only on a dark ground — on a light theme it washes out, so overlaps darken instead. Bloom is
+  opt-in because a wide soft gradient is the one part that reads as a literal glow.
+- **Links rest in one neutral colour and regain relation colour only when a hover/selection
+  isolates a subgraph**; resting alpha falls with density. A severed connection is dashed rather
+  than coloured. Labels appear only past a zoom threshold on large graphs — text is the most
+  expensive thing per frame.
+- **The standalone HTML export restates the halo maths** (`export.js`), so `HALO_BASE`/
+  `HALO_MAX` are embedded and `tests/ui.graph.test.js` checks they are.
+- The progress-scope picker is a bar of its own above the canvas, not a row in the 184px
+  floating panel; viewing someone else goes through an admin-only route an older server lacks,
+  so the panel only renders on success and a "back to mine" button exists for the 404 case.
+
+### Seal (`views/seal/`)
+
+- **Reload the depth the user had paged to** on tab re-activation, not page one.
+- Changed files are split into documents and metadata rather than interleaved — seeing
+  `chapter.md` and `chapter.md.flashback` as two opaque siblings was the confusion this view
+  had. Said once at the top of the timeline why highlighting a page shows up as a change to a
+  file never opened.
+- **Rollback is the Author's alone and hidden, not disabled** — it rewinds the workspace for
+  everyone on a server and is not undoable from inside the app. Post-rollback the derived index
+  diverges from the restored sidecars and `sealTools.inspect()` is blind (HEAD == workdir), so
+  the banner offers the Doctor's `syncIndex` inline; after either, `invalidateData()` refreshes
+  every DB-backed view.
+- **Doctor:** diagnosis is an admin's, repair is the Author's — a rebuild discards everyone's
+  review history. The admin sees the drift and a sentence naming who can act. The rebuild
+  confirmation token stays untranslated because it is retyped verbatim.
+
+### Explorer (`components/document/explorer/`)
+
+- **A drop is a move**, never a reorder (`dragDrop.js`); a drag that only reordered the view
+  would lie about what landed. Anki packages need a field→slot mapping before anything is
+  created, so an `.apkg` drop opens `AnkiMappingModal` rather than importing.
+- Per-folder progress is one call per level alongside the listing; its failure is silent — a
+  missing indicator is a smaller loss than a tree that refuses to open. A folder that mounts
+  already open (after a tree refresh) fetches its children immediately; `treeVersion` is bumped
+  after a rollback/sync so every open folder remounts.
+- **The context menu and the header buttons are gated by the same capabilities and hide
+  rather than disable** — a Reader's sidebar should read as a reading sidebar, and the two
+  cannot disagree. Reserved names (`names.js reservedNameError`) are refused at rename time.
+- Renames and moves relocate open tabs and drafts (`useOpenTabs.relocateTabs`) so a later save
+  writes to the new location instead of failing against the old one.
+
+### Document editor (`components/document/`)
+
+- **Capabilities are read from the registry, not the component**, because the tab bar and
+  the selection toolbar render before the lazy chunk arrives. For markdown/text the highlights
+  *are* the body, so annotating is the same `PUT /file` as editing — which is why
+  `supportsHighlight` is computed *after* `canEditBody`, not before.
+- **Reconciliation happens during render, not in effects** (`tabsState.js`): resetting the
+  selection and inspector on file change, remapping path-keyed drafts on a move, pruning drafts
+  for closed tabs. An effect commits one frame first, which painted the previous document's
+  state under the new one's heading. Each block converges because the marker is set to the very
+  identity that triggered it and the updaters return `prev` when nothing changes.
+- **One highlight is one save and one commit.** Clicking the colour a highlight already has is
+  a no-op; removal is only ever explicit and confirms when cards are linked. The card form is
+  fed by a snapshot draft, not the live selection, which collapses the moment a field is clicked.
+- **`useHighlightableRenderer`** captures the etag when content *loads*, not at save time —
+  the question a save asks is "has anything changed since I started typing"; the server compares
+  only the body half, so a card added through the Inspector meanwhile merges. It never persists
+  a path whose content has not loaded (the editor would be empty), keeps the draft on a refused
+  save, and goes read-only rather than hiding Save. Overwrite re-sends without a version.
+- **`ReadingBar` is imported statically** and built by the editor; `ownsReadingBar` decides
+  only *where* it mounts. The bar shows two facts: the track is the furthest mark (only
+  advances), the text is where you are (moves both ways). The resume notice sits in front of the
+  controls rather than replacing them, because the document that most needs its mark corrected is
+  one already read into.
+- **`useReadProgress`** debounces writes but not the readout; a lost position is not worth
+  interrupting reading over. The "has the reader moved" guard lets one report through and then
+  stands down, or it becomes a blind spot anchored to the resume position. Manual marks are what
+  let the furthest mark move backwards.
+- Inspector tabs list newest first (the sidecar appends) and the `#n` badge keeps creation
+  order. Delete and edit are single server calls rather than read-modify-write of the sidecar,
+  which reverted anything else written in between. The Inspector's edit glyphs hide for a Reader
+  but "source" stays, since that is what a Reader came for.
+
+### Renderers (`components/document/renderers/`)
+
+- **Markdown:** `flashback://` links render with `data-flashback-hash` and no `href`, so
+  Chromium never sees the protocol and cannot pass it to `shell.openExternal`; the
+  `flashback-navigate` IPC is the fallback if one reaches main's `will-navigate`. The link
+  extension must be registered after Markdown to override its schema.
+- **Clip:** the container is populated imperatively so injected `<mark>`s survive renders;
+  highlights anchor by character offset (`ranges.js`). Assets are identified by `data-href`
+  (`media.js rewriteMedia`), and links to sound files are marked as media too — most of the web
+  publishes audio as an `<a>`. The hover-to-save button hides on a delay (it sits outside the
+  body), dismisses on scroll and zoom (the captured rect is stale), and skips tiny images. An
+  inline `data:` image cannot be attached. Saving is sidecar-only; the body changes only through
+  `saveClipAsset`. Its position is a scroll fraction, like Markdown's.
+- **PDF:** nothing the renderer owns scrolls — the editor's ancestor does — so page-on-screen
+  and scroll listening both come from `findScroller`, and `scale` is a dependency because a short
+  PDF acquires a scroller only when zoom makes it overflow. The rubber band is `position: fixed`
+  inside the zoomed shell, so `uiZoom` is captured at mousedown and a zoom mid-drag abandons the
+  drag; converting to PDF units divides out both `scale` and `uiZoom`. Pages render lazily via an
+  observer that keeps observing so zoom can bring new pages in. pdf.js fetches the file itself,
+  so the token rides the query string (`api/documents.js rawDocumentUrl`).
+- **EPUB:** everything `wireRendition` closes over is a ref, because it is wired once per load.
+  The stored position is the unrounded percentage — rounding coarsens the mark the reader API
+  bounds with — and is reported *absent* until epub.js has built its locations index, since it
+  reports `0` rather than `undefined` before then and a finite 0 would be stored and defended.
+  The CFI resumes the renderer, the spine `href` addresses `/api/reader`; both are stored so
+  neither is converted. The initial `display()` is left alone and the resume jumps afterwards.
+  Selection lives inside the section iframe and is bridged out via `onExternalSelection`; a
+  clicked figure offers a card, a drag that ends on an image is a selection, and an unresolvable
+  figure stays silent rather than attach the wrong one.
+- **YouTube:** the player runs in the API's `/embed/youtube` proxy page on a real
+  `http://localhost` origin, because YouTube's referrer/origin check fails on `file://` (Error
+  153). Only messages from our own iframe are trusted; error codes 100/101/150 (removed,
+  private, embedding disabled) surface a link out. Resume seeks without playing — reopening a
+  document is not a request to play it. Position unit is `segment`, addressed by seconds, the
+  same vocabulary `/api/reader` uses; highlights are timestamps made by "Mark this moment", so
+  `toggle` is a no-op.
+- **`highlights.js`:** ids are 9 base36 chars (~47 bits) — unique per document, short enough
+  not to bloat the inline HTML. Highlights that cannot be anchored are dropped, never guessed.
+
+### Flashcard components (`components/flashcard/`)
+
+- **`Flashcard` is presentation-only and fully controlled**; the parent owns the face. A
+  `type_answer` front ignores clicks — Check is the only reveal — and the back shows the
+  compared answer then the notes. Static previews do not autoplay audio unless the caller opts
+  in (the Anki mapper does).
+- **Categories are vault data**, edited in Manage, never a constant. A new card defaults to
+  the first (most foundational) entry; an existing card keeps what it had, including a category
+  since deleted, which the select still lists so it survives a save.
+- **Editing is text-only**; media is preserved server-side, so the upload slots hide and the
+  preview shows the stored media through `resolveMedia`. A pre-split `type_answer` card is seeded
+  through `flashcardFields.js` so saving normalises it.
+- **A picked asset becomes a `File`.** A book figure comes through `/api/reader/image`, a clip
+  asset through `/api/reader/media-file` (saved into the vault first — a no-op when already
+  saved), and from there nothing downstream can tell it from one picked off disk. A clip offers
+  sound too, so its picker also appears on audio slots.
+
+### Other views
+
+- **Decks:** the system deck always leads. Name and description are edited together, since
+  blur-to-commit cannot work once moving between two fields is normal. Purge is a separate
+  action from Delete because it destroys cards. Opening a deck from search stays an effect on
+  purpose — it relays an event to the parent, which cannot happen during render, and clears the
+  request so the same deck can be searched twice. Anki imports go through the mapping modal;
+  every import broadcasts `invalidateData()`.
+- **Flashcards:** the health filter is a filter on the list, not an inbox. Rows hold their own
+  delete button so they carry `role="button"` rather than being one. Deleting names the source
+  document rather than sending the user to the Inspector.
+- **Stats:** heatmap days are local calendar days (the server buckets with `localtime`), so
+  the grid walks local days; a UTC stride would offset everyone off UTC by a cell. Re-pulled on
+  focus because the Trainer changes the numbers. Two explicit columns pair each tall panel with
+  a short one — editorial, not masonry.
+- **Diary:** `EntryEditor` resets during render keyed on `(date, content)` — `key={date}` is
+  not enough because the content arrives asynchronously after the remount. The privacy note
+  renders only on a remote. Pass rate excludes learning-phase cards on schema v2 summaries.
+- **Config:** `mcpDiaryAccess` persists immediately because it is a cross-process
+  authorization boundary the API reads from disk, and the legacy boolean is normalised to the
+  tri-state. The vault name and path are read-only here and deliberately the only mention of
+  vaults — editing the name used to rename the folder without moving the database. The AI
+  Assistant block says "diary" regardless of connection: it gates the local MCP server against
+  the local vault.
+- **Setup:** identity is fetched over IPC because the API does not exist yet; only the name
+  is pre-filled (the suggested address is a `.local` placeholder). The algorithm is written to the
+  global pref key because the vault has no id yet, and `prefs.js` copies it forward. Blank
+  identity writes no `user` at all.
+- **Server:** the one place that says out loud what the role hides elsewhere. The role select
+  never offers what the server would refuse (`roles.js`), and the account-limit message is
+  shown before the form fails. Manage keeps categories visible without the role, since they
+  classify what a Reader studies; it refetches on focus because views stay mounted.
+
+---
+
+## Theme tokens
 
 ### How it works
 
-Themes are driven by a `data-theme` attribute on `<html>`. All colors in the application are
-CSS custom properties — no component stylesheet may use a hardcoded color value. Setting
-`document.documentElement.setAttribute('data-theme', name)` is the only action needed to
-switch themes; every component inherits the new palette automatically via CSS cascade.
+Themes are driven by a `data-theme` attribute on `<html>`. Every colour in the application is a
+CSS custom property declared per `[data-theme="…"]` block in `src/ui/index.css`; setting the
+attribute is the whole switch. The built-in themes are the names in `src/ui/themes.js` —
+`light-workbench`, `dark-workbench`, `dark-cherry`, `raven-indigo`, `focus-blue` — and
+`light-workbench` doubles as the `:root` fallback. User-defined themes come from
+`src/ui/customThemes.js`: the theme editor in Config writes `{ name, colors }` to localStorage
+and injects it as another `[data-theme]` rule at startup; `THEME_VARS` there is the list of
+variables the editor exposes.
 
-### CSS variables
+`App.jsx` owns the active theme (`fb-theme` in localStorage, applied before first render) and
+nothing else reads the theme name — components branch on nothing; the cascade does the work.
+The one JavaScript reader of colour values is the graph (`views/graph/palette.js`), which
+reads its palette through `getComputedStyle` once per theme change (`hooks/useThemeVersion.js`)
+because it paints a canvas.
 
-All variables are declared in `src/ui/index.css`. Every theme must define all of them.
+### The tokens and what each is for
 
-| Variable                   | Semantic meaning                                                        |
-| -------------------------- | ----------------------------------------------------------------------- |
-| `--color-bg-base`        | Window / outermost background                                           |
-| `--color-bg-sidebar`     | Activity bar background                                                 |
-| `--color-bg-surface`     | Panels, cards, content areas                                            |
-| `--color-bg-hover`       | Hover state on interactive elements                                     |
-| `--color-fg-primary`     | Primary text                                                            |
-| `--color-fg-secondary`   | Muted / secondary text                                                  |
-| `--color-fg-icon`        | Inactive icon tint                                                      |
-| `--color-accent`         | Active indicator, links, focus rings                                    |
-| `--color-border`         | Dividers and outlines                                                   |
-| `--color-title-bar`      | Drag region background                                                  |
-| `--color-accent-subtle`  | Very low-opacity accent tint — selected item backgrounds, drag targets |
-| `--color-tree-indent`    | File tree indentation line — can be accent-tinted per theme            |
-| `--color-sidebar-header` | Header bar inside sidebar panels (distinct from sidebar body)           |
-| `--color-hl-amber`       | Document highlight — amber swatch                                      |
-| `--color-hl-green`       | Document highlight — green swatch                                      |
-| `--color-hl-blue`        | Document highlight — blue swatch                                       |
-| `--color-hl-pink`        | Document highlight — pink swatch                                       |
+Every colour token has exactly one job, because a token asked to do two jobs at opposite ends
+of the theme cannot satisfy both. The families:
 
-### Built-in themes
+| tokens | job |
+| --- | --- |
+| `--color-bg-base` / `-sidebar` / `-surface` / `-hover` / `-reader` / `-title-bar` / `-sidebar-header` | the surfaces |
+| `--color-bg-editor` | `light` or `dark`, the scheme the TipTap editor uses |
+| `--color-fg-primary` / `-secondary` / `-icon` | text and inactive icons |
+| `--color-accent`, `--color-accent-subtle`, `--color-on-accent` | the active colour, its tint, and the label on an accent fill |
+| `--color-border`, `--color-border-strong`, `--color-tree-indent` | hairlines; controls; the tree guide |
+| `--color-hl-1..4` | highlight swatches painted behind document text |
+| `--color-review-again/hard/good/easy`, `--color-on-review` | the grade buttons and the summary |
+| `--color-graph-document/folder/flashcard/tag/deck`, `-link`, `-disconnect`, `-inherit`, `-edge` | the graph's categorical palette |
+| `--color-danger`, `--color-danger-bg`, `--color-on-danger` | errors; danger fills and the label on them |
+| `--color-scrim` | the backdrop behind a dialog |
+| `--shadow-sm`, `--shadow-float` | resting and floating elevation |
 
-`"light"` and `"dark"` are declared in `src/ui/index.css` as `[data-theme="light"]` and
-`[data-theme="dark"]` blocks.
+Four pairs are easy to get wrong:
 
-### Adding a theme
+- **`--color-review-*` is a button fill and a text colour.** It fills the Trainer's grade
+  buttons *and* colours text on a panel (the session summary, the type-answer verdict). The two
+  roles only agree when the label painted on the fill is `--color-on-review`, set to the
+  theme's panel colour — then "label on fill" and "swatch as text on panel" are the same
+  contrast pair and one value satisfies both. Never label a grade button with `--color-fg-primary`.
+- **`--color-hl-*` is painted behind document text**, so `--color-fg-primary` must stay
+  readable on top: pale swatches in a light theme, deep ones in a dark theme. The highlight
+  picker's dots are derived from these, not the other way round.
+- **`--color-border` is a hairline** for dividers and card edges. A control whose boundary is
+  the only thing identifying it — an input, a select, `.field` — uses `--color-border-strong`,
+  which clears 3:1 against the surface behind it.
+- **`--color-graph-*` is a categorical palette, not a set of aliases.** Five node types are
+  bare dots on `--color-bg-base`, so colour is the only thing telling them apart: each theme's
+  five hues are spread around the wheel *and* stepped in lightness, which makes them read as
+  one set while staying separable. The lightness ladder is not decoration — under protanopia and
+  deuteranopia the hue differences collapse and lightness is the only cue left, so flattening it
+  is what breaks the palette first. Chroma rises as lightness falls; holding it flat makes the
+  dark end read as mud. Slot 1 (Document) sits on the theme's accent hue, Tag stays green and
+  Flashcard warm, so the graph reads the same way whichever theme is on. `dark-cherry` is the
+  deliberate exception: a narrow blossom palette (cards cherry red, documents blossom pink,
+  folders bark) that separates red from pink by lightness and chroma instead of hue. Aliasing
+  these back to `--color-hl-*` or `--color-review-*` re-breaks them — those are tuned against
+  text, not against the canvas. The values must be literal hex: the graph parses hex/rgb only,
+  so `color-mix()` will not work there.
 
-1. Add a `[data-theme="my-theme"]` block to `src/ui/index.css` that defines all ten variables
-   listed above.
-2. Append `"my-theme"` to the `THEMES` array in `src/ui/App.jsx`. The cycle toggle will
-   include it automatically.
+The dark themes' danger colour is a light red, which is why `--color-on-danger` is dark there:
+white on it was the one pair that had never been checked.
 
-### User-defined themes
+### light-workbench
 
-A user can define a custom theme without modifying the source. The Config view can accept a
-theme name string from `config.json` and inject it into `THEMES` at startup, alongside loading
-a user-provided CSS snippet that defines the `[data-theme]` block. The theme attribute
-mechanism requires no changes — only the `THEMES` array and the CSS declaration need to exist.
+Its surfaces are a pastel beige carried by chroma rather than darkness, and that is not a style
+preference: `--color-accent` is frozen at the sRGB gamut edge for its hue (C = 0.146 of 0.150
+available) and its 4.5:1 requirement against both the window and the panel puts a hard floor
+under every surface either one touches. `bg-base` has about two luminance points of room, so
+a *darker* beige is not reachable without changing the accent contract — a more chromatic one
+at the same luminance is, and reads as the same warmth. `bg-base`, `bg-surface` and
+`accent-subtle` are therefore solved backwards from the ratio each must clear against the
+accent, not hand-picked; nudging their lightness is what will break the contrast check first.
+One token serves both link text and button fills, so the accent cannot be brightened toward the
+dark theme's amber without splitting that role in two.
 
-### Theme state
+### The check
 
-- Active theme is persisted in `localStorage` under key `fb-theme`.
-- On startup, `App.jsx` reads `localStorage.getItem('fb-theme') ?? 'light'` and applies it
-  before first render.
-- Theme state lives exclusively in `App.jsx`. No Context is needed because all styling is CSS.
+`npm run check:contrast` (`scripts/check-contrast.js`) parses the theme blocks out of
+`index.css` and asserts every pair the UI actually renders: text on each surface, accent and
+`on-accent`, danger and `on-danger`, the review pairs, `fg-primary` over each highlight, and
+pairwise OKLab ΔE floors between the five graph hues (15 normal / 8 under colour-vision
+deficiency). It runs in `check:ui`. It reads with a regex, which imposes a shape on the file:
+each theme block starts `[data-theme="…"] {` at column 0 and ends with `}` at column 0, every
+`--color-*` is one `name: value;` line with a literal hex (a `var()` chain is followed, up to
+five deep), no `}` is nested inside a block, and the `:root, [data-theme="light-workbench"]`
+selector stays joined. The bare `:root` size block is skipped, which is why non-colour tokens
+may live there freely.
 
 ### Rules
 
-- Never hardcode colors. Every color value in every component stylesheet must reference a
-  CSS variable from the list above.
-- Never read the theme in JavaScript. Components must not branch on the theme name; use
-  CSS variables and let the cascade do the work.
-- All new variables must be added to every theme. If a new semantic slot is needed, add it
-  to all `[data-theme]` blocks at the same time.
+- Never hardcode a colour in a component stylesheet or in JSX. Every colour is a token; the
+  guard fails otherwise. The exceptions are the graph's standalone HTML export (a page that
+  runs outside the app) and the per-filetype fills in `components/icons/`.
+- Never read the theme in JavaScript. Components must not branch on the theme name.
+- A new colour token is added to every theme block at once, to `THEME_VARS` in
+  `customThemes.js` and to `DARK_DEFAULTS` in `views/config/themeDefaults.js` so the editor
+  offers it, and — when it is a text/background pair — to `TEXT_PAIRS` in `check-contrast.js`.
+- Keep the pair notes beside the values in `index.css` short; the reasoning is here.

@@ -1,0 +1,380 @@
+/* Flashcards — the card browser: the levels sidebar, the toolbar and filter
+   bar, the CardRow list and pagination. Buttons, fields and badges come from
+   components/base. */
+
+.flashcards-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Left sidebar: Leitner stats ────────────────────────────────────────── */
+
+.fc-sidebar {
+  width: var(--size-lg);
+  min-width: var(--size-lg);
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fc-sidebar-header {
+  padding: var(--space-2) var(--space-3) var(--space-2);
+  background: var(--color-sidebar-header);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-stats {
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  overflow-y: auto;
+}
+
+.fc-stats-total {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-0-5);
+}
+
+.fc-box-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-0-5) var(--space-1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.fc-box-btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.fc-box-btn--active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-color: var(--color-accent);
+}
+
+.fc-box-label {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  width: var(--control-xs);
+  flex-shrink: 0;
+}
+
+.fc-box-track {
+  flex: 1;
+}
+
+.fc-box-count {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  width: var(--control-sm);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.fc-mastery {
+  margin-top: var(--space-2);
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+/* ── Main content ───────────────────────────────────────────────────────── */
+
+.fc-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-base);
+}
+
+/* Search + sort row */
+.fc-toolbar {
+  flex-shrink: 0;
+}
+.fc-search-input {
+  flex: 1;
+  min-width: var(--size-md);
+}
+
+/* Filter pills row */
+.fc-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Separates "what kind of card is this" from "how is it behaving" — two different
+   questions that happen to share a row. */
+
+.fc-flag-pill { font-style: italic; }
+
+.fc-filter-count {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Card list */
+.fc-card-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* FSRS difficulty. Deliberately quieter than the category chip: it's a diagnostic
+   number, not a label the user chose. */
+
+/* Card-health flag. Sits with the diagnostics rather than the labels, and stays a chip
+   rather than an icon: "overloaded" is a claim the user should be able to read and
+   disagree with, not a warning triangle. */
+
+.fc-time {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.fc-empty {
+  padding: var(--space-10) 0;
+  text-align: center;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+}
+
+/* Pagination */
+.fc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+}
+
+.fc-page-info {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  min-width: var(--control-bar);
+  text-align: center;
+}
+
+/* ── New card button ────────────────────────────────────────────────────── */
+
+.flashcards-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Left sidebar: Leitner stats ────────────────────────────────────────── */
+
+.fc-sidebar {
+  width: var(--size-lg);
+  min-width: var(--size-lg);
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.fc-sidebar-header {
+  padding: var(--space-2) var(--space-3) var(--space-2);
+  background: var(--color-sidebar-header);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.fc-stats {
+  padding: var(--space-2) var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  overflow-y: auto;
+}
+
+.fc-stats-total {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  margin-bottom: var(--space-2);
+  padding: 0 var(--space-0-5);
+}
+
+.fc-box-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  padding: var(--space-0-5) var(--space-1);
+  cursor: pointer;
+  text-align: left;
+}
+
+.fc-box-btn:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+}
+
+.fc-box-btn--active {
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  border-color: var(--color-accent);
+}
+
+.fc-box-label {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  width: var(--control-xs);
+  flex-shrink: 0;
+}
+
+.fc-box-track {
+  flex: 1;
+}
+
+.fc-box-count {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  width: var(--control-sm);
+  text-align: right;
+  flex-shrink: 0;
+}
+
+.fc-mastery {
+  margin-top: var(--space-2);
+  padding: 0 var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+/* ── Main content ───────────────────────────────────────────────────────── */
+
+.fc-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--color-bg-base);
+}
+
+/* Search + sort row */
+.fc-toolbar {
+  flex-shrink: 0;
+}
+.fc-search-input {
+  flex: 1;
+  min-width: var(--size-md);
+}
+
+/* Filter pills row */
+.fc-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* Separates "what kind of card is this" from "how is it behaving" — two different
+   questions that happen to share a row. */
+
+.fc-flag-pill { font-style: italic; }
+
+.fc-filter-count {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+/* Card list */
+.fc-card-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+/* FSRS difficulty. Deliberately quieter than the category chip: it's a diagnostic
+   number, not a label the user chose. */
+
+/* Card-health flag. Sits with the diagnostics rather than the labels, and stays a chip
+   rather than an icon: "overloaded" is a claim the user should be able to read and
+   disagree with, not a warning triangle. */
+
+.fc-time {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  opacity: 0.7;
+}
+
+.fc-empty {
+  padding: var(--space-10) 0;
+  text-align: center;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+}
+
+/* Pagination */
+.fc-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  flex-shrink: 0;
+}
+
+.fc-page-info {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  min-width: var(--control-bar);
+  text-align: center;
+}
+
+/* ── New card button ────────────────────────────────────────────────────── */
+

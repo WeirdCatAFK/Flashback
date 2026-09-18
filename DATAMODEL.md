@@ -343,7 +343,7 @@ All media slots (`front_img`, `back_img`, `front_sound`, `back_sound`) store a S
 
 Sidecars written before `cardType` was introduced may carry `"isCustom": true` instead of `"cardType"`. The renderer resolves this with: `card.cardType ?? (card.isCustom ? 'custom' : 'basic')`.
 
-A `type_answer` card written before `answerText` existed keeps its expected answer in `backText` and has no `answerText` key at all. Readers resolve this with one rule — the compared value is `answerText`, falling back to `backText` when it is absent or empty; notes exist only when `answerText` does — implemented once per side in `typeAnswerParts()` (`src/ui/components/shared/flashcardFields.js`) and `answerBody()` (`access/orchestration/cardHealth.js`).
+A `type_answer` card written before `answerText` existed keeps its expected answer in `backText` and has no `answerText` key at all. Readers resolve this with one rule — the compared value is `answerText`, falling back to `backText` when it is absent or empty; notes exist only when `answerText` does — implemented once per side in `typeAnswerParts()` (`src/ui/components/flashcard/flashcardFields.js`) and `answerBody()` (`access/orchestration/cardHealth.js`).
 
 Vaults are migrated to the new shape by canonical update 001 (`config/updates/001_type_answer_split.js` — sidecars + `_decks/*.json`, sealed as one `reconcile:` commit) and its paired schema migration 008 (the `FlashcardContent.answerText` column and its backfill). The fallback is kept regardless: a Seal rollback can restore a pre-split sidecar at any time, so correctness never depends on the update having run.
 

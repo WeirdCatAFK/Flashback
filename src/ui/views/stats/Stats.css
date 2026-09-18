@@ -1,0 +1,464 @@
+/* Stats — read-only study analytics. Same quiet workbench language as Manage/
+   Config: token colours only, thin borders, generous breathing room. A single
+   accent hue does double duty as a sequential ramp (light→dark = magnitude). */
+
+.stats-view {
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--space-5) var(--space-6) var(--space-6);
+  background: var(--color-bg-base);
+}
+
+/* Wide rather than a reading column: nothing on this page is prose — every block is a
+   chart or a row of numbers — and the width is what lets the panels pair up two-across
+   and the whole view fit a laptop viewport without scrolling. */
+.stats-body {
+  max-width: var(--size-9xl);
+  margin: 0 auto;
+}
+
+/* ── Header ─────────────────────────────────────────────────────────────────── */
+
+.stats-header {
+  margin-bottom: var(--space-3);
+}
+
+.stats-header__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.stats-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-lede {
+  margin-top: var(--space-1);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.stats-empty,
+.stats-empty-inline {
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+}
+
+.stats-empty {
+  max-width: 52ch;
+  padding: var(--space-8) 0;
+}
+
+/* ── Vault completeness (headline band) ───────────────────────────── */
+
+/* Full width rather than a fifth tile: the tile row is a fixed four-column grid, and this
+   is the headline the rest of the page qualifies — it should not read as one of four peers. */
+.stats-completeness {
+  padding: var(--space-3) var(--space-4);
+  margin-bottom: var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.stats-completeness-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.stats-completeness-value {
+  font-size: var(--text-2xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-completeness-label {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-completeness-hint {
+  flex: 1 1 22ch;
+  margin: 0;
+  max-width: 46ch;
+  text-align: right;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+/* Same pill idiom as .stats-maturity-track, so the two bars on this page read as one
+   family; a single fill here rather than segments, because this is one quantity. */
+.stats-completeness-track {
+  margin-top: var(--space-3);
+  height: var(--control-xs);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-fill {
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-halves {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+/* label | track | value | detail — the value column is fixed so the two percentages line
+   up under each other rather than drifting with the label's length. */
+.stats-completeness-half {
+  display: grid;
+  grid-template-columns: 4.5rem minmax(var(--space-16), var(--size-sm)) 3rem 1fr;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.stats-completeness-half-label {
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-completeness-half-track {
+  height: var(--space-1);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-completeness-half-track > span {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.stats-completeness-half-value {
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.stats-completeness-half-detail {
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Headline tiles ─────────────────────────────────────────────────────────── */
+
+.stats-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+/* ── Panels ─────────────────────────────────────────────────────────────────── */
+
+.stats-panel {
+  padding: var(--space-4) var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  margin-bottom: var(--space-4);
+}
+
+.stats-panel-head {
+  margin-bottom: var(--space-3);
+}
+
+.stats-panel-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.stats-panel-hint {
+  margin-top: var(--space-0-5);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* Two columns of panels, each an independent stack. A grid of panels would stretch
+   every row to its tallest cell and leave holes under the short ones; nested stacks let
+   each column close up, which is what keeps the page inside one screen. */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-3);
+  align-items: start;
+}
+
+.stats-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+/* ── In-panel metric row (Acquisition) ──────────────────────────────────────── */
+/* Same reading as the headline tiles, minus the chrome — these already sit inside
+   a panel, so they are separated by rule lines rather than borders. */
+
+/* Three across inside a half-width column, so the gutters are tighter than they would
+   be full-bleed — the longest label still sits on one line at that width. */
+.stats-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--space-4);
+}
+
+.stats-metric + .stats-metric {
+  padding-left: var(--space-4);
+  border-left: 1px solid var(--color-border);
+}
+
+.stats-metric-value {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  line-height: 1.1;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-metric-label {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.stats-metric-hint {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--color-fg-secondary);
+  opacity: 0.85;
+}
+
+.stats-col .stats-panel {
+  margin-bottom: 0;
+}
+
+/* ── Maturity stacked bar ───────────────────────────────────────────────────── */
+
+.stats-maturity-track {
+  display: flex;
+  height: var(--control-xs);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  background: var(--color-bg-hover);
+}
+
+.stats-maturity-seg {
+  min-width: var(--space-0-5);
+  /* 2px surface gap between adjacent fills, per the mark spec. */
+  box-shadow: inset 2px 0 0 var(--color-bg-surface);
+}
+.stats-maturity-seg:first-child {
+  box-shadow: none;
+}
+
+.stats-legend {
+  list-style: none;
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.stats-legend-item {
+  display: grid;
+  grid-template-columns: auto auto 1fr;
+  align-items: baseline;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+}
+
+.stats-legend-swatch {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: var(--radius-sm);
+  align-self: center;
+}
+
+.stats-legend-label {
+  color: var(--color-fg-primary);
+  font-weight: 500;
+}
+
+.stats-legend-count {
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.stats-legend-hint {
+  color: var(--color-fg-secondary);
+  text-align: right;
+}
+
+/* ── Due forecast ───────────────────────────────────────────────────────────── */
+
+.stats-overdue {
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+.stats-overdue strong {
+  color: var(--color-accent);
+}
+
+.stats-forecast-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-1);
+  height: var(--size-sm);
+}
+
+.stats-forecast-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.stats-forecast-count {
+  font-size: var(--text-xs);
+  height: var(--control-xs);
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-forecast-bar-wrap {
+  flex: 1;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+
+.stats-forecast-bar {
+  width: 100%;
+  max-width: var(--control-xs);
+  min-height: 2px;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  transition: height var(--dur-base) var(--ease-out);
+}
+
+.stats-forecast-x {
+  margin-top: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+.stats-forecast-x.is-today {
+  color: var(--color-fg-primary);
+  font-weight: 600;
+}
+
+/* ── Activity heatmap ───────────────────────────────────────────────────────── */
+
+.stats-heatmap-wrap {
+  overflow-x: auto;
+}
+
+.stats-heatmap {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--icon-sm);
+  grid-template-rows: repeat(7, var(--icon-sm));
+  gap: var(--space-0-5);
+  width: max-content;
+}
+
+.stats-heatmap-cell {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  border-radius: var(--radius-sm);
+}
+.stats-heatmap-cell.is-pad {
+  background: transparent !important;
+}
+
+.stats-heatmap-legend {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+.stats-heatmap-legend .stats-heatmap-cell {
+  width: var(--space-3);
+  height: var(--space-3);
+  min-width: var(--space-3);
+  aspect-ratio: auto;
+}
+
+/* ── Responsive ─────────────────────────────────────────────────────────────── */
+
+/* Below this the two panel columns are narrower than the heatmap they have to hold,
+   so they stack — one tall page beats two scrolling sideways. */
+@media (max-width: 1000px) {
+  .stats-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .stats-tiles {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  /* The detail column is the first thing worth losing: the percentage beside it already
+     carries the number, and an ellipsised count says less than no count at all. */
+  .stats-completeness-half {
+    grid-template-columns: 4.5rem 1fr 3rem;
+  }
+  .stats-completeness-half-detail {
+    display: none;
+  }
+  .stats-completeness-hint {
+    text-align: left;
+  }
+  .stats-metrics {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+  .stats-metric + .stats-metric {
+    padding-left: 0;
+    padding-top: var(--space-4);
+    border-left: none;
+    border-top: 1px solid var(--color-border);
+  }
+}

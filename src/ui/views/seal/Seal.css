@@ -1,0 +1,718 @@
+/* Seal — the version-history view: the main-thread ribbon, loose pages, the
+   Vault Doctor panel, the wax-sealed timeline and the restore banner. Buttons
+   and dialog chrome come from components/base. */
+
+.seal-view {
+  padding: var(--space-6) var(--space-8);
+  overflow-y: auto;
+  height: 100%;
+}
+
+.seal-section {
+  margin-bottom: var(--space-6);
+}
+
+.seal-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-2);
+}
+
+.seal-section-head .seal-eyebrow {
+  opacity: 0.75;
+  margin: 0 0 var(--space-2);
+}
+
+.seal-eyebrow {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.10em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+  margin: 0 0 var(--space-2);
+}
+
+.seal-loading,
+.seal-empty,
+.seal-loose-empty {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.seal-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-1) var(--space-2);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────── */
+
+/* ── Overview: the "Main" thread at a glance ─────────────────────────────
+   One lane today (the backend has no branch concept yet) — structured so a
+   future multi-user branch model can add parallel lanes without a rewrite. */
+
+.seal-overview {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.seal-overview-lane-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  flex-shrink: 0;
+}
+
+.seal-overview-track {
+  position: relative;
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--control-xs);
+}
+
+.seal-overview-track::before {
+  content: '';
+  position: absolute;
+  left: var(--space-1);
+  right: var(--space-1);
+  top: 50%;
+  height: 2px;
+  transform: translateY(-50%);
+  background: var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.seal-overview-dot {
+  position: relative;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  --wax: var(--color-fg-secondary);
+  background: var(--wax);
+  border: 2px solid var(--color-bg-surface);
+  box-shadow: 0 0 0 1px var(--color-border);
+  cursor: pointer;
+  padding: 0;
+  flex-shrink: 0;
+  transition: transform var(--dur-fast);
+}
+
+.seal-overview-dot:hover {
+  transform: scale(1.35);
+}
+
+.seal-overview-dot--create { --wax: var(--color-accent); }
+.seal-overview-dot--edit   { --wax: var(--color-accent); }
+.seal-overview-dot--metadata { --wax: var(--color-fg-secondary); }
+.seal-overview-dot--move   { --wax: var(--color-hl-3); }
+.seal-overview-dot--delete { --wax: var(--color-danger); }
+
+.seal-overview-dot--current {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  box-shadow: var(--shadow-focus);
+}
+
+/* ── Loose pages: drift card, recessed to read as unbound / uncatalogued ─ */
+
+.seal-loose-card {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-3);
+  background: var(--color-bg-base);
+}
+
+.seal-loose-groups {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  max-height: var(--size-xl);
+  overflow-y: auto;
+}
+
+.seal-loose-group ul {
+  margin: var(--space-0-5) 0 0 0;
+  padding-left: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.seal-loose-more {
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+  font-style: italic;
+  list-style: none;
+  margin-left: calc(var(--space-4) * -1);
+}
+
+.seal-loose-group-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.seal-loose-group-label--added    { color: var(--color-review-good); }
+.seal-loose-group-label--modified { color: var(--color-accent); }
+.seal-loose-group-label--deleted  { color: var(--color-danger); }
+
+/* ── Seal log: a flat git-graph — nodes on a rail, rows to the right ─────
+   One continuous scrollable list, edge-to-edge like a commit log, not a
+   stack of floating cards. */
+
+.seal-rail {
+  display: flex;
+  flex-direction: column;
+}
+
+.seal-entry {
+  display: flex;
+  align-items: stretch;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-1);
+  margin: 0 calc(var(--space-2) * -1);
+  border-radius: var(--radius-sm);
+  border-bottom: 1px solid var(--color-border);
+  transition: background var(--dur-fast);
+}
+
+.seal-entry:last-child {
+  border-bottom: none;
+}
+
+.seal-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.seal-entry-rail {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: var(--control-xs);
+  flex-shrink: 0;
+}
+
+/* Flat graph node — solid fill, thin ring to separate it from the rail
+   line behind it. No gradients, no relief; the icon carries the meaning. */
+.seal-stamp {
+  width: var(--control-xs);
+  height: var(--control-xs);
+  margin-top: var(--space-1);
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: var(--wax);
+  box-shadow: 0 0 0 2px var(--color-bg-base);
+}
+
+.seal-stamp svg {
+  width: var(--space-2);
+  height: var(--space-2);
+  color: var(--color-bg-base);
+}
+
+.seal-stamp--create { --wax: var(--color-accent); }
+.seal-stamp--edit   { --wax: var(--color-accent); }
+.seal-stamp--move   { --wax: var(--color-hl-3); }
+.seal-stamp--delete { --wax: var(--color-danger); }
+.seal-stamp--unknown { --wax: var(--color-fg-secondary); }
+
+/* Metadata edits are the most numerous entry by far (every highlight, every card).
+   Muted on purpose: present and scannable, but not competing with the commits that
+   changed a document's actual content. */
+.seal-stamp--metadata { --wax: var(--color-fg-secondary); }
+
+.seal-stamp--sm {
+  width: var(--control-xs);
+  height: var(--control-xs);
+  margin-top: 0;
+}
+
+/* the current HEAD gets a flat accent ring instead of a bigger medallion */
+.seal-entry--current .seal-stamp {
+  width: var(--control-xs);
+  height: var(--control-xs);
+  margin-top: var(--space-1);
+  box-shadow: var(--shadow-focus);
+}
+
+.seal-rail-line {
+  width: 2px;
+  flex: 1;
+  min-height: var(--space-1);
+  margin-top: var(--space-0-5);
+  background: var(--color-border);
+}
+
+/* Single dense row, like an extension's commit graph: message + type on
+   the left, date/hash/stats columns aligned on the right. Expandable
+   details (changed files, restore) drop to their own line below via
+   flex-basis: 100%, instead of ballooning the row itself. */
+.seal-card {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: var(--space-3);
+  row-gap: var(--space-0-5);
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+}
+
+@keyframes seal-flash {
+  0%   { background: var(--color-accent-subtle); }
+  100% { background: transparent; }
+}
+
+.seal-entry--highlight {
+  animation: seal-flash 1.3s var(--ease-out);
+}
+
+.seal-card-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 var(--size-md);
+  min-width: 0;
+}
+
+.seal-entry-action {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+  /* wide enough for the longest label ("METADATA") so the detail column stays
+     aligned down the whole timeline */
+  flex: 0 0 var(--size-xs);
+}
+
+.seal-entry-detail {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--color-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Containing folder, trailing the file name. Dim and inside the ellipsised
+   detail span, so it's the first thing to get clipped when space runs out. */
+.seal-entry-dir {
+  color: var(--color-fg-secondary);
+  font-weight: 400;
+}
+
+.seal-entry-current {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  background: var(--color-accent-subtle);
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.seal-card-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 0 auto;
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+
+.seal-entry-time {
+  min-width: var(--control-2xl);
+  text-align: right;
+}
+
+.seal-entry-oid {
+  font-family: var(--font-mono);
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+  padding: var(--space-0-5) var(--space-1);
+  min-width: var(--control-bar);
+  text-align: center;
+}
+
+.seal-entry-stats {
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Changed files: lazy-loaded per commit, capped like loose pages ─────── */
+
+.seal-files {
+  flex-basis: 100%;
+  margin-top: var(--space-0-5);
+}
+
+.seal-files-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  padding: var(--space-0-5) 0;
+}
+
+.seal-files-toggle:hover {
+  color: var(--color-fg-primary);
+}
+
+.seal-files-caret {
+  display: inline-block;
+  font-size: var(--text-xs);
+  transition: transform var(--dur-fast);
+}
+
+.seal-files-caret--open {
+  transform: rotate(90deg);
+}
+
+.seal-files-body {
+  margin-top: var(--space-1);
+  padding: var(--space-2) var(--space-2);
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-md);
+  max-height: var(--size-lg);
+  overflow-y: auto;
+}
+
+.seal-files-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+}
+
+.seal-files-item {
+  font-family: monospace;
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.seal-files-item--added::before    { content: '+ '; color: var(--color-review-good); }
+.seal-files-item--modified::before { content: '~ '; color: var(--color-accent); }
+.seal-files-item--deleted::before  { content: '\2212 '; color: var(--color-danger); }
+
+.seal-files-group + .seal-files-group {
+  margin-top: var(--space-2);
+}
+
+.seal-files-group-label {
+  display: block;
+  margin-bottom: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  opacity: 0.75;
+}
+
+.seal-files-showall {
+  margin-top: var(--space-2);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.seal-files-showall:hover {
+  color: var(--color-fg-primary);
+}
+
+/* ── Seal log: explainer + paging foot ─────────────────────────────────── */
+
+.seal-log-note {
+  margin-bottom: var(--space-2);
+  max-width: 68ch;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.seal-log-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.seal-log-count,
+.seal-log-end {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.seal-log-end {
+  opacity: 0.7;
+  font-style: italic;
+}
+
+/* ── Actions: hidden until the row is hovered, like a graph extension's
+   inline row actions — keeps the log dense when just scanning history. ── */
+
+.seal-card-actions {
+  flex-basis: 100%;
+  max-height: 0;
+  opacity: 0;
+  overflow: hidden;
+  transition: max-height var(--dur-fast) ease, opacity var(--dur-fast) ease;
+}
+
+.seal-entry:hover .seal-card-actions,
+.seal-entry:focus-within .seal-card-actions {
+  max-height: var(--control-sm);
+  opacity: 1;
+  margin-top: var(--space-0-5);
+}
+
+.seal-entry-rollback {
+  font-size: var(--text-xs);
+  padding: var(--space-0-5) 0;
+  border: none;
+  background: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: color var(--dur-fast);
+}
+
+.seal-entry-rollback:hover {
+  color: var(--color-danger);
+}
+
+/* ── Restore confirm modal ────────────────────────────────────────────── */
+
+.seal-modal-target {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  flex-wrap: wrap;
+}
+
+.seal-modal-warning {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+  background: var(--color-danger-bg);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-2);
+}
+
+.seal-modal-checkbox {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  accent-color: var(--color-accent);
+}
+
+.seal-modal-hint {
+  margin: calc(var(--space-1) * -1) 0 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  line-height: 1.5;
+}
+
+/* ── Post-restore restart banner ─────────────────────────────────────── */
+
+.seal-restart-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-md);
+}
+
+.seal-restart-message {
+  flex: 1;
+  min-width: var(--size-lg);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+.seal-restart-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+/* ── Vault doctor ────────────────────────────────────────────────────────
+   Reconciles the whole derived index against the canonical files. Sits below
+   the loose-pages panel and reuses the loose-group palette for issue lists. */
+
+/* Quieter danger — a text/outline button for the rarely-wanted rebuild, so it
+   reads as available but not as the primary path. */
+
+.seal-doctor-group-label--warn { color: var(--color-hl-3); }
+
+.seal-doctor-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-1);
+}
+
+.seal-doctor-badge {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+
+.seal-doctor-badge--ok {
+  color: var(--color-review-good);
+  background: color-mix(in srgb, var(--color-review-good) 14%, transparent);
+}
+
+.seal-doctor-badge--bad {
+  color: var(--color-danger);
+  background: var(--color-danger-bg);
+}
+
+.seal-doctor-counts {
+  display: flex;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.seal-doctor-count {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+}
+
+.seal-doctor-count-n {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.seal-doctor-count-label {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.seal-doctor-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.seal-doctor-result {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-accent);
+}
+
+.seal-doctor-result-head {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-result-body {
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-result-meta {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.seal-doctor-result-warn {
+  font-size: var(--text-xs);
+  color: var(--color-hl-3);
+  margin-top: var(--space-0-5);
+}
+
+.seal-doctor-type-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.seal-doctor-type-token {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--color-danger);
+  letter-spacing: 0.08em;
+}
+
+.seal-doctor-type-input {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  letter-spacing: 0.08em;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+}
+
+.seal-doctor-type-input:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+/* Shown to an admin who can see index drift but cannot repair it — repairing is the
+   Author's, because a rebuild discards everyone's review history. Quiet: it is an
+   explanation, not a warning. */
+.seal-doctor-note {
+    margin: var(--space-2) 0 0;
+    color: var(--color-fg-secondary);
+    font-size: var(--text-sm);
+}

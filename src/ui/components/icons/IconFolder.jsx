@@ -1,3 +1,7 @@
+/**
+ * IconFolder — the SVG glyph for a closed folder.
+ */
+
 export default function IconFolder({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor"

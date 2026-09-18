@@ -1,3 +1,7 @@
+/**
+ * IconFileMarkdown — the SVG glyph for a Markdown file in the tree.
+ */
+
 export default function IconFileMarkdown({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>

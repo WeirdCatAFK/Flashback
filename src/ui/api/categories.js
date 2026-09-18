@@ -1,9 +1,16 @@
-import { request } from './client.js';
+/**
+ * Pedagogical categories API (/api/categories).
+ */
 
-export const getCategories = () => request('GET', '/api/categories');
+import { request } from "./client.js";
 
-export const createCategory = (data) => request('POST', '/api/categories', data);
+export const getCategories = () => request("GET", "/api/categories");
 
-export const updateCategory = (id, data) => request('PUT', `/api/categories/${id}`, data);
+export const createCategory = (data) =>
+  request("POST", "/api/categories", data);
 
-export const deleteCategory = (id) => request('DELETE', `/api/categories/${id}`);
+export const updateCategory = (id, data) =>
+  request("PUT", `/api/categories/${id}`, data);
+
+export const deleteCategory = (id) =>
+  request("DELETE", `/api/categories/${id}`);

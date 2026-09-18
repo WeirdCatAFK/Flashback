@@ -1,0 +1,337 @@
+/* Reusable flashcard canvas. All colors reference theme CSS variables. */
+
+.flashcard {
+  --fc-radius: 12px;
+  position: relative;
+  width: 100%;
+  max-width: var(--size-6xl);
+  aspect-ratio: 4 / 3;
+  margin: 0 auto;
+  perspective: 1400px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.flashcard:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--fc-radius);
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform var(--dur-slow) var(--ease-in-out);
+  transform-style: preserve-3d;
+}
+
+.flashcard[data-face='back'] .flashcard-inner {
+  transform: rotateY(180deg);
+}
+
+.flashcard-face {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  overflow: hidden;
+  border-radius: var(--fc-radius);
+  /* Warm paper gradient: front is slightly lighter at the top */
+  background: linear-gradient(
+    158deg,
+    var(--color-bg-reader) 0%,
+    color-mix(in srgb, var(--color-bg-reader) 88%, var(--color-bg-hover)) 100%
+  );
+  color: var(--color-fg-primary);
+  border: 1px solid var(--color-border);
+  /* Three-layer shadow: ambient + mid + crisp edge for physical depth */
+  box-shadow:
+    var(--shadow-sm);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  container-type: size;
+}
+
+.flashcard-face--back {
+  transform: rotateY(180deg);
+}
+
+/* Static variant: single face, no 3D, no flip. */
+.flashcard--static { cursor: default; perspective: none; }
+.flashcard--static .flashcard-inner { transition: none; transform: none; }
+.flashcard--static .flashcard-face {
+  position: relative;
+  transform: none;
+  -webkit-backface-visibility: visible;
+  backface-visibility: visible;
+}
+
+/* Image takes only the space left over by text + button (flex-basis 0), then
+   scales to fit it — so a large image never pushes the text off the card. */
+.flashcard-media {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashcard-media img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+.flashcard-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  text-align: justify;
+  line-height: 1.4;
+  font-size: clamp(var(--text-sm), 5cqw, var(--text-lg));
+  word-break: break-word;
+}
+
+/* Markdown block elements rendered inside card text — kept tight so they read
+   like a single card face rather than a full document. */
+.flashcard-text p { margin: 0 0 0.5em; }
+.flashcard-text p:last-child { margin-bottom: 0; }
+.flashcard-text ul,
+.flashcard-text ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; text-align: left; }
+.flashcard-text blockquote {
+  margin: 0 0 0.5em;
+  padding-inline-start: 0.8em;
+  border-inline-start: 3px solid var(--color-border);
+  text-align: left;
+}
+.flashcard-text code {
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.9em;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+}
+.flashcard-text pre {
+  margin: 0 0 0.5em;
+  padding: 0.6em 0.8em;
+  background: var(--color-bg-hover);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  text-align: left;
+  overflow-x: auto;
+}
+.flashcard-text pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.flashcard-text .katex-display {
+  margin: 0.4em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* type_answer's post-review notes: a mnemonic or explanation shown under the answer once
+   the card has been checked. Deliberately quieter and smaller than .flashcard-text — it is
+   support material, and must never be mistaken for the answer that was graded. */
+.flashcard-notes {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--color-border);
+  color: var(--color-fg-secondary);
+  text-align: left;
+  line-height: 1.4;
+  font-size: clamp(var(--text-xs), 4cqw, var(--text-md));
+  word-break: break-word;
+}
+
+.flashcard-notes p { margin: 0 0 0.5em; }
+.flashcard-notes p:last-child { margin-bottom: 0; }
+.flashcard-notes ul,
+.flashcard-notes ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; }
+
+/* Floats in the bottom-right corner, out of the content flow, so it stays clear
+   of the main flashcard text/image. */
+.flashcard-audio-btn {
+  position: absolute;
+  bottom: var(--space-2);
+  right: var(--space-2);
+  z-index: var(--z-raised);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: 50%;
+  cursor: pointer;
+  opacity: 0.85;
+  transition: background var(--dur-fast), transform var(--dur-fast), opacity var(--dur-fast);
+}
+
+.flashcard-audio-btn:hover {
+  background: var(--color-bg-hover);
+  opacity: 1;
+}
+
+.flashcard-audio-btn:active {
+  transform: scale(0.92);
+}
+
+.flashcard-audio-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.flashcard-audio-btn svg {
+  display: block;
+}
+
+/* Custom card */
+.flashcard--custom .flashcard-custom-slot {
+  gap: var(--space-2);
+  border-style: dashed;
+  color: var(--color-fg-secondary);
+}
+
+.flashcard-custom-badge {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.flashcard-custom-note {
+  font-size: var(--text-sm);
+  text-align: center;
+  max-width: 80%;
+}
+
+.flashcard-custom-live {
+  padding: 0;
+  overflow: hidden;
+}
+
+.flashcard-custom-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  border-radius: var(--fc-radius);
+}
+
+/* Reversible: direction badge */
+.flashcard-direction-badge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  border: 1px solid var(--color-border);
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  opacity: 0.85;
+}
+
+/* Cloze: inline text with blanks */
+.flashcard-cloze {
+  line-height: 1.8;
+}
+
+.cloze-blank {
+  display: inline-block;
+  min-width: var(--control-bar);
+  border-bottom: 2px solid var(--color-fg-secondary);
+  margin: 0 var(--space-0-5);
+  vertical-align: bottom;
+  opacity: 0.6;
+}
+
+.cloze-answer {
+  display: inline;
+  color: var(--color-accent);
+  font-weight: 600;
+  background: var(--color-accent-subtle);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-1);
+  margin: 0 var(--space-0-5);
+}
+
+/* Type Answer: textarea + check button inside the card face */
+.flashcard-face--front .type-answer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: var(--size-2xl);
+  margin-top: var(--space-2);
+}
+
+.type-answer-input {
+  width: 100%;
+  font-size: clamp(var(--text-xs), 3cqw, var(--text-base));
+  font-family: var(--font-mono);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  outline: none;
+  resize: vertical;
+  min-height: var(--size-xs);
+  transition: border-color var(--dur-fast);
+  box-sizing: border-box;
+}
+
+.type-answer-input:focus {
+  border-color: var(--color-accent);
+}
+
+.type-answer-check {
+  font-size: clamp(var(--text-xs), 2.5cqw, var(--text-sm));
+  font-weight: 600;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-accent);
+  color: var(--color-bg-surface);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: opacity var(--dur-fast);
+  white-space: nowrap;
+  align-self: flex-end;
+}
+
+.type-answer-check:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.type-answer-check:not(:disabled):hover {
+  opacity: 0.85;
+}

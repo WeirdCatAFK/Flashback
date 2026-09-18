@@ -1,0 +1,212 @@
+/* YoutubeRenderer — the header, the player frame, the transcript panel and the
+   marker list. Buttons come from components/base. */
+
+.yt-renderer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  height: 100%;
+  padding: var(--space-5) var(--space-6);
+  overflow-y: auto;
+  color: var(--color-fg-primary);
+}
+
+.yt-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-4);
+  flex-wrap: wrap;
+}
+
+.yt-title-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.yt-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.yt-author {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.yt-source-link {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.yt-source-link:hover { text-decoration: underline; }
+
+.yt-player-wrap {
+  width: 100%;
+  max-width: var(--size-8xl);
+}
+
+/* Responsive 16:9 embed */
+.yt-player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  background: var(--color-media-bg);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.yt-player > div,
+.yt-player iframe {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+.yt-offline {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-secondary);
+}
+
+.yt-thumb {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+}
+
+/* Overlaid on the (empty) player when YT.onError fires — embedding disabled,
+   age-restricted, private, or removed. Covers the black player box. */
+.yt-playback-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  text-align: center;
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+}
+
+.yt-playback-error .yt-thumb { max-width: var(--size-lg); }
+.yt-playback-error p { margin: 0; max-width: var(--size-3xl); font-size: var(--text-sm); }
+
+.yt-toolbar {
+  flex-shrink: 0;
+}
+
+.yt-marker-count {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.yt-transcript-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.yt-transcript-panel {
+  margin-top: var(--space-2);
+  max-width: var(--size-8xl);
+  max-height: var(--size-2xl);
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+}
+
+.yt-transcript-lines {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+}
+
+.yt-transcript-line {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: start;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1);
+  border-radius: var(--radius-md);
+}
+
+.yt-transcript-line:hover { background: var(--color-bg-hover); }
+
+.yt-transcript-time {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  padding: var(--space-0-5) 0;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.yt-transcript-time:hover { text-decoration: underline; }
+
+.yt-transcript-text {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-primary);
+}
+
+.yt-markers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  max-width: var(--size-8xl);
+}
+
+.yt-marker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-md);
+  border-left: 3px solid var(--color-accent);
+  background: var(--color-bg-surface);
+}
+
+.yt-marker-time {
+  font-variant-numeric: tabular-nums;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+}
+
+.yt-marker-time:hover { text-decoration: underline; }
+
+.yt-marker-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

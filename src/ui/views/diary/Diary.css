@@ -1,0 +1,310 @@
+/* Diary — per-day study record. Same quiet workbench language as Stats/Manage:
+   token colours only, thin borders, tabular numerals. Two panes: a date rail and
+   the day's summary (read-only) + reflection editor. */
+
+.diary {
+  display: flex;
+  height: 100%;
+  background: var(--color-bg-base);
+}
+
+/* ── Date rail ─────────────────────────────────────────────────────────────── */
+
+.diary-rail {
+  flex: 0 0 var(--size-lg);
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+  overflow-y: auto;
+}
+
+.diary-rail-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  background: var(--color-sidebar-header);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.diary-rail-error {
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.diary-date-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1);
+}
+
+.diary-date {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.diary-date:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.diary-date--active {
+  background: var(--color-accent-subtle);
+  color: var(--color-fg-primary);
+  font-weight: 600;
+}
+
+.diary-date-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diary-date-badges {
+  display: flex;
+  gap: var(--space-1);
+  flex: 0 0 auto;
+}
+
+.diary-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-xs);
+  height: var(--control-xs);
+  padding: 0 var(--space-0-5);
+  font-size: var(--text-xs);
+  line-height: 1;
+  border-radius: var(--radius-sm);
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+}
+
+/* ── Main pane ─────────────────────────────────────────────────────────────── */
+
+.diary-main {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-8) var(--space-12);
+}
+
+.diary-main-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+/* Shown only on a remote — see DiaryView. A left rule rather than a coloured alert box:
+   it is a standing fact about where this data lives, not an error to be dismissed. */
+.diary-privacy-note {
+  margin: 0 0 var(--space-5);
+  padding: var(--space-2) var(--space-3);
+  border-left: 3px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+}
+
+.diary-main-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.diary-main-date {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.diary-main-actions {
+  margin-left: auto;
+  display: flex;
+  gap: var(--space-1);
+  align-self: center;
+}
+
+/* ── Summary ───────────────────────────────────────────────────────────────── */
+
+.diary-summary {
+  margin-bottom: var(--space-8);
+}
+
+.diary-breakdown {
+  margin-top: var(--space-5);
+}
+
+.diary-sub-heading {
+  margin-bottom: var(--space-2);
+}
+
+.diary-bars {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.diary-bar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--size-sm) var(--space-10);
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-0-5) 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+.diary-bar-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diary-bar-track {
+  height: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  overflow: hidden;
+}
+
+.diary-bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent);
+}
+
+.diary-bar-count {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-secondary);
+}
+
+.diary-struggled {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.diary-struggled-row {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg-surface);
+}
+
+.diary-struggled-front {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32ch;
+  color: var(--color-fg-primary);
+}
+
+.diary-struggled-count {
+  color: var(--color-accent);
+  font-variant-numeric: tabular-nums;
+}
+
+.diary-generated {
+  margin-top: var(--space-5);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Entry ─────────────────────────────────────────────────────────────────── */
+
+.diary-entry {
+  border-top: 1px solid var(--color-border);
+  padding-top: var(--space-5);
+}
+
+.diary-entry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+
+.diary-entry-title {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.diary-entry-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.diary-entry-textarea {
+  width: 100%;
+  min-height: var(--size-lg);
+  padding: var(--space-3) var(--space-3);
+  resize: vertical;
+  font: inherit;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--color-fg-primary);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.diary-entry-textarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+}
+
+.diary-entry-preview {
+  font-size: var(--text-base);
+  line-height: 1.7;
+  color: var(--color-fg-primary);
+}
+
+.diary-entry-empty {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.diary-entry-error {
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────────────── */
+
+.diary-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(var(--size-sm), 1fr));
+  gap: var(--space-2);
+  margin-bottom: var(--space-4);
+}

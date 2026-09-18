@@ -1,0 +1,376 @@
+/* Reusable flashcard creator. Self-contained; all colors via theme variables. */
+
+.fc-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fc-form-selection {
+  background: var(--color-accent-subtle);
+  border-left: 3px solid var(--color-accent);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: var(--space-2) var(--space-3);
+  margin-bottom: var(--space-1);
+}
+
+.fc-form-selected-text {
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  font-style: italic;
+  line-height: 1.4;
+  margin-bottom: var(--space-1);
+}
+
+.fc-form-source {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  font-family: 'Cascadia Code', 'Fira Mono', monospace;
+}
+
+.fc-form-anchor-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  flex-shrink: 0;
+  /* The quote block is accent-tinted, so a same-hue dot needs an outline
+     to stay visible in the light themes. */
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--color-fg-secondary) 45%, transparent);
+}
+
+.fc-form-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 var(--space-2);
+}
+
+.fc-form-preview-hint {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.fc-form-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  margin-top: var(--space-1);
+}
+
+.fc-form-field {
+  width: 100%;
+  /* Grow with the content instead of forcing inner scroll at 2 rows;
+     max-height keeps a huge paste from swallowing the panel. */
+  field-sizing: content;
+  resize: none;
+  overflow-y: auto;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  min-height: var(--control-bar);
+  max-height: var(--size-xl);
+  box-sizing: border-box;
+}
+
+.fc-form-field:focus,
+.fc-form-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+/* Media slots */
+.fc-form-media {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fc-form-media-slot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  min-height: var(--control-md);
+}
+
+.fc-form-media-label {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  flex-shrink: 0;
+}
+
+.fc-form-media-add {
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  cursor: pointer;
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.fc-form-media-add:hover {
+  background: var(--color-accent-subtle);
+}
+
+/* Two ways to fill one image slot: the file picker, and the book being read. */
+.fc-form-media-sources {
+  display: flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+/* A <button>, unlike the <label> beside it, arrives with UA styling to strip. */
+.fc-form-media-add--book {
+  border: none;
+  background: transparent;
+  font-family: inherit;
+}
+
+.fc-form-media-error {
+  margin: var(--space-1) 0 0;
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+}
+
+.fc-form-media-picked {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.fc-form-media-name {
+  font-size: var(--text-xs);
+  color: var(--color-fg-primary);
+  max-width: var(--size-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fc-form-media-clear {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  padding: 0 var(--space-0-5);
+}
+
+.fc-form-media-clear:hover {
+  color: var(--color-fg-primary);
+}
+
+/* Tags */
+.fc-form-tags {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  min-height: var(--control-lg);
+}
+
+.fc-tag {
+  font-size: var(--text-xs);
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  font-weight: 500;
+}
+
+.fc-tag--removable {
+  display: flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.fc-tag-remove {
+  font-size: var(--text-sm);
+  line-height: 1;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  padding: 0 var(--space-0-5);
+  border-radius: var(--radius-sm);
+}
+
+.fc-tag-remove:hover {
+  color: var(--color-fg-primary);
+}
+
+.fc-form-tag-input {
+  border: none;
+  outline: none;
+  background: transparent;
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  padding: 0;
+  min-width: var(--control-2xl);
+  flex: 1;
+}
+
+.fc-form-select {
+  width: 100%;
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+}
+
+.fc-form-error {
+  font-size: var(--text-xs);
+  color: var(--color-hl-4);
+}
+
+.fc-form-actions {
+  display: flex;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  justify-content: flex-end;
+}
+
+.fc-form-save {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  padding: var(--space-1) var(--space-3);
+  background: var(--color-accent);
+  color: var(--color-bg-surface);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: opacity var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
+}
+
+.fc-form-save:not(:disabled):active {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.fc-form-save:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.fc-form-save:not(:disabled):hover {
+  opacity: 0.85;
+}
+
+.fc-form-cancel {
+  font-size: var(--text-sm);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.fc-form-cancel:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+/* Card type dropdown */
+.fc-type-select {
+  margin-bottom: var(--space-0-5);
+}
+
+/* Hint / warning lines below fields */
+.fc-form-hint {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  line-height: 1.4;
+  margin: 0;
+}
+
+.fc-form-warn {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  margin: 0;
+}
+
+/* Monospace textarea for HTML / code */
+.fc-form-field--code {
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  min-height: var(--size-sm);
+  max-height: var(--size-2xl);
+}
+
+/* FlashcardEditor */
+.fc-editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.fc-editor-back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: var(--space-1);
+  transition: color var(--dur-fast);
+  background: none;
+  border: none;
+  text-align: left;
+}
+
+.fc-editor-back:hover {
+  color: var(--color-fg-primary);
+}
+
+.fc-editor-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding-bottom: var(--space-1);
+}
+
+/* Block-layout stage so aspect-ratio establishes a definite height.
+   Flex-column parents can't reliably do this for height:100% children. */
+.fc-card-stage {
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  position: relative;
+}
+
+/* Flashcard fills the stage; its own aspect-ratio + margin are overridden. */
+.fc-card-stage .flashcard {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+.fc-editor-flip-hint {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+

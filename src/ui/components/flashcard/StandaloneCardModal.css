@@ -1,0 +1,59 @@
+/* StandaloneCardModal — sizing for the new-card dialog interior. */
+
+.sc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: var(--color-scrim);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+}
+
+.sc-modal {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  width: var(--size-5xl);
+  max-width: calc(100vw - var(--control-lg));
+  max-height: calc(100vh - var(--control-bar));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: var(--shadow-float);
+}
+
+.sc-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.sc-modal-title {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.sc-modal-close {
+  background: none;
+  border: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  font-size: var(--text-sm);
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+}
+
+.sc-modal-close:hover {
+  color: var(--color-fg-primary);
+  background: var(--color-bg-hover);
+}
+
+.sc-modal-body {
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}

@@ -1,0 +1,425 @@
+/* ── Root container ──────────────────────────────────────────────────────── */
+
+.fe-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-sidebar);
+  overflow: hidden;
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.fe-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 var(--space-1) 0 var(--space-3);
+  height: var(--control-xl);
+  min-height: var(--control-xl);
+  background: var(--color-sidebar-header);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.fe-workspace-name {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  opacity: 0.75;
+}
+
+.fe-header-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+
+/* ── Tree scroll area ────────────────────────────────────────────────────── */
+
+.fe-tree {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: var(--space-1) 0;
+}
+
+.fe-tree::-webkit-scrollbar {
+  width: var(--space-1);
+}
+
+.fe-tree::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.fe-tree::-webkit-scrollbar-thumb {
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+}
+
+.fe-tree::-webkit-scrollbar-thumb:hover {
+  background: var(--color-fg-secondary);
+  opacity: 0.5;
+}
+
+/* ── Shared row styles ───────────────────────────────────────────────────── */
+
+.fe-file,
+.fe-folder {
+  display: flex;
+  align-items: center;
+  height: var(--control-sm);
+  padding-right: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  position: relative;
+}
+
+.fe-file:hover,
+.fe-folder:hover {
+  background: var(--color-bg-hover);
+}
+
+/* Selected file or folder */
+.fe-file.fe-selected,
+.fe-folder.fe-selected {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+/* ── Chevron ─────────────────────────────────────────────────────────────── */
+
+.fe-chevron {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--icon-md);
+  height: var(--icon-lg);
+  color: var(--color-fg-secondary);
+}
+
+.fe-chevron::before {
+  content: "▸";
+  font-size: var(--text-xs);
+  display: inline-block;
+  transition: transform var(--dur-fast) ease;
+}
+
+.fe-folder.open > .fe-chevron::before {
+  transform: rotate(90deg);
+  color: var(--color-accent);
+}
+
+/* ── Folder swatch dot ───────────────────────────────────────────────────── */
+
+.fe-folder-swatch {
+  flex-shrink: 0;
+  width: var(--space-1);
+  height: var(--space-1);
+  border-radius: 50%;
+  margin-right: var(--space-1);
+}
+
+/* ── Folder icon ─────────────────────────────────────────────────────────── */
+
+.fe-folder-icon {
+  display: inline-flex;
+  align-items: center;
+  margin-right: var(--space-1);
+  color: var(--color-accent);
+  opacity: 0.85;
+}
+
+/* ── File icon ───────────────────────────────────────────────────────────── */
+
+.fe-file {
+  gap: var(--space-1);
+}
+
+/* ── Item label ──────────────────────────────────────────────────────────── */
+
+.fe-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── Flashcard count badge ───────────────────────────────────────────────── */
+
+.fe-fc-badge {
+  flex-shrink: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.02em;
+}
+
+.fe-file.fe-selected .fe-fc-badge {
+  background: var(--color-accent);
+  color: var(--color-bg-base);
+}
+
+/* ── Reading progress ────────────────────────────────────────────────────────
+   A thin bar plus a number, on documents and on folders alike. Deliberately quiet:
+   it sits beside the flashcard count and is absent entirely for anything never
+   opened, so a folder of untouched imports looks untouched. */
+.fe-progress {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.fe-progress-bar {
+  width: var(--control-xs);
+  height: var(--space-0-5);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  overflow: hidden;
+}
+
+.fe-progress-bar > span {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  border-radius: var(--radius-sm);
+}
+
+.fe-progress--done .fe-progress-bar > span {
+  opacity: 0.55;
+}
+
+.fe-progress-text {
+  font-size: var(--text-xs);
+  line-height: 1;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.02em;
+}
+
+.fe-file.fe-selected .fe-progress-text {
+  color: var(--color-fg-primary);
+}
+
+/* ── Rename input ────────────────────────────────────────────────────────── */
+
+.fe-rename-input {
+  width: 100%;
+  height: var(--control-sm);
+  padding: 0 var(--space-1);
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+/* ── Children (tree line) ────────────────────────────────────────────────── */
+
+.fe-folder-wrap {
+  width: 100%;
+}
+
+.fe-children {
+  margin-left: var(--space-4);
+  border-left: 1px solid var(--color-tree-indent);
+}
+
+/* ── Drag-over state ─────────────────────────────────────────────────────── */
+
+.fe-drag-over {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+  border-radius: var(--radius-sm);
+  background: var(--color-accent-subtle) !important;
+}
+
+/* ── Item indentation ────────────────────────────────────────────────────── */
+
+.fe-file {
+  padding-left: var(--space-2);
+}
+
+.fe-folder {
+  padding-left: var(--space-1);
+}
+
+/* ── Loading / empty ─────────────────────────────────────────────────────── */
+
+.fe-loading,
+.fe-empty {
+  display: block;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.fe-empty {
+  padding: var(--space-6) var(--space-3);
+  text-align: center;
+  line-height: 1.5;
+}
+
+.fe-empty--error {
+  color: var(--color-danger);
+}
+
+/* ── Folder tags modal ───────────────────────────────────────────────────── */
+
+.ftm-path {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
+
+.ftm-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.ftm-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+}
+
+.ftm-hint {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  opacity: 0.65;
+  text-transform: none;
+}
+
+.ftm-error {
+  font-size: var(--text-xs);
+  color: var(--color-danger);
+  margin: 0;
+}
+
+/* tag chips and tci-* styles are global (Inspector.css), reused here */
+
+/* ── Folder color picker modal ───────────────────────────────────────────── */
+
+.fsm-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.fsm-swatch {
+  width: var(--icon-xl);
+  height: var(--icon-xl);
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition:
+    transform var(--dur-fast) ease,
+    border-color var(--dur-fast) ease;
+  outline: none;
+}
+
+.fsm-swatch:hover {
+  transform: scale(1.18);
+}
+
+.fsm-swatch--active {
+  border-color: var(--color-fg-primary) !important;
+}
+
+.fsm-swatch--none {
+  background: none;
+  border: 2px dashed var(--color-border);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  line-height: var(--control-sm);
+}
+
+.fsm-custom-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.fsm-custom-label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+  flex-shrink: 0;
+}
+
+.fsm-custom-input {
+  width: var(--control-lg);
+  height: var(--control-sm);
+  padding: var(--space-0-5);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  background: none;
+  flex-shrink: 0;
+}
+
+/* ── Clip-from-URL modal ─────────────────────────────────────────────────── */
+
+.clip-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-width: var(--size-2xl);
+}
+
+.clip-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.clip-kind {
+  display: inline-flex;
+  gap: var(--space-1);
+  padding: var(--space-0-5);
+  background: var(--color-bg-base);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  align-self: flex-start;
+}
+
+.clip-kind-btn--active,
+.clip-kind-btn--active:hover {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+}
+
+.clip-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.clip-btn--primary {
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.clip-btn--primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  background: var(--color-accent);
+}

@@ -1,0 +1,363 @@
+/* ── Shell ────────────────────────────────────────────────────────────────── */
+
+.ob-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font-family: inherit;
+}
+
+.ob-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-6) var(--space-6) var(--space-12);
+}
+
+.ob-card {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  width: 100%;
+  max-width: var(--size-3xl);
+  gap: var(--space-6);
+}
+
+/* ── Step dots ────────────────────────────────────────────────────────────── */
+
+.ob-stepdots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+}
+
+.ob-dot {
+  width: var(--space-1);
+  height: var(--space-1);
+  background: var(--color-border);
+  transition: background var(--dur-base), width var(--dur-base);
+}
+
+.ob-dot--active {
+  width: var(--icon-lg);
+  background: var(--color-accent);
+}
+
+.ob-dot--done {
+  background: var(--color-fg-secondary);
+  opacity: 0.4;
+}
+
+/* ── Step shared ──────────────────────────────────────────────────────────── */
+
+.ob-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.ob-step-title {
+  font-size: var(--text-md);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.ob-step-desc {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  margin: 0;
+  line-height: 1.5;
+}
+
+/* ── Step 0 — Welcome ─────────────────────────────────────────────────────── */
+
+.ob-step--welcome {
+  align-items: center;
+  text-align: center;
+  padding: var(--space-3) 0 var(--space-1);
+  gap: var(--space-5);
+}
+
+.ob-mark {
+  flex-shrink: 0;
+}
+
+.ob-welcome-title {
+  font-size: var(--text-lg);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.ob-welcome-desc {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  margin: 0;
+  line-height: 1.6;
+}
+
+/* Language switch on the welcome screen — deliberately quiet, since it only
+   matters to the minority of users who need it before reading anything else. */
+.ob-locale {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Form elements ────────────────────────────────────────────────────────── */
+
+.ob-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.ob-field--indented {
+  padding-left: var(--space-5);
+}
+
+.ob-label {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.ob-field .field {
+  width: 100%;
+}
+
+.ob-input--lg {
+  height: var(--control-xl);
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.ob-input--err {
+  border-color: var(--color-danger);
+}
+
+.ob-input--short {
+  width: var(--size-xs);
+}
+
+.ob-field-msg {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.ob-field-msg--err {
+  color: var(--color-danger);
+}
+
+.ob-path-preview {
+  font-family: monospace;
+  font-size: var(--text-xs);
+  opacity: 0.8;
+}
+
+/* ── Divider ──────────────────────────────────────────────────────────────── */
+
+.ob-divider {
+  height: 1px;
+  background: var(--color-border);
+}
+
+/* ── Checkbox row ─────────────────────────────────────────────────────────── */
+
+.ob-check-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+  user-select: none;
+}
+
+.ob-checkbox {
+  width: var(--control-xs);
+  height: var(--control-xs);
+  cursor: pointer;
+  accent-color: var(--color-accent);
+  flex-shrink: 0;
+}
+
+.ob-check-label {
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+/* ── Advanced ─────────────────────────────────────────────────────────────── */
+
+.ob-advanced-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  transition: color var(--dur-fast);
+  align-self: flex-start;
+}
+
+.ob-advanced-toggle:hover {
+  color: var(--color-fg-primary);
+}
+
+.ob-advanced {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+}
+
+.ob-inline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.ob-inline-row .ob-label {
+  width: var(--size-xs);
+  flex-shrink: 0;
+  margin: 0;
+}
+
+/* ── Summary card ─────────────────────────────────────────────────────────── */
+
+.ob-summary {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+
+.ob-summary-row {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.ob-summary-row:last-child {
+  border-bottom: none;
+}
+
+.ob-summary-divider {
+  height: 1px;
+  background: var(--color-border);
+  margin: 0;
+}
+
+.ob-summary-key {
+  font-size: var(--text-xs);
+  font-weight: 500;
+  color: var(--color-fg-secondary);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  width: var(--size-xs);
+  flex-shrink: 0;
+}
+
+.ob-summary-val {
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  font-weight: 500;
+}
+
+.ob-summary-val--path {
+  font-family: monospace;
+  font-size: var(--text-xs);
+  font-weight: 400;
+  color: var(--color-fg-secondary);
+  word-break: break-all;
+}
+
+/* ── Error ────────────────────────────────────────────────────────────────── */
+
+.ob-submit-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+  margin: 0;
+  padding: var(--space-2) var(--space-2);
+  background: var(--color-danger-bg);
+  border: 1px solid var(--color-danger);
+}
+
+/* ── Navigation row ───────────────────────────────────────────────────────── */
+
+.ob-nav {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: var(--space-1);
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+
+/* ── Algorithm picker ─────────────────────────────────────────────────────── */
+
+.ob-algo-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+}
+
+.ob-algo-option {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.ob-algo-option input[type="radio"] {
+  display: none;
+}
+
+.ob-algo-option:hover {
+  border-color: var(--color-fg-secondary);
+  background: var(--color-bg-hover);
+}
+
+.ob-algo-option--active {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+}
+
+.ob-algo-name {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--color-fg-primary);
+}
+
+.ob-algo-desc {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  line-height: 1.4;
+}

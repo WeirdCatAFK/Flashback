@@ -1,3 +1,7 @@
+/**
+ * IconSeal — the SVG glyph for the Seal tab.
+ */
+
 export default function IconSeal({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

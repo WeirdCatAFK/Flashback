@@ -1,6 +1,11 @@
-import { upload, getBaseUrl, appendToken } from './client.js';
+/**
+ * Media API (/api/media): streamable URLs for a card's or a document's assets,
+ * and creating a card with its media in one request.
+ */
 
-const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
+import { upload, getBaseUrl, appendToken } from "./client.js";
+
+const MEDIA_SLOTS = ["front_img", "back_img", "front_sound", "back_sound"];
 
 /**
  * Resolves a vanilla card media reference (e.g. "./media/front-1a2b.png", as
@@ -13,14 +18,22 @@ const MEDIA_SLOTS = ['front_img', 'back_img', 'front_sound', 'back_sound'];
  */
 export const mediaFileSrc = (docPath, ref) => {
   if (!ref) return null;
-  // Loaded by <img>/<audio>, which can't send an Authorization header — the token
-  // rides along as a query param instead.
   if (/^[a-f0-9]{64}$/i.test(ref)) {
-    return appendToken(`${getBaseUrl()}/api/media?hash=${encodeURIComponent(ref)}`);
+    return appendToken(
+      `${getBaseUrl()}/api/media?hash=${encodeURIComponent(ref)}`,
+    );
   }
-  const name = ref.replace(/^\.?\/?media\//, '');
-  return appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath || '')}&name=${encodeURIComponent(name)}`);
+  const name = ref.replace(/^\.?\/?media\//, "");
+  return appendToken(
+    `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath || "")}&name=${encodeURIComponent(name)}`,
+  );
 };
+
+/** Streamable URL for an asset saved beside a document, by its file name. */
+export const mediaFileUrl = (docPath, name) =>
+  appendToken(
+    `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(name)}`,
+  );
 
 /**
  * Create a vanilla flashcard and attach its media in a single request — the
@@ -34,12 +47,11 @@ export const mediaFileSrc = (docPath, ref) => {
  */
 export const createVanillaCard = (docPath, card, mediaFiles = {}) => {
   const fd = new FormData();
-  fd.append('docPath', docPath);
-  fd.append('card', JSON.stringify(card));
+  fd.append("docPath", docPath);
+  fd.append("card", JSON.stringify(card));
   for (const slot of MEDIA_SLOTS) {
     const file = mediaFiles[slot];
     if (file) fd.append(slot, file, file.name);
   }
-  return upload('/api/media/vanilla', fd);
+  return upload("/api/media/vanilla", fd);
 };
-

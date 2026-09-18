@@ -1,3 +1,7 @@
+/**
+ * IconFileTxt — the SVG glyph for a text file in the tree.
+ */
+
 export default function IconFileTxt({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>

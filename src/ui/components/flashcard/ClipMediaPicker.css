@@ -1,0 +1,39 @@
+/* Clip media picker — the parts that differ from BookImagePicker.css, which supplies
+   the backdrop, panel, header and image grid. Sound is a list rather than a grid:
+   a player needs width, and there is nothing to look at. */
+
+.cmp-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.cmp-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.cmp-row-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.cmp-audio {
+  height: var(--control-lg);
+  max-width: var(--size-lg);
+}
+
+/* An asset still loading from the site it was clipped from. It is fully selectable —
+   choosing it is what brings it into the vault — so this is a footnote, not a state:
+   lighter than the section line above it and never competing with the picture. */
+.cmp-sub--remote {
+  font-style: italic;
+  opacity: 0.75;
+}

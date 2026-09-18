@@ -1,0 +1,37 @@
+/* Documents — the sidebar, the resize handle and the editor column. */
+
+.documents-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+.documents-sidebar {
+  /* width set via inline style */
+  min-width: var(--size-md);
+  max-width: var(--size-4xl);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.documents-resize-handle {
+  width: var(--space-1);
+  flex-shrink: 0;
+  background: transparent;
+  cursor: col-resize;
+  transition: background var(--dur-fast) ease;
+}
+
+.documents-resize-handle:hover,
+.documents-resize-handle:active {
+  background: var(--color-accent);
+}
+
+.documents-main {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}

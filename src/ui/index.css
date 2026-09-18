@@ -1,4 +1,9 @@
-@import url('https://fonts.googleapis.com/css2?family=Didact+Gothic&family=Noto+Sans:wght@400;500;600;700&display=swap');
+/* Design tokens and themes. The theme-invariant scale (spacing, radius, type,
+   controls, sizes, z-index, motion) lives on :root; every colour token is
+   defined per [data-theme] block, and scripts/check-contrast.js reads those
+   blocks — see INTERFACE.md § Theme tokens before editing them. */
+
+@import url("https://fonts.googleapis.com/css2?family=Didact+Gothic&family=Noto+Sans:wght@400;500;600;700&display=swap");
 
 /* ── Design tokens (theme-invariant) ─────────────────────────────────────────
    Spacing, radius, type, and motion scales are the same across every theme, so
@@ -6,19 +11,62 @@
    Use these instead of hardcoded px literals so every surface stays on-scale. */
 
 :root {
-  /* Spacing — 4px base grid */
+  /* Spacing — 4px base grid; 2px only for chip insets and hairline gaps */
+  --space-0-5: 2px;
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
   --space-4: 16px;
+  --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
 
   /* Radius */
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-pill: 999px;
+
+  /* Control heights — buttons, inputs, rows, icon buttons */
+  --control-xs: 20px;
+  --control-sm: 24px;
+  --control-md: 28px;
+  --control-lg: 32px;
+  --control-xl: 36px;
+  --control-2xl: 40px;
+  --control-bar: 48px;
+
+  /* Icon boxes */
+  --icon-sm: 14px;
+  --icon-md: 16px;
+  --icon-lg: 20px;
+  --icon-xl: 24px;
+
+  /* Sizes — the large box ladder: panels, popovers, dialogs, prose measures */
+  --size-xs: 80px;
+  --size-sm: 120px;
+  --size-md: 160px;
+  --size-lg: 220px;
+  --size-xl: 280px;
+  --size-2xl: 340px;
+  --size-3xl: 420px;
+  --size-4xl: 480px;
+  --size-5xl: 560px;
+  --size-6xl: 640px;
+  --size-7xl: 760px;
+  --size-8xl: 960px;
+  --size-9xl: 1240px;
+
+  /* Stacking — transients that dismiss on outside click sit above modals,
+     because a popover can open from inside a dialog and never outlives it */
+  --z-raised: 1;
+  --z-sticky: 10;
+  --z-floating: 100;
+  --z-modal: 1000;
+  --z-popover: 1100;
 
   /* Type scale */
   --text-xs: 11px;
@@ -33,330 +81,300 @@
      Didact Gothic ships a single 400 weight, so 600/700 are browser-synthesized.
      Noto Sans sits behind it for the glyphs it lacks (extended Latin, Greek,
      Cyrillic, Vietnamese); anything past that falls to the system font. */
-  --font-sans: 'Didact Gothic', 'Noto Sans', system-ui, sans-serif;
-  --font-mono: 'Geist Mono', 'Cascadia Code', 'Consolas', monospace;
+  --font-sans: "Didact Gothic", "Noto Sans", system-ui, sans-serif;
+  --font-mono: "Geist Mono", "Cascadia Code", "Consolas", monospace;
 
   /* Motion */
   --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out: cubic-bezier(0.2, 0.7, 0.2, 1);
   --dur-fast: 120ms;
   --dur-base: 200ms;
+  --dur-slow: 300ms;
+
+  /* Focus ring — the one ring every focusable control shares */
+  --shadow-focus: 0 0 0 2px
+    color-mix(in srgb, var(--color-accent) 35%, transparent);
+
+  /* Platform constants — the same in every theme by design */
+  --color-window-close: #c42b1c;
+  --color-media-bg: #000000;
+  --color-white: #ffffff;
 }
 
 /* ── Theme variables ─────────────────────────────────────────────────────────
-   Every colour token below has exactly ONE job, because a token asked to do two
-   jobs at opposite ends of the theme cannot satisfy both. Two pairs are easy to
-   get wrong, so they are spelled out here:
+   One job per colour token; the roles, the pairs check-contrast.js asserts and
+   the graph-palette rules are in INTERFACE.md § Theme tokens. */
 
-   • --color-review-* is a BUTTON FILL (Trainer grade buttons) *and* a TEXT
-     colour on a panel (the session summary, the type-answer verdict). Those two
-     roles only agree when the label painted on the fill is --color-on-review,
-     set to the theme's panel colour — then "label on fill" and "swatch as text
-     on panel" are the same contrast pair, and one value satisfies both. Never
-     label a grade button with --color-fg-primary.
-   • --color-hl-* is painted BEHIND document text, so --color-fg-primary has to
-     stay readable on top of it: pale swatches in a light theme, deep swatches
-     in a dark one. The highlight-picker dots are derived from these, not the
-     other way round.
-   • --color-border is a hairline for dividers and card edges; a control whose
-     boundary is the only thing identifying it (inputs, selects) uses
-     --color-border-strong, which clears 3:1 against the surface behind it.
-   • --color-graph-* is a CATEGORICAL palette, not a set of aliases. Five node
-     types are bare dots on --color-bg-base, so colour is the only thing telling
-     them apart: each theme's five hues are spread around the wheel AND stepped
-     in lightness, which is what makes them read as one set while staying
-     separable. The lightness ladder is not decoration — under protanopia and
-     deuteranopia the hue differences collapse and lightness is the only cue
-     left, so flattening it is what breaks the palette first (the pairwise
-     deltaE floors in check-contrast.js are what catch that). Chroma RISES as
-     lightness falls: holding it flat across the ladder is what makes the dark
-     end read as mud rather than as colour. Slot 1 (Document) sits on the theme's accent hue, and Tag stays
-     green / Flashcard warm so the graph reads the same way whichever theme is
-     on — dark-cherry is the deliberate exception (a narrow blossom palette that
-     separates by lightness instead; see its own note). Aliasing these back to --color-hl-* or
-     --color-review-* re-breaks them: those are tuned against *text*, not against
-     the canvas. Values must be literal hex — GraphView reads them through
-     getComputedStyle and parses hex/rgb only, so color-mix() will not work.
-
-   `node scripts/check-contrast.js` verifies all of the above and fails loudly. */
-
-/* light-workbench's surfaces are a pastel beige, and the beige is carried by
-   CHROMA rather than by darkness (0.022–0.033, up from the 0.000–0.011 they
-   started at). That is not a style preference: --color-accent is frozen at the
-   sRGB gamut edge for its hue, and its 4.5:1 requirement against both the
-   window and the panel puts a hard floor of Y >= 0.891 under every surface
-   either one touches. bg-base has ~2 luminance points of room, so a *darker*
-   beige is not reachable without changing the accent contract — a more
-   *chromatic* one at the same luminance is, and reads as the same warmth.
-   bg-base, bg-surface and accent-subtle are therefore solved backwards from
-   the ratio each must clear against the accent, not hand-picked; nudging their
-   lightness is what will break the contrast check first. */
+/* light-workbench: bg-base, bg-surface and accent-subtle are solved backwards
+   from the accent's 4.5:1 floor, not hand-picked — see INTERFACE.md. */
 :root,
 [data-theme="light-workbench"] {
-  --color-bg-base:        #FCF4E2;
-  --color-bg-sidebar:     #F4EBD8;
-  --color-bg-surface:     #FFFAEA;
-  --color-bg-hover:       #E7DCC7;
-  --color-bg-reader:      #FEF9E4;
-  --color-bg-editor:      light;
-  --color-fg-primary:     #201A15;
-  --color-fg-secondary:   #6C6359;
-  --color-fg-icon:        #595249;
-  /* accent is at the sRGB gamut edge for its hue (C=0.146 of 0.150 available)
-     and clears only 4.60:1 on bg-base / 4.53:1 against accent-subtle. One token
-     serves both link text and button fills, so it cannot be brightened toward
-     the dark theme's vivid amber without splitting that role in two. Leave it
-     and accent-subtle alone unless you are changing that contract. */
-  --color-accent:         #B45309;
-  --color-on-accent:      #FFFFFF;
-  --color-border:         #DAD1C1;
-  --color-border-strong:  #8B8277;
-  --color-title-bar:      #EEE3CF;
+  --color-bg-base: #fcf4e2;
+  --color-bg-sidebar: #f4ebd8;
+  --color-bg-surface: #fffaea;
+  --color-bg-hover: #e7dcc7;
+  --color-bg-reader: #fef9e4;
+  --color-bg-editor: light;
+  --color-fg-primary: #201a15;
+  --color-fg-secondary: #6c6359;
+  --color-fg-icon: #595249;
+  /* at the sRGB gamut edge for its hue; 4.60:1 on bg-base, 4.53:1 on accent-subtle */
+  --color-accent: #b45309;
+  --color-on-accent: #ffffff;
+  --color-border: #dad1c1;
+  --color-border-strong: #8b8277;
+  --color-title-bar: #eee3cf;
   /* extended */
-  --color-accent-subtle:  #FFF4C7;
-  --color-tree-indent:    #D8D4CC;
-  --color-sidebar-header: #E7DCC7;
-  /* highlight swatches — these sit BEHIND document text, so fg-primary must
-     stay legible on top of them. Keep them pale in a light theme. */
-  --color-hl-1:       #FEE477;
-  --color-hl-2:       #D2F58B;
-  --color-hl-3:        #BBDAFF;
-  --color-hl-4:        #FFC6E8;
-  /* review grade swatches — see the role note above --color-on-review */
-  --color-on-review:      #FFFAEA;
-  --color-review-again:   #C33530;
-  --color-review-hard:    #9E5A00;
-  --color-review-good:    #107B39;
-  --color-review-easy:    #116CBE;
-  /* graph node & link colours — hues spread around the wheel, stepped in
-     lightness (65%→41% OKLab L) with chroma rising as lightness falls, so the
-     dark end stays saturated instead of going to mud. Worst-case separation is
-     19.8 deltaE normal / 11.1 under colour-blindness, against floors of 15/8. */
-  --color-graph-edge:       #A49D95;   /* resting links: structure, not identity */
-  --color-graph-document:   #D76A3D;
-  --color-graph-folder:     #2F75CF;
-  --color-graph-flashcard:  #B3368E;
-  --color-graph-tag:        #35600B;
-  --color-graph-deck:       #58089B;
-  --color-graph-link:       #D86A3D;
-  --color-graph-disconnect: #C72E28;
-  --color-graph-inherit:    #5B863C;
+  --color-accent-subtle: #fff4c7;
+  --color-tree-indent: #d8d4cc;
+  --color-sidebar-header: #e7dcc7;
+  /* highlight swatches — pale: document text sits on top */
+  --color-hl-1: #fee477;
+  --color-hl-2: #d2f58b;
+  --color-hl-3: #bbdaff;
+  --color-hl-4: #ffc6e8;
+  /* review grade swatches — on-review is the panel colour */
+  --color-on-review: #fffaea;
+  --color-review-again: #c33530;
+  --color-review-hard: #9e5a00;
+  --color-review-good: #107b39;
+  --color-review-easy: #116cbe;
+  /* graph palette — 65%→41% OKLab L, chroma rising as L falls; 19.8/11.1 deltaE vs floors 15/8 */
+  --color-graph-edge: #a49d95; /* resting links: structure, not identity */
+  --color-graph-document: #d76a3d;
+  --color-graph-folder: #2f75cf;
+  --color-graph-flashcard: #b3368e;
+  --color-graph-tag: #35600b;
+  --color-graph-deck: #58089b;
+  --color-graph-link: #d86a3d;
+  --color-graph-disconnect: #c72e28;
+  --color-graph-inherit: #5b863c;
   /* semantic + elevation */
-  --shadow-sm:          0 1px 3px rgba(0,0,0,.08);
-  --shadow-float:       0 4px 16px -2px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
-  --color-danger:       #C72E28;
-  --color-danger-bg:    rgba(185, 28, 28, 0.08);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-float:
+    0 4px 16px -2px rgba(0, 0, 0, 0.1), 0 1px 4px rgba(0, 0, 0, 0.06);
+  --color-danger: #c72e28;
+  --color-danger-bg: rgba(185, 28, 28, 0.08);
+  --color-on-danger: #ffffff;
+  --color-scrim: rgba(0, 0, 0, 0.45);
 }
 
 [data-theme="dark-workbench"] {
-  --color-bg-base:        #1C1917;
-  --color-bg-sidebar:     #171412;
-  --color-bg-surface:     #292524;
-  --color-bg-hover:       #3C3530;
-  --color-bg-reader:      #201D1A;
-  --color-bg-editor:      dark;  
-  --color-fg-primary:     #F5F5F4;
-  --color-fg-secondary:   #A8A29E;
-  --color-fg-icon:        #A8A29E;
-  --color-accent:         #F59E0B;
-  --color-on-accent:      #1C1917;
-  --color-border:         #3C3530;
-  --color-border-strong:  #7A6E65;
-  --color-title-bar:      #0C0A09;
+  --color-bg-base: #1c1917;
+  --color-bg-sidebar: #171412;
+  --color-bg-surface: #292524;
+  --color-bg-hover: #3c3530;
+  --color-bg-reader: #201d1a;
+  --color-bg-editor: dark;
+  --color-fg-primary: #f5f5f4;
+  --color-fg-secondary: #a8a29e;
+  --color-fg-icon: #a8a29e;
+  --color-accent: #f59e0b;
+  --color-on-accent: #1c1917;
+  --color-border: #3c3530;
+  --color-border-strong: #7a6e65;
+  --color-title-bar: #0c0a09;
   /* extended */
-  --color-accent-subtle:  #292012;
-  --color-tree-indent:    #2C2420;
-  --color-sidebar-header: #0F0D0B;
+  --color-accent-subtle: #292012;
+  --color-tree-indent: #2c2420;
+  --color-sidebar-header: #0f0d0b;
   /* highlight swatches */
-  --color-hl-1:       #A16207;
-  --color-hl-2:       #4D7C0F;
-  --color-hl-3:        #1D4ED8;
-  --color-hl-4:        #9D174D;
+  --color-hl-1: #a16207;
+  --color-hl-2: #4d7c0f;
+  --color-hl-3: #1d4ed8;
+  --color-hl-4: #9d174d;
   /* review grade swatches */
-  --color-on-review:      #1C1917;
-  --color-review-again:   #F37373;
-  --color-review-hard:    #F59E0B;
-  --color-review-good:    #22C55E;
-  --color-review-easy:    #629BF8;
-  /* graph node & link colours — see the graph note above */
-  --color-graph-edge:       #6E635B;   /* resting links: structure, not identity */
-  --color-graph-document:   #C87F00;
-  --color-graph-folder:     #2A70C0;
-  --color-graph-flashcard:  #B35189;
-  --color-graph-tag:        #38AD6B;
-  --color-graph-deck:       #9881E3;
-  --color-graph-link:       #C87F00;
-  --color-graph-disconnect: #F87171;
-  --color-graph-inherit:    #7BA688;
+  --color-on-review: #1c1917;
+  --color-review-again: #f37373;
+  --color-review-hard: #f59e0b;
+  --color-review-good: #22c55e;
+  --color-review-easy: #629bf8;
+  /* graph palette */
+  --color-graph-edge: #6e635b; /* resting links: structure, not identity */
+  --color-graph-document: #c87f00;
+  --color-graph-folder: #2a70c0;
+  --color-graph-flashcard: #b35189;
+  --color-graph-tag: #38ad6b;
+  --color-graph-deck: #9881e3;
+  --color-graph-link: #c87f00;
+  --color-graph-disconnect: #f87171;
+  --color-graph-inherit: #7ba688;
   /* semantic + elevation */
-  --shadow-sm:          0 1px 3px rgba(0,0,0,.35);
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.50), 0 2px 8px rgba(0,0,0,.22);
-  --color-danger:       #F87171;
-  --color-danger-bg:    rgba(248, 113, 113, 0.12);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.22);
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.12);
+  --color-on-danger: #1c1917;
+  --color-scrim: rgba(0, 0, 0, 0.55);
 }
 
 [data-theme="dark-cherry"] {
-  --color-bg-base:        #0F0F10;
-  --color-bg-sidebar:     #151516;
-  --color-bg-surface:     #1C1C1E;
-  --color-bg-hover:       #33222A;
-  --color-bg-reader:      #161618;
-  --color-bg-editor:      dark;
+  --color-bg-base: #0f0f10;
+  --color-bg-sidebar: #151516;
+  --color-bg-surface: #1c1c1e;
+  --color-bg-hover: #33222a;
+  --color-bg-reader: #161618;
+  --color-bg-editor: dark;
 
-  --color-fg-primary:     #F2F2F3;
-  --color-fg-secondary:   #A8A8AD;
-  --color-fg-icon:        #D0D0D4;
+  --color-fg-primary: #f2f2f3;
+  --color-fg-secondary: #a8a8ad;
+  --color-fg-icon: #d0d0d4;
 
-  --color-accent:         #FF4569;
-  --color-on-accent:      #0F0F10;
+  --color-accent: #ff4569;
+  --color-on-accent: #0f0f10;
 
-  --color-border:         #2B2B2E;
-  --color-border-strong:  #686872;
-  --color-title-bar:      #0A0A0B;
+  --color-border: #2b2b2e;
+  --color-border-strong: #686872;
+  --color-title-bar: #0a0a0b;
 
   /* extended */
-  --color-accent-subtle:  #2D0811;
-  --color-tree-indent:    rgba(255, 23, 68, 0.18);
-  --color-sidebar-header: #0A0A0B;
+  --color-accent-subtle: #2d0811;
+  --color-tree-indent: rgba(255, 23, 68, 0.18);
+  --color-sidebar-header: #0a0a0b;
 
-  /* highlight swatches — deepened so light document text survives on top */
-  --color-hl-1:           #B84427; /* coral */
-  --color-hl-2:           #B02A55; /* rose */
-  --color-hl-3:           #6D4CAF; /* violet */
-  --color-hl-4:           #0F6C91; /* cyan */
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #b84427; /* coral */
+  --color-hl-2: #b02a55; /* rose */
+  --color-hl-3: #6d4caf; /* violet */
+  --color-hl-4: #0f6c91; /* cyan */
 
   /* review grade swatches */
-  --color-on-review:      #0F0F10;
-  --color-review-again:   #FF5252;
-  --color-review-hard:    #FFA726;
-  --color-review-good:    #66BB6A;
-  --color-review-easy:    #42A5F5;
+  --color-on-review: #0f0f10;
+  --color-review-again: #ff5252;
+  --color-review-hard: #ffa726;
+  --color-review-good: #66bb6a;
+  --color-review-easy: #42a5f5;
 
-  /* graph node & link colours — a cherry tree: cards take the characteristic
-     cherry red, documents the blossom pink, folders the bark (containment is
-     the wood). This theme deliberately trades the even hue spread the other
-     themes use for a narrow cherry palette, so red and pink — neighbours on the
-     wheel — are held apart by lightness and chroma instead of hue. */
-  --color-graph-edge:       #615563;   /* resting links: structure, not identity */
-  --color-graph-document:   #F99BBF;
-  --color-graph-folder:     #92521D;
-  --color-graph-flashcard:  #F73060;
-  --color-graph-tag:        #A882D7;
-  --color-graph-deck:       #794FA0;
-  --color-graph-link:       #F99BBF;
-  --color-graph-disconnect: #FF5252;
-  --color-graph-inherit:    #A595BB;
+  /* graph palette — a cherry tree: red cards, blossom documents, bark folders; separated by L and chroma, not hue */
+  --color-graph-edge: #615563; /* resting links: structure, not identity */
+  --color-graph-document: #f99bbf;
+  --color-graph-folder: #92521d;
+  --color-graph-flashcard: #f73060;
+  --color-graph-tag: #a882d7;
+  --color-graph-deck: #794fa0;
+  --color-graph-link: #f99bbf;
+  --color-graph-disconnect: #ff5252;
+  --color-graph-inherit: #a595bb;
 
   /* semantic + elevation */
-  --shadow-sm:          0 1px 3px rgba(0,0,0,.45);
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.60),
-                        0 2px 8px rgba(0,0,0,.28);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.28);
 
-  --color-danger:       #FF5252;
-  --color-danger-bg:    rgba(255, 82, 82, 0.12);
+  --color-danger: #ff5252;
+  --color-danger-bg: rgba(255, 82, 82, 0.12);
+  --color-on-danger: #0f0f10;
+  --color-scrim: rgba(0, 0, 0, 0.55);
 }
 
 [data-theme="raven-indigo"] {
-  --color-bg-base:        #17151F;
-  --color-bg-sidebar:     #1E1A33;
-  --color-bg-surface:     #2A2550;
-  --color-bg-hover:       #37306B;
-  --color-bg-reader:      #1B1830;
-  --color-bg-editor:      dark;
+  --color-bg-base: #17151f;
+  --color-bg-sidebar: #1e1a33;
+  --color-bg-surface: #2a2550;
+  --color-bg-hover: #37306b;
+  --color-bg-reader: #1b1830;
+  --color-bg-editor: dark;
 
-  --color-fg-primary:     #F5F2FF;
-  --color-fg-secondary:   #C3B8E6;
-  --color-fg-icon:        #E2D9FF;
+  --color-fg-primary: #f5f2ff;
+  --color-fg-secondary: #c3b8e6;
+  --color-fg-icon: #e2d9ff;
 
-  --color-accent:         #B77AD9;
-  --color-on-accent:      #17151F;
+  --color-accent: #b77ad9;
+  --color-on-accent: #17151f;
 
-  --color-border:         #4A4287;
-  --color-border-strong:  #8F86D6;
-  --color-title-bar:      #2B2450;
+  --color-border: #4a4287;
+  --color-border-strong: #8f86d6;
+  --color-title-bar: #2b2450;
 
   /* extended */
-  --color-accent-subtle:  #2A1F4A;
-  --color-tree-indent:    rgba(183, 122, 217, 0.28);
-  --color-sidebar-header: #17132E;
+  --color-accent-subtle: #2a1f4a;
+  --color-tree-indent: rgba(183, 122, 217, 0.28);
+  --color-sidebar-header: #17132e;
 
-  /* highlight swatches — deepened so light document text survives on top */
-  --color-hl-1:           #7E3BC4; /* lavender */
-  --color-hl-2:           #0F6E7C; /* cyan */
-  --color-hl-3:           #3D51C9; /* periwinkle */
-  --color-hl-4:           #B5236E; /* pink */
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #7e3bc4; /* lavender */
+  --color-hl-2: #0f6e7c; /* cyan */
+  --color-hl-3: #3d51c9; /* periwinkle */
+  --color-hl-4: #b5236e; /* pink */
 
   /* review grade swatches */
-  --color-on-review:      #17151F;
-  --color-review-again:   #FB7185;
-  --color-review-hard:    #FBBF24;
-  --color-review-good:    #4ADE80;
-  --color-review-easy:    #60A5FA;
+  --color-on-review: #17151f;
+  --color-review-again: #fb7185;
+  --color-review-hard: #fbbf24;
+  --color-review-good: #4ade80;
+  --color-review-easy: #60a5fa;
 
-  /* graph node & link colours — see the graph note above */
-  --color-graph-edge:       #6A5F93;   /* resting links: structure, not identity */
-  --color-graph-document:   #965CB5;
-  --color-graph-folder:     #2F9BE5;
-  --color-graph-flashcard:  #B65513;
-  --color-graph-tag:        #76A53C;
-  --color-graph-deck:       #DA6A8C;
-  --color-graph-link:       #965CB5;
-  --color-graph-disconnect: #FB7185;
-  --color-graph-inherit:    #8DA378;
+  /* graph palette */
+  --color-graph-edge: #6a5f93; /* resting links: structure, not identity */
+  --color-graph-document: #965cb5;
+  --color-graph-folder: #2f9be5;
+  --color-graph-flashcard: #b65513;
+  --color-graph-tag: #76a53c;
+  --color-graph-deck: #da6a8c;
+  --color-graph-link: #965cb5;
+  --color-graph-disconnect: #fb7185;
+  --color-graph-inherit: #8da378;
 
   /* semantic + elevation */
-  --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55),
-                        0 2px 8px rgba(0,0,0,.25);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
 
-  --color-danger:       #FB7185;
-  --color-danger-bg:    rgba(251, 113, 133, 0.12);
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.12);
+  --color-on-danger: #17151f;
+  --color-scrim: rgba(0, 0, 0, 0.55);
 }
 
 [data-theme="focus-blue"] {
-  --color-bg-base:        #18181B;
-  --color-bg-sidebar:     #09090B;
-  --color-bg-surface:     #27272A;
-  --color-bg-hover:       #37345F;
-  --color-bg-reader:      #212123;
-  --color-bg-editor:      dark;
-  --color-fg-primary:     #F4F4F5;
-  --color-fg-secondary:   #A1A1AA;
-  --color-fg-icon:        #D4D4D8;
-  --color-accent:         #818CF8;
-  --color-on-accent:      #18181B;
-  --color-border:         #3F3F46;
-  --color-border-strong:  #71717F;
-  --color-title-bar:      #07070A;
+  --color-bg-base: #18181b;
+  --color-bg-sidebar: #09090b;
+  --color-bg-surface: #27272a;
+  --color-bg-hover: #37345f;
+  --color-bg-reader: #212123;
+  --color-bg-editor: dark;
+  --color-fg-primary: #f4f4f5;
+  --color-fg-secondary: #a1a1aa;
+  --color-fg-icon: #d4d4d8;
+  --color-accent: #818cf8;
+  --color-on-accent: #18181b;
+  --color-border: #3f3f46;
+  --color-border-strong: #71717f;
+  --color-title-bar: #07070a;
   /* extended */
-  --color-accent-subtle:  #1E1B4B;
-  --color-tree-indent:    rgba(129, 140, 248, 0.25);
+  --color-accent-subtle: #1e1b4b;
+  --color-tree-indent: rgba(129, 140, 248, 0.25);
   --color-sidebar-header: #050507;
-  /* highlight swatches — deepened so light document text survives on top */
-  --color-hl-1:       #4C5BF5;
-  --color-hl-2:       #1B7C59;
-  --color-hl-3:        #0B7A8B;
-  --color-hl-4:        #C21D3C;
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #4c5bf5;
+  --color-hl-2: #1b7c59;
+  --color-hl-3: #0b7a8b;
+  --color-hl-4: #c21d3c;
   /* review grade swatches */
-  --color-on-review:      #18181B;
-  --color-review-again:   #FB7185;
-  --color-review-hard:    #FBBF24;
-  --color-review-good:    #34D399;
-  --color-review-easy:    #22D3EE;
-  /* graph node & link colours — see the graph note above */
-  --color-graph-edge:       #5A5A66;   /* resting links: structure, not identity */
-  --color-graph-document:   #5C64C2;
-  --color-graph-folder:     #039FE1;
-  --color-graph-flashcard:  #BD552B;
-  --color-graph-tag:        #7FA230;
-  --color-graph-deck:       #CA6EB5;
-  --color-graph-link:       #5C64C2;
-  --color-graph-disconnect: #FB7185;
-  --color-graph-inherit:    #90A175;
+  --color-on-review: #18181b;
+  --color-review-again: #fb7185;
+  --color-review-hard: #fbbf24;
+  --color-review-good: #34d399;
+  --color-review-easy: #22d3ee;
+  /* graph palette */
+  --color-graph-edge: #5a5a66; /* resting links: structure, not identity */
+  --color-graph-document: #5c64c2;
+  --color-graph-folder: #039fe1;
+  --color-graph-flashcard: #bd552b;
+  --color-graph-tag: #7fa230;
+  --color-graph-deck: #ca6eb5;
+  --color-graph-link: #5c64c2;
+  --color-graph-disconnect: #fb7185;
+  --color-graph-inherit: #90a175;
   /* semantic + elevation */
-  --shadow-sm:          0 1px 3px rgba(0,0,0,.40);
-  --shadow-float:       0 6px 24px -2px rgba(0,0,0,.55), 0 2px 8px rgba(0,0,0,.25);
-  --color-danger:       #FB7185;
-  --color-danger-bg:    rgba(251, 113, 133, 0.12);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.12);
+  --color-on-danger: #18181b;
+  --color-scrim: rgba(0, 0, 0, 0.55);
 }
 
 /* ── Global reset ────────────────────────────────────────────────────────── */
@@ -451,7 +469,12 @@ p {
   color: var(--color-fg-primary);
 }
 
-h1, h2, h3, h4, h5, h6 {
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
   color: var(--color-fg-primary);
   font-weight: 600;
   line-height: 1.25;

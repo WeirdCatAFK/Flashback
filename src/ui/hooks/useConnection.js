@@ -1,14 +1,10 @@
+/**
+ * Which place the renderer is pointed at — the local vault or a remote server —
+ * read from Electron main and re-initialising the API client on every change.
+ */
+
 import { useCallback, useEffect, useState } from 'react';
 import { initClient, getConnectionId } from '../api/client.js';
-
-// The active connection: either the local API serving a local vault, or a remote
-// Flashback Server. Both are a {url, token} pair, which is the whole reason switching
-// between a local vault and a remote is one mechanism rather than two.
-//
-// Switching to a remote does NOT stop the local API — it keeps running, idle, serving the
-// local vault to the MCP server. Switching between two LOCAL vaults is the heavier case:
-// the API process closes one database and opens another, which is why the app has to wait
-// for it to come back (App.jsx remounts AppGate, which re-polls).
 
 const FALLBACK = { kind: 'local', id: null, label: null, url: 'http://localhost:50500', token: null };
 
@@ -21,8 +17,6 @@ const FALLBACK = { kind: 'local', id: null, label: null, url: 'http://localhost:
  */
 export default function useConnection() {
     const [connection, setConnection] = useState(null);
-    // Seeded from the client's own counter so the first render already matches whatever
-    // index.jsx initialised before React mounted — no spurious remount on startup.
     const [connectionId, setConnectionId] = useState(() => getConnectionId());
 
     const apply = useCallback((next) => {
@@ -34,7 +28,6 @@ export default function useConnection() {
 
     useEffect(() => {
         if (!window.flashback?.getActiveConnection) {
-            // Browser-only dev fallback (npm run dev:web): no IPC, one fixed connection.
             setConnection(FALLBACK);
             return;
         }
@@ -54,8 +47,6 @@ export default function useConnection() {
 
     const useRemote = useCallback(async (id) => {
         const result = await window.flashback?.useRemote?.(id);
-        // Only repoint on success — a failed handshake must leave the app on the vault it
-        // is already showing rather than on a server that did not answer.
         if (result?.ok && result.connection) apply(result.connection);
         return result;
     }, [apply]);

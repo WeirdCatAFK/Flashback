@@ -1,3 +1,7 @@
+/**
+ * IconDecks — the SVG glyph for the Decks tab.
+ */
+
 export default function IconDecks({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

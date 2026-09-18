@@ -1,3 +1,7 @@
+/**
+ * IconGraph — the SVG glyph for the Graph tab.
+ */
+
 export default function IconGraph({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="none"

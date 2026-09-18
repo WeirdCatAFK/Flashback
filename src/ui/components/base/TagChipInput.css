@@ -1,0 +1,124 @@
+/* TagChipInput — chips plus a type-ahead entry, and the chip variants tags wear
+   everywhere (direct / inherited / excluded). Owned here so no consumer has to
+   ship these rules; the third copy in Trainer.css is gone with the Trainer's own
+   TagInput. */
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  line-height: 1.6;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.tag-chip--inherited {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.tag-chip--direct {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+}
+
+.tag-chip--excluded {
+  background: color-mix(in srgb, var(--color-danger) 12%, transparent);
+  color: var(--color-danger);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 30%, transparent);
+  text-decoration: line-through;
+}
+
+.tag-chip-remove {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.55;
+  font-size: var(--text-sm);
+  line-height: 1;
+  transition: opacity var(--dur-fast);
+  display: flex;
+  align-items: center;
+}
+
+.tag-chip-remove:hover {
+  opacity: 1;
+}
+
+.tci-wrap {
+  position: relative;
+}
+
+.tci-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: var(--control-lg);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: text;
+  transition: border-color var(--dur-fast);
+}
+
+.tci-row:focus-within,
+.tci-row--open {
+  border-color: var(--color-accent);
+}
+
+.tci-input {
+  flex: 1;
+  min-width: var(--size-xs);
+  background: none;
+  border: none;
+  outline: none;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  padding: 0;
+  caret-color: var(--color-accent);
+}
+
+.tci-input::placeholder {
+  color: var(--color-fg-secondary);
+  opacity: 0.6;
+}
+
+.tci-dropdown {
+  position: absolute;
+  top: calc(100% + var(--space-0-5));
+  left: 0;
+  right: 0;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  list-style: none;
+  margin: 0;
+  padding: var(--space-1) 0;
+  z-index: var(--z-popover);
+  box-shadow: var(--shadow-float);
+  max-height: var(--size-md);
+  overflow-y: auto;
+}
+
+.tci-suggestion {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  transition: background var(--dur-fast);
+}
+
+.tci-suggestion:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-accent);
+}

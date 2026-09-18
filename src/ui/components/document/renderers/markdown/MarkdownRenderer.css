@@ -1,0 +1,163 @@
+/* --- Outer container --- */
+
+.markdown-editor-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-reader);
+}
+
+.editor-content-wrapper {
+  flex: 1;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-reader);
+  color: var(--color-fg-secondary);
+  z-index: var(--z-sticky);
+  font-size: var(--text-base);
+}
+
+/* --- TipTap container --- */
+
+.tiptap-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.tiptap-wrapper > .ProseMirror {
+  flex: 1;
+  outline: none;
+  padding: var(--space-8) var(--space-12) var(--space-16);
+  color: var(--color-fg-primary);
+  font-size: var(--text-base);
+  line-height: 1.75;
+  font-family: inherit;
+  caret-color: var(--color-accent);
+}
+
+/* Typography */
+
+.tiptap-editor h1,
+.tiptap-editor h2,
+.tiptap-editor h3,
+.tiptap-editor h4,
+.tiptap-editor h5,
+.tiptap-editor h6 {
+  color: var(--color-fg-primary);
+  font-weight: 600;
+  line-height: 1.25;
+  margin: 1.4em 0 0.6em;
+}
+
+.tiptap-editor h1 { font-size: 1.9em; }
+.tiptap-editor h2 { font-size: 1.55em; }
+.tiptap-editor h3 { font-size: 1.3em; }
+.tiptap-editor h4 { font-size: 1.1em; }
+.tiptap-editor h5 { font-size: 1em; }
+.tiptap-editor h6 { font-size: 0.95em; color: var(--color-fg-secondary); }
+
+.tiptap-editor p { margin: 0.6em 0; }
+
+.tiptap-editor a {
+  color: var(--color-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Internal document links — rendered without href to prevent Chromium from
+   passing flashback:// to the OS shell. Styled distinctly from external links. */
+.tiptap-editor a[data-flashback-hash] {
+  color: var(--color-graph-link);
+  cursor: pointer;
+}
+
+.tiptap-editor ul,
+.tiptap-editor ol {
+  padding-left: 1.6em;
+  margin: 0.6em 0;
+}
+
+.tiptap-editor li > p { margin: 0.2em 0; }
+
+.tiptap-editor blockquote {
+  margin: 0.8em 0;
+  padding: 0.2em 0 0.2em 1em;
+  border-left: 3px solid var(--color-border);
+  color: var(--color-fg-secondary);
+}
+
+.tiptap-editor hr {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 1.4em 0;
+}
+
+.tiptap-editor code {
+  background: var(--color-bg-surface);
+  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  font-size: 0.92em;
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-sm);
+}
+
+.tiptap-editor pre {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-3) var(--space-3);
+  overflow-x: auto;
+  margin: 0.8em 0;
+}
+
+.tiptap-editor pre code {
+  background: transparent;
+  padding: 0;
+  border-radius: 0;
+}
+
+/* Highlights — colored marks driven by data-color, no inline style */
+
+.tiptap-editor mark {
+  background: var(--color-hl-1); /* fallback for marks without data-color */
+  color: inherit;
+  padding: 0 var(--space-0-5);
+  border-radius: var(--radius-sm);
+}
+
+.tiptap-editor mark[data-color="amber"] { background: var(--color-hl-1); }
+.tiptap-editor mark[data-color="green"] { background: var(--color-hl-2); }
+.tiptap-editor mark[data-color="blue"]  { background: var(--color-hl-3); }
+.tiptap-editor mark[data-color="pink"]  { background: var(--color-hl-4); }
+
+/* Scrollbar */
+
+.tiptap-wrapper::-webkit-scrollbar {
+  width: var(--space-3);
+  height: var(--space-3);
+}
+
+.tiptap-wrapper::-webkit-scrollbar-track {
+  background: var(--color-bg-reader);
+}
+
+.tiptap-wrapper::-webkit-scrollbar-thumb {
+  background-color: var(--color-border);
+  border-radius: var(--radius-md);
+  border: 3px solid var(--color-bg-reader);
+}
+
+.tiptap-wrapper::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-fg-secondary);
+}

@@ -1,3 +1,7 @@
+/**
+ * IconFolderOpen — the SVG glyph for an open folder.
+ */
+
 export default function IconFolderOpen({ size = 14 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor"

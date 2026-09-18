@@ -1,0 +1,160 @@
+/* EditorTabBar — the open-document tabs, the preview-tab italic, the dirty dot
+   and the save button. */
+
+.tab-bar {
+  display: flex;
+  align-items: stretch;
+  background: var(--color-bg-base);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+  height: var(--control-lg);
+}
+
+.tab-bar-scroll {
+  display: flex;
+  align-items: stretch;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.tab-bar-scroll::-webkit-scrollbar {
+  height: 0;
+}
+
+.tab-bar-actions {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 0 var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
+
+.tab-save-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  height: var(--control-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    color var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+
+.tab-save-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.tab-save-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* Dirty: pull attention with the accent, matching the tab dirty dot. */
+.tab-save-btn--dirty {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.tab-save-btn--dirty:hover:not(:disabled) {
+  background: var(--color-accent);
+  color: var(--color-on-accent);
+  border-color: var(--color-accent);
+}
+
+.tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0 var(--space-2) 0 var(--space-3);
+  border: none;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-base);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  max-width: var(--size-lg);
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+}
+
+.tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.tab--active {
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+}
+
+.tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
+.tab--preview .tab-label {
+  font-style: italic;
+  padding-right: var(--space-0-5);
+}
+
+.tab-close {
+  font-size: var(--text-base);
+  line-height: 1;
+  color: var(--color-fg-secondary);
+  padding: var(--space-0-5) var(--space-0-5);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition:
+    background var(--dur-fast),
+    color var(--dur-fast);
+  opacity: 0.5;
+}
+
+.tab:hover .tab-close,
+.tab--active .tab-close {
+  opacity: 1;
+}
+
+.tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+/* Dirty indicator: dot replaces ×, reverts to × on hover */
+.tab--dirty .tab-close {
+  font-size: 0;
+  opacity: 1;
+}
+
+.tab--dirty .tab-close::after {
+  content: "●";
+  font-size: var(--text-xs);
+  color: var(--color-accent);
+  display: inline-block;
+  line-height: 1;
+}
+
+.tab--dirty:hover .tab-close::after,
+.tab--dirty .tab-close:hover::after {
+  content: "×";
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}

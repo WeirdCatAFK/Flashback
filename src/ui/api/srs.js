@@ -1,66 +1,95 @@
-import { request } from './client.js';
+/**
+ * Spaced-repetition API (/api/srs): due cards, reviews and undos, statistics,
+ * FSRS info and optimisation, and progress migration between schedulers.
+ */
 
-export const getStats = () =>
-  request('GET', '/api/srs/stats');
+import { request } from "./client.js";
 
-// Vault-wide analytics for the Stats view; algorithm-aware (defaults server-side).
+export const getStats = () => request("GET", "/api/srs/stats");
+
+/** Vault-wide analytics for the Stats view; algorithm-aware (defaults server-side). */
 export const getStatistics = (algorithm) =>
-  request('GET', `/api/srs/statistics${algorithm ? `?algorithm=${encodeURIComponent(algorithm)}` : ''}`);
+  request(
+    "GET",
+    `/api/srs/statistics${algorithm ? `?algorithm=${encodeURIComponent(algorithm)}` : ""}`,
+  );
 
-// opts carries the FSRS-only fields { rating, requestRetention }; Leitner/SM-2
-// ignore them and rely on the client-computed outcome/easeFactor/newLevel.
-//
-// It also carries the session-ordering context { sessionId, sessionPosition, prevCardHash }
-// — how this card was PRESENTED, which the server turns into ordering telemetry.
-// `prevCardHash` is the card actually shown before this one, so a card re-queued after a
-// failed grade is measured where it really landed. All three are optional; omitting them
-// (the Flashcards view, a script) just logs the review with no ordering context.
-export const submitReview = (path, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts = {}) =>
-  request('POST', '/api/srs/review', {
-    path, flashcardHash, outcome, easeFactor, newLevel, algorithm,
-    rating: opts.rating, requestRetention: opts.requestRetention,
-    sessionId: opts.sessionId, sessionPosition: opts.sessionPosition,
+/**
+ * opts carries the FSRS-only fields { rating, requestRetention }; Leitner/SM-2
+ * ignore them and rely on the client-computed outcome/easeFactor/newLevel.
+ *
+ * It also carries the session-ordering context { sessionId, sessionPosition, prevCardHash }
+ * — how this card was PRESENTED, which the server turns into ordering telemetry.
+ * `prevCardHash` is the card actually shown before this one, so a card re-queued after a
+ * failed grade is measured where it really landed. All three are optional; omitting them
+ * (the Flashcards view, a script) just logs the review with no ordering context.
+ */
+export const submitReview = (
+  path,
+  flashcardHash,
+  outcome,
+  easeFactor,
+  newLevel,
+  algorithm,
+  opts = {},
+) =>
+  request("POST", "/api/srs/review", {
+    path,
+    flashcardHash,
+    outcome,
+    easeFactor,
+    newLevel,
+    algorithm,
+    rating: opts.rating,
+    requestRetention: opts.requestRetention,
+    sessionId: opts.sessionId,
+    sessionPosition: opts.sessionPosition,
     prevCardHash: opts.prevCardHash,
   });
 
 export const undoReview = (path, flashcardHash, algorithm) =>
-  request('POST', '/api/srs/undo', { path, flashcardHash, algorithm });
+  request("POST", "/api/srs/undo", { path, flashcardHash, algorithm });
 
 export const migrateProgress = (from, to) =>
-  request('POST', '/api/srs/migrate', { from, to });
+  request("POST", "/api/srs/migrate", { from, to });
 
-// FSRS per-vault optimizer: fit the weights from this vault's review history.
-export const optimizeFsrs = () =>
-  request('POST', '/api/srs/optimize');
+/** FSRS per-vault optimizer: fit the weights from this vault's review history. */
+export const optimizeFsrs = () => request("POST", "/api/srs/optimize");
 
-// Optimizer status (rated-review count, last-optimized timestamp) for Config.
-export const getFsrsInfo = () =>
-  request('GET', '/api/srs/fsrs-info');
+/** Optimizer status (rated-review count, last-optimized timestamp) for Config. */
+export const getFsrsInfo = () => request("GET", "/api/srs/fsrs-info");
 
-// Returns { queue, sessionId, order, relaxation, due, new, counts, nextDue }. `queue` is
-// the session already in presentation order — the server sequenced it, so the caller must
-// NOT re-sort it. `order` mirrors the `fb-trainer-order` preference.
+/**
+ * Returns { queue, sessionId, order, relaxation, due, new, counts, nextDue }. `queue` is
+ * the session already in presentation order — the server sequenced it, so the caller must
+ * NOT re-sort it. `order` mirrors the `fb-trainer-order` preference.
+ */
 export const getDue = ({
-  algorithm, folder, document, deck, tags, maxNew, minPriority, order,
-  readOnly, exclude,
+  algorithm,
+  folder,
+  document,
+  deck,
+  tags,
+  maxNew,
+  minPriority,
+  order,
+  readOnly,
+  exclude,
 } = {}) => {
   const qs = new URLSearchParams();
-  if (algorithm)    qs.set('algorithm', algorithm);
-  if (folder)       qs.set('folder',    folder);
-  if (document)     qs.set('document',  document);
-  if (deck)         qs.set('deck',      deck);
-  if (tags?.length) tags.forEach(t => qs.append('tag', t));
-  if (maxNew != null) qs.set('maxNew',  String(maxNew));
-  if (minPriority > 0) qs.set('minPriority', String(minPriority));
-  if (order)        qs.set('order',     order);
-  // Only what the reader has already reached. Held back cards are not rescheduled — they
-  // are simply not offered this session, and reappear the moment the toggle comes off.
-  if (readOnly)     qs.set('read', 'only');
-  // Repeatable, one param per exclusion, mirroring `tag`.
-  exclude?.folders?.forEach(f => qs.append('excludeFolder', f));
-  exclude?.documents?.forEach(d => qs.append('excludeDocument', d));
-  exclude?.decks?.forEach(d => qs.append('excludeDeck', d.hash ?? d));
-  exclude?.tags?.forEach(t => qs.append('excludeTag', t));
+  if (algorithm) qs.set("algorithm", algorithm);
+  if (folder) qs.set("folder", folder);
+  if (document) qs.set("document", document);
+  if (deck) qs.set("deck", deck);
+  if (tags?.length) tags.forEach((t) => qs.append("tag", t));
+  if (maxNew != null) qs.set("maxNew", String(maxNew));
+  if (minPriority > 0) qs.set("minPriority", String(minPriority));
+  if (order) qs.set("order", order);
+  if (readOnly) qs.set("read", "only");
+  exclude?.folders?.forEach((f) => qs.append("excludeFolder", f));
+  exclude?.documents?.forEach((d) => qs.append("excludeDocument", d));
+  exclude?.decks?.forEach((d) => qs.append("excludeDeck", d.hash ?? d));
+  exclude?.tags?.forEach((t) => qs.append("excludeTag", t));
   const q = qs.toString();
-  return request('GET', `/api/srs/due${q ? `?${q}` : ''}`);
+  return request("GET", `/api/srs/due${q ? `?${q}` : ""}`);
 };
