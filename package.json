@@ -56,6 +56,7 @@
     "test:conflicts": "node --test tests/conflicts.test.js",
     "test:fetch": "node --test tests/safeFetch.test.js",
     "test:budget": "node --test tests/cardRemovalBudget.test.js",
+    "test:errors": "node --test tests/httpErrors.test.js",
     "test:sequencing": "node --test tests/sequencing.test.js",
     "test:translations": "node --test tests/translations.test.js",
     "doctor": "react-doctor",

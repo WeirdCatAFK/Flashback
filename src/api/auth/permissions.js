@@ -112,6 +112,7 @@ export const PERMISSIONS = {
         ["POST", "/", ADMIN],
         ["PATCH", "/*", ADMIN],
         ["GET", "/*/progress", ADMIN],
+        ["GET", "/*/graph", ADMIN],
         ["POST", "/*/tokens", ADMIN],
         ["DELETE", "/tokens/*", ADMIN],
         ["*", "*", AUTHOR],

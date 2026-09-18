@@ -49,6 +49,7 @@ const tests = [
     'tests/sequencing.test.js',
     'tests/safeFetch.test.js',
     'tests/cardRemovalBudget.test.js',
+    'tests/httpErrors.test.js',
     'tests/capabilities.test.js',
     'tests/connection.test.js',
     'tests/translations.test.js',

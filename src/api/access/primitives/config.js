@@ -150,6 +150,21 @@ export function getMcpDiaryAccess() {
     }
 }
 
+/**
+ * The most active accounts this install may hold, read fresh from disk; `null` means unlimited.
+ *
+ * @returns {number|null}
+ */
+export function getMaxAccounts() {
+    try {
+        const cfg = JSON.parse(fs.readFileSync(getConfigPath(), "utf-8"));
+        const v = cfg.maxAccounts;
+        return Number.isInteger(v) && v >= 1 ? v : null;
+    } catch {
+        return null;
+    }
+}
+
 export const CARD_REMOVAL_DEFAULTS = { perHour: 20, perRequest: 10 };
 
 /** The per-request and per-hour card-removal budget. */

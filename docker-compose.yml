@@ -86,6 +86,10 @@ services:
       # inside the container claims. Reporting only, on GET /api/vault; nothing is refused.
       FLASHBACK_STORAGE_LIMIT: "${FLASHBACK_STORAGE_LIMIT:-}"
 
+      # The most ACTIVE accounts this server may hold, the Author included. Enforced: a
+      # creation or re-activation past it is refused with 409. Unset means no cap.
+      FLASHBACK_MAX_ACCOUNTS: "${FLASHBACK_MAX_ACCOUNTS:-}"
+
     # ── One volume by default ────────────────────────────────────────────────────────────
     #
     # Everything the deployment owns lives here: config.json, accounts.db, and the vault

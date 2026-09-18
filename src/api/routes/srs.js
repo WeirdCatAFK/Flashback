@@ -99,9 +99,17 @@ router.get('/fsrs-info', catchError(async (req, res) => {
     res.json(await SRS.getFsrsInfo());
 }));
 
-/** How far through the vault this person is: how much of it they have read, and how well they know the cards drawn from it. */
-async function vaultCompleteness(stats) {
-    const scope = currentScope();
+/**
+ * How far through the vault one person is: how much of it they have read, and how well they
+ * know the cards drawn from it. Composed here rather than in `srs.js` because the scheduler
+ * may not import `readProgress.js`. Exported for `routes/accounts.js`, which reports it for a
+ * person other than the caller; the scope defaults to the caller's.
+ *
+ * @param {object} stats - The `SRS.getStatistics()` result whose `maturity` block is reused.
+ * @param {{scope?: string}} [options]
+ */
+export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
+    const scope = scopeArg ?? currentScope();
     const [rollup, learned] = await Promise.all([
         readProgress.rollup('', { scope }),
         query.getVaultLearned(scope),

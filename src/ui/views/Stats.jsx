@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import "./Stats.css";
 import { getStatistics } from "../api/srs";
+import { getAccountProgress } from "../api/accounts";
 import { LoadingState, ErrorState } from "../components/shared/StateView";
+import ProgressScopePicker from "../components/shared/ProgressScopePicker";
 import { ramp } from "../utils/chartRamp";
 import { useT } from "../translations";
 import { getPref } from "../prefs.js";
@@ -355,20 +357,35 @@ function Panel({ title, hint, children }) {
 // Scheduler names are proper nouns and stay as-is in every language.
 const ALGO_LABEL = { leitner: "Leitner", sm2: "SM-2", fsrs: "FSRS" };
 
-export default function Stats({ isActive }) {
+/**
+ * @param {{ isActive: boolean,
+ *           viewingAccount?: {id: string, name: string, role: string}|null,
+ *           onViewingAccountChange?: (account: object|null) => void }} props
+ *   `viewingAccount` is whose numbers these are — null for the caller's own. App.jsx owns it,
+ *   so the choice carries over to the Graph tab; an Admin or the Author picks it here, and
+ *   the server refuses the per-account route to anyone else.
+ */
+export default function Stats({ isActive, viewingAccount = null, onViewingAccountChange }) {
   const { t, formatNumber } = useT();
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const viewingId = viewingAccount?.id ?? null;
+  const viewingName = viewingAccount?.name ?? null;
 
   const reload = useCallback(() => {
     const algorithm = getPref("fb-srs-algorithm") ?? "sm2";
     setLoading(true);
-    getStatistics(algorithm)
+    // Someone else's schedule comes from the admin-only accounts route; it answers in the
+    // same shape, completeness included, so everything below is indifferent to whose it is.
+    const load = viewingId
+      ? getAccountProgress(viewingId, algorithm).then((d) => d.statistics)
+      : getStatistics(algorithm);
+    load
       .then((s) => { setStats(s); setError(null); })
       .catch((e) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [viewingId]);
 
   // Reviewing in the Trainer changes these numbers, so re-pull whenever the tab
   // regains focus rather than caching once on mount.
@@ -380,9 +397,16 @@ export default function Stats({ isActive }) {
     <div className="stats-view">
       <div className="stats-body">
         <header className="stats-header">
-          <h1 className="stats-title">{t('Statistics')}</h1>
+          <div className="stats-header__row">
+            <h1 className="stats-title">{t('Statistics')}</h1>
+            {onViewingAccountChange && (
+              <ProgressScopePicker value={viewingAccount} onChange={onViewingAccountChange} />
+            )}
+          </div>
           <p className="stats-lede">
-            {t('How your vault is progressing')}
+            {viewingName
+              ? t("How {name}'s vault is progressing", { name: viewingName })
+              : t('How your vault is progressing')}
             {stats && <> · {t('scheduled with {algorithm}', { algorithm: ALGO_LABEL[stats.algorithm] ?? stats.algorithm })}</>}.
           </p>
         </header>
@@ -393,7 +417,9 @@ export default function Stats({ isActive }) {
           <ErrorState error={error} onRetry={reload} />
         ) : stats && stats.totals.cards === 0 && stats.totals.reviews === 0 ? (
           <p className="stats-empty">
-            {t('No cards or reviews yet. Create some flashcards and study them in the Trainer — your progress will show up here.')}
+            {viewingName
+              ? t('{name} has no cards or reviews yet.', { name: viewingName })
+              : t('No cards or reviews yet. Create some flashcards and study them in the Trainer — your progress will show up here.')}
           </p>
         ) : stats ? (
           <>

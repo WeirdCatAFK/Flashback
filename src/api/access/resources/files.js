@@ -148,6 +148,26 @@ export default class Files {
      * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
      * @returns {string} The computed metadata path.
      */
+    /**
+     * Writes a file through a temporary sibling and renames it into place, so a failure
+     * mid-write (a full disk or quota, a crash) leaves the previous file intact instead of a
+     * truncated one. The rename is atomic on every filesystem the workspace may sit on.
+     *
+     * @param {string} absPath - Destination.
+     * @param {string|Buffer} data - Contents.
+     * @param {object|string} [options] - Passed to `fs.writeFileSync`.
+     */
+    _atomicWrite(absPath, data, options) {
+        const tmp = `${absPath}.tmp-${process.pid}-${Date.now()}`;
+        try {
+            fs.writeFileSync(tmp, data, options);
+            fs.renameSync(tmp, absPath);
+        } catch (err) {
+            fs.rmSync(tmp, { force: true });
+            throw err;
+        }
+    }
+
     _metadataPathFor(relPath, isFolder = false) {
         const resolved = this.safePath(relPath);
         return isFolder ? path.join(resolved, ".flashback") : `${resolved}.flashback`;
@@ -322,7 +342,7 @@ _regenerateIdentities(absPath) {
             const parent = path.dirname(metadataPath);
             if (!fs.existsSync(parent)) fs.mkdirSync(parent, { recursive: true });
 
-            fs.writeFileSync(metadataPath, JSON.stringify(metadata, null, 2), "utf-8");
+            this._atomicWrite(metadataPath, JSON.stringify(metadata, null, 2), "utf-8");
         } catch (err) {
             console.error("Error writing metadata for", relPath, err);
             throw err;
@@ -690,9 +710,9 @@ _regenerateIdentities(absPath) {
             if (isBuffer) {
                 const detected = chardet.detect(content);
                 encoding = (detected && iconv.encodingExists(detected)) ? detected : 'binary';
-                fs.writeFileSync(filePath, content);
+                this._atomicWrite(filePath, content);
             } else if (content != null) {
-                fs.writeFileSync(filePath, content, { encoding: (encoding) });
+                this._atomicWrite(filePath, content, { encoding: (encoding) });
             } else {
                 encoding = this.getMetadata(relPath, false)?.encoding ?? encoding;
             }

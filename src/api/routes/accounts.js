@@ -24,10 +24,14 @@ import {
     createAccount, updateAccount, issueToken, revokeToken, rotatePureToken,
 } from '../access/primitives/accounts.js';
 import { ROLES, isRole, atLeast } from '../../shared/roles.js';
+import { getMaxAccounts } from '../access/primitives/config.js';
 import SRS from '../access/orchestration/srs.js';
+import Documents from '../access/orchestration/documents.js';
+import { vaultCompleteness } from './srs.js';
 import { OWNER_SCOPE } from '../requestContext.js';
 
 const router = Router();
+const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
@@ -58,9 +62,35 @@ function grantRefusal(actor, role) {
     return null;
 }
 
-/** Everyone who may reach this install, with their roles. */
+/**
+ * Whether adding one more active account would exceed `FLASHBACK_MAX_ACCOUNTS`.
+ *
+ * Only active accounts count, so deactivating one frees its slot; the Author is one of them.
+ * The check lives here rather than in `createAccount()` because `ensureLocalAuthor()` calls
+ * that at boot and must never be refused.
+ *
+ * @returns {Promise<{status: number, error: string, code: string, limit: number, count: number}|null>}
+ */
+async function accountLimitRefusal() {
+    const limit = getMaxAccounts();
+    if (limit == null) return null;
+    const count = (await listAccounts()).filter((a) => a.active).length;
+    if (count < limit) return null;
+    return {
+        status: 409,
+        error: `This server allows at most ${limit} accounts.`,
+        code: 'account_limit',
+        limit,
+        count,
+    };
+}
+
+/** The response body for a refused slot: everything but the HTTP status. */
+const limitBody = ({ error, code, limit, count }) => ({ error, code, limit, count });
+
+/** Everyone who may reach this install, with their roles, and the active-account cap if any. */
 router.get('/', catchError(async (req, res) => {
-    res.json({ accounts: await listAccounts(), you: req.account });
+    res.json({ accounts: await listAccounts(), you: req.account, limit: getMaxAccounts() });
 }));
 
 /** Creates an account; an admin may grant only Reader. */
@@ -68,6 +98,9 @@ router.post('/', catchError(async (req, res) => {
     const { name, email, role } = req.body ?? {};
     const refusal = grantRefusal(req.account, role);
     if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+
+    const full = await accountLimitRefusal();
+    if (full) return res.status(full.status).json(limitBody(full));
 
     res.status(201).json(await createAccount({ name, email, role }));
 }));
@@ -97,23 +130,47 @@ router.patch('/:id', catchError(async (req, res) => {
     if (active === false && target.id === req.account.id) {
         return res.status(403).json({ error: 'You cannot deactivate your own account.' });
     }
+    if (active === true && !target.active) {
+        const full = await accountLimitRefusal();
+        if (full) return res.status(full.status).json(limitBody(full));
+    }
 
     res.json(await updateAccount(target.id, { role, active }));
 }));
 
-/** One person's study statistics; the only endpoint that reads a schedule not the caller's. */
+/**
+ * Whose schedule a target account's progress lives under: the Author's is filed under the
+ * owner sentinel rather than their id (see `requestContext.js`), everyone else's under theirs.
+ */
+const scopeFor = (target) => (target.role === ROLES.AUTHOR ? OWNER_SCOPE : target.id);
+
+const publicTarget = (target) => ({ id: target.id, name: target.name, email: target.email, role: target.role });
+
+/**
+ * One person's study statistics, in the shape `GET /api/srs/statistics` gives the caller
+ * for themselves, completeness included. With `/:id/graph` below, one of the two endpoints
+ * that read a schedule not the caller's.
+ */
 router.get('/:id/progress', catchError(async (req, res) => {
     const target = await getAccount(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such account.' });
 
-    const scope = target.role === ROLES.AUTHOR ? OWNER_SCOPE : target.id;
+    const scope = scopeFor(target);
     const statistics = await SRS.getStatistics({ algorithm: req.query.algorithm ?? null, scope });
+    statistics.completeness = await vaultCompleteness(statistics, { scope });
 
-    res.json({
-        account: { id: target.id, name: target.name, email: target.email, role: target.role },
-        scope,
-        statistics,
-    });
+    res.json({ account: publicTarget(target), scope, statistics });
+}));
+
+/** The knowledge graph with its learned halos computed from one person's schedule. */
+router.get('/:id/graph', catchError(async (req, res) => {
+    const target = await getAccount(req.params.id);
+    if (!target) return res.status(404).json({ error: 'No such account.' });
+
+    const scope = scopeFor(target);
+    const graph = await docs.getGraphData(scope);
+
+    res.json({ account: publicTarget(target), scope, ...graph });
 }));
 
 /** Issues a token for an account, returning its plaintext once. */

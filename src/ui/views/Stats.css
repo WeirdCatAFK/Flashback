@@ -23,6 +23,14 @@
   margin-bottom: 14px;
 }
 
+.stats-header__row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
 .stats-title {
   font-size: var(--text-lg);
   font-weight: 600;

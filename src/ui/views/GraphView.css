@@ -1,3 +1,53 @@
+.graph-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The person picker's own row. Empty (Reader, or a vault with nobody else on it) it takes no
+   space at all, so a local vault's graph is pixel-identical to before it existed. Quiet on
+   purpose: same ground as the canvas, no rule under it, muted label — a caption over the
+   graph rather than a toolbar. */
+.graph-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  padding: var(--space-2, 8px) var(--space-4, 16px) 0;
+  background: var(--color-bg-base);
+}
+.graph-topbar:empty {
+  display: none;
+}
+.graph-topbar .scope-picker {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3, 12px);
+  font-size: var(--text-xs, 11px);
+}
+.graph-topbar .scope-picker__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+}
+.graph-topbar .scope-picker__select {
+  max-width: 20rem;
+  padding: 2px var(--space-2, 8px);
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-surface) 70%, transparent);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-xs, 11px);
+}
+.graph-topbar .scope-picker__select:hover,
+.graph-topbar .scope-picker__select:focus-visible {
+  color: var(--color-fg-primary);
+  border-color: var(--color-border-strong);
+}
+.graph-topbar .scope-picker__note {
+  font-size: var(--text-xs, 11px);
+  opacity: 0.75;
+}
+
 .graph-root {
   flex: 1;
   min-height: 0;
@@ -19,6 +69,19 @@
 .graph-status--error {
   color: var(--color-review-again);
 }
+
+.graph-status-action {
+  display: block;
+  margin: var(--space-2) auto 0;
+  padding: var(--space-1) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+.graph-status-action:hover { background: var(--color-bg-hover); }
 
 /* ── Ko-fi support button (top-left) ────────────────────────────────────── */
 

@@ -101,6 +101,15 @@ cards of one document both succeed. `ifMatch` on those routes is the entity's et
 as `etag` by `GET /api/flashcards/:hash`), so the only thing that can conflict is two edits to
 the same card.
 
+## Out of storage
+
+A write that hits a full disk or quota answers `507 { error: "The vault is out of storage.", code: "storage_full" }`,
+from any write route. Nothing on disk is half-written: every sidecar and editable body goes through a
+temporary sibling and a rename, so the file a failed write leaves behind is the previous one, intact.
+`GET /api/vault` keeps answering, and its `storage` block says how full the vault is; the ceiling itself
+is the volume's or the filesystem quota's, not `FLASHBACK_STORAGE_LIMIT`, which stays reporting-only.
+The mapping lives in `src/api/httpErrors.js`, the one place a thrown error becomes a status.
+
 ---
 
 ## Documents `/api/documents`
@@ -180,9 +189,9 @@ Errors `400` path required · `404` document not found.
 
 ### `GET /api/documents/graph`
 
-Returns the full knowledge graph.
+Returns the full knowledge graph, with each node's `learned` (0..1) and `mass` computed from the caller's own schedule.
 
-Response `200` — `{ nodes, edges }`.
+Response `200` — `{ nodes, edges }`. The same graph under someone else's schedule is `GET /api/accounts/:id/graph` (Admin).
 
 ---
 
@@ -1777,7 +1786,7 @@ Three rules a ladder of roles cannot express are enforced here, where the actor 
 
 ### `GET /api/accounts`
 
-Response `200` — `{ accounts: [{ id, name, email, role, active, createdAt, tokens: [{ id, label, createdAt, lastUsedAt, revokedAt, active }] }], you }`. Never a hash, never a plaintext.
+Response `200` — `{ accounts: [{ id, name, email, role, active, createdAt, tokens: [{ id, label, createdAt, lastUsedAt, revokedAt, active }] }], you, limit }`. Never a hash, never a plaintext. `limit` is the most active accounts this install may hold (`FLASHBACK_MAX_ACCOUNTS`), or `null` when uncapped; a client compares it with the active rows to say "9 of 10" before offering the form.
 
 ### `POST /api/accounts`
 
@@ -1785,9 +1794,11 @@ Body `{ name, email, role }` → `201` with the account.
 
 Two refusals, and the status distinguishes them: a `role` that is not a role (missing, misspelled) is `400`, because the request is malformed; a role the caller may not grant is `403`, because that is a permission decision. Answering `403` to both told a client it lacked a permission when its payload was simply wrong.
 
+A third is a matter of state, not permission: `409 { error, code: "account_limit", limit, count }` when the install already holds `FLASHBACK_MAX_ACCOUNTS` active accounts. Only active accounts count and the Author is one of them, so deactivating someone frees a slot. The check is made here rather than in the store, because the store's `createAccount()` is also what provisions the Author at boot and must never be refused.
+
 ### `PATCH /api/accounts/:id`
 
-Body `{ role?, active? }` → `200` with the updated account.
+Body `{ role?, active? }` → `200` with the updated account. Re-activating a deactivated account takes a slot, so `active: true` answers the same `409 account_limit` as a creation would when the cap is reached.
 
 ### `POST /api/accounts/:id/tokens`
 
@@ -1799,9 +1810,13 @@ Body `{ label? }` → `201` `{ id, token, label, accountId, notice }`. `token` i
 
 ### `GET /api/accounts/:id/progress`
 
-Admin. Query `?algorithm=` (optional) → `200` `{ account, scope, statistics }`. The study summary for one other person — the only endpoint in the API that reads a schedule that is not the caller's, which is why it lives under `accounts` (where the role guard already is) rather than under `srs` (where every route is deliberately about yourself).
+Admin. Query `?algorithm=` (optional) → `200` `{ account, scope, statistics }`. The study summary for one other person — with `/:id/graph` below, one of the two endpoints in the API that read a schedule that is not the caller's, which is why they live under `accounts` (where the role guard already is) rather than under `srs` or `documents` (where every route is deliberately about yourself).
 
-`scope` is the account id, or the literal `'owner'` when the target is the Author — the sentinel from `requestContext.js`, surfaced so a caller can see which store the numbers came from. `statistics` is the same shape `GET /api/srs/statistics` returns. `404` for an account that does not exist.
+`scope` is the account id, or the literal `'owner'` when the target is the Author — the sentinel from `requestContext.js`, surfaced so a caller can see which store the numbers came from. `statistics` is the same shape `GET /api/srs/statistics` returns, `completeness` included (composed by the same `vaultCompleteness()` helper, with the target's scope). `404` for an account that does not exist.
+
+### `GET /api/accounts/:id/graph`
+
+Admin. → `200` `{ account, scope, nodes, edges }`: the knowledge graph exactly as `GET /api/documents/graph` returns it, except that every node's `learned` and `mass` are computed from the target person's schedule. It is what lets an admin see the vault's halos as a reader sees them. `404` for an account that does not exist.
 
 ### `POST /api/accounts/pure-token`
 

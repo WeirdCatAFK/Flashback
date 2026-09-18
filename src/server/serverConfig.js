@@ -25,6 +25,8 @@
  *   FLASHBACK_AUTHOR_TOKEN      adopt this token as the Author's (default: mint one)
  *   FLASHBACK_USER_NAME         identity new work is stamped with (default: OS account)
  *   FLASHBACK_USER_EMAIL        — must be set together with the name
+ *   FLASHBACK_STORAGE_LIMIT     declared room on the volume      (default: unchanged; reporting only)
+ *   FLASHBACK_MAX_ACCOUNTS      most ACTIVE accounts, Author included (default: unchanged; unlimited)
  *   USER_DATA_PATH              the data volume                  (read by config.js itself)
  *
  * One server variable is deliberately NOT handled here: FLASHBACK_UPDATE_CHECK. It gates an
@@ -118,6 +120,15 @@ export function applyServerConfig() {
             );
         }
         merged.storageLimit = storageLimit;
+    }
+
+    const maxAccounts = env('FLASHBACK_MAX_ACCOUNTS');
+    if (maxAccounts !== undefined) {
+        const parsed = Number(maxAccounts);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+            throw new Error(`FLASHBACK_MAX_ACCOUNTS is not a positive integer: "${maxAccounts}".`);
+        }
+        merged.maxAccounts = parsed;
     }
 
     const origins = env('FLASHBACK_ALLOWED_ORIGINS');

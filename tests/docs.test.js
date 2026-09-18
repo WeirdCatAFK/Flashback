@@ -684,6 +684,47 @@ describe('Documents Orchestrator Integration Tests', () => {
     });
 
     // --- 9. DELETION & CASCADE ---
+    // A sidecar is written through a temporary sibling and a rename, so a full disk or quota
+    // (the ENOSPC a hosted vault hits at its ZFS cap) leaves the PREVIOUS sidecar on disk —
+    // never a truncated one, which the next read would report as corrupt.
+    describe('Atomic sidecar writes', () => {
+        const docRel = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
+        const sidecarOf = (rel) => `${path.join(getWorkspacePath(), rel)}.flashback`;
+        const tmpSiblings = (rel) => fs.readdirSync(path.dirname(sidecarOf(rel)))
+            .filter((n) => n.includes('.flashback.tmp-'));
+
+        it('leaves no temporary sibling behind after a successful write', () => {
+            const meta = docs.files.getMetadata(docRel, false);
+            meta.description = 'written atomically';
+            docs.files.writeMetadata(docRel, meta, false);
+            assert.equal(docs.files.getMetadata(docRel, false).description, 'written atomically');
+            assert.deepEqual(tmpSiblings(docRel), []);
+        });
+
+        it('keeps the previous sidecar intact when the disk fills mid-write', () => {
+            const before = fs.readFileSync(sidecarOf(docRel), 'utf-8');
+            const meta = JSON.parse(before);
+            meta.description = 'this must never land';
+
+            const realWrite = fs.writeFileSync;
+            fs.writeFileSync = (file, ...rest) => {
+                if (String(file).includes('.tmp-')) {
+                    throw Object.assign(new Error('ENOSPC: no space left on device, write'), { code: 'ENOSPC' });
+                }
+                return realWrite(file, ...rest);
+            };
+            try {
+                assert.throws(() => docs.files.writeMetadata(docRel, meta, false), (err) => err.code === 'ENOSPC',
+                    'the raw errno travels up so the HTTP layer can answer 507');
+            } finally {
+                fs.writeFileSync = realWrite;
+            }
+
+            assert.equal(fs.readFileSync(sidecarOf(docRel), 'utf-8'), before, 'byte-identical to before');
+            assert.deepEqual(tmpSiblings(docRel), [], 'the failed sibling was removed');
+        });
+    });
+
     describe('Deletion & Cascade', () => {
         const subFolder = 'DeletionTests';
         const subFolderPath = path.join(TEST_ROOT, subFolder);

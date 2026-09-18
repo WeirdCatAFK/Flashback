@@ -2,6 +2,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import { forceCollide, forceX, forceY } from 'd3-force';
 import { getGraph } from '../api/documents';
+import { getAccountGraph } from '../api/accounts';
+import ProgressScopePicker from '../components/shared/ProgressScopePicker';
 import { useT } from '../translations';
 import { aggregateMass, haloRadius, collideRadius, HALO_BASE, HALO_K, HALO_MAX } from './graphMetrics';
 import './GraphView.css';
@@ -184,7 +186,9 @@ function buildGraphData({ nodes = [], edges = [] }) {
   return { nodes: named, links, originIds, defaultDeckIds };
 }
 
-function useGraph(isActive) {
+// `viewingId` is whose schedule paints the halos — null for the caller's own. Someone else's
+// comes from the admin-only accounts route in the same shape, so nothing downstream cares.
+function useGraph(isActive, viewingId = null) {
   const [graphData, setGraphData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -202,12 +206,13 @@ function useGraph(isActive) {
     if (!isActive) return;
     let cancelled = false;
     setLoading(true);
-    getGraph()
+    const load = viewingId ? getAccountGraph(viewingId) : getGraph();
+    load
       .then(data => { if (!cancelled) { setGraphData(buildGraphData(data)); setError(null); } })
       .catch(err  => { if (!cancelled) setError(err); })
       .finally(()  => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [isActive, refreshToken]);
+  }, [isActive, refreshToken, viewingId]);
 
   const refresh = useCallback(() => setRefreshToken(t => t + 1), []);
   return { graphData, loading, error, refresh };
@@ -500,10 +505,10 @@ redraw();
 </html>`;
 }
 
-export default function GraphView({ isActive = false, onNavigate }) {
+export default function GraphView({ isActive = false, onNavigate, viewingAccount = null, onViewingAccountChange }) {
   const { t, tp, locale } = useT();
   const typeLabel = useTypeLabel();
-  const { graphData, loading, error, refresh } = useGraph(isActive);
+  const { graphData, loading, error, refresh } = useGraph(isActive, viewingAccount?.id ?? null);
   const [showTags, setShowTags]   = usePersisted(LS.tags, true);
   const [showDecks, setShowDecks] = usePersisted(LS.decks, true);
   const [showLinks, setShowLinks] = usePersisted(LS.links, true);
@@ -1046,9 +1051,33 @@ export default function GraphView({ isActive = false, onNavigate }) {
   }
 
   return (
+    <div className="graph-view">
+      {/* Whose schedule paints the halos. A bar of its own above the canvas rather than a row
+          in the controls panel: the panel is 184px wide and floats over the graph, and a
+          person's name deserves room. The picker renders nothing for a Reader or on a
+          single-account vault, and the bar collapses with it (see :empty in GraphView.css). */}
+      <div className="graph-topbar">
+        {onViewingAccountChange && (
+          <ProgressScopePicker note value={viewingAccount} onChange={onViewingAccountChange} />
+        )}
+      </div>
     <div ref={containerRef} className="graph-root">
       {loading && <div className="graph-status">{t('Loading graph…')}</div>}
-      {error   && <div className="graph-status graph-status--error">{t('Error: {message}', { message: error.message })}</div>}
+      {error && (
+        <div className="graph-status graph-status--error">
+          {/* Viewing someone else goes through an admin-only route that an older Flashback
+              Server does not have. The controls panel — and the picker in it — only render on
+              success, so without this button a 404 here would strand the tab on that person. */}
+          {viewingAccount && error.status === 404
+            ? t("This server can't show another person's graph yet — it needs updating to the current release.")
+            : t('Error: {message}', { message: error.message })}
+          {viewingAccount && onViewingAccountChange && (
+            <button type="button" className="graph-status-action" onClick={() => onViewingAccountChange(null)}>
+              {t('Show your own graph')}
+            </button>
+          )}
+        </div>
+      )}
       {!loading && !error && (!visibleData || visibleData.nodes.length === 0) && (
         <div className="graph-status">
           {t("Nothing to see here. You're empty inside. Just like me.")}
@@ -1291,6 +1320,7 @@ export default function GraphView({ isActive = false, onNavigate }) {
           )}
         </>
       )}
+    </div>
     </div>
   );
 }

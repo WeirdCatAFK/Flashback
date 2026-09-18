@@ -94,6 +94,10 @@ function navLabels(t, shared) {
 export default function App() {
   const { t } = useT();
   const [activeView, setActiveView] = useState("documents");
+  // Whose progress the Stats and Graph tabs show: null is the caller's own. Held here rather
+  // than in either view so the choice carries across the two, and reset on a connection change
+  // with the rest of the App-level state below. Not a pref — it is a session-time choice.
+  const [progressAccount, setProgressAccount] = useState(null);
 
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("fb-theme");
@@ -152,6 +156,7 @@ export default function App() {
     setPendingSource(null);
     setPendingDeck(null);
     setStudySession(null);
+    setProgressAccount(null);
     try {
       const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
       setOpenPaths(new Set(Array.isArray(saved) ? saved : []));
@@ -257,6 +262,12 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
+  // The Server tab's "Progress" button: pick that person and land on Stats with them selected.
+  const handleViewProgress = useCallback((account) => {
+    setProgressAccount(account ? { id: account.id, name: account.name, role: account.role } : null);
+    setActiveView('stats');
+  }, []);
+
   const handleSearchNavigate = useCallback(({ type, payload }) => {
     switch (type) {
       case 'document':
@@ -297,13 +308,13 @@ export default function App() {
       case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudy={handleStartStudy} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
       case "flashcards": return <FlashcardsView />;
       case "decks":      return <DecksView onStudyDeck={handleStartStudy} openDeck={pendingDeck} onOpenDeckConsumed={() => setPendingDeck(null)} />;
-      case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} />;
+      case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} viewingAccount={progressAccount} onViewingAccountChange={setProgressAccount} />;
       case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
       case "seal":       return <SealView isActive={activeView === 'seal'} />;
       case "manage":     return <ManageView isActive={activeView === 'manage'} />;
-      case "stats":      return <StatsView isActive={activeView === 'stats'} />;
+      case "stats":      return <StatsView isActive={activeView === 'stats'} viewingAccount={progressAccount} onViewingAccountChange={setProgressAccount} />;
       case "diary":      return <DiaryView isActive={activeView === 'diary'} connection={connection} />;
-      case "server":     return <ServerView connection={connection} />;
+      case "server":     return <ServerView connection={connection} onViewProgress={handleViewProgress} />;
       case "config":     return (
         <ConfigView
           theme={theme}

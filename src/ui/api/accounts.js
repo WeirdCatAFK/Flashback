@@ -12,7 +12,7 @@ import { request } from './client.js';
  * person before it is gone.
  */
 
-/** @returns {Promise<{accounts: Array<object>, you: object}>} */
+/** @returns {Promise<{accounts: Array<object>, you: object, limit: number|null}>} */
 export function listAccounts() {
     return request('GET', '/api/accounts');
 }
@@ -31,8 +31,9 @@ export function updateAccount(id, changes) {
 }
 
 /**
- * One account's study summary. Admin-only, and the only call in the app that reads a
- * schedule belonging to someone else.
+ * One account's study summary, in the shape `getStatistics()` gives the caller for themselves
+ * (completeness included). Admin-only; with `getAccountGraph` below, the only two calls in the
+ * app that read a schedule belonging to someone else.
  *
  * @param {string} id
  * @param {string} [algorithm]
@@ -41,6 +42,17 @@ export function updateAccount(id, changes) {
 export function getAccountProgress(id, algorithm = null) {
     const query = algorithm ? `?algorithm=${encodeURIComponent(algorithm)}` : '';
     return request('GET', `/api/accounts/${encodeURIComponent(id)}/progress${query}`);
+}
+
+/**
+ * The knowledge graph as `getGraph()` returns it, with every node's `learned` and `mass`
+ * computed from this account's schedule instead of the caller's. Admin-only.
+ *
+ * @param {string} id
+ * @returns {Promise<{account: object, scope: string, nodes: Array<object>, edges: Array<object>}>}
+ */
+export function getAccountGraph(id) {
+    return request('GET', `/api/accounts/${encodeURIComponent(id)}/graph`);
 }
 
 /**

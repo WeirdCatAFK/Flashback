@@ -37,6 +37,7 @@ const SERVER_ENV = [
     'FLASHBACK_PORT', 'FLASHBACK_HOST', 'FLASHBACK_VAULT_NAME',
     'FLASHBACK_ALLOWED_ORIGINS', 'FLASHBACK_LOG_FORMAT', 'FLASHBACK_AUTHOR_TOKEN',
     'FLASHBACK_WORKSPACE_PATH', 'FLASHBACK_INDEX_PATH', 'FLASHBACK_STORAGE_LIMIT',
+    'FLASHBACK_MAX_ACCOUNTS',
 ];
 for (const key of SERVER_ENV) delete process.env[key];
 
@@ -411,6 +412,82 @@ describe('Flashback Server', () => {
                 assert.ok(storage.remaining > 0);
             } finally {
                 restoreLimit();
+            }
+        });
+    });
+
+    // A hosted plan sells "N accounts"; this is what keeps the promise. Only ACTIVE accounts
+    // count and the Author is one of them, so deactivating someone frees their slot and
+    // re-activating takes one. Enforced at the route, never in the store, because the store's
+    // createAccount() is also what provisions the Author at boot.
+    describe('account cap', () => {
+        const restoreCap = () => {
+            delete process.env.FLASHBACK_MAX_ACCOUNTS;
+            applyServerConfig();
+            const file = path.join(ROOT, 'config.json');
+            const cfg = JSON.parse(fs.readFileSync(file, 'utf-8'));
+            delete cfg.maxAccounts;
+            fs.writeFileSync(file, JSON.stringify(cfg, null, 2));
+            serverTestConfig.reload();
+        };
+        const post = (body) => fetch(`${baseUrl}/api/accounts`, {
+            method: 'POST', headers: auth({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
+        });
+        const patch = (id, body) => fetch(`${baseUrl}/api/accounts/${id}`, {
+            method: 'PATCH', headers: auth({ 'Content-Type': 'application/json' }), body: JSON.stringify(body),
+        });
+
+        it('refuses a cap that is not a positive integer at startup', () => {
+            for (const bad of ['0', '-3', 'ten', '2.5']) {
+                process.env.FLASHBACK_MAX_ACCOUNTS = bad;
+                try {
+                    assert.throws(() => applyServerConfig(), /FLASHBACK_MAX_ACCOUNTS/, bad);
+                } finally {
+                    restoreCap();
+                }
+            }
+        });
+
+        it('reports no cap when none is declared', async () => {
+            restoreCap();
+            const res = await fetch(`${baseUrl}/api/accounts`, { headers: auth() });
+            assert.equal(res.status, 200);
+            assert.equal((await res.json()).limit, null);
+        });
+
+        it('counts active accounts, the Author included, and frees a slot on deactivation', async () => {
+            process.env.FLASHBACK_MAX_ACCOUNTS = '2';
+            try {
+                applyServerConfig();
+                const list = await (await fetch(`${baseUrl}/api/accounts`, { headers: auth() })).json();
+                assert.equal(list.limit, 2, 'the cap round-trips through config.json');
+                assert.equal(list.accounts.filter((a) => a.active).length, 1, 'just the Author so far');
+
+                const first = await post({ name: 'Rita', email: 'rita@example.com', role: 'reader' });
+                assert.equal(first.status, 201, 'the second slot is free');
+                const rita = await first.json();
+
+                const third = await post({ name: 'Sam', email: 'sam@example.com', role: 'reader' });
+                assert.equal(third.status, 409, 'the cap is the Author plus one');
+                const refusal = await third.json();
+                assert.equal(refusal.code, 'account_limit');
+                assert.equal(refusal.limit, 2);
+                assert.equal(refusal.count, 2);
+                assert.equal(refusal.status, undefined, 'the HTTP status is not echoed into the body');
+
+                const off = await patch(rita.id, { active: false });
+                assert.equal(off.status, 200);
+                const afterwards = await post({ name: 'Sam', email: 'sam@example.com', role: 'reader' });
+                assert.equal(afterwards.status, 201, 'a deactivated account no longer holds a slot');
+
+                const back = await patch(rita.id, { active: true });
+                assert.equal(back.status, 409, 're-activating takes a slot, and there is none');
+                assert.equal((await back.json()).code, 'account_limit');
+
+                const noop = await patch((await afterwards.json()).id, { active: true });
+                assert.equal(noop.status, 200, 'setting active on an already-active account takes nothing');
+            } finally {
+                restoreCap();
             }
         });
     });

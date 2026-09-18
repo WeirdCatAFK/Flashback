@@ -3,9 +3,9 @@ import "./Server.css";
 import { getVaultIdentity } from "../api/vaults";
 import {
   listAccounts, createAccount, updateAccount,
-  getAccountProgress, issueToken, revokeToken, rotatePureToken,
+  issueToken, revokeToken, rotatePureToken,
 } from "../api/accounts";
-import { LoadingState, ErrorState } from "../components/shared/StateView";
+import { LoadingState } from "../components/shared/StateView";
 import { useConfirm } from "../components/shared/confirmContext.js";
 import { useSession } from "../sessionContext.js";
 import { ROLES, ROLE_ORDER } from "../../shared/roles.js";
@@ -187,7 +187,7 @@ function AccountRow({ account, you, canGrant, onChangeRole, onDeactivate, onIssu
   );
 }
 
-function People({ onProgress }) {
+function People({ onViewProgress }) {
   const { t } = useT();
   const { can, role } = useSession();
   const confirm = useConfirm();
@@ -195,6 +195,7 @@ function People({ onProgress }) {
 
   const [accounts, setAccounts] = useState([]);
   const [you, setYou] = useState(null);
+  const [limit, setLimit] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -207,6 +208,7 @@ function People({ onProgress }) {
       const data = await listAccounts();
       setAccounts(data.accounts ?? []);
       setYou(data.you ?? null);
+      setLimit(Number.isInteger(data.limit) ? data.limit : null);
       setError(null);
     } catch (e) {
       setError(e.message || String(e));
@@ -232,11 +234,23 @@ function People({ onProgress }) {
 
   if (loading) return <LoadingState message={t("Loading accounts…")} />;
 
+  // FLASHBACK_MAX_ACCOUNTS counts active accounts only, the Author included. The server
+  // refuses with 409 past it; the button says so up front instead of letting the form fail.
+  const activeCount = accounts.filter((a) => a.active).length;
+  const full = limit != null && activeCount >= limit;
+
   return (
     <section className="srv-section">
       <div className="srv-section__head">
-        <h2 className="srv-h2">{t("People")}</h2>
-        <button type="button" className="srv-btn" onClick={() => setShowForm((v) => !v)}>
+        <h2 className="srv-h2">
+          {t("People")}
+          {limit != null && (
+            <span className="srv-dim srv-count"> {t("{count} of {limit}", { count: activeCount, limit })}</span>
+          )}
+        </h2>
+        <button type="button" className="srv-btn" disabled={full && !showForm}
+          title={full && !showForm ? t("This server allows at most {limit} accounts.", { limit }) : undefined}
+          onClick={() => setShowForm((v) => !v)}>
           {showForm ? t("Cancel") : t("Add person")}
         </button>
       </div>
@@ -278,7 +292,7 @@ function People({ onProgress }) {
           {accounts.map((a) => (
             <AccountRow
               key={a.id} account={a} you={you} canGrant={canGrant} busy={busy}
-              onShowProgress={onProgress}
+              onShowProgress={onViewProgress}
               onChangeRole={(acc, r) => run(`role-${acc.id}`, () => updateAccount(acc.id, { role: r }))}
               onDeactivate={async (acc) => {
                 if (!(await confirm({
@@ -337,63 +351,11 @@ function People({ onProgress }) {
   );
 }
 
-// ── One person's progress ─────────────────────────────────────────────────────
-
-function Progress({ account, onClose }) {
-  const { t } = useT();
-  const [data, setData] = useState(null);
-  const [error, setError] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    setData(null); setError(null);
-    getAccountProgress(account.id)
-      .then((d) => { if (!cancelled) setData(d); })
-      .catch((e) => { if (!cancelled) setError(e.message || String(e)); });
-    return () => { cancelled = true; };
-  }, [account.id]);
-
-  const totals = data?.statistics?.totals ?? null;
-
-  return (
-    <section className="srv-section">
-      <div className="srv-section__head">
-        <h2 className="srv-h2">{t("Progress")} — {account.name}</h2>
-        <button type="button" className="srv-btn" onClick={onClose}>{t("Close")}</button>
-      </div>
-
-      {error && <ErrorState error={error} />}
-      {!data && !error && <LoadingState message={t("Loading progress…")} />}
-
-      {totals && (
-        <>
-          <div className="srv-stats">
-            <div className="srv-stat"><span className="srv-stat__n">{totals.reviews ?? 0}</span>{t("reviews")}</div>
-            <div className="srv-stat"><span className="srv-stat__n">{totals.cards ?? 0}</span>{t("cards")}</div>
-            <div className="srv-stat"><span className="srv-stat__n">{totals.daysStudied ?? 0}</span>{t("days studied")}</div>
-            <div className="srv-stat">
-              <span className="srv-stat__n">
-                {totals.retentionAll == null ? "—" : `${Math.round(totals.retentionAll * 100)}%`}
-              </span>{t("retention")}
-            </div>
-          </div>
-          <p className="srv-dim srv-note">
-            {/* Worth stating: the Author's schedule is stored under a sentinel rather than
-                their account id, so this panel is reading a different key for them. */}
-            {t("This is their own schedule. Nobody's reviews move anyone else's due list.")}
-          </p>
-        </>
-      )}
-    </section>
-  );
-}
-
 // ── The view ──────────────────────────────────────────────────────────────────
 
-export default function Server({ connection }) {
+export default function Server({ connection, onViewProgress }) {
   const { t } = useT();
   const { can, loading } = useSession();
-  const [progressFor, setProgressFor] = useState(null);
 
   if (loading) return <LoadingState message={t("Loading…")} />;
 
@@ -402,9 +364,7 @@ export default function Server({ connection }) {
       <ServerIdentity connection={connection} />
 
       {can("manageAccounts") ? (
-        progressFor
-          ? <Progress account={progressFor} onClose={() => setProgressFor(null)} />
-          : <People onProgress={setProgressFor} />
+        <People onViewProgress={onViewProgress} />
       ) : (
         <section className="srv-section">
           <h2 className="srv-h2">{t("People")}</h2>

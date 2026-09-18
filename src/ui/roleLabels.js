@@ -37,3 +37,17 @@ export function capabilityHint(t, capability) {
     if (!label) return null;
     return t('Requires the {role} role on this server.', { role: label });
 }
+
+/**
+ * The words the Stats and Graph person picker uses. A function of `t`, called at render, for
+ * the same reason as `roleLabel` above: nothing here may be evaluated at import time.
+ *
+ * @param {(s: string, vars?: object) => string} t
+ */
+export function progressScopeLabels(t) {
+    return {
+        you: t('You'),
+        pickerLabel: t('Progress of'),
+        viewing: (name) => t("Viewing {name}'s progress", { name }),
+    };
+}

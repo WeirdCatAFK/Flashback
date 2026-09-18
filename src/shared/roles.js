@@ -77,7 +77,7 @@ export const CAPABILITIES = {
     viewHistory:      { minimum: ROLES.ADMIN, guards: [["seal", "GET", "/log"]] },
     checkIndex:       { minimum: ROLES.ADMIN, guards: [["doctor", "GET", "/check"]] },
     manageAccounts:   { minimum: ROLES.ADMIN, guards: [["accounts", "GET", "/"], ["accounts", "POST", "/"]] },
-    viewAllProgress:  { minimum: ROLES.ADMIN, guards: [["accounts", "GET", "/abc123/progress"]] },
+    viewAllProgress:  { minimum: ROLES.ADMIN, guards: [["accounts", "GET", "/abc123/progress"], ["accounts", "GET", "/abc123/graph"]] },
 
     rollbackHistory:  { minimum: ROLES.AUTHOR, guards: [["seal", "POST", "/rollback"]] },
     rebuildIndex:     { minimum: ROLES.AUTHOR, guards: [["doctor", "POST", "/rebuild"], ["doctor", "POST", "/sync"]] },

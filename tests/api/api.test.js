@@ -217,6 +217,16 @@ describe('Flashback API', () => {
             assert.equal(res.status, 403);
         });
 
+        it("refuses a reader looking at anyone else's progress or graph", async () => {
+            const { accounts } = await (await fetch(`${baseUrl}/api/accounts`)).json();
+            const author = accounts.find((a) => a.role === 'author');
+            for (const leaf of ['progress', 'graph']) {
+                const res = await asReader(`${baseUrl}/api/accounts/${author.id}/${leaf}`);
+                assert.equal(res.status, 403, leaf);
+                assert.equal((await res.json()).required, 'admin');
+            }
+        });
+
         it('refuses a reader rolling the vault back', async () => {
             const res = await asReader(`${baseUrl}/api/seal/log`);
             assert.equal(res.status, 403);
@@ -2905,6 +2915,44 @@ describe('Flashback API', () => {
             assert.equal(body.account.id, authorId);
             assert.equal(body.account.role, 'author');
             assert.ok(body.statistics?.totals, 'it carries a real statistics payload');
+        });
+
+        it('carries the same completeness block the caller gets for themselves', async () => {
+            // The Stats view reads this payload verbatim when an admin picks another person,
+            // so it has to be the whole shape — the completeness band used to be the one
+            // piece missing, and it silently rendered nothing.
+            const mine = await (await fetch(`${baseUrl}/api/srs/statistics`)).json();
+            const theirs = await (await fetch(`${baseUrl}/api/accounts/${authorId}/progress`)).json();
+            assert.ok(theirs.statistics.completeness, 'completeness is composed for the target');
+            assert.deepEqual(theirs.statistics.completeness, mine.completeness,
+                'the Author viewed by id is the Author viewed as the caller');
+        });
+
+        it("serves the graph under someone else's schedule, and 404s for nobody", async () => {
+            const own = await (await fetch(`${baseUrl}/api/documents/graph`)).json();
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/graph`);
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.scope, 'owner');
+            assert.equal(body.account.id, authorId);
+            assert.deepEqual(body.nodes.map((n) => [n.id, n.learned]), own.nodes.map((n) => [n.id, n.learned]),
+                "the Author's halos by id are the Author's halos as the caller");
+            assert.equal(body.edges.length, own.edges.length);
+
+            const missing = await fetch(`${baseUrl}/api/accounts/not-a-real-id/graph`);
+            assert.equal(missing.status, 404);
+        });
+
+        it("paints a fresh reader's graph unlearned while the Author's shows what they studied", async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Graph Probe', email: `graph+${Date.now()}@example.invalid`, role: 'reader',
+            })).json();
+            const theirs = await (await fetch(`${baseUrl}/api/accounts/${created.id}/graph`)).json();
+            const own = await (await fetch(`${baseUrl}/api/documents/graph`)).json();
+
+            assert.equal(theirs.nodes.length, own.nodes.length, 'same vault, same nodes');
+            assert.ok(theirs.nodes.every((n) => (n.learned ?? 0) === 0), 'a reader who has never reviewed knows nothing');
+            assert.ok(own.nodes.some((n) => n.learned > 0), 'the suite has reviewed as the Author by now');
         });
 
         it('reports everyone else under their own account id', async () => {

@@ -24,6 +24,7 @@ import identityRouter from './routes/identity.js';
 import accountsRouter from './routes/accounts.js';
 import { authenticate } from './auth/authenticate.js';
 import { guard } from './auth/permissions.js';
+import { statusForError } from './httpErrors.js';
 import { ensureLocalAuthor, hasUsableToken } from './access/primitives/accounts.js';
 import { isSwitching } from './vaultSession.js';
 
@@ -141,16 +142,8 @@ class api {
     // eslint-disable-next-line no-unused-vars
     this.app.use((err, req, res, next) => {
       console.error(err);
-      if (err.type === 'entity.too.large') {
-        return res.status(413).json({ error: 'Request body too large' });
-      }
-      if (Number.isInteger(err.status) && err.status >= 400 && err.status < 500) {
-        const body = { error: err.message };
-        if (err.code) body.code = err.code;
-        if (err.etag !== undefined) body.etag = err.etag;
-        return res.status(err.status).json(body);
-      }
-      res.status(500).json({ error: err.message ?? 'Internal server error' });
+      const { status, body } = statusForError(err);
+      res.status(status).json(body);
     });
   }
   /** Provisions the accounts store, then listens. */
