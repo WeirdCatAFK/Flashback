@@ -518,9 +518,9 @@ function DeckPicker({ label, onPick }) {
               <span className="scope-picker-empty">{t('No decks yet')}</span>
             )}
             {!loading && decks.map(deck => (
-              <div key={deck.globalHash} className="scope-picker-item">
+              <div key={deck.global_hash} className="scope-picker-item">
                 <button type="button" className="scope-picker-item-label"
-                  onClick={() => { onPick({ deck: deck.globalHash, deckName: deck.name }); setOpen(false); }}>
+                  onClick={() => { onPick({ deck: deck.global_hash, deckName: deck.name }); setOpen(false); }}>
                   {deck.name}
                 </button>
               </div>
