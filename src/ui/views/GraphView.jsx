@@ -850,7 +850,7 @@ export default function GraphView({ isActive = false, onNavigate, viewingAccount
     if (showLabel) {
       ctx.globalAlpha = effectiveAlpha;
       const fontSize = Math.min(14, Math.max(10, 12 / globalScale));
-      ctx.font = `${fontSize}px Geist, system-ui, sans-serif`;
+      ctx.font = `${fontSize}px 'Didact Gothic', 'Noto Sans', system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
       ctx.fillStyle = colors.label;

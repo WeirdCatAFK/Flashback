@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Didact+Gothic&family=Noto+Sans:wght@400;500;600;700&display=swap');
 
 /* ── Design tokens (theme-invariant) ─────────────────────────────────────────
    Spacing, radius, type, and motion scales are the same across every theme, so
@@ -29,8 +29,11 @@
   --text-xl: 28px;
   --text-2xl: 40px;
 
-  /* Font families */
-  --font-sans: 'Geist', system-ui, sans-serif;
+  /* Font families.
+     Didact Gothic ships a single 400 weight, so 600/700 are browser-synthesized.
+     Noto Sans sits behind it for the glyphs it lacks (extended Latin, Greek,
+     Cyrillic, Vietnamese); anything past that falls to the system font. */
+  --font-sans: 'Didact Gothic', 'Noto Sans', system-ui, sans-serif;
   --font-mono: 'Geist Mono', 'Cascadia Code', 'Consolas', monospace;
 
   /* Motion */
