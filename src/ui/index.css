@@ -3,8 +3,6 @@
    defined per [data-theme] block, and scripts/check-contrast.js reads those
    blocks — see INTERFACE.md § Theme tokens before editing them. */
 
-@import url("https://fonts.googleapis.com/css2?family=Didact+Gothic&family=Noto+Sans:wght@400;500;600;700&display=swap");
-
 /* ── Design tokens (theme-invariant) ─────────────────────────────────────────
    Spacing, radius, type, and motion scales are the same across every theme, so
    they live once on :root. Only color/elevation vary per theme (below).
@@ -29,6 +27,8 @@
   --radius-md: 6px;
   --radius-lg: 10px;
   --radius-pill: 999px;
+  /* The card: 3px read as print, 12px as an app panel */
+  --radius-card: 8px;
 
   /* Control heights — buttons, inputs, rows, icon buttons */
   --control-xs: 20px;
@@ -149,6 +149,30 @@
   --color-graph-link: #d86a3d;
   --color-graph-disconnect: #c72e28;
   --color-graph-inherit: #5b863c;
+  /* card stock — paper on the desk */
+  --color-card: #fffdf6;
+  --color-card-edge: #ddd3bd;
+  --color-card-ink: #201a15;
+  --color-card-ink-2: #6c6359;
+  --color-card-line: #e8dfcd;
+  --color-card-field: #fbf6ea;
+  --color-card-pile: #f6efdf;
+  --color-card-pile-edge: #ddd3bd;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7), 0 1px 0 rgba(70, 45, 10, 0.05),
+    0 2px 4px rgba(70, 45, 10, 0.08), 0 14px 28px -10px rgba(70, 45, 10, 0.22);
+  --color-pop-halo: rgba(32, 26, 21, 0.12);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #d6bf98;
+  --color-kraft-edge: #b99c6f;
+  --color-kraft-print: #3d2e18;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #8c9fb3;
+  --color-box-sage: #9daf8a;
+  --color-box-ochre: #cfa75a;
+  --color-box-brick: #bf8470;
+  --color-box-plum: #a78aa3;
+  --color-box-ink: #77716a;
   /* semantic + elevation */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08);
   --shadow-float:
@@ -199,6 +223,30 @@
   --color-graph-link: #c87f00;
   --color-graph-disconnect: #f87171;
   --color-graph-inherit: #7ba688;
+  /* card stock — a step darker than the desk (Focus) */
+  --color-card: #141210;
+  --color-card-edge: #0a0908;
+  --color-card-ink: #f5f5f4;
+  --color-card-ink-2: #a8a29e;
+  --color-card-line: #2e2824;
+  --color-card-field: #100e0d;
+  --color-card-pile: #181513;
+  --color-card-pile-edge: #0a0908;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
   /* semantic + elevation */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
   --shadow-float:
@@ -208,6 +256,80 @@
   --color-on-danger: #1c1917;
   --color-scrim: rgba(0, 0, 0, 0.55);
 }
+[data-theme="dark-workbench-lamp"] {
+  --color-bg-base: #1c1917;
+  --color-bg-sidebar: #171412;
+  --color-bg-surface: #292524;
+  --color-bg-hover: #3c3530;
+  --color-bg-reader: #201d1a;
+  --color-bg-editor: dark;
+  --color-fg-primary: #f5f5f4;
+  --color-fg-secondary: #a8a29e;
+  --color-fg-icon: #a8a29e;
+  --color-accent: #f59e0b;
+  --color-on-accent: #1c1917;
+  --color-border: #3c3530;
+  --color-border-strong: #7a6e65;
+  --color-title-bar: #0c0a09;
+  /* extended */
+  --color-accent-subtle: #292012;
+  --color-tree-indent: #2c2420;
+  --color-sidebar-header: #0f0d0b;
+  /* highlight swatches */
+  --color-hl-1: #a16207;
+  --color-hl-2: #4d7c0f;
+  --color-hl-3: #1d4ed8;
+  --color-hl-4: #9d174d;
+  /* review grade swatches */
+  --color-on-review: #1c1917;
+  --color-review-again: #f37373;
+  --color-review-hard: #f59e0b;
+  --color-review-good: #22c55e;
+  --color-review-easy: #629bf8;
+  /* graph palette */
+  --color-graph-edge: #6e635b; /* resting links: structure, not identity */
+  --color-graph-document: #c87f00;
+  --color-graph-folder: #2a70c0;
+  --color-graph-flashcard: #b35189;
+  --color-graph-tag: #38ad6b;
+  --color-graph-deck: #9881e3;
+  --color-graph-link: #c87f00;
+  --color-graph-disconnect: #f87171;
+  --color-graph-inherit: #7ba688;
+  /* card stock — a step lighter than the desk (Lamp) */
+  --color-card: #2e2824;
+  --color-card-edge: #15120f;
+  --color-card-ink: #f5f5f4;
+  --color-card-ink-2: #a8a29e;
+  --color-card-line: #463d36;
+  --color-card-field: #262120;
+  --color-card-pile: #28231f;
+  --color-card-pile-edge: #15120f;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
+  /* semantic + elevation */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.5), 0 2px 8px rgba(0, 0, 0, 0.22);
+  --color-danger: #f87171;
+  --color-danger-bg: rgba(248, 113, 113, 0.12);
+  --color-on-danger: #1c1917;
+  --color-scrim: rgba(0, 0, 0, 0.55);
+}
+
 
 [data-theme="dark-cherry"] {
   --color-bg-base: #0f0f10;
@@ -257,6 +379,30 @@
   --color-graph-disconnect: #ff5252;
   --color-graph-inherit: #a595bb;
 
+  /* card stock — a step darker than the desk (Focus) */
+  --color-card: #080809;
+  --color-card-edge: #000000;
+  --color-card-ink: #f2f2f3;
+  --color-card-ink-2: #a8a8ad;
+  --color-card-line: #232326;
+  --color-card-field: #060607;
+  --color-card-pile: #0b0b0c;
+  --color-card-pile-edge: #000000;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
   /* semantic + elevation */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
   --shadow-float:
@@ -267,6 +413,89 @@
   --color-on-danger: #0f0f10;
   --color-scrim: rgba(0, 0, 0, 0.55);
 }
+[data-theme="dark-cherry-lamp"] {
+  --color-bg-base: #0f0f10;
+  --color-bg-sidebar: #151516;
+  --color-bg-surface: #1c1c1e;
+  --color-bg-hover: #33222a;
+  --color-bg-reader: #161618;
+  --color-bg-editor: dark;
+
+  --color-fg-primary: #f2f2f3;
+  --color-fg-secondary: #a8a8ad;
+  --color-fg-icon: #d0d0d4;
+
+  --color-accent: #ff4569;
+  --color-on-accent: #0f0f10;
+
+  --color-border: #2b2b2e;
+  --color-border-strong: #686872;
+  --color-title-bar: #0a0a0b;
+
+  /* extended */
+  --color-accent-subtle: #2d0811;
+  --color-tree-indent: rgba(255, 23, 68, 0.18);
+  --color-sidebar-header: #0a0a0b;
+
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #b84427; /* coral */
+  --color-hl-2: #b02a55; /* rose */
+  --color-hl-3: #6d4caf; /* violet */
+  --color-hl-4: #0f6c91; /* cyan */
+
+  /* review grade swatches */
+  --color-on-review: #0f0f10;
+  --color-review-again: #ff5252;
+  --color-review-hard: #ffa726;
+  --color-review-good: #66bb6a;
+  --color-review-easy: #42a5f5;
+
+  /* graph palette — a cherry tree: red cards, blossom documents, bark folders; separated by L and chroma, not hue */
+  --color-graph-edge: #615563; /* resting links: structure, not identity */
+  --color-graph-document: #f99bbf;
+  --color-graph-folder: #92521d;
+  --color-graph-flashcard: #f73060;
+  --color-graph-tag: #a882d7;
+  --color-graph-deck: #794fa0;
+  --color-graph-link: #f99bbf;
+  --color-graph-disconnect: #ff5252;
+  --color-graph-inherit: #a595bb;
+
+  /* card stock — a step lighter than the desk (Lamp) */
+  --color-card: #242427;
+  --color-card-edge: #0a0a0b;
+  --color-card-ink: #f2f2f3;
+  --color-card-ink-2: #a8a8ad;
+  --color-card-line: #3a3a3f;
+  --color-card-field: #1c1c1e;
+  --color-card-pile: #1e1e21;
+  --color-card-pile-edge: #0a0a0b;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
+  /* semantic + elevation */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.28);
+
+  --color-danger: #ff5252;
+  --color-danger-bg: rgba(255, 82, 82, 0.12);
+  --color-on-danger: #0f0f10;
+  --color-scrim: rgba(0, 0, 0, 0.55);
+}
+
 
 [data-theme="raven-indigo"] {
   --color-bg-base: #17151f;
@@ -316,6 +545,30 @@
   --color-graph-disconnect: #fb7185;
   --color-graph-inherit: #8da378;
 
+  /* card stock — a step darker than the desk (Focus) */
+  --color-card: #100e17;
+  --color-card-edge: #08070d;
+  --color-card-ink: #f5f2ff;
+  --color-card-ink-2: #c3b8e6;
+  --color-card-line: #2c2748;
+  --color-card-field: #0d0b13;
+  --color-card-pile: #13111b;
+  --color-card-pile-edge: #08070d;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
   /* semantic + elevation */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-float:
@@ -326,6 +579,89 @@
   --color-on-danger: #17151f;
   --color-scrim: rgba(0, 0, 0, 0.55);
 }
+[data-theme="raven-indigo-lamp"] {
+  --color-bg-base: #17151f;
+  --color-bg-sidebar: #1e1a33;
+  --color-bg-surface: #2a2550;
+  --color-bg-hover: #37306b;
+  --color-bg-reader: #1b1830;
+  --color-bg-editor: dark;
+
+  --color-fg-primary: #f5f2ff;
+  --color-fg-secondary: #c3b8e6;
+  --color-fg-icon: #e2d9ff;
+
+  --color-accent: #b77ad9;
+  --color-on-accent: #17151f;
+
+  --color-border: #4a4287;
+  --color-border-strong: #8f86d6;
+  --color-title-bar: #2b2450;
+
+  /* extended */
+  --color-accent-subtle: #2a1f4a;
+  --color-tree-indent: rgba(183, 122, 217, 0.28);
+  --color-sidebar-header: #17132e;
+
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #7e3bc4; /* lavender */
+  --color-hl-2: #0f6e7c; /* cyan */
+  --color-hl-3: #3d51c9; /* periwinkle */
+  --color-hl-4: #b5236e; /* pink */
+
+  /* review grade swatches */
+  --color-on-review: #17151f;
+  --color-review-again: #fb7185;
+  --color-review-hard: #fbbf24;
+  --color-review-good: #4ade80;
+  --color-review-easy: #60a5fa;
+
+  /* graph palette */
+  --color-graph-edge: #6a5f93; /* resting links: structure, not identity */
+  --color-graph-document: #965cb5;
+  --color-graph-folder: #2f9be5;
+  --color-graph-flashcard: #b65513;
+  --color-graph-tag: #76a53c;
+  --color-graph-deck: #da6a8c;
+  --color-graph-link: #965cb5;
+  --color-graph-disconnect: #fb7185;
+  --color-graph-inherit: #8da378;
+
+  /* card stock — a step lighter than the desk (Lamp) */
+  --color-card: #2f2a58;
+  --color-card-edge: #17132e;
+  --color-card-ink: #f5f2ff;
+  --color-card-ink-2: #c3b8e6;
+  --color-card-line: #4a4287;
+  --color-card-field: #2a2550;
+  --color-card-pile: #26214a;
+  --color-card-pile-edge: #17132e;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
+  /* semantic + elevation */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
+
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.12);
+  --color-on-danger: #17151f;
+  --color-scrim: rgba(0, 0, 0, 0.55);
+}
+
 
 [data-theme="focus-blue"] {
   --color-bg-base: #18181b;
@@ -367,6 +703,30 @@
   --color-graph-link: #5c64c2;
   --color-graph-disconnect: #fb7185;
   --color-graph-inherit: #90a175;
+  /* card stock — a step darker than the desk (Focus) */
+  --color-card: #111113;
+  --color-card-edge: #050507;
+  --color-card-ink: #f4f4f5;
+  --color-card-ink-2: #a1a1aa;
+  --color-card-line: #2a2a30;
+  --color-card-field: #0d0d0f;
+  --color-card-pile: #141417;
+  --color-card-pile-edge: #050507;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
   /* semantic + elevation */
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
   --shadow-float:
@@ -376,6 +736,80 @@
   --color-on-danger: #18181b;
   --color-scrim: rgba(0, 0, 0, 0.55);
 }
+[data-theme="focus-blue-lamp"] {
+  --color-bg-base: #18181b;
+  --color-bg-sidebar: #09090b;
+  --color-bg-surface: #27272a;
+  --color-bg-hover: #37345f;
+  --color-bg-reader: #212123;
+  --color-bg-editor: dark;
+  --color-fg-primary: #f4f4f5;
+  --color-fg-secondary: #a1a1aa;
+  --color-fg-icon: #d4d4d8;
+  --color-accent: #818cf8;
+  --color-on-accent: #18181b;
+  --color-border: #3f3f46;
+  --color-border-strong: #71717f;
+  --color-title-bar: #07070a;
+  /* extended */
+  --color-accent-subtle: #1e1b4b;
+  --color-tree-indent: rgba(129, 140, 248, 0.25);
+  --color-sidebar-header: #050507;
+  /* highlight swatches — deep: light document text sits on top */
+  --color-hl-1: #4c5bf5;
+  --color-hl-2: #1b7c59;
+  --color-hl-3: #0b7a8b;
+  --color-hl-4: #c21d3c;
+  /* review grade swatches */
+  --color-on-review: #18181b;
+  --color-review-again: #fb7185;
+  --color-review-hard: #fbbf24;
+  --color-review-good: #34d399;
+  --color-review-easy: #22d3ee;
+  /* graph palette */
+  --color-graph-edge: #5a5a66; /* resting links: structure, not identity */
+  --color-graph-document: #5c64c2;
+  --color-graph-folder: #039fe1;
+  --color-graph-flashcard: #bd552b;
+  --color-graph-tag: #7fa230;
+  --color-graph-deck: #ca6eb5;
+  --color-graph-link: #5c64c2;
+  --color-graph-disconnect: #fb7185;
+  --color-graph-inherit: #90a175;
+  /* card stock — a step lighter than the desk (Lamp) */
+  --color-card: #2e2e33;
+  --color-card-edge: #09090b;
+  --color-card-ink: #f4f4f5;
+  --color-card-ink-2: #a1a1aa;
+  --color-card-line: #45454d;
+  --color-card-field: #27272a;
+  --color-card-pile: #28282c;
+  --color-card-pile-edge: #09090b;
+  --shadow-card:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04), 0 1px 0 rgba(0, 0, 0, 0.35),
+    0 3px 8px rgba(0, 0, 0, 0.4), 0 18px 32px -10px rgba(0, 0, 0, 0.55);
+  --color-pop-halo: rgba(0, 0, 0, 0.5);
+  /* kraft — the box a card group sits in; print is the count on it */
+  --color-kraft: #5f4f38;
+  --color-kraft-edge: #46392a;
+  --color-kraft-print: #f3e6cc;
+  /* box palette — bookcloth tones for decks; kraft is the default deck's */
+  --color-box-slate: #43536a;
+  --color-box-sage: #4c5b40;
+  --color-box-ochre: #6d5526;
+  --color-box-brick: #6a3e30;
+  --color-box-plum: #5a4358;
+  --color-box-ink: #45413c;
+  /* semantic + elevation */
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-float:
+    0 6px 24px -2px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.25);
+  --color-danger: #fb7185;
+  --color-danger-bg: rgba(251, 113, 133, 0.12);
+  --color-on-danger: #18181b;
+  --color-scrim: rgba(0, 0, 0, 0.55);
+}
+
 
 /* ── Global reset ────────────────────────────────────────────────────────── */
 

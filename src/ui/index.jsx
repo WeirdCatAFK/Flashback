@@ -12,6 +12,14 @@ import App from "./App.jsx";
 import SetupView from "./views/setup/Setup.jsx";
 import { ConfirmProvider } from "./components/base/ConfirmDialog.jsx";
 import { TranslationProvider } from "./translations/components.jsx";
+import "@fontsource/didact-gothic/400.css";
+import "@fontsource/geist-mono/400.css";
+import "@fontsource/geist-mono/500.css";
+import "@fontsource/geist-mono/700.css";
+import "@fontsource/noto-sans/400.css";
+import "@fontsource/noto-sans/500.css";
+import "@fontsource/noto-sans/600.css";
+import "@fontsource/noto-sans/700.css";
 import "./index.css";
 import "./components/base/base.css";
 

@@ -343,7 +343,8 @@ opening it. What has no domain name lives one layer down, in `base/`.
 components/
   base/        what has no domain name: Modal, Popover, Toggle, ProgressBar, StatTile,
                ConfirmDialog, ContextMenu, StateView (Loading/Error/Empty), TagChipInput,
-               ProgressDialog, ConflictBanner — and base.css, the class vocabulary below
+               ProgressDialog, ConflictBanner, SegmentedControl, Stepper, InlineConfirm,
+               QuietRow, ShownOnce — and base.css, the class vocabulary below
   account/     RoleBadge, IdentitySection, ProgressScopePicker
   vault/       VaultManager, VaultSwitcher
   shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, KeybindingsEditor, OnboardingTour
@@ -375,17 +376,35 @@ CSS class when it carries no state, a11y or geometry, and a React component when
 
 | class                                                             | for                                              |
 | ----------------------------------------------------------------- | ------------------------------------------------ |
-| `.btn` `--primary` `--danger` `--danger-quiet` `--ghost` `--accent-quiet` `--sm` `--lg` `--icon` `--block`; `.btn-close` | every button that is not a grade button or an activity-bar tab |
+| `.btn` `--primary` `--danger` `--danger-quiet` `--ghost` `--accent-quiet` `--quiet` `--quiet-accent` `--sm` `--lg` `--icon` `--block`; `.btn-close` | every button that is not a grade button or an activity-bar tab |
+| `.link-action` `--danger`                                         | a row's secondary action: text, no box            |
 | `.badge` `--accent` `--danger` `--outline`                        | an uppercase micro-label                          |
 | `.chip` `--muted` `--danger` + `.chip__remove`                    | a removable token                                 |
-| `.eyebrow`, `.header-row`, `.section-header`, `.panel`, `.toolbar`, `.divider-v` | section chrome                          |
+| `.eyebrow` (mono, uppercase), `.header-row`, `.section-header`, `.panel`, `.toolbar`, `.divider-v` | section chrome                          |
 | `.field` `--sm`                                                   | the one input override (uses `--color-border-strong`) |
-| `.spinner`, `.progress`, `.stat-tile`, `.toggle`, `.popover`     | the interiors of the base components              |
+| `.spinner`, `.progress`, `.stat-tile`, `.toggle`, `.popover`, `.segmented`, `.stepper`, `.inline-confirm`, `.quiet-row`, `.shown-once` | the interiors of the base components              |
 | `.muted`                                                          | secondary text                                    |
 
 A per-view stylesheet keeps only layout and what is genuinely particular to that view. When a
 view needs a button that looks different from `.btn`, it adds a modifier class beside `btn`,
 not a parallel button.
+
+**Quiet controls, bold indicators.** `.btn--quiet` and `.btn--quiet-accent` are the flat,
+outlined buttons that sit beside content; the filled `.btn--primary` is for the one action a
+dialog or a page is for. Weight belongs to what reports state (counts, badges, progress, the
+Trainer's pops), not to controls. The design language is described in § Design language.
+
+- **SegmentedControl** — a few mutually exclusive choices people compare rather than look
+  up (a scheduler). Buttons with `aria-pressed`.
+- **Stepper** — a number nudged with − and +. The value has a fixed width so nothing beside
+  it shifts; what a step does (jump to "All", say) is the caller's.
+- **InlineConfirm** — a confirmation in place, beside what it is about, instead of a modal.
+  It states the consequence in plain words; Cancel takes focus so a stray Enter is never the
+  destructive choice. `tone="neutral"` for a choice that loses nothing.
+- **QuietRow** — a list row whose secondary actions appear on hover or focus (always, on a
+  device without hover). `onOpen` makes the row itself open the item.
+- **ShownOnce** — a secret that exists only in the response that created it (an access
+  token): obtrusive, and it says that dismissing it loses the value.
 
 **Popover** (`base/Popover.jsx`) is the one anchored overlay: it portals to `document.body`,
 positions from the anchor's rect converted to shell-layout space (`utils/uiZoom.js`), flips at
@@ -932,6 +951,45 @@ is not derivable from the code and that a future change is likely to reverse by 
 
 ---
 
+## Design language
+
+The interface follows **Tactile Learner**: Flashback as a study desk, where the source lies
+open, the card is what you make from it, and the app says plainly what each review did. It
+refines the skeuomorphic workspace the app already had (cream paper, amber ink, Didact Gothic)
+and removes clutter; it does not replace it. Every screen was decided in a prototype first
+(the "Flashback Tactile Learner" artifact); the per-area notes below record what each view
+took from it.
+
+Principles: a calm workspace; objects with weight; a diagnosis disguised as a game (a review
+says what changed, never how well you did); the card as the signature unit; classically
+educated (a card cites its source and carries a byline only when someone else wrote it);
+warmth, taken seriously.
+
+These are **preferences, not rules** — defaults to reach for that can give way when a screen
+has a good reason:
+
+- A metaphor only where it maps to a real action; elsewhere software conventions win.
+- Weight from edge, shadow and radius (the card is 8px), never decoration: no ruled lines, no
+  props, nothing hand-drawn.
+- A surface carries only what is relevant there.
+- One accent, for state. Colour belongs to the person's content, not to categories: file
+  types are told apart by shape. (The graph's categorical dots are the deliberate exception.)
+- Every colour is a theme token, and themes decide.
+- Didact Gothic for content and interface; Geist Mono for data — counts, paths, citations and
+  small section labels. Both are bundled (`@fontsource/*`, imported in `index.jsx`), so the
+  packaged app renders them offline.
+- Words and typographic marks, never emoji or pictographs.
+- Quiet controls, bold indicators.
+- Information small and where it is used: a tiny count and a thin line rather than a filled
+  badge; detail in the tooltip; secondary actions on hover.
+- The content gets the space; occasional tools are layers that close when done, not columns.
+- Constant settings in view, occasional ones behind one button that sums up their state.
+- Compact, not snobbish.
+- The title bar names the screen; a page repeats it only when it needs an anchor (report-like
+  pages keep a heading, tool screens don't).
+- Motion shows physical cause, stays short, never makes input wait, and respects reduced
+  motion.
+
 ## Theme tokens
 
 ### How it works
@@ -939,8 +997,13 @@ is not derivable from the code and that a future change is likely to reverse by 
 Themes are driven by a `data-theme` attribute on `<html>`. Every colour in the application is a
 CSS custom property declared per `[data-theme="…"]` block in `src/ui/index.css`; setting the
 attribute is the whole switch. The built-in themes are the names in `src/ui/themes.js` —
-`light-workbench`, `dark-workbench`, `dark-cherry`, `raven-indigo`, `focus-blue` — and
-`light-workbench` doubles as the `:root` fallback. User-defined themes come from
+`light-workbench`, then each dark theme twice: `dark-workbench`, `dark-cherry`,
+`raven-indigo` and `focus-blue` are the **Focus** variants (the card a step darker than the
+desk) and `<id>-lamp` the **Lamp** variants (the card a step lighter) — and `light-workbench`
+doubles as the `:root` fallback. `themeLabel(t, id)` in the same file is the display name
+("Dark cherry · Lamp"); a custom theme's id is its name. A Lamp block is a full copy of its
+Focus block with the card values changed, not an override, because the contrast check reads
+each block on its own. User-defined themes come from
 `src/ui/customThemes.js`: the theme editor in Config writes `{ name, colors }` to localStorage
 and injects it as another `[data-theme]` rule at startup; `THEME_VARS` there is the list of
 variables the editor exposes.
@@ -966,6 +1029,10 @@ of the theme cannot satisfy both. The families:
 | `--color-hl-1..4` | highlight swatches painted behind document text |
 | `--color-review-again/hard/good/easy`, `--color-on-review` | the grade buttons and the summary |
 | `--color-graph-document/folder/flashcard/tag/deck`, `-link`, `-disconnect`, `-inherit`, `-edge` | the graph's categorical palette |
+| `--color-card`, `-card-edge`, `-card-ink`, `-card-ink-2`, `-card-line`, `-card-field`, `-card-pile`, `-card-pile-edge`, `--shadow-card` | the flashcard as an object: its stock, edge, text, dividers, answer field, the pile of backs under it, and its shadow |
+| `--color-pop-halo` | the soft halo behind a grade pop in the Trainer |
+| `--color-kraft`, `-kraft-edge`, `-kraft-print` | the kraft box a group of cards sits in; print is the count on it |
+| `--color-box-slate/sage/ochre/brick/plum/ink` | bookcloth tones a deck's box can take (kraft is the default deck's) |
 | `--color-danger`, `--color-danger-bg`, `--color-on-danger` | errors; danger fills and the label on them |
 | `--color-scrim` | the backdrop behind a dialog |
 | `--shadow-sm`, `--shadow-float` | resting and floating elevation |
@@ -983,6 +1050,12 @@ Four pairs are easy to get wrong:
 - **`--color-border` is a hairline** for dividers and card edges. A control whose boundary is
   the only thing identifying it — an input, a select, `.field` — uses `--color-border-strong`,
   which clears 3:1 against the surface behind it.
+- **`--color-card*` is not `--color-bg-surface`.** The card is an object on the desk, not a
+  panel: its stock, ink and edge are their own tokens so a theme can make the card darker than
+  the desk (Focus) or lighter (Lamp) without moving a single panel. `card-ink-2` carries the
+  source and notes and is checked at 4.5:1 on the card like body text.
+- **`--color-kraft-print` is checked as text** (4.5:1 on kraft). The count on a box is how
+  many cards sit behind the highlight, so it is legible ink, not a faint stamp.
 - **`--color-graph-*` is a categorical palette, not a set of aliases.** Five node types are
   bare dots on `--color-bg-base`, so colour is the only thing telling them apart: each theme's
   five hues are spread around the wheel *and* stepped in lightness, which makes them read as

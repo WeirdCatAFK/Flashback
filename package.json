@@ -105,6 +105,9 @@
   "homepage": "https://github.com/WeirdCatAFK/Flashback#readme",
   "devDependencies": {
     "@eslint/js": "^9.13.0",
+    "@fontsource/didact-gothic": "^5.3.0",
+    "@fontsource/geist-mono": "^5.3.0",
+    "@fontsource/noto-sans": "^5.3.0",
     "@tiptap/extension-highlight": "^3.23.6",
     "@tiptap/extension-typography": "^3.23.6",
     "@tiptap/pm": "^3.23.6",

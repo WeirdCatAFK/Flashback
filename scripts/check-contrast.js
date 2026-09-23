@@ -185,6 +185,10 @@ const TEXT_PAIRS = [
   ["--color-on-danger", "--color-danger", 4.5, "label on a danger button"],
   ["--color-border-strong", "--color-bg-surface", 3, "input border on a panel"],
   ["--color-border-strong", "--color-bg-base", 3, "input border on the window"],
+  ["--color-card-ink", "--color-card", 4.5, "text on a card"],
+  ["--color-card-ink-2", "--color-card", 4.5, "a card's source and notes"],
+  ["--color-card-ink", "--color-card-field", 4.5, "a typed answer on its field"],
+  ["--color-kraft-print", "--color-kraft", 4.5, "the count printed on a box"],
 ];
 
 const GRADES = ["again", "hard", "good", "easy"];

@@ -16,6 +16,7 @@ import { restartApp } from '../../api/desktop';
 import { useT } from '../../translations/index';
 import { LanguagePicker, Rich } from '../../translations/components.jsx';
 import { loadCustomThemes } from '../../customThemes';
+import { themeLabel } from '../../themes';
 import { diaryLabels, isSharedVault } from '../../diaryLabels.js';
 import useConfig from './useConfig';
 import useSrsPrefs, { useDiaryPref } from './useSrsPrefs';
@@ -108,7 +109,7 @@ export default function ConfigView({
                 >
                   {allThemes.map((name) => (
                     <option key={name} value={name}>
-                      {name}
+                      {themeLabel(t, name)}
                     </option>
                   ))}
                 </select>
