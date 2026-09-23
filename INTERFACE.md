@@ -713,8 +713,27 @@ is not derivable from the code and that a future change is likely to reverse by 
   from Config can never re-trigger the setup wizard. It mounts inside the gate because it points
   at the real nav. Views are lazy, so after switching view it retries across a few frames until
   the target element exists.
-- **Title bar:** the product name leads (it is what the window is), the active vault sits
-  beside it (it is the part that changes), then the role badge (renders nothing locally). The
+- **The activity bar follows the process** (`components/shell/ActivityBar.jsx`): make
+  (Documents, Flashcards, Decks), study (Trainer), look back (Statistics, Diary, Graph), keep
+  (Seal, Metadata, Server Management on a remote), with a thin rule wherever `NAV_ITEMS`'
+  `group` changes. Graph sits with the look-back screens because what it shows is what you
+  have learned. Sidebar icons carry no counts.
+- **One accent marker slides** to the open tab instead of each button drawing its own; the
+  move is short and shows where you came from. Positions come from `offsetTop`, which is in
+  layout pixels, so neither the marker nor the tooltip needs `uiZoom` conversion.
+- **The tab tooltip replaces `title`:** the name, one line on what the screen is for
+  (`navPurposes`), and its shortcut. It waits 450 ms the first time, then follows the pointer
+  along the bar at once (a menu bar's behaviour), and it appears on keyboard focus. The
+  purpose line is also the button's `aria-describedby`.
+- **Ctrl+1–9 open the screens** in tab-bar order, Ctrl+, opens Config. They are the
+  `Navigation` group in `keybindings.js`, so they are rebindable and listed in the shortcuts
+  overlay. `eventKeyName` prefixes Ctrl/Cmd and Alt (`Ctrl+1`) and never Shift, which is
+  already in the character; a plain `1` (Again, in the Trainer) therefore no longer fires on
+  Ctrl+1. Recording a binding waits past a bare modifier.
+- **Title bar:** "Flashback │ vault ▾ │ screen". The product name leads (it is what the window
+  is), the active vault sits beside it (it is the part that changes), then the role badge
+  (renders nothing locally), then the current screen's name — which is why a tool screen does
+  not repeat its name as a heading. The
   current-vault marker is a dot, not a tick — a tick reads as "done", and the question the menu
   answers is "which one am I in".
 - **Search:** the `tag:`/`deck:`/`doc:`/`in:` prefixes are literal query syntax and must

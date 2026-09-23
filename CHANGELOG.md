@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+### Changed — Tactile Learner: themes, fonts and the tab bar
+
+The interface is moving to a new design language, one area at a time. In this release:
+
+- **Every dark theme comes in two variants.** *Focus* keeps the card a step darker than the
+  desk; *Lamp* makes it a step lighter. Pick them in Config → Theme. The theme called "Focus
+  blue" is now listed as "Calm blue". Existing theme choices carry over unchanged.
+- **Fonts are bundled** with the app instead of downloaded at start-up, so they render offline,
+  and numbers, paths and small labels now use Geist Mono.
+- **The tab bar follows the way you work:** make (Documents, Flashcards, Decks), study
+  (Trainer), look back (Statistics, Diary, Graph), keep (Seal, Metadata). Graph moved down to
+  sit with the look-back screens. Hovering a tab tells you what it is for and its shortcut.
+- **Ctrl+1 to Ctrl+9 open the tabs** in that order, and Ctrl+, opens Config. They can be
+  rebound in Config like the Trainer's keys. A Trainer key such as `1` no longer fires when
+  pressed together with Ctrl or Alt.
+- **Renamed:** Manage is now **Metadata**, and the Server tab (on a remote) is **Server
+  Management**. The title bar now shows the screen you are on.
+
 ### Added — a published server image, and a server that knows when it is behind
 
 `docs/SERVER.md` has always told operators that upgrading is `docker compose pull` and that

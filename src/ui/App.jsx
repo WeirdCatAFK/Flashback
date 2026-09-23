@@ -34,6 +34,9 @@ import SearchModal from "./components/shell/SearchModal";
 import ShortcutsOverlay from "./components/shell/ShortcutsOverlay";
 import OnboardingTour from "./components/shell/OnboardingTour";
 import TitleBar from "./components/shell/TitleBar";
+import ActivityBar from "./components/shell/ActivityBar";
+import useKeybindings from "./hooks/useKeybindings";
+import { actionForKey, eventKeyName } from "./keybindings";
 import VaultManager from "./components/vault/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
@@ -70,18 +73,26 @@ const StatsView = lazy(() => import("./views/stats/Stats"));
 const DiaryView = lazy(() => import("./views/diary/Diary"));
 const ServerView = lazy(() => import("./views/server/Server"));
 
+/**
+ * The screens in the order of the process: make (read, write cards, pack decks),
+ * study, look back (how memory is holding, the day's record, the map of what you
+ * know), keep (history, metadata, and on a remote who may reach it). ActivityBar
+ * draws a rule wherever `group` changes.
+ */
 const NAV_ITEMS = [
-  { id: "documents", Icon: IconDocuments },
-  { id: "flashcards", Icon: IconFlashcards },
-  { id: "decks", Icon: IconDecks },
-  { id: "graph", Icon: IconGraph },
-  { id: "trainer", Icon: IconTrainer },
-  { id: "stats", Icon: IconStats },
-  { id: "diary", Icon: IconDiary },
-  { id: "seal", Icon: IconSeal },
-  { id: "manage", Icon: IconManage },
-  { id: "server", Icon: IconServer, remoteOnly: true },
+  { id: "documents", Icon: IconDocuments, group: "make" },
+  { id: "flashcards", Icon: IconFlashcards, group: "make" },
+  { id: "decks", Icon: IconDecks, group: "make" },
+  { id: "trainer", Icon: IconTrainer, group: "study" },
+  { id: "stats", Icon: IconStats, group: "look" },
+  { id: "diary", Icon: IconDiary, group: "look" },
+  { id: "graph", Icon: IconGraph, group: "look" },
+  { id: "seal", Icon: IconSeal, group: "keep" },
+  { id: "manage", Icon: IconManage, group: "keep" },
+  { id: "server", Icon: IconServer, group: "keep", remoteOnly: true },
 ];
+const CONFIG_ITEM = { id: "config", Icon: IconConfig, group: "config" };
+const NAV_ACTIONS = [...NAV_ITEMS, CONFIG_ITEM].map((n) => `nav.${n.id}`);
 
 /**
  * Labels live in a function of t, not in NAV_ITEMS. Two reasons, and both are the
@@ -108,9 +119,26 @@ function navLabels(t, shared) {
     stats: t("Statistics"),
     diary: diaryLabels(t, shared).title,
     seal: t("Seal"),
-    manage: t("Manage"),
-    server: t("Server"),
+    manage: t("Metadata"),
+    server: t("Server Management"),
     config: t("Config"),
+  };
+}
+
+/** What each screen is for, in a line — the second row of the tab bar's tooltip. */
+function navPurposes(t, shared) {
+  return {
+    documents: t("Read and highlight your sources"),
+    flashcards: t("Find and edit every card"),
+    decks: t("Pack cards to study together"),
+    trainer: t("Review the cards that are due"),
+    stats: t("How your memory is holding up"),
+    diary: shared ? t("The shared study record, day by day") : t("Your study record, day by day"),
+    graph: t("Your vault as a map, lit by what you know"),
+    seal: t("Every change to your documents; restore any point"),
+    manage: t("Categories and tags"),
+    server: t("Who can reach this server, and as what"),
+    config: t("Settings, themes and shortcuts"),
   };
 }
 
@@ -244,8 +272,24 @@ export default function App() {
     notifyUiZoomChanged();
   }, [zoom]);
 
+  const keymap = useKeybindings();
+  const keymapRef = useRef(keymap);
+  keymapRef.current = keymap;
+  const remote = connection?.kind === "remote";
+  const remoteRef = useRef(remote);
+  remoteRef.current = remote;
+
   useEffect(() => {
     const onKeyDown = (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        const action = actionForKey(keymapRef.current, NAV_ACTIONS, eventKeyName(e));
+        const id = action?.slice("nav.".length);
+        if (id && (id !== "server" || remoteRef.current)) {
+          e.preventDefault();
+          setActiveView(id);
+          return;
+        }
+      }
       if (e.key === "?") {
         const tag = document.activeElement?.tagName.toLowerCase();
         if (
@@ -322,6 +366,16 @@ export default function App() {
     },
     [handleStartStudy],
   );
+
+  const purposes = navPurposes(t, shared);
+  const describe = (item) => ({
+    ...item,
+    label: labels[item.id],
+    purpose: purposes[item.id],
+    shortcut: keymap[`nav.${item.id}`]?.[0] ?? null,
+  });
+  const navItems = NAV_ITEMS.filter((n) => !n.remoteOnly || remote).map(describe);
+  const configItems = [describe(CONFIG_ITEM)];
 
   const visitedRef = useRef(null);
   if (visitedRef.current === null) visitedRef.current = new Set();
@@ -420,6 +474,7 @@ export default function App() {
     >
       <div id="app-shell">
         <TitleBar
+          screen={labels[activeView]}
           onSearch={() => setSearchOpen(true)}
           connection={connection}
           onManageVaults={() => setVaultManagerOpen(true)}
@@ -427,41 +482,13 @@ export default function App() {
 
         <AppGate key={connectionId}>
           <div id="app-body">
-            <nav id="activity-bar" aria-label={t("Main navigation")}>
-              <div id="activity-top">
-                {NAV_ITEMS.filter(
-                  ({ remoteOnly }) =>
-                    !remoteOnly || connection?.kind === "remote",
-                ).map(({ id, Icon }) => (
-                  <button
-                    type="button"
-                    key={id}
-                    data-tour={`nav-${id}`}
-                    className={`activity-btn${activeView === id ? " active" : ""}`}
-                    onClick={() => setActiveView(id)}
-                    title={labels[id]}
-                    aria-label={labels[id]}
-                    aria-current={activeView === id ? "page" : undefined}
-                  >
-                    <Icon size={22} />
-                  </button>
-                ))}
-              </div>
-
-              <div id="activity-bottom">
-                <button
-                  type="button"
-                  data-tour="nav-config"
-                  className={`activity-btn${activeView === "config" ? " active" : ""}`}
-                  onClick={() => setActiveView("config")}
-                  title={labels.config}
-                  aria-label={labels.config}
-                  aria-current={activeView === "config" ? "page" : undefined}
-                >
-                  <IconConfig size={22} />
-                </button>
-              </div>
-            </nav>
+            <ActivityBar
+              label={t("Main navigation")}
+              items={navItems}
+              bottomItems={configItems}
+              activeView={activeView}
+              onSelect={setActiveView}
+            />
 
             <main id="content-area">
               {ALL_VIEW_IDS.map(

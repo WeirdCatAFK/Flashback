@@ -44,11 +44,20 @@
 }
 
 /* Keeps the app name and the vault name from reading as one string. */
-#title-bar-sep {
+.title-bar-sep {
   flex: none;
   width: 1px;
   height: var(--control-xs);
   background: var(--color-border);
+}
+
+#title-screen {
+  min-width: 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 #window-controls {
@@ -113,6 +122,7 @@
 /* ── App body (sidebar + content) ────────────────────────────────────────── */
 
 #app-body {
+  position: relative;
   display: flex;
   flex: 1;
   overflow: hidden;

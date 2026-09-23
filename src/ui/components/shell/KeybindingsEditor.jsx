@@ -11,6 +11,7 @@ import {
   resetAllKeybindings,
   eventKeyName,
   formatKeyLabel,
+  MODIFIER_KEYS,
 } from '../../keybindings';
 import useKeybindings from '../../hooks/useKeybindings';
 import { useT } from '../../translations/index';
@@ -43,6 +44,7 @@ export default function KeybindingsEditor() {
       e.preventDefault();
       e.stopPropagation();
       if (e.key === 'Escape') { setRecording(null); return; }
+      if (MODIFIER_KEYS.includes(e.key)) return;
       saveKeybinding(recording, [eventKeyName(e)]);
       setRecording(null);
     };

@@ -69,13 +69,6 @@ const stepsFor = (t) => [
     body: t("Curate cards into decks for focused study, and import existing collections from Anki (.apkg) or Obsidian (.zip). Study a whole deck in a single session."),
   },
   {
-    target: '[data-tour="nav-graph"]',
-    view: "graph",
-    Icon: IconGraph,
-    title: t("Knowledge graph"),
-    body: t("See how everything connects — documents, folders, cards, tags, and decks — in an interactive graph. Follow links to discover related material and spot the gaps."),
-  },
-  {
     target: '[data-tour="nav-trainer"]',
     view: "trainer",
     Icon: IconTrainer,
@@ -90,6 +83,13 @@ const stepsFor = (t) => [
     body: t("See how your vault is doing at a glance — retention, review activity, card maturity, and what's coming due, all from your review history."),
   },
   {
+    target: '[data-tour="nav-graph"]',
+    view: "graph",
+    Icon: IconGraph,
+    title: t("Knowledge graph"),
+    body: t("See how everything connects — documents, folders, cards, tags, and decks — in an interactive graph. Follow links to discover related material and spot the gaps."),
+  },
+  {
     target: '[data-tour="nav-seal"]',
     view: "seal",
     Icon: IconSeal,
@@ -100,7 +100,7 @@ const stepsFor = (t) => [
     target: '[data-tour="nav-manage"]',
     view: "manage",
     Icon: IconManage,
-    title: t("Manage categories & tags"),
+    title: t("Metadata: categories & tags"),
     body: t("The vault-wide metadata that shapes your whole knowledge base. Edit pedagogical categories — classify cards by learning purpose (definition, concept, application…) to build proper study material — and see every tag and how widely it's used."),
   },
   {

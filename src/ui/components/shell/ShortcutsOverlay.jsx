@@ -4,7 +4,7 @@
  */
 
 import Modal from '../base/Modal';
-import { fixedShortcutGroups, keybindingActions, formatKeyLabel } from '../../keybindings';
+import { fixedShortcutGroups, keybindingActions, keyParts } from '../../keybindings';
 import useKeybindings from '../../hooks/useKeybindings';
 import { useT } from '../../translations/index';
 import './ShortcutsOverlay.css';
@@ -46,7 +46,7 @@ export default function ShortcutsOverlay({ onClose }) {
     ...fixedShortcutGroups(t).map((g) => ({ title: g.group, rows: g.shortcuts.map((s) => ({ label: s.label, combos: s.keys })) })),
     ...keybindingActions(t).map((g) => ({
       title: g.group,
-      rows: g.actions.map((a) => ({ label: a.label, combos: (kbMap[a.id] ?? a.default).map((k) => [formatKeyLabel(k)]) })),
+      rows: g.actions.map((a) => ({ label: a.label, combos: (kbMap[a.id] ?? a.default).map((k) => keyParts(k)) })),
     })),
   ];
 

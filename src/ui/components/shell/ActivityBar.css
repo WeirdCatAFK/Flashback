@@ -1,0 +1,93 @@
+/* ActivityBar — process groups, the sliding marker and the tooltip. The bar's
+   box and its buttons are App.css's; this file adds what ActivityBar.jsx draws. */
+
+#activity-bar,
+#activity-top {
+  position: relative;
+}
+
+.activity-sep {
+  display: block;
+  flex: none;
+  width: var(--space-5);
+  height: 1px;
+  margin: var(--space-1) auto;
+  background: var(--color-border);
+}
+
+/* One accent bar for the whole column, moved to the open tab. The per-button
+   bar (App.css) stays for the bottom group, which has only Config. */
+.activity-marker {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: var(--z-raised);
+  width: var(--space-0-5);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-accent);
+  pointer-events: none;
+  clip-path: inset(var(--space-2) 0);
+  transition:
+    transform var(--dur-base) var(--ease-out),
+    height var(--dur-base) var(--ease-out);
+}
+.activity-marker--instant {
+  transition: none;
+}
+#activity-top .activity-btn.active::before {
+  background: transparent;
+}
+
+.activity-tip {
+  position: absolute;
+  left: calc(var(--control-bar) + var(--space-2));
+  z-index: var(--z-floating);
+  display: grid;
+  gap: var(--space-0-5);
+  max-width: var(--size-xl);
+  padding: var(--space-2) var(--space-3);
+  transform: translateY(-50%);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  pointer-events: none;
+  animation: activity-tip-in var(--dur-fast) var(--ease-out);
+}
+.activity-tip--warm {
+  animation: none;
+}
+@keyframes activity-tip-in {
+  from {
+    opacity: 0;
+    transform: translate(calc(-1 * var(--space-1)), -50%);
+  }
+}
+.activity-tip__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.activity-tip__name {
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  white-space: nowrap;
+}
+.activity-tip__keys {
+  display: inline-flex;
+  gap: var(--space-0-5);
+}
+.activity-tip__keys kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+.activity-tip__purpose {
+  font-size: var(--text-sm);
+  line-height: 1.35;
+  color: var(--color-fg-secondary);
+}

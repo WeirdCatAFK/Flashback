@@ -38,6 +38,22 @@ export function fixedShortcutGroups(t) {
 export function keybindingActions(t) {
   return [
     {
+      group: t("Navigation"),
+      actions: [
+        { id: "nav.documents", label: t("Open Documents"), default: ["Ctrl+1"] },
+        { id: "nav.flashcards", label: t("Open Flashcards"), default: ["Ctrl+2"] },
+        { id: "nav.decks", label: t("Open Decks"), default: ["Ctrl+3"] },
+        { id: "nav.trainer", label: t("Open the Trainer"), default: ["Ctrl+4"] },
+        { id: "nav.stats", label: t("Open Statistics"), default: ["Ctrl+5"] },
+        { id: "nav.diary", label: t("Open the Diary"), default: ["Ctrl+6"] },
+        { id: "nav.graph", label: t("Open the Graph"), default: ["Ctrl+7"] },
+        { id: "nav.seal", label: t("Open Seal"), default: ["Ctrl+8"] },
+        { id: "nav.manage", label: t("Open Metadata"), default: ["Ctrl+9"] },
+        { id: "nav.server", label: t("Open Server Management"), default: [] },
+        { id: "nav.config", label: t("Open Config"), default: ["Ctrl+,"] },
+      ],
+    },
+    {
       group: t("Trainer"),
       actions: [
         {
@@ -113,16 +129,25 @@ export function resetAllKeybindings() {
   commit({});
 }
 
+/** Keys that only modify another; recording waits past them for the real key. */
+export const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "AltGraph"];
+
 /**
  * Canonical name for a key event, used both when recording a binding and when
  * matching one at runtime, so the two always agree. Space → 'Space', single
  * characters are upper-cased ('1', 'A'), everything else uses e.key ('Enter',
- * 'ArrowLeft', …).
+ * 'ArrowLeft', …). Ctrl (or Cmd) and Alt prefix the name ('Ctrl+1'); Shift does
+ * not, because it is already in the character it produces. A plain '1' binding
+ * therefore never fires on Ctrl+1.
  */
 export function eventKeyName(e) {
-  if (e.key === " " || e.code === "Space") return "Space";
-  if (e.key.length === 1) return e.key.toUpperCase();
-  return e.key;
+  const base = e.key === " " || e.code === "Space" ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
+  return `${e.ctrlKey || e.metaKey ? "Ctrl+" : ""}${e.altKey ? "Alt+" : ""}${base}`;
+}
+
+/** The action a key name is bound to among `ids`, or null. */
+export function actionForKey(map, ids, name) {
+  return ids.find((id) => (map[id] ?? []).includes(name)) ?? null;
 }
 
 /**
@@ -141,5 +166,12 @@ const KEY_LABELS = {
   Tab: "⇥",
 };
 export function formatKeyLabel(name) {
-  return KEY_LABELS[name] ?? name;
+  return keyParts(name).join("+");
+}
+
+/** A key name split into display parts: 'Ctrl+ArrowUp' → ['Ctrl', '↑']. */
+export function keyParts(name) {
+  const parts = name.length > 1 && name.includes("+") ? name.split("+").filter(Boolean) : [name];
+  if (name.endsWith("++")) parts.push("+");
+  return parts.map((p) => KEY_LABELS[p] ?? p);
 }

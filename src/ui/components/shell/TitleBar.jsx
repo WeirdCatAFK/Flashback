@@ -1,7 +1,8 @@
 /**
- * TitleBar — the frameless-window drag region: the app title, the vault
- * switcher and role badge when connected, the Ctrl+K search button (App only),
- * and the window controls. Styles live in App.css, loaded by the shell.
+ * TitleBar — the frameless-window drag region: "Flashback │ vault ▾ │ screen",
+ * with the role badge beside the vault when connected, the Ctrl+K search button
+ * (App only), and the window controls. The screen's name lives here so a tool
+ * screen need not repeat it as a heading. Styles live in App.css.
  */
 
 import { windowMinimize, windowMaximize, windowClose } from '../../api/desktop';
@@ -32,7 +33,7 @@ function WindowControls() {
   );
 }
 
-export default function TitleBar({ onSearch, connection, onManageVaults }) {
+export default function TitleBar({ onSearch, connection, onManageVaults, screen }) {
   const { t } = useT();
   return (
     <div id="title-bar">
@@ -40,9 +41,15 @@ export default function TitleBar({ onSearch, connection, onManageVaults }) {
         <span id="app-title">Flashback</span>
         {connection && (
           <>
-            <span id="title-bar-sep" aria-hidden="true" />
+            <span className="title-bar-sep" aria-hidden="true" />
             <VaultSwitcher connection={connection} onManageVaults={onManageVaults} />
             <RoleBadge connection={connection} />
+          </>
+        )}
+        {screen && (
+          <>
+            <span className="title-bar-sep" aria-hidden="true" />
+            <span id="title-screen" aria-live="polite">{screen}</span>
           </>
         )}
       </div>
