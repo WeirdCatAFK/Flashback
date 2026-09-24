@@ -57,6 +57,12 @@ function todayLocal() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Two summaries of the same day with the same content, ignoring when each was generated. */
+function sameSummary(a, b) {
+    const strip = ({ generatedAt, ...rest }) => (void generatedAt, rest);
+    return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
+
 function assertDate(date) {
     if (!DATE_RE.test(date)) throw new Error(`Diary date must be YYYY-MM-DD, got: ${date}`);
     return date;
@@ -166,12 +172,20 @@ class Diary {
         };
     }
 
-    /** Derives and stores one day's summary; idempotent. */
+    /**
+     * Re-derives one day's summary from the whole day's review ledger and stores it;
+     * idempotent. The Diary calls it for today every time it is opened, so a day with
+     * several sessions always shows all of them — the stored file is written, and
+     * committed, only when the day actually changed, or opening the Diary would add a
+     * commit every visit.
+     */
     async generateSummary(date = todayLocal(), scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
         const summary = await this.buildSummary(date, scope);
         if (!summary) return null;
+        const stored = this.getSummary(date, scope);
+        if (stored && sameSummary(stored, summary)) return stored;
         await this._ensureInit(scope);
         this._atomicWrite(summaryAbs(date, scope), JSON.stringify(summary, null, 2) + "\n");
         await this._commit([summaryRel(date, scope)], `summary: ${summaryRel(date, scope)}`);

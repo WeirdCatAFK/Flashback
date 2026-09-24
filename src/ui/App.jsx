@@ -217,6 +217,12 @@ export default function App() {
     setActiveView("trainer");
   }, []);
 
+  const [diaryWriteRequest, setDiaryWriteRequest] = useState(0);
+  const handleWriteDiary = useCallback(() => {
+    setDiaryWriteRequest((n) => n + 1);
+    setActiveView("diary");
+  }, []);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [vaultManagerOpen, setVaultManagerOpen] = useState(false);
@@ -422,6 +428,7 @@ export default function App() {
             isActive={activeView === "trainer"}
             studySession={studySession}
             onOpenSource={handleOpenDocumentSource}
+            onWriteDiary={handleWriteDiary}
           />
         );
       case "seal":
@@ -441,6 +448,7 @@ export default function App() {
           <DiaryView
             isActive={activeView === "diary"}
             connection={connection}
+            writeRequest={diaryWriteRequest}
           />
         );
       case "server":

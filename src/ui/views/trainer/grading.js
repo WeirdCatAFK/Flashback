@@ -7,6 +7,8 @@
  * resolves them at render time.
  */
 
+import { sm2Interval, leitnerInterval } from '../../../shared/intervals.js';
+
 /** Anki-style grades: `outcome` is the logged success flag, `kind` the card's exit flight. */
 export const GRADES = {
   again: { outcome: 0, ease: -0.20, level: () => 0,      kind: 'reject', action: 'trainer.gradeAgain' },
@@ -49,6 +51,19 @@ export function gradeSm2(card, key, algorithm) {
   const rawLevel = g.level(card.level ?? 0);
   const toLevel = (key === 'again' && algorithm !== 'sm2') ? Math.max(1, rawLevel) : rawLevel;
   return { outcome: g.outcome, success: g.outcome === 1, toLevel, easeFactor };
+}
+
+/**
+ * The gap, in days, grade `key` would give `card` — what the button under the card
+ * previews. Leitner and SM-2 run the same maths the grade will (`gradeSm2`, then the
+ * shared interval formulas the server's pop uses); FSRS reads the server's preview
+ * that came with the due queue. Null when there is nothing to preview.
+ */
+export function previewGap(card, key, algorithm) {
+  if (algorithm === 'fsrs') return card.fsrsPreview?.[key] ?? null;
+  if (!GRADES[key]) return null;
+  const { toLevel, easeFactor } = gradeSm2(card, key, algorithm);
+  return algorithm === 'sm2' ? sm2Interval(toLevel, easeFactor) : leitnerInterval(toLevel);
 }
 
 /** Whether a typed answer matches, ignoring case and surrounding whitespace. */

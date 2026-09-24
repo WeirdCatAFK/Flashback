@@ -4,6 +4,7 @@
  * history holds several people's prose (diaryLabels.js). Data is in useDiary.js.
  */
 
+import { useState } from 'react';
 import { LoadingState } from '../../components/base/StateView';
 import IconDiary from '../../components/icons/IconDiary';
 import { useT } from '../../translations/index';
@@ -13,12 +14,22 @@ import useDiary from './useDiary';
 import { SummaryPanel, EntryEditor } from './DiaryPanels';
 import './Diary.css';
 
-export default function DiaryView({ isActive, connection }) {
+export default function DiaryView({ isActive, connection, writeRequest = 0 }) {
   const { t, locale } = useT();
   const shared = isSharedVault(connection);
   const labels = diaryLabels(t, shared);
   const d = useDiary(isActive);
   const { today, selectedDate, setSelectedDate, dates, datesError, summaryState, summary, entryLoading, entry, rebuilding, railDates, onEntrySaved } = d;
+
+  const [seenWriteRequest, setSeenWriteRequest] = useState(0);
+  const [editToken, setEditToken] = useState(0);
+  if (seenWriteRequest !== writeRequest) {
+    setSeenWriteRequest(writeRequest);
+    if (writeRequest) {
+      setSelectedDate(today);
+      setEditToken((n) => n + 1);
+    }
+  }
   const onRebuild = d.rebuild;
 
   if (dates === null) return <LoadingState message={labels.loading} />;
@@ -76,7 +87,8 @@ export default function DiaryView({ isActive, connection }) {
         )}
 
         <SummaryPanel state={summaryState} summary={summary} />
-        <EntryEditor date={selectedDate} loading={entryLoading} content={entry} onSaved={onEntrySaved} />
+        <EntryEditor date={selectedDate} loading={entryLoading} content={entry} onSaved={onEntrySaved}
+          editRequest={editToken} />
       </main>
     </div>
   );

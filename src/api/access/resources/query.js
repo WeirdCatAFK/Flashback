@@ -702,6 +702,23 @@ class DocumentQuery {
         `).get(scoped(scope)) ?? null;
     }
 
+    /** This person's FSRS latent state for several cards at once, as a Map keyed by card hash. */
+    async getFsrsStatesByHash(hashes, scope) {
+        const out = new Map();
+        for (let i = 0; i < hashes.length; i += 500) {
+            const chunk = hashes.slice(i, i + 500);
+            const rows = await this.db.prepare(`
+                SELECT card_hash, fsrs_stability AS stability, fsrs_difficulty AS difficulty,
+                       fsrs_due AS due, fsrs_state AS state,
+                       fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
+                FROM progress.CardProgress
+                WHERE account_id = ? AND card_hash IN (${chunk.map(() => '?').join(', ')})
+            `).all(scoped(scope), ...chunk);
+            for (const r of rows) out.set(r.card_hash, r);
+        }
+        return out;
+    }
+
     /** This person's FSRS latent state for a card. */
     async getFlashcardFsrsState(id, scope) {
         return await this.db.prepare(`

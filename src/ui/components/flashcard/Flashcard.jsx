@@ -1,7 +1,10 @@
 /**
  * Flashcard — the card itself: front and back faces with media, the flip, the
  * swipe grade, the typed-answer check, and the fly-out animation the Trainer
- * drives through its ref.
+ * drives through its ref. `source`, when given, is cited at the foot of the answer
+ * side — never the question side, where it could give the answer away. `verdict`
+ * (`{ typed, correct }`) is what a type_answer card says on its answer side about
+ * what was typed; comparing is the caller's business, not the card's.
  */
 
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
@@ -80,7 +83,13 @@ function AudioIcon() {
   );
 }
 
-function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
+/** The citation at the foot of an answer face. */
+function SourceLine({ source }) {
+  if (!source) return null;
+  return <div className="flashcard-source" title={source}>{source}</div>;
+}
+
+function CardFace({ side, text, img, sound, resolve, audioRef, badge, source }) {
   const { t } = useT();
   const imgSrc = img ? resolve(img) : null;
   const soundSrc = sound ? resolve(sound) : null;
@@ -92,8 +101,9 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
   };
 
   return (
-    <div className={`flashcard-face flashcard-face--${side}`}>
+    <div className={`flashcard-face flashcard-face--${side}${source ? ' flashcard-face--cited' : ''}`}>
       {badge}
+      <SourceLine source={source} />
       {imgSrc && (
         <div className="flashcard-media">
           <img src={imgSrc} alt={side === 'front' ? t('Front side image') : t('Back side image')} draggable={false} />
@@ -125,7 +135,7 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge }) {
  * silently discarded the front_img/front_sound the Anki importer has always written
  * for cloze notes — an audio-prompted cloze is an ordinary language-deck card.
  */
-function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
+function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef, source }) {
   const { t } = useT();
   const imgSrc = img ? resolve(img) : null;
   const soundSrc = sound ? resolve(sound) : null;
@@ -137,7 +147,8 @@ function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef }) {
   };
 
   return (
-    <div className={`flashcard-face flashcard-face--${side}`}>
+    <div className={`flashcard-face flashcard-face--${side}${source ? ' flashcard-face--cited' : ''}`}>
+      <SourceLine source={source} />
       {imgSrc && (
         <div className="flashcard-media">
           <img src={imgSrc} alt={side === 'front' ? t('Front side image') : t('Back side image')} draggable={false} />
@@ -181,6 +192,8 @@ const Flashcard = forwardRef(function Flashcard({
   variant = 'full',
   resolveMedia,
   autoplayAudio,
+  source = null,
+  verdict = null,
   className = '',
 }, ref) {
   const { t } = useT();
@@ -208,26 +221,25 @@ const Flashcard = forwardRef(function Flashcard({
     const el = rootRef.current;
     if (!el) { resolve(true); return; }
     const start = drag;
-    let frames, duration;
+    const reduce = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
+    let frames, duration, easing;
     if (kind === 'accept') {
-      const tilt = start >= 0 ? 8 : -8;
       frames = [
-        { transform: `translate(${start}px, 0) scale(1) rotate(${start * 0.04}deg)`, opacity: 1 },
-        { transform: `translate(${start * 0.6}px, -44px) scale(1.06) rotate(${start * 0.02}deg)`, opacity: 1, offset: 0.32 },
-        { transform: `translate(${start * 0.4}px, -480px) scale(0.7) rotate(${tilt}deg)`, opacity: 0 },
+        { transform: `translate(${start}px, 0) rotate(${start * 0.04}deg)`, opacity: 1 },
+        { transform: `translate(${start - 6}px, 10px) scale(1.03) rotate(${start * 0.02 - 1}deg)`, opacity: 1, offset: 0.3 },
+        { transform: `translate(${start + 48}px, -64px) scale(0.92) rotate(5deg)`, opacity: 0 },
       ];
-      duration = 460;
+      duration = 420;
+      easing = 'cubic-bezier(.3, 0, .6, 1)';
     } else {
       frames = [
-        { transform: `translate(${start}px, 0) rotate(${start * 0.05}deg)`, opacity: 1 },
-        { transform: `translate(${start * 0.4 - 16}px, 2px) rotate(-4deg)`, opacity: 1, offset: 0.18 },
-        { transform: 'translate(16px, 4px) rotate(4deg)', opacity: 1, offset: 0.40 },
-        { transform: 'translate(-8px, 6px) rotate(-2deg)', opacity: 1, offset: 0.60 },
-        { transform: 'translate(0px, 26px) scale(0.9) rotate(0deg)', opacity: 0.12 },
+        { transform: `translate(${start}px, 0) rotate(${start * 0.04}deg)`, opacity: 1 },
+        { transform: `translate(${start - 50}px, 40px) scale(0.92) rotate(-5deg)`, opacity: 0 },
       ];
-      duration = 520;
+      duration = 280;
+      easing = 'cubic-bezier(.5, 0, .8, .4)';
     }
-    const anim = el.animate(frames, { duration, easing: 'cubic-bezier(.45, 0, .55, 1)', fill: 'forwards' });
+    const anim = el.animate(frames, { duration: reduce ? 1 : duration, easing, fill: 'forwards' });
     const done = () => resolve(true);
     anim.onfinish = done;
     anim.oncancel = done;
@@ -309,7 +321,7 @@ const Flashcard = forwardRef(function Flashcard({
     frontFace = <ClozeFace side="front" parts={clozeParts}
       img={frontImg} sound={frontSound} resolve={resolve} audioRef={frontAudioRef} />;
     backFace  = <ClozeFace side="back"  parts={clozeParts}
-      img={backImg} sound={backSound} resolve={resolve} audioRef={backAudioRef} />;
+      img={backImg} sound={backSound} resolve={resolve} audioRef={backAudioRef} source={source} />;
   } else if (cardType === 'type_answer') {
     const frontImgSrc  = frontImg   ? resolve(frontImg)   : null;
     const frontSndSrc  = frontSound ? resolve(frontSound) : null;
@@ -350,7 +362,7 @@ const Flashcard = forwardRef(function Flashcard({
                 e.stopPropagation();
                 if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); doCheck(); }
               }}
-              placeholder={t('Type your answer…')}
+              placeholder={t('Your answer')}
               autoComplete="off"
               spellCheck={false}
               aria-label={t('Answer input')}
@@ -370,9 +382,16 @@ const Flashcard = forwardRef(function Flashcard({
       </div>
     );
     backFace = (
-      <div className="flashcard-face flashcard-face--back">
+      <div className={`flashcard-face flashcard-face--back${source ? ' flashcard-face--cited' : ''}`}>
+        <SourceLine source={source} />
         {backImgSrc && <div className="flashcard-media"><img src={backImgSrc} alt={t('Back side image')} draggable={false} /></div>}
         {expectedAnswer && <div className="flashcard-text"><CardMarkdown>{expectedAnswer}</CardMarkdown></div>}
+        {verdict && (
+          <div className="flashcard-you-wrote">
+            {t('You wrote')}{' '}
+            <span className={verdict.correct ? 'flashcard-you-wrote--ok' : 'flashcard-you-wrote--no'}>{verdict.typed?.trim() || '—'}</span>
+          </div>
+        )}
         {answerNotes && (
           <div className="flashcard-notes"><CardMarkdown>{answerNotes}</CardMarkdown></div>
         )}
@@ -393,7 +412,7 @@ const Flashcard = forwardRef(function Flashcard({
     );
     backFace = (
       <CardFace side="back" text={backText} img={backImg} sound={backSound}
-        resolve={resolve} audioRef={backAudioRef} />
+        resolve={resolve} audioRef={backAudioRef} source={source} />
     );
   }
 

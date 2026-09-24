@@ -50,6 +50,18 @@ export function formatNextDue(sqliteStr, formatRelative, t) {
   return formatRelative(next, { maxUnit: 'day' });
 }
 
+/**
+ * The source a card cites: its document's name without the folder or extension
+ * ("Memory (1885)"). Null for a card with no document — it lives in the default
+ * deck and has nothing to quote.
+ */
+export function sourceTitle(documentPath) {
+  if (!documentPath) return null;
+  const leaf = documentPath.split(/[\\/]/).pop();
+  const dot = leaf.lastIndexOf('.');
+  return dot > 0 ? leaf.slice(0, dot) : leaf;
+}
+
 /** The card as the Flashcard component wants it: a missing side reads as its fallback. */
 export function displayCardFor(card) {
   const isTypeAnswer = (card.cardType ?? 'basic') === 'type_answer';

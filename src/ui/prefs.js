@@ -12,6 +12,7 @@ export const VAULT_SCOPED_KEYS = new Set([
   "fb-trainer-order",
   "fb-trainer-scope",
   "fb-trainer-read-only",
+  "fb-trainer-batch",
   "fb-diary-enabled",
   "fb-open-folders",
 ]);

@@ -75,9 +75,11 @@ export const getDue = ({
   order,
   readOnly,
   exclude,
+  retention,
 } = {}) => {
   const qs = new URLSearchParams();
   if (algorithm) qs.set("algorithm", algorithm);
+  if (retention != null) qs.set("retention", String(retention));
   if (folder) qs.set("folder", folder);
   if (document) qs.set("document", document);
   if (deck) qs.set("deck", deck);

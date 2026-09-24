@@ -28,6 +28,34 @@ export const hasExclusions = (ex) =>
   (ex?.folders?.length ?? 0) + (ex?.documents?.length ?? 0) +
   (ex?.decks?.length ?? 0) + (ex?.tags?.length ?? 0) > 0;
 
+const leafOf = (path) => path.split('/').pop();
+
+/** How many rules the scope applies, counting each inclusion and each exclusion once. */
+export function scopeRuleCount(scope) {
+  const ex = scope.exclude;
+  return (scope.folder ? 1 : 0) + (scope.document ? 1 : 0) + (scope.deck ? 1 : 0) + (scope.tags?.length ?? 0)
+    + ex.folders.length + ex.documents.length + ex.decks.length + ex.tags.length;
+}
+
+/**
+ * The scope summed up in the line the filter button shows: what is studied, then
+ * how much is left out. "Everything" when nothing narrows it.
+ * @returns {{ study: string, leftOut: string|null }}
+ */
+export function scopeSummary(scope, t, tp) {
+  const parts = [];
+  if (scope.deck) parts.push(scope.deckName ?? scope.deck);
+  if (scope.folder) parts.push(leafOf(scope.folder));
+  if (scope.document) parts.push(leafOf(scope.document));
+  if (scope.tags?.length) parts.push(scope.tags.map((tag) => `#${tag}`).join(' '));
+  const ex = scope.exclude;
+  const out = ex.folders.length + ex.documents.length + ex.decks.length + ex.tags.length;
+  return {
+    study: parts.length ? parts.join(' · ') : t('Everything'),
+    leftOut: out ? tp('{n} left out', '{n} left out', out) : null,
+  };
+}
+
 /** The scope a session starts from: the handed-over one, else the saved one, else empty. */
 export function initialScope(studySession, savedJson) {
   if (studySession) return normalizeScope(studySession);

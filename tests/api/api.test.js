@@ -978,6 +978,37 @@ describe('Flashback API', () => {
             assert.equal(body.ok, true);
         });
 
+        it('POST /api/srs/review → returns the gap before and after the grade', async () => {
+            // The Trainer's pop shows "4 d → 8 d"; the server is the only place that knows it
+            // for every scheduler (FSRS computes its schedule here).
+            const grade = (body) => post(`${baseUrl}/api/srs/review`, { path: `${ROOT}/${DOC}`, flashcardHash: FC_HASH, ...body });
+            await grade({ outcome: 1, easeFactor: 2.5, newLevel: 3 });
+            const leitner = await (await grade({ outcome: 1, easeFactor: 2.5, newLevel: 4 })).json();
+            assert.deepEqual(leitner.interval, { before: 4, after: 8 });
+
+            const fsrsRes = await (await grade({ algorithm: 'fsrs', rating: 3 })).json();
+            assert.ok(fsrsRes.interval, 'an FSRS review reports its interval too');
+            assert.equal(typeof fsrsRes.interval.after, 'number');
+            assert.ok(fsrsRes.interval.after > 0);
+        });
+
+        it('GET /api/srs/due?algorithm=fsrs → previews the gap each grade would give', async () => {
+            // The Trainer shows "in 8 days" under each grade button; for FSRS only the
+            // server can say, from the caller's weights and each card's state.
+            const res = await fetch(`${baseUrl}/api/srs/due?algorithm=fsrs&retention=0.9`);
+            assert.equal(res.status, 200);
+            const { queue, preview } = await res.json();
+            assert.ok(queue.length > 0, 'need a due card to preview');
+            for (const card of queue) {
+                const p = preview[card.global_hash];
+                assert.ok(p, `a preview for ${card.global_hash}`);
+                for (const g of ['again', 'hard', 'good', 'easy']) assert.equal(typeof p[g], 'number');
+                assert.ok(p.again <= p.good && p.good <= p.easy, 'a better grade never gives a shorter gap');
+            }
+            const leitner = await (await fetch(`${baseUrl}/api/srs/due?algorithm=leitner`)).json();
+            assert.equal(leitner.preview, null, 'Leitner and SM-2 are previewed in the renderer, from the shared maths');
+        });
+
         it('POST /api/srs/review → accepts a session and records ordering telemetry', async () => {
             const dueRes = await fetch(`${baseUrl}/api/srs/due`);
             const { sessionId, queue } = await dueRes.json();

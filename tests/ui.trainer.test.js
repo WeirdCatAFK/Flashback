@@ -6,9 +6,12 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { REQUEUE_LAG, insertIndexFor, requeueFailed, startSession, applyResult, undoResult, sessionFigures } from '../src/ui/views/trainer/queue.js';
-import { gradeSm2, gradesFor, isTypedCorrect, GRADES, FSRS_GRADES } from '../src/ui/views/trainer/grading.js';
+import { gradeSm2, gradesFor, isTypedCorrect, previewGap, GRADES, FSRS_GRADES } from '../src/ui/views/trainer/grading.js';
+import { sm2Interval, leitnerInterval } from '../src/shared/intervals.js';
 import { normalizeScope, hasExclusions, initialScope, withExclusion, withoutExclusion, mergeStudySession, sameScope } from '../src/ui/views/trainer/scope.js';
-import { mapApiCard } from '../src/ui/views/trainer/cards.js';
+import { mapApiCard, sourceTitle } from '../src/ui/views/trainer/cards.js';
+import { BATCH_SIZES, batchOf, stepBatch, canStepBatch, stepNew, formatGap, formatWhen, popFor, batchTally, nextBatchSize } from '../src/ui/views/trainer/session.js';
+import { scopeSummary, scopeRuleCount } from '../src/ui/views/trainer/scope.js';
 
 const card = (hash, priority = 0, extra = {}) => ({ globalHash: hash, categoryPriority: priority, level: 1, easeFactor: 2.5, ...extra });
 const t = (s) => s;
@@ -175,5 +178,110 @@ describe('cards', () => {
     assert.equal(c.customData.html, '<b/>');
     assert.equal(c.vanillaData.answerText, null);
     assert.equal(c.isNew, false);
+  });
+});
+
+const tv = (s, vars) => s.replace(/\{(\w+)\}/g, (_, k) => (vars?.[k] ?? `{${k}}`));
+const tpv = (one, other, n) => (n === 1 ? one : other).replace('{n}', n);
+
+describe('session: batches', () => {
+  const cards = Array.from({ length: 12 }, (_, i) => card(`c${i}`));
+  test('a batch takes the head of the due queue; All takes everything', () => {
+    assert.equal(batchOf(cards, 5).length, 5);
+    assert.equal(batchOf(cards, 0).length, 12);
+    assert.equal(batchOf(cards, 0), cards);
+  });
+  test('down from All lands on the largest size that splits the pile', () => {
+    assert.equal(stepBatch(0, -1, 12), 10);
+    assert.equal(stepBatch(0, -1, 40), 30);
+    assert.equal(stepBatch(0, -1, 3), BATCH_SIZES[1]);
+  });
+  test('up to a size that covers every due card means All', () => {
+    assert.equal(stepBatch(10, 1, 12), 0);
+    assert.equal(stepBatch(5, 1, 40), 10);
+    assert.equal(stepBatch(100, 1, 500), 0);
+  });
+  test('the steppers stop at their ends', () => {
+    assert.equal(canStepBatch(0, 1, 40), false);
+    assert.equal(canStepBatch(5, -1, 40), false);
+    assert.equal(canStepBatch(0, -1, 4), false);
+    assert.equal(canStepBatch(0, -1, 12), true);
+    assert.equal(stepNew(0, -1), 0);
+    assert.equal(stepNew(20, 1), 25);
+    assert.equal(stepNew(500, 1), 500);
+  });
+  test('the next batch is the size, or what is left', () => {
+    assert.equal(nextBatchSize(10, 4), 4);
+    assert.equal(nextBatchSize(10, 40), 10);
+    assert.equal(nextBatchSize(0, 40), 40);
+  });
+});
+
+describe('session: the grade pop', () => {
+  test('gaps read as new, days, then years — never zero days', () => {
+    assert.equal(formatGap(null, tv), 'new');
+    assert.equal(formatGap(0.2, tv), '1 d');
+    assert.equal(formatGap(8, tv), '8 d');
+    assert.equal(formatGap(400, tv), '1.1 yr');
+  });
+  test('the pop is the grade and the gap before and after, nothing else', () => {
+    const pop = popFor('good', 'Good', { before: 4, after: 8 }, tv);
+    assert.deepEqual(pop, { key: 'good', word: 'Good', missed: false, from: '4 d', to: '8 d', fromDays: 4, toDays: 8 });
+    assert.equal(popFor('again', 'Again', null, tv).to, null, 'no interval until the reply lands');
+    assert.equal(popFor('again', 'Again', { before: 8, after: 1 }, tv).missed, true);
+  });
+  test('the tally counts reviews, misses and new cards in the batch', () => {
+    const batch = [card('a', 0, { isNew: true }), card('b'), card('c', 0, { isNew: true })];
+    assert.deepEqual(batchTally({ again: 2, good: 3, easy: 0 }, batch), { remembered: 3, reviews: 5, missed: 2, fresh: 2 });
+    assert.equal(batchTally({ again: 0, hard: 1, good: 1, easy: 1 }, batch).reviews, 3, 'FSRS Hard counts as a review');
+  });
+});
+
+describe('scope: the filter button', () => {
+  test('an empty scope studies everything', () => {
+    const s = normalizeScope(null);
+    assert.deepEqual(scopeSummary(s, tv, tpv), { study: 'Everything', leftOut: null });
+    assert.equal(scopeRuleCount(s), 0);
+  });
+  test('the summary names what is studied and counts what is left out', () => {
+    const s = normalizeScope({ deck: 'h1', deckName: 'Memory', folder: 'Science/Biology', tags: ['cell'], exclude: { folders: ['Drafts'], tags: ['old', 'wip'] } });
+    assert.deepEqual(scopeSummary(s, tv, tpv), { study: 'Memory · Biology · #cell', leftOut: '3 left out' });
+    assert.equal(scopeRuleCount(s), 6);
+  });
+});
+
+describe('cards: the source a card cites', () => {
+  test('the document name without folder or extension', () => {
+    assert.equal(sourceTitle('Learning science/Ebbinghaus/Memory (1885).epub'), 'Memory (1885)');
+    assert.equal(sourceTitle('Notes\\The spacing effect.md'), 'The spacing effect');
+    assert.equal(sourceTitle('README'), 'README');
+    assert.equal(sourceTitle(null), null);
+  });
+});
+
+describe('grading: the preview under each grade button', () => {
+  test('Leitner previews the level each grade moves to', () => {
+    const c = card('a', 0, { level: 2 });
+    assert.equal(previewGap(c, 'again', 'leitner'), leitnerInterval(1));
+    assert.equal(previewGap(c, 'good', 'leitner'), 4);
+    assert.equal(previewGap(c, 'easy', 'leitner'), 8);
+  });
+  test('SM-2 previews with the ease the grade would leave', () => {
+    const c = card('a', 0, { level: 2, easeFactor: 2.5 });
+    assert.equal(previewGap(c, 'good', 'sm2'), sm2Interval(3, 2.5));
+    assert.equal(previewGap(c, 'easy', 'sm2'), sm2Interval(4, 2.65));
+  });
+  test('FSRS reads the server preview, and has none after a miss re-queued the card', () => {
+    const c = card('a', 0, { fsrsPreview: { again: 1, hard: 3, good: 9, easy: 21 } });
+    assert.equal(previewGap(c, 'hard', 'fsrs'), 3);
+    const next = applyResult(startSession([c, card('b')]), { key: 'again', success: false, toLevel: 1, easeFactor: 2.3, total: 2 });
+    const retry = next.queue.find((x) => x.globalHash === 'a');
+    assert.equal(previewGap(retry, 'good', 'fsrs'), null);
+  });
+  test('the preview reads as tomorrow, days, then years', () => {
+    assert.equal(formatWhen(null, tv, tpv), null);
+    assert.equal(formatWhen(1, tv, tpv), 'tomorrow');
+    assert.equal(formatWhen(8, tv, tpv), 'in 8 days');
+    assert.equal(formatWhen(400, tv, tpv), 'in 1 year');
   });
 });

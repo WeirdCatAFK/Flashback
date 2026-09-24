@@ -772,9 +772,49 @@ is not derivable from the code and that a future change is likely to reverse by 
   for. An "exclude this" launch from the explorer is additive and merges into the live scope; a
   study launch with the same scope as a running session does not reset it. Every scope change
   drops the queue so the next fetch auto-starts. Excluded scopes render as chips too, on their
-  own row — a silent exclusion is indistinguishable from an empty vault. The empty state names
-  the filter that emptied the session rather than claiming the day is done. `fb-trainer-read-only`
-  is vault-scoped because it is about this vault's reading positions.
+  own row inside the filter panel — a silent exclusion is indistinguishable from an empty vault.
+  The empty state names the filter that emptied the session rather than claiming the day is
+  done. `fb-trainer-read-only` is vault-scoped because it is about this vault's reading positions.
+- **One top bar** (`Trainer.jsx`): the scope folded into one button (`ScopeBar.jsx`) that sums it
+  up ("Memory · 2 left out", `scope.js scopeSummary`) with a count of the rules applied, then the
+  session's settings always in view — Per session, New cards, Only what I've read — then the
+  count and the streak. The due total sits beside the scheduler's name, top left. The panel is
+  shaped like a form: a labelled row per kind whose control reads as a select ("Any folder")
+  and opens the same browsable picker, and Leave out rows that list their picks as pills. The panel the button opens is not a Popover: its pickers open Popovers
+  of their own, and a Popover dismisses on any outside click, including a click inside a nested
+  one; the panel ignores clicks in `.popover`. The count and the steppers have fixed widths, so
+  nothing in the bar shifts as a number changes length.
+- **Per session** (`fb-trainer-batch`, vault-scoped; 0 = All) takes a batch from the head of the
+  sequenced due queue. Changing it refetches the due list rather than re-slicing the one
+  fetched at the start, which would still hold the cards already remembered in this session;
+  it does not bump the scope's `version`, because nothing about which cards are due changed. Stepping down from All lands on the largest size that
+  splits the pile, stepping up to a size that covers every due card means All, and clicking the
+  value returns to All (`session.js stepBatch`). A batch ends when every card in it has been
+  remembered once; the end offers Next N and Write in your diary.
+- **The card is an object, not a panel** (`components/flashcard/Flashcard.css`): the
+  `--color-card*` tokens, a 5 × 3 index-card ratio, the 8px radius, a real edge and shadow, and
+  nothing on the face but its content. In the Trainer it grows with the window — seven tenths
+  of what the space left by the controls allows, capped — and sits at the bottom of that space,
+  close to the buttons (`.card-slot` is a size container; the card's text and images are sized
+  in its own units, so they grow with it). Turning it over takes `--dur-flip` and lifts it off
+  the desk for a moment. The answer side cites its source document at the foot
+  (`source` prop) — never the question side, where it could give the answer away. A byline for
+  cards someone else wrote needs per-card authorship, which the data model does not have yet.
+  The pile of card backs under it (`CardPile`) shows how many are still to come.
+- **The grade pop is a diagnosis, not a verdict**: the grade, and the gap between reviews
+  before → after ("4 d → 8 d", `session.js popFor`), in coloured text on a soft halo of the
+  card's stock. No state words, no praise. The gap comes from `POST /api/srs/review`'s
+  `interval`, because only the server knows an FSRS schedule; the grade shows at once and the
+  gap as soon as the reply lands. After a grade the stage **holds** (`HOLD_MS`) with the next
+  card mounted but not dealt, so the pop has the stage to itself; the pile and the buttons stay
+  put. The new gap counts up from the old one (`GapTicker`, cubic ease-out) rather than
+  appearing. Grade buttons are quiet and even — the pop carries the colour — and each previews when
+  it would bring the card back ("in 8 days", `grading.js previewGap`): Leitner and SM-2 from
+  `src/shared/intervals.js`, the formulas the server's `interval` uses, FSRS from `/due`'s
+  `preview`. A card re-queued after a miss has no FSRS preview until the next fetch, since its
+  state just changed.
+- **The streak** counts cards remembered in a row and resets on a miss or an undo. It stays,
+  though it could tempt someone to grade generously: it keeps the effort on remembering.
 - **Re-fetch on tab activation only when no session is running** — mid-session a refetch
   would clear the queue to loading and reset the progress bar. The diary summary is recorded at
   session end only when opted in, best-effort, and swallowed on failure (the server derives it
@@ -922,8 +962,13 @@ is not derivable from the code and that a future change is likely to reverse by 
 
 - **`Flashcard` is presentation-only and fully controlled**; the parent owns the face. A
   `type_answer` front ignores clicks — Check is the only reveal — and the back shows the
-  compared answer then the notes. Static previews do not autoplay audio unless the caller opts
-  in (the Anki mapper does).
+  compared answer, then what was typed (`verdict: { typed, correct }`, compared by the caller —
+  it is printed on the card, not beside it), then the notes. `source` is cited at the foot of
+  the answer side. Static previews do not autoplay audio unless the caller opts in (the Anki
+  mapper does).
+- **`flyOut(kind)` is the card leaving the desk**: `accept` dips a little and springs up and to
+  the right, `reject` drops down and to the left, both starting from wherever a swipe left it.
+  A duration of 1 ms under reduced motion, so the promise still resolves.
 - **Categories are vault data**, edited in Manage, never a constant. A new card defaults to
   the first (most foundational) entry; an existing card keeps what it had, including a category
   since deleted, which the select still lists so it survives a save.
@@ -1058,11 +1103,12 @@ of the theme cannot satisfy both. The families:
 
 Four pairs are easy to get wrong:
 
-- **`--color-review-*` is a button fill and a text colour.** It fills the Trainer's grade
-  buttons *and* colours text on a panel (the session summary, the type-answer verdict). The two
-  roles only agree when the label painted on the fill is `--color-on-review`, set to the
-  theme's panel colour — then "label on fill" and "swatch as text on panel" are the same
-  contrast pair and one value satisfies both. Never label a grade button with `--color-fg-primary`.
+- **`--color-review-*` is a text colour first.** It colours the Trainer's grade pop (on a halo
+  of the card), the type-answer verdict and the review heatmap's legend. The grade buttons are
+  quiet since the Tactile Learner port, but the fill pair is still checked: wherever a swatch
+  *is* painted behind text, the label on it is `--color-on-review`, set to the theme's panel
+  colour, so "label on fill" and "swatch as text on panel" stay one contrast pair. Never label
+  a swatch with `--color-fg-primary`.
 - **`--color-hl-*` is painted behind document text**, so `--color-fg-primary` must stay
   readable on top: pale swatches in a light theme, deep ones in a dark theme. The highlight
   picker's dots are derived from these, not the other way round.

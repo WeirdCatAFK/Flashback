@@ -186,6 +186,36 @@ describe('Diary storage layer', () => {
         for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date);
     });
 
+    // Regression: a second session on the same day never reached the page. The Diary
+    // read the stored summary once, and the file was only rewritten when the Trainer
+    // recorded a session — so the day kept showing its first session until a full
+    // rebuild. Opening the Diary now re-derives the whole day; this pins that the
+    // re-derivation is cumulative and that an unchanged day adds no commit.
+    it('re-derives the whole day across sessions, and commits only when it changed', async () => {
+        const commits = async () => (await git.log({ fs, dir: diaryRoot() })).length;
+        const first = await diary.generateSummary(DAY);
+        const before = await commits();
+
+        const again = await diary.generateSummary(DAY);
+        assert.equal(await commits(), before, 'an unchanged day is not re-committed');
+        assert.equal(again.totals.reviews, first.totals.reviews);
+
+        const fid = await fcId(hashes[0]);
+        await db.prepare(
+            'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
+        ).run(fid, localIso(DAY, 20), 1, 2.5, 1);
+        try {
+            const later = await diary.generateSummary(DAY);
+            assert.equal(later.totals.reviews, first.totals.reviews + 1, 'the evening session adds to the morning one');
+            assert.equal(await commits(), before + 1);
+            assert.equal(diary.getSummary(DAY).totals.reviews, first.totals.reviews + 1, 'and the stored file says so');
+        } finally {
+            await db.prepare('DELETE FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND timestamp = ?')
+                .run(fid, localIso(DAY, 20));
+            await diary.generateSummary(DAY);
+        }
+    });
+
     // Regression: the day key came from date(timestamp) — the UTC calendar day. West
     // of Greenwich an evening session was filed under tomorrow, so the diary opened on
     // a date the user had not yet lived and today's page looked empty.

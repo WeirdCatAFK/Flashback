@@ -7,6 +7,7 @@ import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import { currentScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
+import { sm2Interval, leitnerInterval } from '../../../shared/intervals.js';
 
 export const LEARNING_REVIEWS = 3;
 
@@ -16,17 +17,6 @@ export const MASTERY_LEVEL = 5;
 const DEFAULT_ALGORITHM = 'leitner';
 
 const DEFAULT_REQUEST_RETENTION = 0.9;
-
-function sm2Interval(reps, ef) {
-    if (reps <= 1) return 1;
-    if (reps === 2) return 6;
-    return Math.min(365, Math.round(6 * Math.pow(ef, reps - 2)));
-}
-
-function leitnerInterval(level) {
-    if (level <= 0) return 0;
-    return Math.min(365, Math.pow(2, level - 1));
-}
 
 function leitnerToSm2Reps(level) {
     const target = leitnerInterval(level);
@@ -137,7 +127,12 @@ class SRSService {
         return next;
     }
 
-    /** Grades a card, writing the schedule and, for the owner, the sidecar. */
+    /**
+     * Grades a card, writing the schedule and, for the owner, the sidecar. Returns the
+     * gap before and after the grade in days (`interval.before` is null for a card this
+     * person had never reviewed), for the Trainer's pop — the one number every scheduler
+     * can answer.
+     */
     async submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const timestamp = new Date().toISOString();
         const ordering = opts.ordering ?? {};
@@ -146,13 +141,25 @@ class SRSService {
         return await db.transaction(async () => {
             const fc = await query.getFlashcardByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
+            const before = await query.getCardProgress(fc.id, scope);
 
             if (algorithm === 'fsrs') {
+                const retention = opts.requestRetention ?? DEFAULT_REQUEST_RETENTION;
                 const next = await this._applyFsrs(
                     fc.id, opts.rating, timestamp, opts.requestRetention, ordering, scope,
                 );
-                return { documentId: fc.document_id, fsrs: next, scope };
+                const interval = {
+                    before: before?.fsrs_stability != null && (before.fsrs_state ?? 0) !== 0
+                        ? fsrs.intervalFromStability(before.fsrs_stability, retention, await this.getWeights(scope))
+                        : null,
+                    after: next.interval,
+                };
+                return { documentId: fc.document_id, fsrs: next, scope, interval };
             }
+
+            const prevEase = algorithm === 'sm2'
+                ? (await query.getLatestReviewLog(fc.id, scope))?.ease_factor ?? 2.5
+                : null;
 
             await query.updateFlashcardReview(fc.id, timestamp, newLevel, algorithm, scope);
             await query.insertReviewLog({
@@ -165,8 +172,31 @@ class SRSService {
                 algorithm,
                 ...ordering,
             });
-            return { documentId: fc.document_id, fsrs: null, scope };
+            const interval = algorithm === 'sm2'
+                ? { before: before?.last_recall ? sm2Interval(before.sm2_reps ?? 0, prevEase) : null, after: sm2Interval(newLevel, easeFactor) }
+                : { before: before?.last_recall ? leitnerInterval(before.level ?? 0) : null, after: leitnerInterval(newLevel) };
+            return { documentId: fc.document_id, fsrs: null, scope, interval };
         })();
+    }
+
+    /**
+     * The gap, in days, each FSRS rating would give each card right now — what the
+     * Trainer shows under its grade buttons. Only the server can answer it: the
+     * schedule depends on the caller's fitted weights and each card's latent state.
+     * Nothing is written.
+     * @returns {Promise<Object<string, {again: number, hard: number, good: number, easy: number}>>}
+     */
+    async fsrsPreview(hashes, requestRetention = DEFAULT_REQUEST_RETENTION, scopeArg) {
+        const scope = this._scope(scopeArg);
+        if (!hashes.length) return {};
+        const weights = await this.getWeights(scope);
+        const states = await query.getFsrsStatesByHash(hashes, scope);
+        const now = new Date();
+        const gap = (state, rating) => fsrs.nextState(state ?? null, rating, now, weights, requestRetention).interval;
+        return Object.fromEntries(hashes.map((hash) => {
+            const state = states.get(hash);
+            return [hash, { again: gap(state, 1), hard: gap(state, 2), good: gap(state, 3), easy: gap(state, 4) }];
+        }));
     }
 
     /** Reverts the caller's last grade on a card. */

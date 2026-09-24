@@ -1,11 +1,13 @@
 /**
  * The scope controls above the card: what to study, what to leave out, how many
- * new cards, and whether to hold back unread material. Each is a vault-scoped
- * preference, and every change bumps `version` so the session knows to restart.
+ * new cards, whether to hold back unread material, and how many due cards one
+ * batch takes. Each is a vault-scoped preference. A change that alters which cards
+ * are due bumps `version` so the session refetches; the batch size only re-slices
+ * the cards already fetched, so it does not.
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { getPref, setPref, getBoolPref } from '../../prefs.js';
+import { getPref, setPref, getBoolPref, getNumberPref } from '../../prefs.js';
 import { initialScope, withExclusion, withoutExclusion, mergeStudySession, sameScope } from './scope';
 
 /**
@@ -15,12 +17,8 @@ import { initialScope, withExclusion, withoutExclusion, mergeStudySession, sameS
 export default function useTrainerScope({ studySession, sessionDone }) {
   const [scope, setScope] = useState(() => initialScope(studySession, getPref('fb-trainer-scope')));
   const [readOnly, setReadOnly] = useState(() => getBoolPref('fb-trainer-read-only', false));
-  const [maxNew, setMaxNew] = useState(() => {
-    const v = getPref('fb-srs-max-new');
-    return v != null ? parseInt(v, 10) : 20;
-  });
-  const [maxNewDisplay, setMaxNewDisplay] = useState(() => getPref('fb-srs-max-new') ?? '20');
-  const [showExclude, setShowExclude] = useState(false);
+  const [maxNew, setMaxNew] = useState(() => getNumberPref('fb-srs-max-new', 20));
+  const [batchSize, setBatchSize] = useState(() => getNumberPref('fb-trainer-batch', 0));
   const [version, setVersion] = useState(0);
 
   useEffect(() => {
@@ -40,12 +38,16 @@ export default function useTrainerScope({ studySession, sessionDone }) {
     }
   }
 
-  const applyMaxNew = (display) => {
-    const n = Math.max(0, parseInt(display) || 0);
+  const applyMaxNew = (value) => {
+    const n = Math.max(0, parseInt(value, 10) || 0);
     setMaxNew(n);
-    setMaxNewDisplay(String(n));
     setPref('fb-srs-max-new', String(n));
     setVersion((v) => v + 1);
+  };
+
+  const applyBatch = (size) => {
+    setBatchSize(size);
+    setPref('fb-trainer-batch', String(size));
   };
 
   const applyReadOnly = (on) => {
@@ -59,12 +61,11 @@ export default function useTrainerScope({ studySession, sessionDone }) {
     version,
     readOnly,
     maxNew,
-    maxNewDisplay,
-    showExclude,
-    setMaxNewDisplay,
+    batchSize,
     applyMaxNew,
+    applyBatch,
     applyReadOnly,
-    toggleExclude: () => setShowExclude((v) => !v),
+    clearScope: () => rescope((s) => ({ ...s, folder: null, document: null, deck: null, deckName: null, tags: null, exclude: { folders: [], documents: [], decks: [], tags: [] } })),
     clearFolder: () => rescope((s) => ({ ...s, folder: null })),
     clearDocument: () => rescope((s) => ({ ...s, document: null })),
     clearDeck: () => rescope((s) => ({ ...s, deck: null, deckName: null })),

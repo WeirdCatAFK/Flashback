@@ -1,590 +1,649 @@
-/* Trainer — the study session view: scope bar, settings, progress, the card
-   stage with its deck and grade buttons, and the summaries. Shared parts
-   (chips, pickers, buttons, the progress bar) come from components/base. */
+/* Trainer — one top bar (scope, session settings, count and streak), a full-width
+   progress bar, and the stage: the card on its pile with quiet grade buttons under
+   it, or the summary. Controls stay quiet; the count, the streak, the progress bar
+   and the grade pop carry the weight. Shared parts come from components/base. */
 
 .trainer-view {
-  padding: var(--space-4);
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
   height: 100%;
   overflow: auto;
 }
 
-/* Review-save failure banner — a review write didn't persist. Danger-tinted so
-   it reads as a problem, with a dismiss control. */
+/* ── Top bar ──────────────────────────────────────────────────────────────── */
+
+.trainer-top {
+  position: relative;
+  z-index: var(--z-sticky);
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-3) var(--space-6) 0;
+}
+
+.trainer-scope {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.trainer-algo {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.trainer-settings {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  margin-left: auto;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.trainer-setting {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.trainer-meter {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  flex: none;
+}
+
+/* A fixed width, so nothing in the bar moves as the count changes length. */
+.trainer-count {
+  min-width: 16ch;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  white-space: nowrap;
+  color: var(--color-fg-primary);
+}
+.trainer-count-rest {
+  font-weight: 400;
+  color: var(--color-fg-secondary);
+}
+
+.trainer-streak {
+  padding: var(--space-0-5) var(--space-2);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+  box-shadow: 0 2px 0 color-mix(in srgb, var(--color-accent) 55%, var(--color-fg-primary));
+}
+.trainer-streak--cold {
+  color: var(--color-fg-secondary);
+  background: var(--color-bg-hover);
+  box-shadow: none;
+}
+.trainer-streak--bump {
+  animation: trainer-bump var(--dur-slow) var(--ease-spring);
+}
+@keyframes trainer-bump {
+  40% { transform: scale(1.35) rotate(-4deg); }
+}
+
+/* Full width: in a short session every card is a big, visible step. */
+.trainer-track {
+  flex: none;
+  height: calc(var(--space-2) + var(--space-0-5));
+  margin: var(--space-3) var(--space-6) 0;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-fg-primary) 10%, transparent);
+  box-shadow: inset 0 1px 0 color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
+}
+.trainer-track i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--color-accent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--color-accent) 55%, var(--color-fg-primary));
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+/* ── Scope filter: the whole scope folded into one quiet button ───────────── */
+
+.scope-filter {
+  position: relative;
+  min-width: 0;
+}
+
+.scope-filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  max-width: 100%;
+  margin-left: calc(-1 * var(--space-2));
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+.scope-filter-btn:hover,
+.scope-filter-btn[aria-expanded="true"] {
+  background: var(--color-bg-hover);
+}
+.scope-filter-btn svg {
+  flex: none;
+  color: var(--color-fg-icon);
+}
+.scope-filter-summary {
+  min-width: 0;
+  max-width: var(--size-2xl);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-filter-muted {
+  color: var(--color-fg-secondary);
+}
+.scope-filter-count {
+  flex: none;
+  min-width: var(--icon-md);
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  line-height: var(--icon-md);
+  text-align: center;
+  color: var(--color-on-accent);
+  background: var(--color-accent);
+}
+
+.scope-panel {
+  position: absolute;
+  top: calc(100% + var(--space-1));
+  left: calc(-1 * var(--space-2));
+  z-index: var(--z-floating);
+  width: min(var(--size-3xl), 90vw);
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-float);
+  animation: popover-in var(--dur-fast) var(--ease-out);
+}
+.scope-panel-section {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+}
+.scope-panel-section + .scope-panel-section {
+  border-top: 1px solid var(--color-border);
+}
+.scope-panel-heading {
+  margin-bottom: var(--space-1);
+}
+.scope-row {
+  display: grid;
+  grid-template-columns: var(--size-xs) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-3);
+}
+.scope-row-label {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+.scope-row-control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+/* The pickers read as selects: a field with a caret, holding "Any …" until chosen. */
+.scope-select {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--control-md);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  text-align: left;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+.scope-select::after {
+  content: "▾";
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+.scope-select:hover,
+.scope-select[aria-expanded="true"] {
+  border-color: var(--color-accent);
+}
+.scope-chosen {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  width: 100%;
+  height: var(--control-md);
+  padding: 0 var(--space-1) 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: var(--color-accent-subtle);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow: hidden;
+}
+.scope-chosen > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-chosen-clear,
+.scope-pill button {
+  flex: none;
+  padding: 0 var(--space-1);
+  font-size: var(--text-md);
+  line-height: 1;
+  color: var(--color-fg-secondary);
+}
+.scope-chosen-clear:hover,
+.scope-pill button:hover {
+  color: var(--color-danger);
+}
+/* A left-out pick: the opposite instruction, so it reads in the removed register. */
+.scope-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 100%;
+  padding: 0 var(--space-0-5) 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 40%, var(--color-border));
+  border-radius: var(--radius-pill);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+.scope-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-row-control .tci-wrap {
+  width: 100%;
+}
+.scope-panel-foot {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+}
+.scope-panel-result {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+.scope-panel-result b {
+  color: var(--color-fg-primary);
+}
+
+.popover.scope-picker {
+  width: var(--size-xl);
+}
+.scope-picker-breadcrumb {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  padding: var(--space-1) var(--space-2) var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  margin-bottom: var(--space-1);
+}
+.scope-picker-crumb {
+  padding: var(--space-0-5);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+.scope-picker-crumb:hover {
+  color: var(--color-fg-primary);
+  background: var(--color-bg-hover);
+}
+.scope-picker-sep {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  opacity: 0.45;
+}
+.scope-picker-item {
+  display: flex;
+  align-items: center;
+  border-radius: var(--radius-sm);
+}
+.scope-picker-item:hover {
+  background: var(--color-bg-hover);
+}
+
+/* ── Save failure ─────────────────────────────────────────────────────────── */
+
 .trainer-save-error {
   display: flex;
   align-items: center;
   gap: var(--space-3);
+  margin: var(--space-3) var(--space-6) 0;
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-danger);
   border-radius: var(--radius-md);
   background: var(--color-danger-bg);
-  color: var(--color-fg-primary);
   font-size: var(--text-sm);
+  color: var(--color-fg-primary);
 }
-
 .trainer-save-error button {
   margin-left: auto;
-  color: var(--color-fg-secondary);
-  font-size: var(--text-md);
-  line-height: 1;
-  padding: 0 var(--space-1);
 }
 
-.trainer-save-error button:hover {
-  color: var(--color-danger);
-}
+/* ── Stage: the card on its pile, the grades, the pop ─────────────────────── */
 
-.trainer-session-info {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  flex-shrink: 0;
-}
-
-/* ── Scope bar ────────────────────────────────────────────────────────────── */
-
-.trainer-scope-bar {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
-/* An exclusion is not a scope in a different colour — it is the opposite instruction, so
-   it reads in the muted "removed" register rather than the accent one. Colour alone would
-   not carry that: the "Except" in the label is what actually says it, and the strike-out
-   on the path is there for the glance. */
-.scope-chip--exclude {
-  border-color: var(--color-border);
-  border-style: dashed;
-  background: var(--color-bg-hover);
-  color: var(--color-fg-secondary);
-  text-decoration: line-through;
-  text-decoration-color: color-mix(in srgb, var(--color-fg-secondary) 45%, transparent);
-}
-
-.scope-chip--exclude button { text-decoration: none; }
-
-/* The second row of pickers, revealed by "− Exclude". Indented and labelled so the
-   dashed buttons in it cannot be mistaken for the include row above. */
-.trainer-scope-bar--exclude {
-  padding-left: var(--space-2);
-  border-left: 2px solid var(--color-border);
-}
-
-/* The tag filter takes the rest of the scope bar. */
-.trainer-tag-filter {
-  flex: 1;
-  min-width: var(--size-md);
-}
-
-.scope-picker {
-  width: var(--size-xl);
-}
-
-/* ── Arena: the card + deck, with the grade pop overlaid ──────────────────── */
-
-.leitner-arena {
+.trainer-stage {
   position: relative;
   flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   min-height: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  padding: var(--space-5) var(--space-6) var(--space-5);
+}
+.trainer-stage > .trainer-summary,
+.trainer-stage > .state-view {
+  align-self: center;
 }
 
 .trainer-reviewer {
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
   gap: var(--space-3);
-  width: min(100%, var(--size-6xl));
-  /* Fill the arena's height so the card can be sized against the space that's
-     actually available, and centre the stack when there's room to spare. */
-  height: 100%;
+  width: 100%;
   min-height: 0;
 }
 
-.trainer-card-meta,
-.trainer-hint {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  text-align: center;
+/* The slot takes every bit of height the controls leave, and the card grows with
+   it — to seven tenths of what both the width and the height would allow, so it
+   reads as a card on a desk rather than a screen, up to a cap — then sits at the
+   bottom of the slot, close to the buttons, rather than floating over empty space.
+   Its images and text scale with it (they are sized in the card's own units). The
+   pile needs room to the right and below, hence the space held back. */
+.card-slot {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  container-type: size;
 }
-
-/* Card stage: the live card sits above the reducing deck, and slides in. The
-   bottom margin reserves room for the deck so it never overlaps the buttons.
-   The stage *is* the card-sized box — it holds the 4/3 ratio and grows with the
-   available width, but `flex: 0 1 auto` + `min-height: 0` let it shrink to the
-   leftover height on short windows so the card never spills out of the trainer.
-   The card and the deck both fill it absolutely, so they always stay the same
-   size as each other. */
 .card-stage {
   position: relative;
-  width: 100%;
-  max-width: 100%;
-  aspect-ratio: 4 / 3;
-  flex: 0 1 auto;
-  min-height: 0;
-  margin: 0 auto var(--space-8);
-  animation: card-enter var(--dur-slow) var(--ease-in-out);
+  width: min(
+    calc((100cqw - var(--space-10)) * 0.7),
+    calc((100cqh - var(--space-12)) * 5 / 3 * 0.7),
+    calc(var(--size-8xl) * 0.7)
+  );
+  aspect-ratio: 5 / 3;
+  /* The deepest card of the pile sits 35px lower and tilts 4.5°, so its corner reaches
+     about 50px below the card; with the column's gap this clears the buttons. */
+  margin-bottom: var(--space-12);
 }
-
 .card-stage .flashcard {
   position: absolute;
   inset: 0;
   z-index: var(--z-raised);
   width: 100%;
   height: 100%;
-  /* The stage owns the sizing/ratio now; drop the standalone-card defaults. */
   max-width: none;
   aspect-ratio: auto;
+  animation: card-enter var(--dur-slow) var(--ease-in-out);
+}
+@keyframes card-enter {
+  from { transform: translateY(var(--space-8)) scale(0.96); opacity: 0; }
 }
 
-/* Reducing deck: one faint card-back per remaining card (capped). */
-.card-deck {
+/* The pile: one card back per card still to come, capped at five. */
+.card-pile {
   position: absolute;
   inset: 0;
   z-index: 0;
   pointer-events: none;
 }
-
-.card-deck-card {
+.card-pile-card {
   position: absolute;
   inset: 0;
-  border-radius: var(--radius-lg);
-  background: linear-gradient(
-    158deg,
-    var(--color-bg-surface) 0%,
-    color-mix(in srgb, var(--color-bg-surface) 90%, var(--color-bg-hover)) 100%
-  );
-  border: 1px solid var(--color-border);
-  box-shadow:
-    var(--shadow-sm);
+  border-radius: var(--radius-card);
+  background: var(--color-card-pile);
+  border: 1px solid var(--color-card-pile-edge);
+  box-shadow: var(--shadow-sm);
   transform:
     translate(calc(var(--i) * 5px), calc(var(--i) * 7px))
     rotate(calc(var(--i) * 0.9deg));
 }
 
-@keyframes card-enter {
-  from { transform: translateY(22px) scale(.95); opacity: 0; }
-  to   { transform: none; opacity: 1; }
+/* Grades: quiet and even. The pop, not the button, carries the colour. */
+.trainer-grades {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  max-width: var(--size-6xl);
+  min-height: var(--space-12);
+}
+.trainer-hint {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+.trainer-grade {
+  flex: 1;
+  display: grid;
+  justify-items: center;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-fg-primary);
+  transition:
+    background var(--dur-fast) var(--ease-out),
+    border-color var(--dur-fast) var(--ease-out);
+}
+.trainer-grade:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+}
+.trainer-grade-label {
+  font-size: var(--text-md);
+}
+.trainer-grade-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+}
+.trainer-view kbd {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
 }
 
-/* ── Grade pop (Balatro-style juice, over the card) ───────────────────────── */
+.trainer-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--space-5);
+}
+.trainer-actions .link-action {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
 
+/* The pop: the grade, then the gap before → after, in coloured text on a soft
+   halo of the card's own stock — no badge behind it. */
 .grade-pop {
   position: absolute;
   left: 50%;
-  top: 20%; /* fallback until the card top is measured */
-  z-index: var(--z-sticky);
-  display: flex;
-  align-items: baseline;
+  top: 42%;
+  z-index: var(--z-floating);
+  display: grid;
+  justify-items: center;
   gap: var(--space-2);
+  transform: translate(-50%, -50%);
   pointer-events: none;
-  /* Soft halo of the card colour keeps it readable over media without a badge. */
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
   text-shadow:
-    0 0 7px var(--color-bg-reader),
-    0 0 14px var(--color-bg-reader),
-    0 1px 3px var(--color-bg-base);
-  animation: grade-pop 1000ms var(--ease-in-out) forwards;
+    0 0 8px var(--color-card),
+    0 0 16px var(--color-card),
+    0 2px 0 var(--color-pop-halo);
+  animation: grade-pop-out 1100ms var(--ease-out) forwards;
 }
-
-.grade-pop--up   { --tone: var(--color-review-good, var(--color-hl-2)); }
-.grade-pop--down { --tone: var(--color-review-again, var(--color-hl-4)); }
-
-.grade-pop-arrow {
-  font-size: var(--text-md);
-  font-weight: 700;
-  line-height: 1;
-  color: var(--tone);
+.grade-pop > * {
+  animation: grade-pop-in var(--dur-slow) var(--ease-pop) backwards;
 }
-
-.grade-pop-level {
-  font-size: var(--text-xl);
-  font-weight: 700;
-  line-height: 1;
-  letter-spacing: 0.01em;
-  color: var(--tone);
-}
-
-@keyframes grade-pop {
-  0%   { transform: translate(-50%, 6px) scale(.6); opacity: 0; }
-  30%  { transform: translate(-50%, 0) scale(1.12); opacity: 1; }
-  50%  { transform: translate(-50%, -2px) scale(.99); }
-  70%  { transform: translate(-50%, -12px) scale(1.02); opacity: 1; }
-  100% { transform: translate(-50%, -42px) scale(1); opacity: 0; }
-}
-
-/* ── Grade buttons ────────────────────────────────────────────────────────── */
-
-.trainer-grades {
-  display: flex;
-  gap: var(--space-2);
-  width: 100%;
-  justify-content: center;
-}
-
-.trainer-grade {
-  position: relative;
-  flex: 1;
-  max-width: var(--size-sm);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-0-5);
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  border-radius: var(--radius-lg);
-  border: 1px solid transparent;
-  /* Reads against the grade fill, not against the page — see the token note in
-     index.css. fg-primary here is unreadable on every dark theme. */
-  color: var(--color-on-review);
-  cursor: pointer;
-  transition: filter var(--dur-fast) ease, border-color var(--dur-fast) ease, color var(--dur-fast) ease;
-}
-
-.trainer-grade:hover:not(:disabled) {
-  filter: brightness(1.08);
-}
-
-.trainer-grade:active:not(:disabled) {
-  filter: brightness(0.94);
-}
-
-/* Flat solid fills — no gradient, no elevation. */
-.trainer-grade--again { background: var(--color-review-again); }
-.trainer-grade--hard  { background: var(--color-review-hard); }
-.trainer-grade--good  { background: var(--color-review-good); }
-.trainer-grade--easy  { background: var(--color-review-easy); }
-
-/* Undo: outline only, no fill or color — reads as the secondary action. */
-.trainer-grade--undo {
-  background: transparent;
-  border-color: var(--color-border);
-  color: var(--color-fg-secondary);
-}
-
-.trainer-grade--undo:hover:not(:disabled) {
-  filter: none;
-  border-color: var(--color-accent);
+.grade-pop-gap {
+  animation-delay: var(--dur-fast);
+  font-size: var(--text-lg);
+  font-weight: 500;
   color: var(--color-fg-primary);
 }
-
-.trainer-grade--undo:disabled {
-  opacity: 0.4;
-  cursor: default;
+.grade-pop-word {
+  font-size: var(--text-lg);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
-
-.grade-label { font-size: var(--text-sm); font-weight: 700; }
-.grade-hint  { font-size: var(--text-xs); font-weight: 600; opacity: 0.72; }
-
-.grade-key {
-  position: absolute;
-  top: var(--space-1);
-  left: var(--space-1);
-  min-width: var(--control-xs);
-  padding: 0 var(--space-0-5);
-  font-family: inherit;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  line-height: 1.45;
-  text-align: center;
-  white-space: nowrap;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm);
-  opacity: 0.5;
-}
-
-/* ── Progress + summary ───────────────────────────────────────────────────── */
-
-.trainer-progress {
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-.trainer-progress .progress {
-  height: var(--space-2);
-}
-
-.trainer-progress-text {
-  font-size: var(--text-xs);
+.grade-pop-word--again { color: var(--color-review-again); }
+.grade-pop-word--hard { color: var(--color-review-hard); }
+.grade-pop-word--good { color: var(--color-review-good); }
+.grade-pop-word--easy { color: var(--color-review-easy); }
+.grade-pop-from,
+.grade-pop-arrow {
+  font-weight: 400;
   color: var(--color-fg-secondary);
 }
-
-.trainer-hint kbd {
-  font-family: inherit;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  padding: var(--space-0-5) var(--space-1);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-secondary);
-  box-shadow: 0 1px 0 var(--color-border);
+.grade-pop-arrow {
+  padding: 0 var(--space-2);
 }
+.grade-pop-to--missed {
+  color: var(--color-review-again);
+}
+@keyframes grade-pop-in {
+  from { transform: translateY(6px) scale(0.6); opacity: 0; }
+  55% { transform: scale(1.12); opacity: 1; }
+}
+@keyframes grade-pop-out {
+  0%, 70% { opacity: 1; }
+  to { opacity: 0; transform: translate(-50%, calc(-50% - var(--space-6))); }
+}
+
+/* ── Summaries ────────────────────────────────────────────────────────────── */
 
 .trainer-summary {
-  flex: 1;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
+  gap: var(--space-2);
+  max-width: var(--size-4xl);
   text-align: center;
 }
-
 .trainer-summary-title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-  color: var(--color-accent);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  color: var(--color-fg-primary);
 }
-
 .trainer-summary-line {
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   color: var(--color-fg-secondary);
 }
-
-/* Quieter than "Start a new session": this offers to widen a filter, it does not
-   announce the end of anything. */
-
-.trainer-summary-breakdown {
+.trainer-summary-actions {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
   gap: var(--space-2);
-  margin-top: var(--space-1);
+  margin-top: var(--space-3);
 }
 
-/* ── Cards flagged during the session ───────────────────────────────────────── */
-/* Sits below the score, quiet by design: this is an offer to look at something, not
-   a verdict demanding attention before the user can move on. */
-
+/* Cards flagged during the session: an offer to look, not a verdict. */
 .trainer-flagged {
-  margin-top: var(--space-4);
+  width: 100%;
+  margin-top: var(--space-5);
   padding-top: var(--space-3);
   border-top: 1px solid var(--color-border);
-  max-width: var(--size-3xl);
-  width: 100%;
   text-align: left;
 }
-
 .trainer-flagged-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--color-fg-secondary);
   margin-bottom: var(--space-2);
 }
-
 .trainer-flagged-list {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
   list-style: none;
-  margin: 0;
-  padding: 0;
 }
-
 .trainer-flagged-item {
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
   font-size: var(--text-sm);
 }
-
 .trainer-flagged-btn {
-  background: none;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: var(--color-accent);
-  cursor: pointer;
-  text-align: left;
+  max-width: 55%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  max-width: 55%;
+  text-align: left;
+  color: var(--color-accent);
 }
-
 .trainer-flagged-btn:hover { text-decoration: underline; }
+.trainer-flagged-why { color: var(--color-fg-secondary); }
 
-.trainer-flagged-why {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+@media (max-width: 900px) {
+  .trainer-top { flex-wrap: wrap; }
+  .trainer-settings { order: 3; width: 100%; margin-left: 0; flex-wrap: wrap; gap: var(--space-3); }
 }
-
-.sum {
-  font-size: var(--text-sm);
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  border: 1px solid var(--color-border);
-  color: var(--color-fg-primary);
-  background: var(--color-bg-surface);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-0-5);
-}
-
-.sum b {
-  font-size: var(--text-md);
-  font-weight: 700;
-  line-height: 1;
-}
-
-.sum--again {
-  border-color: var(--color-review-again);
-  background: color-mix(in srgb, var(--color-review-again) 8%, var(--color-bg-surface));
-}
-.sum--again b { color: var(--color-review-again); }
-
-.sum--good {
-  border-color: var(--color-review-good);
-  background: color-mix(in srgb, var(--color-review-good) 8%, var(--color-bg-surface));
-}
-.sum--good b { color: var(--color-review-good); }
-
-.sum--easy {
-  border-color: var(--color-review-easy);
-  background: color-mix(in srgb, var(--color-review-easy) 8%, var(--color-bg-surface));
-}
-.sum--easy b { color: var(--color-review-easy); }
 
 @media (prefers-reduced-motion: reduce) {
-  .card-stage { animation: none; }
-  .grade-pop { animation: none; opacity: 0; }
+  .card-stage,
+  .grade-pop > *,
+  .trainer-streak--bump { animation: none; }
+  .grade-pop { animation: grade-pop-fade 1100ms linear forwards; }
 }
-
-/* ── View source ──────────────────────────────────────────────────────────── */
-
-.trainer-source-row {
-  display: flex;
-  justify-content: center;
-}
-
-.trainer-source-key {
-  font-family: inherit;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  padding: 0 var(--space-0-5);
-  line-height: 1.5;
-  border: 1px solid currentColor;
-  border-radius: var(--radius-sm);
-  opacity: 0.6;
-}
-
-/* Card type badge in meta line */
-
-/* Type-answer verdict banner */
-.type-answer-verdict {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-md);
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.type-answer-verdict--correct {
-  color: var(--color-review-easy);
-  background: color-mix(in srgb, var(--color-review-easy) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-review-easy) 30%, transparent);
-}
-
-.type-answer-verdict--wrong {
-  color: var(--color-review-again);
-  background: color-mix(in srgb, var(--color-review-again) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--color-review-again) 30%, transparent);
-}
-
-.type-answer-verdict em {
-  font-style: normal;
-  font-weight: 400;
-  opacity: 0.8;
-}
-
-/* ── Scope pickers (Folder + Deck) ────────────────────────────────────────── */
-
-.scope-picker-breadcrumb {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0;
-  padding: var(--space-1) var(--space-2) var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  margin-bottom: var(--space-1);
-}
-
-.scope-picker-crumb {
-  background: none;
-  border: none;
-  color: var(--color-fg-secondary);
-  font-size: var(--text-xs);
-  padding: var(--space-0-5) var(--space-0-5);
-  cursor: pointer;
-  border-radius: var(--radius-sm);
-}
-
-.scope-picker-crumb:hover {
-  color: var(--color-fg-primary);
-  background: var(--color-bg-hover);
-}
-
-.scope-picker-sep {
-  color: var(--color-fg-secondary);
-  font-size: var(--text-xs);
-  opacity: 0.45;
-}
-
-.scope-picker-item {
-  display: flex;
-  align-items: center;
-  border-radius: var(--radius-sm);
-}
-
-.scope-picker-item:hover {
-  background: var(--color-bg-hover);
-}
-
-/* ── Session settings row ─────────────────────────────────────────────────── */
-
-.trainer-settings-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-4);
-  flex-wrap: wrap;
-  flex-shrink: 0;
-}
-
-.trainer-setting {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.trainer-setting-label {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  white-space: nowrap;
-}
-
-.trainer-setting-input {
-  width: var(--control-bar);
-  padding: var(--space-0-5) var(--space-1);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-base);
-  color: var(--color-fg-primary);
-  font-size: var(--text-xs);
-  text-align: center;
-}
-
-.trainer-setting-input:focus {
-  outline: none;
-  border-color: var(--color-accent);
+@keyframes grade-pop-fade {
+  0%, 85% { opacity: 1; }
+  to { opacity: 0; }
 }

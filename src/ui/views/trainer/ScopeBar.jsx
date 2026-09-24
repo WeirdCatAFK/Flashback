@@ -1,11 +1,19 @@
 /**
- * ScopeBar — the chips that say what a session covers and the pickers that
- * change it: folder, document, deck, tags, and the "leave out" row behind the
- * Exclude button. Pickers are lists inside a Popover; the tag filter is the
- * shared TagChipInput.
+ * ScopeBar — what a session covers, folded into one quiet button in the Trainer's
+ * top bar. The button sums the scope up in a line ("Memory · 2 left out") with a
+ * count of the rules applied; it opens a panel shaped like a form: Study, one
+ * labelled row per kind (folder, document, deck, tags) showing the choice or
+ * "Any", then Leave out, the same rows with their picks as pills, and a foot with
+ * the card count and Clear filters. Each row's control opens the same browsable
+ * picker the app always had (a list inside a Popover); tags use TagChipInput.
+ *
+ * The panel is not itself a Popover: its pickers open Popovers of their own, and a
+ * Popover dismisses on any outside click — including a click inside a nested one.
+ * The panel dismisses on outside mousedown too, but ignores clicks in `.popover`.
  */
 
 import { useState, useEffect, useRef } from 'react';
+import { scopeRuleCount, scopeSummary } from './scope';
 import { getTags, listFolder } from '../../api/documents';
 import { listDecks } from '../../api/decks';
 import Popover from '../../components/base/Popover';
@@ -14,19 +22,8 @@ import { useT } from '../../translations/index';
 
 const EMPTY_TAGS = [];
 
-/** A chip naming one part of the scope, with its clear button. */
-function ScopeChip({ children, exclude = false, onClear }) {
-  const { t } = useT();
-  return (
-    <span className={`chip${exclude ? ' chip--danger' : ''}`}>
-      {children}
-      <button type="button" className="chip__remove" onClick={onClear} title={t('Clear')} aria-label={t('Clear')}>×</button>
-    </span>
-  );
-}
-
 /** A picker button and the popover it opens; `load` runs each time it opens. */
-function PickerButton({ label, load, children }) {
+function PickerButton({ label, load, children, className = 'btn btn--sm' }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
   const toggle = () => {
@@ -35,7 +32,7 @@ function PickerButton({ label, load, children }) {
   };
   return (
     <>
-      <button ref={btnRef} type="button" className="btn btn--sm" onClick={toggle} aria-expanded={open}>{label}</button>
+      <button ref={btnRef} type="button" className={className} onClick={toggle} aria-expanded={open}>{label}</button>
       <Popover anchorRef={btnRef} open={open} onClose={() => setOpen(false)} className="scope-picker">
         {children(() => setOpen(false))}
       </Popover>
@@ -48,7 +45,7 @@ function PickerButton({ label, load, children }) {
  * to reach a document; `kind` decides what is pickable. `applyLabel` is passed in
  * so the exclude row can open the same picker to say "everything except this".
  */
-function PathPicker({ kind = 'folder', label, applyLabel, onPick }) {
+function PathPicker({ kind = 'folder', label, applyLabel, onPick, className }) {
   const { t } = useT();
   const [browsePath, setBrowsePath] = useState('');
   const [items, setItems] = useState([]);
@@ -66,7 +63,7 @@ function PathPicker({ kind = 'folder', label, applyLabel, onPick }) {
   const crumbs = browsePath ? browsePath.split('/') : [];
 
   return (
-    <PickerButton label={label} load={() => loadLevel('')}>
+    <PickerButton label={label} load={() => loadLevel('')} className={className}>
       {(close) => (
         <>
           <div className="scope-picker-breadcrumb">
@@ -111,7 +108,7 @@ function PathPicker({ kind = 'folder', label, applyLabel, onPick }) {
 }
 
 /** Flat deck list picker. */
-function DeckPicker({ label, onPick }) {
+function DeckPicker({ label, onPick, className }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -123,7 +120,7 @@ function DeckPicker({ label, onPick }) {
       .finally(() => setLoading(false));
   };
   return (
-    <PickerButton label={label} load={load}>
+    <PickerButton label={label} load={load} className={className}>
       {(close) => (
         <>
           {loading && <span className="popover__empty">{t('Loading…')}</span>}
@@ -141,7 +138,7 @@ function DeckPicker({ label, onPick }) {
 }
 
 /** Flat tag list picker — exclusions are chosen once, so they take the dropdown shape. */
-function TagPicker({ label, chosen = EMPTY_TAGS, onPick }) {
+function TagPicker({ label, chosen = EMPTY_TAGS, onPick, className }) {
   const { t } = useT();
   const [tags, setTags] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -154,7 +151,7 @@ function TagPicker({ label, chosen = EMPTY_TAGS, onPick }) {
   };
   const available = tags.filter((tag) => !chosen.includes(tag));
   return (
-    <PickerButton label={label} load={load}>
+    <PickerButton label={label} load={load} className={className}>
       {(close) => (
         <>
           {loading && <span className="popover__empty">{t('Loading…')}</span>}
@@ -192,60 +189,157 @@ function TagFilter({ selected = EMPTY_TAGS, onApply }) {
   );
 }
 
-export default function ScopeBar({ controls }) {
+const leaf = (path) => path.split(/[\\/]/).pop();
+const SELECT = 'scope-select';
+
+/** One labelled line of the panel: the label on the left, the control on the right. */
+function Row({ label, children }) {
+  return (
+    <div className="scope-row">
+      <span className="scope-row-label">{label}</span>
+      <div className="scope-row-control">{children}</div>
+    </div>
+  );
+}
+
+/** A chosen value that can be cleared: the picker still opens from its name. */
+function Chosen({ children, onClear }) {
   const { t } = useT();
-  const { scope, showExclude } = controls;
+  return (
+    <span className="scope-chosen">
+      {children}
+      <button type="button" className="scope-chosen-clear" onClick={onClear} title={t('Clear')} aria-label={t('Clear')}>×</button>
+    </span>
+  );
+}
+
+/** A left-out value, as a pill under its row. */
+function Pill({ children, onRemove }) {
+  const { t } = useT();
+  return (
+    <span className="scope-pill">
+      {children}
+      <button type="button" onClick={onRemove} title={t('Put it back')} aria-label={t('Put it back')}>×</button>
+    </span>
+  );
+}
+
+/** What is in: one row per kind, each showing the choice or "Any". */
+function StudySection({ controls }) {
+  const { t } = useT();
+  const { scope } = controls;
+  return (
+    <div className="scope-panel-section">
+      <div className="eyebrow scope-panel-heading">{t('Study')}</div>
+      <Row label={t('Folder')}>
+        {scope.folder
+          ? <Chosen onClear={controls.clearFolder}><span title={scope.folder}>{leaf(scope.folder)}</span></Chosen>
+          : <PathPicker kind="folder" className={SELECT} label={t('Any folder')} onPick={controls.applyFolder} applyLabel={(name) => t('Study “{name}”', { name })} />}
+      </Row>
+      <Row label={t('Document')}>
+        {scope.document
+          ? <Chosen onClear={controls.clearDocument}><span title={scope.document}>{leaf(scope.document)}</span></Chosen>
+          : <PathPicker kind="document" className={SELECT} label={t('Any document')} onPick={controls.applyDocument} applyLabel={() => null} />}
+      </Row>
+      <Row label={t('Deck')}>
+        {scope.deck
+          ? <Chosen onClear={controls.clearDeck}>{scope.deckName ?? scope.deck}</Chosen>
+          : <DeckPicker className={SELECT} label={t('Any deck')} onPick={controls.applyDeck} />}
+      </Row>
+      <Row label={t('Tags')}>
+        <TagFilter selected={scope.tags ?? EMPTY_TAGS} onApply={controls.applyTags} />
+      </Row>
+    </div>
+  );
+}
+
+/** What is out: one row per kind, its picks as pills, and a picker to add one more. */
+function LeaveOutSection({ controls }) {
+  const { t } = useT();
+  const { exclude } = controls.scope;
+  return (
+    <div className="scope-panel-section">
+      <div className="eyebrow scope-panel-heading">{t('Leave out')}</div>
+      <Row label={t('Folders')}>
+        <PathPicker kind="folder" className={SELECT} label={t('Add a folder')}
+          onPick={(path) => controls.addExclusion('folders', path)}
+          applyLabel={(name) => t('Leave out “{name}”', { name })} />
+        {exclude.folders.map((path) => (
+          <Pill key={path} onRemove={() => controls.removeExclusion('folders', path)}><span title={path}>{leaf(path)}</span></Pill>
+        ))}
+      </Row>
+      <Row label={t('Documents')}>
+        <PathPicker kind="document" className={SELECT} label={t('Add a document')}
+          onPick={(path) => controls.addExclusion('documents', path)} applyLabel={() => null} />
+        {exclude.documents.map((path) => (
+          <Pill key={path} onRemove={() => controls.removeExclusion('documents', path)}><span title={path}>{leaf(path)}</span></Pill>
+        ))}
+      </Row>
+      <Row label={t('Decks')}>
+        <DeckPicker className={SELECT} label={t('Add a deck')}
+          onPick={({ deck, deckName }) => controls.addExclusion('decks', { hash: deck, name: deckName })} />
+        {exclude.decks.map((deck) => (
+          <Pill key={deck.hash} onRemove={() => controls.removeExclusion('decks', deck.hash)}>{deck.name ?? deck.hash}</Pill>
+        ))}
+      </Row>
+      <Row label={t('Tags')}>
+        <TagPicker className={SELECT} label={t('Add a tag')} chosen={exclude.tags} onPick={(tag) => controls.addExclusion('tags', tag)} />
+        {exclude.tags.map((tag) => (
+          <Pill key={tag} onRemove={() => controls.removeExclusion('tags', tag)}>#{tag}</Pill>
+        ))}
+      </Row>
+    </div>
+  );
+}
+
+export default function ScopeBar({ controls, result }) {
+  const { t, tp } = useT();
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef(null);
+  const summary = scopeSummary(controls.scope, t, tp);
+  const rules = scopeRuleCount(controls.scope);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => {
+      if (wrapRef.current?.contains(e.target) || e.target.closest?.('.popover')) return;
+      setOpen(false);
+    };
+    const onKey = (e) => { if (e.key === 'Escape' && !document.querySelector('.popover')) setOpen(false); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
 
   return (
-    <>
-      <div className="trainer-scope-bar">
-        {scope.deck && <ScopeChip onClear={controls.clearDeck}>{t('Deck: {name}', { name: scope.deckName ?? scope.deck })}</ScopeChip>}
-        {scope.folder && <ScopeChip onClear={controls.clearFolder}>{t('Folder: {path}', { path: scope.folder })}</ScopeChip>}
-        {scope.document && <ScopeChip onClear={controls.clearDocument}>{t('Document: {path}', { path: scope.document })}</ScopeChip>}
-        {scope.exclude.folders.map((path) => (
-          <ScopeChip key={`xf:${path}`} exclude onClear={() => controls.removeExclusion('folders', path)}>{t('Except folder: {path}', { path })}</ScopeChip>
-        ))}
-        {scope.exclude.documents.map((path) => (
-          <ScopeChip key={`xd:${path}`} exclude onClear={() => controls.removeExclusion('documents', path)}>{t('Except document: {path}', { path })}</ScopeChip>
-        ))}
-        {scope.exclude.decks.map((deck) => (
-          <ScopeChip key={`xk:${deck.hash}`} exclude onClear={() => controls.removeExclusion('decks', deck.hash)}>{t('Except deck: {name}', { name: deck.name ?? deck.hash })}</ScopeChip>
-        ))}
-        {scope.exclude.tags.map((tag) => (
-          <ScopeChip key={`xt:${tag}`} exclude onClear={() => controls.removeExclusion('tags', tag)}>{t('Except tag: {name}', { name: tag })}</ScopeChip>
-        ))}
-
-        {!scope.folder && (
-          <PathPicker kind="folder" label={t('+ Folder')} onPick={controls.applyFolder} applyLabel={(name) => t('Study “{name}”', { name })} />
-        )}
-        {!scope.document && (
-          <PathPicker kind="document" label={t('+ Document')} onPick={controls.applyDocument} applyLabel={() => null} />
-        )}
-        {!scope.deck && <DeckPicker label={t('+ Deck')} onPick={controls.applyDeck} />}
-        <button
-          type="button"
-          className={`btn btn--sm${showExclude ? ' btn--accent-quiet' : ''}`}
-          aria-expanded={showExclude}
-          onClick={controls.toggleExclude}
-        >
-          {t('− Exclude')}
-        </button>
-        <TagFilter selected={scope.tags ?? EMPTY_TAGS} onApply={controls.applyTags} />
-      </div>
-
-      {showExclude && (
-        <div className="trainer-scope-bar trainer-scope-bar--exclude">
-          <span className="eyebrow">{t('Leave out')}</span>
-          <PathPicker kind="folder" label={t('− Folder')}
-            onPick={(path) => controls.addExclusion('folders', path)}
-            applyLabel={(name) => t('Leave out “{name}”', { name })} />
-          <PathPicker kind="document" label={t('− Document')}
-            onPick={(path) => controls.addExclusion('documents', path)} applyLabel={() => null} />
-          <DeckPicker label={t('− Deck')}
-            onPick={({ deck, deckName }) => controls.addExclusion('decks', { hash: deck, name: deckName })} />
-          <TagPicker label={t('− Tag')} chosen={scope.exclude.tags} onPick={(tag) => controls.addExclusion('tags', tag)} />
+    <div className="scope-filter" ref={wrapRef}>
+      <button type="button" className="scope-filter-btn" aria-expanded={open} aria-haspopup="dialog" onClick={() => setOpen((o) => !o)}>
+        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" aria-hidden="true">
+          <line x1="4" y1="6" x2="20" y2="6" /><line x1="7" y1="12" x2="17" y2="12" /><line x1="10" y1="18" x2="14" y2="18" />
+        </svg>
+        <span className="scope-filter-summary">
+          {summary.study}
+          {summary.leftOut && <span className="scope-filter-muted"> · {summary.leftOut}</span>}
+        </span>
+        {rules > 0 && <span className="scope-filter-count">{rules}</span>}
+      </button>
+      {open && (
+        <div className="scope-panel" role="dialog" aria-label={t('What to study')}>
+          <StudySection controls={controls} />
+          <LeaveOutSection controls={controls} />
+          <div className="scope-panel-foot">
+            <span className="scope-panel-result">
+              {result
+                ? <><b>{tp('{n} card', '{n} cards', result.counts.due + result.counts.new)}</b> {t('{due} due · {new} new', { due: result.counts.due, new: result.counts.new })}</>
+                : '—'}
+            </span>
+            <button type="button" className="link-action" onClick={controls.clearScope} disabled={rules === 0}>{t('Clear filters')}</button>
+          </div>
         </div>
       )}
-    </>
+    </div>
   );
 }

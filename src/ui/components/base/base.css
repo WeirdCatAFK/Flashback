@@ -516,8 +516,14 @@ textarea.field {
   opacity: 0.4;
   cursor: default;
 }
-/* A fixed width, so the controls beside a stepper never shift as it counts. */
+/* A fixed width, so the controls beside a stepper never shift as it counts; the
+   rules either side set the number apart from the buttons that change it. */
 .stepper__value {
+  align-self: stretch;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-inline: 1px solid var(--color-border);
   min-width: var(--control-2xl);
   font-family: var(--font-mono);
   font-size: var(--text-sm);

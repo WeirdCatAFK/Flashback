@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { getDue } from '../../api/srs';
-import { getPref } from '../../prefs.js';
+import { getPref, getNumberPref } from '../../prefs.js';
 import { mapApiCard } from './cards';
 
 export default function useDueCards({ folder, document, deck, tags, exclude, readOnly, maxNew, refreshToken }) {
@@ -42,6 +42,7 @@ export default function useDueCards({ folder, document, deck, tags, exclude, rea
       readOnly,
       exclude: JSON.parse(excludeKey),
       tags: tagsArray?.length ? tagsArray : undefined,
+      retention: algorithm === 'fsrs' ? getNumberPref('fb-fsrs-retention', 0.9) || 0.9 : undefined,
     })
       .then(setResult)
       .catch(setError)
@@ -52,7 +53,10 @@ export default function useDueCards({ folder, document, deck, tags, exclude, rea
     if (!result) return [];
     const queue = result.queue ?? [...result.due, ...result.new];
     const newHashes = new Set(result.new.map((c) => c.global_hash));
-    return queue.map((c) => mapApiCard(c, newHashes.has(c.global_hash)));
+    return queue.map((c) => ({
+      ...mapApiCard(c, newHashes.has(c.global_hash)),
+      fsrsPreview: result.preview?.[c.global_hash] ?? null,
+    }));
   }, [result]);
 
   return { cards, result, loading, error, sessionId: result?.sessionId ?? null };

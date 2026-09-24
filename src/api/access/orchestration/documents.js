@@ -1601,15 +1601,15 @@ export default class Documents {
      * not editing — and as of this change, neither is studying.
      */
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const { documentId, scope } = await this.srs.submitReview(
+        const { documentId, scope, interval } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
 
         // `presence` is derived from the OWNER's levels and stored on the document, so a
         // reader's review must not move it. It is the only thing left that the owner's review
         // does and a reader's does not.
-        if (!isOwnerScope(scope)) return;
-        await this.propagatePresence(documentId);
+        if (isOwnerScope(scope)) await this.propagatePresence(documentId);
+        return { interval };
     }
 
     /** Reverts the caller's last grade on a card. */

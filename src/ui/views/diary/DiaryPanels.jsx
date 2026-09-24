@@ -95,7 +95,7 @@ export function SummaryPanel({ state, summary }) {
   );
 }
 
-export function EntryEditor({ date, loading, content, onSaved }) {
+export function EntryEditor({ date, loading, content, onSaved, editRequest = 0 }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
@@ -108,6 +108,17 @@ export function EntryEditor({ date, loading, content, onSaved }) {
     setDraft(content);
     setEditing(false);
     setError(null);
+  }
+
+  const [seenEditRequest, setSeenEditRequest] = useState(0);
+  const [wantsEdit, setWantsEdit] = useState(false);
+  if (seenEditRequest !== editRequest) {
+    setSeenEditRequest(editRequest);
+    if (editRequest) setWantsEdit(true);
+  }
+  if (wantsEdit && !loading) {
+    setWantsEdit(false);
+    setEditing(true);
   }
 
   const dirty = draft !== content;

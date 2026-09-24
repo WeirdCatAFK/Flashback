@@ -1092,7 +1092,9 @@ The sidecar is written only when the caller is the vault's Author — the sideca
 
 The last three are session-ordering telemetry and are optional: omit them (the MCP server, a script, the Flashcards view) and the review is logged with no ordering context. When `sessionId` is present the server derives `prev_distance` and `nearest_sibling_lag` itself via `sequencer.measureOrdering()` — the client sends only what it displayed, never a distance. `prevCardHash` is what was *actually* presented rather than what the sequencer planned, so a card re-queued after a failed grade is measured where it really landed. See `DATAMODEL.md` § ReviewLogs.
 
-Response `200` — `{ ok: true, flags }`.
+Response `200` — `{ ok: true, flags, interval }`.
+
+`interval` is `{ before, after }`: the gap between reviews, in days, before and after this grade, under the scheduler that graded it (for FSRS, from the caller's own fitted weights and `requestRetention`). `before` is `null` when the caller had never reviewed the card. It is what the Trainer's pop shows ("4 d → 8 d") — the one number every scheduler can answer.
 
 `flags` is the card-health result for this review, and it is the only place classification is triggered:
 
@@ -1126,7 +1128,9 @@ Returns the cards to study now, already in presentation order.
 | `order`           | string | `interleaved` (default) \| `shuffle` \| `priority`.                  |
 | `seed`            | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports.    |
 
-Response `200` — `{ queue, sessionId, order, relaxation, due, new, counts, nextDue, algorithm }`.
+Response `200` — `{ queue, sessionId, order, relaxation, due, new, counts, nextDue, algorithm, preview }`.
+
+`preview` is, for FSRS only, `{ [global_hash]: { again, hard, good, easy } }`: the gap in days each rating would give that card now, from the caller's fitted weights and `retention` (optional query parameter, 0.70–0.97, default 0.9). It is what the Trainer shows under its grade buttons, and nothing is written. For Leitner and SM-2 it is `null` — the renderer previews those itself from `src/shared/intervals.js`, the same formulas the server uses for `POST /api/srs/review`'s `interval`, so a button and the pop after it can never disagree.
 
 `queue` is the ordered session and is what a trainer should consume; do not re-sort it. `due` and `new` remain for callers that only want counts or bucket membership. `relaxation` reports which rung of the degradation ladder this session settled on (`none` | `no-folder-edge` | `short-lag` | `shuffle`), so an odd-looking order can be diagnosed without reproducing the vault.
 

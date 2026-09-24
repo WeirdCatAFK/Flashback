@@ -19,6 +19,30 @@ The interface is moving to a new design language, one area at a time. In this re
   pressed together with Ctrl or Alt.
 - **Renamed:** Manage is now **Metadata**, and the Server tab (on a remote) is **Server
   Management**. The title bar now shows the screen you are on.
+- **The card is a real card.** It follows the theme (paper in the light theme, a darker or
+  lighter card in the dark ones), keeps an index card's 5 × 3 shape, and carries nothing but its
+  content — its source is cited at the foot of the answer side.
+- **The Trainer** has one top bar: what to study, folded into a single button with a panel for
+  Study and Leave out; the session's settings (Per session, New cards, Only what I've read) in
+  view as steppers; and the count and streak. The progress bar spans the window.
+- **Per session** splits a long queue into batches (5 to 100, or All). A batch ends once every
+  card in it has been remembered; the end says what happened and offers the next batch or a
+  line in your diary.
+- **After each grade** the card shows the grade and how the gap to its next review changed
+  ("4 d → 8 d"), for every scheduler, and the next card waits a moment so you can read it.
+  `POST /api/srs/review` now returns that `interval`.
+- **Each grade button says when that grade brings the card back** ("Good · in 8 days"). For
+  FSRS, `GET /api/srs/due` returns the preview (`preview`, optional `retention` parameter).
+- **The card grows with the window** and sits just above the grade buttons.
+
+### Fixed — a second session on the same day never reached the Diary
+
+Studying twice in one day left the Diary showing the first session until you ran "Rebuild
+from history". The page loaded a day's summary once and kept it, and the summary file was
+only rewritten when a session was recorded — and even then it could be written a moment
+before the session's last review was saved. The Diary now recalculates today from the whole
+day's review history every time you open it, the Trainer waits for the last review before
+recording, and an unchanged day is no longer re-committed to the diary's history.
 
 ### Added — a published server image, and a server that knows when it is behind
 

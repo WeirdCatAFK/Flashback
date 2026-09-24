@@ -68,7 +68,7 @@ export function applyResult(state, { key, success, toLevel, easeFactor, total, n
       lastSession: done ? { total, stats: newStats } : lastSession,
     };
   }
-  const failedCard = { ...head, level: toLevel, easeFactor, lastRecall: now };
+  const failedCard = { ...head, level: toLevel, easeFactor, lastRecall: now, fsrsPreview: null };
   return {
     queue: requeueFailed(rest, failedCard),
     stats: newStats,

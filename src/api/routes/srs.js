@@ -37,11 +37,9 @@ router.post('/review', catchError(async (req, res) => {
         : {};
 
     const opts = { rating, requestRetention, ordering };
-    if (relPath) {
-        await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
-    } else {
-        await SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
-    }
+    const { interval = null } = relPath
+        ? await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts)
+        : await SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
 
     let flags = [];
     try {
@@ -49,7 +47,7 @@ router.post('/review', catchError(async (req, res) => {
     } catch (err) {
         console.error('card health evaluation failed:', err);
     }
-    res.json({ ok: true, flags });
+    res.json({ ok: true, flags, interval });
 }));
 
 router.post('/undo', catchError(async (req, res) => {
@@ -190,12 +188,21 @@ router.get('/due', catchError(async (req, res) => {
         seed: Number.isFinite(seed) ? seed : null,
     });
 
+    const retention = Number.parseFloat(req.query.retention);
+    const preview = result.algorithm === 'fsrs'
+        ? await SRS.fsrsPreview(
+            sequenced.queue.map((c) => c.global_hash),
+            Number.isFinite(retention) ? Math.min(0.97, Math.max(0.7, retention)) : undefined,
+        )
+        : null;
+
     res.json({
         ...result,
         queue: sequenced.queue,
         sessionId: sequenced.sessionId,
         order: sequenced.order,
         relaxation: sequenced.relaxation,
+        preview,
     });
 }));
 
