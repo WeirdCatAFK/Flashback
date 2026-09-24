@@ -1,5 +1,6 @@
-/* DocumentEditor — the editor column: tab bar, renderer area and the inspector
-   beside it. */
+/* DocumentEditor — the editor column: tab bar, reading strip, and the one
+   scroller holding the document head and the renderer; the finder and the card
+   editor float over it. */
 
 .doc-editor {
   display: flex;
@@ -10,6 +11,8 @@
 }
 
 .doc-editor--empty {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
 }
@@ -26,17 +29,42 @@
 }
 
 .doc-editor-content {
+  position: relative;
   display: flex;
   flex-direction: column;
   flex: 1;
   overflow: hidden;
 }
 
+/* The one scroller for every format: the document head sits at its top and
+   scrolls away with the text, the pages or the player. */
 .doc-editor-renderer {
   flex: 1;
   overflow-y: auto;
   position: relative;
-  background: var(--color-bg-surface);
+  background: var(--color-bg-reader);
+}
+
+/* Room on the right for the margin cards: the measure re-centres in what is left,
+   so the text and the cards beside it are centred together. The cover still runs
+   the full width. */
+.doc-editor-renderer.has-margin {
+  --margin-room: calc(var(--size-lg) + var(--space-8));
+  padding-right: var(--margin-room);
+}
+
+.doc-editor-renderer.has-margin > .cover-banner {
+  margin-right: calc(-1 * var(--margin-room));
+}
+
+/* A renderer that scrolls itself and hosts the head (registry `hostsHead`: EPUB).
+   It makes the margin's room inside its own frames, so the area keeps its width. */
+.doc-editor-renderer--hosted {
+  overflow: hidden;
+}
+
+.doc-editor-renderer--hosted.has-margin {
+  padding-right: 0;
 }
 
 /* Shown while a renderer's chunk loads (pdf.js, epub.js, TipTap are each fetched on
@@ -50,95 +78,57 @@
   font-size: 0.9rem;
 }
 
-/* The reading strip: where you are in a readable document, and the manual controls for
-   saying so yourself. Shown only for renderers that track a position (registry
-   `tracksProgress`). Deliberately one quiet line — an e-reader shows a progress line, but
-   this sits above a working editor and must not compete with it.
+/* The reading strip, pinned under the tab bar for every format: where you are, the
+   manual controls for saying so yourself, Go to start and Find, then the furthest
+   mark as a track across the full width. One quiet line — it sits above a working
+   editor and must not compete with it.
 
    It doubles as the "resumed where you left off" notice. Opening at the saved position is
    the e-reader convention, but a silent jump is disorienting when you meant to start over,
-   so the way back is always one click away until dismissed. */
+   so Go to start is always there and the notice stays until dismissed. */
 .doc-reading-bar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
-  padding: 0.3rem 0.75rem;
-  background: var(--color-bg-surface);
-  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-1) var(--space-3);
+  background: var(--color-bg-desk);
   color: var(--color-fg-secondary);
-  font-size: 0.78rem;
+  font-size: var(--text-sm);
   flex-shrink: 0;
 }
 
+.doc-reading-bar--bare {
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--color-border);
+}
+
 .doc-reading-where {
-  white-space: nowrap;
+  min-width: calc(var(--size-xs) + var(--space-2));
+  font-family: var(--font-mono);
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--color-fg-primary);
+  white-space: nowrap;
 }
 
-.doc-reading-bar-track {
-  flex: 1;
-  max-width: var(--size-md);
-  height: var(--space-0-5);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-hover);
-  overflow: hidden;
+.doc-reading-group {
+  display: inline-flex;
+  gap: var(--space-0-5);
 }
 
-.doc-reading-bar-track > span {
-  display: block;
-  height: 100%;
-  background: var(--color-accent);
-  border-radius: var(--radius-sm);
-}
-
-.doc-reading-bar > .doc-reading-action:first-of-type {
-  margin-left: auto;
-}
-
-/* The resume notice, grouped so its own buttons are not direct children of the bar and so
-   do not claim the `margin-left: auto` that pushes the controls to the right. It leads;
-   the controls stay where they always were. */
 .doc-reading-resume {
   display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
+  gap: var(--space-1);
   min-width: 0;
-}
-
-/* Hosted inside a renderer's own toolbar (registry `ownsReadingBar`) rather than drawn as
-   a row of its own. The surface comes off entirely — a second background and a second
-   bottom border directly under the first is what made a PDF read as a wall of chrome —
-   and the type drops to the 11px the surrounding toolbars use. */
-.doc-reading-bar--inline {
-  padding: 0;
-  background: none;
-  border-bottom: none;
-  gap: 0.4rem;
-  font-size: var(--text-xs);
-  min-width: 0;
-}
-
-/* The host toolbar owns the spacing to its right: `.pdf-toolbar-pages` already has
-   `margin-left: auto` and `.epub-toolbar-spacer` is `flex: 1`, so pushing again here
-   would strand the controls against the window edge. */
-.doc-reading-bar--inline > .doc-reading-action:first-of-type {
-  margin-left: 0;
-}
-
-/* Fixed rather than `flex: 1` — in a toolbar the track is one item among many and must
-   not eat the space the zoom and font controls need. */
-.doc-reading-bar--inline .doc-reading-bar-track {
-  flex: 0 0 auto;
-  width: var(--control-bar);
 }
 
 .doc-reading-action {
+  padding: var(--space-0-5) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
   background: none;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  padding: 0.1rem 0.45rem;
   color: var(--color-fg-secondary);
   font: inherit;
   cursor: pointer;
@@ -155,20 +145,71 @@
   cursor: default;
 }
 
-.doc-reading-action--quiet {
-  border-color: transparent;
+/* A renderer's own tools (PDF zoom, EPUB text size), portaled in; they and Find sit
+   at the right end. */
+.doc-reading-tools {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.doc-reading-find {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-fg-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.doc-reading-find kbd {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.doc-reading-find:hover,
+.doc-reading-find[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
 }
 
 .doc-reading-dismiss {
-  background: none;
+  padding: 0 var(--space-1);
   border: none;
+  background: none;
   color: var(--color-fg-secondary);
-  font-size: 1.05rem;
+  font-size: var(--text-md);
   line-height: 1;
-  padding: 0 0.2rem;
   cursor: pointer;
 }
 
 .doc-reading-dismiss:hover {
   color: var(--color-fg-primary);
+}
+
+/* The furthest mark, across the full width under the strip. */
+.doc-reading-track {
+  flex-shrink: 0;
+  height: var(--space-0-5);
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+}
+
+.doc-reading-track i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--dur-slow) var(--ease-out);
+}
+
+@media (max-width: 640px) {
+  .doc-reading-group {
+    display: none;
+  }
 }

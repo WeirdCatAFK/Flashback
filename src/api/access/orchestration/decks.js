@@ -10,22 +10,11 @@ import { LATEST_VERSION } from '../../config/updates/registry.js';
 import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
 import SRS, { gapBand, GAP_BANDS, LONG_TERM_DAYS } from './srs.js';
 import { isDeckColor, deckColor, nextDeckColor } from '../../../shared/deckColors.js';
+import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, coverMime, clampCoverY } from '../../../shared/covers.js';
 
 const DECKS_DIR = '_decks';
 const COVERS_DIR = 'covers';
 
-/** The image types a deck cover may be, and the extension each is stored under. */
-export const COVER_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
-const COVER_MIME = Object.fromEntries(Object.entries(COVER_TYPES).map(([mime, ext]) => [ext, mime]));
-
-/** The drawn covers, which need no file: patterns painted in the deck's colour. */
-export const COVER_PATTERNS = ['cards', 'arcs'];
-
-/** The largest cover image accepted, in bytes. */
-export const MAX_COVER_BYTES = 10 * 1024 * 1024;
-
-/** A stored cover file name — checked on every read, since the JSON can be edited by hand. */
-const COVER_NAME = /^[A-Za-z0-9-]+\.(png|jpg|webp|gif|avif)$/;
 const DAY_MS = 86_400_000;
 
 /**
@@ -99,17 +88,8 @@ export default class Decks {
         return path.join(this.decksPath, COVERS_DIR, name);
     }
 
-    /**
-     * A deck file's cover as the API returns it: `{ kind: 'image', file, y }`,
-     * `{ kind: 'pattern', pattern }`, or null. Anything malformed reads as none.
-     */
     _cleanCover(cover) {
-        if (cover?.kind === 'pattern' && COVER_PATTERNS.includes(cover.pattern)) return { kind: 'pattern', pattern: cover.pattern };
-        if (cover?.kind === 'image' && COVER_NAME.test(cover.file ?? '')) {
-            const y = Number.isFinite(cover.y) ? Math.min(1, Math.max(0, cover.y)) : 0.5;
-            return { kind: 'image', file: cover.file, y };
-        }
-        return null;
+        return cleanCover(cover);
     }
 
     /** The image file a deck's cover shows, for serving: `{ absPath, mime }`. */
@@ -121,7 +101,7 @@ export default class Decks {
         if (cover?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
         const absPath = this._coverAbsPath(cover.file);
         if (!fs.existsSync(absPath)) throw new Error(`Cover not found for deck ${globalHash}`);
-        return { absPath, mime: COVER_MIME[cover.file.split('.').pop()] };
+        return { absPath, mime: coverMime(cover.file) };
     }
 
     /**
@@ -171,7 +151,7 @@ export default class Decks {
                 removed = this._dropCoverFile(before);
             } else if (change.y !== undefined) {
                 if (before?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
-                file.cover = { ...before, y: Math.min(1, Math.max(0, Number(change.y) || 0)) };
+                file.cover = { ...before, y: clampCoverY(change.y) };
             }
             file.modified = new Date().toISOString();
             this._write(globalHash, file);

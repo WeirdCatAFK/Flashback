@@ -2,7 +2,9 @@
  * TitleBar — the frameless-window drag region: "Flashback │ vault ▾ │ screen",
  * with the role badge beside the vault when connected, the Ctrl+K search button
  * (App only), and the window controls. The screen's name lives here so a tool
- * screen need not repeat it as a heading. Styles live in App.css.
+ * screen need not repeat it as a heading. While the interface is zoomed (Ctrl+plus,
+ * Ctrl+minus) the zoom shows beside the window controls, and clicking it resets
+ * it, so the scale you are seeing is never a guess. Styles live in App.css.
  */
 
 import { windowMinimize, windowMaximize, windowClose } from '../../api/desktop';
@@ -33,7 +35,7 @@ function WindowControls() {
   );
 }
 
-export default function TitleBar({ onSearch, connection, onManageVaults, screen }) {
+export default function TitleBar({ onSearch, connection, onManageVaults, screen, zoom = 1, onResetZoom }) {
   const { t } = useT();
   return (
     <div id="title-bar">
@@ -56,13 +58,26 @@ export default function TitleBar({ onSearch, connection, onManageVaults, screen 
       {onSearch && (
         <button type="button" id="search-btn" title={t('Search (Ctrl+K)')} aria-label={t('Search')} onClick={onSearch}>
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none"
-            stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
           </svg>
           <kbd>Ctrl+K</kbd>
         </button>
       )}
-      <WindowControls />
+      <div id="title-bar-right">
+        {zoom !== 1 && onResetZoom && (
+          <button
+            type="button"
+            id="zoom-btn"
+            title={t('Interface zoom. Click or press Ctrl+0 to reset it to 100%.')}
+            aria-label={t('Interface zoom {pct}%. Reset to 100%', { pct: Math.round(zoom * 100) })}
+            onClick={onResetZoom}
+          >
+            {Math.round(zoom * 100)}%
+          </button>
+        )}
+        <WindowControls />
+      </div>
     </div>
   );
 }

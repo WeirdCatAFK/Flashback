@@ -10,6 +10,7 @@ import KeybindingsEditor from '../../components/shell/KeybindingsEditor';
 import IdentitySection from '../../components/account/IdentitySection';
 import ProgressDialog from '../../components/base/ProgressDialog';
 import Toggle from '../../components/base/Toggle';
+import { treeIconsOn, setTreeIcons } from '../../treeIcons.js';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import { migrateProgress } from '../../api/srs';
 import { restartApp } from '../../api/desktop';
@@ -50,6 +51,7 @@ export default function ConfigView({
 
   const [pendingAlgo, setPendingAlgo] = useState(null);
   const [migrating, setMigrating] = useState(false);
+  const [treeIcons, setTreeIconsState] = useState(treeIconsOn);
 
   const handleAlgorithmSelect = (next) => {
     if (next === algorithm) return;
@@ -113,6 +115,12 @@ export default function ConfigView({
                     </option>
                   ))}
                 </select>
+              </td>
+            </tr>
+            <tr>
+              <td>{t('File tree')}</td>
+              <td>
+                <Toggle checked={treeIcons} onChange={(on) => { setTreeIcons(on); setTreeIconsState(on); }} label={t('Icons in the file tree')} />
               </td>
             </tr>
           </tbody>

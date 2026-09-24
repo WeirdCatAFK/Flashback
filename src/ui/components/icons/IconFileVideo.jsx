@@ -1,14 +1,13 @@
 /**
- * IconFileVideo — the SVG glyph for a video reference in the tree.
+ * IconFileVideo — the tree glyph for a video or YouTube link: a screen with a play mark.
  */
 
-export default function IconFileVideo({ size = 13 }) {
+import Glyph from "./Glyph";
+
+export default function IconFileVideo({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M7 1H2.5A1.5 1.5 0 0 0 1 2.5v11A1.5 1.5 0 0 0 2.5 15h7A1.5 1.5 0 0 0 11 13.5V5L7 1z"
-        fill="#FB923C" opacity="0.12" stroke="#FB923C" strokeWidth="0.8"/>
-      <path d="M7 1v4h4" stroke="#FB923C" strokeWidth="0.8" fill="none" opacity="0.7"/>
-      <polygon points="4,8 4,13 9.5,10.5" fill="#FB923C" opacity="0.85"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--file">
+      <path fillRule="evenodd" d="M4 3h8a2.5 2.5 0 0 1 2.5 2.5v5A2.5 2.5 0 0 1 12 13H4a2.5 2.5 0 0 1-2.5-2.5v-5A2.5 2.5 0 0 1 4 3Zm2.6 2.6v4.8L10.8 8Z" />
+    </Glyph>
   );
 }

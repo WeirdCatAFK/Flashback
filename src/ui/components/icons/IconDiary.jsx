@@ -1,15 +1,14 @@
 /**
- * IconDiary — the SVG glyph for the Diary tab.
+ * IconDiary — the Diary tab: an open book.
  */
+
+import Glyph from "./Glyph";
 
 export default function IconDiary({ size = 24 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <path d="M5 4a2 2 0 0 1 2-2h11a1 1 0 0 1 1 1v16a1 1 0 0 1-1 1H7a2 2 0 0 0-2 2z" />
-      <path d="M5 18a2 2 0 0 0 2 2h11" />
-      <path d="M14 2v7l-2.2-1.6L9.6 9V2" />
-    </svg>
+    <Glyph size={size} grid={24}>
+      <path d="M2.5 6.2c3.2-1.3 6.3-1 9 .9V20c-2.7-1.6-5.8-1.8-9-.7Z" />
+      <path d="M21.5 6.2c-3.2-1.3-6.3-1-9 .9V20c2.7-1.6 5.8-1.8 9-.7Z" />
+    </Glyph>
   );
 }

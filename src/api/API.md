@@ -275,6 +275,29 @@ Errors `409 { error, code: 'stale', etag }` — see [Concurrent writes](#concurr
 
 Errors `400` path required.
 
+A document's `cover` is not written here: this route and `PUT /api/documents/file` keep the
+cover that is on disk whatever the body says, since renderers save highlights by writing back
+the sidecar they loaded. The cover routes below are the only way to change it.
+
+---
+
+### `POST` · `PUT` · `DELETE /api/documents/cover`
+
+The banner at the head of a document. Its sidecar's `cover` is absent, `{ kind: 'pattern',
+pattern }` (`cards` | `arcs`, drawn by the renderer, no file) or `{ kind: 'image', file, y }` —
+`file` a name in the folder's `media/` (`cover-<random>.<ext>`, fresh on every upload), served
+by `GET /api/media/file?docPath=&name=` like card media and registered in `Media`, and `y`
+(0..1) the image's vertical position. Collaborator, like the rest of a document's metadata.
+
+- `POST` — multipart `path` and `file`: PNG, JPEG, WebP, GIF or AVIF, up to 10 MB. Replaces
+  the cover, centred; the previous image is deleted in the same Seal commit. Response `201` —
+  `{ cover }`. Errors `400` no file or another type, `413` too large, `404` no such document.
+- `PUT` — `{ path, pattern }` for a drawn cover (deleting any image), or `{ path, y }` to
+  reposition the image one. Response `200` — `{ cover }`. Errors `400` an unknown pattern or
+  neither field, `404` `{ y }` when the cover is not an image, or no such document.
+- `DELETE` — `{ path }` (or `?path=`): removes the cover and its image. Response `200` —
+  `{ ok: true }`.
+
 ---
 
 ### `DELETE /api/documents`

@@ -1,16 +1,14 @@
 /**
- * IconFileEpub — the SVG glyph for an EPUB in the tree.
+ * IconFileEpub — the tree glyph for an EPUB: a closed book above its page edge.
  */
 
-export default function IconFileEpub({ size = 13 }) {
+import Glyph from "./Glyph";
+
+export default function IconFileEpub({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <rect x="1" y="1.5" width="2" height="13" rx="0.75"
-        fill="#6BBF3E" opacity="0.75"/>
-      <rect x="2.5" y="1.5" width="7.5" height="13" rx="0.5"
-        fill="#6BBF3E" opacity="0.2" stroke="#6BBF3E" strokeWidth="0.8"/>
-      <rect x="9.6"  y="2.5" width="0.6" height="11" rx="0.2" fill="#6BBF3E" opacity="0.45"/>
-      <rect x="10.4" y="3"   width="0.5" height="10" rx="0.2" fill="#6BBF3E" opacity="0.25"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--file">
+      <rect x="2.8" y="1.5" width="10.7" height="10" rx="1.2" />
+      <path d="M4.1 12.6h9.4v1.9H4.1a.95.95 0 0 1 0-1.9Z" />
+    </Glyph>
   );
 }

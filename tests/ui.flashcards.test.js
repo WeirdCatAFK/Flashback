@@ -12,7 +12,7 @@ import {
 } from '../src/ui/views/flashcards/catalogue.js';
 import { sortDecks, deckStatus, longTermShare, newDeckName } from '../src/ui/views/decks/deckShelf.js';
 import { DECK_COLORS, deckColor, nextDeckColor } from '../src/shared/deckColors.js';
-import { coverTravel, dragCoverY } from '../src/ui/components/deck/coverMath.js';
+import { coverTravel, dragCoverY } from '../src/ui/components/cover/coverMath.js';
 
 const t = (s, vars = {}) => s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`));
 const DAY = 86_400_000;

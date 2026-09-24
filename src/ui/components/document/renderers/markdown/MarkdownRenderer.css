@@ -1,18 +1,17 @@
 /* --- Outer container --- */
 
+/* The editor grows with its text; .doc-editor-renderer above it is the one
+   scroller, so the document head scrolls away with the text. */
 .markdown-editor-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
   background: var(--color-bg-reader);
 }
 
 .editor-content-wrapper {
-  flex: 1;
   position: relative;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
 }
 
 .editor-loading-overlay {
@@ -30,16 +29,19 @@
 /* --- TipTap container --- */
 
 .tiptap-wrapper {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: auto;
 }
 
+/* The reading measure, shared with the document head above. */
 .tiptap-wrapper > .ProseMirror {
-  flex: 1;
+  width: 100%;
+  max-width: var(--size-7xl);
+  min-height: var(--size-3xl);
+  margin: 0 auto;
+  margin-left: var(--measure-start);
   outline: none;
-  padding: var(--space-8) var(--space-12) var(--space-16);
+  padding: 0 var(--space-8) var(--space-16);
   color: var(--color-fg-primary);
   font-size: var(--text-base);
   line-height: 1.75;

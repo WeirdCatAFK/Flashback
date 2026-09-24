@@ -6,7 +6,7 @@
   gap: var(--space-0-5);
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
   cursor: pointer;
 }
 
@@ -31,7 +31,7 @@
 .card-line__meta {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .card-line__src {

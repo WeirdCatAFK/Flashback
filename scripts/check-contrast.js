@@ -161,6 +161,15 @@ const TEXT_PAIRS = [
     3,
     "inactive icons on the activity bar",
   ],
+  // The third text level labels and counts beside something that says more; it is
+  // never the only carrier of a fact, so it holds the 3:1 non-text floor.
+  ["--color-fg-tertiary", "--color-bg-base", 3, "dimmed labels on the window"],
+  ["--color-fg-primary", "--color-bg-desk", 4.5, "the reading strip and the Trainer"],
+  ["--color-fg-secondary", "--color-bg-desk", 4.5, "strip actions and Trainer settings"],
+  ["--color-fg-tertiary", "--color-bg-desk", 3, "the algorithm name in the Trainer"],
+  ["--color-fg-tertiary", "--color-bg-surface", 3, "dimmed labels on a panel"],
+  ["--color-fg-tertiary", "--color-bg-sidebar", 3, "counts and chevrons in the tree"],
+  ["--color-fg-tertiary", "--color-bg-reader", 3, "the path above a document"],
   ["--color-on-accent", "--color-accent", 4.5, "label on a primary button"],
   [
     "--color-accent",

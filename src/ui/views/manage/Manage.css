@@ -126,7 +126,7 @@
   gap: var(--space-1);
 }
 
-/* Matches the Inspector's "direct" tag chip so tags read the same everywhere. */
+/* Matches the direct tag chip (TagChipInput) so tags read the same everywhere. */
 
 .mng-tag-count {
   min-width: var(--control-xs);

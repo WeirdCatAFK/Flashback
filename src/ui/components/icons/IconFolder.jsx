@@ -1,12 +1,13 @@
 /**
- * IconFolder — the SVG glyph for a closed folder.
+ * IconFolder — the tree glyph for a closed folder.
  */
 
-export default function IconFolder({ size = 14 }) {
+import Glyph from "./Glyph";
+
+export default function IconFolder({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor"
-      aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M1.5 3A1.5 1.5 0 0 0 0 4.5v8A1.5 1.5 0 0 0 1.5 14h13a1.5 1.5 0 0 0 1.5-1.5v-7A1.5 1.5 0 0 0 14.5 4H7.62L6.06 2.44A1.5 1.5 0 0 0 5 2H1.5A1.5 1.5 0 0 0 0 3.5V4h1.5z"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--folder">
+      <path d="M1.5 3.8a1.2 1.2 0 0 1 1.2-1.2h3.5l1.6 1.8h5.5a1.2 1.2 0 0 1 1.2 1.2v6.8a1.2 1.2 0 0 1-1.2 1.2H2.7a1.2 1.2 0 0 1-1.2-1.2Z" />
+    </Glyph>
   );
 }

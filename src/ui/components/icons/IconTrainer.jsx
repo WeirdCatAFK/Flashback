@@ -1,13 +1,13 @@
 /**
- * IconTrainer — the SVG glyph for the Trainer tab.
+ * IconTrainer — the Trainer tab: a play mark.
  */
+
+import Glyph from "./Glyph";
 
 export default function IconTrainer({ size = 24 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <polygon points="6,4 20,12 6,20" />
-    </svg>
+    <Glyph size={size} grid={24}>
+      <path d="M7 5.1v13.8a1.3 1.3 0 0 0 2 1.1l10.6-6.9a1.3 1.3 0 0 0 0-2.2L9 4a1.3 1.3 0 0 0-2 1.1Z" />
+    </Glyph>
   );
 }

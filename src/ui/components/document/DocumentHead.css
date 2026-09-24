@@ -1,0 +1,131 @@
+/* DocumentHead — the cover across the full width, then the path, title and tags
+   on the reading measure the text below shares. */
+
+.doc-head {
+  position: relative;
+  max-width: var(--size-7xl);
+  margin: 0 auto;
+  margin-left: var(--measure-start);
+  padding: var(--space-6) var(--space-8) 0;
+}
+
+/* A note that opens with its own "# Title" does not need the file name above it too. */
+.doc-editor-renderer:has(.tiptap-wrapper > .ProseMirror > h1:first-child) .doc-head__title {
+  display: none;
+}
+
+.doc-head__add-cover {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-8);
+  padding: 0;
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.doc-head:hover .doc-head__add-cover,
+.doc-head__add-cover:focus-within {
+  opacity: 1;
+}
+
+.doc-head__path {
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.doc-head__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+  color: var(--color-fg-primary);
+}
+
+.doc-head__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-line);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.doc-head__tag,
+.doc-head__tag-add,
+.doc-head__tag-input {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  height: var(--control-xs);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.doc-head__tag {
+  padding: 0 var(--space-1) 0 var(--space-2);
+  color: var(--color-fg-secondary);
+}
+
+.doc-head__tag--inherited {
+  padding-right: var(--space-2);
+  border-style: dashed;
+  color: var(--color-fg-tertiary);
+}
+
+.doc-head__tag button {
+  padding: 0 var(--space-0-5);
+  border: 0;
+  background: none;
+  color: var(--color-fg-tertiary);
+  font-size: var(--text-sm);
+  line-height: 1;
+  cursor: pointer;
+}
+
+.doc-head__tag button:hover {
+  color: var(--color-danger);
+}
+
+.doc-head__tag-add {
+  padding: 0 var(--space-2);
+  border-style: dashed;
+  background: none;
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
+}
+
+.doc-head__tag-add:hover {
+  color: var(--color-fg-primary);
+  border-color: var(--color-border-strong);
+}
+
+.doc-head__tag-input {
+  width: var(--size-sm);
+  padding: 0 var(--space-2);
+  border-color: var(--color-accent);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  outline: none;
+}
+
+.doc-head__error {
+  color: var(--color-danger);
+}
+
+@media (max-width: 640px) {
+  .doc-head {
+    padding-inline: var(--space-4);
+  }
+  .doc-head__title {
+    font-size: var(--text-lg);
+  }
+}

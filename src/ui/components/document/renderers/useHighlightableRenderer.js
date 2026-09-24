@@ -73,7 +73,7 @@ export function useHighlightableRenderer({
     extensions,
     content: '',
     editable: !readOnly,
-    editorProps: { attributes: { class: editorClass } },
+    editorProps: { attributes: { class: editorClass, 'data-column': '' } },
     onUpdate: ({ editor }) => {
       if (loadingIntoEditorRef.current) return;
       if (!isDirtyRef.current) {

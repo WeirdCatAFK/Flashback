@@ -44,22 +44,23 @@
 .text-tiptap-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
   background: var(--color-bg-reader);
 }
 
 .text-tiptap-wrapper {
-  flex: 1;
   display: flex;
   flex-direction: column;
-  overflow: auto;
 }
 
 .text-tiptap-wrapper > .ProseMirror {
-  flex: 1;
+  width: 100%;
+  max-width: var(--size-7xl);
+  min-height: var(--size-3xl);
+  margin: 0 auto;
+  margin-left: var(--measure-start);
   outline: none;
-  padding: var(--space-8) var(--space-12) var(--space-16);
-  font-family: 'Cascadia Code', 'Fira Mono', 'Consolas', monospace;
+  padding: 0 var(--space-8) var(--space-16);
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 1.7;
   color: var(--color-fg-primary);

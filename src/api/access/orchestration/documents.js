@@ -21,6 +21,7 @@ import highlightsService from './highlights.js';
 import newFileMetadata from '../../config/defaults/FlashbackFile.js';
 import { OWNER_SCOPE, currentScope, isOwnerScope, currentAccount } from '../../requestContext.js';
 import { ROLES, atLeast } from '../../../shared/roles.js';
+import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, clampCoverY } from '../../../shared/covers.js';
 
 /** Extracts the 11-char video id from any common YouTube URL shape (watch?v=, youtu.be/, /embed/, /shorts/, /live/). */
 export function extractYoutubeId(url) {
@@ -490,6 +491,7 @@ export default class Documents {
 
     /** The body of updateFile, with the lock and the freshness check already applied. */
     async _updateFileLocked(relativePath, content, metadata) {
+        if (metadata) this._preserveCover(metadata, this.files.getMetadata(relativePath));
         await this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
@@ -765,6 +767,93 @@ export default class Documents {
         else delete metadata.createdBy;
     }
 
+    /**
+     * Keeps a document's cover as it is on disk through a whole-object metadata
+     * write. Renderers save highlights by writing back the sidecar they loaded, so a
+     * cover set since then would otherwise be erased by a highlight; the cover routes
+     * are the only way to change it.
+     */
+    _preserveCover(metadata, onDisk) {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (onDisk?.cover) metadata.cover = onDisk.cover;
+        else delete metadata.cover;
+    }
+
+    /**
+     * Stores an uploaded image as a document's cover, centred, replacing whatever
+     * cover it had. The file goes in the folder's `media/` beside the document's
+     * card media, registered in `Media` like them, under a fresh name each time.
+     */
+    async uploadCover(relativePath, buffer, mime) {
+        const ext = COVER_TYPES[mime];
+        if (!ext) throw Object.assign(new Error(`Unsupported cover type: ${mime}`), { status: 400 });
+        if (buffer.length > MAX_COVER_BYTES) throw Object.assign(new Error('Cover image too large'), { status: 413 });
+        return await withDocument(relativePath, async () => {
+            const meta = this._coverSidecar(relativePath);
+            const before = cleanCover(meta.cover);
+            const name = `cover-${crypto.randomBytes(6).toString('hex')}.${ext}`;
+            const abs = this.files.mediaPathFor(relativePath, name);
+            fs.mkdirSync(path.dirname(abs), { recursive: true });
+            fs.writeFileSync(abs, buffer);
+            const rel = path.relative(this.files.workspaceRoot, abs);
+            meta.cover = { kind: 'image', file: name, y: 0.5 };
+            this.files.writeMetadata(relativePath, meta, false);
+            const removed = await this._dropCoverFile(relativePath, before);
+            await db.transaction(async () => {
+                const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+                await this.query.insertMedia({ hash, name, relativePath: rel, absolutePath: abs });
+            })();
+            await sealEmitter.edit(relativePath + '.flashback', [rel], removed);
+            return meta.cover;
+        });
+    }
+
+    /**
+     * Changes a document's cover without a new upload: `{ pattern }` for a drawn
+     * one, `{ y }` (0..1) to reposition the image it has, or null to remove it. An
+     * image that stops being the cover is deleted with it.
+     */
+    async setCover(relativePath, change) {
+        return await withDocument(relativePath, async () => {
+            const meta = this._coverSidecar(relativePath);
+            const before = cleanCover(meta.cover);
+            let removed = [];
+            if (change === null) {
+                delete meta.cover;
+                removed = await this._dropCoverFile(relativePath, before);
+            } else if (change.pattern !== undefined) {
+                if (!COVER_PATTERNS.includes(change.pattern)) throw Object.assign(new Error(`Unknown cover pattern: ${change.pattern}`), { status: 400 });
+                meta.cover = { kind: 'pattern', pattern: change.pattern };
+                removed = await this._dropCoverFile(relativePath, before);
+            } else {
+                if (before?.kind !== 'image') throw Object.assign(new Error(`This document's cover is not an image`), { status: 404 });
+                meta.cover = { ...before, y: clampCoverY(change.y) };
+            }
+            this.files.writeMetadata(relativePath, meta, false);
+            await sealEmitter.edit(relativePath + '.flashback', [], removed);
+            return cleanCover(meta.cover);
+        });
+    }
+
+    /** A document's sidecar, for a cover change; 404 for a folder or a missing document. */
+    _coverSidecar(relativePath) {
+        if (!this.files.exists(relativePath) || fs.lstatSync(this.files.safePath(relativePath)).isDirectory()) {
+            throw Object.assign(new Error(`Document not found: ${relativePath}`), { status: 404 });
+        }
+        const meta = this.files.getMetadata(relativePath, false);
+        if (!meta) throw Object.assign(new Error(`Document not found: ${relativePath}`), { status: 404 });
+        return meta;
+    }
+
+    /** Deletes a cover's image and its Media row, if it had one; returns the paths Seal should drop. */
+    async _dropCoverFile(relativePath, cover) {
+        if (cover?.kind !== 'image') return [];
+        const abs = this.files.mediaPathFor(relativePath, cover.file);
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+        await db.transaction(async () => { await this.query.deleteMediaByAbsPath(abs); })();
+        return [path.relative(this.files.workspaceRoot, abs)];
+    }
+
     /** The body of updateMetadata, with the lock and the freshness check already applied. */
     async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
         const onDisk = this.files.getMetadata(relativePath, isFolder);
@@ -773,6 +862,7 @@ export default class Documents {
         const charged = this._assertRemovalAllowed(relativePath, removals);
 
         this._preserveIdentity(metadata, onDisk);
+        if (!isFolder) this._preserveCover(metadata, onDisk);
         this.files.writeMetadata(relativePath, metadata, isFolder);
         if (charged) cardRemovalBudget.consume(charged.id, removals);
 

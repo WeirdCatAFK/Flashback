@@ -57,7 +57,7 @@ export default function PdfPage({ page, scale, highlights }) {
   const pageVars = { '--total-scale-factor': scale, '--scale-round-x': '1px', '--scale-round-y': '1px' };
 
   return (
-    <div ref={containerRef} className="pdf-page" data-page={page.pageNumber} style={{ width: viewport.width, height: viewport.height, ...pageVars }}>
+    <div ref={containerRef} className="pdf-page" data-column data-page={page.pageNumber} style={{ width: viewport.width, height: viewport.height, ...pageVars }}>
       {visible && <canvas ref={canvasRef} />}
       <div className="pdf-hl-layer">
         {highlights.map((h) => h.bbox && (

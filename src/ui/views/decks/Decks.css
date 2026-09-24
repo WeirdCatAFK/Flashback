@@ -39,7 +39,7 @@
 .dk-sub {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-grow {
@@ -104,7 +104,7 @@
 
 .dk-default {
   padding: 0 var(--space-2);
-  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
   border-radius: var(--radius-pill);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -115,7 +115,7 @@
 .dk-meta {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-meta b {
@@ -125,7 +125,7 @@
 
 .dk-line {
   display: block;
-  height: var(--space-0-5);
+  height: var(--track-thin);
   margin-top: var(--space-0-5);
   border-radius: 1px;
   background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
@@ -142,10 +142,10 @@
   display: grid;
   place-items: center;
   height: calc(var(--size-sm) + var(--space-4));
-  border: 1.5px dashed var(--color-border);
+  border: 1.5px dashed var(--color-line);
   border-radius: var(--radius-md);
   font-size: var(--text-xl);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
@@ -158,7 +158,7 @@
   max-width: 60ch;
   margin: 0 clamp(var(--space-4), 3vw, var(--space-8)) var(--space-6);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-lg);
   background: var(--color-bg-base);
   font-size: var(--text-sm);
@@ -179,7 +179,7 @@
   gap: var(--space-8);
   padding-bottom: var(--space-4);
   margin-bottom: var(--space-1);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .dk-info {
@@ -216,7 +216,7 @@
   gap: var(--space-1) var(--space-4);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-facts b {
@@ -251,7 +251,7 @@
 .dk-colors-name {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-colors-label {
@@ -284,7 +284,7 @@
 
 .dk-kraft-note {
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-cards {
@@ -295,7 +295,7 @@
 .dk-empty {
   margin: 0;
   padding: var(--space-4) var(--space-3);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 /* ── Adding cards: a finder layer over the page ────────────────────────── */
@@ -326,7 +326,7 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-line);
 }
 
 .dk-finder-head input {
@@ -342,7 +342,7 @@
 
 .dk-finder-close {
   padding: 0 var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: none;
   font-family: var(--font-mono);
@@ -403,7 +403,7 @@
   gap: var(--space-2);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-pick-meta b {
@@ -414,12 +414,12 @@
 .dk-finder-empty {
   margin: 0;
   padding: var(--space-4);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .dk-finder-foot {
   padding: var(--space-1) var(--space-3);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-line);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-fg-secondary);

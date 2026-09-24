@@ -3,7 +3,7 @@
  * category, tags, and media from files, a book's figures or a clip's assets, beside
  * a live preview that shows a worked example until anything is written. Edit mode is
  * text-only; media is preserved server-side. `onDelete` adds a Delete that confirms
- * in place. CardBench is the floating shell it opens in; the Inspector hosts it bare.
+ * in place. CardBench is the floating shell it opens in; the card details host it bare.
  */
 
 import { useEffect, useMemo, useState } from 'react';

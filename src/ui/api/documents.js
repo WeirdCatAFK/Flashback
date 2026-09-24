@@ -5,6 +5,7 @@
 
 import {
   request,
+  upload,
   uploadWithProgress,
   getBaseUrl,
   getToken,
@@ -52,6 +53,30 @@ export const updateMetadata = (
     isFolder,
     ifMatch,
   });
+/**
+ * A document's cover (see shared/covers.js). The image lives in the folder's
+ * `media/`, so its URL is the ordinary media one; the file name changes on every
+ * upload, which keeps a cached picture from outliving its replacement.
+ */
+export const documentCoverUrl = (path, file) =>
+  appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(path)}&name=${encodeURIComponent(file)}`);
+
+/** Uploads an image file as a document's cover. Resolves `{ cover }`. */
+export const uploadDocumentCover = (path, file) => {
+  const form = new FormData();
+  form.append("path", path);
+  form.append("file", file);
+  return upload("/api/documents/cover", form);
+};
+
+/** `{ pattern }` for a drawn cover, `{ y }` (0..1) to reposition the image. Resolves `{ cover }`. */
+export const setDocumentCover = (path, change) =>
+  request("PUT", "/api/documents/cover", { path, ...change });
+
+/** Removes a document's cover. */
+export const removeDocumentCover = (path) =>
+  request("DELETE", "/api/documents/cover", { path });
+
 export const deleteItem = (path, isFolder) =>
   request("DELETE", "/api/documents", { path, isFolder });
 export const moveItem = (srcPath, destPath, isFolder) =>

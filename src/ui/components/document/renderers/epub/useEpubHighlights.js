@@ -1,7 +1,10 @@
 /**
  * EPUB highlights: anchored by CFI range, painted through epub.js annotations
  * (kept in step with the list by diffing what has been applied), and the
- * highlight command contract driven by the pending in-iframe selection.
+ * highlight command contract driven by the pending in-iframe selection. Also
+ * where a click lands among them (`hitAt`) and where each sits for the card
+ * margin (`measureMargin`), both read from the section frames, since epub.js draws
+ * highlights on a layer that ignores the pointer and carries no `data-hl`.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -9,6 +12,15 @@ import { generateHighlightId } from '../highlightId.js';
 import { resolveColor } from './epubTheme.js';
 
 const QUOTE_MAX = 240;
+
+/**
+ * A highlight's range in one section's document, or null when it belongs to
+ * another section: a CFI's steps would resolve to the wrong nodes elsewhere.
+ */
+function rangeIn(contents, h) {
+  if (!h.cfi || !h.cfi.startsWith(`epubcfi(${contents.cfiBase}!`)) return null;
+  try { return contents.range(h.cfi) ?? null; } catch { return null; }
+}
 
 export default function useEpubHighlights({ highlightRef }) {
   const [highlights, setHighlights] = useState([]);
@@ -99,6 +111,12 @@ export default function useEpubHighlights({ highlightRef }) {
         removeHighlight(id);
         return { kind: 'removed', id };
       },
+      recolor: (id, color) => {
+        const h = highlightsRef.current.find((x) => x.id === id);
+        if (!h || h.color === color) return null;
+        setAll(highlightsRef.current.map((x) => (x.id === id ? { ...x, color, updatedAt: new Date().toISOString() } : x)));
+        return { kind: 'recolored', id };
+      },
       currentId: () => {
         const pend = pendingSelRef.current;
         const id = (pend && findByCfi(pend.cfiRange)?.id) ?? currentHlRef.current ?? null;
@@ -116,11 +134,60 @@ export default function useEpubHighlights({ highlightRef }) {
     return () => { highlightRef.current = null; };
   });
 
+  /**
+   * The highlight under a click in one section's frame, and its rect in that frame.
+   * epub.js draws highlights on a layer that ignores the pointer (so the text under
+   * it stays selectable), so a click is matched against each highlight's ranges.
+   */
+  function hitAt(contents, x, y) {
+    for (const h of highlightsRef.current) {
+      const range = rangeIn(contents, h);
+      if (!range) continue;
+      for (const r of range.getClientRects()) {
+        if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+          currentHlRef.current = h.id;
+          return { id: h.id, rect: range.getBoundingClientRect() };
+        }
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The card margin's measurements, in the scrolling container's content space:
+   * the top of each highlight's first line among the sections on the page, and
+   * the right edge of the text column (the section body, less its padding).
+   */
+  const measureMargin = useCallback((sc, box, z) => {
+    const anchors = new Map();
+    let right = 0;
+    for (const contents of renditionRef.current?.getContents?.() ?? []) {
+      const doc = contents.document;
+      const frame = doc?.defaultView?.frameElement?.getBoundingClientRect();
+      if (!frame) continue;
+      if (doc.body) {
+        const b = doc.body.getBoundingClientRect();
+        const pad = parseFloat(doc.defaultView.getComputedStyle(doc.body).paddingRight) || 0;
+        right = Math.max(right, (frame.left - box.left) / z + b.right - pad);
+      }
+      for (const h of highlightsRef.current) {
+        if (anchors.has(h.id)) continue;
+        const range = rangeIn(contents, h);
+        const r = range?.getClientRects()[0];
+        if (!r) continue;
+        anchors.set(h.id, (frame.top - box.top) / z + r.top + sc.scrollTop);
+      }
+    }
+    return { anchors, right };
+  }, []);
+
   return {
     highlightsRef,
     setAll,
+    measureMargin,
     attach,
     onSelection: (sel) => { pendingSelRef.current = sel; },
     onMarkClicked: (cfiRange) => { const h = findByCfi(cfiRange); if (h) currentHlRef.current = h.id; },
+    hitAt,
   };
 }

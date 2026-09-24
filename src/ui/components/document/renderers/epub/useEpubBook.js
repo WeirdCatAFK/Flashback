@@ -1,25 +1,53 @@
 /**
  * An EPUB's lifecycle through epub.js: fetch the bytes once with auth (every
- * chapter and image is then served from memory), open a paginated rendition
- * themed from the app's CSS variables, wire it up once per load (so handlers
- * read refs, never state), publish the reading position — the CFI resumes the
- * renderer, the section href addresses /api/reader — resume once both the book
- * and the saved position are ready, and save the sidecar on Ctrl+S.
+ * chapter and image is then served from memory), open a continuously scrolling
+ * rendition themed from the app's CSS variables, wire it up once per load (so
+ * handlers read refs, never state), publish the reading position — the CFI
+ * resumes the renderer, the section href addresses /api/reader — resume once both
+ * the book and the saved position are ready, and save the sidecar on Ctrl+S.
+ *
+ * The book flows down the reading measure like a note rather than turning pages,
+ * so the document head can scroll away above it. epub.js scrolls its own container
+ * (never an ancestor), so the head is mounted inside that container: `headHost` is
+ * a node kept directly above the first section, and hidden while the first section
+ * is not loaded — the continuous manager prepends earlier sections as you scroll up,
+ * and the head belongs above chapter one, not above wherever reading resumed.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { readFile, updateMetadata, fetchRaw } from '../../../../api/documents';
 import { useUiZoomChange } from '../../../../utils/uiZoom';
 import { useT } from '../../../../translations/index';
-import { renditionTheme, clampFont, FONT_DEFAULT } from './epubTheme.js';
+import { leanTo, applyStart, renditionTheme, clampFont, FONT_DEFAULT } from './epubTheme.js';
 import { toShellRect, hrefFromRenderedSrc } from './geometry.js';
 
 const LOCATIONS_CHARS = 1600;
 const RESIZE_DEBOUNCE = 150;
 
+/**
+ * A section is its own document, so pointer movement over the book never reaches
+ * the app — and the hidden file tree slides out when the pointer rests near the
+ * left edge, which in a book is inside the frame. Each move is passed up as the
+ * same move over the frame element, in the app's coordinates (scaled by the
+ * interface zoom), where the Documents view's handler sees it like any other.
+ */
+function forwardPointer(doc, e) {
+  const frame = doc.defaultView?.frameElement;
+  if (!frame) return;
+  const r = frame.getBoundingClientRect();
+  const z = frame.offsetWidth ? r.width / frame.offsetWidth : 1;
+  frame.dispatchEvent(new PointerEvent('pointermove', {
+    bubbles: true,
+    clientX: r.left + e.clientX * z,
+    clientY: r.top + e.clientY * z,
+    buttons: e.buttons,
+    pointerType: e.pointerType,
+  }));
+}
+
 export default function useEpubBook({
-  path, saveRef, onHighlightsChange, onSidecarRefresh, onExternalSelection, initialProgress, onProgress, progressRef, highlightsRef, setAll, onSelection, onMarkClicked,
+  path, saveRef, onHighlightsChange, onSidecarRefresh, onExternalSelection, initialProgress, onProgress, progressRef, highlightsRef, setAll, onSelection, onMarkClicked, hitHighlight, onHighlightPick, marginShown = false,
 }) {
   const { t } = useT();
   const [loading, setLoading] = useState(true);
@@ -27,9 +55,21 @@ export default function useEpubBook({
   const [ready, setReady] = useState(false);
   const [fontPct, setFontPct] = useState(FONT_DEFAULT);
   const [progress, setProgress] = useState(null);
-  const [atStart, setAtStart] = useState(true);
-  const [atEnd, setAtEnd] = useState(false);
   const [imageHit, setImageHit] = useState(null);
+  const [headHost] = useState(() => {
+    const el = document.createElement('div');
+    el.className = 'epub-head-host';
+    return el;
+  });
+  const [marginHost] = useState(() => {
+    const el = document.createElement('div');
+    el.className = 'epub-margin-host';
+    return el;
+  });
+  const [container, setContainer] = useState(null);
+  const containerRef = useMemo(() => ({ current: container }), [container]);
+  const marginShownRef = useRef(marginShown);
+  marginShownRef.current = marginShown;
 
   const viewportRef = useRef(null);
   const bookRef = useRef(null);
@@ -47,6 +87,10 @@ export default function useEpubBook({
   onSelectionRef.current = onSelection;
   const onMarkClickedRef = useRef(onMarkClicked);
   onMarkClickedRef.current = onMarkClicked;
+  const hitHighlightRef = useRef(hitHighlight);
+  hitHighlightRef.current = hitHighlight;
+  const onHighlightPickRef = useRef(onHighlightPick);
+  onHighlightPickRef.current = onHighlightPick;
   const lastPosRef = useRef(null);
   const lastPctRef = useRef(null);
   const locationsReadyRef = useRef(false);
@@ -68,6 +112,25 @@ export default function useEpubBook({
     });
   }, []);
 
+  const placeHead = useCallback(() => {
+    const rendition = renditionRef.current;
+    const container = rendition?.manager?.container;
+    if (!container) return;
+    if (marginHost.parentNode !== container) container.appendChild(marginHost);
+    setContainer(container);
+    const first = rendition.manager.views?.first?.();
+    if (first?.section?.index === 0 && first.element) {
+      if (headHost.parentNode === container && headHost.nextSibling === first.element && !headHost.hidden) return;
+      const appearing = headHost.hidden || headHost.parentNode !== container;
+      container.insertBefore(headHost, first.element);
+      headHost.hidden = false;
+      if (appearing && container.scrollTop > 0) container.scrollTop += headHost.offsetHeight;
+    } else {
+      headHost.hidden = true;
+      if (headHost.parentNode !== container) container.insertBefore(headHost, container.firstChild);
+    }
+  }, [headHost, marginHost]);
+
   const wireRendition = useCallback((rendition) => {
     rendition.on('selected', (cfiRange, contents) => {
       let text = '';
@@ -83,7 +146,9 @@ export default function useEpubBook({
     });
     rendition.on('markClicked', (cfiRange) => onMarkClickedRef.current?.(cfiRange));
     rendition.hooks.content.register((contents) => {
+      applyStart(rendition, contents);
       const doc = contents.document;
+      doc.addEventListener('pointermove', (e) => forwardPointer(doc, e));
       doc.addEventListener('selectionchange', () => {
         const sel = doc.getSelection();
         if (!sel || sel.isCollapsed) {
@@ -92,6 +157,12 @@ export default function useEpubBook({
         }
       });
       doc.addEventListener('click', (e) => {
+        if (doc.getSelection()?.isCollapsed && onHighlightPickRef.current) {
+          const hit = hitHighlightRef.current?.(contents, e.clientX, e.clientY);
+          const rect = hit && toShellRect(contents, hit.rect);
+          onHighlightPickRef.current(hit && rect ? { id: hit.id, rect } : null);
+          if (hit) return setImageHit(null);
+        }
         const el = e.target?.closest?.('img, image');
         if (!el || !doc.getSelection()?.isCollapsed) return setImageHit(null);
         const src = el.getAttribute('src') ?? el.getAttribute('xlink:href') ?? el.getAttribute('href');
@@ -102,13 +173,13 @@ export default function useEpubBook({
         return setImageHit({ href, name: href.split('/').pop(), alt: el.getAttribute('alt') ?? null, rect });
       });
     });
+    rendition.on('rendered', () => placeHead());
     rendition.on('relocated', (loc) => {
       publishLocation(loc);
-      setAtStart(!!loc?.atStart);
-      setAtEnd(!!loc?.atEnd);
+      placeHead();
       setImageHit(null);
     });
-  }, [publishLocation]);
+  }, [publishLocation, placeHead]);
 
   useEffect(() => {
     if (!path) return undefined;
@@ -133,17 +204,19 @@ export default function useEpubBook({
         if (cancelled || !viewportRef.current) return;
         book = ePub(buf);
         bookRef.current = book;
-        rendition = book.renderTo(viewportRef.current, { width: '100%', height: '100%', flow: 'paginated', spread: 'none', allowScriptedContent: false });
+        rendition = book.renderTo(viewportRef.current, { manager: 'continuous', flow: 'scrolled', width: '100%', height: '100%', allowScriptedContent: false });
         renditionRef.current = rendition;
         rendition.themes.register('fb', renditionTheme());
         rendition.themes.select('fb');
         rendition.themes.fontSize(`${fontPctRef.current}%`);
+        leanTo(rendition, viewportRef.current, marginShownRef.current);
         wireRendition(rendition);
 
         const hls = meta.highlights ?? [];
         setAll(hls);
         await rendition.display();
         if (cancelled) return;
+        placeHead();
         loadedPathRef.current = path;
         onHighlightsChange?.(path, hls);
         onSidecarRefresh?.(path, meta);
@@ -204,11 +277,18 @@ export default function useEpubBook({
     let timer = null;
     const ro = new ResizeObserver(() => {
       clearTimeout(timer);
-      timer = setTimeout(() => { try { renditionRef.current?.resize(); } catch { } }, RESIZE_DEBOUNCE);
+      timer = setTimeout(() => {
+        leanTo(renditionRef.current, el, marginShownRef.current);
+        try { renditionRef.current?.resize(); } catch { }
+      }, RESIZE_DEBOUNCE);
     });
     ro.observe(el);
     return () => { ro.disconnect(); clearTimeout(timer); };
   }, []);
+
+  useLayoutEffect(() => {
+    leanTo(renditionRef.current, viewportRef.current, marginShown);
+  }, [marginShown]);
 
   useUiZoomChange(() => setImageHit(null));
 
@@ -231,19 +311,11 @@ export default function useEpubBook({
     return () => { if (saveRef) saveRef.current = null; };
   });
 
-  const goPrev = useCallback(() => renditionRef.current?.prev(), []);
-  const goNext = useCallback(() => renditionRef.current?.next(), []);
-
   useEffect(() => {
-    const onKey = (e) => {
-      if (e.target?.closest?.('input, textarea, [contenteditable="true"]')) return;
-      if (e.key === 'ArrowLeft') goPrev();
-      if (e.key === 'ArrowRight') goNext();
-      if (e.key === 'Escape') setImageHit(null);
-    };
+    const onKey = (e) => { if (e.key === 'Escape') setImageHit(null); };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [goPrev, goNext]);
+  }, []);
 
   const changeFont = useCallback((delta) => {
     setFontPct((p) => {
@@ -254,7 +326,7 @@ export default function useEpubBook({
   }, []);
 
   return {
-    viewportRef, renditionRef, loading, error, ready, fontPct, progress, atStart, atEnd,
-    imageHit, dismissImage: () => setImageHit(null), goPrev, goNext, changeFont,
+    viewportRef, renditionRef, headHost, marginHost, container: containerRef, loading, error, ready, fontPct, progress,
+    imageHit, dismissImage: () => setImageHit(null), changeFont,
   };
 }

@@ -4,7 +4,7 @@
 .tab-bar {
   display: flex;
   align-items: stretch;
-  background: var(--color-bg-base);
+  background: var(--color-bg-sidebar);
   border-bottom: 1px solid var(--color-border);
   flex-shrink: 0;
   height: var(--control-lg);
@@ -12,9 +12,11 @@
 
 .tab-bar-scroll {
   display: flex;
-  align-items: stretch;
+  align-items: flex-end;
+  gap: var(--space-0-5);
   flex: 1;
   min-width: 0;
+  padding: var(--space-1) var(--space-2) 0;
   overflow-x: auto;
 }
 
@@ -75,10 +77,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 0 var(--space-2) 0 var(--space-3);
-  border: none;
-  border-right: 1px solid var(--color-border);
-  background: var(--color-bg-base);
+  height: calc(var(--control-lg) - var(--space-1));
+  padding: 0 var(--space-1) 0 var(--space-3);
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: transparent;
   color: var(--color-fg-secondary);
   font-size: var(--text-sm);
   cursor: pointer;
@@ -95,10 +99,18 @@
   color: var(--color-fg-primary);
 }
 
+/* The open tab is the desk tone and runs into the reading strip below it; the
+   page under both is the brightest surface. */
 .tab--active {
-  background: var(--color-bg-surface);
+  background: var(--color-bg-desk);
   color: var(--color-fg-primary);
-  box-shadow: inset 0 -2px 0 var(--color-accent);
+  border-color: var(--color-border);
+  margin-bottom: calc(-1 * var(--space-0-5) / 2);
+  height: calc(var(--control-lg) - var(--space-1) + var(--space-0-5) / 2);
+}
+
+.tab--active:hover {
+  background: var(--color-bg-desk);
 }
 
 .tab-label {
@@ -117,7 +129,7 @@
 .tab-close {
   font-size: var(--text-base);
   line-height: 1;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   padding: var(--space-0-5) var(--space-0-5);
   border-radius: var(--radius-sm);
   cursor: pointer;

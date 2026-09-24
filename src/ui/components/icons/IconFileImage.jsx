@@ -1,15 +1,13 @@
 /**
- * IconFileImage — the SVG glyph for an image file in the tree.
+ * IconFileImage — the tree glyph for an image: a picture with a hill and a sun.
  */
 
-export default function IconFileImage({ size = 13 }) {
+import Glyph from "./Glyph";
+
+export default function IconFileImage({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M7 1H2.5A1.5 1.5 0 0 0 1 2.5v11A1.5 1.5 0 0 0 2.5 15h7A1.5 1.5 0 0 0 11 13.5V5L7 1z"
-        fill="#38BDF8" opacity="0.12" stroke="#38BDF8" strokeWidth="0.8"/>
-      <path d="M7 1v4h4" stroke="#38BDF8" strokeWidth="0.8" fill="none" opacity="0.7"/>
-      <circle cx="3.5" cy="8" r="1.1" fill="#38BDF8" opacity="0.85"/>
-      <polyline points="1.5,13.5 6,8.5 10.5,13.5" stroke="#38BDF8" strokeWidth="1.1" strokeLinecap="round" strokeLinejoin="round" opacity="0.9"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--file">
+      <path fillRule="evenodd" d="M3 2.5h10A1.5 1.5 0 0 1 14.5 4v8a1.5 1.5 0 0 1-1.5 1.5H3A1.5 1.5 0 0 1 1.5 12V4A1.5 1.5 0 0 1 3 2.5ZM3.5 11.5 6.8 7.6l2.4 2.6 1.5-1.4 1.8 2.7ZM9.9 5.6a1.1 1.1 0 1 0 2.2 0a1.1 1.1 0 1 0 -2.2 0Z" />
+    </Glyph>
   );
 }

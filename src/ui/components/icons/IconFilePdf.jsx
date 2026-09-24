@@ -1,14 +1,14 @@
 /**
- * IconFilePdf — the SVG glyph for a PDF in the tree.
+ * IconFilePdf — the tree glyph for a PDF: printed pages, one behind the other.
  */
 
-export default function IconFilePdf({ size = 13 }) {
+import Glyph from "./Glyph";
+
+export default function IconFilePdf({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 12 16" fill="none" aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M7 1H2.5A1.5 1.5 0 0 0 1 2.5v11A1.5 1.5 0 0 0 2.5 15h7A1.5 1.5 0 0 0 11 13.5V5L7 1z"
-        fill="#F87171" opacity="0.15" stroke="#F87171" strokeWidth="0.8"/>
-      <path d="M7 1v4h4" stroke="#F87171" strokeWidth="0.8" fill="none" opacity="0.7"/>
-      <rect x="1" y="7" width="10" height="3.5" fill="#F87171" opacity="0.65"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--file">
+      <rect x="5.5" y="1.5" width="8.5" height="10.5" rx="1" opacity="0.45" />
+      <rect x="2" y="4" width="8.5" height="10.5" rx="1" />
+    </Glyph>
   );
 }

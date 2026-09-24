@@ -92,6 +92,24 @@ export function createHighlightCommands(editor) {
       editor.view.dispatch(tr);
       return { kind: 'removed', id };
     },
+    recolor: (id, color) => {
+      if (!editor || !id) return null;
+      const markType = editor.schema.marks.highlight;
+      if (!markType) return null;
+      let tr = editor.state.tr;
+      let found = false;
+      editor.state.doc.descendants((node, pos) => {
+        if (!node.isText) return;
+        const mark = node.marks.find((m) => m.type === markType && m.attrs.id === id);
+        if (mark && mark.attrs.color !== color) {
+          tr = tr.removeMark(pos, pos + node.nodeSize, mark).addMark(pos, pos + node.nodeSize, markType.create({ id, color }));
+          found = true;
+        }
+      });
+      if (!found) return null;
+      editor.view.dispatch(tr);
+      return { kind: 'recolored', id };
+    },
     ensure: (color = 'amber') => {
       if (!editor || editor.state.selection.empty) return null;
       const current = editor.getAttributes('highlight');

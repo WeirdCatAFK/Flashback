@@ -22,10 +22,11 @@
   --space-12: 48px;
   --space-16: 64px;
 
-  /* Radius */
+  /* Radius — 8px is the ceiling: the card's radius, and the roundest any panel,
+     popover or dialog gets, so nothing reads softer than the card itself */
   --radius-sm: 4px;
   --radius-md: 6px;
-  --radius-lg: 10px;
+  --radius-lg: 8px;
   --radius-pill: 999px;
   /* The card: 3px read as print, 12px as an app panel */
   --radius-card: 8px;
@@ -38,6 +39,14 @@
   --control-xl: 36px;
   --control-2xl: 40px;
   --control-bar: 48px;
+
+  /* The thin line under an item in a list (read progress, a band's share): lighter
+     than a hairline border would suggest, so it reads as a fact, not a control */
+  --track-thin: 1.5px;
+
+  /* Where a document's reading measure starts: auto centres it; the Documents
+     view sets a length while the file tree is hidden, leaning it left */
+  --measure-start: auto;
 
   /* Icon boxes */
   --icon-sm: 14px;
@@ -117,16 +126,19 @@
   --color-bg-base: #fcf4e2;
   --color-bg-sidebar: #f4ebd8;
   --color-bg-surface: #fffaea;
+  --color-bg-desk: #f1e6cf;
   --color-bg-hover: #e7dcc7;
-  --color-bg-reader: #fef9e4;
+  --color-bg-reader: #fffaea;
   --color-bg-editor: light;
   --color-fg-primary: #201a15;
   --color-fg-secondary: #6c6359;
-  --color-fg-icon: #595249;
+  --color-fg-tertiary: #8c8377;
+  --color-fg-icon: #8c8377;
   /* at the sRGB gamut edge for its hue; 4.60:1 on bg-base, 4.53:1 on accent-subtle */
   --color-accent: #b45309;
   --color-on-accent: #ffffff;
   --color-border: #dad1c1;
+  --color-line: #e2d6bf;
   --color-border-strong: #8b8277;
   --color-title-bar: #eee3cf;
   /* extended */
@@ -192,15 +204,18 @@
   --color-bg-base: #1c1917;
   --color-bg-sidebar: #171412;
   --color-bg-surface: #292524;
+  --color-bg-desk: #211d1a;
   --color-bg-hover: #3c3530;
-  --color-bg-reader: #201d1a;
+  --color-bg-reader: #292524;
   --color-bg-editor: dark;
   --color-fg-primary: #f5f5f4;
   --color-fg-secondary: #a8a29e;
-  --color-fg-icon: #a8a29e;
+  --color-fg-tertiary: #7c756f;
+  --color-fg-icon: #7c756f;
   --color-accent: #f59e0b;
   --color-on-accent: #1c1917;
   --color-border: #3c3530;
+  --color-line: #322d28;
   --color-border-strong: #7a6e65;
   --color-title-bar: #0c0a09;
   /* extended */
@@ -265,15 +280,18 @@
   --color-bg-base: #1c1917;
   --color-bg-sidebar: #171412;
   --color-bg-surface: #292524;
+  --color-bg-desk: #211d1a;
   --color-bg-hover: #3c3530;
-  --color-bg-reader: #201d1a;
+  --color-bg-reader: #292524;
   --color-bg-editor: dark;
   --color-fg-primary: #f5f5f4;
   --color-fg-secondary: #a8a29e;
-  --color-fg-icon: #a8a29e;
+  --color-fg-tertiary: #7c756f;
+  --color-fg-icon: #7c756f;
   --color-accent: #f59e0b;
   --color-on-accent: #1c1917;
   --color-border: #3c3530;
+  --color-line: #322d28;
   --color-border-strong: #7a6e65;
   --color-title-bar: #0c0a09;
   /* extended */
@@ -340,18 +358,22 @@
   --color-bg-base: #0f0f10;
   --color-bg-sidebar: #151516;
   --color-bg-surface: #1c1c1e;
+  --color-bg-desk: #141416;
   --color-bg-hover: #33222a;
   --color-bg-reader: #161618;
   --color-bg-editor: dark;
 
   --color-fg-primary: #f2f2f3;
   --color-fg-secondary: #a8a8ad;
-  --color-fg-icon: #d0d0d4;
+  --color-fg-tertiary: #6b6b6e;
+  --color-fg-icon: #6b6b6e;
 
   --color-accent: #ff4569;
   --color-on-accent: #0f0f10;
 
   --color-border: #2b2b2e;
+
+  --color-line: #232325;
   --color-border-strong: #686872;
   --color-title-bar: #0a0a0b;
 
@@ -422,18 +444,22 @@
   --color-bg-base: #0f0f10;
   --color-bg-sidebar: #151516;
   --color-bg-surface: #1c1c1e;
+  --color-bg-desk: #141416;
   --color-bg-hover: #33222a;
   --color-bg-reader: #161618;
   --color-bg-editor: dark;
 
   --color-fg-primary: #f2f2f3;
   --color-fg-secondary: #a8a8ad;
-  --color-fg-icon: #d0d0d4;
+  --color-fg-tertiary: #6b6b6e;
+  --color-fg-icon: #6b6b6e;
 
   --color-accent: #ff4569;
   --color-on-accent: #0f0f10;
 
   --color-border: #2b2b2e;
+
+  --color-line: #232325;
   --color-border-strong: #686872;
   --color-title-bar: #0a0a0b;
 
@@ -506,18 +532,22 @@
   --color-bg-base: #17151f;
   --color-bg-sidebar: #1e1a33;
   --color-bg-surface: #2a2550;
+  --color-bg-desk: #1f1b33;
   --color-bg-hover: #37306b;
   --color-bg-reader: #1b1830;
   --color-bg-editor: dark;
 
   --color-fg-primary: #f5f2ff;
   --color-fg-secondary: #c3b8e6;
-  --color-fg-icon: #e2d9ff;
+  --color-fg-tertiary: #7b7492;
+  --color-fg-icon: #7b7492;
 
   --color-accent: #b77ad9;
   --color-on-accent: #17151f;
 
   --color-border: #4a4287;
+
+  --color-line: #3b3468;
   --color-border-strong: #8f86d6;
   --color-title-bar: #2b2450;
 
@@ -588,18 +618,22 @@
   --color-bg-base: #17151f;
   --color-bg-sidebar: #1e1a33;
   --color-bg-surface: #2a2550;
+  --color-bg-desk: #1f1b33;
   --color-bg-hover: #37306b;
   --color-bg-reader: #1b1830;
   --color-bg-editor: dark;
 
   --color-fg-primary: #f5f2ff;
   --color-fg-secondary: #c3b8e6;
-  --color-fg-icon: #e2d9ff;
+  --color-fg-tertiary: #7b7492;
+  --color-fg-icon: #7b7492;
 
   --color-accent: #b77ad9;
   --color-on-accent: #17151f;
 
   --color-border: #4a4287;
+
+  --color-line: #3b3468;
   --color-border-strong: #8f86d6;
   --color-title-bar: #2b2450;
 
@@ -672,15 +706,18 @@
   --color-bg-base: #18181b;
   --color-bg-sidebar: #09090b;
   --color-bg-surface: #27272a;
+  --color-bg-desk: #1e1e21;
   --color-bg-hover: #37345f;
   --color-bg-reader: #212123;
   --color-bg-editor: dark;
   --color-fg-primary: #f4f4f5;
   --color-fg-secondary: #a1a1aa;
-  --color-fg-icon: #d4d4d8;
+  --color-fg-tertiary: #74747b;
+  --color-fg-icon: #74747b;
   --color-accent: #818cf8;
   --color-on-accent: #18181b;
   --color-border: #3f3f46;
+  --color-line: #333339;
   --color-border-strong: #71717f;
   --color-title-bar: #07070a;
   /* extended */
@@ -745,15 +782,18 @@
   --color-bg-base: #18181b;
   --color-bg-sidebar: #09090b;
   --color-bg-surface: #27272a;
+  --color-bg-desk: #1e1e21;
   --color-bg-hover: #37345f;
   --color-bg-reader: #212123;
   --color-bg-editor: dark;
   --color-fg-primary: #f4f4f5;
   --color-fg-secondary: #a1a1aa;
-  --color-fg-icon: #d4d4d8;
+  --color-fg-tertiary: #74747b;
+  --color-fg-icon: #74747b;
   --color-accent: #818cf8;
   --color-on-accent: #18181b;
   --color-border: #3f3f46;
+  --color-line: #333339;
   --color-border-strong: #71717f;
   --color-title-bar: #07070a;
   /* extended */

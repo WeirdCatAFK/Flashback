@@ -2,17 +2,15 @@
    highlight marks inside it, and the floating save button over media. */
 
 .clip-renderer {
-  height: 100%;
-  overflow-y: auto;
-  padding: var(--space-6) var(--space-8) var(--space-16);
+  padding: 0 0 var(--space-16);
   color: var(--color-fg-primary);
 }
 
 .clip-meta {
   max-width: var(--size-7xl);
   margin: 0 auto var(--space-5);
-  padding-bottom: var(--space-3);
-  border-bottom: 1px solid var(--color-border);
+  margin-left: var(--measure-start);
+  padding-inline: var(--space-8);
 }
 
 .clip-meta-title {
@@ -37,10 +35,13 @@
 
 .clip-meta-source:hover { text-decoration: underline; }
 
-/* Readable article column */
+/* Readable article column — the same measure as the document head, padding
+   included, so the head and the text start on one line. */
 .clip-body {
   max-width: var(--size-7xl);
   margin: 0 auto;
+  margin-left: var(--measure-start);
+  padding-inline: var(--space-8);
   font-size: var(--text-md);
   line-height: 1.7;
 }

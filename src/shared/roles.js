@@ -62,7 +62,7 @@ export const CAPABILITIES = {
     dismissCardFlag:  { minimum: ROLES.READER, guards: [["flashcards", "POST", "/abc123/flags/mouthful/dismiss"]] },
     readLogs:         { minimum: ROLES.READER, guards: [["diary", "GET", "/"]] },
 
-    annotate:         { minimum: ROLES.COLLABORATOR, guards: [["highlights", "POST", "/"], ["documents", "PUT", "/metadata"]],
+    annotate:         { minimum: ROLES.COLLABORATOR, guards: [["highlights", "POST", "/"], ["documents", "PUT", "/metadata"], ["documents", "POST", "/cover"]],
         note: "Highlights, tags and cards all live in the sidecar, so annotating IS a metadata write." },
     attachMedia:      { minimum: ROLES.COLLABORATOR, guards: [["media", "POST", "/vanilla"], ["media", "POST", "/custom"]] },
 

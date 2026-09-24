@@ -60,7 +60,6 @@ export default function ClipRenderer({
     <div className="clip-renderer">
       {source && (
         <div className="clip-meta">
-          {source.title && <div className="clip-meta-title">{source.title}</div>}
           <div className="clip-meta-sub">
             {source.url && (
               <a className="clip-meta-source" href={source.url} target="_blank" rel="noreferrer">
@@ -68,12 +67,12 @@ export default function ClipRenderer({
               </a>
             )}
             {source.clippedAt && (
-              <span className="clip-meta-date">Clipped {new Date(source.clippedAt).toLocaleDateString()}</span>
+              <span className="clip-meta-date">{t('Clipped {date}', { date: new Date(source.clippedAt).toLocaleDateString() })}</span>
             )}
           </div>
         </div>
       )}
-      <div ref={bodyRef} className="clip-body" />
+      <div ref={bodyRef} className="clip-body" data-column />
       {mediaHit && (
         <button
           type="button"

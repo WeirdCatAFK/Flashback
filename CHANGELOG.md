@@ -14,6 +14,15 @@ The interface is moving to a new design language, one area at a time. In this re
 - **The tab bar follows the way you work:** make (Documents, Flashcards, Decks), study
   (Trainer), look back (Statistics, Diary, Graph), keep (Seal, Metadata). Graph moved down to
   sit with the look-back screens. Hovering a tab tells you what it is for and its shortcut.
+- **Quieter where it should be.** Paths, counts, shortcuts and other small labels are a shade
+  lighter than the text beside them, dividers inside a page are softer than the edges of a
+  panel, no corner is rounder than a card's, and the document page is the brightest surface
+  in the window.
+- **Icons are quieter and easier to tell apart.** The tab bar's and the file tree's icons are
+  solid shapes in a muted tone instead of outlines, and each has a shape of its own: a stamp
+  for Seal, an open book for the Diary, a globe for a web clip, stacked pages for a PDF.
+- **The zoom shows while you use it.** After Ctrl+plus or Ctrl+minus, the title bar shows the
+  zoom (for example 110%); click it, or press Ctrl+0, to go back to 100%.
 - **Ctrl+1 to Ctrl+9 open the tabs** in that order, and Ctrl+, opens Config. They can be
   rebound in Config like the Trainer's keys. A Trainer key such as `1` no longer fires when
   pressed together with Ctrl or Alt.
@@ -57,6 +66,35 @@ The interface is moving to a new design language, one area at a time. In this re
   shows. Images are kept in `workspace/_decks/covers/`, versioned by Seal with the deck; the
   new routes are `GET`/`POST`/`PUT`/`DELETE /api/decks/:hash/cover`. `GET /api/decks` and `GET /api/decks/:hash` now return
   `color` and `standing`, and `PUT /api/decks/:hash` accepts `color`.
+- **Click a highlight to change it.** A toolbar opens over it with its colour marked: pick
+  another colour, make a card from the passage, or remove it (asking first when cards hang off
+  it). Works in notes, text, web clips, PDFs and EPUBs.
+- **Documents: the file tree.** It can be hidden entirely — the first button in the tab bar,
+  or choosing the Documents icon again — and the document then moves left into the space it
+  leaves, in every format. The tree slides out when you rest the pointer in the space left of
+  the text. Resizing it snaps to a few set widths. Its four header buttons are
+  one "+" menu. Each document shows its name without the extension, its card count as a small
+  card outline and a number, and a thin line under the name for how far you have read it. The
+  icons are redrawn in one monoline set, told apart by shape; they can be turned off in Config →
+  Appearance.
+- **Documents: the head, the reading strip and Find.** Every document opens with a head that
+  scrolls away with it — the folder path, the title and the tags, which you now add and remove
+  right there — and can carry a cover like a deck's (`POST`/`PUT`/`DELETE
+  /api/documents/cover`). The reading strip (Set mark here, Mark finished, Clear, Go to start)
+  sits under the tabs for every format, PDF, EPUB and YouTube included, with a full-width line
+  for how far you have read. The Inspector column is gone: Ctrl+F (or Find) opens a searchable
+  index of the document's cards and highlights over it, in reading order with each passage's
+  cards together. Hovering a row makes its passage glow in the text and lifts its cards in the
+  margin; choosing one jumps to the passage, which glows as you land. Cards are written and edited in the card editor over the document. Removing a
+  highlight that has cards asks in place, in the toolbar or the row, instead of in a dialog.
+- **Documents: cards in the margin**, in notes, text, web clips, PDFs and EPUBs. A document's cards sit beside their passage: a passage
+  with one card shows the card (click to turn it over, Edit to change it), a passage with
+  several shows them in a kraft box you pull them out of, and a highlight with no card shows a
+  short mark. Hovering a card lights its passage (except in an EPUB, where only the card
+  lifts). The column appears when the window is wide enough.
+- **EPUBs scroll.** A book now flows down the page like a note instead of turning pages, so its
+  head scrolls away above it. PDF zoom, Fit width and Box highlight, and an EPUB's text size, now
+  sit in the reading strip rather than in a toolbar of their own.
 - **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
   `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders, returns each card's
   `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.

@@ -72,7 +72,7 @@
   justify-content: center;
   width: var(--control-bar);
   height: var(--control-md);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   transition:
     background var(--dur-fast) ease,
     color var(--dur-fast) ease;
@@ -100,7 +100,7 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-base);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   font-size: var(--text-xs);
   cursor: pointer;
   transition:
@@ -117,6 +117,33 @@
   font-family: inherit;
   font-size: var(--text-xs);
   opacity: 0.65;
+}
+
+/* ── Zoom (title bar): shown only while the interface is zoomed ─────────── */
+
+#title-bar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+#zoom-btn {
+  -webkit-app-region: no-drag;
+  height: var(--control-xs);
+  padding: 0 var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
+}
+
+#zoom-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
 }
 
 /* ── App body (sidebar + content) ────────────────────────────────────────── */

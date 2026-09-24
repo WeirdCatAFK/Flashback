@@ -1,10 +1,13 @@
 /**
- * PdfRenderer — a PDF as a scroll of lazily rendered pages with a zoom toolbar,
- * text-selection highlights and a box-draw mode for scanned pages. Capabilities
+ * PdfRenderer — a PDF as a scroll of lazily rendered pages, text-selection
+ * highlights and a box-draw mode for scanned pages. Its tools (zoom, Fit width,
+ * Box highlight) are portaled into the reading strip's `toolsTarget`, so the
+ * document has one bar above it rather than a strip and a toolbar. Capabilities
  * are declared in ../registry.js; the lifecycle is usePdfDocument.js and the
  * highlight logic usePdfHighlights.js.
  */
 
+import { createPortal } from 'react-dom';
 import { useT } from '../../../../translations/index';
 import { SCALE_MIN, SCALE_MAX } from './geometry.js';
 import PdfPage from './PdfPage';
@@ -38,7 +41,7 @@ const BoxIcon = () => (
 );
 
 export default function PdfRenderer({
-  path, saveRef, highlightRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef, readingBar,
+  path, saveRef, highlightRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef, toolsTarget,
 }) {
   const { t, tp } = useT();
   const doc = usePdfDocument({ path, saveRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef });
@@ -50,7 +53,7 @@ export default function PdfRenderer({
 
   return (
     <div className={`pdf-renderer${hl.drawMode ? ' pdf-renderer--draw' : ''}`} ref={doc.rendererRef}>
-      <div className="toolbar pdf-toolbar">
+      {toolsTarget && createPortal(<span className="pdf-tools">
         <div className="pdf-zoom-group" role="group" aria-label={t('Zoom')}>
           <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={doc.zoomOut} disabled={scale <= SCALE_MIN} title={t('Zoom out')} aria-label={t('Zoom out')}>
             <MinusIcon />
@@ -79,10 +82,9 @@ export default function PdfRenderer({
           {t('Box highlight')}
         </button>
 
-        {hl.drawMode && <span className="pdf-toolbar-hint">{t('Drag on a page to mark a region · Esc cancels')}</span>}
         <span className="pdf-toolbar-pages">{tp('{n} page', '{n} pages', pages.length)}</span>
-        {readingBar}
-      </div>
+      </span>, toolsTarget)}
+      {hl.drawMode && <div className="pdf-draw-hint">{t('Drag on a page to mark a region · Esc cancels')}</div>}
 
       <div className="pdf-pages" ref={doc.pagesRef}>
         {pages.map((page) => (

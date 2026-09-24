@@ -109,13 +109,13 @@ function TagsPanel({ refreshKey }) {
 
   return (
     <section className="mng-section">
-      <SectionHead title={t('Tags')} count={u.tags.length} hint={t('Every tag in your vault and how many items apply it directly. Tags are added or removed on a file or folder from the Inspector, and inherit down the folder tree.')} />
+      <SectionHead title={t('Tags')} count={u.tags.length} hint={t('Every tag in your vault and how many items apply it directly. Tags are added or removed at the head of a document, or on a folder from its menu in the file tree, and inherit down the folder tree.')} />
       {u.firstLoad ? (
         <LoadingState message={t('Loading tags…')} />
       ) : u.error && u.tags.length === 0 ? (
         <ErrorState error={u.error} onRetry={u.reload} />
       ) : u.tags.length === 0 ? (
-        <p className="mng-empty">{t('No tags yet. Add tags to a file or folder from the Inspector and they will appear here.')}</p>
+        <p className="mng-empty">{t('No tags yet. Add tags at the head of a document, or to a folder from the file tree, and they will appear here.')}</p>
       ) : (
         <>
           <input type="search" className="field mng-tag-filter" placeholder={t('Filter tags…')} value={u.filter} onChange={(e) => u.setFilter(e.target.value)} aria-label={t('Filter tags')} />

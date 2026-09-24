@@ -122,3 +122,10 @@
   background: var(--color-bg-hover);
   color: var(--color-accent);
 }
+
+/* A read-only row of chips, where tags are shown but not edited. */
+.tags-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}

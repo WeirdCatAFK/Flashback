@@ -8,6 +8,7 @@ import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { initClient } from "./api/client.js";
 import { setActiveVaultScope } from "./prefs.js";
+import { applyTreeIcons } from "./treeIcons.js";
 import App from "./App.jsx";
 import SetupView from "./views/setup/Setup.jsx";
 import { ConfirmProvider } from "./components/base/ConfirmDialog.jsx";
@@ -23,6 +24,7 @@ import "@fontsource/noto-sans/700.css";
 import "./index.css";
 import "./components/base/base.css";
 
+applyTreeIcons();
 const root = createRoot(document.getElementById("root"));
 
 /**

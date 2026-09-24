@@ -1,5 +1,6 @@
-/* EPUB reader — fills the editor area; epub.js manages paginated columns inside
-   the viewport, so the outer .doc-editor-renderer does not scroll. */
+/* EPUB reader — fills the editor area; epub.js scrolls its own container inside
+   the viewport (the book flows continuously), so the outer .doc-editor-renderer
+   does not scroll, and the document head lives in that container (.epub-head-host). */
 .epub-renderer {
   display: flex;
   flex-direction: column;
@@ -8,16 +9,13 @@
   background: var(--color-bg-reader);
 }
 
-/* Toolbar — sticky top, mirrors the PDF zoom bar */
-.epub-toolbar {
-  flex-shrink: 0;
+/* Text size, portaled into the reading strip. */
+.epub-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
 }
 
-.epub-toolbar-spacer {
-  flex: 1;
-}
-
-.epub-progress,
 .epub-font-label {
   min-width: var(--control-2xl);
   text-align: center;
@@ -37,7 +35,6 @@
 .epub-viewport {
   position: absolute;
   inset: 0;
-  padding: 0 var(--space-6);
 }
 
 .epub-overlay {
@@ -60,3 +57,18 @@
   box-shadow: var(--shadow-float);
 }
 
+
+/* The document head, kept above the first section inside epub.js's scroller. */
+.epub-head-host[hidden] {
+  display: none;
+}
+
+/* The card margin's host: at the top of epub.js's scrolling container, so the
+   column scrolls with the book; the column itself is placed from script. */
+.epub-margin-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+}

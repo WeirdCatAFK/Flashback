@@ -4,7 +4,9 @@
  * to Cards, the default deck — save, delete, close. `benchProps` is ready to spread
  * into <CardBench> (with `benchKey` as its key), or null when the editor is shut.
  * Saving and deleting announce the change on the data bus, so every open list
- * refreshes.
+ * refreshes — unless `announce` is false, for a screen that would rather refresh
+ * just what it shows through `onChanged` (an open document, which a vault-wide
+ * announcement would remount and scroll back to the top).
  */
 
 import { useState } from 'react';
@@ -29,7 +31,7 @@ function cardBody(card) {
   };
 }
 
-export default function useCardBench({ onError } = {}) {
+export default function useCardBench({ onError, onChanged, announce = true } = {}) {
   const { t } = useT();
   const [bench, setBench] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -52,7 +54,8 @@ export default function useCardBench({ onError } = {}) {
     setError(null);
     try {
       await fn();
-      invalidateData();
+      if (announce) invalidateData();
+      onChanged?.();
       return true;
     } catch (err) {
       setError(err.message ?? String(err));

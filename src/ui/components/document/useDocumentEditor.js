@@ -1,6 +1,6 @@
 /**
  * The editor's cross-tab state: which tabs are dirty, their unsaved drafts, the
- * active document's sidecar facts (highlights, cards, tags), and the reconciliation
+ * active document's sidecar facts (highlights, cards, tags, cover), and the reconciliation
  * that happens during render — a path change resets the per-document state, a
  * relocation remaps it, a closed tab drops it — so the view converges in one pass
  * rather than flashing through an effect. Drafts live here, not in the renderer,
@@ -10,6 +10,7 @@
 import { useState, useCallback } from "react";
 import { readFile, updateMetadata } from "../../api/documents";
 import { useDataInvalidation } from "../../utils/dataBus";
+import { cleanCover } from "../../../shared/covers.js";
 import {
   relocateSet,
   relocateMap,
@@ -26,12 +27,16 @@ export default function useDocumentEditor({ activeTab, openTabs, relocation }) {
   const [flashcards, setFlashcards] = useState([]);
   const [tags, setTags] = useState([]);
   const [excludedTags, setExcludedTags] = useState([]);
+  const [cover, setCover] = useState(null);
+  const [sourceTitle, setSourceTitle] = useState(null);
   const [dataVersion, setDataVersion] = useState(0);
 
   const applyMeta = useCallback((meta) => {
     setFlashcards(meta?.flashcards ?? []);
     setTags(meta?.tags ?? []);
     setExcludedTags(meta?.excludedTags ?? []);
+    setCover(cleanCover(meta?.cover));
+    setSourceTitle(meta?.source?.title || null);
   }, []);
 
   const [prevActiveTab, setPrevActiveTab] = useState(activeTab);
@@ -99,6 +104,9 @@ export default function useDocumentEditor({ activeTab, openTabs, relocation }) {
     flashcards,
     tags,
     excludedTags,
+    cover,
+    setCover,
+    sourceTitle,
     dataVersion,
     refreshSidecar,
     handleTagsChange,

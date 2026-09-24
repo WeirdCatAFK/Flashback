@@ -1,18 +1,14 @@
 /**
- * IconConfig — the SVG glyph for the Config tab.
+ * IconConfig — the Config button: three sliders.
  */
+
+import Glyph from "./Glyph";
 
 export default function IconConfig({ size = 24 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-      aria-hidden="true">
-      <line x1="4" y1="6" x2="20" y2="6" />
-      <circle cx="8" cy="6" r="2" style={{ fill: "var(--color-bg-sidebar)" }} />
-      <line x1="4" y1="12" x2="20" y2="12" />
-      <circle cx="16" cy="12" r="2" style={{ fill: "var(--color-bg-sidebar)" }} />
-      <line x1="4" y1="18" x2="20" y2="18" />
-      <circle cx="10" cy="18" r="2" style={{ fill: "var(--color-bg-sidebar)" }} />
-    </svg>
+    <Glyph size={size} grid={24}>
+      <path d="M4 6h16M4 12h16M4 18h16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" opacity="0.45" />
+      <path d="M5.4 6a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0ZM13.4 12a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0ZM7.4 18a2.6 2.6 0 1 0 5.2 0a2.6 2.6 0 1 0 -5.2 0Z" />
+    </Glyph>
   );
 }

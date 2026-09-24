@@ -18,11 +18,13 @@ export const THEME_VARS = [
   { key: "--color-bg-editor", label: "Editor theme" },
   { key: "--color-fg-primary", label: "Primary text" },
   { key: "--color-fg-secondary", label: "Secondary text" },
+  { key: "--color-fg-tertiary", label: "Dimmed text" },
   { key: "--color-fg-icon", label: "Inactive icons" },
   { key: "--color-accent", label: "Accent / active" },
   { key: "--color-accent-subtle", label: "Accent tint" },
   { key: "--color-on-accent", label: "Text on accent" },
   { key: "--color-border", label: "Borders" },
+  { key: "--color-line", label: "Dividers" },
   { key: "--color-border-strong", label: "Input & control borders" },
   { key: "--color-tree-indent", label: "Tree indent line" },
   { key: "--color-hl-1", label: "Highlight 1" },
@@ -90,6 +92,16 @@ export function deleteCustomTheme(name) {
   injectCustomThemeCSS(themes);
 }
 
+/**
+ * Colours added after a theme may have been saved, derived from ones it has, so
+ * an older custom theme still gets a dimmed text level and quiet dividers.
+ */
+const withDerived = (colors) => ({
+  "--color-fg-tertiary": "color-mix(in srgb, var(--color-fg-secondary) 65%, var(--color-bg-base))",
+  "--color-line": "color-mix(in srgb, var(--color-border) 70%, var(--color-bg-base))",
+  ...colors,
+});
+
 export function injectCustomThemeCSS(themes) {
   let el = document.getElementById(STYLE_ID);
   if (!el) {
@@ -101,7 +113,7 @@ export function injectCustomThemeCSS(themes) {
     .map(
       (t) =>
         `[data-theme="${CSS.escape(t.name)}"] {\n` +
-        Object.entries(t.colors)
+        Object.entries(withDerived(t.colors))
           .map(([k, v]) => `  ${k}: ${v};`)
           .join("\n") +
         "\n}",

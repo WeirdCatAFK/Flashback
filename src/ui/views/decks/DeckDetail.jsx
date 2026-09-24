@@ -11,7 +11,8 @@ import CardBench from '../../components/flashcard/CardBench';
 import CardLine from '../../components/flashcard/CardLine';
 import useCardBench from '../../components/flashcard/useCardBench';
 import DeckBox from '../../components/deck/DeckBox';
-import DeckCover from '../../components/deck/DeckCover';
+import CoverBanner from '../../components/cover/CoverBanner';
+import { deckCoverUrl, uploadDeckCover, setDeckCover, removeDeckCover } from '../../api/decks';
 import DeckPurgeDialog from '../../components/deck/DeckPurgeDialog';
 import InlineConfirm from '../../components/base/InlineConfirm';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
@@ -84,7 +85,18 @@ export default function DeckDetail({ deckHash, version, fresh = false, onBack, o
     <>
       {head(title)}
       <div className="dk-body">
-        <DeckCover deckHash={deckHash} cover={deck.cover} color={color} editable={manages} onChange={d.setCover} />
+        <CoverBanner
+          cover={deck.cover}
+          tint={color === 'kraft' ? 'var(--color-kraft)' : `var(--color-box-${color})`}
+          source={{
+            imageUrl: (file) => deckCoverUrl(deckHash, file),
+            upload: (file) => uploadDeckCover(deckHash, file),
+            set: (change) => setDeckCover(deckHash, change),
+            remove: () => removeDeckCover(deckHash),
+          }}
+          editable={manages}
+          onChange={d.setCover}
+        />
         <div className="dk-detail">
           <div className="dk-head-row">
             <DeckBox color={color} count={count} size="lg" />

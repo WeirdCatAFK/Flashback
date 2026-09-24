@@ -1,6 +1,6 @@
 /**
- * The small pieces every tree row shares: the inline create box, the reading
- * progress badge, and the rename input.
+ * The small pieces every tree row shares: the inline create box, the rename
+ * input, the chevron, the card count and the read line.
  */
 
 import { useState, useRef } from "react";
@@ -52,14 +52,8 @@ export function InlineCreate({ type, onConfirm, onCancel }) {
       className={type === "folder" ? "fe-folder" : "fe-file"}
       style={{ pointerEvents: "none" }}
     >
-      {type === "folder" && <span className="fe-chevron" />}
-      {type === "folder" ? (
-        <span className="fe-folder-icon">
-          <IconFolder size={14} />
-        </span>
-      ) : (
-        <IconFile size={14} />
-      )}
+      {type === "folder" ? <Chevron /> : <span className="fe-chevron-space" />}
+      {type === "folder" ? <IconFolder /> : <IconFile />}
       <span className="fe-item-label" style={{ pointerEvents: "auto" }}>
         <input
           className="fe-rename-input field field--sm"
@@ -82,54 +76,37 @@ export function InlineCreate({ type, onConfirm, onCancel }) {
 }
 
 /**
- * A document's reading position, or a folder's aggregate, as a thin bar and a
- * number. Nothing is drawn for something never opened: the point is to make a
- * large import navigable, which a row of empty bars would not.
+ * The thin line under a row's name: how far it has been read. Drawn only for
+ * something opened — see readFacts. The words go in the row's tooltip.
  */
-export function ProgressBadge({ progress, rollup }) {
-  const { t } = useT();
-  if (rollup) {
-    if (!rollup.total || rollup.finished + rollup.inProgress === 0) return null;
-    const pct = Math.round((rollup.percent ?? 0) * 100);
-    const label = rollup.subscription
-      ? t("{done} of {total} issues read", {
-          done: rollup.finished,
-          total: rollup.total,
-        })
-      : t("{done} of {total} read", {
-          done: rollup.finished,
-          total: rollup.total,
-        });
-    return (
-      <span className="fe-progress" title={label}>
-        <span className="fe-progress-bar">
-          <span style={{ width: `${pct}%` }} />
-        </span>
-        <span className="fe-progress-text">
-          {rollup.finished}/{rollup.total}
-        </span>
-      </span>
-    );
-  }
-  if (!progress) return null;
-  const pct =
-    progress.furthestPercent != null
-      ? Math.round(progress.furthestPercent * 100)
-      : null;
-  const label = progress.finished
-    ? t("Finished")
-    : pct != null
-      ? t("{percent}% read", { percent: pct })
-      : t("Started");
+export function ReadLine({ facts }) {
+  if (facts.value == null) return null;
   return (
-    <span
-      className={`fe-progress${progress.finished ? " fe-progress--done" : ""}`}
-      title={label}
-    >
-      <span className="fe-progress-bar">
-        <span style={{ width: `${pct ?? 8}%` }} />
-      </span>
-      {pct != null && <span className="fe-progress-text">{pct}%</span>}
+    <span className={`fe-read${facts.finished ? " fe-read--done" : ""}`} aria-hidden="true">
+      <i style={{ width: `${Math.round(facts.value * 100)}%` }} />
+    </span>
+  );
+}
+
+/** A card count: a small card outline and the number. Nothing for none. */
+export function CardCount({ n }) {
+  const { tp } = useT();
+  if (!n) return null;
+  return (
+    <span className="fe-cards" aria-label={tp("{n} card", "{n} cards", n)}>
+      <i aria-hidden="true" />
+      {n}
+    </span>
+  );
+}
+
+/** The folder chevron, drawn; it turns when the folder opens. */
+export function Chevron({ onClick }) {
+  return (
+    <span className="fe-chevron" onClick={onClick} aria-hidden="true">
+      <svg viewBox="0 0 10 10">
+        <path d="M3 1.5 6.5 5 3 8.5" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
     </span>
   );
 }

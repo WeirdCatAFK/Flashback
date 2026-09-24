@@ -1,6 +1,7 @@
 /**
- * FileNode — one document row: icon, name (or its rename box), reading badge and
- * card count. Draggable; a right-click hands the explorer what the menu needs.
+ * FileNode — one document row: icon, name without its extension (or the rename
+ * box), card count, and a thin line under it for how far it has been read.
+ * Draggable; a right-click hands the explorer what the menu needs.
  */
 
 import { useEffect, useRef } from "react";
@@ -8,7 +9,9 @@ import { deleteItem } from "../../../api/documents";
 import getFileIcon from "../../icons/fileIconMap";
 import { writeTransfer } from "./dragDrop.js";
 import useRename from "./useRename";
-import { RenameInput, ProgressBadge } from "./TreeParts";
+import { RenameInput, ReadLine, CardCount } from "./TreeParts";
+import { docStem, docKind, readFacts } from "./rowFacts.js";
+import { useT } from "../../../translations/index";
 
 export default function FileNode({
   name,
@@ -23,8 +26,11 @@ export default function FileNode({
   relocatePaths,
   onCtxMenu,
 }) {
+  const { t, tp } = useT();
   const FileIcon = getFileIcon(name);
   const selected = path === selectedPath;
+  const facts = readFacts({ progress }, t);
+  const tip = [name, facts.label, flashcardCount ? tp("{n} card", "{n} cards", flashcardCount) : null].filter(Boolean).join(" · ");
   const nodeRef = useRef(null);
   const rename = useRename({
     name,
@@ -55,7 +61,8 @@ export default function FileNode({
   return (
     <div
       ref={nodeRef}
-      className={`fe-file${selected ? " fe-selected" : ""}`}
+      className={`fe-file${selected ? " fe-selected" : ""}${facts.finished ? " fe-finished" : ""}`}
+      title={tip}
       draggable
       onDragStart={(e) => {
         writeTransfer(e.dataTransfer, {
@@ -70,18 +77,18 @@ export default function FileNode({
       onDoubleClick={() => !rename.renaming && onDoubleSelect?.(path)}
       onContextMenu={handleContextMenu}
     >
-      <FileIcon size={14} />
+      <span className="fe-chevron-space" />
+      <FileIcon />
       <span className="fe-item-label">
         {rename.renaming ? (
           <RenameInput inputProps={rename.inputProps} />
         ) : (
-          name
+          docStem(name)
         )}
       </span>
-      <ProgressBadge progress={progress} />
-      {flashcardCount > 0 && (
-        <span className="badge fe-fc-badge">{flashcardCount}</span>
-      )}
+      <span className="fe-kind">{docKind(name)}</span>
+      <CardCount n={flashcardCount} />
+      <ReadLine facts={facts} />
     </div>
   );
 }

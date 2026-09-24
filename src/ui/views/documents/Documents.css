@@ -1,37 +1,151 @@
-/* Documents — the sidebar, the resize handle and the editor column. */
+/* Documents — the file tree (docked, or hidden and sliding out on approach) and
+   the editor column. --tree-w is the remembered width, set inline. */
 
 .documents-view {
+  --tree-w: var(--size-lg);
   display: flex;
   height: 100%;
   overflow: hidden;
+  position: relative;
 }
 
-.documents-sidebar {
-  /* width set via inline style */
-  min-width: var(--size-md);
-  max-width: var(--size-4xl);
-  overflow: hidden;
+.documents-tree {
+  position: relative;
+  flex: none;
+  width: var(--tree-w);
   display: flex;
   flex-direction: column;
-  flex-shrink: 0;
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
+  transition: width var(--dur-base) var(--ease-out);
 }
 
+.documents-tree.is-resizing {
+  transition: none;
+  user-select: none;
+}
+
+.documents-tree__inner {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  width: var(--tree-w);
+  background: var(--color-bg-sidebar);
+}
+
+/* A wide grab area on a thin edge; the line shows only while you're on it. */
 .documents-resize-handle {
-  width: var(--space-1);
-  flex-shrink: 0;
-  background: transparent;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: calc(-1 * var(--space-1));
+  width: var(--space-2);
+  z-index: var(--z-raised);
   cursor: col-resize;
-  transition: background var(--dur-fast) ease;
 }
 
-.documents-resize-handle:hover,
-.documents-resize-handle:active {
+.documents-resize-handle::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  transform: translateX(-50%);
+  background: transparent;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.documents-resize-handle:hover::after,
+.documents-resize-handle:focus-visible::after,
+.documents-tree.is-resizing .documents-resize-handle::after {
   background: var(--color-accent);
 }
 
+.documents-resize-handle:focus-visible {
+  outline: none;
+}
+
+/* Hidden: the tree takes no room and waits off the left edge, and the document
+   leans left into the space it gave up rather than floating in the middle. Every
+   renderer's measure reads --measure-start for its left margin (auto = centred). */
+.documents-view--hidden {
+  --measure-start: var(--space-12);
+}
+
+.documents-view--hidden .documents-tree {
+  width: 0;
+  border-right: 0;
+}
+
+.documents-view--hidden .documents-tree__inner {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  z-index: var(--z-floating);
+  border-right: 1px solid var(--color-border);
+  box-shadow: var(--shadow-float);
+  transform: translateX(-100%);
+  visibility: hidden;
+  transition: transform var(--dur-base) var(--ease-out), visibility var(--dur-base) step-end;
+}
+
+.documents-view--hidden .documents-tree.is-peek .documents-tree__inner,
+.documents-view--hidden .documents-tree:focus-within .documents-tree__inner {
+  transform: none;
+  visibility: visible;
+  transition: transform var(--dur-base) var(--ease-out), visibility var(--dur-base) step-start;
+}
+
 .documents-main {
+  position: relative;
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* A faint edge while the pointer is in the zone that slides the tree out. */
+.documents-peek-hint {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  z-index: var(--z-raised);
+  pointer-events: none;
+  background: var(--color-accent);
+  opacity: 0;
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+.documents-peek-hint.is-on {
+  opacity: 0.55;
+}
+
+/* The tab bar's first slot. */
+.tree-toggle {
+  flex: none;
+  align-self: stretch;
+  display: grid;
+  place-items: center;
+  width: var(--control-lg);
+  padding: 0;
+  border: 0;
+  border-right: 1px solid var(--color-line);
+  background: none;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+}
+
+.tree-toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-fg-primary);
+}
+
+.tree-toggle[aria-pressed="false"] {
+  color: var(--color-accent);
 }

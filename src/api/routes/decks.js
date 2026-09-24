@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
-import Decks, { COVER_TYPES, MAX_COVER_BYTES } from '../access/orchestration/decks.js';
+import Decks from '../access/orchestration/decks.js';
+import { COVER_TYPES, MAX_COVER_BYTES } from '../../shared/covers.js';
 import Documents from '../access/orchestration/documents.js';
 import { FLAG_KINDS } from '../access/orchestration/cardHealth.js';
 import { GAP_BANDS } from '../access/orchestration/srs.js';

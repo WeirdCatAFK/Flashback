@@ -1,7 +1,7 @@
 /* DeckCover — the banner at the head of a deck's page, and its Change cover menu.
    --sleeve (the deck's colour) is set inline; drawn covers paint with it. */
 
-.deck-cover {
+.cover-banner {
   --sleeve: var(--color-kraft);
   position: relative;
   height: var(--size-md);
@@ -9,42 +9,42 @@
   background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
 }
 
-.deck-cover svg,
-.deck-cover__img {
+.cover-banner svg,
+.cover-banner__img {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.deck-cover__img {
+.cover-banner__img {
   object-fit: cover;
   user-select: none;
 }
 
-.deck-cover.is-placing {
+.cover-banner.is-placing {
   cursor: grab;
   touch-action: none;
 }
 
-.deck-cover.is-placing:active {
+.cover-banner.is-placing:active {
   cursor: grabbing;
 }
 
-.deck-cover.is-busy {
+.cover-banner.is-busy {
   opacity: 0.7;
 }
 
-.deck-cover__shape rect,
-.deck-cover-menu__art .deck-cover__shape rect {
+.cover-banner__shape rect,
+.cover-banner-menu__art .cover-banner__shape rect {
   fill: var(--sleeve);
 }
 
-.deck-cover__line circle,
-.deck-cover-menu__art .deck-cover__line circle {
+.cover-banner__line circle,
+.cover-banner-menu__art .cover-banner__line circle {
   stroke: var(--sleeve);
 }
 
-.deck-cover__hint {
+.cover-banner__hint {
   position: absolute;
   left: 50%;
   top: 50%;
@@ -57,7 +57,7 @@
   pointer-events: none;
 }
 
-.deck-cover__actions {
+.cover-banner__actions {
   position: absolute;
   right: clamp(var(--space-4), 3vw, var(--space-8));
   bottom: var(--space-2);
@@ -67,16 +67,16 @@
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.deck-cover:hover .deck-cover__actions,
-.deck-cover:focus-within .deck-cover__actions,
-.deck-cover.is-placing .deck-cover__actions {
+.cover-banner:hover .cover-banner__actions,
+.cover-banner:focus-within .cover-banner__actions,
+.cover-banner.is-placing .cover-banner__actions {
   opacity: 1;
 }
 
-.deck-cover__actions button {
+.cover-banner__actions button {
   height: var(--control-sm);
   padding: 0 var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: color-mix(in srgb, var(--color-bg-surface) 88%, transparent);
   color: var(--color-fg-primary);
@@ -84,12 +84,12 @@
   cursor: pointer;
 }
 
-.deck-cover__actions button:hover:not(:disabled) {
+.cover-banner__actions button:hover:not(:disabled) {
   background: var(--color-bg-surface);
   border-color: var(--color-border-strong);
 }
 
-.deck-cover-add-row {
+.cover-banner-add-row {
   display: flex;
   justify-content: flex-end;
   align-items: center;
@@ -97,27 +97,27 @@
   padding: var(--space-2) clamp(var(--space-4), 3vw, var(--space-8)) 0;
 }
 
-.deck-cover-add {
+.cover-banner-add {
   padding: var(--space-0-5) var(--space-3);
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-line);
   border-radius: var(--radius-md);
   background: none;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   font-size: var(--text-sm);
   cursor: pointer;
 }
 
-.deck-cover-add:hover:not(:disabled) {
+.cover-banner-add:hover:not(:disabled) {
   border-color: var(--color-border-strong);
   color: var(--color-fg-primary);
 }
 
-.deck-cover-error {
+.cover-banner-error {
   font-size: var(--text-sm);
   color: var(--color-danger);
 }
 
-.deck-cover-error--over {
+.cover-banner-error--over {
   position: absolute;
   left: clamp(var(--space-4), 3vw, var(--space-8));
   bottom: var(--space-2);
@@ -127,19 +127,19 @@
 }
 
 /* The Change cover menu: drawn covers as thumbnails, then the upload */
-.deck-cover-menu {
+.cover-banner-menu {
   width: var(--size-xl);
   padding: var(--space-1);
 }
 
-.deck-cover-menu__patterns {
+.cover-banner-menu__patterns {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2) var(--space-2);
 }
 
-.deck-cover-menu__pattern {
+.cover-banner-menu__pattern {
   display: grid;
   gap: var(--space-1);
   padding: 0;
@@ -151,7 +151,7 @@
   cursor: pointer;
 }
 
-.deck-cover-menu__art {
+.cover-banner-menu__art {
   display: block;
   height: var(--control-bar);
   overflow: hidden;
@@ -160,24 +160,24 @@
   background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
 }
 
-.deck-cover-menu__art svg {
+.cover-banner-menu__art svg {
   display: block;
   width: 100%;
   height: 100%;
 }
 
-.deck-cover-menu__pattern:hover .deck-cover-menu__art,
-.deck-cover-menu__pattern[aria-pressed="true"] .deck-cover-menu__art {
+.cover-banner-menu__pattern:hover .cover-banner-menu__art,
+.cover-banner-menu__pattern[aria-pressed="true"] .cover-banner-menu__art {
   border-color: var(--color-accent);
 }
 
-.deck-cover-menu__pattern[aria-pressed="true"] {
+.cover-banner-menu__pattern[aria-pressed="true"] {
   color: var(--color-fg-primary);
 }
 
-.deck-cover-menu__hint {
+.cover-banner-menu__hint {
   margin: 0;
   padding: 0 var(--space-2) var(--space-1);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }

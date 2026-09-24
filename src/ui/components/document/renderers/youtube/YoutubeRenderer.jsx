@@ -67,7 +67,7 @@ function TranscriptButton({ transcript, show, fetching, onToggle, onFetch }) {
 }
 
 export default function YoutubeRenderer({
-  path, saveRef, highlightRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef, readingBar,
+  path, saveRef, highlightRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef,
 }) {
   const { t, tp } = useT();
   const [reloadTick, setReloadTick] = useState(0);
@@ -102,7 +102,6 @@ export default function YoutubeRenderer({
     <div className="yt-renderer">
       <div className="yt-header">
         <div className="yt-title-row">
-          <span className="yt-title">{meta.title || t('YouTube video')}</span>
           {meta.author && <span className="yt-author">{meta.author}</span>}
         </div>
         {openLink}
@@ -155,7 +154,6 @@ export default function YoutubeRenderer({
           onFetch={doc.fetchTranscript}
         />
         {doc.transcriptError && <span className="yt-transcript-error">{doc.transcriptError}</span>}
-        {readingBar}
       </div>
 
       {doc.showTranscript && doc.transcriptCues.length > 0 && (

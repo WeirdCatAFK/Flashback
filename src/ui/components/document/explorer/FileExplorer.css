@@ -8,34 +8,52 @@
   overflow: hidden;
 }
 
-/* ── Header ──────────────────────────────────────────────────────────────── */
+/* ── Header: the vault's name and the "+" menu ──────────────────────────── */
 
+/* The same height and bottom rule as the tab bar beside it, with the name and the
+   "+" centred where a tab's label sits, so the two read as one strip. */
 .fe-header {
+  flex: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 var(--space-1) 0 var(--space-3);
-  height: var(--control-xl);
-  min-height: var(--control-xl);
-  background: var(--color-sidebar-header);
+  gap: var(--space-2);
+  height: var(--control-lg);
+  padding: var(--space-1) var(--space-2) 0 var(--space-3);
   border-bottom: 1px solid var(--color-border);
 }
 
 .fe-workspace-name {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  opacity: 0.75;
 }
 
-.fe-header-actions {
-  display: flex;
-  flex-shrink: 0;
+.fe-new {
+  flex: none;
+  width: var(--control-md);
+  height: var(--control-sm);
+  padding: 0 0 var(--space-0-5);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-md);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast) var(--ease-out);
+}
+
+.fe-new:hover,
+.fe-new[aria-expanded="true"] {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-strong);
+  color: var(--color-fg-primary);
 }
 
 /* ── Tree scroll area ────────────────────────────────────────────────────── */
@@ -44,7 +62,8 @@
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: var(--space-1) 0;
+  padding: var(--space-0-5) var(--space-1) var(--space-4);
+  font-size: var(--text-sm);
 }
 
 .fe-tree::-webkit-scrollbar {
@@ -60,20 +79,18 @@
   border-radius: var(--radius-sm);
 }
 
-.fe-tree::-webkit-scrollbar-thumb:hover {
-  background: var(--color-fg-secondary);
-  opacity: 0.5;
-}
-
-/* ── Shared row styles ───────────────────────────────────────────────────── */
+/* ── Rows: compact; a document wraps to carry its read line underneath ──── */
 
 .fe-file,
 .fe-folder {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  height: var(--control-sm);
-  padding-right: var(--space-1);
-  font-size: var(--text-sm);
+  column-gap: var(--space-1);
+  row-gap: var(--space-0-5);
+  min-height: var(--control-sm);
+  padding: var(--space-0-5) var(--space-2) var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
   color: var(--color-fg-primary);
   cursor: pointer;
   user-select: none;
@@ -86,36 +103,43 @@
   background: var(--color-bg-hover);
 }
 
-/* Selected file or folder */
 .fe-file.fe-selected,
 .fe-folder.fe-selected {
   background: var(--color-accent-subtle);
-  color: var(--color-accent);
-  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.fe-file.fe-selected::before,
+.fe-folder.fe-selected::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--space-1);
+  bottom: var(--space-1);
+  width: 2px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-accent);
 }
 
 /* ── Chevron ─────────────────────────────────────────────────────────────── */
 
-.fe-chevron {
-  flex-shrink: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: var(--icon-md);
-  height: var(--icon-lg);
-  color: var(--color-fg-secondary);
+.fe-chevron,
+.fe-chevron-space {
+  flex: none;
+  display: inline-grid;
+  place-items: center;
+  width: var(--space-3);
+  height: var(--space-3);
+  color: var(--color-fg-tertiary);
 }
 
-.fe-chevron::before {
-  content: "▸";
-  font-size: var(--text-xs);
-  display: inline-block;
-  transition: transform var(--dur-fast) ease;
+.fe-chevron svg {
+  width: 100%;
+  height: 100%;
+  transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.fe-folder.open > .fe-chevron::before {
+.fe-folder.open > .fe-chevron svg {
   transform: rotate(90deg);
-  color: var(--color-accent);
 }
 
 /* ── Folder swatch dot ───────────────────────────────────────────────────── */
@@ -125,23 +149,43 @@
   width: var(--space-1);
   height: var(--space-1);
   border-radius: 50%;
-  margin-right: var(--space-1);
 }
 
-/* ── Folder icon ─────────────────────────────────────────────────────────── */
+/* ── Icons: quiet silhouettes, folders in a softened amber; a type is its shape ── */
 
 .fe-folder-icon {
   display: inline-flex;
   align-items: center;
-  margin-right: var(--space-1);
-  color: var(--color-accent);
-  opacity: 0.85;
 }
 
-/* ── File icon ───────────────────────────────────────────────────────────── */
+.fe-root .tree-glyph--folder {
+  color: color-mix(in srgb, var(--color-accent) 70%, var(--color-bg-sidebar));
+}
 
-.fe-file {
-  gap: var(--space-1);
+.fe-root .tree-glyph--file {
+  color: var(--color-fg-icon);
+}
+
+.fe-file.fe-selected .tree-glyph--file {
+  color: var(--color-accent);
+}
+
+/* Without icons, a document names its type in small mono instead. */
+.fe-kind {
+  display: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+:root[data-tree-icons="off"] .fe-root .tree-glyph {
+  display: none;
+}
+
+:root[data-tree-icons="off"] .fe-root .fe-kind {
+  display: inline;
 }
 
 /* ── Item label ──────────────────────────────────────────────────────────── */
@@ -153,64 +197,54 @@
   text-overflow: ellipsis;
 }
 
-/* ── Flashcard count badge ───────────────────────────────────────────────── */
+/* ── Card count: a tiny card outline and a number, no filled badge ───────── */
 
-.fe-fc-badge {
-  flex-shrink: 0;
-  font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 1;
-  padding: var(--space-0-5) var(--space-1);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-hover);
-  color: var(--color-fg-secondary);
-  letter-spacing: 0.02em;
-}
-
-.fe-file.fe-selected .fe-fc-badge {
-  background: var(--color-accent);
-  color: var(--color-bg-base);
-}
-
-/* ── Reading progress ────────────────────────────────────────────────────────
-   A thin bar plus a number, on documents and on folders alike. Deliberately quiet:
-   it sits beside the flashcard count and is absent entirely for anything never
-   opened, so a folder of untouched imports looks untouched. */
-.fe-progress {
-  display: flex;
+.fe-cards {
+  flex: none;
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-tertiary);
 }
 
-.fe-progress-bar {
-  width: var(--control-xs);
-  height: var(--space-0-5);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-hover);
+.fe-cards i {
+  width: var(--space-2);
+  height: calc(var(--space-2) * 0.75);
+  border: 1px solid currentColor;
+  border-radius: 1.5px;
+  opacity: 0.8;
+}
+
+.fe-selected .fe-cards {
+  color: var(--color-accent);
+}
+
+/* ── Read line: how far it has been read, under the name ─────────────────── */
+
+.fe-read {
+  flex-basis: 100%;
+  height: var(--track-thin);
+  margin-left: calc(var(--space-3) + var(--space-1));
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
   overflow: hidden;
 }
 
-.fe-progress-bar > span {
+:root:not([data-tree-icons="off"]) .fe-read {
+  margin-left: calc(var(--space-3) + var(--icon-md) + var(--space-2));
+}
+
+.fe-read i {
   display: block;
   height: 100%;
   background: var(--color-accent);
-  border-radius: var(--radius-sm);
 }
 
-.fe-progress--done .fe-progress-bar > span {
-  opacity: 0.55;
-}
-
-.fe-progress-text {
-  font-size: var(--text-xs);
-  line-height: 1;
-  color: var(--color-fg-secondary);
-  letter-spacing: 0.02em;
-}
-
-.fe-file.fe-selected .fe-progress-text {
-  color: var(--color-fg-primary);
+.fe-read--done i {
+  background: var(--color-fg-tertiary);
 }
 
 /* ── Rename input ────────────────────────────────────────────────────────── */
@@ -223,15 +257,14 @@
   background: var(--color-accent-subtle);
 }
 
-/* ── Children (tree line) ────────────────────────────────────────────────── */
+/* ── Children ────────────────────────────────────────────────────────────── */
 
 .fe-folder-wrap {
   width: 100%;
 }
 
 .fe-children {
-  margin-left: var(--space-4);
-  border-left: 1px solid var(--color-tree-indent);
+  margin-left: var(--space-3);
 }
 
 /* ── Drag-over state ─────────────────────────────────────────────────────── */
@@ -243,16 +276,6 @@
   background: var(--color-accent-subtle) !important;
 }
 
-/* ── Item indentation ────────────────────────────────────────────────────── */
-
-.fe-file {
-  padding-left: var(--space-2);
-}
-
-.fe-folder {
-  padding-left: var(--space-1);
-}
-
 /* ── Loading / empty ─────────────────────────────────────────────────────── */
 
 .fe-loading,
@@ -260,7 +283,7 @@
   display: block;
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .fe-empty {
@@ -312,7 +335,7 @@
   margin: 0;
 }
 
-/* tag chips and tci-* styles are global (Inspector.css), reused here */
+/* tag chips come from components/base/TagChipInput.css */
 
 /* ── Folder color picker modal ───────────────────────────────────────────── */
 

@@ -1,12 +1,14 @@
 /**
- * IconFolderOpen — the SVG glyph for an open folder.
+ * IconFolderOpen — the tree glyph for an open folder, its back in a lighter tone.
  */
 
-export default function IconFolderOpen({ size = 14 }) {
+import Glyph from "./Glyph";
+
+export default function IconFolderOpen({ size = 15 }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="currentColor"
-      aria-hidden="true" style={{ flexShrink: 0 }}>
-      <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.764c.958 0 1.76.56 2.09 1.328L9 4.5H14A1.5 1.5 0 0 1 15.5 6v1H1V4.5A1.5 1.5 0 0 1 2.5 3zM0 7.5A.5.5 0 0 1 .5 7h15a.5.5 0 0 1 .485.621l-1.5 6A.5.5 0 0 1 14 14H2a.5.5 0 0 1-.485-.379l-1.5-6A.5.5 0 0 1 0 7.5z"/>
-    </svg>
+    <Glyph size={size} className="tree-glyph tree-glyph--folder">
+      <path d="M1.5 3.8a1.2 1.2 0 0 1 1.2-1.2h3.5l1.6 1.8h5.5a1.2 1.2 0 0 1 1.2 1.2v6.8H1.5Z" opacity="0.45" />
+      <path d="M3.6 7.2a1 1 0 0 1 .95-.7h9.8a.6.6 0 0 1 .57.8l-1.9 5.3a1 1 0 0 1-.95.7H1.5Z" />
+    </Glyph>
   );
 }

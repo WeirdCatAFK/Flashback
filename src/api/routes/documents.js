@@ -6,6 +6,7 @@ import fs from "fs/promises";
 import crypto from "crypto";
 import Documents from "../access/orchestration/documents.js";
 import { EDITABLE_BODY_EXTENSIONS } from "../access/resources/files.js";
+import { MAX_COVER_BYTES } from "../../shared/covers.js";
 
 const router = Router();
 const docs = new Documents();
@@ -229,6 +230,47 @@ router.put(
       { ifMatch: req.body.ifMatch },
     );
     res.json({ ok: true, etag });
+  }),
+);
+
+const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES } });
+
+/** Uploads an image (`file`, multipart, with `path`) as a document's cover. */
+router.post(
+  "/cover",
+  (req, res, next) => coverUpload.single("file")(req, res, (err) => {
+    if (err?.code === "LIMIT_FILE_SIZE") return res.status(413).json({ error: "Cover image too large" });
+    return err ? next(err) : next();
+  }),
+  catchError(async (req, res) => {
+    const relPath = norm(req.body.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    if (!req.file) return res.status(400).json({ error: "file required" });
+    const cover = await docs.uploadCover(relPath, req.file.buffer, req.file.mimetype);
+    res.status(201).json({ cover });
+  }),
+);
+
+/** Sets a drawn cover (`{ path, pattern }`) or repositions the image one (`{ path, y }`). */
+router.put(
+  "/cover",
+  catchError(async (req, res) => {
+    const relPath = norm(req.body.path);
+    const { pattern, y } = req.body;
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    if (pattern === undefined && y === undefined) return res.status(400).json({ error: "pattern or y required" });
+    res.json({ cover: await docs.setCover(relPath, pattern !== undefined ? { pattern } : { y }) });
+  }),
+);
+
+/** Removes a document's cover, deleting its image. */
+router.delete(
+  "/cover",
+  catchError(async (req, res) => {
+    const relPath = norm(req.body?.path ?? req.query.path);
+    if (!relPath) return res.status(400).json({ error: "path required" });
+    await docs.setCover(relPath, null);
+    res.json({ ok: true });
   }),
 );
 

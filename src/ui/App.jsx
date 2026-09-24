@@ -36,6 +36,7 @@ import OnboardingTour from "./components/shell/OnboardingTour";
 import TitleBar from "./components/shell/TitleBar";
 import ActivityBar from "./components/shell/ActivityBar";
 import useKeybindings from "./hooks/useKeybindings";
+import usePersisted from "./hooks/usePersisted";
 import { actionForKey, eventKeyName } from "./keybindings";
 import VaultManager from "./components/vault/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
@@ -145,6 +146,15 @@ function navPurposes(t, shared) {
 export default function App() {
   const { t } = useT();
   const [activeView, setActiveView] = useState("documents");
+  const [docTreeHidden, setDocTreeHidden] = usePersisted("fb-doc-tree-hidden", false);
+
+  /** The activity bar: choosing the screen you are already on toggles its sidebar, as the Documents file tree does. */
+  const selectView = useCallback((id) => {
+    if (id === "documents" && activeViewRef.current === "documents") setDocTreeHidden((h) => !h);
+    else setActiveView(id);
+  }, [setDocTreeHidden]);
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
   const [progressAccount, setProgressAccount] = useState(null);
 
   const [theme, setTheme] = useState(() => {
@@ -393,6 +403,8 @@ export default function App() {
         return (
           <DocumentsView
             isActive={activeView === "documents"}
+            treeHidden={docTreeHidden}
+            onToggleTree={() => setDocTreeHidden((h) => !h)}
             openPaths={openPaths}
             toggleOpen={toggleOpen}
             relocatePaths={relocatePaths}
@@ -492,6 +504,8 @@ export default function App() {
           onSearch={() => setSearchOpen(true)}
           connection={connection}
           onManageVaults={() => setVaultManagerOpen(true)}
+          zoom={zoom}
+          onResetZoom={() => setZoom(1)}
         />
 
         <AppGate key={connectionId}>
@@ -501,7 +515,7 @@ export default function App() {
               items={navItems}
               bottomItems={configItems}
               activeView={activeView}
-              onSelect={setActiveView}
+              onSelect={selectView}
             />
 
             <main id="content-area">

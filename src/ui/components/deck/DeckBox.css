@@ -4,6 +4,7 @@
 
 .deck-box {
   --sleeve: var(--color-kraft);
+  --edge: var(--color-card-edge);
   --peek: var(--control-2xl);
   --sleeve-h: calc(var(--space-12) * 2);
   --print: calc(var(--text-2xl) * 2.8);
@@ -20,6 +21,12 @@
   flex: none;
 }
 
+.deck-box--sm {
+  --peek: var(--control-lg);
+  --sleeve-h: calc(var(--space-12) + var(--space-2));
+  --print: calc(var(--text-2xl) * 1.9);
+}
+
 .deck-box__peek {
   position: relative;
   height: var(--peek);
@@ -33,7 +40,7 @@
   right: 0;
   height: var(--peek);
   border-radius: var(--radius-card) var(--radius-card) 0 0;
-  border-top: 2px solid var(--color-card-edge);
+  border-top: 2px solid var(--edge);
   background: var(--color-card);
   box-shadow: var(--shadow-card);
 }

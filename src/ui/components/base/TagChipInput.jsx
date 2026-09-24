@@ -1,6 +1,6 @@
 /**
  * TagChipInput — chips plus type-ahead tag entry, the one implementation for
- * every place tags are edited (inspector, decks, file explorer, trainer scope).
+ * every place tags are edited (decks, file explorer, trainer scope).
  *
  *   <TagChipInput tags={tags} onAdd={add} onRemove={remove} allKnownTags={all} />
  */

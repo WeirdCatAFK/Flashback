@@ -1,5 +1,5 @@
 /**
- * FileExplorer — the workspace tree in the sidebar: header actions, the root
+ * FileExplorer — the workspace tree in the sidebar: the "+" menu, the root
  * listing of FolderNodes and FileNodes, the context menu, and the dialogs that
  * imports, tags, colours and clipping open. Role-gated controls are hidden, not
  * disabled. State lives in useExplorerTree.js and useImports.js.
@@ -8,6 +8,7 @@
 import { useState, useRef, useCallback } from "react";
 import { moveItem } from "../../../api/documents";
 import ContextMenu from "../../base/ContextMenu";
+import Popover from "../../base/Popover";
 import ProgressDialog from "../../base/ProgressDialog";
 import AnkiMappingModal from "../../deck/AnkiMappingModal";
 import { useSession } from "../../../sessionContext.js";
@@ -27,68 +28,6 @@ import {
 } from "./ExplorerDialogs";
 import "./FileExplorer.css";
 
-const NewFolderIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-  >
-    <path d="M1 3.5A1.5 1.5 0 0 1 2.5 2h3.38a1.5 1.5 0 0 1 1.06.44L8 3.5H13.5A1.5 1.5 0 0 1 15 5v7a1.5 1.5 0 0 1-1.5 1.5h-11A1.5 1.5 0 0 1 1 12V3.5z" />
-    <line x1="8" y1="7" x2="8" y2="11" />
-    <line x1="6" y1="9" x2="10" y2="9" />
-  </svg>
-);
-const NewFileIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-  >
-    <path d="M9 1H3.5A1.5 1.5 0 0 0 2 2.5v11A1.5 1.5 0 0 0 3.5 15h9A1.5 1.5 0 0 0 14 13.5V6L9 1z" />
-    <polyline points="9,1 9,6 14,6" />
-    <line x1="8" y1="9" x2="8" y2="13" />
-    <line x1="6" y1="11" x2="10" y2="11" />
-  </svg>
-);
-const ImportIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-  >
-    <path d="M12 12L8 8L4 12" />
-    <line x1="8" y1="8" x2="8" y2="15" />
-    <rect x="2" y="2" width="12" height="4" rx="1" />
-  </svg>
-);
-const ClipIcon = () => (
-  <svg
-    width="16"
-    height="16"
-    viewBox="0 0 16 16"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="1.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M6.5 9.5a2.5 2.5 0 0 0 3.6.1l2.4-2.4a2.5 2.5 0 1 0-3.5-3.5l-1 1" />
-    <path d="M9.5 6.5a2.5 2.5 0 0 0-3.6-.1L3.5 8.8a2.5 2.5 0 1 0 3.5 3.5l1-1" />
-  </svg>
-);
-
 export default function FileExplorer({
   workspaceName = "Workspace",
   onSelect,
@@ -107,6 +46,8 @@ export default function FileExplorer({
   const [tagsTarget, setTagsTarget] = useState(null);
   const [swatchTarget, setSwatchTarget] = useState(null);
   const [clipTarget, setClipTarget] = useState(null);
+  const [newMenu, setNewMenu] = useState(false);
+  const newRef = useRef(null);
   const fileInputRef = useRef(null);
   const importTargetRef = useRef("");
 
@@ -173,52 +114,42 @@ export default function FileExplorer({
     >
       <div className="fe-header">
         <span className="fe-workspace-name">{workspaceName}</span>
-        <div className="fe-header-actions">
+        {(can("createDocuments") || can("importDocuments")) && (
+          <button
+            ref={newRef}
+            type="button"
+            className="fe-new"
+            aria-haspopup="menu"
+            aria-expanded={newMenu}
+            onClick={() => setNewMenu((v) => !v)}
+            title={t("New")}
+            aria-label={t("New")}
+          >
+            +
+          </button>
+        )}
+        <Popover anchorRef={newRef} open={newMenu} onClose={() => setNewMenu(false)} align="end" ariaLabel={t("New")}>
           {can("createDocuments") && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => tree.setPendingNew("folder")}
-              title={t("New folder")}
-              aria-label={t("New folder")}
-            >
-              <NewFolderIcon />
+            <button type="button" role="menuitem" className="popover__item" onClick={() => { setNewMenu(false); tree.setPendingNew("file"); }}>
+              {t("New document")}
             </button>
           )}
           {can("createDocuments") && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => tree.setPendingNew("file")}
-              title={t("New file")}
-              aria-label={t("New file")}
-            >
-              <NewFileIcon />
+            <button type="button" role="menuitem" className="popover__item" onClick={() => { setNewMenu(false); tree.setPendingNew("folder"); }}>
+              {t("New folder")}
             </button>
           )}
           {can("importDocuments") && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => pickFilesFor("")}
-              title={t("Import files / packages (.zip, .apkg, .md)")}
-              aria-label={t("Import files")}
-            >
-              <ImportIcon />
+            <button type="button" role="menuitem" className="popover__item" onClick={() => { setNewMenu(false); pickFilesFor(""); }} title={t("Import files / packages (.zip, .apkg, .md)")}>
+              {t("Import files")}
             </button>
           )}
           {can("createDocuments") && (
-            <button
-              type="button"
-              className="btn btn--ghost btn--icon btn--sm"
-              onClick={() => openClip("", tree.loadRoot)}
-              title={t("Clip from URL (web article or YouTube)")}
-              aria-label={t("Clip from URL")}
-            >
-              <ClipIcon />
+            <button type="button" role="menuitem" className="popover__item" onClick={() => { setNewMenu(false); openClip("", tree.loadRoot); }} title={t("Clip from URL (web article or YouTube)")}>
+              {t("Clip from a web page")}
             </button>
           )}
-        </div>
+        </Popover>
       </div>
 
       <div
@@ -257,7 +188,7 @@ export default function FileExplorer({
           !tree.pendingNew &&
           tree.items.length === 0 && (
             <span className="fe-empty">
-              {t("No files yet — use the buttons above to get started.")}
+              {t("No files yet. Use + above to add one.")}
             </span>
           )}
         {!tree.loading &&

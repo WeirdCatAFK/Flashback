@@ -128,6 +128,12 @@ export default function usePdfHighlights({ highlightRef, highlightsRef, setAll, 
       },
       unset: () => (currentHlRef.current ? removeById(currentHlRef.current) : null),
       remove: (id) => (id && highlightsRef.current.some((h) => h.id === id) ? removeById(id) : null),
+      recolor: (id, color) => {
+        const h = highlightsRef.current.find((x) => x.id === id);
+        if (!h || h.color === color) return null;
+        setAll(highlightsRef.current.map((x) => (x.id === id ? { ...x, color, updatedAt: new Date().toISOString() } : x)));
+        return { kind: 'recolored', id };
+      },
       ensure: (color = 'amber') => {
         const existing = findOverlapping();
         if (existing) { currentHlRef.current = existing; return { kind: 'existing', id: existing }; }

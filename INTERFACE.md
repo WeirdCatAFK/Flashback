@@ -190,8 +190,8 @@ the label moves, never `/api/diary`, `diary/` or `fb-diary-enabled`. `connection
 `DiaryView` and `ConfigView` as a prop from `App.jsx`, which owns the one `useConnection()`
 subscription — do not call that hook in a leaf view.
 
-Where a control is an editor rather than a button, prefer read-only over hidden: the
-Inspector's tag list, a deck's tags and the Manage tab's categories all still render their
+Where a control is an editor rather than a button, prefer read-only over hidden: a
+document's tags in its head, a deck's tags and the Manage tab's categories all still render their
 values without the role, because the values are information even to someone who cannot change
 them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
 whose save is refused invites someone to type a page and lose it.
@@ -208,7 +208,7 @@ declares no px, ms, `cubic-bezier()`, hex or `rgb()` of its own; `npm run check:
 | family    | tokens                                                                                                  |
 | --------- | ------------------------------------------------------------------------------------------------------- |
 | spacing   | `--space-0-5` 2 · `-1` 4 · `-2` 8 · `-3` 12 · `-4` 16 · `-5` 20 · `-6` 24 · `-8` 32 · `-10` 40 · `-12` 48 · `-16` 64 |
-| radius    | `--radius-sm` 4 · `-md` 6 · `-lg` 10 · `-pill`                                                          |
+| radius    | `--radius-sm` 4 · `-md` 6 · `-lg` 8 · `-pill` — 8 is the ceiling, the card's own radius; nothing reads softer than the card |
 | type      | `--text-xs` 11 · `-sm` 12 · `-base` 14 · `-md` 16 · `-lg` 20 · `-xl` 28 · `-2xl` 40                     |
 | controls  | `--control-xs` 20 · `-sm` 24 · `-md` 28 · `-lg` 32 · `-xl` 36 · `-2xl` 40 · `-bar` 48 — heights of buttons, inputs, rows |
 | icons     | `--icon-sm` 14 · `-md` 16 · `-lg` 20 · `-xl` 24                                                          |
@@ -216,6 +216,8 @@ declares no px, ms, `cubic-bezier()`, hex or `rgb()` of its own; `npm run check:
 | z-index   | `--z-raised` 1 · `-sticky` 10 · `-floating` 100 · `-modal` 1000 · `-popover` 1100                       |
 | motion    | `--dur-fast` 120 · `-base` 200 · `-slow` 300; `--ease-out`, `--ease-in-out`                              |
 | focus     | `--shadow-focus` — the one ring every focusable control shares                                          |
+| lines     | `--track-thin` 1.5 — the read line under an item in a list                                              |
+| measure   | `--measure-start` — a document's left margin: `auto` centres it; the Documents view sets a length while the file tree is hidden, so the text leans into the space the tree gave up. Every renderer's measure (and the EPUB body, via `epubTheme.leanTo`) reads it |
 
 **Snapping.** When a value is not on a ladder, take the nearest step; a tie rounds **down**,
 so the UI keeps the density it has rather than drifting looser (13px text became `--text-sm`,
@@ -338,7 +340,7 @@ If a value can be computed from existing state or query data, compute it during 
 ### `src/ui/components/`
 
 Shared components are named after the things a person sees — a card, a deck, a document, a
-highlight, a vault, an account — so `<CardRow>` or `<DeckPurgeDialog>` is understood without
+highlight, a vault, an account — so `<CardLine>` or `<DeckPurgeDialog>` is understood without
 opening it. What has no domain name lives one layer down, in `base/`.
 
 ```
@@ -350,17 +352,19 @@ components/
   account/     RoleBadge, IdentitySection, ProgressScopePicker
   vault/       VaultManager, VaultSwitcher
   shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, KeybindingsEditor, OnboardingTour
-  flashcard/   Flashcard, CardLine, CardRow, CardDetailModal, FlashcardForm, CardBench,
-               useCardBench, FlashcardEditor, BookImagePicker, ClipMediaPicker, ReviewStrip,
-               RetentionCurve, flashcardFields.js, cardLineText.js
-  deck/        DeckBox, DeckCover, DeckPurgeDialog, AnkiMappingModal, coverMath.js
-  highlight/   SelectionToolbar, HighlightRemoveDialog
+  flashcard/   Flashcard, CardLine, CardDetailModal, FlashcardForm, CardBench, useCardBench,
+               BookImagePicker, ClipMediaPicker, ReviewStrip, RetentionCurve,
+               flashcardFields.js, cardLineText.js
+  deck/        DeckBox, DeckPurgeDialog, AnkiMappingModal
+  cover/       CoverBanner (a deck's or a document's banner), coverMath.js
+  highlight/   SelectionToolbar
   document/    DocumentEditor (+ useDocumentEditor, useSelectionToolbar, useHighlightActions,
-               tabsState.js), EditorTabBar, ReadingBar, useReadProgress
+               tabsState.js), EditorTabBar, ReadingBar, useReadProgress, DocumentHead,
+               Finder (+ finderRows.js), DocumentCardBench
+    margin/    MarginCards (+ marginLayout.js)
     explorer/  FileExplorer, FolderNode, FileNode, TreeParts, ExplorerDialogs,
-               names.js, dragDrop.js, contextMenu.js, useExplorerTree, useFolderChildren,
-               useRename, useDropTarget
-    inspector/ Inspector and its four tabs
+               names.js, dragDrop.js, contextMenu.js, rowFacts.js, useExplorerTree,
+               useFolderChildren, useRename, useDropTarget
     renderers/ registry.js, highlights.js, highlightId.js, scroller.js,
                useHighlightableRenderer, useScrollProgress, Renderer.css, SourceUrlForm
       markdown/ text/ pdf/ epub/ youtube/ clip/   one folder per format
@@ -449,16 +453,15 @@ TipTap or touches an editor instance directly. Current routing: `md`/`markdown`
 `PlaceholderRenderer`.
 
 The registry is one table doing two jobs, and they cannot be separated. Each entry pairs
-a `lazy()` import of the component with its `editable`, `supportsHighlight`,
-`tracksProgress` and `ownsReadingBar` flags. The
+a `lazy()` import of the component with its `editable`, `supportsHighlight` and
+`tracksProgress` flags. The
 components are lazy because pdf.js, epub.js and TipTap are about a megabyte between them and
 statically importing all of them meant opening *any* document paid for *every* format — the
 `Documents` chunk was 1.4 MB and is now 60 kB, with each heavy renderer fetched on first use.
 The flags cannot be lazy: `editable` decides whether the tab bar draws a Save button and
 `supportsHighlight` decides whether `SelectionToolbar` offers to highlight, `tracksProgress`
-decides whether a reading bar is built at all, `ownsReadingBar` decides whether it is drawn
-above the document or handed to the renderer, and all four are needed outside the
-`<Suspense>` boundary. So they are declared as plain data in the registry rather
+decides whether the reading strip shows a position or Find alone, and all three are needed
+outside the `<Suspense>` boundary. So they are declared as plain data in the registry rather
 than as statics on the component (`MyRenderer.supportsHighlight = true`), which a lazy
 component cannot expose until its chunk has arrived. Adding a format is one entry.
 
@@ -489,7 +492,10 @@ Every renderer receives the same props from `DocumentEditor`:
 | `initialProgress`     | in        | The saved reading position to resume at; `null` when never opened and `undefined` while still loading. Renderers must wait for it to become defined rather than assuming an order — the body and the position race. |
 | `onProgress`          | callback  | `(path, { unit, position, percent, total })` — report freely, on every scroll or relocation. Debounce and the dwell guard live in `useReadProgress`, not at the call site. |
 | `progressRef`         | out (ref) | Set to `{ goToStart(), currentPosition() }`, or leave null. Drives the reading bar's "Go to start" and "Set mark here". |
-| `readingBar`          | in        | A ready-built `<ReadingBar>` element, passed only to renderers whose registry entry sets `ownsReadingBar`. Render it inside your own toolbar; `undefined` otherwise. |
+| `toolsTarget`         | in        | The reading strip's tools slot (a DOM node, or null while it mounts). A renderer with tools of its own — PDF's zoom, Fit width and Box highlight; EPUB's text size — portals them in, so the document has one bar above it. |
+| `head`                | in        | The document head, passed only to a renderer whose registry entry sets `hostsHead` (EPUB), which mounts it inside its own scroller; `undefined` otherwise. |
+| `renderMargin`, `marginShown` | in | For a `hostsHead` renderer that also sets `marginCards`: `renderMargin({ scrollerRef, measure, relayoutKey })` returns the card margin to mount inside its own scroller, and `marginShown` says whether it is showing, so the renderer can make room for it. |
+| `onHighlightPick`     | out       | `({ id, rect } \| null)` — a click landed on a highlight the editor cannot see in its own DOM (EPUB's frames), with the rect in shell-layout space; the editor opens the toolbar over it. |
 | `readOnly`            | in        | The caller may not write this document's body. Editor-backed renderers pass it to`useHighlightableRenderer`, which makes the editor non-editable. |
 
 ### Reading position
@@ -500,16 +506,22 @@ reports where the reader gets to through `onProgress`, and it publishes `goToSta
 guard, the write debounce and the auto-versus-manual rule all live in `useReadProgress`, so a
 renderer reports as often as it likes and never decides when to write.
 
-Where the bar goes is the editor's decision, not the renderer's. A format with no chrome
-of its own (Markdown, text, clips) gets the standalone `.doc-reading-bar` strip above the
-document. A format that already draws a toolbar — PDF, EPUB, YouTube — sets `ownsReadingBar`
-and receives the same element through the `readingBar` prop to place inside that toolbar. Two
-full-width bars with the same surface and the same bottom border, one directly under the
-other, is what the flag exists to prevent; on a PDF it stacked three strips deep under the tab
-bar. `ReadingBar` is still imported statically by `DocumentEditor` and built there, so it
-never enters a lazy chunk — only its mount point moves — and its `inline` variant drops the
-surface and shortens the position text (`p. 12`, not `Page 12 of 40`) so it reads as one item
-in a toolbar rather than a transplanted row.
+The strip is the editor's, not the renderer's, and it sits in one place for every format:
+under the tab bar, above the one scroller that holds the document head and the renderer. It
+used to be handed to PDF, EPUB and YouTube (an `ownsReadingBar` flag and a `readingBar` prop)
+so it would not stack under their toolbars; once the head scrolled away above every format,
+one strip for all of them was simpler than a strip that moved. `ReadingBar` is imported
+statically by `DocumentEditor` and built there, so it never enters a lazy chunk.
+
+**Every renderer but EPUB scrolls `.doc-editor-renderer`, not an element of its own.** That
+is what lets `DocumentHead` sit above any renderer and scroll away with it without each format
+placing it. Markdown, text, clips and YouTube grow with their content; PDF already relied on
+the ancestor. EPUB is the exception (registry `hostsHead`): epub.js scrolls either its own
+container or the window, never an ancestor, so the book flows continuously in epub.js's
+container and the head is portaled into it, kept just above the first section and hidden while
+that section is not loaded — the continuous manager prepends earlier chapters as you scroll up,
+and the head belongs above chapter one. The scroller is keyed on the open path, so switching documents starts a fresh
+one at the top rather than inheriting the last document's scroll.
 
 The scroll container is rarely the renderer's own element. `findScroller`
 (`renderers/scroller.js`) walks up from any element until it finds one that both overflows
@@ -611,13 +623,25 @@ CodeMirror, …) can supply its own object of the same shape:
 | `toggle(color)`  | `{ kind: 'created'\|'recolored'\|'removed', id }`  | color dots           |
 | `unset()`        | `{ kind: 'removed', id }` \| `null`            | the ✕ button        |
 | `ensure(color?)` | `{ kind: 'existing'\|'created', id }` \| `null` | Card / Ref buttons   |
+| `recolor(id, color)` | `{ kind: 'recolored', id }` \| `null` (no such highlight, or already that colour) | a clicked highlight's swatches |
+| `remove(id)`     | `{ kind: 'removed', id }` \| `null`            | the finder; a clicked highlight's Remove |
 | `currentId()`    | the highlight id under the selection, or`null`   | orphan-removal check |
 | `scrollTo(id)`   | scrolls the view to that highlight                 | Highlights tab jump  |
 
+**Clicking a highlight** opens the same toolbar over it — its swatch marked as the colour it
+has, Card (a card anchored to it), Remove — as the mockup has it, rather than making someone
+select a passage again to recolour it. `useSelectionToolbar` finds the highlight itself for
+inline marks (`mark[data-hl]`) and for PDF, whose boxes ignore the pointer so the text under
+them stays selectable: a box on the clicked page whose rectangle holds the point. A renderer
+that draws in a frame reports it through the `onHighlightPick({ id, rect })` prop instead —
+EPUB matches the click against each highlight's ranges in the section, since epub.js's
+highlight layer ignores the pointer too. YouTube moments are not marks, so a click on one still
+seeks.
+
 The sidecar `highlights[]` registry shape is documented in `DATAMODEL.md`; it is
 uniform across anchoring strategies (offset fields are simply absent for inline
-anchoring), so the Inspector, cards (`location: { type: 'highlight', id }`), and
-Highlights tab work with any renderer unchanged.
+anchoring), so the finder, cards (`location: { type: 'highlight', id }`) and the
+selection toolbar work with any renderer unchanged.
 
 ---
 
@@ -691,6 +715,34 @@ dependencies as arguments and imports no Electron.
 
 What the comment pass took out of the source, kept here by area. Each entry is a decision that
 is not derivable from the code and that a future change is likely to reverse by accident.
+
+### Icons (`components/icons/`)
+
+The activity bar's and the file tree's icons are **solid silhouettes, not outlines**
+(`Glyph.jsx`, a 16 grid for the tree and a 24 grid for the bar). The outline set they replaced
+drew every edge twice — a 1.5 stroke has an inside and an outside — and a column of eleven
+square-based outlines was a lot of contour to read past, with little to tell one from another.
+The rules, from the icon-style research ([UNC's 1,260-person study][icon-study], [NN/g on
+recognizability][nng-icons], Apple's and Material's guidance on emphasis):
+
+- **One shape, one cue.** Each icon is a single filled silhouette with at most one cut-out,
+  and the cut-out is the thing that identifies it (the tag's hole, the play mark in a video).
+  Outlines with narrow inner spaces are exactly where outline icons lose to solid ones.
+- **Tell them apart by outer shape.** Every icon in one set has a different silhouette —
+  portrait page, landscape cards, a box with a thumb notch, a triangle, bars, an open book,
+  dots, a stamp, a tag, stacked units, sliders; in the tree a page, lines with no page, stacked
+  pages, a book, a globe, a picture, notes, a screen. Adding an icon means finding a shape the
+  set does not have yet.
+- **A second layer only at 45%.** Where depth carries meaning (the card behind a card, the back
+  of an open folder, the links between graph nodes) it is the same colour at 45%, never a
+  second colour.
+- **Quiet by colour, loud by state.** Inactive icons are `--color-fg-icon`, which every theme
+  now sets to its third text level — a filled shape at the secondary text colour weighs more
+  than the text beside it. Selection is the accent, as before; folders are the accent mixed
+  70% into the sidebar.
+
+[icon-study]: https://uxmovement.com/mobile/solid-vs-outline-icons-which-are-faster-to-recognize/
+[nng-icons]: https://www.nngroup.com/articles/icon-usability/
 
 ### App shell (`App.jsx`, `components/shell/`, `components/vault/`)
 
@@ -882,9 +934,27 @@ is not derivable from the code and that a future change is likely to reverse by 
   missing indicator is a smaller loss than a tree that refuses to open. A folder that mounts
   already open (after a tree refresh) fetches its children immediately; `treeVersion` is bumped
   after a rollback/sync so every open folder remounts.
-- **The context menu and the header buttons are gated by the same capabilities and hide
-  rather than disable** — a Reader's sidebar should read as a reading sidebar, and the two
-  cannot disagree. Reserved names (`names.js reservedNameError`) are refused at rename time.
+- **The context menu and the "+" menu are gated by the same capabilities and hide rather
+  than disable** — a Reader's sidebar should read as a reading sidebar, and the two cannot
+  disagree. Reserved names (`names.js reservedNameError`) are refused at rename time.
+- **Rows carry little, in small type.** A document shows its name without the extension, a
+  card count as a tiny outline and a number (no filled badge), and a thin line under the name
+  for how far it has been read (`rowFacts.js`) — nothing for a document never opened, so a
+  folder of untouched imports looks untouched. Icons are quiet silhouettes (see § Icons): a
+  type is its outer shape, never a colour; folders are a softened amber.
+  "Icons in the file tree" (Config → Appearance) turns them off, and a document then names its
+  type in small mono; the preference is `data-tree-icons` on the root, like the theme
+  (`treeIcons.js`), so the switch takes effect in an open tree with no shared state.
+- **The tree is docked or hidden, never a rail.** Docked, it resizes, snapping to 200, 260 and
+  340 px when a drag comes near — free resizing felt too precise (`treeLayout.js`); the arrow
+  keys step between those, a double-click resets. Hidden, it takes no room: resting the pointer
+  in the empty space left of the text slides it out (`useTreePeek`), with a strip beside the
+  text kept inert so a selection started at a line's edge never opens it, and choosing a
+  document puts it away. Over an EPUB the pointer is inside a section frame the view cannot
+  hear, so `useEpubBook` passes each move up as the same move over the frame element, in app
+  coordinates. The toggle is the tab bar's first slot, and choosing the Documents icon
+  while already on Documents toggles it too — both change one App-level preference
+  (`fb-doc-tree-hidden`), since the activity bar lives outside the view.
 - Renames and moves relocate open tabs and drafts (`useOpenTabs.relocateTabs`) so a later save
   writes to the new location instead of failing against the old one.
 
@@ -895,7 +965,7 @@ is not derivable from the code and that a future change is likely to reverse by 
   *are* the body, so annotating is the same `PUT /file` as editing — which is why
   `supportsHighlight` is computed *after* `canEditBody`, not before.
 - **Reconciliation happens during render, not in effects** (`tabsState.js`): resetting the
-  selection and inspector on file change, remapping path-keyed drafts on a move, pruning drafts
+  selection, the finder and the card draft on file change, remapping path-keyed drafts on a move, pruning drafts
   for closed tabs. An effect commits one frame first, which painted the previous document's
   state under the new one's heading. Each block converges because the marker is set to the very
   identity that triggered it and the updaters return `prev` when nothing changes.
@@ -904,22 +974,64 @@ is not derivable from the code and that a future change is likely to reverse by 
   fed by a snapshot draft, not the live selection, which collapses the moment a field is clicked.
 - **`useHighlightableRenderer`** captures the etag when content *loads*, not at save time —
   the question a save asks is "has anything changed since I started typing"; the server compares
-  only the body half, so a card added through the Inspector meanwhile merges. It never persists
+  only the body half, so a card added from the finder meanwhile merges. It never persists
   a path whose content has not loaded (the editor would be empty), keeps the draft on a refused
   save, and goes read-only rather than hiding Save. Overwrite re-sends without a version.
-- **`ReadingBar` is imported statically** and built by the editor; `ownsReadingBar` decides
-  only *where* it mounts. The bar shows two facts: the track is the furthest mark (only
-  advances), the text is where you are (moves both ways). The resume notice sits in front of the
-  controls rather than replacing them, because the document that most needs its mark corrected is
-  one already read into.
+- **`ReadingBar` is imported statically** and built by the editor, under the tab bar for every
+  format. It shows two facts: the full-width track is the furthest mark (only advances), the
+  text is where you are (moves both ways). The resume notice sits beside the controls rather than
+  replacing them, because the document that most needs its mark corrected is one already read
+  into. A format that records no position gets Find alone.
+- **`DocumentHead` is the same for every format**: the cover across the full width (or "Add
+  cover" on hover), then — on the reading measure the text below shares — the folder path, the
+  title and the tags. Inherited tags are dashed; a document's own can be removed, and "+ tag"
+  adds one in place, saving at once. The measure carries `data-measure`, which is what the
+  hidden tree's slide-out zone is measured against. A cover is the deck cover's component
+  (`cover/CoverBanner`) with a document source; the server keeps a document's cover through
+  every whole-sidecar write, since renderers save highlights by writing back what they loaded.
+- **The finder replaced the Inspector column.** Margin cards plus a side column took too much
+  width, and a column of everything loses the overview in a long book; the finder is a
+  condensed, searchable index over the document instead (Ctrl+F, or Find in the strip): Cards
+  and Highlights tabs, a colour bar per row, and choosing a row closes it and jumps to the
+  passage, which glows as it lands (`FLASH_DELAY` waits out the smooth scroll). Rows are in
+  reading order (`finderRows.readingOrder`: page and height for PDF, offset for text and clips,
+  CFI steps for EPUB, the marks' order on the page for Markdown), so a passage's cards sit
+  together. Hovering or focusing a row links it — the passage glows in its own colour (a ring
+  that blooms and settles, `hl-glow`), its cards lift in the margin (`outsideLinked`), and the
+  other rows of that passage light too. EPUB's passages are inside its frames and do not glow;
+  the margin still lifts. A highlight takes a new card or is removed from its row. Cards are written and
+  edited in the card editor over the document (`DocumentCardBench` for a new one, seeded from a
+  selection, a highlight or a figure; `useCardBench` to edit), never inside the document frame —
+  PDF and EPUB make in-text editing hard. Edits there refresh the open sidecar rather than
+  announcing a vault-wide change, which would remount the document and lose the scroll.
+- **Cards sit in the margin, level with their passage** (`margin/MarginCards`, for the
+  renderers whose registry entry sets `marginCards` — Markdown, text, clips and PDF, which all
+  draw a highlight as a `[data-hl]` element in the scroller, and EPUB, which does not). A highlight with no card is a
+  tick; one card is the card itself, read-only — click to turn it over, Edit for the card
+  editor; several are a kraft box (`DeckBox size="sm"`, card tops tinted by the highlight's
+  swatch, never by card type) the cards are pulled out of and put back into, animated. Items are
+  measured in the scroller's content space and stacked imperatively (`marginLayout.js`: level
+  with the passage, pushed down only as far as the item above needs), re-laid out by resize and
+  mutation observers rather than on scroll. Hovering a card lights its passage and the other way
+  round. The column shows only when the document area is at least 760px wide and has a
+  highlight; the scroller then keeps room on its right and the measure re-centres in what is
+  left. EPUB scrolls itself and draws its text in section frames, so it mounts the margin itself
+  (`renderMargin`, below) inside epub.js's scrolling container, hands it a `measure` that reads
+  each highlight's top and the text's right edge out of the frames (`useEpubHighlights`), and
+  makes the room inside the frames rather than around them: the book's column moves left by half
+  the margin's width (`epubTheme.marginStart`). Hover linking stops at the frame — a card lifts,
+  but the passage inside the book is not outlined.
+- **Removing a highlight that cards hang off asks in place**, where it was asked:
+  `pendingRemoval.from` is `toolbar` or `finder`, and the question — keep the cards, delete them
+  with it, or cancel — appears in that toolbar or that row, not in a dialog over the document.
 - **`useReadProgress`** debounces writes but not the readout; a lost position is not worth
   interrupting reading over. The "has the reader moved" guard lets one report through and then
   stands down, or it becomes a blind spot anchored to the resume position. Manual marks are what
   let the furthest mark move backwards.
-- Inspector tabs list newest first (the sidecar appends) and the `#n` badge keeps creation
-  order. Delete and edit are single server calls rather than read-modify-write of the sidecar,
-  which reverted anything else written in between. The Inspector's edit glyphs hide for a Reader
-  but "source" stays, since that is what a Reader came for.
+- The finder lists cards in the order their highlights were made, loose cards and cards whose
+  passage was removed last (`finderRows.js`). Edit and delete are single server calls rather than
+  read-modify-write of the sidecar, which reverted anything else written in between. Its edit
+  actions hide for a Reader, but jumping to a passage stays, since that is what a Reader came for.
 
 ### Renderers (`components/document/renderers/`)
 
@@ -977,7 +1089,7 @@ is not derivable from the code and that a future change is likely to reverse by 
 - **One card editor.** `FlashcardForm` is the editor everywhere: the type picker (five
   buttons that each say what the type does), the fields, then a live preview beside them —
   or on top, when the container is narrower than 600px (a container query, since the same
-  form sits in a wide bench and in the Inspector column). Until anything is written the
+  form sits in a wide bench and in the narrow card details). Until anything is written the
   preview shows a worked example of the type, faded and marked "Example", so a blank form
   still teaches what the type is for. `onDelete` adds a Delete that confirms in place.
   `CardBench` is the floating shell it opens in on Flashcards and Decks: it rises in on mount
@@ -991,7 +1103,7 @@ is not derivable from the code and that a future change is likely to reverse by 
   are pure in `cardLineText.js` (a separate name because `CardLine.jsx` and `cardLine.js`
   collide on a case-insensitive filesystem — an extensionless import picks the `.js`).
   "Due" is the last review plus the gap, counted in whole days; a card never reviewed says
-  "new". `CardRow` remains for the Inspector until Documents is revised.
+  "new".
 - **Editing is text-only**; media is preserved server-side, so the upload slots hide and the
   preview shows the stored media through `resolveMedia`. A pre-split `type_answer` card is seeded
   through `flashcardFields.js` so saving normalises it.
@@ -1012,7 +1124,7 @@ is not derivable from the code and that a future change is likely to reverse by 
   open — naming it is the first edit, not a form in the way. Rename and description are each
   edited in place (Enter or blur commits, Escape gives up); Delete confirms inline; Erase keeps
   `DeckPurgeDialog` because it destroys cards and has a choice to make. Adding cards is a
-  finder layer over the page. The **cover** is a banner below the title row (`DeckCover`):
+  finder layer over the page. The **cover** is a banner below the title row (`cover/CoverBanner`):
   an uploaded image, or one of two patterns drawn in the deck's colour, so a deck can have a
   face without anyone finding a picture. Change cover opens a small menu (the drawn ones as
   thumbnails, then Upload); Reposition turns the banner into a drag surface and saves one number,
@@ -1131,11 +1243,11 @@ of the theme cannot satisfy both. The families:
 
 | tokens | job |
 | --- | --- |
-| `--color-bg-base` / `-sidebar` / `-surface` / `-hover` / `-reader` / `-title-bar` / `-sidebar-header` | the surfaces |
+| `--color-bg-base` / `-sidebar` / `-surface` / `-desk` / `-hover` / `-reader` / `-title-bar` / `-sidebar-header` | the surfaces. The lighting follows the mockup: what you read or pick from (the document page, a list) is the brightest surface, and the frame around it — the reading strip, the open tab that runs into it, the Trainer's table — is `-desk`, a step darker in light themes. `-reader` equals `-surface` in the workbench themes |
 | `--color-bg-editor` | `light` or `dark`, the scheme the TipTap editor uses |
-| `--color-fg-primary` / `-secondary` / `-icon` | text and inactive icons |
+| `--color-fg-primary` / `-secondary` / `-tertiary` / `-icon` | text in three levels, and inactive icons (the tertiary value in every built-in theme — see § Icons). Tertiary dims what sits beside something that says more — a path, a count, a chevron, a kbd hint, an inherited tag — and holds the 3:1 floor rather than 4.5:1, so it never carries a fact alone |
 | `--color-accent`, `--color-accent-subtle`, `--color-on-accent` | the active colour, its tint, and the label on an accent fill |
-| `--color-border`, `--color-border-strong`, `--color-tree-indent` | hairlines; controls; the tree guide |
+| `--color-border`, `--color-line`, `--color-border-strong`, `--color-tree-indent` | structural edges (a panel, the tree, the tab bar); quieter dividers and outlines inside content (tags, quiet buttons, a row's rule); controls; the tree guide |
 | `--color-hl-1..4` | highlight swatches painted behind document text |
 | `--color-review-again/hard/good/easy`, `--color-on-review` | the grade buttons and the summary |
 | `--color-graph-document/folder/flashcard/tag/deck`, `-link`, `-disconnect`, `-inherit`, `-edge` | the graph's categorical palette |

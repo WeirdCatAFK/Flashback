@@ -1,7 +1,7 @@
 /**
  * The renderer registry: which component renders which extension, lazily for the
  * heavy ones, and each renderer's capabilities read as data by DocumentEditor
- * (editable, highlights, progress, who draws the reading bar).
+ * (editable, highlights, progress).
  */
 
 import { lazy } from 'react';
@@ -29,12 +29,14 @@ import { lazy } from 'react';
  * `currentPosition` on `progressRef` — which is what lets the editor draw the reading
  * bar before the renderer's chunk has even arrived.
  *
- * `ownsReadingBar` means the renderer already draws a toolbar of its own and will host
- * the reading controls inside it, so the editor must NOT also draw the standalone strip.
- * Without it the two stack: two full-width bars, same surface, same bottom border, one
- * directly under the other. It is read at the same moment as `tracksProgress` and for
- * the same reason — the editor decides where to put the bar before the chunk exists, so
- * the renderer cannot be asked. See INTERFACE.md § Renderers.
+ * `marginCards` means the renderer draws its highlights as `[data-hl]` elements in the
+ * editor's scroller, so the margin can find each passage and set its cards beside it.
+ *
+ * `hostsHead` means the renderer scrolls itself and mounts the document head (the `head`
+ * prop) inside its own scroller, instead of the editor placing it above. Only EPUB: epub.js
+ * scrolls either its own container or the window, never an ancestor, so the head has to go
+ * into the book's scroller to scroll away with the book.
+
  */
 const RENDERERS = {
     markdown: {
@@ -43,6 +45,7 @@ const RENDERERS = {
         editable: true,
         supportsHighlight: true,
         tracksProgress: true,
+        marginCards: true,
     },
     text: {
         load: lazy(() => import('./text/TextRenderer')),
@@ -50,6 +53,7 @@ const RENDERERS = {
         editable: true,
         supportsHighlight: true,
         tracksProgress: true,
+        marginCards: true,
     },
     pdf: {
         load: lazy(() => import('./pdf/PdfRenderer')),
@@ -57,7 +61,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
-        ownsReadingBar: true,
+        marginCards: true,
     },
     epub: {
         load: lazy(() => import('./epub/EpubRenderer')),
@@ -65,7 +69,8 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
-        ownsReadingBar: true,
+        hostsHead: true,
+        marginCards: true,
     },
     youtube: {
         load: lazy(() => import('./youtube/YoutubeRenderer')),
@@ -73,7 +78,6 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
-        ownsReadingBar: true,
     },
     clip: {
         load: lazy(() => import('./clip/ClipRenderer')),
@@ -81,6 +85,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
+        marginCards: true,
     },
 };
 
@@ -98,7 +103,6 @@ const PLACEHOLDER = {
     editable: false,
     supportsHighlight: false,
     tracksProgress: false,
-    ownsReadingBar: false,
 };
 
 const BY_EXTENSION = new Map();
@@ -112,7 +116,7 @@ for (const entry of Object.values(RENDERERS)) {
  *
  * @param {string} path
  * @returns {{ load: React.ComponentType, editable: boolean, supportsHighlight: boolean,
- *   tracksProgress: boolean, ownsReadingBar?: boolean }}
+ *   tracksProgress: boolean, marginCards?: boolean, hostsHead?: boolean }}
  */
 export function rendererFor(path) {
     if (!path) return PLACEHOLDER;

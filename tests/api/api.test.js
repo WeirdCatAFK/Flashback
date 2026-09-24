@@ -411,6 +411,52 @@ describe('Flashback API', () => {
             assert.equal(res.status, 201);
         });
 
+        it('document covers: pattern, upload into media/, survives a metadata write, reposition, replace, remove', async () => {
+            await createFile('covered.md', ROOT);
+            const docPath = `${ROOT}/covered.md`;
+            const mediaDir = path.join(getWorkspacePath(), ROOT, 'media');
+            const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+            const uploadCover = (bytes, type) => {
+                const form = new FormData();
+                form.append('path', docPath);
+                form.append('file', new Blob([bytes], { type }), 'cover');
+                return fetch(`${baseUrl}/api/documents/cover`, { method: 'POST', body: form });
+            };
+            const sidecar = async () => (await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(docPath)}`)).json()).metadata;
+
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, pattern: 'arcs' })).status, 200);
+            assert.deepEqual((await sidecar()).cover, { kind: 'pattern', pattern: 'arcs' });
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, pattern: 'plaid' })).status, 400);
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, y: 0.3 })).status, 404, 'a drawn cover cannot be repositioned');
+
+            assert.equal((await uploadCover('nope', 'text/plain')).status, 400);
+            const up = await uploadCover(png, 'image/png');
+            assert.equal(up.status, 201);
+            const first = (await up.json()).cover;
+            assert.ok(fsSync.existsSync(path.join(mediaDir, first.file)), 'the image sits in the folder\'s media/');
+            const served = await fetch(`${baseUrl}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(first.file)}`);
+            assert.equal(served.status, 200);
+
+            const meta = await sidecar();
+            delete meta.cover;
+            assert.equal((await put(`${baseUrl}/api/documents/metadata`, { path: docPath, metadata: { ...meta, tags: ['covered'] } })).status, 200);
+            assert.equal((await sidecar()).cover?.file, first.file, 'a whole-object metadata write keeps the cover');
+            assert.equal((await updateFile(docPath, '# Covered', { ...meta, cover: null })).status, 200);
+            assert.equal((await sidecar()).cover?.file, first.file, 'a body save with its sidecar keeps the cover too');
+
+            assert.equal((await (await put(`${baseUrl}/api/documents/cover`, { path: docPath, y: 0.8 })).json()).cover.y, 0.8);
+
+            const second = (await (await uploadCover(png, 'image/png')).json()).cover;
+            assert.ok(!fsSync.existsSync(path.join(mediaDir, first.file)), 'the replaced image is deleted');
+
+            const del = await fetch(`${baseUrl}/api/documents/cover`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: docPath }) });
+            assert.equal(del.status, 200);
+            assert.equal((await sidecar()).cover, undefined);
+            assert.ok(!fsSync.existsSync(path.join(mediaDir, second.file)));
+
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: `${ROOT}/nope.md`, pattern: 'cards' })).status, 404);
+        });
+
         it('PUT /api/documents/file → updates content and flashcards', async () => {
             const res = await updateFile(`${ROOT}/note.md`, '# Hello API', {
                 tags: ['api'],

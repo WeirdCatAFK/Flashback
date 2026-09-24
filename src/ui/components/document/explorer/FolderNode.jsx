@@ -20,7 +20,8 @@ import useRename from "./useRename";
 import useDropTarget from "./useDropTarget";
 import useFolderChildren from "./useFolderChildren";
 import FileNode from "./FileNode";
-import { RenameInput, InlineCreate, ProgressBadge } from "./TreeParts";
+import { RenameInput, InlineCreate, ReadLine, CardCount, Chevron } from "./TreeParts";
+import { readFacts } from "./rowFacts.js";
 
 export default function FolderNode({
   name,
@@ -55,6 +56,8 @@ export default function FolderNode({
   useEffect(() => {
     if (selected) nodeRef.current?.scrollIntoView({ block: "nearest" });
   }, [selected]);
+
+  const folderFacts = readFacts({ rollup }, t);
 
   const toggle = () => {
     if (!open) load();
@@ -134,6 +137,7 @@ export default function FolderNode({
       <div
         ref={nodeRef}
         className={`fe-folder${open ? " open" : ""}${selected ? " fe-selected" : ""}${drop.dragOver ? " fe-drag-over" : ""}`}
+        title={folderFacts.label ? `${name} · ${folderFacts.label}` : name}
         draggable
         onDragStart={(e) => {
           writeTransfer(e.dataTransfer, { path, isFolder: true });
@@ -142,7 +146,7 @@ export default function FolderNode({
         onContextMenu={handleContextMenu}
         {...drop.props}
       >
-        <span className="fe-chevron" onClick={toggle} />
+        <Chevron onClick={toggle} />
         {swatchColor && (
           <span
             className="fe-folder-swatch"
@@ -150,7 +154,7 @@ export default function FolderNode({
           />
         )}
         <span className="fe-folder-icon" onClick={toggle}>
-          {open ? <IconFolderOpen size={14} /> : <IconFolder size={14} />}
+          {open ? <IconFolderOpen /> : <IconFolder />}
         </span>
         <span className="fe-item-label" onClick={toggle}>
           {rename.renaming ? (
@@ -159,10 +163,8 @@ export default function FolderNode({
             name
           )}
         </span>
-        <ProgressBadge rollup={rollup} />
-        {flashcardCount > 0 && (
-          <span className="badge fe-fc-badge">{flashcardCount}</span>
-        )}
+        <CardCount n={flashcardCount} />
+        <ReadLine facts={folderFacts} />
       </div>
 
       {open && (

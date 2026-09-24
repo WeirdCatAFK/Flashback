@@ -1,9 +1,12 @@
 /**
- * What the toolbar, the inspector and a renderer's figure button do to
- * highlights and cards: paint or recolour, remove (asking first when cards hang
- * off the highlight), open the card form with a draft, and scroll to a highlight
- * another view asked for. One highlight is one save, so a created or recoloured
- * highlight is committed on the spot.
+ * What the selection toolbar, the finder and a renderer's figure button do to
+ * highlights and cards: paint or recolour (a selection, or a clicked highlight by
+ * id), remove (asking first, in place, when
+ * cards hang off the highlight — `pendingRemoval.from` says whether the toolbar or
+ * the finder asked, so the question appears where it was raised), open the card
+ * editor with a draft, and scroll to a highlight another view asked for. One
+ * highlight is one save, so a created or recoloured highlight is committed on the
+ * spot.
  */
 
 import { useState, useEffect, useRef, useCallback } from "react";
@@ -24,7 +27,6 @@ export default function useHighlightActions({
   pendingHighlight,
   onHighlightConsumed,
 }) {
-  const [inspectorTab, setInspectorTab] = useState("cards");
   const [cardDraft, setCardDraft] = useState(null);
   const [pendingRemoval, setPendingRemoval] = useState(null);
   const onConsumedRef = useRef(onHighlightConsumed);
@@ -33,16 +35,12 @@ export default function useHighlightActions({
   const [prevActiveTab, setPrevActiveTab] = useState(activeTab);
   if (prevActiveTab !== activeTab) {
     setPrevActiveTab(activeTab);
-    setInspectorTab("cards");
     setCardDraft(null);
     setPendingRemoval(null);
   }
 
   const save = (transform) => saveRef.current?.(transform);
-  const openNewCard = (draft) => {
-    setCardDraft(draft);
-    setInspectorTab("new-card");
-  };
+  const openNewCard = (draft) => setCardDraft(draft ?? {});
 
   const highlight = useCallback(
     (color) => {
@@ -54,10 +52,10 @@ export default function useHighlightActions({
     [highlightRef, saveRef, clearSelection],
   );
 
-  const requestRemoval = (id, remove) => {
+  const requestRemoval = (id, from, remove) => {
     const count = id ? cardsForHighlight(flashcards, id) : 0;
     if (count > 0) {
-      setPendingRemoval({ id, cardCount: count });
+      setPendingRemoval({ id, cardCount: count, from });
       return;
     }
     remove();
@@ -65,19 +63,27 @@ export default function useHighlightActions({
 
   const unhighlight = () => {
     const id = highlightRef.current?.currentId?.();
-    requestRemoval(id, () => {
+    requestRemoval(id, "toolbar", () => {
       highlightRef.current?.unset?.();
       clearSelection();
       save();
     });
   };
 
-  const deleteHighlight = (id) => {
+  const deleteHighlight = (id, from = "finder") => {
     if (!id) return;
-    requestRemoval(id, () => {
+    requestRemoval(id, from, () => {
       const res = highlightRef.current?.remove?.(id);
+      if (from === "toolbar") clearSelection();
       if (res?.kind === "removed") save();
     });
+  };
+
+  /** A clicked highlight takes another colour; one recolour is one save. */
+  const recolor = (id, color) => {
+    const res = highlightRef.current?.recolor?.(id, color);
+    clearSelection();
+    if (res?.kind === "recolored") save();
   };
 
   const resolveRemoval = (deleteCards) => {
@@ -116,8 +122,6 @@ export default function useHighlightActions({
 
   const cardSaved = () => {
     clearSelection();
-    setCardDraft(null);
-    setInspectorTab("cards");
     if (activeTab) refreshSidecar(activeTab);
   };
 
@@ -128,14 +132,6 @@ export default function useHighlightActions({
       highlightId,
       color: h?.color ?? DEFAULT_HL_COLOR,
     });
-  };
-
-  const changeInspectorTab = (tab) => {
-    setInspectorTab(tab);
-    if (tab !== "new-card") {
-      clearSelection();
-      setCardDraft(null);
-    }
   };
 
   useEffect(() => {
@@ -151,18 +147,18 @@ export default function useHighlightActions({
   }, [highlights, pendingHighlight, activeTab, highlightRef]);
 
   return {
-    inspectorTab,
     cardDraft,
+    closeCardDraft: () => setCardDraft(null),
     pendingRemoval,
     highlight,
     unhighlight,
     deleteHighlight,
+    recolor,
     resolveRemoval,
     makeCard,
     pickImage,
     cardSaved,
     cardFromHighlight,
-    changeInspectorTab,
     cancelRemoval: () => setPendingRemoval(null),
     jumpToHighlight: (id) => highlightRef.current?.scrollTo?.(id),
   };

@@ -1,7 +1,8 @@
 /**
  * EditorTabBar — the open documents as tabs: the active one, the preview one
  * (italic, replaced by the next single click), the dirty marker and the save
- * button.
+ * button. `leading` is drawn in the first slot, before the tabs (the file tree's
+ * toggle).
  */
 
 import IconSave from "../icons/IconSave";
@@ -13,6 +14,7 @@ function getLabel(path) {
 }
 
 export default function EditorTabBar({
+  leading = null,
   tabs,
   activeTab,
   previewTab,
@@ -27,6 +29,7 @@ export default function EditorTabBar({
   const { t } = useT();
   return (
     <div className="tab-bar">
+      {leading}
       <div className="tab-bar-scroll" role="tablist">
         {tabs.map(({ path }) => {
           const label = getLabel(path);

@@ -1,6 +1,6 @@
 /**
  * SelectionToolbar — the floating toolbar over a text selection: highlight
- * colours, remove, and make a card. Portaled to body and positioned from a
+ * colours, make a card, and remove — with its confirmation in place. Portaled to body and positioned from a
  * shell-layout rect (utils/uiZoom.js).
  */
 
@@ -21,14 +21,16 @@ const highlightColors = (t) => [
 ];
 
 /**
- * Floating toolbar over a text selection. Two verbs:
- * • color dot — highlight the selection (the highlight IS the reference;
- * it appears in the Highlights tab and can anchor cards later)
- * • Card — highlight (default color) + open the New Card form anchored to it
- * Renderers that can't persist highlights only get the Card verb.
+ * Floating toolbar over a text selection or an existing highlight: the colour
+ * swatches (paint, or recolour), Card (highlight in the default colour, then open
+ * the card editor anchored to it), and Remove on a highlight. Removing a highlight
+ * that cards hang off asks first, in the toolbar itself — keep the cards, delete
+ * them with it, or cancel — rather than in a dialog over the document. Over a
+ * clicked highlight, `currentColor` marks its swatch as the one it has.
+ * Renderers that can't persist highlights only get Card.
  */
-export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhighlight, onClear }) {
-  const { t } = useT();
+export default function SelectionToolbar({ rect, currentColor = null, onMakeCard, onHighlight, onUnhighlight, removal = null, onResolveRemoval, onCancelRemoval, onClear }) {
+  const { t, tp } = useT();
   const { can } = useSession();
   const mayHighlight = can('annotate');
   const mayMakeCard  = can('editCards');
@@ -45,38 +47,47 @@ export default function SelectionToolbar({ rect, onMakeCard, onHighlight, onUnhi
   return createPortal(
     <div
       className="selection-toolbar"
+      role="toolbar"
+      aria-label={t('Highlight')}
       style={{ top, left }}
       onMouseDown={(e) => e.preventDefault()}
     >
-      {onHighlight && mayHighlight && (
+      {removal ? (
         <>
-          {highlightColors(t).map(({ key, cssVar, label }) => (
-            <button type="button"
-              key={key}
-              className="sel-color-dot"
-              style={{ '--dot-color': `var(${cssVar})` }}
-              title={t('Highlight — {color}', { color: label })}
-              aria-label={t('Highlight: {color}', { color: label })}
-              onClick={() => handleColor(key)}
-            />
-          ))}
-          {onUnhighlight && (
-            <button type="button"
-              className="sel-color-dot sel-color-dot--clear"
-              title={t('Remove highlight')}
-              onClick={onUnhighlight}
-              aria-label={t('Remove highlight')}
-            >
-              ×
+          <span className="sel-confirm-text">{tp('This passage has {n} card.', 'This passage has {n} cards.', removal.cardCount)}</span>
+          <button type="button" className="sel-btn" onClick={() => onResolveRemoval(false)}>{t('Keep cards')}</button>
+          <button type="button" className="sel-btn sel-btn--danger" onClick={() => onResolveRemoval(true)}>{t('Delete cards')}</button>
+          <button type="button" className="sel-btn" onClick={onCancelRemoval}>{t('Cancel')}</button>
+        </>
+      ) : (
+        <>
+          {onHighlight && mayHighlight && (
+            <>
+              {highlightColors(t).map(({ key, cssVar, label }) => (
+                <button type="button"
+                  key={key}
+                  className="sel-color-dot"
+                  aria-pressed={currentColor ? currentColor === key : undefined}
+                  style={{ '--dot-color': `var(${cssVar})` }}
+                  title={t('Highlight — {color}', { color: label })}
+                  aria-label={t('Highlight: {color}', { color: label })}
+                  onClick={() => handleColor(key)}
+                />
+              ))}
+              <div className="sel-divider" />
+            </>
+          )}
+          {mayMakeCard && (
+            <button type="button" className="sel-btn" onClick={onMakeCard}>
+              {t('Card')}
             </button>
           )}
-          <div className="sel-divider" />
+          {onHighlight && mayHighlight && onUnhighlight && (
+            <button type="button" className="sel-btn sel-btn--danger" onClick={onUnhighlight}>
+              {t('Remove')}
+            </button>
+          )}
         </>
-      )}
-      {mayMakeCard && (
-        <button type="button" className="sel-btn sel-btn--card" onClick={onMakeCard}>
-          {t('+ Card')}
-        </button>
       )}
     </div>,
     document.body
