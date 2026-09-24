@@ -404,10 +404,16 @@ export default function App() {
           />
         );
       case "flashcards":
-        return <FlashcardsView />;
+        return (
+          <FlashcardsView
+            isActive={activeView === "flashcards"}
+            onOpenSource={handleOpenDocumentSource}
+          />
+        );
       case "decks":
         return (
           <DecksView
+            isActive={activeView === "decks"}
             onStudyDeck={handleStartStudy}
             openDeck={pendingDeck}
             onOpenDeckConsumed={() => setPendingDeck(null)}

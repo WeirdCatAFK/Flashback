@@ -1,10 +1,10 @@
 /**
- * The Decks view's smaller panels: the new-deck form, the add-cards search
- * panel, and a deck's tag row.
+ * The deck page's smaller panels: the add-cards layer and a deck's tag row.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { createDeck, addEntry, searchCards, setDeckTags } from '../../api/decks';
+import { addEntry, searchCards, setDeckTags } from '../../api/decks';
+import { frontLine, docTitle } from '../../components/flashcard/cardLineText.js';
 import { getTags } from '../../api/documents';
 import TagChipInput from '../../components/base/TagChipInput';
 import { useSession } from '../../sessionContext.js';
@@ -13,48 +13,12 @@ import { useT } from '../../translations/index';
 const SEARCH_DEBOUNCE = 250;
 const SEARCH_LIMIT = 50;
 
-export function NewDeckForm({ onCreated, onCancel }) {
-  const { t } = useT();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [saving, setSaving] = useState(false);
-  const inputRef = useRef();
-
-  useEffect(() => { inputRef.current?.focus(); }, []);
-
-  const submit = async (e) => {
-    e.preventDefault();
-    if (!name.trim()) return;
-    setSaving(true);
-    try {
-      const { globalHash } = await createDeck(name.trim(), description.trim());
-      onCreated(globalHash);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <form className="new-deck-form" onSubmit={submit}>
-      <label>
-        {t('Name')}
-        <input ref={inputRef} className="field" value={name} onChange={(e) => setName(e.target.value)} placeholder={t('Deck name')} required />
-      </label>
-      <label>
-        {t('Description')}
-        <textarea className="field" value={description} onChange={(e) => setDescription(e.target.value)} placeholder={t('Optional description')} rows={2} />
-      </label>
-      <div className="new-deck-actions">
-        <button type="button" className="btn" onClick={onCancel}>{t('Cancel')}</button>
-        <button type="submit" className="btn btn--primary" disabled={saving || !name.trim()}>
-          {saving ? t('Creating…') : t('Create')}
-        </button>
-      </div>
-    </form>
-  );
-}
-
-export function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
+/**
+ * Adding cards: a layer over the deck page that searches every card in your
+ * library. A row says whether the card is already in this deck; choosing one that
+ * is not adds it. Escape or the Esc key closes it.
+ */
+export function AddCardsPanel({ deckHash, deckName, existingHashes, onAdded, onClose }) {
   const { t } = useT();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -64,7 +28,7 @@ export function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
   const debounceRef = useRef(null);
 
   const fetchCards = useCallback((q) => {
-    searchCards({ search: q || null, limit: SEARCH_LIMIT }).then((res) => {
+    searchCards({ search: q || null, sortBy: 'front', sortDir: 'asc', limit: SEARCH_LIMIT }).then((res) => {
       setResults(res.cards);
       setTotal(res.total);
     }).catch(console.error);
@@ -80,6 +44,7 @@ export function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
   };
 
   const handleAdd = async (card) => {
+    if (added.has(card.global_hash) || adding.has(card.global_hash)) return;
     setAdding((prev) => new Set(prev).add(card.global_hash));
     try {
       await addEntry(deckHash, card.global_hash, card.document_path ?? null);
@@ -93,33 +58,47 @@ export function AddCardsPanel({ deckHash, existingHashes, onAdded, onClose }) {
   };
 
   return (
-    <div className="add-cards-panel">
-      <div className="header-row add-cards-header">
-        <span className="add-cards-title">{t('Add cards to deck')}</span>
-        <button type="button" className="btn-close" onClick={onClose} title={t('Close')}>×</button>
+    <div
+      className="dk-finder"
+      role="dialog"
+      aria-label={t('Add cards to {deck}', { deck: deckName })}
+      onKeyDown={(e) => { if (e.key === 'Escape') { e.stopPropagation(); onClose(); } }}
+    >
+      <div className="dk-finder-head">
+        <input
+          type="search"
+          autoFocus
+          placeholder={t('Find cards to add')}
+          aria-label={t('Find cards to add')}
+          value={query}
+          onChange={onQueryChange}
+        />
+        <button type="button" className="dk-finder-close" onClick={onClose} aria-label={t('Close')}>{t('Esc')}</button>
       </div>
-      <div className="add-cards-search">
-        <input className="field" autoFocus placeholder={t('Search cards…')} aria-label={t('Search cards')} value={query} onChange={onQueryChange} />
-      </div>
-      <div className="add-cards-results">
-        {results.length === 0 && <div className="muted add-cards-empty">{t('No cards found.')}</div>}
+      <div className="dk-finder-body">
+        {results.length === 0 && <p className="dk-finder-empty">{t('No card matches.')}</p>}
         {results.map((card) => {
           const isAdded = added.has(card.global_hash);
           const isAdding = adding.has(card.global_hash);
           return (
-            <div key={card.global_hash} className="add-card-row">
-              <div className="add-card-row-body">
-                <div className="add-card-front">{card.frontText || card.name || t('(untitled)')}</div>
-                {card.document_name && <div className="add-card-doc">{card.document_name}</div>}
-              </div>
-              <button type="button" className="btn btn--sm" disabled={isAdded || isAdding} onClick={() => handleAdd(card)}>
-                {isAdded ? t('Added') : isAdding ? '…' : t('+ Add')}
-              </button>
-            </div>
+            <button
+              key={card.global_hash}
+              type="button"
+              className={`dk-pick${isAdded ? ' is-in' : ''}`}
+              onClick={() => handleAdd(card)}
+              aria-disabled={isAdded}
+            >
+              <i aria-hidden="true" />
+              <span className="dk-pick-text">{frontLine(card) || t('(empty card)')}</span>
+              <span className="dk-pick-meta">
+                <span>{card.document_path ? docTitle(card.document_path) : t('Cards')}</span>
+                <span>{isAdded ? t('in this deck') : isAdding ? '…' : <b>{t('Add')}</b>}</span>
+              </span>
+            </button>
           );
         })}
       </div>
-      <div className="add-cards-info">{t('Showing {shown} of {total} cards', { shown: results.length, total })}</div>
+      <div className="dk-finder-foot">{t('Showing {shown} of {total} cards', { shown: results.length, total })}</div>
     </div>
   );
 }

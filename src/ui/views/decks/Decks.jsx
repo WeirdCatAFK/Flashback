@@ -1,64 +1,88 @@
 /**
- * Decks — the deck list beside the selected deck's detail, plus creating a deck
- * and importing an Anki package or Obsidian vault (the same package flow the
- * file explorer uses, from hooks/useImports.js).
+ * Decks — boxes you pack to study together. The grid shows every deck as a box in
+ * its colour (the default deck, which holds cards made without a document, in
+ * kraft); opening one shows its page. Importing an Anki package or Obsidian vault
+ * starts here too (the same flow the file explorer uses, from hooks/useImports.js).
  */
 
 import { useState, useEffect, useRef } from 'react';
 import AnkiMappingModal from '../../components/deck/AnkiMappingModal';
+import DeckBox from '../../components/deck/DeckBox';
 import ProgressDialog from '../../components/base/ProgressDialog';
+import { ErrorState } from '../../components/base/StateView';
 import useImports from '../../hooks/useImports';
+import { createDeck } from '../../api/decks';
 import { useSession } from '../../sessionContext.js';
 import { useT } from '../../translations/index';
 import useDecks from './useDecks';
 import DeckDetail from './DeckDetail';
-import { NewDeckForm } from './DeckPanels';
+import { deckColor, deckStatus, longTermShare, newDeckName } from './deckShelf.js';
 import './Decks.css';
 
-const ImportIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-    <path d="M12 12L8 8L4 12" />
-    <line x1="8" y1="8" x2="8" y2="15" />
-    <rect x="2" y="2" width="12" height="4" rx="1" />
-  </svg>
-);
-
-/** One deck in the list: its name, the system badge, and its card count. */
-function DeckListItem({ deck, active, onSelect }) {
+/** One deck in the grid: its box, its name, what is due, and its long-term line. */
+function DeckTile({ deck, onOpen }) {
   const { t, tp } = useT();
+  const status = deckStatus(deck.standing, t, tp);
+  const share = longTermShare(deck.standing, deck.entry_count);
   return (
-    <div className={`deck-item${active ? ' active' : ''}`} onClick={onSelect}>
-      <span className="deck-item-icon">▤</span>
-      <div className="deck-item-info">
-        <div className="deck-item-name">
-          {deck.name}
-          {deck.is_system ? <span className="badge badge--accent">{t('default')}</span> : null}
-        </div>
-        <div className="deck-item-count">{tp('{n} card', '{n} cards', deck.entry_count)}</div>
-      </div>
-    </div>
+    <button
+      type="button"
+      className="dk-tile"
+      onClick={onOpen}
+      title={deck.is_system ? t('Cards: the default deck. Cards made without a document live here.') : (deck.description || deck.name)}
+    >
+      <DeckBox color={deckColor(deck)} count={deck.entry_count} />
+      <span className="dk-name">
+        {deck.name}
+        {deck.is_system ? <span className="dk-default">{t('default')}</span> : null}
+      </span>
+      <span className="dk-meta">{status.strong ? <b>{status.text}</b> : status.text}</span>
+      <span className="dk-line" aria-hidden="true"><i style={{ width: `${Math.round(share * 100)}%` }} /></span>
+    </button>
   );
 }
 
-export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed }) {
-  const { t } = useT();
+export default function DecksView({ isActive = true, onStudyDeck, openDeck, onOpenDeckConsumed }) {
+  const { t, tp } = useT();
   const { can } = useSession();
-  const { decks, loading, error, refresh, version } = useDecks();
+  const { decks, loading, error, refresh, version } = useDecks({ isActive });
   const imports = useImports();
   const [activeDeck, setActiveDeck] = useState(null);
+  const [fresh, setFresh] = useState(null);
+  const [note, setNote] = useState('');
   const [creating, setCreating] = useState(false);
   const importInputRef = useRef(null);
 
   useEffect(() => {
     if (!openDeck) return;
     setActiveDeck(openDeck);
-    setCreating(false);
     onOpenDeckConsumed?.();
   }, [openDeck, onOpenDeckConsumed]);
 
-  const select = (hash) => { setActiveDeck(hash); setCreating(false); };
-  const handleCreated = (hash) => { setCreating(false); refresh(); setActiveDeck(hash); };
-  const handleDeleted = () => { setActiveDeck(null); refresh(); };
+  const open = (hash) => { setActiveDeck(hash); setFresh(null); setNote(''); };
+  const back = () => { setActiveDeck(null); setFresh(null); };
+
+  const newDeck = async () => {
+    if (creating) return;
+    setCreating(true);
+    try {
+      const { globalHash } = await createDeck(newDeckName(decks, t));
+      refresh();
+      setNote('');
+      setActiveDeck(globalHash);
+      setFresh(globalHash);
+    } catch (err) {
+      setNote(err.message ?? String(err));
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleDeleted = (name) => {
+    setActiveDeck(null);
+    setNote(t('Deleted “{name}”. Its cards are still in your library.', { name }));
+    refresh();
+  };
   const handleStudy = (deck) => onStudyDeck?.({ deck: deck.global_hash, deckName: deck.name });
 
   const importError = imports.error && t('Couldn’t import "{name}". {reason}', {
@@ -68,65 +92,56 @@ export default function DecksView({ onStudyDeck, openDeck, onOpenDeckConsumed })
 
   return (
     <div className="decks-view">
-      <div className="decks-panel">
-        <div className="header-row decks-panel-header">
-          <span className="decks-panel-title">{t('Decks')}</span>
-          <div className="decks-panel-actions">
+      {activeDeck ? (
+        <DeckDetail
+          key={activeDeck}
+          deckHash={activeDeck}
+          version={version}
+          fresh={fresh === activeDeck}
+          onBack={back}
+          onDeleted={handleDeleted}
+          onRefreshList={refresh}
+          onStudy={handleStudy}
+        />
+      ) : (
+        <>
+          <div className="dk-head">
+            <h2 className="dk-title">{t('Decks')}</h2>
+            {!loading && <span className="dk-sub">{tp('{n} deck · a card can sit in several', '{n} decks · a card can sit in several', decks.length)}</span>}
+            <span className="dk-grow" />
             {can('importDocuments') && (
-              <button type="button" className="btn btn--ghost btn--icon btn--sm" title={t('Import an Anki deck (.apkg) or Obsidian vault (.zip)')} onClick={() => importInputRef.current?.click()} aria-label={t('Import deck')}>
-                <ImportIcon />
+              <button type="button" className="btn btn--quiet btn--sm" title={t('Import an Anki deck (.apkg) or Obsidian vault (.zip)')} onClick={() => importInputRef.current?.click()}>
+                {t('Import from Anki')}
               </button>
             )}
-            {can('manageDecks') && (
-              <button type="button" className="btn btn--ghost btn--icon btn--sm" title={t('New deck')} onClick={() => { setCreating(true); setActiveDeck(null); }}>+</button>
+            <input
+              ref={importInputRef}
+              type="file"
+              accept=".apkg,.zip"
+              hidden
+              onChange={(e) => { imports.importFiles(Array.from(e.target.files || []), ''); e.target.value = ''; }}
+            />
+          </div>
+          <div className="dk-body">
+            {!loading && error && <ErrorState error={error} title={t('Failed to load decks.')} onRetry={refresh} />}
+            {!error && (
+              <div className="dk-grid">
+                {decks.map((deck) => (
+                  <DeckTile key={deck.global_hash} deck={deck} onOpen={() => open(deck.global_hash)} />
+                ))}
+                {can('manageDecks') && (
+                  <button type="button" className="dk-tile dk-add" onClick={newDeck} disabled={creating}>
+                    <span className="dk-add-box" aria-hidden="true">+</span>
+                    <span className="dk-name">{t('New deck')}</span>
+                    <span className="dk-meta">{t('pack cards from anywhere')}</span>
+                  </button>
+                )}
+              </div>
             )}
+            {note && <p className="dk-note" role="status">{note}</p>}
           </div>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".apkg,.zip"
-            style={{ display: 'none' }}
-            onChange={(e) => { imports.importFiles(Array.from(e.target.files || []), ''); e.target.value = ''; }}
-          />
-        </div>
-
-        <div className="decks-list">
-          {loading && <div className="decks-empty">{t('Loading…')}</div>}
-          {!loading && error && (
-            <div className="decks-empty decks-empty--error">
-              <span>{t('Failed to load decks.')}</span>
-              <button type="button" className="btn btn--sm" onClick={refresh}>{t('Try again')}</button>
-            </div>
-          )}
-          {!loading && !error && decks.length === 0 && !creating && (
-            <div className="decks-empty">
-              {t('No decks yet.')}
-              {can('manageDecks') && <><br />{t('Click + to create one.')}</>}
-            </div>
-          )}
-          {decks.map((deck) => (
-            <DeckListItem key={deck.global_hash} deck={deck} active={activeDeck === deck.global_hash} onSelect={() => select(deck.global_hash)} />
-          ))}
-        </div>
-      </div>
-
-      <div className="deck-content">
-        {creating ? (
-          <>
-            <div className="deck-detail-header">
-              <div className="deck-detail-title-group"><h2 className="deck-detail-name">{t('New Deck')}</h2></div>
-            </div>
-            <NewDeckForm onCreated={handleCreated} onCancel={() => setCreating(false)} />
-          </>
-        ) : activeDeck ? (
-          <DeckDetail key={`${activeDeck}:${version}`} deckHash={activeDeck} onDeleted={handleDeleted} onRefreshList={refresh} onStudy={handleStudy} />
-        ) : (
-          <div className="deck-empty-state">
-            <div className="deck-empty-icon">▤</div>
-            <div className="deck-empty-text">{t('Select a deck or create a new one to get started.')}</div>
-          </div>
-        )}
-      </div>
+        </>
+      )}
 
       {imports.importing && (
         <ProgressDialog

@@ -9,6 +9,8 @@ import { currentScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
 import { sm2Interval, leitnerInterval } from '../../../shared/intervals.js';
 
+export { gapBand, GAP_BANDS, LONG_TERM_DAYS } from '../../../shared/intervals.js';
+
 export const LEARNING_REVIEWS = 3;
 
 /** The level at which a card counts as mastered, for the Flashcards sidebar's summary of its own box histogram. */
@@ -279,6 +281,30 @@ class SRSService {
             reviewCount: (await query.getAllReviewHistories(scope)).length,
             minReviews: fsrs.MIN_OPTIMIZE_REVIEWS,
         };
+    }
+
+    /**
+     * Every card's current gap between reviews, in days, for this person under
+     * `algorithm` — null for a card they have never reviewed — with when they last
+     * reviewed it. The same maths the Statistics view uses, so a card sits in the
+     * same band on both screens.
+     * @returns {Promise<Map<string, { gap: number|null, lastRecall: string|null }>>} keyed by card hash
+     */
+    async cardSchedule({ algorithm: requested = null, scope: scopeArg = null } = {}) {
+        const scope = this._scope(scopeArg);
+        const algorithm = requested ?? await this.detectAlgorithm(scope);
+        const cards = await query.getAllFlashcardSrsState(scope);
+        const efMap = algorithm === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
+        return new Map(cards.map((c) => [c.global_hash, {
+            gap: isReviewedCard(c, algorithm) ? intervalOfCard(c, algorithm, efMap?.get(c.global_hash) ?? 2.5) : null,
+            lastRecall: c.last_recall ?? null,
+        }]));
+    }
+
+    /** `cardSchedule` narrowed to the gap: `Map<hash, days|null>`. */
+    async cardGaps(opts = {}) {
+        const schedule = await this.cardSchedule(opts);
+        return new Map([...schedule].map(([hash, s]) => [hash, s.gap]));
     }
 
     /** This person's review analytics over the whole vault. */

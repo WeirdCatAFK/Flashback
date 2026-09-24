@@ -71,7 +71,7 @@ export const CAPABILITIES = {
     changeVaultShape: { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/move"], ["documents", "DELETE", "/"]] },
     importDocuments:  { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/import"], ["subscriptions", "POST", "/import"]] },
     editCards:        { minimum: ROLES.ADMIN, guards: [["flashcards", "POST", "/"], ["flashcards", "DELETE", "/abc123"]] },
-    manageDecks:      { minimum: ROLES.ADMIN, guards: [["decks", "POST", "/"], ["decks", "DELETE", "/abc123"]] },
+    manageDecks:      { minimum: ROLES.ADMIN, guards: [["decks", "POST", "/"], ["decks", "DELETE", "/abc123"], ["decks", "POST", "/abc123/cover"]] },
     manageCategories: { minimum: ROLES.ADMIN, guards: [["categories", "POST", "/"], ["categories", "PUT", "/1"]] },
     manageMedia:      { minimum: ROLES.ADMIN, guards: [["media", "POST", "/reconcile"], ["media", "DELETE", "/"]] },
     viewHistory:      { minimum: ROLES.ADMIN, guards: [["seal", "GET", "/log"]] },

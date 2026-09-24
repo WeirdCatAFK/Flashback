@@ -89,6 +89,39 @@ export function isCardValid(cardType, f) {
   }
 }
 
+/** Whether nothing has been written yet for this card type. */
+export function isCardBlank(cardType, f) {
+  switch (cardType) {
+    case 'basic':
+    case 'reversible':  return !f.front.trim() && !f.back.trim();
+    case 'cloze':       return !f.clozeText.trim();
+    case 'type_answer': return !f.question.trim() && !f.expectedAnswer.trim() && !(f.notes ?? '').trim();
+    case 'custom':      return !f.customHtml.trim();
+    default:            return true;
+  }
+}
+
+/**
+ * A worked example of each type, in the same field bag, for the editor's preview to
+ * show (faded, marked "Example") until anything has been written. A function of `t`
+ * so the example reads in the interface language.
+ */
+export function exampleFields(cardType, t) {
+  const empty = { front: '', back: '', clozeText: '', question: '', expectedAnswer: '', notes: '', customHtml: '' };
+  switch (cardType) {
+    case 'reversible':
+      return { ...empty, front: t('mitochondrion'), back: t('The organelle that makes most of a cell’s ATP') };
+    case 'cloze':
+      return { ...empty, clozeText: t('The {{mitochondria}} is the powerhouse of the {{cell}}.') };
+    case 'type_answer':
+      return { ...empty, question: t('Chemical symbol for tungsten'), expectedAnswer: 'W', notes: t('From its other name, wolfram.') };
+    case 'custom':
+      return { ...empty, customHtml: `<div style="font:18px/1.4 sans-serif;padding:24px;text-align:center">${t('Name the <b>largest</b> planet.')}</div>` };
+    default:
+      return { ...empty, front: t('What is the capital of France?'), back: t('Paris') };
+  }
+}
+
 /**
  * The shape the live <Flashcard> preview renders. `media` holds ready-to-load URLs,
  * not stored references: object URLs for files being uploaded, /api/media URLs for

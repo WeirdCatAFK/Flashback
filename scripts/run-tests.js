@@ -57,6 +57,7 @@ const tests = [
   "tests/ui.graph.test.js",
   "tests/ui.seal.test.js",
   "tests/ui.shell.test.js",
+  "tests/ui.flashcards.test.js",
   "tests/stats.test.js",
   "tests/diary.test.js",
   "tests/mcpReader.test.js",

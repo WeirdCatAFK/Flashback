@@ -34,6 +34,32 @@ The interface is moving to a new design language, one area at a time. In this re
 - **Each grade button says when that grade brings the card back** ("Good · in 8 days"). For
   FSRS, `GET /api/srs/due` returns the preview (`preview`, optional `retention` parameter).
 - **The card grows with the window** and sits just above the grade buttons.
+- **Flashcards is a catalogue.** A large search comes first; on the left, your cards' sources
+  are drawn like the file tree (documents, then Cards, the default deck), each with a count and
+  a thin line for how much of it you hold long-term. Below them, cards are sorted by the **gap
+  between reviews** — New, 1 day, up to a week, up to 3 weeks, up to 2 months, longer — which
+  works the same for every scheduler and replaces the Levels chart; then Health (flagged,
+  overloaded, productive). The list can be ordered by next review, source, A to Z or newest,
+  and grouped by gap or source. Each row says where the card comes from and when it is next
+  due; Ctrl+F jumps to the search.
+- **One card editor.** Clicking a card opens it in a card editor that floats over the screen,
+  with the type picker, the fields and a live preview side by side; a blank card previews a
+  worked example of its type. Deleting a card confirms in place. The same editor makes new
+  cards on Flashcards and Decks, and appears in the card details.
+- **Decks are boxes.** Each deck is drawn as a box of cards in its own colour, with what is
+  due and how much is held long-term; the default deck is the kraft one. A deck's page shows
+  its box, lets you rename it and edit its description in place, recolour it, and add cards
+  from a finder over the page. "New deck" makes the deck at once and opens it, ready to name.
+  A deck's colour is stored in its `_decks/<uuid>.json` (`color`); decks made before this show
+  a colour picked from their id.
+- **Deck covers.** A deck's page can carry a banner, like a Notion cover: upload an image, or
+  pick one of the patterns drawn in the deck's colour. Drag an image to choose which part
+  shows. Images are kept in `workspace/_decks/covers/`, versioned by Seal with the deck; the
+  new routes are `GET`/`POST`/`PUT`/`DELETE /api/decks/:hash/cover`. `GET /api/decks` and `GET /api/decks/:hash` now return
+  `color` and `standing`, and `PUT /api/decks/:hash` accepts `color`.
+- **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
+  `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders, returns each card's
+  `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
 
 ### Fixed — a second session on the same day never reached the Diary
 

@@ -1,17 +1,20 @@
 /**
- * FlashcardForm — the card authoring form: type, faces, answer text for
- * type_answer, category, tags, and media from files, a book's figures or a
- * clip's assets. Edit mode is text-only; media is preserved server-side.
+ * FlashcardForm — the one card editor: type, faces, answer text for type_answer,
+ * category, tags, and media from files, a book's figures or a clip's assets, beside
+ * a live preview that shows a worked example until anything is written. Edit mode is
+ * text-only; media is preserved server-side. `onDelete` adds a Delete that confirms
+ * in place. CardBench is the floating shell it opens in; the Inspector hosts it bare.
  */
 
 import { useEffect, useMemo, useState } from 'react';
+import InlineConfirm from '../base/InlineConfirm';
 import Flashcard from './Flashcard';
 import BookImagePicker from './BookImagePicker';
 import ClipMediaPicker from './ClipMediaPicker';
 import { fetchBookImageFile, fetchDocumentMediaFile } from '../../api/reader';
 import { saveClipAsset } from '../../api/documents';
 import { getCategories } from '../../api/categories';
-import { cardTypes, hasClozeBlank, isCardValid, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
+import { cardTypes, hasClozeBlank, isCardValid, isCardBlank, exampleFields, previewCardFor, deriveCardCore, typeAnswerParts } from './flashcardFields';
 import { useT } from '../../translations/index';
 import './FlashcardForm.css';
 
@@ -52,8 +55,11 @@ export default function FlashcardForm({
   submitLabel,
   saving = false,
   error = null,
+  mediaEnabled = true,
   onSubmit,
   onCancel,
+  onDelete = null,
+  deleting = false,
 }) {
   const { t } = useT();
   const editing = !!initial;
@@ -74,6 +80,7 @@ export default function FlashcardForm({
   const [categories, setCategories]     = useState([]);
   const [files, setFiles]               = useState(EMPTY_FILES);
   const [previewFace, setPreviewFace]   = useState('front');
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   useEffect(() => {
     let alive = true;
@@ -121,9 +128,10 @@ export default function FlashcardForm({
     };
   }, [urls, sFrontImg, sBackImg, sFrontSnd, sBackSnd, resolveMedia]);
 
+  const blank = isCardBlank(cardType, { front, back, clozeText, question, expectedAnswer, notes, customHtml });
   const previewCard = useMemo(
-    () => previewCardFor(cardType, { front, back, clozeText, question, expectedAnswer, notes, customHtml }, mediaObj),
-    [cardType, front, back, clozeText, question, expectedAnswer, notes, customHtml, mediaObj]
+    () => previewCardFor(cardType, blank ? exampleFields(cardType, t) : { front, back, clozeText, question, expectedAnswer, notes, customHtml }, mediaObj),
+    [cardType, blank, t, front, back, clozeText, question, expectedAnswer, notes, customHtml, mediaObj]
   );
 
   const addTag = () => {
@@ -206,7 +214,7 @@ export default function FlashcardForm({
 
   const selectedCategory = categories.find((c) => c.name === category);
   const missingCategory = category && !selectedCategory ? category : null;
-  const showMedia = cardType !== 'custom' && !editing;
+  const showMedia = mediaEnabled && cardType !== 'custom' && !editing;
   const anchorVar = anchorColor ? HL_COLOR_VAR[anchorColor] ?? HL_COLOR_VAR.amber : null;
 
   return (
@@ -228,29 +236,22 @@ export default function FlashcardForm({
         </div>
       )}
 
-      <label htmlFor="fc-card-type" className="fc-form-label">{t('CARD TYPE')}</label>
-      <select id="fc-card-type" className="fc-form-select fc-type-select" value={cardType}
-        onChange={(e) => { setCardType(e.target.value); setPreviewFace('front'); }}>
+      <div className="fc-form-body">
+      <div className="fc-form-fields">
+      <span className="fc-form-label" id="fc-card-type">{t('CARD TYPE')}</span>
+      <div className="fc-form-types" role="group" aria-labelledby="fc-card-type">
         {cardTypes(t).map((ct) => (
-          <option key={ct.key} value={ct.key}>{ct.label}</option>
+          <button
+            key={ct.key}
+            type="button"
+            className="fc-form-type"
+            aria-pressed={cardType === ct.key}
+            onClick={() => { setCardType(ct.key); setPreviewFace('front'); }}
+          >
+            <b>{ct.label}</b>
+            <small>{ct.desc}</small>
+          </button>
         ))}
-      </select>
-
-      <div className="fc-form-preview">
-        <div className="fc-card-stage">
-          <Flashcard
-            card={previewCard}
-            face={previewFace}
-            onFlip={setPreviewFace}
-            onTypeCheck={() => setPreviewFace('back')}
-            variant="full"
-          />
-        </div>
-        <span className="fc-form-preview-hint">
-          {cardType === 'type_answer'
-            ? t('Check an answer to reveal the back')
-            : t('Click the card to flip')}
-        </span>
       </div>
 
       {(cardType === 'basic' || cardType === 'reversible') && (
@@ -399,6 +400,8 @@ export default function FlashcardForm({
         />
       ))}
 
+      <div className="fc-form-row">
+      <div>
       <label htmlFor="fc-tag-input" className="fc-form-label">{t('TAGS')}</label>
       <div className="fc-form-tags">
         {tags.map((tag) => (
@@ -417,7 +420,9 @@ export default function FlashcardForm({
           placeholder={t('+ tag')}
         />
       </div>
+      </div>
 
+      <div>
       <label htmlFor="fc-category" className="fc-form-label">{t('CATEGORY')}</label>
       <select
         id="fc-category"
@@ -446,15 +451,57 @@ export default function FlashcardForm({
       {selectedCategory?.description && (
         <p className="fc-form-hint">{selectedCategory.description}</p>
       )}
+      </div>
+      </div>
 
       {error && <p className="fc-form-error">{error}</p>}
-
-      <div className="fc-form-actions">
-        <button type="button" className="fc-form-save" onClick={handleSave} disabled={!canSave}>
-          {saving ? t('Saving…') : (submitLabel ?? t('Save card'))}
-        </button>
-        <button type="button" className="fc-form-cancel" onClick={onCancel}>{t('Cancel')}</button>
       </div>
+
+      <div className="fc-form-preview">
+        <span className="fc-form-label">{t('Preview')}</span>
+        <div className={`fc-card-stage${blank ? ' fc-card-stage--example' : ''}`}>
+          <Flashcard
+            card={previewCard}
+            face={previewFace}
+            onFlip={setPreviewFace}
+            onTypeCheck={() => setPreviewFace('back')}
+            variant="full"
+          />
+          {blank && <span className="fc-form-example">{t('Example')}</span>}
+        </div>
+        <span className="fc-form-preview-hint">
+          {blank
+            ? t('An example of this type, until you write your own')
+            : cardType === 'type_answer'
+              ? t('Check an answer to reveal the back')
+              : t('Click the card to flip')}
+        </span>
+      </div>
+      </div>
+
+      {confirmingDelete ? (
+        <InlineConfirm
+          className="fc-form-confirm"
+          title={t('Delete this card?')}
+          message={t('It goes with its review history. This cannot be undone.')}
+          busy={deleting}
+          onCancel={() => setConfirmingDelete(false)}
+          actions={[{ label: t('Delete card'), kind: 'danger', onClick: onDelete }]}
+        />
+      ) : (
+        <div className="fc-form-actions">
+          {onDelete && (
+            <button type="button" className="btn btn--quiet btn--sm fc-form-delete" onClick={() => setConfirmingDelete(true)}>
+              {t('Delete card')}
+            </button>
+          )}
+          <span className="fc-form-spacer" />
+          <button type="button" className="btn btn--quiet btn--sm" onClick={onCancel}>{t('Cancel')}</button>
+          <button type="button" className="btn btn--quiet-accent btn--sm" onClick={handleSave} disabled={!canSave}>
+            {saving ? t('Saving…') : (submitLabel ?? t('Save card'))}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

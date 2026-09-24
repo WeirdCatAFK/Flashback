@@ -1,0 +1,98 @@
+/* CardBench — the card editor floating over the screen that opened it. It needs a
+   positioned ancestor to sit in; the footer stays pinned while the fields scroll. */
+
+.card-bench {
+  position: absolute;
+  z-index: var(--z-floating);
+  top: var(--space-12);
+  left: 0;
+  right: 0;
+  margin-inline: auto;
+  width: min(var(--size-8xl), calc(100% - var(--space-8)));
+  max-height: calc(100% - var(--space-16));
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  animation: card-bench-in var(--dur-base) var(--ease-pop) both;
+}
+
+.card-bench--leaving {
+  animation: card-bench-out var(--dur-fast) var(--ease-in-out) both;
+}
+
+@keyframes card-bench-in {
+  from { opacity: 0; transform: translateY(12px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes card-bench-out {
+  from { opacity: 1; transform: none; }
+  to { opacity: 0; transform: translateY(8px) scale(0.99); }
+}
+
+.card-bench__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.card-bench__title {
+  flex: none;
+  font-size: var(--text-md);
+}
+
+.card-bench__source {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.card-bench__close {
+  margin-left: auto;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.card-bench__close:hover {
+  color: var(--color-fg-primary);
+  border-color: var(--color-border-strong);
+}
+
+.card-bench__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-4) var(--space-4) 0;
+}
+
+.card-bench .fc-form-actions,
+.card-bench .fc-form-confirm {
+  position: sticky;
+  bottom: 0;
+  z-index: var(--z-raised);
+  margin: 0 calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4);
+  background: var(--color-bg-surface);
+  border-top: 1px solid var(--color-border);
+}
+
+.card-bench .fc-form-confirm {
+  border-radius: 0;
+  border-inline: 0;
+  border-bottom: 0;
+}

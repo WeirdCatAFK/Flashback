@@ -19,6 +19,30 @@ export function sm2Interval(reps, ef) {
   return Math.min(365, Math.round(6 * Math.pow(ef, reps - 2)));
 }
 
+/**
+ * The gap between reviews, bucketed the way the Flashcards and Statistics screens
+ * show it — a scheduler-agnostic stand-in for Leitner's levels. `max` is inclusive,
+ * in days; `new` is a card this person has never reviewed. 21 days is the app's
+ * long-term line (Statistics' old "mature").
+ */
+export const GAP_BANDS = [
+  { id: 'new', max: null },
+  { id: 'd1', max: 1 },
+  { id: 'wk', max: 7 },
+  { id: 'w3', max: 21 },
+  { id: 'm2', max: 60 },
+  { id: 'long', max: Infinity },
+];
+
+/** Days at or past which a card counts as held long-term. */
+export const LONG_TERM_DAYS = 21;
+
+/** The band a gap falls in; null means never reviewed. */
+export function gapBand(days) {
+  if (days == null) return 'new';
+  return GAP_BANDS.find((b) => b.max != null && days <= b.max).id;
+}
+
 /** Days until the next Leitner review at `level` (0 is a card never reviewed). */
 export function leitnerInterval(level) {
   if (level <= 0) return 0;

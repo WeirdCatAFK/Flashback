@@ -168,18 +168,22 @@ export class SealEventEmitter {
      *
      * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar (used as commit label).
      * @param {string[]} [extraRelPaths=[]] - Additional paths to stage (e.g. the document file if its content changed).
+     * @param {string[]} [removedRelPaths=[]] - Paths the edit deleted, removed from the index in the same commit (a deck cover replaced by another).
      * @returns {Promise<void>}
      */
-    async edit(sidecarRelPath, extraRelPaths = []) {
+    async edit(sidecarRelPath, extraRelPaths = [], removedRelPaths = []) {
         const who = author();
         const paths = [normPath(sidecarRelPath), ...extraRelPaths.map(normPath)];
+        const removed = removedRelPaths.map(normPath);
 
         await this._enqueue(async () => {
             const workspace = dir();
             const present = paths.filter(p => fs.existsSync(path.join(workspace, p)));
-            if (present.length === 0) return;
+            const gone = removed.filter(p => !fs.existsSync(path.join(workspace, p)));
+            if (present.length === 0 && gone.length === 0) return;
             await stageAll(workspace, present);
-            await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(present)}`, author: who });
+            await removeAll(workspace, gone);
+            await git.commit({ fs, dir: workspace, message: `edit: ${editLabel(present.length ? present : gone)}`, author: who });
         });
     }
 

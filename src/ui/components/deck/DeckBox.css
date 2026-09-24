@@ -1,0 +1,72 @@
+/* DeckBox — card tops peeking out of a coloured sleeve, the count printed on it.
+   --sleeve is set inline from the deck's colour token. The stacking is document
+   order — back edges first, then the front card, then the sleeve — so no z-index. */
+
+.deck-box {
+  --sleeve: var(--color-kraft);
+  --peek: var(--control-2xl);
+  --sleeve-h: calc(var(--space-12) * 2);
+  --print: calc(var(--text-2xl) * 2.8);
+  position: relative;
+  padding-top: var(--space-1);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.deck-box--lg {
+  --peek: var(--control-bar);
+  --sleeve-h: var(--size-sm);
+  --print: calc(var(--text-2xl) * 3.4);
+  width: var(--size-lg);
+  flex: none;
+}
+
+.deck-box__peek {
+  position: relative;
+  height: var(--peek);
+  margin: 0 var(--space-3);
+}
+
+.deck-box__edge,
+.deck-box__front {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: var(--peek);
+  border-radius: var(--radius-card) var(--radius-card) 0 0;
+  border-top: 2px solid var(--color-card-edge);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+}
+
+.deck-box__edge {
+  --k: 1;
+  bottom: calc(var(--k) * var(--space-1));
+  transform: scaleX(calc(1 - var(--k) * 0.03));
+}
+
+.deck-box__front {
+  bottom: 0;
+}
+
+.deck-box__sleeve {
+  position: relative;
+  height: var(--sleeve-h);
+  margin-top: calc(-1 * var(--space-3));
+  overflow: hidden;
+  border-radius: var(--radius-sm);
+  background: var(--sleeve);
+  box-shadow:
+    inset 0 6px 8px -6px color-mix(in srgb, var(--color-media-bg) 28%, transparent),
+    0 1px 0 color-mix(in srgb, var(--sleeve) 78%, var(--color-media-bg)),
+    var(--shadow-card);
+}
+
+.deck-box__n {
+  position: absolute;
+  left: var(--space-3);
+  bottom: calc(var(--print) * -0.29);
+  font-size: var(--print);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--color-kraft-print);
+}

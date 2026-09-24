@@ -8,8 +8,46 @@ import { sealEmitter } from '../../seal/seal.js';
 import { withDocument } from '../resources/pathLock.js';
 import { LATEST_VERSION } from '../../config/updates/registry.js';
 import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
+import SRS, { gapBand, GAP_BANDS, LONG_TERM_DAYS } from './srs.js';
+import { isDeckColor, deckColor, nextDeckColor } from '../../../shared/deckColors.js';
 
 const DECKS_DIR = '_decks';
+const COVERS_DIR = 'covers';
+
+/** The image types a deck cover may be, and the extension each is stored under. */
+export const COVER_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp', 'image/gif': 'gif', 'image/avif': 'avif' };
+const COVER_MIME = Object.fromEntries(Object.entries(COVER_TYPES).map(([mime, ext]) => [ext, mime]));
+
+/** The drawn covers, which need no file: patterns painted in the deck's colour. */
+export const COVER_PATTERNS = ['cards', 'arcs'];
+
+/** The largest cover image accepted, in bytes. */
+export const MAX_COVER_BYTES = 10 * 1024 * 1024;
+
+/** A stored cover file name — checked on every read, since the JSON can be edited by hand. */
+const COVER_NAME = /^[A-Za-z0-9-]+\.(png|jpg|webp|gif|avif)$/;
+const DAY_MS = 86_400_000;
+
+/**
+ * `rows` ordered by `key` (numbers or strings), keeping the incoming order among
+ * equal keys — which is what lets a grouping sit on top of a sort.
+ */
+function sortStable(rows, key, dir) {
+    return rows
+        .map((row, i) => ({ row, i, k: key(row) }))
+        .sort((a, b) => {
+            const c = typeof a.k === 'string' ? a.k.localeCompare(b.k) : a.k - b.k;
+            return c * dir || a.i - b.i;
+        })
+        .map((x) => x.row);
+}
+
+/** When a card next comes due, in epoch ms; a card never reviewed sorts last. */
+function dueAt(lastRecall, gap) {
+    if (gap == null) return Number.MAX_SAFE_INTEGER;
+    const last = lastRecall ? Date.parse(lastRecall) : NaN;
+    return (Number.isNaN(last) ? 0 : last) + gap * DAY_MS;
+}
 
 /** Trimmed, de-duplicated, blank-free. The one definition of a clean tag list here. */
 const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
@@ -51,6 +89,103 @@ export default class Decks {
 
     _sealRelPath(globalHash) {
         return `${DECKS_DIR}/${globalHash}.json`;
+    }
+
+    _coverRelPath(name) {
+        return `${DECKS_DIR}/${COVERS_DIR}/${name}`;
+    }
+
+    _coverAbsPath(name) {
+        return path.join(this.decksPath, COVERS_DIR, name);
+    }
+
+    /**
+     * A deck file's cover as the API returns it: `{ kind: 'image', file, y }`,
+     * `{ kind: 'pattern', pattern }`, or null. Anything malformed reads as none.
+     */
+    _cleanCover(cover) {
+        if (cover?.kind === 'pattern' && COVER_PATTERNS.includes(cover.pattern)) return { kind: 'pattern', pattern: cover.pattern };
+        if (cover?.kind === 'image' && COVER_NAME.test(cover.file ?? '')) {
+            const y = Number.isFinite(cover.y) ? Math.min(1, Math.max(0, cover.y)) : 0.5;
+            return { kind: 'image', file: cover.file, y };
+        }
+        return null;
+    }
+
+    /** The image file a deck's cover shows, for serving: `{ absPath, mime }`. */
+    async coverImage(globalHash) {
+        const deck = await this.query.getDeckByHash(globalHash);
+        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+        let cover = null;
+        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
+        if (cover?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
+        const absPath = this._coverAbsPath(cover.file);
+        if (!fs.existsSync(absPath)) throw new Error(`Cover not found for deck ${globalHash}`);
+        return { absPath, mime: COVER_MIME[cover.file.split('.').pop()] };
+    }
+
+    /**
+     * Stores an uploaded image as a deck's cover, centred, replacing whatever cover
+     * it had. The file gets a fresh name each time, so nothing downstream can show
+     * the old picture from a cache.
+     */
+    async uploadCover(globalHash, buffer, mime) {
+        const ext = COVER_TYPES[mime];
+        if (!ext) throw new Error(`Unsupported cover type: ${mime}`);
+        if (buffer.length > MAX_COVER_BYTES) throw new Error('Cover image too large');
+        return await this._withDeckFile(globalHash, async () => {
+            const deck = await this.query.getDeckByHash(globalHash);
+            if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+            const file = await this._readOrRebuild(globalHash, deck);
+            const before = this._cleanCover(file.cover);
+            const name = `${globalHash}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+            fs.mkdirSync(path.join(this.decksPath, COVERS_DIR), { recursive: true });
+            fs.writeFileSync(this._coverAbsPath(name), buffer);
+            file.cover = { kind: 'image', file: name, y: 0.5 };
+            file.modified = new Date().toISOString();
+            this._write(globalHash, file);
+            const removed = this._dropCoverFile(before);
+            await sealEmitter.edit(this._sealRelPath(globalHash), [this._coverRelPath(name)], removed);
+            return file.cover;
+        });
+    }
+
+    /**
+     * Changes a deck's cover without a new upload: `{ pattern }` for a drawn one,
+     * `{ y }` (0..1) to reposition the image it has, or null to remove it. An image
+     * that stops being the cover is deleted with it.
+     */
+    async setCover(globalHash, change) {
+        return await this._withDeckFile(globalHash, async () => {
+            const deck = await this.query.getDeckByHash(globalHash);
+            if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+            const file = await this._readOrRebuild(globalHash, deck);
+            const before = this._cleanCover(file.cover);
+            let removed = [];
+            if (change === null) {
+                delete file.cover;
+                removed = this._dropCoverFile(before);
+            } else if (change.pattern !== undefined) {
+                if (!COVER_PATTERNS.includes(change.pattern)) throw new Error(`Unknown cover pattern: ${change.pattern}`);
+                file.cover = { kind: 'pattern', pattern: change.pattern };
+                removed = this._dropCoverFile(before);
+            } else if (change.y !== undefined) {
+                if (before?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
+                file.cover = { ...before, y: Math.min(1, Math.max(0, Number(change.y) || 0)) };
+            }
+            file.modified = new Date().toISOString();
+            this._write(globalHash, file);
+            await sealEmitter.edit(this._sealRelPath(globalHash), [], removed);
+            return this._cleanCover(file.cover);
+        });
+    }
+
+    /** Deletes a cover's image file, if it had one; returns the paths Seal should drop. */
+    _dropCoverFile(cover) {
+        if (cover?.kind !== 'image') return [];
+        const abs = this._coverAbsPath(cover.file);
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+        return [this._coverRelPath(cover.file)];
     }
 
     /** Serializes one deck file's writes against every other writer of that deck. */
@@ -99,22 +234,71 @@ export default class Decks {
         if (fs.existsSync(p)) fs.unlinkSync(p);
     }
 
-    /** Every deck with its entry count. */
-    async listDecks() {
-        return await this.query.getAllDecks();
+    /**
+     * A deck's stored colour, read from its canonical file — the index holds none, so
+     * a Doctor rebuild has nothing to lose. Null when the file has none (or is gone).
+     */
+    _colorOf(globalHash) {
+        try {
+            const { color } = this._read(globalHash);
+            return isDeckColor(color) ? color : null;
+        } catch {
+            return null;
+        }
     }
 
-    /** Creates a deck and its canonical `_decks/<uuid>.json` file. */
+    /**
+     * How a set of cards stands for this person: how many are due now (reviewed and
+     * past their gap), how many are new, and how many are held long-term.
+     */
+    _standing(hashes, schedule, now = Date.now()) {
+        let due = 0;
+        let fresh = 0;
+        let longTerm = 0;
+        for (const hash of hashes) {
+            const s = schedule.get(hash);
+            if (!s) continue;
+            if (s.gap == null) { fresh += 1; continue; }
+            if (dueAt(s.lastRecall, s.gap) <= now) due += 1;
+            if (s.gap >= LONG_TERM_DAYS) longTerm += 1;
+        }
+        return { due, fresh, longTerm };
+    }
+
+    /**
+     * Every deck with its entry count, its stored `color` (null = none) and how its
+     * cards stand for the caller under `algorithm` (`standing: { due, fresh, longTerm }`).
+     */
+    async listDecks({ algorithm = null } = {}) {
+        const rows = await this.query.getAllDecks();
+        const schedule = await SRS.cardSchedule({ algorithm, scope: currentScope() });
+        const byDeck = new Map();
+        for (const { deck_id: id, card_hash: hash } of await this.query.getAllDeckEntryHashes()) {
+            if (!byDeck.has(id)) byDeck.set(id, []);
+            byDeck.get(id).push(hash);
+        }
+        return rows.map((d) => ({
+            ...d,
+            color: this._colorOf(d.global_hash),
+            standing: this._standing(byDeck.get(d.id) ?? [], schedule),
+        }));
+    }
+
+    /** Creates a deck and its canonical `_decks/<uuid>.json` file, in the first colour no deck shows yet. */
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
-        return await this._withDeckFile(globalHash, () => this._createDeckLocked(globalHash, name, description));
+        const used = (await this.query.getAllDecks())
+            .filter((d) => !d.is_system)
+            .map((d) => deckColor({ ...d, color: this._colorOf(d.global_hash) }));
+        const color = nextDeckColor(used);
+        return await this._withDeckFile(globalHash, () => this._createDeckLocked(globalHash, name, description, color));
     }
 
-    async _createDeckLocked(globalHash, name, description) {
+    async _createDeckLocked(globalHash, name, description, color) {
         const now = new Date().toISOString();
         const file = {
             formatVersion: LATEST_VERSION,
-            globalHash, name, description, tags: [], created: now, modified: now, entries: [],
+            globalHash, name, description, color, tags: [], created: now, modified: now, entries: [],
         };
 
         this._write(globalHash, file);
@@ -130,13 +314,29 @@ export default class Decks {
         return globalHash;
     }
 
-    /** One deck's metadata. */
-    async getDeck(globalHash) {
+    /**
+     * One deck: its record, `color`, tags, and entries, each carrying the caller's
+     * `gap` under `algorithm`, with `standing` summed over them as in `listDecks`.
+     */
+    async getDeck(globalHash, { algorithm = null } = {}) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        const entries = await this.query.getDeckEntries(deck.id, currentScope());
+        const scope = currentScope();
+        const rows = await this.query.getDeckEntries(deck.id, scope);
+        const schedule = await SRS.cardSchedule({ algorithm, scope });
+        const entries = rows.map((e) => ({ ...e, gap: schedule.get(e.card_hash)?.gap ?? null }));
         const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
-        return { ...deck, entries, entry_count: entries.length, tags };
+        let cover = null;
+        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
+        return {
+            ...deck,
+            color: this._colorOf(globalHash),
+            cover,
+            entries,
+            entry_count: entries.length,
+            tags,
+            standing: this._standing(rows.map((e) => e.card_hash), schedule),
+        };
     }
 
     async _tagIdsForNames(tagNames) {
@@ -196,17 +396,25 @@ export default class Decks {
     }
 
     /** Updates a deck's name or description. */
-    async updateDeck(globalHash, { name, description }) {
-        return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description }));
+    /**
+     * Updates a deck's name, description or box colour. `color` is a palette id, or
+     * null to fall back to the colour the deck's hash picks; the default deck is kraft
+     * and refuses one.
+     */
+    async updateDeck(globalHash, { name, description, color }) {
+        return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description, color }));
     }
 
-    async _updateDeckLocked(globalHash, { name, description }) {
+    async _updateDeckLocked(globalHash, { name, description, color }) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+        if (color !== undefined && deck.is_system) throw new Error('The system deck is always kraft');
 
         const file = await this._readOrRebuild(globalHash, deck);
         if (name !== undefined) file.name = name;
         if (description !== undefined) file.description = description;
+        if (color === null) delete file.color;
+        else if (color !== undefined) file.color = color;
         file.modified = new Date().toISOString();
 
         this._write(globalHash, file);
@@ -229,12 +437,14 @@ export default class Decks {
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         if (deck.is_system) throw new Error('Cannot delete the system deck');
 
+        let cover = null;
+        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
         this._remove(globalHash);
         await db.transaction(async () => {
             if (deck.node_id) await this._syncNodeTags(deck.node_id, []);
             await this.query.deleteDeck(deck.id);
         })();
-        await sealEmitter.delete(this._sealRelPath(globalHash));
+        await sealEmitter.delete(this._sealRelPath(globalHash), this._dropCoverFile(cover));
     }
 
     /** Adds a card to a deck, in the file and the index. */
@@ -403,14 +613,97 @@ export default class Decks {
         return holders.length;
     }
 
-    /** The card browser: a filtered, sorted, paged view of every card in the vault. */
-    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        return await this.query.getAllFlashcards({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset }, currentScope());
+    /**
+     * The card browser: a filtered, sorted, paged view of every card in the vault,
+     * each row carrying `gap` (days between reviews for the caller; null = new).
+     *
+     * A `band` filter, the `gap` and `due` orders and `groupBy` need the scheduler's
+     * maths, which SQL does not have, so those take every matching card in `sortBy`
+     * order, bucket and order them here, and fetch only the page. `groupBy` ('gap' or
+     * 'source') is a stable sort on top of `sortBy`, so each group keeps that order
+     * inside it; `groups` then lists every group's key and size across all pages, so
+     * a header can say how many cards it heads even when the page shows a few.
+     * Returns `{ cards, total, groups? }`.
+     */
+    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+        const scope = currentScope();
+        const filters = { search, level, cardType, origin, flagged, flagKind, source };
+        const gaps = await SRS.cardGaps({ algorithm, scope });
+        const gapOf = (hash) => gaps.get(hash) ?? null;
+        const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));
+
+        if (!band && !groupBy && sortBy !== 'gap' && sortBy !== 'due') {
+            const cards = await this.query.getAllFlashcards({ ...filters, sortBy, sortDir, limit, offset }, scope);
+            const total = await this.query.getFlashcardCountFiltered(filters, scope);
+            return { cards: withGap(cards), total };
+        }
+
+        let rows = await this.query.getFlashcardHashesFiltered(filters, scope, { sortBy, sortDir });
+        if (band) rows = rows.filter((r) => gapBand(gapOf(r.global_hash)) === band);
+        const dir = sortDir === 'desc' ? -1 : 1;
+        if (sortBy === 'gap') rows = sortStable(rows, (r) => gapOf(r.global_hash) ?? -1, dir);
+        if (sortBy === 'due') rows = sortStable(rows, (r) => dueAt(r.last_recall, gapOf(r.global_hash)), dir);
+
+        let groups;
+        if (groupBy === 'gap' || groupBy === 'source') {
+            const keyOf = groupBy === 'gap'
+                ? (r) => gapBand(gapOf(r.global_hash))
+                : (r) => r.document_path ?? null;
+            const order = groupBy === 'gap'
+                ? (r) => GAP_BANDS.findIndex((b) => b.id === keyOf(r))
+                : (r) => r.document_path ?? '\uffff';
+            rows = sortStable(rows, order, 1);
+            groups = [];
+            for (const r of rows) {
+                const key = keyOf(r);
+                if (groups.at(-1)?.key === key) groups.at(-1).count += 1;
+                else groups.push({ key, count: 1 });
+            }
+        }
+
+        const page = rows.slice(offset, offset + limit).map((r) => r.global_hash);
+        const cards = withGap(await this.query.getFlashcardsByHashes(page, scope));
+        return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
     }
 
     /** How many cards match the card browser's current filters. */
-    async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}) {
-        return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind }, currentScope());
+    async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
+        return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
+    }
+
+    /**
+     * The catalogue's sidebar in one read: how many cards each document holds and how
+     * many of them are held long-term, the same for the default deck's standalone
+     * cards, how many cards sit in each gap band, and the health counts.
+     */
+    async catalogueSummary({ algorithm = null } = {}) {
+        const scope = currentScope();
+        const gaps = await SRS.cardGaps({ algorithm, scope });
+        const paths = await this.query.getFlashcardDocumentPaths();
+        const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
+        const documents = new Map();
+        const standalone = { cards: 0, longTerm: 0 };
+        for (const { global_hash: hash, document_path: docPath } of paths) {
+            const gap = gaps.get(hash) ?? null;
+            bands[gapBand(gap)] += 1;
+            const long = gap != null && gap >= LONG_TERM_DAYS ? 1 : 0;
+            const slot = docPath ? documents.get(docPath) ?? { path: docPath, cards: 0, longTerm: 0 } : standalone;
+            slot.cards += 1;
+            slot.longTerm += long;
+            if (docPath) documents.set(docPath, slot);
+        }
+        const count = (f) => this.query.getFlashcardCountFiltered(f, scope);
+        return {
+            total: paths.length,
+            standalone,
+            documents: [...documents.values()].sort((a, b) => a.path.localeCompare(b.path)),
+            bands,
+            flags: {
+                any: await count({ flagged: true }),
+                mouthful: await count({ flagKind: 'mouthful' }),
+                probe: await count({ flagKind: 'probe' }),
+            },
+        };
     }
 
     _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {

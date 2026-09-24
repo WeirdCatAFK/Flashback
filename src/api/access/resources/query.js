@@ -1992,6 +1992,11 @@ class DocumentQuery {
         `).all();
     }
 
+    /** Every deck entry as `{ deck_id, card_hash }`, for per-deck counts in one read. */
+    async getAllDeckEntryHashes() {
+        return await this.db.prepare('SELECT deck_id, card_hash FROM DeckEntries').all();
+    }
+
     /** Updates a deck's mutable fields. */
     async updateDeck(id, data) {
         await this.db.prepare(`
@@ -2049,10 +2054,20 @@ class DocumentQuery {
     }
 
     /** Shared WHERE builder for the card browser's list and count queries, which must filter identically. */
-    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, scope) {
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null }, scope) {
         const account = scoped(scope);
         const params = [];
         const conditions = [];
+
+        if (source?.kind === 'standalone') {
+            conditions.push('f.document_id IS NULL');
+        } else if (source?.kind === 'document' && source.path) {
+            conditions.push("f.document_id IN (SELECT id FROM Documents WHERE REPLACE(relative_path, '\\', '/') = ?)");
+            params.push(source.path);
+        } else if (source?.kind === 'folder' && source.path) {
+            conditions.push("f.document_id IN (SELECT id FROM Documents WHERE REPLACE(relative_path, '\\', '/') LIKE ? ESCAPE '!')");
+            params.push(`${source.path.replace(/[!%_]/g, (ch) => `!${ch}`)}/%`);
+        }
 
         if (search) {
             const term = `%${search}%`;
@@ -2080,18 +2095,84 @@ class DocumentQuery {
         return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
     }
 
-    /** A page of the card browser, filtered and sorted. */
-    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
-        const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
+    /** The columns every card-browser row carries; `?` is the account for the flags subquery. */
+    _catalogueSelect() {
+        return `
+            SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
+                   p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
+                   c.frontText, c.backText, c.answerText, c.custom_html,
+                   d.relative_path as document_path, d.name as document_name,
+                   pc.name as category,
+                   (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
+                     WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON f.document_id = d.id
+            LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id`;
+    }
+
+    /**
+     * The card browser's ORDER BY for `sortBy`/`sortDir`. An order SQL cannot compute
+     * (`gap`, `due`) falls back to creation order, which the caller then re-sorts.
+     */
+    _catalogueOrder(sortBy, sortDir) {
         const sortCols = {
             level: 'p.level', name: 'f.name', last_recall: 'p.last_recall',
             lapses: 'p.fsrs_lapses', difficulty: 'p.fsrs_difficulty',
+            front: "LOWER(COALESCE(c.frontText, f.name, ''))", source: "LOWER(COALESCE(d.relative_path, ''))",
+            created: 'f.id',
         };
+        if (sortBy === 'gap' || sortBy === 'due') return 'f.id ASC';
         const sortCol = sortCols[sortBy] ?? 'p.level';
         const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
         const nullsLast = sortCol === 'p.fsrs_difficulty' ? `${sortCol} IS NULL, ` : '';
+        return `${nullsLast}${sortCol} ${dir}, f.name ASC`;
+    }
 
+    /**
+     * Every card matching the card browser's filters, in `sortBy` order, as the few
+     * columns the orders and filters SQL cannot compute need (the gap between reviews
+     * depends on scheduler maths that lives in srs.js): hash, name, last review and
+     * document path.
+     */
+    async getFlashcardHashesFiltered(filters = {}, scope, { sortBy = 'created', sortDir = 'asc' } = {}) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters(filters, account);
+        return await this.db.prepare(`
+            SELECT f.global_hash, f.name, p.last_recall, REPLACE(d.relative_path, '\\', '/') AS document_path
+            FROM Flashcards f ${PROGRESS_JOIN()}
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON f.document_id = d.id
+            ${where}
+            ORDER BY ${this._catalogueOrder(sortBy, sortDir)}
+        `).all(account, ...params);
+    }
+
+    /** Card-browser rows for these hashes, in the order given. */
+    async getFlashcardsByHashes(hashes, scope) {
+        if (!hashes.length) return [];
+        const account = scoped(scope);
+        const rows = await this.db.prepare(`
+            ${this._catalogueSelect()}
+            WHERE f.global_hash IN (SELECT value FROM json_each(?))
+        `).all(account, account, JSON.stringify(hashes));
+        const byHash = new Map(rows.map((r) => [r.global_hash, r]));
+        return hashes.map((h) => byHash.get(h)).filter(Boolean);
+    }
+
+    /** Every card's document path (null for a standalone card), for the catalogue's source tree. */
+    async getFlashcardDocumentPaths() {
+        return await this.db.prepare(`
+            SELECT f.global_hash, REPLACE(d.relative_path, '\\', '/') AS document_path
+            FROM Flashcards f LEFT JOIN Documents d ON f.document_id = d.id
+        `).all();
+    }
+
+    /** A page of the card browser, filtered and sorted. */
+    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source }, account);
         return await this.db.prepare(`
             SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
                    p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
@@ -2108,15 +2189,15 @@ class DocumentQuery {
             LEFT JOIN Documents d ON f.document_id = d.id
             LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
             ${where}
-            ORDER BY ${nullsLast}${sortCol} ${dir}, f.name ASC
+            ORDER BY ${this._catalogueOrder(sortBy, sortDir)}
             LIMIT ? OFFSET ?
         `).all(account, account, ...params, limit, offset);
     }
 
     /** Row count matching the card browser's current filters. */
-    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}, scope) {
+    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source }, account);
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
         return (await this.db.prepare(`

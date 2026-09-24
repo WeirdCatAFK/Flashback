@@ -1,55 +1,87 @@
 /**
- * One deck as the detail pane sees it: its record, and every mutation the pane
- * offers — remove a card, rename/describe, delete, erase (with the shared-card
- * choice). A change to the deck hash resets the add-cards panel.
+ * One deck as its page sees it: its record (with each card's gap for you), and
+ * every change the page offers — rename, describe, recolour the box, change the
+ * cover (DeckCover does the talking to the API; this keeps the record), remove a card,
+ * delete (confirmed in place), erase (with the shared-card choice). A deck made a
+ * moment ago opens with its name ready to type, and the add-cards layer opens once
+ * the name is settled — not together, since both want the keyboard.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { getDeck, updateDeck, deleteDeck, purgeDeck, removeEntry } from '../../api/decks';
-import { useConfirm } from '../../components/base/confirmContext.js';
+import { getPref } from '../../prefs.js';
 import { useT } from '../../translations/index';
 
-export default function useDeckDetail({ deckHash, onDeleted, onRefreshList }) {
+export default function useDeckDetail({ deckHash, version, fresh, onDeleted, onRefreshList }) {
   const { t } = useT();
-  const confirm = useConfirm();
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [actionError, setActionError] = useState(null);
   const [showAddPanel, setShowAddPanel] = useState(false);
-  const [showNewCard, setShowNewCard] = useState(false);
   const [purging, setPurging] = useState(false);
   const [purgeBusy, setPurgeBusy] = useState(false);
   const [purgeError, setPurgeError] = useState(null);
-  const [editingMeta, setEditingMeta] = useState(false);
-  const [nameVal, setNameVal] = useState('');
-  const [descVal, setDescVal] = useState('');
-  const [savingMeta, setSavingMeta] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+  const [renaming, setRenaming] = useState(fresh);
+  const [editingDesc, setEditingDesc] = useState(false);
 
   const load = useCallback(() => {
-    setLoading(true);
     setError(null);
-    getDeck(deckHash).then(setDeck).catch(setError).finally(() => setLoading(false));
+    return getDeck(deckHash, getPref('fb-srs-algorithm') ?? 'sm2')
+      .then(setDeck)
+      .catch(setError)
+      .finally(() => setLoading(false));
   }, [deckHash]);
 
-  const [prevLoad, setPrevLoad] = useState(() => load);
-  if (prevLoad !== load) { setPrevLoad(load); setShowAddPanel(false); }
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); }, [load, version]);
 
   const changed = () => { load(); onRefreshList(); };
 
-  const removeCard = async (cardHash) => {
-    try { await removeEntry(deckHash, cardHash); changed(); } catch (err) { console.error(err); }
+  const guard = async (fn) => {
+    setActionError(null);
+    try {
+      await fn();
+      return true;
+    } catch (err) {
+      setActionError(err.message ?? String(err));
+      return false;
+    }
+  };
+
+  const removeCard = (cardHash) => guard(async () => { await removeEntry(deckHash, cardHash); changed(); });
+
+  const rename = async (name) => {
+    setRenaming(false);
+    if (fresh && !deck.entries?.length) setShowAddPanel(true);
+    const next = name.trim();
+    if (!next || next === deck.name) return;
+    setDeck((d) => ({ ...d, name: next }));
+    await guard(async () => { await updateDeck(deckHash, { name: next }); changed(); });
+  };
+
+  const describe = async (description) => {
+    setEditingDesc(false);
+    const next = description.trim();
+    if (next === (deck.description ?? '')) return;
+    setDeck((d) => ({ ...d, description: next }));
+    await guard(async () => { await updateDeck(deckHash, { description: next }); changed(); });
+  };
+
+  const recolor = async (color) => {
+    if (color === deck.color) return;
+    const before = deck.color;
+    setDeck((d) => ({ ...d, color }));
+    const ok = await guard(async () => { await updateDeck(deckHash, { color }); onRefreshList(); });
+    if (!ok) setDeck((d) => ({ ...d, color: before }));
   };
 
   const remove = async () => {
-    const ok = await confirm({
-      title: t('Delete "{name}"?', { name: deck.name }),
-      message: t('This removes the deck. The cards themselves are not deleted.'),
-      confirmLabel: t('Delete deck'),
-      tone: 'danger',
-    });
-    if (!ok) return;
-    try { await deleteDeck(deckHash); onDeleted(); } catch (err) { setError(err); }
+    setDeleting(true);
+    const ok = await guard(() => deleteDeck(deckHash));
+    setDeleting(false);
+    if (ok) onDeleted(deck.name);
   };
 
   const purge = async (includeShared) => {
@@ -58,7 +90,7 @@ export default function useDeckDetail({ deckHash, onDeleted, onRefreshList }) {
     try {
       await purgeDeck(deckHash, includeShared);
       setPurging(false);
-      onDeleted();
+      onDeleted(deck.name);
     } catch (err) {
       setPurgeError(err.message || t('Could not erase the deck.'));
     } finally {
@@ -66,33 +98,14 @@ export default function useDeckDetail({ deckHash, onDeleted, onRefreshList }) {
     }
   };
 
-  const startEditMeta = () => {
-    setNameVal(deck.name);
-    setDescVal(deck.description ?? '');
-    setEditingMeta(true);
-  };
-
-  const submitMeta = async (e) => {
-    e.preventDefault();
-    if (!nameVal.trim() || savingMeta) return;
-    setSavingMeta(true);
-    try {
-      await updateDeck(deckHash, { name: nameVal.trim(), description: descVal.trim() });
-      setEditingMeta(false);
-      changed();
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setSavingMeta(false);
-    }
-  };
-
   return {
-    deck, loading, error, load, changed,
+    deck, loading, error, actionError, load, changed,
     showAddPanel, toggleAddPanel: () => setShowAddPanel((v) => !v), closeAddPanel: () => setShowAddPanel(false),
-    showNewCard, setShowNewCard,
     purging, setPurging, purgeBusy, purgeError, purge, cancelPurge: () => { setPurging(false); setPurgeError(null); },
-    editingMeta, setEditingMeta, nameVal, setNameVal, descVal, setDescVal, savingMeta, startEditMeta, submitMeta,
-    removeCard, remove,
+    confirmingDelete, setConfirmingDelete, deleting, remove,
+    renaming, setRenaming, rename,
+    editingDesc, setEditingDesc, describe,
+    recolor, removeCard,
+    setCover: (cover) => setDeck((d) => ({ ...d, cover })),
   };
 }

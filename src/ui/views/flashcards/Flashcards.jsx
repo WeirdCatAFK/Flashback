@@ -1,148 +1,266 @@
 /**
- * Flashcards — the card browser: level statistics in the sidebar, search, sort,
- * type and health filters, and a paged list of CardRows that open the card
- * detail. State lives in useCardBrowser.js; the filter vocabulary in filters.js.
+ * Flashcards — the catalogue: every card you own, wherever it lives, to find, check
+ * and fix. The sources are drawn like the file tree (documents, then the default
+ * deck), with the gap between reviews and card health beneath; the search is the
+ * screen. A card opens in the card editor, or in its details for someone who may
+ * not edit. State lives in useCardBrowser.js; the vocabulary in catalogue.js.
  */
 
-import { useState } from 'react';
-import StandaloneCardModal from '../../components/flashcard/StandaloneCardModal';
+import { useEffect, useRef, useState } from 'react';
+import CardBench from '../../components/flashcard/CardBench';
 import CardDetailModal from '../../components/flashcard/CardDetailModal';
-import CardRow from '../../components/flashcard/CardRow';
-import { cardTypes, cardTypeLabel, cardAnswerLine } from '../../components/flashcard/flashcardFields';
+import CardLine from '../../components/flashcard/CardLine';
+import { cardTypes, cardTypeLabel } from '../../components/flashcard/flashcardFields';
 import { ErrorState } from '../../components/base/StateView';
-import ProgressBar from '../../components/base/ProgressBar';
+import IconFolder from '../../components/icons/IconFolder';
+import IconFolderOpen from '../../components/icons/IconFolderOpen';
+import IconDecks from '../../components/icons/IconDecks';
+import IconFlashcards from '../../components/icons/IconFlashcards';
+import getFileIcon from '../../components/icons/fileIconMap';
 import { useSession } from '../../sessionContext.js';
 import { useT } from '../../translations/index';
-import { sortOptions, flagFilters, cardBadges } from './filters.js';
+import {
+  bandOptions, healthOptions, sortOptions, groupOptions, buildSourceTree, scopeParts,
+  withGroupHeaders, groupLabel, share, MAX_SHOWN,
+} from './catalogue.js';
+import useCardBench from '../../components/flashcard/useCardBench';
 import useCardBrowser from './useCardBrowser';
 import './Flashcards.css';
 
-function RelativeTime({ iso }) {
-  const { formatRelative } = useT();
-  if (!iso) return null;
-  return <span className="fc-time" title={iso}>{formatRelative(iso)}</span>;
+/** A card count: a small card outline and the number. */
+function Count({ n }) {
+  return <span className="fc-count"><i aria-hidden="true" />{n}</span>;
 }
 
-function LevelsSidebar({ stats, level, onPick, onClear }) {
-  const { t, tp } = useT();
-  const totalCards = stats?.total ?? 0;
-  const boxes = stats?.boxes ?? [];
+/** The thin line under a row: long-term share for a source, library share for a band. */
+function Line({ value }) {
+  return <span className="fc-line-bar" aria-hidden="true"><i style={{ width: `${Math.round(value * 100)}%` }} /></span>;
+}
+
+/** One row of the sources tree. */
+function SourceRow({ depth = 0, icon, name, cards, line, selected, expanded, onToggle, onChoose, title }) {
   return (
-    <div className="fc-sidebar">
-      <div className="header-row fc-sidebar-header">
-        <span className="eyebrow fc-sidebar-title">{t('Levels')}</span>
-        {level !== null && <button type="button" className="btn btn--ghost btn--sm" onClick={onClear}>{t('clear')}</button>}
-      </div>
-      <div className="fc-stats">
-        <div className="fc-stats-total">{tp('{n} card total', '{n} cards total', totalCards)}</div>
-        {boxes.map((b) => (
-          <button
-            key={b.level}
-            type="button"
-            className={`fc-box-row fc-box-btn${level === b.level ? ' fc-box-btn--active' : ''}`}
-            onClick={() => onPick(b.level)}
-            title={t('Filter to level {n}', { n: b.level })}
-          >
-            <span className="fc-box-label">{t('L{n}', { n: b.level })}</span>
-            <ProgressBar value={totalCards > 0 ? b.count / totalCards : 0} className="fc-box-track" />
-            <span className="fc-box-count">{b.count}</span>
-          </button>
-        ))}
-        {stats && stats.masteryPercentage != null && (
-          <div
-            className="fc-mastery"
-            title={t('{mastered} of {total} cards at level {level} or above', { mastered: stats.mastered ?? 0, total: stats.total ?? 0, level: stats.masteryLevel ?? 5 })}
-          >
-            {t('Mastery {percent}%', { percent: stats.masteryPercentage.toFixed(0) })}
-          </div>
-        )}
-      </div>
+    <div
+      className={`fc-src-row${selected ? ' is-selected' : ''}`}
+      role="treeitem"
+      tabIndex={0}
+      aria-selected={!!selected}
+      aria-expanded={expanded}
+      style={{ '--depth': depth }}
+      title={title}
+      onClick={onChoose}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onChoose(); }
+        if (onToggle && ((e.key === 'ArrowRight' && !expanded) || (e.key === 'ArrowLeft' && expanded))) { e.preventDefault(); onToggle(); }
+      }}
+    >
+      {onToggle ? (
+        <button
+          type="button"
+          className={`fc-chev${expanded ? ' is-open' : ''}`}
+          tabIndex={-1}
+          aria-hidden="true"
+          onClick={(e) => { e.stopPropagation(); onToggle(); }}
+        />
+      ) : <span className="fc-chev-space" />}
+      <span className="fc-src-icon">{icon}</span>
+      <span className="fc-src-name">{name}</span>
+      <Count n={cards} />
+      {line != null && <Line value={line} />}
     </div>
   );
 }
 
-export default function FlashcardsView() {
+function SourceTree({ nodes, depth, b }) {
+  const { tp } = useT();
+  return nodes.map((node) => {
+    const sel = b.view.source?.kind === node.kind && b.view.source?.path === node.path;
+    const title = tp('{name}: {n} card, {long} long-term', '{name}: {n} cards, {long} long-term', node.cards, { name: node.name, long: node.longTerm });
+    if (node.kind === 'document') {
+      const Icon = getFileIcon(node.path);
+      return (
+        <SourceRow key={node.path} depth={depth} icon={<Icon size={14} />} name={node.name} cards={node.cards}
+          line={share(node.longTerm, node.cards)} selected={sel} title={title}
+          onChoose={() => b.chooseSource({ kind: 'document', path: node.path })} />
+      );
+    }
+    const open = b.openFolders.has(node.path);
+    return (
+      <div key={node.path} role="none">
+        <SourceRow depth={depth} icon={open ? <IconFolderOpen size={14} /> : <IconFolder size={14} />} name={node.name}
+          cards={node.cards} line={share(node.longTerm, node.cards)} selected={sel} expanded={open} title={title}
+          onToggle={() => b.toggleFolder(node.path)} onChoose={() => b.chooseSource({ kind: 'folder', path: node.path })} />
+        {open && <div role="group"><SourceTree nodes={node.children} depth={depth + 1} b={b} /></div>}
+      </div>
+    );
+  });
+}
+
+function Sources({ b }) {
+  const { t, tp } = useT();
+  const s = b.summary;
+  const total = s?.total ?? 0;
+  const standalone = s?.standalone ?? { cards: 0, longTerm: 0 };
+  const tree = s ? buildSourceTree(s.documents) : [];
+  const dot = <span className="fc-dot" aria-hidden="true" />;
+  return (
+    <aside className="fc-side">
+      <div className="fc-side-head">
+        <span className="eyebrow">{t('Flashcards')}</span>
+        <span className="fc-side-total">{total}</span>
+      </div>
+      <div className="fc-tree" role="tree" aria-label={t('Where your cards are')}>
+        <SourceRow icon={<IconFlashcards size={14} />} name={t('All cards')} cards={total}
+          selected={!b.view.source} onChoose={() => b.chooseSource(null)} />
+
+        {tree.length > 0 && <div className="fc-tree-label" role="presentation">{t('Documents')}</div>}
+        <SourceTree nodes={tree} depth={0} b={b} />
+
+        <div className="fc-tree-label" role="presentation">{t('Default deck')}</div>
+        <SourceRow icon={<IconDecks size={14} />} name={t('Cards')} cards={standalone.cards}
+          line={share(standalone.longTerm, standalone.cards)}
+          selected={b.view.source?.kind === 'standalone'}
+          title={t('Cards: the default deck. Cards made without a document live here.')}
+          onChoose={() => b.chooseSource({ kind: 'standalone', path: null })} />
+
+        <div className="fc-tree-label" role="presentation">{t('Gap between reviews')}</div>
+        {bandOptions(t).map((band) => {
+          const n = s?.bands?.[band.id] ?? 0;
+          return (
+            <SourceRow key={band.id} icon={dot} name={band.label} cards={n} line={share(n, total)}
+              selected={b.view.band === band.id}
+              title={tp('{name}: {n} card', '{name}: {n} cards', n, { name: band.label })}
+              onChoose={() => b.update({ band: b.view.band === band.id ? null : band.id })} />
+          );
+        })}
+
+        <div className="fc-tree-label" role="presentation">{t('Health')}</div>
+        {healthOptions(t).map((h) => (
+          <SourceRow key={h.id} icon={dot} name={h.label} cards={s?.flags?.[h.id] ?? 0}
+            selected={b.view.health === h.id} title={h.title}
+            onChoose={() => b.update({ health: b.view.health === h.id ? null : h.id })} />
+        ))}
+      </div>
+    </aside>
+  );
+}
+
+export default function FlashcardsView({ isActive = true, onOpenSource }) {
   const { t, tp } = useT();
   const { can } = useSession();
-  const b = useCardBrowser();
-  const { filters } = b;
-  const [showNewCard, setShowNewCard] = useState(false);
+  const canEdit = can('editCards');
+  const b = useCardBrowser({ isActive, onOpenSource });
+  const bench = useCardBench();
+  const { view } = b;
   const [detailHash, setDetailHash] = useState(null);
+  const searchRef = useRef(null);
+
+  useEffect(() => {
+    if (!isActive) return undefined;
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive]);
+
+  const scope = scopeParts(view, t, (k) => cardTypeLabel(k, t));
+  const libraryTotal = b.summary?.total ?? b.total;
+  const rows = withGroupHeaders(b.cards, view.group, b.groups);
+  const open = (card) => (canEdit ? bench.openEdit(card.global_hash) : setDetailHash(card.global_hash));
 
   return (
     <>
       <div className="flashcards-view">
-        <LevelsSidebar stats={b.stats} level={filters.level} onPick={(lv) => b.toggleFilter('level', lv)} onClear={() => b.setFilter('level', null)} />
+        <Sources b={b} />
 
         <div className="fc-main">
-          <div className="toolbar fc-toolbar">
-            <input className="field fc-search-input" placeholder={t('Search cards…')} aria-label={t('Search cards')} value={filters.query} onChange={(e) => b.setFilter('query', e.target.value)} />
-            <select className="field fc-sort-select" value={filters.sort} onChange={(e) => b.setFilter('sort', e.target.value)} aria-label={t('Sort cards')}>
-              {sortOptions(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-            {can('editCards') && (
-              <button type="button" className="btn btn--primary" onClick={() => setShowNewCard(true)} title={t('Create a standalone card')}>{t('+ New card')}</button>
+          <div className="fc-search">
+            <input
+              ref={searchRef}
+              type="search"
+              placeholder={t('Search every card…')}
+              aria-label={t('Search cards')}
+              value={view.query}
+              onChange={(e) => b.update({ query: e.target.value })}
+              onKeyDown={(e) => { if (e.key === 'Escape' && view.query) { e.stopPropagation(); b.update({ query: '' }); } }}
+            />
+          </div>
+
+          <div className="fc-bar">
+            <span className="fc-bar-count">
+              <b>{b.total}</b> {tp('of {n} card', 'of {n} cards', libraryTotal)}
+              {scope.length > 0 && <span className="fc-bar-scope"> · {scope.join(' · ')}</span>}
+            </span>
+            <label className="fc-bar-field">
+              {t('Type')}
+              <select className="fc-select" value={view.cardType} onChange={(e) => b.update({ cardType: e.target.value })}>
+                <option value="">{t('Any type')}</option>
+                {cardTypes(t).map(({ key, label }) => <option key={key} value={key}>{label}</option>)}
+              </select>
+            </label>
+            <label className="fc-bar-field">
+              {t('Sort')}
+              <select className="fc-select" value={view.sort} onChange={(e) => b.update({ sort: e.target.value })}>
+                {sortOptions(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            <label className="fc-bar-field">
+              {t('Group by')}
+              <select className="fc-select" value={view.group} onChange={(e) => b.update({ group: e.target.value })}>
+                {groupOptions(t).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+            </label>
+            {b.narrowed && <button type="button" className="link-action" onClick={b.clear}>{t('Clear')}</button>}
+            <span className="fc-bar-grow" />
+            {canEdit && (
+              <button type="button" className="btn btn--quiet-accent btn--sm" onClick={bench.openNew} title={t('A card with no document goes to Cards, the default deck')}>
+                {t('New card')}
+              </button>
             )}
           </div>
 
-          <div className="fc-filter-bar">
-            {cardTypes(t).map(({ key, label }) => (
-              <button key={key} type="button" className={`btn btn--sm${filters.cardType === key ? ' btn--accent-quiet' : ''}`} onClick={() => b.toggleFilter('cardType', key)}>{label}</button>
-            ))}
-            <span className="divider-v" aria-hidden="true" />
-            {flagFilters(t).map((f) => (
-              <button key={f.value} type="button" className={`btn btn--sm fc-flag-pill${filters.flagFilter === f.value ? ' btn--accent-quiet' : ''}`} onClick={() => b.toggleFilter('flagFilter', f.value)} title={f.title}>{f.label}</button>
-            ))}
-            <span className="fc-filter-count">
-              {b.loading ? '…' : tp('{n} card', '{n} cards', b.total)}
-              {b.filtered && !b.loading && ` ${t('(filtered)')}`}
-            </span>
-            {b.filtered && <button type="button" className="btn btn--ghost btn--sm" onClick={b.clearFilters}>{t('Clear filters')}</button>}
-          </div>
-
-          <div className="fc-card-list">
-            {b.cards.map((card) => (
-              <CardRow
-                key={card.global_hash}
-                level={card.level ?? 0}
-                front={card.frontText || card.name}
-                back={cardAnswerLine(card)}
-                highlighted={!card.document_name}
-                title={t('Open card details')}
-                onOpen={() => setDetailHash(card.global_hash)}
-                badges={cardBadges({ ...card, typeLabel: cardTypeLabel(card.card_type, t) }, t)}
-                actions={
+          <div className="fc-list" role="list" aria-busy={b.loading}>
+            {rows.map((r) => (r.header ? (
+              <div key={`h:${r.key}`} className="fc-group" role="presentation">
+                <span>{groupLabel(view.group, r.key, t)}</span>
+                <span className="fc-group-n">{r.count}</span>
+              </div>
+            ) : (
+              <CardLine
+                key={r.card.global_hash}
+                card={r.card}
+                onOpen={() => open(r.card)}
+                actions={(
                   <>
-                    <RelativeTime iso={card.last_recall} />
-                    {can('editCards') && (
-                      <button
-                        type="button"
-                        className="btn-close"
-                        title={card.document_name ? t('Delete card from {document}', { document: card.document_name }) : t('Delete card')}
-                        onClick={() => b.remove(card)}
-                      >
-                        ✕
-                      </button>
-                    )}
+                    {r.card.document_path && <button type="button" className="link-action" onClick={() => b.openSource(r.card)}>{t('Open source')}</button>}
+                    <button type="button" className="link-action" onClick={() => setDetailHash(r.card.global_hash)}>{t('Details')}</button>
+                    {canEdit && <button type="button" className="link-action" onClick={() => bench.openEdit(r.card.global_hash)}>{t('Edit')}</button>}
                   </>
-                }
+                )}
               />
-            ))}
+            )))}
             {!b.loading && b.error && <ErrorState error={b.error} title={t("Couldn't load your cards")} onRetry={b.reload} />}
-            {!b.loading && !b.error && b.cards.length === 0 && <div className="fc-empty">{t('No cards found.')}</div>}
+            {!b.loading && !b.error && b.cards.length === 0 && (
+              <p className="fc-empty">
+                {view.query ? t('No card matches “{query}”.', { query: view.query.trim() }) : b.narrowed ? t('No cards here.') : t('No cards here yet.')}
+              </p>
+            )}
+            {b.hasMore && (
+              b.cards.length < MAX_SHOWN
+                ? <button type="button" className="btn btn--quiet btn--sm fc-more" onClick={b.showMore}>{t('Show more')}</button>
+                : <p className="fc-empty">{t('Showing the first {n}. Search or pick a source to narrow the list.', { n: MAX_SHOWN })}</p>
+            )}
           </div>
 
-          {b.totalPages > 1 && (
-            <div className="fc-pagination">
-              <button type="button" className="btn btn--sm" disabled={b.page === 0} onClick={() => b.setPage((p) => p - 1)}>{t('‹ Prev')}</button>
-              <span className="fc-page-info">{t('{page} / {total}', { page: b.page + 1, total: b.totalPages })}</span>
-              <button type="button" className="btn btn--sm" disabled={b.page >= b.totalPages - 1} onClick={() => b.setPage((p) => p + 1)}>{t('Next ›')}</button>
-            </div>
-          )}
+          {bench.benchProps && <CardBench key={bench.benchKey} {...bench.benchProps} />}
         </div>
       </div>
-      {detailHash && <CardDetailModal hash={detailHash} onClose={() => setDetailHash(null)} onSaved={b.reloadAll} />}
-      {showNewCard && <StandaloneCardModal onClose={() => setShowNewCard(false)} onCreated={() => { setShowNewCard(false); b.reload(); }} />}
+      {detailHash && <CardDetailModal hash={detailHash} onClose={() => setDetailHash(null)} onSaved={b.reload} />}
     </>
   );
 }

@@ -1,0 +1,87 @@
+/* CardLine — a card as a catalogue row: front, then a mono meta line; actions on hover. */
+
+.card-line {
+  position: relative;
+  display: grid;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-md);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 70%, transparent);
+  cursor: pointer;
+}
+
+.card-line:hover,
+.card-line:focus-visible,
+.card-line:focus-within {
+  background: var(--color-bg-hover);
+  border-bottom-color: transparent;
+  outline: none;
+}
+
+.card-line__front {
+  padding-right: var(--size-md);
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.card-line__meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.card-line__src {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  vertical-align: bottom;
+}
+
+.card-line__flag--mouthful {
+  color: var(--color-review-again);
+}
+
+.card-line__flag--probe {
+  color: var(--color-review-good);
+}
+
+.card-line__actions {
+  position: absolute;
+  right: var(--space-3);
+  top: 50%;
+  transform: translateY(-50%);
+  display: none;
+  gap: var(--space-3);
+}
+
+.card-line:hover .card-line__actions,
+.card-line:focus-within .card-line__actions {
+  display: flex;
+}
+
+/* Rows dealt in one after another, as a box is opened */
+.card-line--dealt {
+  --k: 0;
+  animation: card-line-deal var(--dur-base) var(--ease-out) both;
+  animation-delay: calc(var(--k) * var(--dur-fast) / 3);
+}
+
+@keyframes card-line-deal {
+  from { opacity: 0; transform: translateY(-12px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 760px) {
+  .card-line__front {
+    padding-right: 0;
+  }
+  .card-line__actions {
+    position: static;
+    transform: none;
+    display: flex;
+  }
+}

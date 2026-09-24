@@ -1278,11 +1278,19 @@ so an absolute path or a username never reaches a client.
 
 ### `GET /api/decks`
 
-Response `200` — array of decks.
+Query `algorithm?` (`leitner` | `sm2` | `fsrs`; the scheduler the caller's gaps are computed
+under — omitted, the one their review history says they use).
+
+Response `200` — array of decks. Each carries `entry_count`, `color` (a palette id —
+`slate` `sage` `ochre` `brick` `plum` `ink` — or `null` when its file has none; the renderer then
+shows the colour the deck's hash picks, and the system deck is always kraft) and `standing:
+{ due, fresh, longTerm }` for the caller: cards reviewed and past their gap, cards never
+reviewed, and cards whose gap is 21 days or more.
 
 ### `POST /api/decks`
 
-Body `{ name, description? }`.
+Body `{ name, description? }`. The deck is written with the first palette colour no deck shows
+yet.
 Response `201` — `{ globalHash }`. Errors `400` `name` missing.
 
 ### `GET /api/decks/cards`
@@ -1300,17 +1308,56 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 | `origin`   | string | `ai` (AI-created only) or `human` (everything else). Anything else is ignored.                                                                                                                                             |
 | `flagged`  | bool   | `1`/`true` — only cards carrying a live card-health flag.                                                                                                                                                                 |
 | `flagKind` | string | One signature; implies`flagged`. Unrecognized kinds are ignored rather than refused.                                                                                                                                         |
-| `sortBy`   | string | `level` (default) \| `name` \| `last_recall` \| `lapses` \| `difficulty`. The last two are FSRS-only and NULL for cards never rated under it; `difficulty` sinks those to the bottom in both directions. |
+| `band`     | string | One gap-between-reviews band: `new` \| `d1` \| `wk` \| `w3` \| `m2` \| `long` (`GAP_BANDS` in `src/shared/intervals.js`). |
+| `algorithm`| string | The scheduler `gap`, `band`, `due` and `groupBy=gap` are computed under. Omitted, the one the caller's history says they use. |
+| `source`   | string | `standalone` (the default deck's own cards), or `folder` / `document` with `sourcePath` (forward slashes; a folder matches everything under it). |
+| `groupBy`  | string | `gap` \| `source`. A stable sort on top of `sortBy`, so each group keeps that order; adds `groups`. |
+| `sortBy`   | string | `level` (default) \| `name` \| `last_recall` \| `lapses` \| `difficulty` \| `front` \| `source` \| `created` \| `gap` \| `due`. `lapses`/`difficulty` are FSRS-only and NULL for cards never rated under it; `difficulty` sinks those to the bottom in both directions. `due` is the last review plus the gap, with never-reviewed cards last. |
 | `sortDir`  | string | `asc` \| `desc` (default).                                                                                                                                                                                                 |
-| `limit`    | int    | Default 50, capped at 200.                                                                                                                                                                                                     |
+| `limit`    | int    | Default 50, capped at 500.                                                                                                                                                                                                     |
 | `offset`   | int    | Default 0.                                                                                                                                                                                                                     |
 
-Response `200` — `{ cards, total, limit, offset }`.
+Response `200` — `{ cards, total, limit, offset, groups? }`. Every row carries `gap`: the
+caller's days between reviews, `null` for a card they have never reviewed. `groups` (with
+`groupBy`) is `[{ key, count }]` in display order over every page — `key` a band id, or a
+document path with `null` for the default deck's cards (which come last).
+
+`band`, `groupBy` and the `gap` / `due` orders need the scheduler's maths, which SQL does not
+have: those requests read every matching card's hash, bucket and order them in
+`decks.searchCards`, and fetch only the page.
+
+### `GET /api/decks/cards/summary`
+
+Query `algorithm?`. The Flashcards sidebar in one read.
+Response `200` — `{ total, standalone: { cards, longTerm }, documents: [{ path, cards,
+longTerm }], bands: { new, d1, wk, w3, m2, long }, flags: { any, mouthful, probe } }`, where
+`longTerm` counts cards with a gap of 21 days or more.
 
 ### `GET /api/decks/:hash` · `PUT /api/decks/:hash`
 
-Read one deck, or update `{ name?, description? }`.
-Response `200` — the deck, or `{ ok: true }`.
+Read one deck (query `algorithm?`) — with `color`, `cover`, `tags`, `standing` as in `GET /api/decks`,
+and `entries` each carrying `gap` — or update `{ name?, description?, color? }`. `color` is a
+palette id, or `null` to drop the stored one.
+Response `200` — the deck, or `{ ok: true }`. Errors `400` an unknown colour, `403` a colour for
+the system deck, which is always kraft.
+
+### `GET` · `POST` · `PUT` · `DELETE /api/decks/:hash/cover`
+
+The banner at the head of a deck's page. `cover` on the deck is `null`, `{ kind: 'pattern',
+pattern }` (`cards` | `arcs`, drawn by the renderer in the deck's colour, no file) or
+`{ kind: 'image', file, y }` — `file` a name under `workspace/_decks/covers/`, fresh on every
+upload so it doubles as a cache key, and `y` (0..1) the image's vertical position in the banner.
+
+- `GET` — the image, with its content type. `404` for a drawn cover or none. Reader.
+- `POST` — multipart `file`: PNG, JPEG, WebP, GIF or AVIF, up to 10 MB. Replaces the cover,
+  centred (`y: 0.5`); the previous image, if any, is deleted in the same Seal commit.
+  Response `201` — `{ cover }`. Errors `400` no file or another type, `413` too large.
+- `PUT` — `{ pattern }` for a drawn cover (deleting any image), or `{ y }` to reposition the
+  image one. Response `200` — `{ cover }`. Errors `400` an unknown pattern or neither field,
+  `404` `{ y }` when the cover is not an image.
+- `DELETE` — removes the cover and its image. Response `200` — `{ ok: true }`.
+
+Deleting the deck deletes its cover image too.
 
 ### `DELETE /api/decks/:hash`
 

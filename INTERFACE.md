@@ -315,7 +315,9 @@ Wrap a component in `React.memo` only when:
 
 Rendering 500 DOM nodes at once is slow regardless of React optimizations, and the lists that
 can get there are the file tree, review history, search results and the graph node list. There
-is no virtualization dependency; what exists is paging at the API: the card browser reads `GET /api/decks/cards` with `limit`/`offset`, and `GET
+is no virtualization dependency; what exists is paging at the API: the Flashcards catalogue
+reads `GET /api/decks/cards` 50 rows at a time and grows by "Show more" to at most 500 (past
+that, search or a source narrows the list instead), and `GET
 /api/search` caps at 100 results (20 by default). The file tree renders one folder at a time and
 is not bounded — a folder with thousands of documents in it is the case this section is still
 about. Keep new lists paged for the same reason, and do not add a virtualization dependency to
@@ -348,10 +350,10 @@ components/
   account/     RoleBadge, IdentitySection, ProgressScopePicker
   vault/       VaultManager, VaultSwitcher
   shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, KeybindingsEditor, OnboardingTour
-  flashcard/   Flashcard, CardRow, CardDetailModal, FlashcardForm, FlashcardEditor,
-               StandaloneCardModal, BookImagePicker, ClipMediaPicker, ReviewStrip, RetentionCurve,
-               flashcardFields.js
-  deck/        DeckPurgeDialog, AnkiMappingModal
+  flashcard/   Flashcard, CardLine, CardRow, CardDetailModal, FlashcardForm, CardBench,
+               useCardBench, FlashcardEditor, BookImagePicker, ClipMediaPicker, ReviewStrip,
+               RetentionCurve, flashcardFields.js, cardLineText.js
+  deck/        DeckBox, DeckCover, DeckPurgeDialog, AnkiMappingModal, coverMath.js
   highlight/   SelectionToolbar, HighlightRemoveDialog
   document/    DocumentEditor (+ useDocumentEditor, useSelectionToolbar, useHighlightActions,
                tabsState.js), EditorTabBar, ReadingBar, useReadProgress
@@ -972,6 +974,24 @@ is not derivable from the code and that a future change is likely to reverse by 
 - **Categories are vault data**, edited in Manage, never a constant. A new card defaults to
   the first (most foundational) entry; an existing card keeps what it had, including a category
   since deleted, which the select still lists so it survives a save.
+- **One card editor.** `FlashcardForm` is the editor everywhere: the type picker (five
+  buttons that each say what the type does), the fields, then a live preview beside them —
+  or on top, when the container is narrower than 600px (a container query, since the same
+  form sits in a wide bench and in the Inspector column). Until anything is written the
+  preview shows a worked example of the type, faded and marked "Example", so a blank form
+  still teaches what the type is for. `onDelete` adds a Delete that confirms in place.
+  `CardBench` is the floating shell it opens in on Flashcards and Decks: it rises in on mount
+  and sinks out before `onClose`, including after a save or delete resolves truthy, so a
+  failed save leaves the draft open. `useCardBench` holds that state and hands back props to
+  spread. A new card from either screen has no document, so it goes to Cards, the default
+  deck — and the upload slots hide there (`mediaEnabled={false}`), because the standalone
+  create route stores no media and a picked file would be dropped silently.
+- **`CardLine` is a card as a catalogue row**: front on two lines at most, then source ·
+  type · when it comes due · health flag in small mono, actions on hover. Its text helpers
+  are pure in `cardLineText.js` (a separate name because `CardLine.jsx` and `cardLine.js`
+  collide on a case-insensitive filesystem — an extensionless import picks the `.js`).
+  "Due" is the last review plus the gap, counted in whole days; a card never reviewed says
+  "new". `CardRow` remains for the Inspector until Documents is revised.
 - **Editing is text-only**; media is preserved server-side, so the upload slots hide and the
   preview shows the stored media through `resolveMedia`. A pre-split `type_answer` card is seeded
   through `flashcardFields.js` so saving normalises it.
@@ -982,15 +1002,41 @@ is not derivable from the code and that a future change is likely to reverse by 
 
 ### Other views
 
-- **Decks:** the system deck always leads. Name and description are edited together, since
-  blur-to-commit cannot work once moving between two fields is normal. Purge is a separate
-  action from Delete because it destroys cards. Opening a deck from search stays an effect on
-  purpose — it relays an event to the parent, which cannot happen during render, and clears the
-  request so the same deck can be searched twice. Anki imports go through the mapping modal;
-  every import broadcasts `invalidateData()`.
-- **Flashcards:** the health filter is a filter on the list, not an inbox. Rows hold their own
-  delete button so they carry `role="button"` rather than being one. Deleting names the source
-  document rather than sending the user to the Inspector.
+- **Decks:** boxes you pack. The grid draws each deck as a `DeckBox` in its colour — up to
+  four card tops peeking out of a sleeve with the count printed on it — with what is due and a
+  thin long-term line; the default deck leads, in kraft, labelled "default". A deck's colour is
+  an optional `color` in its `_decks/<uuid>.json` (palette in `src/shared/deckColors.js`); one
+  written before the field existed shows the colour its hash picks, so an older vault's decks
+  come out varied and stable without a write. "New deck" creates the deck at once in the
+  first colour nobody shows, then opens it with its name ready to type and the add-cards layer
+  open — naming it is the first edit, not a form in the way. Rename and description are each
+  edited in place (Enter or blur commits, Escape gives up); Delete confirms inline; Erase keeps
+  `DeckPurgeDialog` because it destroys cards and has a choice to make. Adding cards is a
+  finder layer over the page. The **cover** is a banner below the title row (`DeckCover`):
+  an uploaded image, or one of two patterns drawn in the deck's colour, so a deck can have a
+  face without anyone finding a picture. Change cover opens a small menu (the drawn ones as
+  thumbnails, then Upload); Reposition turns the banner into a drag surface and saves one number,
+  the image's vertical position (`coverMath.js` holds the arithmetic, tested). A manager sees
+  "Add cover" when there is none; everyone else sees the cover or nothing. The detail page is keyed on the deck alone and reloads on
+  `version`, so a data change elsewhere refreshes it without unmounting an open editor.
+  Opening a deck from search stays an effect on purpose — it relays an event to the parent,
+  which cannot happen during render, and clears the request so the same deck can be searched
+  twice. Anki imports go through the mapping modal; every import broadcasts
+  `invalidateData()`. `deckShelf.js` is the pure half (not `decks.js`: it would collide with
+  `Decks.jsx` for the same reason as `cardLineText.js`).
+- **Flashcards:** a catalogue, and the search is the screen. The sources on the left are
+  drawn like the file tree — documents, then Cards, the default deck — each with a count and a
+  thin long-term line; beneath them the **gap between reviews** bands (New, 1 day, up to a
+  week, up to 3 weeks, up to 2 months, longer — `GAP_BANDS` in `src/shared/intervals.js`, so
+  Statistics will bucket identically) with each band's share of the library as its line, then
+  Health. The bands replace the Levels chart: a gap is something every scheduler has, a level
+  is Leitner's. Grouping (by gap or source) is a stable sort on top of the chosen order, done
+  by the server so a group header can carry the group's size across every page
+  (`withGroupHeaders` in `catalogue.js`). A row opens in the card editor, or in
+  `CardDetailModal` for someone who may not edit; Details and Open source are hover actions.
+  The health filter is a row in the sources, not an inbox. Ctrl+F focuses the search while the
+  screen is showing; the view reloads when it comes back into view, since a session elsewhere
+  moves cards between bands.
 - **Stats:** heatmap days are local calendar days (the server buckets with `localtime`), so
   the grid walks local days; a UTC stride would offset everyone off UTC by a cell. Re-pulled on
   focus because the Trainer changes the numbers. Two explicit columns pair each tall panel with

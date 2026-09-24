@@ -1,0 +1,183 @@
+/* DeckCover — the banner at the head of a deck's page, and its Change cover menu.
+   --sleeve (the deck's colour) is set inline; drawn covers paint with it. */
+
+.deck-cover {
+  --sleeve: var(--color-kraft);
+  position: relative;
+  height: var(--size-md);
+  overflow: hidden;
+  background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+}
+
+.deck-cover svg,
+.deck-cover__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.deck-cover__img {
+  object-fit: cover;
+  user-select: none;
+}
+
+.deck-cover.is-placing {
+  cursor: grab;
+  touch-action: none;
+}
+
+.deck-cover.is-placing:active {
+  cursor: grabbing;
+}
+
+.deck-cover.is-busy {
+  opacity: 0.7;
+}
+
+.deck-cover__shape rect,
+.deck-cover-menu__art .deck-cover__shape rect {
+  fill: var(--sleeve);
+}
+
+.deck-cover__line circle,
+.deck-cover-menu__art .deck-cover__line circle {
+  stroke: var(--sleeve);
+}
+
+.deck-cover__hint {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  padding: var(--space-1) var(--space-3);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-media-bg) 55%, transparent);
+  color: var(--color-white);
+  font-size: var(--text-sm);
+  pointer-events: none;
+}
+
+.deck-cover__actions {
+  position: absolute;
+  right: clamp(var(--space-4), 3vw, var(--space-8));
+  bottom: var(--space-2);
+  display: flex;
+  gap: var(--space-1);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.deck-cover:hover .deck-cover__actions,
+.deck-cover:focus-within .deck-cover__actions,
+.deck-cover.is-placing .deck-cover__actions {
+  opacity: 1;
+}
+
+.deck-cover__actions button {
+  height: var(--control-sm);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-bg-surface) 88%, transparent);
+  color: var(--color-fg-primary);
+  font-size: var(--text-xs);
+  cursor: pointer;
+}
+
+.deck-cover__actions button:hover:not(:disabled) {
+  background: var(--color-bg-surface);
+  border-color: var(--color-border-strong);
+}
+
+.deck-cover-add-row {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) clamp(var(--space-4), 3vw, var(--space-8)) 0;
+}
+
+.deck-cover-add {
+  padding: var(--space-0-5) var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.deck-cover-add:hover:not(:disabled) {
+  border-color: var(--color-border-strong);
+  color: var(--color-fg-primary);
+}
+
+.deck-cover-error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.deck-cover-error--over {
+  position: absolute;
+  left: clamp(var(--space-4), 3vw, var(--space-8));
+  bottom: var(--space-2);
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+}
+
+/* The Change cover menu: drawn covers as thumbnails, then the upload */
+.deck-cover-menu {
+  width: var(--size-xl);
+  padding: var(--space-1);
+}
+
+.deck-cover-menu__patterns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-2);
+}
+
+.deck-cover-menu__pattern {
+  display: grid;
+  gap: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.deck-cover-menu__art {
+  display: block;
+  height: var(--control-bar);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+}
+
+.deck-cover-menu__art svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+.deck-cover-menu__pattern:hover .deck-cover-menu__art,
+.deck-cover-menu__pattern[aria-pressed="true"] .deck-cover-menu__art {
+  border-color: var(--color-accent);
+}
+
+.deck-cover-menu__pattern[aria-pressed="true"] {
+  color: var(--color-fg-primary);
+}
+
+.deck-cover-menu__hint {
+  margin: 0;
+  padding: 0 var(--space-2) var(--space-1);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}

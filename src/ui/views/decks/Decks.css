@@ -1,123 +1,432 @@
-/* Decks — the deck list, the detail pane (header, tags, card rows, the
-   add-cards panel) and the import banner. Rows are CardRow; buttons, fields
-   and badges come from components/base. */
+/* Decks — the grid of boxes and one deck's page. The box itself is DeckBox, the
+   card rows CardLine; this file lays them out. */
 
 .decks-view {
-  display: flex;
-  height: 100%;
-  overflow: hidden;
   position: relative;
-}
-
-/* ── Left panel: deck list ──────────────────────────────────────────────── */
-
-.decks-panel {
-  width: var(--size-lg);
-  min-width: var(--size-lg);
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
+  height: 100%;
   overflow: hidden;
+  background: var(--color-bg-surface);
 }
 
-.decks-panel-header {
+.dk-head {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  background: var(--color-sidebar-header);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-1);
 }
 
-.decks-panel-title {
+.dk-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 400;
+}
+
+.dk-title-input {
+  width: min(var(--size-3xl), 60vw);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-lg);
+  outline: none;
+}
+
+.dk-sub {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 600;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--color-fg-secondary);
 }
 
-.decks-panel-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.decks-list {
+.dk-grow {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--space-1) 0;
 }
 
-.deck-item {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background var(--dur-fast);
+.dk-back {
+  flex: none;
+  white-space: nowrap;
+}
+
+.dk-body {
+  position: relative;
+  flex: 1;
   min-height: 0;
+  overflow: auto;
 }
 
-.deck-item:hover {
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.dk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-md), 1fr));
+  gap: var(--space-6) var(--space-5);
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-10);
+}
+
+.dk-tile {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--color-fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.dk-tile:hover {
   background: var(--color-bg-hover);
 }
 
-.deck-item.active {
-  background: var(--color-accent-subtle);
-  border-left-color: var(--color-accent);
+.dk-tile:hover .deck-box,
+.dk-tile:focus-visible .deck-box {
+  transform: translateY(-3px);
 }
 
-.deck-item-icon {
+.dk-tile .deck-box {
+  margin-bottom: var(--space-1);
+}
+
+.dk-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
   font-size: var(--text-base);
-  flex-shrink: 0;
-  color: var(--color-fg-secondary);
 }
 
-.deck-item.active .deck-item-icon {
+.dk-default {
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
   color: var(--color-accent);
 }
 
-.deck-item-info {
-  flex: 1;
-  min-width: 0;
-}
-
-.deck-item-name {
-  font-size: var(--text-sm);
-  color: var(--color-fg-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  line-height: 1.3;
-}
-
-.deck-item-count {
+.dk-meta {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-fg-secondary);
+}
+
+.dk-meta b {
+  color: var(--color-fg-primary);
+  font-weight: 700;
+}
+
+.dk-line {
+  display: block;
+  height: var(--space-0-5);
   margin-top: var(--space-0-5);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
 }
 
-.decks-empty {
-  padding: var(--space-6) var(--space-4);
-  text-align: center;
+.dk-line i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.dk-add-box {
+  display: grid;
+  place-items: center;
+  height: calc(var(--size-sm) + var(--space-4));
+  border: 1.5px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xl);
   color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.5;
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
 }
 
-.decks-empty--error {
+.dk-add:hover .dk-add-box {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.dk-note {
+  max-width: 60ch;
+  margin: 0 clamp(var(--space-4), 3vw, var(--space-8)) var(--space-6);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* ── One deck ──────────────────────────────────────────────────────────── */
+
+.dk-detail {
+  position: relative;
+  padding: var(--space-2) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-10);
+}
+
+.dk-head-row {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-8);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dk-info {
+  flex: 1;
+  min-width: var(--size-lg);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.dk-desc {
+  max-width: 60ch;
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.dk-desc--editable {
+  cursor: text;
+}
+
+.dk-desc--editable:hover {
+  color: var(--color-fg-primary);
+}
+
+.dk-desc-input {
+  max-width: 60ch;
+  resize: vertical;
+}
+
+.dk-facts {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
+  gap: var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.dk-facts b {
+  color: var(--color-fg-primary);
+}
+
+.dk-actions {
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
+}
+
+.dk-danger.btn {
+  border-color: transparent;
   color: var(--color-danger);
 }
 
-/* Import failure banner — floats at the bottom of the view, dismissible. */
+.dk-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.dk-colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dk-colors-label,
+.dk-colors-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.dk-colors-label {
+  margin-right: var(--space-0-5);
+}
+
+.dk-swatch {
+  --sw: var(--color-kraft);
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-fg-primary) 18%, transparent);
+  border-radius: 50%;
+  background: var(--sw);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.dk-swatch:hover:not(:disabled) {
+  transform: scale(1.12);
+}
+
+.dk-swatch:disabled {
+  cursor: default;
+}
+
+.dk-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3.5px var(--color-fg-secondary);
+}
+
+.dk-kraft-note {
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.dk-cards {
+  display: grid;
+  align-content: start;
+}
+
+.dk-empty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Adding cards: a finder layer over the page ────────────────────────── */
+
+.dk-finder {
+  position: absolute;
+  z-index: var(--z-floating);
+  top: var(--space-2);
+  right: clamp(var(--space-4), 3vw, var(--space-8));
+  width: min(var(--size-3xl), calc(100% - var(--space-8)));
+  max-height: min(var(--size-6xl), calc(100vh - var(--size-lg)));
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  animation: dk-finder-in var(--dur-base) var(--ease-pop) both;
+}
+
+@keyframes dk-finder-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+.dk-finder-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.dk-finder-head input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-base);
+  outline: none;
+}
+
+.dk-finder-close {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.dk-finder-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1);
+}
+
+.dk-pick {
+  display: grid;
+  grid-template-columns: var(--space-1) minmax(0, 1fr);
+  column-gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dk-pick:hover {
+  background: var(--color-bg-hover);
+}
+
+.dk-pick i {
+  grid-row: span 2;
+  border-radius: 1px;
+  background: var(--color-border);
+}
+
+.dk-pick.is-in {
+  cursor: default;
+}
+
+.dk-pick.is-in i {
+  background: var(--color-accent);
+}
+
+.dk-pick-text {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dk-pick-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.dk-pick-meta b {
+  font-weight: 400;
+  color: var(--color-accent);
+}
+
+.dk-finder-empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-fg-secondary);
+}
+
+.dk-finder-foot {
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Import error toast ────────────────────────────────────────────────── */
+
 .decks-import-error {
   position: absolute;
   left: 50%;
@@ -146,274 +455,12 @@
   color: var(--color-danger);
 }
 
-/* stats section at bottom of panel */
-
-/* ── Right content area ─────────────────────────────────────────────────── */
-
-.deck-content {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-  background: var(--color-bg-base);
-}
-
-/* ── Empty state ────────────────────────────────────────────────────────── */
-
-.deck-empty-state {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  color: var(--color-fg-secondary);
-}
-
-.deck-empty-icon {
-  font-size: var(--text-2xl);
-  opacity: 0.35;
-}
-
-.deck-empty-text {
-  font-size: var(--text-sm);
-  text-align: center;
-  max-width: var(--size-lg);
-  line-height: 1.5;
-}
-
-/* ── Deck detail header ─────────────────────────────────────────────────── */
-
-.deck-detail-header {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-3);
-  padding: var(--space-4) var(--space-5) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  flex-shrink: 0;
-}
-
-.deck-detail-title-group {
-  flex: 1;
-  min-width: 0;
-}
-
-.deck-detail-name {
-  font-size: var(--text-md);
-  font-weight: 600;
-  color: var(--color-fg-primary);
-  margin: 0 0 var(--space-0-5);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.deck-detail-meta {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-}
-
-.deck-detail-actions {
-  display: flex;
-  gap: var(--space-1);
-  flex-shrink: 0;
-}
-
-/* ── Card list ──────────────────────────────────────────────────────────── */
-
-.deck-cards-area {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-3) var(--space-5);
-}
-
-.deck-cards-empty {
-  padding: var(--space-10) 0;
-  text-align: center;
-  color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
-  line-height: 1.6;
-}
-
-/* ── Add cards panel ────────────────────────────────────────────────────── */
-
-.add-cards-panel {
-  position: absolute;
-  top: 0; right: 0; bottom: 0;
-  width: var(--size-3xl);
-  background: var(--color-bg-surface);
-  border-left: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  z-index: var(--z-sticky);
-  box-shadow: var(--shadow-float);
-}
-
-.add-cards-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-sidebar-header);
-  flex-shrink: 0;
-}
-
-.add-cards-title {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-fg-primary);
-}
-
-.add-cards-search {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-.add-cards-search input {
-  width: 100%;
-  padding: var(--space-1) var(--space-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-base);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  outline: none;
-  box-sizing: border-box;
-}
-
-.add-cards-search input:focus {
-  border-color: var(--color-accent);
-}
-
-.add-cards-results {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-2);
-}
-
-.add-card-front {
-  font-size: var(--text-sm);
-  color: var(--color-fg-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.add-card-doc {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  margin-top: var(--space-0-5);
-}
-
-.add-cards-info {
-  padding: var(--space-2) var(--space-3);
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  border-top: 1px solid var(--color-border);
-  flex-shrink: 0;
-}
-
-/* ── New deck form ──────────────────────────────────────────────────────── */
-
-.new-deck-form {
-  padding: var(--space-5);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.new-deck-form label {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-}
-
-.new-deck-form input,
-.new-deck-form textarea {
-  padding: var(--space-2) var(--space-2);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-bg-base);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  font-family: inherit;
-  outline: none;
-}
-
-.new-deck-form input:focus,
-.new-deck-form textarea:focus {
-  border-color: var(--color-accent);
-}
-
-.new-deck-form textarea {
-  resize: vertical;
-  min-height: var(--control-bar);
-}
-
-.new-deck-actions {
-  display: flex;
-  gap: var(--space-2);
-  justify-content: flex-end;
-}
-
-/* ── Deck name/description inline edit ──────────────────────────────────── */
-
-.deck-meta-form {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-.deck-detail-name-input {
-  font-size: var(--text-md);
-  font-weight: 600;
-}
-
-.deck-detail-desc-input {
-  resize: vertical;
-}
-
-.deck-meta-form-actions {
-  display: flex;
-  gap: var(--space-1);
-}
-
-.deck-detail-desc {
-  cursor: text;
-}
-
-.deck-detail-desc--empty {
-  font-style: italic;
-  opacity: 0.65;
-}
-
-/* ── System deck badge ──────────────────────────────────────────────────── */
-
-.deck-system-badge--detail {
-  margin-left: var(--space-2);
-  text-transform: none;
-  letter-spacing: 0;
-}
-
-/* ── Deck tags ───────────────────────────────────────────────────────────── */
+/* ── Deck tags ─────────────────────────────────────────────────────────── */
 
 .deck-tags {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
 }
 
 .deck-tags[aria-busy="true"] {
@@ -424,14 +471,15 @@
 .deck-tags-hint {
   font-size: var(--text-xs);
   color: var(--color-fg-secondary);
-  opacity: 0.8;
 }
 
-/* Tag chip + input primitives. These class names are shared with the document
-   inspector (Inspector.css); duplicated here because the Decks view never mounts
-   the inspector, so its stylesheet isn't loaded. Keep the two in sync. */
-
-.add-cards-empty {
-  padding: var(--space-6);
-  text-align: center;
+@media (max-width: 760px) {
+  .dk-head-row {
+    gap: var(--space-4);
+  }
+  .dk-finder {
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+  }
 }

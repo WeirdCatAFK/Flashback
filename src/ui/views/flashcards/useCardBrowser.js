@@ -1,84 +1,101 @@
 /**
- * The card browser's state: the filters, the debounced paged search they drive,
- * the level statistics in the sidebar, and deleting a card. Any filter change
- * returns to the first page.
+ * The Flashcards catalogue's state: the view (search, source, band, health, type,
+ * order, grouping), the debounced search it drives with "show more" paging, the
+ * sidebar summary, and opening a card's document. Everything reloads when the
+ * screen comes back into view, since a study session elsewhere moves cards between
+ * bands. The card editor's state is useCardBench's.
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getStats } from '../../api/srs';
-import { searchCards, deleteCard } from '../../api/decks';
-import { useConfirm } from '../../components/base/confirmContext.js';
+import { searchCards, getCatalogueSummary } from '../../api/decks';
+import { readFile } from '../../api/documents';
+import { getPref } from '../../prefs.js';
 import { useDataInvalidation } from '../../utils/dataBus';
-import { useT } from '../../translations/index';
-import { PAGE_SIZE, searchArgsFor, hasFilters } from './filters.js';
+import { PAGE_SIZE, EMPTY_VIEW, searchArgsFor, isNarrowed, ancestorsOf } from './catalogue.js';
 
 const TYPE_DEBOUNCE = 250;
 
-export default function useCardBrowser() {
-  const { t } = useT();
-  const confirm = useConfirm();
-  const [stats, setStats] = useState(null);
-  const [statsToken, setStatsToken] = useState(0);
-  const [filters, setFilters] = useState({ query: '', level: null, cardType: null, flagFilter: null, sort: 'level:desc' });
-  const [page, setPage] = useState(0);
-  const [cards, setCards] = useState([]);
-  const [total, setTotal] = useState(0);
+const algorithmPref = () => getPref('fb-srs-algorithm') ?? 'sm2';
+
+export default function useCardBrowser({ isActive, onOpenSource }) {
+  const [view, setView] = useState(EMPTY_VIEW);
+  const [openFolders, setOpenFolders] = useState(() => new Set());
+  const [pages, setPages] = useState(1);
+  const [result, setResult] = useState({ cards: [], total: 0, groups: null });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [summary, setSummary] = useState(null);
+  const [token, setToken] = useState(0);
   const debounceRef = useRef(null);
+  const requestRef = useRef(0);
 
-  useEffect(() => { getStats().then(setStats).catch(() => {}); }, [statsToken]);
-
-  const searchArgs = searchArgsFor(filters);
-  const searchKey = JSON.stringify(searchArgs);
-
-  const loadCards = useCallback((args, pg) => {
-    setLoading(true);
-    setError(null);
-    searchCards({ ...args, limit: PAGE_SIZE, offset: pg * PAGE_SIZE })
-      .then((res) => { setCards(res.cards); setTotal(res.total); })
-      .catch(setError)
-      .finally(() => setLoading(false));
-  }, []);
+  const algorithm = algorithmPref();
+  const args = searchArgsFor(view, algorithm);
+  const argsKey = JSON.stringify(args);
 
   useEffect(() => {
+    if (!isActive) return;
+    getCatalogueSummary(algorithmPref()).then(setSummary).catch(() => {});
+  }, [isActive, token]);
+
+  useEffect(() => {
+    if (!isActive) return undefined;
     clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => loadCards(JSON.parse(searchKey), page), filters.query ? TYPE_DEBOUNCE : 0);
-  }, [searchKey, page, filters.query, loadCards]);
+    const id = ++requestRef.current;
+    debounceRef.current = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      searchCards({ ...JSON.parse(argsKey), limit: pages * PAGE_SIZE, offset: 0 })
+        .then((res) => { if (id === requestRef.current) setResult({ cards: res.cards, total: res.total, groups: res.groups ?? null }); })
+        .catch((err) => { if (id === requestRef.current) setError(err); })
+        .finally(() => { if (id === requestRef.current) setLoading(false); });
+    }, view.query ? TYPE_DEBOUNCE : 0);
+    return () => clearTimeout(debounceRef.current);
+  }, [argsKey, pages, view.query, isActive, token]);
 
-  const reload = () => loadCards(searchArgs, page);
-  const reloadAll = () => { reload(); setStatsToken((n) => n + 1); };
-  useDataInvalidation(reloadAll);
+  const reload = useCallback(() => setToken((n) => n + 1), []);
+  useDataInvalidation(reload);
 
-  const setFilter = (key, value) => {
-    setFilters((f) => ({ ...f, [key]: value }));
-    setPage(0);
+  const update = (patch) => {
+    setView((v) => ({ ...v, ...patch }));
+    setPages(1);
   };
-  const toggleFilter = (key, value) => setFilter(key, filters[key] === value ? null : value);
 
-  const remove = async (card) => {
-    const ok = await confirm({
-      title: t('Delete this card?'),
-      message: card.document_name
-        ? t('This permanently removes the card from {document}, including its review history. The document itself is untouched. This cannot be undone.', { document: card.document_name })
-        : t('This permanently removes the standalone card, including its review history. This cannot be undone.'),
-      confirmLabel: t('Delete card'),
-      tone: 'danger',
-    });
-    if (!ok) return;
-    try {
-      await deleteCard(card.global_hash);
-      reload();
-    } catch (err) {
-      setError(err);
+  const chooseSource = (source) => {
+    const same = source && view.source?.kind === source.kind && view.source?.path === source.path;
+    update({ source: same ? null : source });
+    if (source?.kind === 'folder' || source?.kind === 'document') {
+      setOpenFolders((prev) => new Set([...prev, ...ancestorsOf(source.path), ...(source.kind === 'folder' ? [source.path] : [])]));
     }
   };
 
+  const toggleFolder = (path) => setOpenFolders((prev) => {
+    const next = new Set(prev);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    return next;
+  });
+
+  /** Opens the card's document at the passage it was made from, when it has one. */
+  const openSource = async (row) => {
+    if (!row.document_path) return;
+    let highlightId = null;
+    try {
+      const data = await readFile(row.document_path);
+      const loc = data.metadata?.flashcards?.find((c) => c.globalHash === row.global_hash)?.vanillaData?.location;
+      if (loc?.type === 'highlight') highlightId = loc.id;
+    } catch { }
+    onOpenSource?.(row.document_path, highlightId);
+  };
+
   return {
-    stats, filters, page, cards, total, loading, error,
-    totalPages: Math.max(1, Math.ceil(total / PAGE_SIZE)),
-    filtered: hasFilters(filters),
-    setFilter, toggleFilter, setPage, reload, reloadAll, remove,
-    clearFilters: () => { setFilters((f) => ({ ...f, query: '', level: null, cardType: null, flagFilter: null })); setPage(0); },
+    view, update, chooseSource, openFolders, toggleFolder,
+    cards: result.cards, total: result.total, groups: result.groups,
+    loading, error, summary, reload,
+    narrowed: isNarrowed(view),
+    clear: () => update({ query: '', source: null, band: null, health: null, cardType: '' }),
+    hasMore: result.cards.length < result.total,
+    showMore: () => setPages((n) => n + 1),
+    openSource,
   };
 }

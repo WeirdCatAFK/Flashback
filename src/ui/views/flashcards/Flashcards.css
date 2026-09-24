@@ -1,6 +1,5 @@
-/* Flashcards — the card browser: the levels sidebar, the toolbar and filter
-   bar, the CardRow list and pagination. Buttons, fields and badges come from
-   components/base. */
+/* Flashcards — the catalogue: the sources tree on the left, then the search, the
+   count line and the card list. The card editor (CardBench) floats over .fc-main. */
 
 .flashcards-view {
   display: flex;
@@ -8,373 +7,295 @@
   overflow: hidden;
 }
 
-/* ── Left sidebar: Leitner stats ────────────────────────────────────────── */
+/* ── Sources, drawn like the file tree ─────────────────────────────────── */
 
-.fc-sidebar {
+.fc-side {
   width: var(--size-lg);
   min-width: var(--size-lg);
+  display: flex;
+  flex-direction: column;
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
 }
 
-.fc-sidebar-header {
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  background: var(--color-sidebar-header);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
+.fc-side-head {
   display: flex;
-  align-items: center;
+  align-items: baseline;
   justify-content: space-between;
+  padding: var(--space-3) var(--space-3) var(--space-1) var(--space-4);
 }
 
-.fc-stats {
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-  overflow-y: auto;
-}
-
-.fc-stats-total {
+.fc-side-total {
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  margin-bottom: var(--space-2);
-  padding: 0 var(--space-0-5);
+  font-weight: 700;
+  color: var(--color-fg-primary);
 }
 
-.fc-box-btn {
-  display: flex;
+.fc-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.fc-tree-label {
+  padding: var(--space-3) var(--space-2) var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.fc-src-row {
+  --depth: 0;
+  display: grid;
+  grid-template-columns: var(--icon-md) var(--icon-md) minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-1);
-  width: 100%;
-  background: none;
-  border: 1px solid transparent;
+  column-gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2) var(--space-0-5) calc(var(--space-1) + var(--depth) * var(--space-3));
+  min-height: var(--control-sm);
   border-radius: var(--radius-sm);
-  padding: var(--space-0-5) var(--space-1);
+  color: var(--color-fg-primary);
   cursor: pointer;
-  text-align: left;
+  user-select: none;
 }
 
-.fc-box-btn:hover {
+.fc-src-row:hover {
   background: var(--color-bg-hover);
-  border-color: var(--color-border);
 }
 
-.fc-box-btn--active {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  border-color: var(--color-accent);
+.fc-src-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
 }
 
-.fc-box-label {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  width: var(--control-xs);
-  flex-shrink: 0;
+.fc-src-row.is-selected {
+  background: var(--color-accent-subtle);
+  box-shadow: inset 2px 0 0 var(--color-accent);
 }
 
-.fc-box-track {
-  flex: 1;
+.fc-src-icon {
+  display: grid;
+  place-items: center;
+  color: var(--color-fg-icon);
 }
 
-.fc-box-count {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  width: var(--control-sm);
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.fc-mastery {
-  margin-top: var(--space-2);
-  padding: 0 var(--space-1);
-  font-size: var(--text-xs);
+.fc-src-row.is-selected .fc-src-icon {
   color: var(--color-accent);
-  font-weight: 500;
 }
 
-/* ── Main content ───────────────────────────────────────────────────────── */
-
-.fc-main {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
+.fc-src-name {
   overflow: hidden;
-  background: var(--color-bg-base);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Search + sort row */
-.fc-toolbar {
-  flex-shrink: 0;
-}
-.fc-search-input {
-  flex: 1;
-  min-width: var(--size-md);
+/* Folder chevron: a drawn caret that turns when the folder opens */
+.fc-chev,
+.fc-chev-space {
+  width: var(--icon-md);
+  height: var(--icon-md);
 }
 
-/* Filter pills row */
-.fc-filter-bar {
-  display: flex;
+.fc-chev {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.fc-chev::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--space-1);
+  height: var(--space-1);
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.fc-chev.is-open {
+  transform: rotate(90deg);
+}
+
+/* A band or health row's marker: a hollow dot, filled when chosen */
+.fc-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  border: 1.3px solid var(--color-fg-secondary);
+}
+
+.fc-src-row.is-selected .fc-dot {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+/* A count: a small card outline and the number */
+.fc-count {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  flex-shrink: 0;
-  flex-wrap: wrap;
-}
-
-/* Separates "what kind of card is this" from "how is it behaving" — two different
-   questions that happen to share a row. */
-
-.fc-flag-pill { font-style: italic; }
-
-.fc-filter-count {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   color: var(--color-fg-secondary);
-  margin-left: auto;
-  flex-shrink: 0;
 }
 
-/* Card list */
-.fc-card-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
-
-/* FSRS difficulty. Deliberately quieter than the category chip: it's a diagnostic
-   number, not a label the user chose. */
-
-/* Card-health flag. Sits with the diagnostics rather than the labels, and stays a chip
-   rather than an icon: "overloaded" is a claim the user should be able to read and
-   disagree with, not a warning triangle. */
-
-.fc-time {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  white-space: nowrap;
+.fc-count i {
+  width: var(--space-2);
+  height: calc(var(--space-2) * 0.75);
+  border: 1px solid currentColor;
+  border-radius: 1px;
   opacity: 0.7;
 }
 
-.fc-empty {
-  padding: var(--space-10) 0;
-  text-align: center;
-  color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
+/* The thin line under a row: long-term share for a source, library share for a band */
+.fc-line-bar {
+  grid-column: 3 / -1;
+  display: block;
+  height: var(--space-0-5);
+  margin: var(--space-0-5) 0;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
 }
 
-/* Pagination */
-.fc-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  flex-shrink: 0;
-}
-
-.fc-page-info {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  min-width: var(--control-bar);
-  text-align: center;
-}
-
-/* ── New card button ────────────────────────────────────────────────────── */
-
-.flashcards-view {
-  display: flex;
+.fc-line-bar i {
+  display: block;
   height: 100%;
-  overflow: hidden;
+  background: var(--color-accent);
 }
 
-/* ── Left sidebar: Leitner stats ────────────────────────────────────────── */
-
-.fc-sidebar {
-  width: var(--size-lg);
-  min-width: var(--size-lg);
-  background: var(--color-bg-sidebar);
-  border-right: 1px solid var(--color-border);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-
-.fc-sidebar-header {
-  padding: var(--space-2) var(--space-3) var(--space-2);
-  background: var(--color-sidebar-header);
-  border-bottom: 1px solid var(--color-border);
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.fc-stats {
-  padding: var(--space-2) var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
-  overflow-y: auto;
-}
-
-.fc-stats-total {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  margin-bottom: var(--space-2);
-  padding: 0 var(--space-0-5);
-}
-
-.fc-box-btn {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  width: 100%;
-  background: none;
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  padding: var(--space-0-5) var(--space-1);
-  cursor: pointer;
-  text-align: left;
-}
-
-.fc-box-btn:hover {
-  background: var(--color-bg-hover);
-  border-color: var(--color-border);
-}
-
-.fc-box-btn--active {
-  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
-  border-color: var(--color-accent);
-}
-
-.fc-box-label {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  width: var(--control-xs);
-  flex-shrink: 0;
-}
-
-.fc-box-track {
-  flex: 1;
-}
-
-.fc-box-count {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  width: var(--control-sm);
-  text-align: right;
-  flex-shrink: 0;
-}
-
-.fc-mastery {
-  margin-top: var(--space-2);
-  padding: 0 var(--space-1);
-  font-size: var(--text-xs);
-  color: var(--color-accent);
-  font-weight: 500;
-}
-
-/* ── Main content ───────────────────────────────────────────────────────── */
+/* ── The catalogue: the search is the screen ───────────────────────────── */
 
 .fc-main {
+  position: relative;
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  background: var(--color-bg-base);
+  background: var(--color-bg-surface);
 }
 
-/* Search + sort row */
-.fc-toolbar {
-  flex-shrink: 0;
-}
-.fc-search-input {
-  flex: 1;
-  min-width: var(--size-md);
-}
-
-/* Filter pills row */
-.fc-filter-bar {
+.fc-search {
   display: flex;
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-1);
+}
+
+.fc-search input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-0-5) var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--color-border);
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-lg);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.fc-search input::placeholder {
+  color: var(--color-fg-secondary);
+}
+
+.fc-search input:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+.fc-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.fc-bar-count b {
+  font-family: var(--font-mono);
+  color: var(--color-fg-primary);
+}
+
+.fc-bar-field {
+  display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-1) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  flex-shrink: 0;
-  flex-wrap: wrap;
 }
 
-/* Separates "what kind of card is this" from "how is it behaving" — two different
-   questions that happen to share a row. */
-
-.fc-flag-pill { font-style: italic; }
-
-.fc-filter-count {
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  margin-left: auto;
-  flex-shrink: 0;
-}
-
-/* Card list */
-.fc-card-list {
+.fc-bar-grow {
   flex: 1;
-  overflow-y: auto;
-  padding: var(--space-2) var(--space-3);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
 }
 
-/* FSRS difficulty. Deliberately quieter than the category chip: it's a diagnostic
-   number, not a label the user chose. */
+.fc-select {
+  height: var(--control-sm);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+}
 
-/* Card-health flag. Sits with the diagnostics rather than the labels, and stays a chip
-   rather than an icon: "overloaded" is a claim the user should be able to read and
-   disagree with, not a warning triangle. */
+.fc-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
 
-.fc-time {
+.fc-list {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  padding: var(--space-0-5) clamp(var(--space-2), 2.4vw, var(--space-6)) var(--space-10);
+}
+
+.fc-group {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3) var(--space-1);
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--color-fg-secondary);
-  white-space: nowrap;
-  opacity: 0.7;
+}
+
+.fc-group:first-child {
+  padding-top: var(--space-1);
+}
+
+.fc-group-n {
+  letter-spacing: 0;
+  color: var(--color-fg-primary);
 }
 
 .fc-empty {
-  padding: var(--space-10) 0;
-  text-align: center;
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
   color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
 }
 
-/* Pagination */
-.fc-pagination {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-surface);
-  flex-shrink: 0;
+.fc-more {
+  justify-self: start;
+  margin: var(--space-3);
 }
 
-.fc-page-info {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  min-width: var(--control-bar);
-  text-align: center;
+@media (max-width: 760px) {
+  .fc-side {
+    display: none;
+  }
 }
-
-/* ── New card button ────────────────────────────────────────────────────── */
-
