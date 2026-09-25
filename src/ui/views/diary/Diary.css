@@ -270,6 +270,17 @@
   color: var(--color-fg-tertiary);
 }
 
+.dy-entry .dy-none {
+  margin: 0;
+  padding: 0;
+  font-size: var(--text-md);
+}
+
+/* "Logs of": whose Logs the Author is reading, under the rail's title. */
+.dy-whose {
+  padding: 0 var(--space-1) var(--space-2);
+}
+
 .dy-foot {
   display: grid;
   gap: var(--space-1);

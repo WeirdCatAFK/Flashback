@@ -1939,6 +1939,10 @@ Admin. Query `?algorithm=` (optional) → `200` `{ account, scope, statistics }`
 
 Admin. → `200` `{ account, scope, nodes, edges }`: the knowledge graph exactly as `GET /api/documents/graph` returns it, except that every node's `learned` and `mass` are computed from the target person's schedule. It is what lets an admin see the vault's halos as a reader sees them. `404` for an account that does not exist.
 
+### `GET /api/accounts/:id/logs`, `/:id/logs/summary/:date`, `/:id/logs/entry/:date`
+
+Author only (unlisted, so the mount's catch-all). Someone's Logs, read-only, in exactly the shapes `GET /api/diary`, `GET /api/diary/summary/:date` and `GET /api/diary/entry/:date` give the caller for their own: the days newest first (`?from=`/`?to=` bound them), one day's summary (`404` when there is none), one day's entry (`content` is `''` when nothing was written). The Author's own are read under the owner sentinel, like progress. Nothing here derives a summary or writes a file, and there is no route to write someone else's entry. Logs hold private writing, so only the server's owner may read them, and the Logs privacy note says so; an AI assistant (`X-Flashback-Client: mcp`) is refused with `403` whatever its diary access, which is about the caller's own diary. `400` for a malformed date, `404` for an unknown account.
+
 ### `POST /api/accounts/pure-token`
 
 Author only. Body `{ label? }` → `201` `{ token, accountId, revoked, notice }`. Mints the token that proves ownership and revokes every previous Author token in the same transaction. If the store is unreachable or the token is lost, `npm run pure-token` does the same thing from the terminal against `accounts.db` directly — physical access to the file is the authorization, which is the same bargain every database makes.

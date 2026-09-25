@@ -156,6 +156,7 @@ export default function App() {
   const activeViewRef = useRef(activeView);
   activeViewRef.current = activeView;
   const [progressAccount, setProgressAccount] = useState(null);
+  const [logsAccount, setLogsAccount] = useState(null);
 
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("fb-theme");
@@ -212,6 +213,7 @@ export default function App() {
     setCatalogueRequest(null);
     setStudySession(null);
     setProgressAccount(null);
+    setLogsAccount(null);
     try {
       const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
       setOpenPaths(new Set(Array.isArray(saved) ? saved : []));
@@ -230,6 +232,7 @@ export default function App() {
 
   const [diaryWriteRequest, setDiaryWriteRequest] = useState(0);
   const handleWriteDiary = useCallback(() => {
+    setLogsAccount(null);
     setDiaryWriteRequest((n) => n + 1);
     setActiveView("diary");
   }, []);
@@ -341,6 +344,11 @@ export default function App() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const handleViewLogs = useCallback((account) => {
+    setLogsAccount(account ? { id: account.id, name: account.name, role: account.role } : null);
+    setActiveView("diary");
   }, []);
 
   const handleViewProgress = useCallback((account) => {
@@ -477,6 +485,8 @@ export default function App() {
             isActive={activeView === "diary"}
             connection={connection}
             writeRequest={diaryWriteRequest}
+            viewingAccount={logsAccount}
+            onViewingAccountChange={setLogsAccount}
           />
         );
       case "server":
@@ -484,6 +494,7 @@ export default function App() {
           <ServerView
             connection={connection}
             onViewProgress={handleViewProgress}
+            onViewLogs={handleViewLogs}
           />
         );
       case "config":

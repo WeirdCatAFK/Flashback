@@ -129,6 +129,16 @@ The interface is moving to a new design language, one area at a time. In this re
   (Ctrl+F) finds any setting by name. Themes are chosen from swatches drawn in their own
   colours; the zoom can be set there too. The theme editor opens as its own page. Every
   shortcut, including the ones that can't be changed, is listed under Keyboard.
+- **Server Management reads like a report.** One sentence says who you're signed in as and
+  how many seats are in use; your role is shown as a step on the Reader-to-Author ladder, with
+  what each role can do one click away. People are quiet rows whose actions appear on hover,
+  and Deactivate and Revoke confirm inside the row. **New: Reactivate** brings a deactivated
+  person back with the progress they had, while a seat is free. Adding someone hands you their
+  first token at once. Readers no longer see an empty People section.
+- **The server's owner can read anyone's Logs.** The Logs privacy note always said someone
+  else could read yours; now the Author can, in the app: Logs on a person's row in Server
+  Management, or "Logs of" on the Logs screen. It is read-only, and the note now names the
+  server's owner rather than "an administrator", since admins cannot.
 - **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
   glass. The Graph panel slides shut to its header instead of vanishing, and a selected
   node's name no longer breaks mid-word.
@@ -139,7 +149,8 @@ The interface is moving to a new design language, one area at a time. In this re
   `GET /api/categories` rows carry `cards`, and `DELETE /api/categories/:id?clear=1` deletes
   a category in use, clearing it from its cards. `GET /api/srs/statistics` carries `bands`, and
   `GET /api/diary` items carry `reviews` and `firstLine` (the latter withheld from an MCP
-  client unless diary access is full).
+  client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
+  `/entry/:date`) is new: the Author reads someone's Logs, read-only.
 
 ### Fixed — renaming a category left its cards behind
 

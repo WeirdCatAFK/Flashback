@@ -85,6 +85,8 @@ export const CAPABILITIES = {
     switchVault:      { minimum: ROLES.AUTHOR, guards: [["vault", "POST", "/switch"]] },
     manageRemotes:    { minimum: ROLES.AUTHOR, guards: [["remotes", "GET", "/"]] },
     rotatePureToken:  { minimum: ROLES.AUTHOR, guards: [["accounts", "POST", "/pure-token"]] },
+    readAllLogs:      { minimum: ROLES.AUTHOR, guards: [["accounts", "GET", "/abc123/logs"], ["accounts", "GET", "/abc123/logs/entry/2026-01-01"]],
+        note: "Logs hold private writing; only the server's owner is told they may read them." },
 };
 
 /**

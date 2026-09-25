@@ -183,7 +183,7 @@ a local vault because there is nothing behind it — see `remoteOnly` in `App.js
 
 One nav item is renamed by the connection rather than by the role: the study record is
 "Diary" on a local vault and "Logs" on a remote server, because on a server one git
-history holds several people's prose and an admin can read it — a private-journal name would
+history holds several people's prose and the server's owner can read it — a private-journal name would
 promise privacy the deployment cannot deliver, and locally it is simply true. Both label sets
 live in `src/ui/diaryLabels.js` (`diaryLabels(t, shared)`, `isSharedVault(connection)`); only
 the label moves, never `/api/diary`, `diary/` or `fb-diary-enabled`. `connection` reaches
@@ -1211,7 +1211,11 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   reflection written in place (Ctrl+S saves, Esc cancels), then "the day in detail". The entry
   editor resets during render keyed on `(date, content)`: `key={date}` is not enough because
   the content arrives asynchronously after the remount. The privacy note renders only on a
-  remote, above the writing. Pass rate excludes learning-phase cards on schema v2 summaries.
+  remote, above the writing. There the Author can read someone else's Logs ("Logs of" in the
+  rail, the shared scope picker with `capability="readAllLogs"`, or Logs on a person's row in
+  Server Management); App.jsx owns whose, as it owns whose progress Statistics shows. The page
+  is then read-only and nothing is derived: today's summary is read as stored, since deriving
+  it would write into their history. Pass rate excludes learning-phase cards on schema v2 summaries.
 - **Metadata** (`views/manage/`): the vocabulary cards are classified with, as a report in two
   tabs. Categories sit on priority levels, several to a level, and move by drag (onto a level,
   or onto "new level" above or below the rest) or Raise and Lower (Alt+↑/↓); levels renumber
@@ -1241,9 +1245,20 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   is pre-filled (the suggested address is a `.local` placeholder). The algorithm is written to the
   global pref key because the vault has no id yet, and `prefs.js` copies it forward. Blank
   identity writes no `user` at all.
-- **Server:** the one place that says out loud what the role hides elsewhere. The role select
-  never offers what the server would refuse (`roles.js`), and the account-limit message is
-  shown before the form fails.
+- **Server Management** (`views/server/`): the one place that says out loud what the role hides
+  elsewhere, set as a report like Metadata and Seal. The lede names you and your role and, for
+  an admin, the seats in use; your role is a ladder with "What each role can do" behind a
+  disclosure. People are rows whose actions (Progress, New token, Revoke, Deactivate, or
+  Reactivate on a deactivated row) appear on hover in place of the token count and date, and
+  confirm inside the row; the Author also gets Logs, which opens that person's Logs read-only.
+  Which rows offer them mirrors the API's grant ceiling (`roles.js`
+  `grantable`: an admin manages Readers, the Author everyone else, nobody their own row), so
+  no action is offered that the server would refuse; a role menu with one choice is shown as
+  the role instead. Adding a person creates the account and issues its first token in one
+  step. A token is shown once, in a panel that stays until dismissed. Role sentences are one
+  key per role ("an Admin", "a Reader") so the article can be translated. Readers get no
+  People section at all, and the account list is not fetched for them. When every seat is
+  taken, the page says so before the form would fail.
 
 ---
 

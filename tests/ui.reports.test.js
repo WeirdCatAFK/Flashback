@@ -1,7 +1,7 @@
 /**
  * The report screens' pure logic: Statistics (the heatmap's weeks, the gap-band rows),
- * the Diary's month calendar, Metadata's priority levels and tag list, and the tag-name
- * rule a vault-wide rename applies. No DOM, no React.
+ * the Diary's month calendar, Metadata's priority levels and tag list, the tag-name rule a
+ * vault-wide rename applies, and Server Management's role rules. No DOM, no React.
  */
 
 import { test, describe } from 'node:test';
@@ -13,6 +13,8 @@ import {
   reachOf, shownTags, uncategorized,
 } from '../src/ui/views/manage/metadata.js';
 import { cleanTagName, swapTag } from '../src/shared/tagNames.js';
+import { grantable, grantableRoles, signedInAs, roleLabels } from '../src/ui/views/server/roles.js';
+import { ROLE_ORDER } from '../src/shared/roles.js';
 
 describe('heatLevel', () => {
   test('none is 0, then quarters of the busiest day', () => {
@@ -197,5 +199,23 @@ describe('tag names', () => {
     assert.deepEqual(swapTag(['a', 'b'], 'a'), ['b']);
     assert.equal(swapTag(['a'], 'z', 'y'), null);
     assert.equal(swapTag(undefined, 'a', 'b'), null);
+  });
+});
+
+describe('server roles', () => {
+  const t = (s, vars = {}) => s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`));
+
+  test('the grant ceiling matches the API: the Author grants all but Author, an admin only Reader', () => {
+    assert.deepEqual(grantableRoles('author'), ['reader', 'collaborator', 'admin']);
+    assert.deepEqual(grantableRoles('admin'), ['reader']);
+    assert.equal(grantable('admin', 'admin'), false, 'an admin cannot manage another admin');
+  });
+
+  test('every role has a label and its own signed-in sentence', () => {
+    for (const r of ROLE_ORDER) {
+      assert.notEqual(roleLabels(t)[r], undefined);
+      assert.match(signedInAs(t, r), /\{name\}/);
+    }
+    assert.equal(signedInAs(t, null), 'You’re signed in as {name}.');
   });
 });

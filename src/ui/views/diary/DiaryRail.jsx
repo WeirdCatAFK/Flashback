@@ -3,7 +3,8 @@
  * picker, Back to today) where amber is how many reviews you did that day, on the
  * Statistics heatmap's four levels, and a short underline marks a day you wrote on;
  * then what was written that month, each with its first line; and, at the foot, the
- * occasional Rebuild summaries from history.
+ * occasional Rebuild summaries from history — absent while reading someone else's Logs,
+ * which are theirs to rebuild.
  */
 
 import { useMemo } from 'react';
@@ -24,7 +25,7 @@ function Chevron({ dir }) {
   );
 }
 
-export default function DiaryRail({ title, days, today, selected, month, onMonth, onSelect, rebuilding, rebuilt, onRebuild }) {
+export default function DiaryRail({ title, picker, readOnly, days, today, selected, month, onMonth, onSelect, rebuilding, rebuilt, onRebuild }) {
   const { t, tp, locale, formatDay, formatWeekdayNarrow, formatNumber } = useT();
   const range = useMemo(() => monthRange(days, today), [days, today]);
   const { lead, cells } = useMemo(() => monthCells(month.y, month.m, days, { first: range.first, today }), [month, days, range.first, today]);
@@ -44,6 +45,7 @@ export default function DiaryRail({ title, days, today, selected, month, onMonth
   return (
     <aside className="dy-rail" aria-label={t('Days')}>
       <div className="dy-rail__head">{title}</div>
+      {picker}
 
       <div className="dy-nav">
         <button type="button" className="dy-step" onClick={() => onMonth(stepMonth(month, -1, range.from, range.to))} disabled={atStart} aria-label={t('Previous month')}><Chevron dir={-1} /></button>
@@ -90,12 +92,12 @@ export default function DiaryRail({ title, days, today, selected, month, onMonth
         )) : <p className="dy-none">{t('Nothing written this month.')}</p>}
       </div>
 
-      <div className="dy-foot">
+      {!readOnly && <div className="dy-foot">
         <button type="button" className="link-action" onClick={onRebuild} disabled={rebuilding} title={t('Rebuild every day’s summary from your review history')}>
           {rebuilding ? t('Rebuilding…') : t('Rebuild summaries from history')}
         </button>
         {rebuilt && <span className="dy-rebuilt" role="status">{t('Rebuilt from your review history.')}</span>}
-      </div>
+      </div>}
     </aside>
   );
 }

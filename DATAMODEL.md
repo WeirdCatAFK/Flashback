@@ -363,7 +363,8 @@ metadata about studying, not study material, so it sits outside the knowledge gr
 
 - **Per account.** The owner keeps the unprefixed layout (the same unmarked-owner shape as
   `OWNER_SCOPE`), so a vault written before accounts reads back unchanged.
-- **One repo, several people's prose.** On a shared vault an admin can read it, which is why the UI
+- **One repo, several people's prose.** On a shared vault the server's owner can read it (in the app
+  too, through `GET /api/accounts/:id/logs`, Author only), which is why the UI
   names it "Logs" on a remote and shows a privacy note (`src/ui/diaryLabels.js`); locally it is a
   "Diary". Only the label moves — routes, directory and preference keep the name `diary`.
 - **Invisible for free.** The file walker, search and graph only descend inside `workspace/`, so

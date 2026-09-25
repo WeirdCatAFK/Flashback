@@ -1,7 +1,7 @@
 /**
- * ProgressScopePicker — whose progress Stats and Graph show. Renders nothing
- * unless the session may view others' progress and the server lists someone
- * other than the caller, so the desktop app never sees it.
+ * ProgressScopePicker — whose progress Stats and Graph show, and whose Logs the
+ * Logs screen shows. Renders nothing unless the session holds the capability and
+ * the server lists someone other than the caller, so the desktop app never sees it.
  */
 
 import { useEffect, useState } from "react";
@@ -24,7 +24,9 @@ const clipName = (name) =>
 
 /**
  * Whose progress the Stats and Graph tabs show: you, or — for an Admin or the Author on a
- * shared vault — anyone else on it.
+ * shared vault — anyone else on it. With `capability="readAllLogs"` and its own `label`, the
+ * same control picks whose Logs to read (the Author only); `everyone` then lists deactivated
+ * people too, since what they wrote is still there.
  *
  * Renders nothing unless the session holds `viewAllProgress` AND the server lists at least
  * one other active account (you are the "You" option, not a row). Hidden rather than disabled
@@ -39,7 +41,10 @@ const clipName = (name) =>
  * @param {{ value: {id: string, name: string, role: string}|null,
  *           onChange: (account: object|null) => void,
  *           className?: string,
- *           note?: boolean }} props
+ *           note?: boolean,
+ *           capability?: string,
+ *           label?: string,
+ *           everyone?: boolean }} props
  *   `className` wraps the control so a host panel can slot it as one of its own sections
  *   without rendering an empty one when the picker hides; `note` adds a line naming whose
  *   progress is showing, for surfaces whose numbers do not say so themselves.
@@ -49,9 +54,12 @@ export default function ProgressScopePicker({
   onChange,
   className,
   note = false,
+  capability = "viewAllProgress",
+  label,
+  everyone = false,
 }) {
   const { t } = useT();
-  const allowed = useCan("viewAllProgress");
+  const allowed = useCan(capability);
   const [accounts, setAccounts] = useState(null);
 
   useEffect(() => {
@@ -62,7 +70,7 @@ export default function ProgressScopePicker({
         if (cancelled) return;
         const me = data.you?.id;
         setAccounts(
-          (data.accounts ?? []).filter((a) => a.active && a.id !== me),
+          (data.accounts ?? []).filter((a) => (everyone || a.active) && a.id !== me),
         );
       })
       .catch(() => {
@@ -71,7 +79,7 @@ export default function ProgressScopePicker({
     return () => {
       cancelled = true;
     };
-  }, [allowed]);
+  }, [allowed, everyone]);
 
   if (!allowed || !accounts || accounts.length === 0) return null;
 
@@ -82,7 +90,7 @@ export default function ProgressScopePicker({
   return (
     <div className={className ? `scope-picker ${className}` : "scope-picker"}>
       <label className="scope-picker__control">
-        <span className="scope-picker__label">{labels.pickerLabel}</span>
+        <span className="scope-picker__label">{label ?? labels.pickerLabel}</span>
         <select
           className="scope-picker__select"
           value={current}

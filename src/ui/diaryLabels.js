@@ -3,7 +3,8 @@
  *
  * On a LOCAL vault it is a diary: the files sit on this machine, nobody else studies here,
  * and nobody else can read it. On a REMOTE Flashback Server it is not: `diary/` is one git
- * repo holding every account's summaries and prose, and an admin can read yours. Calling
+ * repo holding every account's summaries and prose, and the server's owner can read yours
+ * (in the app, too: `readAllLogs`). Calling
  * that a diary promises privacy the deployment cannot deliver, so it is "Logs" there.
  *
  * Only the LABEL moves. The route is `/api/diary`, the directory is `diary/`, the
@@ -35,7 +36,7 @@ export function diaryLabels(t, shared) {
             title: t('Logs'),
             loading: t('Loading logs…'),
             prefLabel: t('Study log'),
-            prefHint: t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and an administrator can read yours. Off by default.'),
+            prefHint: t('Writes a per-day summary of your reviews (counts, pass rate, streak), and lets you add your own written reflections. Everyone studying here shares one history, and the server’s owner can read yours. Off by default.'),
         }
         : {
             title: t('Diary'),

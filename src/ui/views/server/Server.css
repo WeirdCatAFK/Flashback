@@ -1,196 +1,489 @@
-/* Server view — see Server.jsx.
- *
- * Every colour is a token; nothing here branches on theme name. The view is dense with facts
- * rather than decorated, because what it mostly does is answer questions: which server is
- * this, who am I here, who else is there.
- */
+/* Server Management — a report page like Metadata and Seal. The facts as a two-column list,
+   the role as a ladder, people as quiet rows whose actions take the place of their token
+   count and date on hover (so nothing slides underneath), confirmations inside the row, and
+   a token shown once in a panel that stays until it is dismissed. */
 
-.srv-view {
+.sv-view {
   height: 100%;
   overflow-y: auto;
-  padding: var(--space-5) var(--space-6);
-  max-width: var(--size-8xl);
+  background: var(--color-bg-surface);
 }
 
-.srv-section {
-  margin-bottom: var(--space-6);
+.sv-report {
+  max-width: var(--size-7xl);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-8) var(--space-16);
 }
 
-.srv-section__head {
+.sv-eyebrow {
+  min-height: 1lh;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-fg-tertiary);
+}
+
+.sv-title {
+  margin: var(--space-2) 0 var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.sv-lede {
+  max-width: 58ch;
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.sv-lede b {
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.sv-update {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-base);
+  color: var(--color-accent);
+}
+
+.sv-update a {
+  color: inherit;
+}
+
+.sv-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.sv-dim {
+  color: var(--color-fg-tertiary);
+}
+
+.sv-error {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.sv-note {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+
+.sv-sec {
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.sv-sec:last-child {
+  border-bottom: 0;
+}
+
+.sv-h {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-lg);
+  font-weight: 400;
+}
+
+.sv-p {
+  max-width: 62ch;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.sv-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-5);
+  align-items: baseline;
+  margin: 0;
+}
+
+.sv-facts > dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.sv-facts > dd {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.sv-facts .sv-mono {
+  font-size: var(--text-sm);
+}
+
+.sv-facts .sv-dim {
+  color: var(--color-fg-tertiary);
+}
+
+/* ── The role ladder ────────────────────────────────────────────────────── */
+
+.sv-ladder {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+  max-width: var(--size-5xl);
+  margin-top: var(--space-0-5);
+}
+
+.sv-step {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.sv-step i {
+  display: block;
+  height: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-line);
+}
+
+.sv-step.is-held i {
+  background: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+}
+
+.sv-step.is-mine i {
+  background: var(--color-accent);
+}
+
+.sv-step.is-mine span {
+  color: var(--color-fg-primary);
+}
+
+.sv-blurb {
+  max-width: 62ch;
+  margin: var(--space-3) 0 var(--space-2);
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.sv-roles summary {
+  width: max-content;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+}
+
+.sv-roles summary:hover {
+  color: var(--color-accent);
+}
+
+.sv-roles dl {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-1) var(--space-3);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+}
+
+.sv-roles dl > div {
+  display: contents;
+}
+
+.sv-roles dt {
+  color: var(--color-fg-primary);
+}
+
+.sv-roles dd {
+  margin: 0;
+  color: var(--color-fg-secondary);
+}
+
+/* ── People ─────────────────────────────────────────────────────────────── */
+
+.sv-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: space-between;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
 
-.srv-h2 {
-  margin: 0 0 var(--space-3);
-  font-size: var(--text-lg);
-  font-weight: 600;
+.sv-head .sv-h {
+  margin: 0;
+}
+
+.sv-grow {
+  flex: 1;
+}
+
+.sv-seats {
+  display: inline-grid;
+  gap: var(--space-1);
+  min-width: var(--size-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.sv-seats b {
+  font-weight: 700;
   color: var(--color-fg-primary);
 }
-.srv-section__head .srv-h2 { margin-bottom: 0; }
 
-.srv-h3 {
+.sv-line {
+  display: block;
+  height: var(--track-thin);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.sv-line i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--color-accent) 70%, var(--color-bg-surface));
+}
+
+.sv-list {
+  display: grid;
+}
+
+.sv-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  min-height: var(--control-lg);
+  padding: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+  border-radius: var(--radius-md);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.sv-row:hover,
+.sv-row:focus-visible {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
+.sv-row.is-editing,
+.sv-row.is-confirming {
+  background: var(--color-bg-sidebar);
+}
+
+.sv-text {
+  flex: 1;
+  display: grid;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.sv-name {
+  font-size: var(--text-md);
+  color: var(--color-fg-primary);
+}
+
+.sv-desc {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.sv-row.is-confirming .sv-name {
+  color: var(--color-danger);
+}
+
+.sv-row.is-confirming .sv-desc {
+  white-space: normal;
+}
+
+.sv-mark {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.sv-cell {
+  flex: none;
+}
+
+.sv-date {
+  width: calc(var(--size-md) - var(--space-4));
+}
+
+.sv-role {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+  color: var(--color-fg-secondary);
+}
+
+.sv-role.is-author {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+  color: var(--color-accent);
+}
+
+.sv-select {
+  width: auto;
+}
+
+.sv-row.is-off .sv-name,
+.sv-row.is-off .sv-cell {
+  opacity: 0.55;
+}
+
+.sv-acts {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.sv-row:hover .sv-acts,
+.sv-row:focus-within .sv-acts,
+.sv-row.is-off .sv-acts,
+.sv-acts.is-on {
+  display: flex;
+}
+
+.sv-acts.is-on {
+  gap: var(--space-2);
+}
+
+.sv-row:not(.is-off):has(.sv-acts):hover .sv-facet,
+.sv-row:not(.is-off):has(.sv-acts):focus-within .sv-facet {
+  display: none;
+}
+
+.sv-add {
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+}
+
+.sv-add__fields {
+  flex: 1 1 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, var(--size-md));
+  gap: var(--space-2);
+}
+
+.sv-add__hint {
+  flex: 1;
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+/* A token, shown once: obtrusive on purpose, and it stays until dismissed. */
+.sv-token {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 55%, var(--color-line));
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-subtle);
+  animation: sv-in var(--dur-fast) var(--ease-out);
+}
+
+@keyframes sv-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.sv-token p {
   margin: 0 0 var(--space-2);
   font-size: var(--text-base);
-  font-weight: 600;
-  color: var(--color-fg-primary);
-}
-
-.srv-dim   { color: var(--color-fg-secondary); }
-.srv-sub   { font-size: var(--text-xs); }
-.srv-mono  { font-family: var(--font-mono); font-size: var(--text-sm); }
-.srv-you   { color: var(--color-fg-secondary); font-weight: 400; }
-
-.srv-error {
-  margin: var(--space-2) 0;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-}
-
-/* --- facts list ---------------------------------------------------------- */
-
-.srv-facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--space-2) var(--space-4);
-  margin: 0;
-  align-items: baseline;
-}
-.srv-facts dt {
-  color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
-}
-.srv-facts dd {
-  margin: 0;
-  color: var(--color-fg-primary);
-  min-width: 0;
-  overflow-wrap: anywhere;
-}
-
-/* --- role chip ----------------------------------------------------------- */
-
-.srv-role {
-  display: inline-block;
-  padding: var(--space-0-5) var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  white-space: nowrap;
-}
-/* Only the Author is accented — the one role for which "anything goes" is worth saying. */
-.srv-role--author {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-.srv-role__blurb {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
   color: var(--color-fg-secondary);
 }
 
-/* A newer release exists. Accented, because it is the one line in these facts that asks the
-   reader to do something — but a line, not a banner: upgrading a server is not a click. */
-.srv-update {
-  margin: var(--space-1) 0 0;
-  font-size: var(--text-sm);
-  color: var(--color-accent);
-}
-.srv-update a { color: inherit; }
-
-/* --- the token, shown once ----------------------------------------------- */
-
-.srv-token {
-  margin: var(--space-3) 0;
-  padding: var(--space-3);
-  border: 1px solid var(--color-accent);
-  border-radius: var(--radius-md);
-  background: var(--color-accent-subtle);
+.sv-token b {
+  font-weight: 400;
   color: var(--color-fg-primary);
 }
-.srv-token__notice { margin: 0 0 var(--space-2); font-size: var(--text-sm); }
-.srv-token__value {
+
+.sv-token__value {
   display: block;
   padding: var(--space-2);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
   background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   overflow-wrap: anywhere;
   user-select: all;
 }
-.srv-token__actions { display: flex; gap: var(--space-2); margin-top: var(--space-2); }
 
-/* --- table --------------------------------------------------------------- */
-
-.srv-table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--text-sm);
-}
-.srv-table th {
-  text-align: left;
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--color-border-strong);
-  color: var(--color-fg-secondary);
-  font-weight: 500;
-}
-.srv-table td {
-  padding: var(--space-2);
-  border-bottom: 1px solid var(--color-border);
-  color: var(--color-fg-primary);
-  vertical-align: top;
-}
-/* Deactivated, not deleted: their progress is kept and reactivating resumes it. Faded
-   rather than hidden, so an admin can see they still exist. */
-.srv-row--inactive { opacity: 0.55; }
-
-.srv-actions {
+.sv-token__acts,
+.sv-confirm__acts {
   display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.sv-confirm__acts {
   justify-content: flex-end;
 }
 
-/* --- controls ------------------------------------------------------------ */
+/* ── Pure token ─────────────────────────────────────────────────────────── */
 
-.srv-input, .srv-select {
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-surface);
+.sv-confirm {
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 35%, var(--color-line));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-danger) 5%, var(--color-bg-surface));
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.sv-confirm p {
+  margin: 0;
+  line-height: 1.55;
+}
+
+.sv-confirm b {
+  font-weight: 400;
   color: var(--color-fg-primary);
-  font-size: var(--text-sm);
 }
 
-.srv-form {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-  margin-bottom: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+@media (max-width: 720px) {
+  .sv-report {
+    padding-inline: var(--space-4);
+  }
+  .sv-title {
+    font-size: var(--text-xl);
+  }
+  .sv-date {
+    display: none;
+  }
+  .sv-row {
+    flex-wrap: wrap;
+  }
+  .sv-add__fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sv-acts {
+    display: flex;
+  }
 }
 
-/* --- people count -------------------------------------------------------- */
-
-.srv-count { font-size: var(--text-sm); font-weight: 400; }
-
-/* --- the irreversible corner --------------------------------------------- */
-
-.srv-danger {
-  margin-top: var(--space-5);
-  padding: var(--space-3);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
+@media (prefers-reduced-motion: reduce) {
+  .sv-token {
+    animation: none;
+  }
 }
-.srv-danger .srv-dim { font-size: var(--text-sm); margin: 0 0 var(--space-2); }

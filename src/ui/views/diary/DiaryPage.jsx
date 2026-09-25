@@ -4,6 +4,9 @@
  * Ctrl+S saves, Esc cancels), and last the numbers as "the day in detail" — by deck, by
  * document, and what you missed more than once. On a shared server the privacy note
  * sits above the writing, where it is true.
+ *
+ * `reader` names the person whose Logs the Author is reading: the page then speaks of them
+ * and offers no writing, since the entry is theirs.
  */
 
 import { useState } from 'react';
@@ -37,7 +40,7 @@ function Bars({ label, rows, nameOf }) {
   );
 }
 
-function Entry({ date, today, loading, content, onSaved, editRequest }) {
+function Entry({ date, today, loading, content, onSaved, editRequest, readOnly }) {
   const { t } = useT();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(content);
@@ -57,7 +60,7 @@ function Entry({ date, today, loading, content, onSaved, editRequest }) {
     setSeenEditRequest(editRequest);
     if (editRequest) setWantsEdit(true);
   }
-  if (wantsEdit && !loading) {
+  if (wantsEdit && !loading && !readOnly) {
     setWantsEdit(false);
     setEditing(true);
   }
@@ -79,6 +82,16 @@ function Entry({ date, today, loading, content, onSaved, editRequest }) {
   };
 
   if (loading) return <LoadingState message={t('Loading entry…')} />;
+
+  if (readOnly) {
+    return (
+      <section className="dy-entry" aria-label={t('Reflection')}>
+        {content
+          ? <div className="dy-prose markdown-body"><ReactMarkdown remarkPlugins={[remarkBreaks]}>{content}</ReactMarkdown></div>
+          : <p className="dy-none">{t('Nothing written for this day.')}</p>}
+      </section>
+    );
+  }
 
   if (editing) {
     return (
@@ -123,7 +136,7 @@ function Entry({ date, today, loading, content, onSaved, editRequest }) {
   );
 }
 
-export default function DiaryPage({ date, today, yesterday, shared, summaryState, summary, entryLoading, entry, onSaved, editRequest }) {
+export default function DiaryPage({ date, today, yesterday, shared, reader = null, summaryState, summary, entryLoading, entry, onSaved, editRequest }) {
   const { t, tp, locale, formatDay, formatNumber } = useT();
   const title = date === today ? t('Today') : date === yesterday ? t('Yesterday')
     : new Intl.DateTimeFormat(locale, { weekday: 'long', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));
@@ -140,7 +153,7 @@ export default function DiaryPage({ date, today, yesterday, shared, summaryState
         {summaryState === 'loading' ? t('Loading the day…')
           : hasDay ? (
             <>
-              {t('You reviewed')} <F>{formatNumber(totals.reviews)}</F> {tp('card', 'cards', totals.reviews)}
+              {reader ? t('{name} reviewed', { name: reader }) : t('You reviewed')} <F>{formatNumber(totals.reviews)}</F> {tp('card', 'cards', totals.reviews)}
               {totals.newCards > 0 && <> ({t('{n} new', { n: formatNumber(totals.newCards) })})</>}
               {' '}{t('and recalled')} <F>{pct(r.reviewPassRate ?? r.passRate)}</F>.
               {summary.streak?.current > 0 && <> {t('A streak of')} <F>{tp('{n} day', '{n} days', summary.streak.current, { n: formatNumber(summary.streak.current) })}</F>.</>}
@@ -151,11 +164,13 @@ export default function DiaryPage({ date, today, yesterday, shared, summaryState
 
       {shared && (
         <p className="dy-privacy" role="note">
-          {t('Everyone studying on this server shares one log history, and an administrator can read your summaries and anything you write.')}
+          {reader
+            ? t('You’re reading {name}’s logs. Only the server’s owner can, and nothing here can be changed.', { name: reader })
+            : t('Everyone studying on this server shares one log history, and the server’s owner can read your summaries and anything you write.')}
         </p>
       )}
 
-      <Entry date={date} today={today} loading={entryLoading} content={entry} onSaved={onSaved} editRequest={editRequest} />
+      <Entry date={date} today={today} loading={entryLoading} content={entry} onSaved={onSaved} editRequest={editRequest} readOnly={!!reader} />
 
       {summaryState === 'error' && <ErrorState error={t('Could not load the summary.')} />}
       {hasDay && (
@@ -176,7 +191,7 @@ export default function DiaryPage({ date, today, yesterday, shared, summaryState
               ))}
             </div>
           )}
-          <p className="dy-note">{t('Derived from your review history. Nothing here is typed by hand.')}</p>
+          <p className="dy-note">{reader ? t('Derived from their review history. Nothing here is typed by hand.') : t('Derived from your review history. Nothing here is typed by hand.')}</p>
         </section>
       )}
     </article>

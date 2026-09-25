@@ -53,6 +53,23 @@ export function getAccountGraph(id) {
 }
 
 /**
+ * Someone's Logs, read-only, in the shapes `/api/diary` gives the caller for their own: the
+ * dates, one day's summary (throws with `.status === 404` when there is none), one day's entry.
+ * Author only; with the two above, the calls that read what belongs to someone else.
+ */
+export function getAccountLogs(id) {
+  return request("GET", `/api/accounts/${encodeURIComponent(id)}/logs`);
+}
+
+export function getAccountLogSummary(id, date) {
+  return request("GET", `/api/accounts/${encodeURIComponent(id)}/logs/summary/${date}`);
+}
+
+export function getAccountLogEntry(id, date) {
+  return request("GET", `/api/accounts/${encodeURIComponent(id)}/logs/entry/${date}`);
+}
+
+/**
  * Issues a token. **The plaintext is in this response and nowhere else, ever.**
  * @returns {Promise<{id: string, token: string, label: string, accountId: string, notice: string}>}
  */

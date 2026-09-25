@@ -3332,6 +3332,62 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Accounts: reading somebody else's Logs ────────────────────────────
+    //
+    // The Author reads anyone's Logs through `/api/accounts/:id/logs`, read-only. Like
+    // progress, the Author's own are filed under the owner sentinel, so reading the Author by
+    // id must land on the same files `/api/diary` serves them.
+    describe('Account logs', () => {
+        const day = '2020-02-02';
+        let authorId;
+
+        before(async () => {
+            const { accounts } = await (await fetch(`${baseUrl}/api/accounts`)).json();
+            authorId = accounts.find(a => a.role === 'author')?.id;
+            const res = await fetch(`${baseUrl}/api/diary/entry/${day}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'Read by id.' }),
+            });
+            assert.equal(res.status, 200);
+        });
+
+        it("reads the Author's own logs by id, the same days and entry /api/diary serves", async () => {
+            const own = await (await fetch(`${baseUrl}/api/diary`)).json();
+            const byId = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs`)).json();
+            assert.deepEqual(byId, own);
+            assert.ok(byId.some((d) => d.date === day && d.hasEntry));
+
+            const entry = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`)).json();
+            assert.equal(entry.content, 'Read by id.');
+        });
+
+        it("reads another person's logs from their own folder, not the caller's", async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Logs Probe', email: `logs+${Date.now()}@example.invalid`, role: 'reader',
+            })).json();
+            const days = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs`)).json();
+            assert.deepEqual(days, [], 'a fresh reader has written nothing');
+            const entry = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs/entry/${day}`)).json();
+            assert.equal(entry.content, '');
+            const summary = await fetch(`${baseUrl}/api/accounts/${created.id}/logs/summary/${day}`);
+            assert.equal(summary.status, 404);
+        });
+
+        it('refuses an assistant, a malformed date and an unknown account', async () => {
+            const mcp = await fetch(`${baseUrl}/api/accounts/${authorId}/logs`, { headers: { 'X-Flashback-Client': 'mcp' } });
+            assert.equal(mcp.status, 403);
+            assert.equal((await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/yesterday`)).status, 400);
+            assert.equal((await fetch(`${baseUrl}/api/accounts/not-a-real-id/logs`)).status, 404);
+        });
+
+        it('offers no way to write someone else’s logs', async () => {
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'x' }),
+            });
+            assert.equal(res.status, 404);
+        });
+    });
+
     // A refusal has to say WHICH kind it is. Creating an account with a role that is not a
     // role is a malformed request; creating one the caller is not allowed to grant is a
     // permission decision. Both used to answer 403, which told a client it lacked a
