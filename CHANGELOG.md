@@ -124,6 +124,11 @@ The interface is moving to a new design language, one area at a time. In this re
   line. Restore asks right under the entry, saying what goes back and what does not. Health
   holds the maintenance: files changed outside Flashback, and checking, syncing or rebuilding
   the index (a rebuild now asks you to type `rebuild`).
+- **Config is short sections.** An index on the left (Study, Appearance, Keyboard, You, AI
+  assistant, Local server, About) sums each section up in a line, and "Search settings"
+  (Ctrl+F) finds any setting by name. Themes are chosen from swatches drawn in their own
+  colours; the zoom can be set there too. The theme editor opens as its own page. Every
+  shortcut, including the ones that can't be changed, is listed under Keyboard.
 - **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
   glass. The Graph panel slides shut to its header instead of vanishing, and a selected
   node's name no longer breaks mid-word.

@@ -8,15 +8,14 @@
 import { useState } from 'react';
 import { THEMES } from '../../themes';
 import { useT } from '../../translations/index';
-import { THEME_VARS, saveCustomTheme, deleteCustomTheme, loadCustomThemes, resolvedThemeColors } from '../../customThemes';
+import { THEME_VARS, saveCustomTheme, deleteCustomTheme, loadCustomThemes, resolvedThemeColors, themeRule } from '../../customThemes';
 import { DARK_DEFAULTS, PREVIEW_THEME } from './themeDefaults.js';
 
-const KEYS = { open: 'fb-editor-open', name: 'fb-editor-name', colors: 'fb-editor-colors:v1', editing: 'fb-editor-editing' };
+const KEYS = { name: 'fb-editor-name', colors: 'fb-editor-colors:v1', editing: 'fb-editor-editing' };
 const PREVIEW_STYLE_ID = 'fb-preview-style';
 
-/** The preview rule for `colors`, as CSS text. */
-export const previewRule = (colors) =>
-  `[data-theme="${PREVIEW_THEME}"] {\n` + Object.entries(colors).map(([k, v]) => `  ${k}: ${v};`).join('\n') + '\n}';
+/** The preview rule for `colors`, as CSS text: a saved theme's rule under the preview's name. */
+export const previewRule = (colors) => themeRule(PREVIEW_THEME, colors);
 
 /** Validate an imported theme JSON; returns the theme or throws with a translated reason. */
 export function parseThemeImport(text, t) {
@@ -30,7 +29,6 @@ export function parseThemeImport(text, t) {
 
 export default function useThemeEditor({ onSaved, onThemeChange, currentTheme }) {
   const { t } = useT();
-  const [open, setOpen] = useState(() => localStorage.getItem(KEYS.open) === 'true');
   const [name, setName] = useState(() => localStorage.getItem(KEYS.name) ?? '');
   const [colors, setColors] = useState(() => {
     try { return JSON.parse(localStorage.getItem(KEYS.colors)) ?? DARK_DEFAULTS; } catch { return DARK_DEFAULTS; }
@@ -76,10 +74,8 @@ export default function useThemeEditor({ onSaved, onThemeChange, currentTheme })
     if (previewing) applyPreview(next);
   };
 
-  const toggleOpen = () => {
-    if (open && previewing) stopPreview();
-    setOpen((o) => { localStorage.setItem(KEYS.open, String(!o)); return !o; });
-  };
+  /** Leaving the editor's page ends a preview, so the app is never left in an unsaved theme. */
+  const leave = () => { if (previewing) stopPreview(); };
 
   const loadExisting = (themeName) => {
     const found = loadCustomThemes().find((entry) => entry.name === themeName);
@@ -126,9 +122,9 @@ export default function useThemeEditor({ onSaved, onThemeChange, currentTheme })
   const isNameTaken = THEMES.includes(name.trim()) && name.trim() !== '';
 
   return {
-    open, name, colors, editing, importText, importError, previewing, exportText, isNameTaken,
+    name, colors, editing, importText, importError, previewing, exportText, isNameTaken,
     canSave: !!name.trim() && !isNameTaken,
-    setName: persistName, setColor, setImportText, toggleOpen, togglePreview, loadExisting, importTheme, save, remove,
+    setName: persistName, setColor, setImportText, leave, togglePreview, loadExisting, importTheme, save, remove,
     seedFromCurrent: () => persistColors(resolvedThemeColors()),
     copyExport: () => navigator.clipboard.writeText(exportText),
   };

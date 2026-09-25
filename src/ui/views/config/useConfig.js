@@ -60,6 +60,7 @@ export default function useConfig() {
     config, form, loading, error, status, restartPending, isDirty,
     hasRestartDirty: isDirty && RESTART_FIELDS.some((k) => form[k] !== config[k]),
     change, save, writeField,
+    discard: () => { if (config) setForm({ ...config }); setStatus(null); },
     dismissRestart: () => setRestartPending(false),
   };
 }

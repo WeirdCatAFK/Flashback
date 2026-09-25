@@ -15,6 +15,7 @@ export const THEME_VARS = [
   { key: "--color-title-bar", label: "Title bar" },
   { key: "--color-sidebar-header", label: "Sidebar header" },
   { key: "--color-bg-reader", label: "Reader background" },
+  { key: "--color-bg-desk", label: "Trainer desk" },
   { key: "--color-bg-editor", label: "Editor theme" },
   { key: "--color-fg-primary", label: "Primary text" },
   { key: "--color-fg-secondary", label: "Secondary text" },
@@ -94,13 +95,28 @@ export function deleteCustomTheme(name) {
 
 /**
  * Colours added after a theme may have been saved, derived from ones it has, so
- * an older custom theme still gets a dimmed text level and quiet dividers.
+ * an older custom theme still gets a dimmed text level, quiet dividers, a desk for
+ * the Trainer a shade off the window, and a scrim behind dialogs. Without them a
+ * custom theme would show the built-in theme's values for these.
  */
 const withDerived = (colors) => ({
   "--color-fg-tertiary": "color-mix(in srgb, var(--color-fg-secondary) 65%, var(--color-bg-base))",
   "--color-line": "color-mix(in srgb, var(--color-border) 70%, var(--color-bg-base))",
+  "--color-bg-desk": "color-mix(in srgb, var(--color-bg-base) 94%, var(--color-fg-primary))",
+  "--color-scrim": "rgba(0, 0, 0, 0.5)",
   ...colors,
 });
+
+/**
+ * One theme as a `[data-theme]` rule, derived colours included: what a saved theme
+ * injects and what the editor's preview injects, so a preview shows exactly what
+ * saving will.
+ */
+export function themeRule(name, colors) {
+  return `[data-theme="${CSS.escape(name)}"] {\n` +
+    Object.entries(withDerived(colors)).map(([k, v]) => `  ${k}: ${v};`).join("\n") +
+    "\n}";
+}
 
 export function injectCustomThemeCSS(themes) {
   let el = document.getElementById(STYLE_ID);
@@ -109,16 +125,7 @@ export function injectCustomThemeCSS(themes) {
     el.id = STYLE_ID;
     document.head.appendChild(el);
   }
-  el.textContent = themes
-    .map(
-      (t) =>
-        `[data-theme="${CSS.escape(t.name)}"] {\n` +
-        Object.entries(withDerived(t.colors))
-          .map(([k, v]) => `  ${k}: ${v};`)
-          .join("\n") +
-        "\n}",
-    )
-    .join("\n\n");
+  el.textContent = themes.map((t) => themeRule(t.name, t.colors)).join("\n\n");
 }
 
 /** Converts any CSS color string to #rrggbb for use with <input type="color"> */

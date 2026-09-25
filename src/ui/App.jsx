@@ -489,6 +489,9 @@ export default function App() {
       case "config":
         return (
           <ConfigView
+            isActive={activeView === "config"}
+            zoom={zoom}
+            onZoomChange={setZoom}
             theme={theme}
             onThemeChange={setTheme}
             allThemes={allThemes}

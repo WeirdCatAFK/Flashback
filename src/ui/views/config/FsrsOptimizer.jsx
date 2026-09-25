@@ -1,10 +1,11 @@
 /**
- * FsrsOptimizer — the panel under the FSRS scheduler: eligibility, the last fit,
- * the Optimize button and its result. Rendered only while FSRS is active.
+ * FsrsOptimizer — the "Fit to your reviews" row under the FSRS scheduler. Its hint says
+ * where things stand: default weights and how many reviews fitting needs, or when it was
+ * last fitted; after a fit, what the fit did. Rendered only while FSRS is active.
  */
 
 import { useT } from '../../translations/index';
-import { Rich } from '../../translations/components.jsx';
+import ConfigRow from './ConfigRow';
 import useFsrsOptimizer from './useFsrsOptimizer';
 
 const fmtLoss = (n) => (typeof n === 'number' ? n.toFixed(4) : '—');
@@ -13,59 +14,29 @@ export default function FsrsOptimizer() {
   const { t, tp, formatDate } = useT();
   const { info, running, result, error, enough, run } = useFsrsOptimizer();
 
+  const standing = info?.optimizedAt
+    ? info.weightReviewCount != null
+      ? tp('Last fitted {date} from {n} review.', 'Last fitted {date} from {n} reviews.', info.weightReviewCount, { date: formatDate(info.optimizedAt) })
+      : t('Last fitted {date}.', { date: formatDate(info.optimizedAt) })
+    : info
+      ? t('Uses default weights. Fitting needs at least {min} graded reviews; you have {count}.', { min: info.minReviews, count: info.reviewCount })
+      : undefined;
+
+  const outcome = error
+    ?? (result?.optimized
+      ? `${tp('Fitted from {n} review.', 'Fitted from {n} reviews.', result.reviewCount)} ${
+        result.loss < result.initialLoss
+          ? t('Loss {before} → {after} (improved).', { before: fmtLoss(result.initialLoss), after: fmtLoss(result.loss) })
+          : t('Loss {before} → {after} (already near-optimal).', { before: fmtLoss(result.initialLoss), after: fmtLoss(result.loss) })}`
+      : result
+        ? t('Not enough graded reviews yet ({count} of {min}). Keep reviewing and try again later.', { count: result.reviewCount, min: result.minReviews })
+        : null);
 
   return (
-    <div className="fsrs-optimizer">
-      <p className="config-hint">
-        {t('Fit the memory model to your own review history for more accurate scheduling.')}{' '}
-        {info != null
-          ? t('Needs at least {min} graded reviews — you have {count}.',
-            { min: info.minReviews, count: info.reviewCount })
-          : t('Needs at least {min} graded reviews.', { min: 400 })}
-      </p>
-
-      {info?.optimizedAt && (
-        <p className="fsrs-optimizer-status">
-          {info.weightReviewCount != null
-            ? tp('Last fitted {date} from {n} review.', 'Last fitted {date} from {n} reviews.',
-              info.weightReviewCount, { date: formatDate(info.optimizedAt) })
-            : t('Last fitted {date}.', { date: formatDate(info.optimizedAt) })}
-        </p>
-      )}
-      {info && !info.optimizedAt && (
-        <p className="fsrs-optimizer-status">{t('Using default weights.')}</p>
-      )}
-
-      <button
-        type="button"
-        className="btn btn--primary btn--sm"
-        onClick={run}
-        disabled={running || !enough}
-      >
-        {running ? t('Optimizing…') : t('Optimize FSRS parameters')}
+    <ConfigRow id="optimize" hint={outcome ?? standing}>
+      <button type="button" className="btn btn--quiet btn--sm" onClick={run} disabled={running || !enough}>
+        {running ? t('Fitting…') : t('Optimize')}
       </button>
-
-      {result && result.optimized && (
-        <p className="fsrs-optimizer-result">
-          {tp('Fitted from {n} review.', 'Fitted from {n} reviews.', result.reviewCount)}{' '}
-          <Rich
-            text={result.loss < result.initialLoss
-              ? t('Loss {before} → {after} (improved).')
-              : t('Loss {before} → {after} (already near-optimal).')}
-            values={{
-              before: fmtLoss(result.initialLoss),
-              after: <strong>{fmtLoss(result.loss)}</strong>,
-            }}
-          />
-        </p>
-      )}
-      {result && !result.optimized && (
-        <p className="fsrs-optimizer-result">
-          {t('Not enough graded reviews yet ({count} of {min}). Keep reviewing and try again later.',
-            { count: result.reviewCount, min: result.minReviews })}
-        </p>
-      )}
-      {error && <p className="fsrs-optimizer-error">{error}</p>}
-    </div>
+    </ConfigRow>
   );
 }

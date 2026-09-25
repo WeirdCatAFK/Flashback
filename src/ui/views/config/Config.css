@@ -1,432 +1,782 @@
-/* ── Config view layout ──────────────────────────────────────────────────── */
+/* Config — an index of short sections on the left, each summed up in a line, with search
+   above it; the chosen section on the right as rows: what a setting is on the left, its
+   control on the right, a hairline between. Quiet buttons throughout; the one Save (the
+   local server) lives in a bar that says what saving does. */
 
-.config-view {
+.cf-view {
   display: flex;
-  flex-direction: column;
-  gap: 0;
   height: 100%;
+  background: var(--color-bg-surface);
+}
+
+/* ── The index ──────────────────────────────────────────────────────────── */
+
+.cf-side {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: calc(var(--size-lg) + var(--space-5));
+  padding: var(--space-3) var(--space-2);
   overflow-y: auto;
-  padding: var(--space-6) var(--space-8);
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
 }
 
-.config-section {
-  padding-bottom: var(--space-6);
-  margin-bottom: var(--space-6);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.config-heading {
-  margin: 0 0 var(--space-3);
-}
-
-.config-table {
-  border-collapse: collapse;
-  width: 100%;
-  max-width: var(--size-4xl);
-}
-
-.config-table td {
-  padding: var(--space-1) 0;
-  vertical-align: middle;
-}
-
-.config-table td:first-child {
-  width: var(--size-md);
-  color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
-}
-
-.config-hint {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  margin-bottom: var(--space-3);
-  line-height: 1.6;
-}
-
-.config-checkbox--spaced {
-  margin-top: var(--space-3);
-}
-
-.config-save-row {
-  margin-top: var(--space-3);
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.config-unsaved-indicator {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-}
-
-.config-unsaved-dot {
-  width: var(--space-1);
-  height: var(--space-1);
-  border-radius: 50%;
-  background: var(--color-accent);
+.cf-side > * {
   flex-shrink: 0;
 }
 
-.config-status {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-}
-
-.config-status--error {
-  color: var(--color-danger);
-}
-
-/* ── Restart prompt ──────────────────────────────────────────────────────── */
-
-.config-restart-prompt {
+.cf-search {
   display: flex;
   align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  margin-top: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-accent-subtle);
-  border: 1px solid var(--color-accent);
+  gap: var(--space-2);
+  height: var(--control-md);
+  margin: 0 var(--space-0-5) var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
-  max-width: var(--size-4xl);
+  background: var(--color-bg-surface);
+  transition: border-color var(--dur-fast) var(--ease-out);
 }
 
-.config-restart-message {
+.cf-search:focus-within {
+  border-color: var(--color-accent);
+}
+
+.cf-search svg {
+  flex: none;
+  width: var(--space-4);
+  height: var(--space-4);
+  color: var(--color-fg-icon);
+}
+
+.cf-search input {
   flex: 1;
-  min-width: var(--size-md);
-  font-size: var(--text-sm);
-  color: var(--color-fg-primary);
-}
-
-.config-restart-actions {
-  display: flex;
-  gap: var(--space-1);
-  flex-shrink: 0;
-}
-
-/* ── About & updates ─────────────────────────────────────────────────────── */
-
-.config-version {
-  font-variant-numeric: tabular-nums;
-  color: var(--color-fg-primary);
-}
-
-.config-update-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  flex-wrap: wrap;
-  margin-top: var(--space-1);
-}
-
-.config-update-notice {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  font-size: var(--text-sm);
-  color: var(--color-fg-primary);
-}
-
-/* ── Collapsible editors (theme + keybindings) ───────────────────────────── */
-
-.config-collapsibles {
-  display: flex;
-  flex-direction: column;
-  gap: 0;
-  margin-top: var(--space-3);
-}
-
-.config-collapsibles > * + * {
-  border-top: 1px solid var(--color-border);
-  padding-top: var(--space-3);
-  margin-top: var(--space-3);
-}
-
-/* ── Theme editor ────────────────────────────────────────────────────────── */
-
-.theme-editor {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-4);
-}
-
-.theme-editor-toggle {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0;
-  font-size: var(--text-base);
-  font-weight: 400;
-  color: var(--color-fg-primary);
+  min-width: 0;
+  border: 0;
+  outline: 0;
   background: none;
-  border: none;
-  cursor: pointer;
-}
-
-.theme-editor-toggle:hover {
+  font: inherit;
+  font-size: var(--text-base);
   color: var(--color-fg-primary);
-  opacity: 0.85;
 }
 
-.theme-editor-header {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  flex-wrap: wrap;
+.cf-search input::-webkit-search-cancel-button {
+  display: none;
 }
 
-.theme-name-input {
-  flex: 1;
-  min-width: var(--size-md);
-  max-width: var(--size-lg);
-  font-size: var(--text-sm);
-  padding: var(--space-1) var(--space-2);
-}
-
-.theme-editor-actions {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.theme-editor-error {
-  font-size: var(--text-sm);
-  color: var(--color-danger);
-}
-
-/* ── Variable grid ───────────────────────────────────────────────────────── */
-
-.theme-vars-grid {
+.cf-index {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: var(--space-1) var(--space-8);
+  gap: var(--space-0-5);
 }
 
-.theme-var-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-0-5) 0;
+.cf-entry {
+  position: relative;
+  display: grid;
+  gap: var(--space-0-5);
+  min-width: 0;
+  padding: var(--space-2) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
 }
 
-.theme-var-label {
-  width: var(--size-md);
-  flex-shrink: 0;
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-  white-space: nowrap;
+.cf-entry span {
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+}
+
+.cf-entry small {
   overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+  white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.theme-var-inputs {
+.cf-entry:hover {
+  background: var(--color-bg-hover);
+}
+
+.cf-entry[aria-current="page"] {
+  background: var(--color-accent-subtle);
+}
+
+.cf-entry[aria-current="page"]::before {
+  content: "";
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 0;
+  width: 2px;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  background: var(--color-accent);
+}
+
+.cf-entry[aria-current="page"] span {
+  color: var(--color-accent);
+}
+
+/* ── The pane ───────────────────────────────────────────────────────────── */
+
+.cf-pane {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-6) var(--space-10) var(--space-12);
+}
+
+.cf-pane__inner {
+  max-width: var(--size-7xl);
+}
+
+.cf-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.cf-head h2 {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.cf-scope {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.cf-lede {
+  max-width: 62ch;
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+/* ── A setting ──────────────────────────────────────────────────────────── */
+
+.cf-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-5);
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+}
+
+.cf-row.is-stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--space-3);
+}
+
+.cf-label {
+  flex: 1;
+  display: grid;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.cf-label__name {
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+}
+
+.cf-label small {
+  max-width: 62ch;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-fg-tertiary);
+}
+
+.cf-control {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  max-width: 60%;
+}
+
+.cf-row.is-stack .cf-control {
+  display: block;
+  max-width: none;
+}
+
+.cf-flag {
+  margin-left: var(--space-2);
+  padding: 0 var(--space-1);
+  border: 1px solid color-mix(in srgb, var(--color-review-hard) 40%, var(--color-line));
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-review-hard);
+  vertical-align: middle;
+}
+
+.cf-in {
+  width: calc(var(--size-lg) + var(--space-8));
+  max-width: 100%;
+}
+
+.cf-num {
+  width: var(--size-xs);
+}
+
+.cf-select {
+  min-width: var(--size-md);
+}
+
+.cf-static {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  overflow-wrap: anywhere;
+}
+
+.cf-range {
   display: flex;
   align-items: center;
   gap: var(--space-2);
 }
 
-.theme-color-swatch {
-  width: var(--icon-xl);
-  height: var(--icon-xl);
-  padding: var(--space-0-5) var(--space-0-5);
+.cf-range input {
+  width: var(--size-md);
+  accent-color: var(--color-accent);
+}
+
+.cf-range b {
+  min-width: 4ch;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: right;
+}
+
+.cf-sub {
+  padding-left: var(--space-5);
+  border-left: 2px solid var(--color-line);
+  margin: var(--space-1) 0 var(--space-2);
+}
+
+.cf-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) 0;
+}
+
+.cf-ok {
+  font-size: var(--text-sm);
+  color: var(--color-review-good);
+}
+
+.cf-error {
+  margin: var(--space-1) 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.cf-dim {
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.cf-accent {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+}
+
+.cf-confirm {
+  margin: var(--space-2) 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 35%, var(--color-line));
+  border-radius: var(--radius-lg);
+  background: var(--color-accent-subtle);
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.cf-confirm p {
+  margin: 0 0 var(--space-2);
+  line-height: 1.55;
+}
+
+.cf-confirm b {
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.cf-confirm__acts {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+/* ── Groups, keys, the identity stamp ───────────────────────────────────── */
+
+.cf-group {
+  margin-top: var(--space-3);
+}
+
+.cf-group__label {
+  padding: var(--space-3) 0 var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.cf-keys {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.cf-keys kbd {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.7;
+  color: var(--color-fg-primary);
+}
+
+.cf-keys .link-action {
+  margin-left: var(--space-1);
+}
+
+.cf-capture {
+  font-size: var(--text-sm);
+  color: var(--color-accent);
+}
+
+.cf-none-key {
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.cf-stamp {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.cf-stamp code {
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+.cf-stamp span {
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Themes as swatches: each drawn in its own theme's variables ─────────── */
+
+.cf-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-sm), 1fr));
+  gap: var(--space-3);
+}
+
+.cf-theme {
+  display: grid;
+  gap: var(--space-0-5);
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.cf-theme__swatch {
+  position: relative;
+  display: block;
+  height: calc(var(--space-12) + var(--space-3));
   border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  overflow: hidden;
+  transition:
+    box-shadow var(--dur-fast) var(--ease-out),
+    transform var(--dur-fast) var(--ease-out);
+}
+
+.cf-theme__card {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-6);
+  bottom: var(--space-3);
+  left: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-card);
+  box-shadow: 0 1px 0 var(--color-border);
+}
+
+.cf-theme__line {
+  position: absolute;
+  top: calc(var(--space-5) + var(--space-0-5));
+  left: var(--space-5);
+  width: 38%;
+  height: var(--space-0-5);
+  border-radius: var(--radius-sm);
+  background: var(--color-fg-primary);
+  opacity: 0.8;
+}
+
+.cf-theme__accent {
+  position: absolute;
+  top: var(--space-3);
+  right: var(--space-2);
+  width: var(--space-3);
+  height: var(--space-3);
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+.cf-theme:hover .cf-theme__swatch {
+  transform: translateY(-1px);
+}
+
+.cf-theme:focus-visible {
+  outline: none;
+}
+
+.cf-theme:focus-visible .cf-theme__swatch,
+.cf-theme[aria-checked="true"] .cf-theme__swatch {
+  box-shadow: 0 0 0 2px var(--color-accent);
+}
+
+.cf-theme__name {
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+}
+
+/* ── The AI assistant's snippet, and the JSON of a theme ─────────────────── */
+
+.cf-mcp {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.cf-code {
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sidebar);
+  overflow: hidden;
+}
+
+.cf-code__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.cf-code__head .cf-group__label {
+  padding: 0;
+}
+
+.cf-code pre,
+.cf-json__text {
+  display: block;
+  width: 100%;
+  margin: 0;
+  padding: var(--space-3);
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow: auto;
+}
+
+.cf-json__text {
+  resize: vertical;
+}
+
+.cf-where {
+  margin: 0;
+  padding-left: var(--space-5);
+  font-size: var(--text-sm);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.cf-where b {
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.cf-where code {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+/* ── The local server's Save: a bar that says what saving does ──────────── */
+
+.cf-bar {
+  position: sticky;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-4);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+  animation: cf-up var(--dur-fast) var(--ease-out);
+}
+
+.cf-bar__text {
+  flex: 1;
+  min-width: var(--size-md);
+}
+
+.cf-bar__dot {
+  flex: none;
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  background: var(--color-accent);
+}
+
+@keyframes cf-up {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}
+
+/* ── About ──────────────────────────────────────────────────────────────── */
+
+.cf-update {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.cf-dl {
+  width: var(--size-xs);
+  height: var(--track-thin);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-fg-primary) 10%, transparent);
+  overflow: hidden;
+}
+
+.cf-dl i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+/* ── The theme editor's page ────────────────────────────────────────────── */
+
+.cf-crumb {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.cf-editor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.cf-editor__head .cf-in {
+  width: var(--size-lg);
+}
+
+.cf-editor__head [aria-pressed="true"] {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+}
+
+.cf-saved {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-2) 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.cf-saved [aria-current="true"] {
+  color: var(--color-accent);
+}
+
+.cf-vars {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--size-lg) + var(--space-10)), 1fr));
+  gap: var(--space-1) var(--space-5);
+  margin-top: var(--space-3);
+}
+
+.cf-var {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 60%, transparent);
+}
+
+.cf-var.is-text {
+  grid-column: 1 / -1;
+}
+
+.cf-var__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cf-var__inputs {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.cf-var__swatch {
+  width: var(--control-sm);
+  height: var(--control-sm);
+  padding: 0;
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: none;
   cursor: pointer;
 }
 
-.theme-color-text {
+.cf-var__text {
   width: var(--size-xs);
-  font-size: var(--text-sm);
-  font-family: 'Geist Mono', 'Cascadia Code', monospace;
-  padding: var(--space-1) var(--space-2);
-}
-
-.theme-color-text--wide {
-  width: var(--size-xl);
-}
-
-/* Text-type rows span the full grid width so the long input has room */
-.theme-var-row--text {
-  grid-column: 1 / -1;
-}
-
-/* ── JSON text panel ─────────────────────────────────────────────────────── */
-
-.theme-text-panel {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  max-width: var(--size-4xl);
-}
-
-.theme-text-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.theme-textarea {
-  width: 100%;
-  resize: vertical;
-  font-family: 'Geist Mono', 'Cascadia Code', 'Consolas', monospace;
-  font-size: var(--text-sm);
-  line-height: 1.6;
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-base);
-  color: var(--color-fg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  tab-size: 2;
-}
-
-.theme-textarea:focus {
-  outline: none;
-  border-color: var(--color-accent);
-  box-shadow: var(--shadow-focus);
-}
-
-.theme-import-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-/* ── Existing themes strip ───────────────────────────────────────────────── */
-
-.theme-existing {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-/* ── Editor buttons ──────────────────────────────────────────────────────── */
-
-/* ── Algorithm migration confirm ─────────────────────────────────────────── */
-
-.algo-migrate-confirm {
-  padding: var(--space-2) 0 var(--space-1);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.algo-migrate-msg {
-  margin: 0;
-  font-size: var(--text-sm);
-  color: var(--color-fg-primary);
-}
-
-.algo-migrate-actions {
-  display: flex;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.algo-migrate-hint {
-  margin: 0;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
-  line-height: 1.4;
 }
 
-/* ── AI assistant (MCP) integration ──────────────────────────────────────── */
-
-.mcp-integration .theme-text-panel {
-  max-width: var(--size-6xl);
-  margin-bottom: var(--space-3);
+.cf-var__text.is-wide {
+  width: var(--size-3xl);
+  max-width: 100%;
 }
 
-.mcp-instructions {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 var(--space-3);
-  max-width: var(--size-6xl);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+.cf-json {
+  margin-top: var(--space-5);
 }
 
-.mcp-instructions li {
+.cf-json summary {
+  width: max-content;
+  margin-bottom: var(--space-2);
   font-size: var(--text-sm);
   color: var(--color-fg-secondary);
-  line-height: 1.6;
+  cursor: pointer;
 }
 
-.mcp-instructions strong {
-  color: var(--color-fg-primary);
+/* ── Search results ─────────────────────────────────────────────────────── */
+
+.cf-hits {
+  margin-bottom: var(--space-5);
 }
 
-.mcp-instructions code {
-  background: var(--color-bg-hover);
-  border-radius: var(--radius-sm);
-  padding: var(--space-0-5) var(--space-1);
+.cf-hits__section {
+  padding: var(--space-1) 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-family: monospace;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
 }
 
-/* FSRS desired-retention slider row */
-.fsrs-retention-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-.fsrs-retention-row input[type="range"] {
-  flex: 1;
-  accent-color: var(--color-accent);
-}
-.fsrs-retention-value {
-  min-width: 3ch;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-fg-primary);
+.cf-hits__section:hover {
+  color: var(--color-accent);
 }
 
-.fsrs-optimizer {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: var(--space-2);
-}
-.fsrs-optimizer .config-hint {
-  margin: 0;
-}
-.fsrs-optimizer-status {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-fg-secondary);
-}
-.fsrs-optimizer-result {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-fg-primary);
-}
-.fsrs-optimizer-error {
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--color-danger);
+.cf-none {
+  font-size: var(--text-base);
+  color: var(--color-fg-tertiary);
 }
 
-/* Settings that are shown but not editable here — the active vault and its custom path.
-   Both are changed in the vault manager, which lives outside any one vault. */
-.config-static-value {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+@media (max-width: 720px) {
+  .cf-view {
+    flex-direction: column;
+  }
+  .cf-side {
+    width: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .cf-index {
+    grid-auto-flow: column;
+    grid-auto-columns: max-content;
+    overflow-x: auto;
+  }
+  .cf-entry small {
+    display: none;
+  }
+  .cf-pane {
+    padding: var(--space-4);
+  }
+  .cf-row {
+    flex-direction: column;
+    align-items: stretch;
+    gap: var(--space-2);
+  }
+  .cf-control {
+    max-width: none;
+    justify-content: flex-start;
+  }
 }
 
-.config-field-label {
-  display: block;
-  margin-top: var(--space-4);
-  font-size: var(--text-sm);
-}
-
-.theme-editor-chevron {
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-.theme-editor-chevron--open {
-  transform: rotate(90deg);
+@media (prefers-reduced-motion: reduce) {
+  .cf-bar {
+    animation: none;
+  }
+  .cf-theme__swatch {
+    transition: none;
+  }
 }

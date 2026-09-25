@@ -4,6 +4,9 @@
  * in forms and tab order like any other control.
  *
  *   <Toggle checked={on} onChange={setOn} label={t('Show halos')} />
+ *
+ * Where the name is already written beside it (a settings row), pass `ariaLabel`
+ * instead of `label`, so the switch is named without repeating the text.
  */
 
 export default function Toggle({
@@ -13,12 +16,14 @@ export default function Toggle({
   disabled = false,
   className = "",
   title,
+  ariaLabel,
 }) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      aria-label={ariaLabel}
       className={`toggle${className ? ` ${className}` : ""}`}
       disabled={disabled}
       title={title}

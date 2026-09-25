@@ -18,6 +18,7 @@ export default function useThemeVarLabels() {
     "--color-title-bar":       t("Title bar"),
     "--color-sidebar-header":  t("Sidebar header"),
     "--color-bg-reader":       t("Reader background"),
+    "--color-bg-desk":         t("Trainer desk"),
     "--color-bg-editor":       t("Editor theme"),
     "--color-fg-primary":      t("Primary text"),
     "--color-fg-secondary":    t("Secondary text"),

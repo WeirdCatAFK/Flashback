@@ -349,9 +349,9 @@ components/
                ConfirmDialog, ContextMenu, StateView (Loading/Error/Empty), TagChipInput,
                ProgressDialog, ConflictBanner, SegmentedControl, Stepper, InlineConfirm,
                QuietRow, ShownOnce — and base.css, the class vocabulary below
-  account/     RoleBadge, IdentitySection, ProgressScopePicker
+  account/     RoleBadge, ProgressScopePicker
   vault/       VaultManager, VaultSwitcher
-  shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, KeybindingsEditor, OnboardingTour
+  shell/       AppGate, TitleBar, SearchModal, ShortcutsOverlay, OnboardingTour
   flashcard/   Flashcard, CardLine, CardDetailModal, FlashcardForm, CardBench, useCardBench,
                BookImagePicker, ClipMediaPicker, ReviewStrip, RetentionCurve,
                flashcardFields.js, cardLineText.js
@@ -1222,7 +1222,16 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   (`handleShowCards`), as a Statistics band does; Flashcards names a tag or category in its
   scope line, and Clear drops it. Without `manageCategories`/`manageTags` the report shows
   without its actions, since categories and tags classify what a Reader studies.
-- **Config:** `mcpDiaryAccess` persists immediately because it is a cross-process
+- **Config:** short sections reached from an index, each entry summing its section up in a
+  line, instead of one long scroll; "Search settings" (Ctrl+F) finds any setting across them.
+  Every row's label, hint and search words are one catalogue (`settings.js`), and a row renders
+  only while the search matches it (`rowsContext.js`), so a section component serves both its
+  own page and a result list, and search can only match what a row says. A section's prose
+  hides during a search. The themes are swatches that draw themselves: each carries
+  `data-theme`, so it shows that theme's real variables, custom themes included. The theme
+  editor is a page under Appearance, and leaving it ends a preview. The local server is the one
+  section with a Save, in a bar that says what saving does and then offers the restart.
+  `mcpDiaryAccess` persists immediately because it is a cross-process
   authorization boundary the API reads from disk, and the legacy boolean is normalised to the
   tri-state. The vault name and path are read-only here and deliberately the only mention of
   vaults — editing the name used to rename the folder without moving the database. The AI

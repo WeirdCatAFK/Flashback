@@ -1,471 +1,198 @@
 /**
- * Config — the settings view: server config (needs Save, some fields a
- * restart), study preferences, appearance and the theme editor, keybindings,
- * identity, the diary, the AI assistant, and About. Hooks: useConfig (the
- * config.json form), useSrsPrefs / useDiaryPref (vault-scoped preferences).
+ * Config — every setting, split into short sections reached from an index on the left,
+ * instead of one long scroll. Each index entry sums its section up in a line (the
+ * scheduler and the daily limit, the theme and the language, who you are…), so most
+ * questions are answered before a section is opened. "Search settings" (Ctrl+F while the
+ * screen shows) finds any setting by name, across sections, as the rows themselves.
+ *
+ * The catalogue of rows and the search are settings.js; a section is a component whose
+ * rows (ConfigRow) render only while the search matches them (rowsContext.js), so one
+ * component serves its own page and a result list. The local server keeps its Save and
+ * restart; everything else applies as it changes, as before. The theme editor is a page
+ * of its own under Appearance.
+ *
+ * Hooks: useConfig (config.json), useSrsPrefs / useDiaryPref (vault-scoped preferences),
+ * useIdentity, useAppUpdates.
  */
 
-import { useState } from 'react';
-import KeybindingsEditor from '../../components/shell/KeybindingsEditor';
-import IdentitySection from '../../components/account/IdentitySection';
-import ProgressDialog from '../../components/base/ProgressDialog';
-import Toggle from '../../components/base/Toggle';
-import { treeIconsOn, setTreeIcons } from '../../treeIcons.js';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
-import { migrateProgress } from '../../api/srs';
-import { restartApp } from '../../api/desktop';
-import { useT } from '../../translations/index';
-import { LanguagePicker, Rich } from '../../translations/components.jsx';
+import useKeybindings from '../../hooks/useKeybindings';
+import { isDesktop } from '../../api/desktop';
+import { getPref, setPref } from '../../prefs.js';
+import { useT, LOCALE_OPTIONS } from '../../translations/index';
 import { loadCustomThemes } from '../../customThemes';
 import { themeLabel } from '../../themes';
 import { diaryLabels, isSharedVault } from '../../diaryLabels.js';
+import { SECTIONS, sectionName, settingRows, searchSettings, hitsBySection, changedShortcuts, diaryAccessOf } from './settings.js';
+import { RowsContext } from './rowsContext.js';
 import useConfig from './useConfig';
 import useSrsPrefs, { useDiaryPref } from './useSrsPrefs';
+import useIdentity from './useIdentity';
+import useAppUpdates from './useAppUpdates';
+import StudySection from './StudySection';
+import AppearanceSection from './AppearanceSection';
+import KeyboardSection from './KeyboardSection';
+import IdentitySection from './IdentitySection';
+import AssistantSection from './AssistantSection';
+import ServerSection from './ServerSection';
+import AboutSection from './AboutSection';
 import ThemeEditor from './ThemeEditor';
-import McpIntegration from './McpIntegration';
-import AboutUpdates from './AboutUpdates';
-import FsrsOptimizer from './FsrsOptimizer';
 import './Config.css';
 
-/** Display name for an algorithm id. */
+const SECTION_PREF = 'fb-config-section';
 const ALGO_LABEL = { leitner: 'Leitner', sm2: 'SM-2', fsrs: 'FSRS' };
-const algoLabel = (a) => ALGO_LABEL[a] ?? a;
 
 export default function ConfigView({
+  isActive = true,
   theme,
   onThemeChange,
   allThemes,
   onCustomThemesChange,
   onReplayTour,
   connection,
+  zoom = 1,
+  onZoomChange,
 }) {
-  const { t } = useT();
+  const { t, tp, locale, formatNumber } = useT();
+  const desktop = isDesktop();
+  const shared = isSharedVault(connection);
+  const studyRecord = diaryLabels(t, shared);
   const cfg = useConfig();
-  const { form, loading, error, status, restartPending, isDirty, hasRestartDirty } = cfg;
-  const handleChange = cfg.change;
-  const handleSave = cfg.save;
-  const setDiaryAccess = (mode) => cfg.writeField('mcpDiaryAccess', mode);
-  const { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder } = useSrsPrefs();
-  const { enabled: diaryEnabled, setEnabled: setDiaryEnabled } = useDiaryPref();
-  const studyRecord = diaryLabels(t, isSharedVault(connection));
+  const prefs = useSrsPrefs();
+  const diary = useDiaryPref();
+  const identity = useIdentity(connection);
+  const updates = useAppUpdates();
+  const keymap = useKeybindings();
+  const [current, setCurrent] = useState(() => {
+    const stored = getPref(SECTION_PREF);
+    return SECTIONS.some((s) => s.id === stored) ? stored : 'study';
+  });
+  const [query, setQuery] = useState('');
+  const [editorOpen, setEditorOpen] = useState(false);
+  const searchRef = useRef(null);
+  const paneRef = useRef(null);
 
-  const [pendingAlgo, setPendingAlgo] = useState(null);
-  const [migrating, setMigrating] = useState(false);
-  const [treeIcons, setTreeIconsState] = useState(treeIconsOn);
+  const diaryAccess = diaryAccessOf(cfg.form?.mcpDiaryAccess);
+  const ctx = { fsrs: prefs.algorithm === 'fsrs', desktop, customPath: !!cfg.form?.isCustomPath, shared, studyRecord };
+  const rows = settingRows(t, ctx);
+  const byId = useMemo(() => new Map(rows.map((r) => [r.id, r])), [rows]);
+  const hits = query.trim() ? searchSettings(rows, query) : null;
 
-  const handleAlgorithmSelect = (next) => {
-    if (next === algorithm) return;
-    setPendingAlgo(next);
+  useEffect(() => {
+    if (!isActive) return undefined;
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        searchRef.current?.focus();
+        searchRef.current?.select();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [isActive]);
+
+  const go = (id) => {
+    setCurrent(id);
+    setQuery('');
+    setEditorOpen(false);
+    setPref(SECTION_PREF, id);
+    if (paneRef.current) paneRef.current.scrollTop = 0;
   };
 
-  const confirmMigrate = async (carryOver) => {
-    const from = algorithm;
-    const to = pendingAlgo;
-    setPendingAlgo(null);
-    if (carryOver) {
-      setMigrating(true);
-      try {
-        await migrateProgress(from, to);
-      } catch { }
-      setMigrating(false);
+  const localeName = LOCALE_OPTIONS.find((o) => o.code === locale)?.name ?? locale;
+  const shortcutsChanged = changedShortcuts(keymap, t);
+  const summary = {
+    study: `${ALGO_LABEL[prefs.algorithm] ?? prefs.algorithm} · ${tp('{n} new a day', '{n} new a day', prefs.maxNew, { n: formatNumber(prefs.maxNew) })}`,
+    look: `${themeLabel(t, theme ?? 'light-workbench')} · ${localeName}`,
+    keys: shortcutsChanged ? tp('{n} changed', '{n} changed', shortcutsChanged) : t('Defaults'),
+    you: identity.effective?.name || identity.global.name || '—',
+    ai: !desktop ? t('Desktop app only')
+      : diaryAccess === 'full' ? t('Reads the diary')
+        : diaryAccess === 'summaries' ? t('Reads summaries')
+          : t('Diary private'),
+    server: !desktop ? t('Desktop app only')
+      : `${t('port {port}', { port: cfg.form?.port ?? cfg.config?.port ?? '—' })}${cfg.restartPending ? ` · ${t('restart')}` : cfg.isDirty ? ` · ${t('unsaved')}` : ''}`,
+    about: desktop ? `${updates.version ? `v${updates.version}` : '—'}${updates.waiting ? ` · ${t('update')}` : ''}` : t('Welcome tour'),
+  };
+
+  /** A section's rows; the desktop-only ones say so outside the desktop app, and wait for config.json within it. */
+  const body = (id) => {
+    const needsConfig = id === 'ai' || id === 'server';
+    if (needsConfig && !desktop) return <p className="cf-lede">{t('This is set in the desktop app.')}</p>;
+    if (needsConfig && cfg.loading) return <LoadingState message={t('Loading settings…')} />;
+    if (needsConfig && cfg.error) return <ErrorState error={cfg.error} title={t("Couldn't load settings")} />;
+    switch (id) {
+      case 'study': return <StudySection prefs={prefs} diary={diary} studyRecord={studyRecord} />;
+      case 'look': return (
+        <AppearanceSection theme={theme} onThemeChange={onThemeChange} allThemes={allThemes}
+          zoom={zoom} onZoomChange={onZoomChange} onOpenEditor={() => setEditorOpen(true)} />
+      );
+      case 'keys': return <KeyboardSection />;
+      case 'you': return <IdentitySection identity={identity} />;
+      case 'ai': return <AssistantSection diaryAccess={diaryAccess} onDiaryAccess={(mode) => cfg.writeField('mcpDiaryAccess', mode)} />;
+      case 'server': return <ServerSection cfg={cfg} />;
+      case 'about': return <AboutSection desktop={desktop} updates={updates} onReplayTour={onReplayTour} />;
+      default: return null;
     }
-    applyAlgorithm(to);
   };
 
-  const cancelAlgorithmChange = () => setPendingAlgo(null);
-
-  const diaryAccess =
-    form?.mcpDiaryAccess === true || form?.mcpDiaryAccess === 'full'
-      ? 'full'
-      : form?.mcpDiaryAccess === 'summaries'
-        ? 'summaries'
-        : 'none';
-
-  const handleThemeEditorSaved = () => {
-    onCustomThemesChange(loadCustomThemes());
+  const scopeOf = (id) => {
+    const scope = SECTIONS.find((s) => s.id === id)?.scope;
+    return scope === 'vault' ? t('for this vault') : scope === 'computer' ? t('for this computer') : null;
   };
+
+  let pane;
+  if (hits) {
+    const groups = hitsBySection(hits);
+    pane = groups.length ? groups.map((g) => (
+      <section key={g.section} className="cf-hits" aria-label={sectionName(g.section, t)}>
+        <button type="button" className="cf-hits__section" onClick={() => go(g.section)}>
+          {sectionName(g.section, t)} <span aria-hidden="true">›</span>
+        </button>
+        <RowsContext.Provider value={{ rows: byId, only: g.ids }}>{body(g.section)}</RowsContext.Provider>
+      </section>
+    )) : <p className="cf-none">{t('No setting matches “{query}”.', { query: query.trim() })}</p>;
+  } else if (current === 'look' && editorOpen) {
+    pane = (
+      <ThemeEditor onSaved={() => onCustomThemesChange(loadCustomThemes())} onThemeChange={onThemeChange}
+        currentTheme={theme} onClose={() => setEditorOpen(false)} />
+    );
+  } else {
+    pane = (
+      <>
+        <header className="cf-head">
+          <h2>{sectionName(current, t)}</h2>
+          {scopeOf(current) && <span className="cf-scope">{scopeOf(current)}</span>}
+        </header>
+        <RowsContext.Provider value={{ rows: byId, only: null }}>{body(current)}</RowsContext.Provider>
+      </>
+    );
+  }
 
   return (
-    <div className="config-view">
-      <section className="config-section">
-        <h2 className="eyebrow config-heading">{t('Appearance')}</h2>
-        <table className="config-table">
-          <tbody>
-            <tr>
-              <td>
-                <label htmlFor="locale-select">{t('Language')}</label>
-              </td>
-              <td>
-                <LanguagePicker id="locale-select" />
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <label htmlFor="theme-select">{t('Theme')}</label>
-              </td>
-              <td>
-                <select
-                  id="theme-select"
-                  value={theme ?? "light-workbench"}
-                  onChange={(e) => onThemeChange(e.target.value)}
-                >
-                  {allThemes.map((name) => (
-                    <option key={name} value={name}>
-                      {themeLabel(t, name)}
-                    </option>
-                  ))}
-                </select>
-              </td>
-            </tr>
-            <tr>
-              <td>{t('File tree')}</td>
-              <td>
-                <Toggle checked={treeIcons} onChange={(on) => { setTreeIcons(on); setTreeIconsState(on); }} label={t('Icons in the file tree')} />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-        <div className="config-collapsibles">
-          <ThemeEditor
-            onSaved={handleThemeEditorSaved}
-            onThemeChange={onThemeChange}
-            currentTheme={theme}
-          />
-          <KeybindingsEditor />
+    <div className="cf-view">
+      <aside className="cf-side" aria-label={t('Settings')}>
+        <div className="cf-search">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" aria-hidden="true">
+            <circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3 3" />
+          </svg>
+          <input ref={searchRef} type="search" placeholder={t('Search settings')} aria-label={t('Search settings')} autoComplete="off"
+            value={query} onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Escape' && query) { e.stopPropagation(); setQuery(''); } }} />
         </div>
-      </section>
-
-      <section className="config-section">
-        <h2 className="eyebrow config-heading">{t('Flashcards')}</h2>
-        <table className="config-table">
-          <tbody>
-            <tr>
-              <td>
-                <label htmlFor="srs-algorithm">{t('SRS algorithm')}</label>
-              </td>
-              <td>
-                <select
-                  id="srs-algorithm"
-                  value={pendingAlgo ?? algorithm}
-                  onChange={(e) => handleAlgorithmSelect(e.target.value)}
-                >
-                  <option value="leitner">{t('Leitner (doubles each level)')}</option>
-                  <option value="sm2">{t('SM-2 (ease factor)')}</option>
-                  <option value="fsrs">{t('FSRS (memory model)')}</option>
-                </select>
-              </td>
-            </tr>
-            {pendingAlgo && (
-              <tr>
-                <td colSpan={2}>
-                  <div className="algo-migrate-confirm">
-                    <p className="algo-migrate-msg">
-                      <Rich
-                        text={t('Switch to {algorithm}?')}
-                        values={{ algorithm: <strong>{algoLabel(pendingAlgo)}</strong> }}
-                      />
-                    </p>
-                    <div className="algo-migrate-actions">
-                      <button type="button" className="btn btn--primary btn--sm"
-                        onClick={() => confirmMigrate(true)}>
-                        {t('Carry over progress')}
-                      </button>
-                      <button type="button" className="btn btn--sm"
-                        onClick={() => confirmMigrate(false)}>
-                        {t('Start fresh')}
-                      </button>
-                      <button type="button" className="btn btn--ghost btn--sm"
-                        onClick={cancelAlgorithmChange}>
-                        {t('Cancel')}
-                      </button>
-                    </div>
-                    <p className="algo-migrate-hint">
-                      {t('Carry over maps each card’s current interval to the nearest equivalent in {algorithm}.',
-                        { algorithm: algoLabel(pendingAlgo) })}
-                    </p>
-                  </div>
-                </td>
-              </tr>
-            )}
-            {algorithm === 'fsrs' && (
-              <tr>
-                <td>
-                  <label htmlFor="fsrs-retention">{t('Desired retention')}</label>
-                </td>
-                <td>
-                  <div className="fsrs-retention-row">
-                    <input
-                      id="fsrs-retention"
-                      type="range"
-                      min={0.7}
-                      max={0.97}
-                      step={0.01}
-                      value={retention}
-                      onChange={(e) => setRetention(e.target.value)}
-                    />
-                    <span className="fsrs-retention-value">{Math.round(retention * 100)}%</span>
-                  </div>
-                  <p className="config-hint">
-                    {t('Higher = more frequent reviews and stronger recall; lower = fewer reviews. 90% is a good default.')}
-                  </p>
-                </td>
-              </tr>
-            )}
-            {algorithm === 'fsrs' && (
-              <tr>
-                <td>
-                  <label>{t('Optimize parameters')}</label>
-                </td>
-                <td>
-                  <FsrsOptimizer />
-                </td>
-              </tr>
-            )}
-            <tr>
-              <td>
-                <label htmlFor="trainer-order">{t('Card order')}</label>
-              </td>
-              <td>
-                <select
-                  id="trainer-order"
-                  value={order}
-                  onChange={(e) => setOrder(e.target.value)}
-                >
-                  <option value="interleaved">{t('Interleaved (spreads related cards apart)')}</option>
-                  <option value="shuffle">{t('Shuffled (random)')}</option>
-                  <option value="priority">{t('By category priority')}</option>
-                </select>
-                <p className="config-hint">
-                  {order === 'interleaved' && t('Cards from the same document, tag or folder are spread apart so each one is recalled on its own.')}
-                  {order === 'shuffle' && t('Random order within each category-priority tier.')}
-                  {order === 'priority' && t('Foundational cards first, then in the order they were created.')}
-                </p>
-              </td>
-            </tr>
-            <tr>
-              <td>
-                <label htmlFor="srs-max-new">{t('New cards per day')}</label>
-              </td>
-              <td>
-                <input
-                  id="srs-max-new"
-                  aria-label={t('New cards per day')}
-                  type="number"
-                  min={0}
-                  max={200}
-                  value={maxNew}
-                  onChange={(e) => setMaxNew(e.target.value)}
-                />
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      <section className="config-section">
-        <h2 className="eyebrow config-heading">{studyRecord.title}</h2>
-        <table className="config-table">
-          <tbody>
-            <tr>
-              <td>
-                <label>{studyRecord.prefLabel}</label>
-              </td>
-              <td>
-                <Toggle checked={diaryEnabled} onChange={setDiaryEnabled} label={t('Record a daily summary when a study session finishes')} />
-                <p className="config-hint">{studyRecord.prefHint}</p>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </section>
-
-      {onReplayTour && (
-        <section className="config-section">
-          <h2 className="eyebrow config-heading">{t('Getting started')}</h2>
-          <p className="config-hint">
-            {t('Take the guided tour of Flashback’s features again.')}
-          </p>
-          <button
-            type="button"
-            className="btn btn--primary btn--sm"
-            onClick={onReplayTour}
-          >
-            {t('Replay welcome tour')}
-          </button>
-        </section>
-      )}
-
-      {loading && <LoadingState message={t('Loading settings…')} />}
-      {error && <ErrorState error={error} title={t("Couldn't load settings")} />}
-
-      {form && (
-        <>
-          <IdentitySection connection={connection} />
-
-          <section className="config-section">
-            <h2 className="eyebrow config-heading">{t('Server')}</h2>
-            <table className="config-table">
-              <tbody>
-                <tr>
-                  <td>{t('Active vault')}</td>
-                  <td>
-                    <span className="config-static-value">{form.vaultName ?? t('default')}</span>
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <label htmlFor="cfg-port">{t('Port')}</label>
-                  </td>
-                  <td>
-                    <input
-                      id="cfg-port"
-                      aria-label={t('Port')}
-                      type="number"
-                      value={form.port ?? 50500}
-                      onChange={(e) =>
-                        handleChange("port", Number(e.target.value))
-                      }
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <label htmlFor="cfg-host">{t('Host')}</label>
-                  </td>
-                  <td>
-                    <input
-                      id="cfg-host"
-                      aria-label={t('Host')}
-                      value={form.host ?? "localhost"}
-                      onChange={(e) => handleChange("host", e.target.value)}
-                    />
-                  </td>
-                </tr>
-                <tr>
-                  <td>
-                    <label htmlFor="cfg-log-format">{t('Log format')}</label>
-                  </td>
-                  <td>
-                    <select
-                      id="cfg-log-format"
-                      value={form.logFormat ?? "dev"}
-                      onChange={(e) => handleChange("logFormat", e.target.value)}
-                    >
-                      <option value="dev">dev</option>
-                      <option value="combined">combined</option>
-                      <option value="tiny">tiny</option>
-                      <option value="short">short</option>
-                    </select>
-                  </td>
-                </tr>
-                {form.isCustomPath && (
-                  <tr>
-                    <td>{t('Workspace path')}</td>
-                    <td>
-                      <span className="config-static-value">{form.customPath || '—'}</span>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-
-            <div className="config-save-row">
-              <button
-                type="button"
-                className={`btn${isDirty ? ' btn--primary' : ''}`}
-                onClick={handleSave}
-                disabled={!isDirty || status === 'saving'}
-              >
-                {status === 'saving' ? t('Saving…') : status === 'saved' ? t('✓ Saved') : t('Save changes')}
-              </button>
-              {isDirty && (
-                <span className="config-unsaved-indicator">
-                  <span className="config-unsaved-dot" />
-                  {t('Unsaved changes')}
-                </span>
-              )}
-              {status && status !== 'saved' && status !== 'saving' && (
-                <span className="config-status config-status--error">
-                  {status.replace(/^error: /, '')}
-                </span>
-              )}
-            </div>
-
-            {hasRestartDirty && (
-              <p className="config-hint">
-                {t('⚠ Changes to vault name, port, host, log format, or workspace path require a restart to take effect.')}
-              </p>
-            )}
-
-            {restartPending && (
-              <div className="config-restart-prompt">
-                <span className="config-restart-message">
-                  {t('Server settings changed — restart to apply.')}
-                </span>
-                <div className="config-restart-actions">
-                  <button
-                    type="button"
-                    className="btn btn--primary btn--sm"
-                    onClick={restartApp}
-                  >
-                    {t('Restart now')}
-                  </button>
-                  <button
-                    type="button"
-                    className="btn btn--sm"
-                    onClick={cfg.dismissRestart}
-                  >
-                    {t('Later')}
-                  </button>
-                </div>
-              </div>
-            )}
-          </section>
-
-          <section className="config-section">
-            <h2 className="eyebrow config-heading">{t('AI Assistant')}</h2>
-            <McpIntegration />
-            <label className="config-field-label" htmlFor="diary-access-select">
-              <span>{t('What AI assistants may read from your diary')}</span>
-            </label>
-            <select
-              id="diary-access-select"
-              value={diaryAccess}
-              onChange={(e) => setDiaryAccess(e.target.value)}
-            >
-              <option value="none">{t('Nothing (off)')}</option>
-              <option value="summaries">{t('Daily summaries only')}</option>
-              <option value="full">{t('Summaries and written entries')}</option>
-            </select>
-            <p className="config-hint">
-              <Rich
-                text={t('Off by default. {summaries} shares your review counts, pass rates and streaks. {full} also shares anything you have written.')}
-                values={{
-                  summaries: <strong>{t('Daily summaries only')}</strong>,
-                  full: <strong>{t('Summaries and written entries')}</strong>,
-                }}
-              />
-            </p>
-            <p className="config-hint">
-              {t('This setting governs the assistant Flashback provides. It is not a lock on the folder: an assistant that can run commands on this computer can read your diary files whatever you choose here.')}
-            </p>
-          </section>
-
-          <section className="config-section">
-            <h2 className="eyebrow config-heading">{t('About')}</h2>
-            <AboutUpdates />
-          </section>
-        </>
-      )}
-
-      {migrating && (
-        <ProgressDialog
-          title={t('Translating progress…')}
-          statusText={t('Mapping intervals to the new algorithm')}
-          progress={0}
-          processing
-        />
-      )}
+        <nav className="cf-index" aria-label={t('Settings sections')}>
+          {SECTIONS.map(({ id }) => (
+            <button key={id} type="button" className="cf-entry" aria-current={!hits && id === current ? 'page' : undefined} onClick={() => go(id)}>
+              <span>{sectionName(id, t)}</span>
+              <small>{summary[id]}</small>
+            </button>
+          ))}
+        </nav>
+      </aside>
+      <div className="cf-pane" ref={paneRef}>
+        <div className="cf-pane__inner">{pane}</div>
+      </div>
     </div>
   );
 }
