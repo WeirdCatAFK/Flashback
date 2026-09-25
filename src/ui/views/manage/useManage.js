@@ -1,78 +1,69 @@
 /**
- * The Manage view's data: the pedagogical categories with their CRUD, and the
- * vault's tags with how often each is applied. Both reload on demand and when
- * the tab becomes active.
+ * Metadata's data: the categories (each with its card count), the tags with their reach,
+ * and how many cards the vault has, loaded together whenever the screen is shown. The
+ * mutations reload what they change. A level move redraws at once and writes only the
+ * categories whose priority changes (metadata.js); a failed write reloads the truth.
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../../api/categories';
-import { getTagUsage } from '../../api/tags';
+import { getTagOverview, renameTag, removeTag } from '../../api/tags';
+import { searchCards } from '../../api/decks';
+import { placeCategory, newCategoryPriority, withPriorities } from './metadata.js';
 
-const EMPTY_DRAFT = { name: '', priority: 0, description: '' };
-
-export function useCategories(refreshKey) {
-  const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
+export default function useManage(isActive) {
+  const [categories, setCategories] = useState(null);
+  const [tags, setTags] = useState(null);
+  const [totalCards, setTotalCards] = useState(0);
   const [error, setError] = useState(null);
-  const [deleteError, setDeleteError] = useState(null);
-  const [draft, setDraft] = useState(EMPTY_DRAFT);
-  const [adding, setAdding] = useState(false);
+  const [actionError, setActionError] = useState(null);
 
-  const reload = useCallback(() => {
-    setLoading(true);
-    getCategories()
-      .then((c) => { setCategories(c); setError(null); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
+  const reload = useCallback(() => Promise.all([getCategories(), getTagOverview(), searchCards({ limit: 1 })])
+    .then(([cats, tagList, page]) => {
+      setCategories(cats);
+      setTags(tagList);
+      setTotalCards(page?.total ?? 0);
+      setError(null);
+    })
+    .catch((e) => setError(e.message)), []);
 
-  useEffect(() => { reload(); }, [reload, refreshKey]);
+  useEffect(() => { if (isActive) reload(); }, [isActive, reload]);
 
-  const save = (id, data) => {
-    if (data.name !== undefined && !data.name.trim()) return;
-    updateCategory(id, data).then(reload);
+  /** Runs a mutation, reloads, and reports whether it worked; the message stays on screen until the next action. */
+  const run = async (fn) => {
+    setActionError(null);
+    try {
+      await fn();
+      await reload();
+      return true;
+    } catch (e) {
+      setActionError(e.message);
+      await reload();
+      return false;
+    }
   };
 
-  const remove = (id) => {
-    setDeleteError(null);
-    deleteCategory(id).then(reload).catch((err) => setDeleteError(err.message));
-  };
-
-  const add = () => {
-    if (!draft.name.trim()) return;
-    setAdding(true);
-    createCategory({ name: draft.name.trim(), priority: Number(draft.priority) || 0, description: draft.description })
-      .then(() => { setDraft(EMPTY_DRAFT); reload(); })
-      .finally(() => setAdding(false));
+  const moveCategory = (id, target) => {
+    const changes = placeCategory(categories ?? [], id, target);
+    if (!changes.length) return Promise.resolve(true);
+    setCategories((cats) => withPriorities(cats, changes));
+    return run(() => Promise.all(changes.map((c) => updateCategory(c.id, { priority: c.priority }))));
   };
 
   return {
-    categories, error, deleteError, draft, adding, reload, save, remove, add,
-    firstLoad: loading && categories.length === 0,
-    setDraftField: (key, value) => setDraft((d) => ({ ...d, [key]: value })),
-  };
-}
-
-export function useTagUsage(refreshKey) {
-  const [tags, setTags] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [filter, setFilter] = useState('');
-
-  const reload = useCallback(() => {
-    setLoading(true);
-    getTagUsage()
-      .then((list) => { setTags(list); setError(null); })
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { reload(); }, [reload, refreshKey]);
-
-  const q = filter.trim().toLowerCase();
-  return {
-    tags, error, filter, setFilter, reload,
-    shown: q ? tags.filter((tag) => tag.name.toLowerCase().includes(q)) : tags,
-    firstLoad: loading && tags.length === 0,
+    categories,
+    tags,
+    totalCards,
+    error,
+    actionError,
+    reload,
+    firstLoad: categories === null || tags === null,
+    addCategory: ({ name, description }) =>
+      run(() => createCategory({ name, description, priority: newCategoryPriority(categories ?? []) })),
+    saveCategory: (id, { name, description }) => run(() => updateCategory(id, { name, description })),
+    deleteCategory: (id) => run(() => deleteCategory(id, { clear: true })),
+    moveCategory,
+    renameTag: (from, to) => run(() => renameTag(from, to)),
+    removeTag: (from) => run(() => removeTag(from)),
   };
 }

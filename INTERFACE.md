@@ -191,7 +191,7 @@ the label moves, never `/api/diary`, `diary/` or `fb-diary-enabled`. `connection
 subscription — do not call that hook in a leaf view.
 
 Where a control is an editor rather than a button, prefer read-only over hidden: a
-document's tags in its head, a deck's tags and the Manage tab's categories all still render their
+document's tags in its head, a deck's tags and Metadata's categories and tags all still render their
 values without the role, because the values are information even to someone who cannot change
 them. A body editor is the opposite case and is set genuinely `readOnly` — a writable editor
 whose save is refused invites someone to type a page and lose it.
@@ -388,7 +388,7 @@ CSS class when it carries no state, a11y or geometry, and a React component when
 | `.chip` `--muted` `--danger` + `.chip__remove`                    | a removable token                                 |
 | `.eyebrow` (mono, uppercase), `.header-row`, `.section-header`, `.panel`, `.toolbar`, `.divider-v` | section chrome                          |
 | `.field` `--sm`                                                   | the one input override (uses `--color-border-strong`) |
-| `.spinner`, `.progress`, `.stat-tile`, `.toggle`, `.popover`, `.segmented`, `.stepper`, `.inline-confirm`, `.quiet-row`, `.shown-once` | the interiors of the base components              |
+| `.spinner`, `.progress`, `.stat-tile`, `.toggle`, `.popover`, `.segmented`, `.tabs`, `.stepper`, `.inline-confirm`, `.quiet-row`, `.shown-once` | the interiors of the base components              |
 | `.muted`                                                          | secondary text                                    |
 
 A per-view stylesheet keeps only layout and what is genuinely particular to that view. When a
@@ -911,19 +911,36 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
 
 ### Seal (`views/seal/`)
 
+- **A report in two tabs.** History is the log; Health is the maintenance. The Health tab
+  carries the count of files changed outside Flashback, and History says it once above the
+  ribbon, so drift is seen without opening the tab.
+- **History reads like the Diary.** Seals are grouped by local day, one sentence each
+  (`history.js` `sealLine`: added, edited the text of, changed highlights, cards or tags in,
+  renamed, moved from, deleted, sealed outside changes), each pressed with a stamp whose glyph,
+  not its colour, says what happened; the current seal is the one amber thing. Consecutive
+  metadata seals on one target by one author fold into a run (`foldRuns`): a reading session
+  is a seal per highlight, and twenty of them would bury everything else. Anything between
+  them breaks the run, so the order of events stays readable. The ribbon above is one tick
+  per seal (the newest 60), oldest to current; a tick scrolls to its entry, opening the run
+  that holds it. On a server, a seal by someone else names them.
 - **Reload the depth the user had paged to** on tab re-activation, not page one.
-- Changed files are split into documents and metadata rather than interleaved — seeing
-  `chapter.md` and `chapter.md.flashback` as two opaque siblings was the confusion this view
-  had. Said once at the top of the timeline why highlighting a page shows up as a change to a
-  file never opened.
-- **Rollback is the Author's alone and hidden, not disabled** — it rewinds the workspace for
-  everyone on a server and is not undoable from inside the app. Post-rollback the derived index
-  diverges from the restored sidecars and `sealTools.inspect()` is blind (HEAD == workdir), so
-  the banner offers the Doctor's `syncIndex` inline; after either, `invalidateData()` refreshes
-  every DB-backed view.
-- **Doctor:** diagnosis is an admin's, repair is the Author's — a rebuild rewrites the index
-  under every connected user. The admin sees the drift and a sentence naming who can act. The rebuild
-  confirmation token stays untranslated because it is retyped verbatim.
+- Changed files load on demand and are split into documents and "highlights, cards and
+  tags", rather than showing `chapter.md` and `chapter.md.flashback` as two opaque siblings.
+- **Restore asks inline**, under the entry, saying what goes back (documents and folders;
+  unsealed changes on disk are discarded), what happens to the newer seals, and what does
+  not change (review schedules and history). It is the Author's alone and hidden, not
+  disabled: it rewinds the workspace for everyone on a server and is not undoable from inside
+  the app. Afterwards the index diverges from the restored sidecars and `sealTools.inspect()`
+  is blind (HEAD == workdir), so a banner offers the Doctor's `syncIndex`; after either,
+  `invalidateData()` refreshes every DB-backed view.
+- **Health** is sentences, not panels: the status line, the files changed outside Flashback,
+  then the index. Checking walks every file, so it runs on request and changes nothing. Sync
+  appears after a check and seals the outside changes by default (an unsealed deletion would
+  come back on a later restore). Rebuild sits under "If the index is damaged" behind the typed
+  word `rebuild` (compared without case, and untranslated because it is retyped verbatim), and
+  says that study progress lives in its own store and is not touched. Diagnosis is an admin's,
+  repair is the Author's (`rebuildIndex`): a rebuild rewrites the index under every connected
+  user, so everyone else sees a sentence naming who can act.
 
 ### Explorer (`components/document/explorer/`)
 
@@ -1113,7 +1130,7 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
 - **`flyOut(kind)` is the card leaving the desk**: `accept` dips a little and springs up and to
   the right, `reject` drops down and to the left, both starting from wherever a swipe left it.
   A duration of 1 ms under reduced motion, so the promise still resolves.
-- **Categories are vault data**, edited in Manage, never a constant. A new card defaults to
+- **Categories are vault data**, edited on the Metadata screen, never a constant. A new card defaults to
   the first (most foundational) entry; an existing card keeps what it had, including a category
   since deleted, which the select still lists so it survives a save.
 - **One card editor.** `FlashcardForm` is the editor everywhere: the type picker (five
@@ -1179,13 +1196,32 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   The health filter is a row in the sources, not an inbox. Ctrl+F focuses the search while the
   screen is showing; the view reloads when it comes back into view, since a session elsewhere
   moves cards between bands.
-- **Stats:** heatmap days are local calendar days (the server buckets with `localtime`), so
-  the grid walks local days; a UTC stride would offset everyone off UTC by a cell. Re-pulled on
-  focus because the Trainer changes the numbers. Two explicit columns pair each tall panel with
-  a short one — editorial, not masonry.
-- **Diary:** `EntryEditor` resets during render keyed on `(date, content)` — `key={date}` is
-  not enough because the content arrives asynchronously after the remount. The privacy note
-  renders only on a remote. Pass rate excludes learning-phase cards on schema v2 summaries.
+- **Stats:** a short report in one column, each section answering one question in the order
+  it is asked: where am I (the headline "N% complete" with its Read and Known halves), what is
+  coming (the forecast), is it staying (retention), where are the cards (the gap bands, which
+  open those cards in Flashcards for your own progress), your reviews (heatmap and streak).
+  Figures sit inside sentences in bold mono; each chart has a numbered caption. The arithmetic
+  is `report.js`. Heatmap days are local calendar days (the server buckets with `localtime`),
+  so the grid walks local days; a UTC stride would offset everyone off UTC by a cell. The
+  heatmap and the Diary's calendar share `activityLevel.js`, so a level means the same on both.
+  Re-pulled on focus because the Trainer changes the numbers.
+- **Diary:** the writing first. A rail holds a month calendar (days shaded by reviews, a mark
+  under a day you wrote on; `calendar.js`) and the month's entries by first line; the page is
+  the chosen day as a journal entry: its date, one sentence in the Statistics voice, the
+  reflection written in place (Ctrl+S saves, Esc cancels), then "the day in detail". The entry
+  editor resets during render keyed on `(date, content)`: `key={date}` is not enough because
+  the content arrives asynchronously after the remount. The privacy note renders only on a
+  remote, above the writing. Pass rate excludes learning-phase cards on schema v2 summaries.
+- **Metadata** (`views/manage/`): the vocabulary cards are classified with, as a report in two
+  tabs. Categories sit on priority levels, several to a level, and move by drag (onto a level,
+  or onto "new level" above or below the rest) or Raise and Lower (Alt+↑/↓); levels renumber
+  with no gaps from the lowest stored priority, and only changed rows are written
+  (`metadata.js`). Deleting one says how many cards lose it before it happens (the API's
+  `?clear=1`). Tags are rows with their reach from `/tags/overview`, renamed or removed
+  everywhere at once. A row opens its cards in Flashcards through `App.jsx`'s one-off request
+  (`handleShowCards`), as a Statistics band does; Flashcards names a tag or category in its
+  scope line, and Clear drops it. Without `manageCategories`/`manageTags` the report shows
+  without its actions, since categories and tags classify what a Reader studies.
 - **Config:** `mcpDiaryAccess` persists immediately because it is a cross-process
   authorization boundary the API reads from disk, and the legacy boolean is normalised to the
   tri-state. The vault name and path are read-only here and deliberately the only mention of
@@ -1198,8 +1234,7 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   identity writes no `user` at all.
 - **Server:** the one place that says out loud what the role hides elsewhere. The role select
   never offers what the server would refuse (`roles.js`), and the account-limit message is
-  shown before the form fails. Manage keeps categories visible without the role, since they
-  classify what a Reader studies; it refetches on focus because views stay mounted.
+  shown before the form fails.
 
 ---
 

@@ -35,9 +35,10 @@ export function collectDoctorIssues(report, t) {
     return groups;
 }
 
+/** The class a group's label takes for its tone (Seal.css): added, modified, deleted or a warning. */
 export const TONE_CLASS = {
-    added: 'seal-loose-group-label--added',
-    modified: 'seal-loose-group-label--modified',
-    deleted: 'seal-loose-group-label--deleted',
-    warn: 'seal-doctor-group-label--warn',
+    added: 'is-added',
+    modified: 'is-modified',
+    deleted: 'is-deleted',
+    warn: 'is-warn',
 };

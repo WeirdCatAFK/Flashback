@@ -123,7 +123,8 @@ export const deleteCard = (hash) =>
  * signature. Each returned row's `flags` is a comma-joined list of kinds (or null),
  * and `gap` is the caller's days between reviews under `algorithm` (null = new).
  *
- * `band` keeps one gap band; `source` is 'standalone', or 'folder'/'document' with
+ * `tag` keeps cards carrying that tag (their own or inherited), `category` those in one
+ * category (its id). `band` keeps one gap band; `source` is 'standalone', or 'folder'/'document' with
  * `sourcePath`. `groupBy` ('gap' | 'source') orders the groups on top of `sortBy`
  * and adds `groups: [{ key, count }]` covering every page.
  */
@@ -134,6 +135,8 @@ export const searchCards = ({
   flagged = false,
   flagKind = null,
   band = null,
+  tag = null,
+  category = null,
   source = null,
   sourcePath = null,
   groupBy = null,
@@ -150,6 +153,8 @@ export const searchCards = ({
   if (flagKind) qs.set("flagKind", flagKind);
   else if (flagged) qs.set("flagged", "1");
   if (band) qs.set("band", band);
+  if (tag) qs.set("tag", tag);
+  if (category !== null) qs.set("category", String(category));
   if (source) qs.set("source", source);
   if (sourcePath) qs.set("sourcePath", sourcePath);
   if (groupBy) qs.set("groupBy", groupBy);

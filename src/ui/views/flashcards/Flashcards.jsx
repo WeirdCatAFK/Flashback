@@ -20,7 +20,7 @@ import getFileIcon from '../../components/icons/fileIconMap';
 import { useSession } from '../../sessionContext.js';
 import { useT } from '../../translations/index';
 import {
-  bandOptions, healthOptions, sortOptions, groupOptions, buildSourceTree, scopeParts,
+  bandOptions, healthOptions, sortOptions, groupOptions, buildSourceTree, scopeParts, NO_NARROWING,
   withGroupHeaders, groupLabel, share, MAX_SHOWN,
 } from './catalogue.js';
 import useCardBench from '../../components/flashcard/useCardBench';
@@ -145,7 +145,7 @@ function Sources({ b }) {
   );
 }
 
-export default function FlashcardsView({ isActive = true, onOpenSource }) {
+export default function FlashcardsView({ isActive = true, onOpenSource, request = null, onRequestConsumed }) {
   const { t, tp } = useT();
   const { can } = useSession();
   const canEdit = can('editCards');
@@ -154,6 +154,14 @@ export default function FlashcardsView({ isActive = true, onOpenSource }) {
   const { view } = b;
   const [detailHash, setDetailHash] = useState(null);
   const searchRef = useRef(null);
+
+  /** Another screen asked for some cards (a band from Statistics, a tag or category from Metadata): start from that alone. */
+  useEffect(() => {
+    if (!request) return;
+    b.update({ ...NO_NARROWING, ...request });
+    onRequestConsumed?.();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request]);
 
   useEffect(() => {
     if (!isActive) return undefined;

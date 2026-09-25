@@ -628,6 +628,55 @@ describe('Flashback API', () => {
             assert.ok(body.tags.includes('api'), 'Tag "api" was applied earlier and must appear');
         });
 
+        it('GET /api/documents/tags/overview → each tag with where it is used and the cards it reaches', async () => {
+            const res = await fetch(`${baseUrl}/api/documents/tags/overview`);
+            assert.equal(res.status, 200);
+            const { tags } = await res.json();
+            assert.ok(Array.isArray(tags));
+            const api = tags.find(t => t.name === 'api');
+            assert.ok(api, 'the tag applied to renamed.md is listed');
+            assert.ok(api.documents >= 1, 'it counts the document carrying it');
+            assert.ok(api.cards >= 1, 'and the card that inherits it from that document');
+            for (const key of ['folders', 'decks', 'cardsDirect']) {
+                assert.equal(typeof api[key], 'number', `${key} is a number`);
+            }
+        });
+
+        it('GET /api/decks/cards?tag= keeps the cards carrying the tag, inherited included', async () => {
+            const tagged = await (await fetch(`${baseUrl}/api/decks/cards?tag=api&limit=200`)).json();
+            assert.ok(tagged.cards.some(c => c.global_hash === FC_HASH), 'the card inherits "api" from its document');
+            const none = await (await fetch(`${baseUrl}/api/decks/cards?tag=no-such-tag&limit=200`)).json();
+            assert.equal(none.total, 0);
+        });
+
+        it('POST /api/documents/tags/rename → renames a tag everywhere it is written', async () => {
+            const res = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api', to: 'api-renamed' });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.to, 'api-renamed');
+            assert.ok(body.sidecars >= 1, 'renamed.md’s sidecar was rewritten');
+
+            const { tags } = await (await fetch(`${baseUrl}/api/documents/tags`)).json();
+            assert.ok(tags.includes('api-renamed') && !tags.includes('api'));
+            const doc = await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/renamed.md`)}`)).json();
+            assert.deepEqual(doc.metadata.tags, ['api-renamed']);
+
+            const back = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api-renamed', to: 'api' });
+            assert.equal(back.status, 200, 'and renames it back for the tests that follow');
+        });
+
+        it('POST /api/documents/tags/rename with to: null → removes the tag', async () => {
+            const res = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'viewer-only', to: null });
+            assert.equal(res.status, 200);
+            const doc = await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/data.json`)}`)).json();
+            assert.ok(!(doc.metadata.tags ?? []).includes('viewer-only'));
+        });
+
+        it('POST /api/documents/tags/rename → 400 without a from, or with an empty to', async () => {
+            assert.equal((await post(`${baseUrl}/api/documents/tags/rename`, { to: 'x' })).status, 400);
+            assert.equal((await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api', to: '  ' })).status, 400);
+        });
+
         it('GET /api/documents/list → each entry carries a numeric flashcardCount', async () => {
             const items = await listFolder(ROOT);
             assert.ok(items.length > 0, 'Folder must not be empty');
@@ -967,6 +1016,12 @@ describe('Flashback API', () => {
             // and confusing them is the whole reason this block is named what it is.
             assert.ok(stats.acquisition, 'the learning-phase block is untouched');
             assert.ok(!('percent' in stats.acquisition), 'and is a different shape entirely');
+        });
+
+        it('GET /api/srs/statistics → counts the cards in each gap band', async () => {
+            const stats = await (await fetch(`${baseUrl}/api/srs/statistics`)).json();
+            assert.ok(stats.bands && typeof stats.bands === 'object', 'statistics carries bands');
+            for (const n of Object.values(stats.bands)) assert.equal(typeof n, 'number');
         });
 
         it('GET /api/srs/statistics → its read half agrees with /api/progress/rollup', async () => {
@@ -2464,6 +2519,84 @@ describe('Flashback API', () => {
         });
     });
 
+    // ── Categories ────────────────────────────────────────────────────────
+    //
+    // A card names its category in its sidecar or deck file, not by id — so a rename that
+    // only touched the row left every card on the old name, and the next Doctor run brought
+    // the old category back. These pin that a rename and a clearing delete reach the files.
+
+    describe('Categories', () => {
+        const ROOT = 'CategoryApiTest';
+        const DOC = `${ROOT}/sorted.md`;
+        const CARD = 'fc-category-001';
+        const NAME = 'CatApiTest';
+        let catId = null;
+        let otherId = null;
+        let soloHash = null;
+
+        const docCard = async () => {
+            const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(DOC)}`);
+            return ((await res.json()).metadata?.flashcards ?? []).find(f => f.globalHash === CARD);
+        };
+        const soloCard = async () => (await fetch(`${baseUrl}/api/flashcards/${soloHash}`)).json();
+        const row = async (id) => (await (await fetch(`${baseUrl}/api/categories`)).json()).find(c => c.id === id);
+
+        before(async () => {
+            catId = (await (await post(`${baseUrl}/api/categories`, { name: NAME, priority: 3 })).json()).id;
+            otherId = (await (await post(`${baseUrl}/api/categories`, { name: 'CatApiOther', priority: 3 })).json()).id;
+            await createFolder(ROOT);
+            await createFile('sorted.md', ROOT);
+            await updateFile(DOC, '# Sorted', {
+                flashcards: [{ globalHash: CARD, category: NAME, vanillaData: { frontText: 'Q', backText: 'A' } }],
+            });
+            const solo = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Solo category front', backText: 'B', cardType: 'basic', category: NAME,
+            });
+            soloHash = (await solo.json()).globalHash;
+        });
+
+        it('GET /api/categories → each row counts the cards using it', async () => {
+            assert.equal((await row(catId)).cards, 2);
+            assert.equal((await row(otherId)).cards, 0);
+        });
+
+        it('GET /api/decks/cards?category= keeps the cards in that category', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?category=${catId}&limit=200`)).json();
+            assert.equal(body.total, 2);
+            assert.deepEqual(body.cards.map(c => c.global_hash).sort(), [CARD, soloHash].sort());
+        });
+
+        it('PUT /api/categories/:id → a rename rewrites the cards naming it', async () => {
+            const res = await put(`${baseUrl}/api/categories/${catId}`, { name: 'CatApiRenamed' });
+            assert.equal(res.status, 200);
+            assert.equal((await docCard()).category, 'CatApiRenamed', 'the sidecar names the new category');
+            assert.equal((await soloCard()).category, 'CatApiRenamed', 'and so does the default deck');
+            assert.equal((await row(catId)).cards, 2, 'both cards still resolve to the row');
+        });
+
+        it('PUT /api/categories/:id → 409 onto another category’s name, 404 unknown id', async () => {
+            assert.equal((await put(`${baseUrl}/api/categories/${catId}`, { name: 'CatApiOther' })).status, 409);
+            assert.equal((await put(`${baseUrl}/api/categories/999999`, { name: 'x' })).status, 404);
+        });
+
+        it('DELETE /api/categories/:id → refuses while in use, and clears its cards with ?clear=1', async () => {
+            assert.equal((await del(`${baseUrl}/api/categories/${catId}`)).status, 409);
+            const res = await del(`${baseUrl}/api/categories/${catId}?clear=1`);
+            assert.equal(res.status, 200);
+            assert.equal(await row(catId), undefined);
+            assert.equal((await docCard()).category, undefined, 'the card stays, without a category');
+            assert.ok(!(await soloCard()).category, 'the standalone card loses it too');
+        });
+
+        it('DELETE /api/categories/:id → an unused category goes without clear', async () => {
+            assert.equal((await del(`${baseUrl}/api/categories/${otherId}`)).status, 200);
+        });
+
+        after(async () => {
+            await del(`${baseUrl}/api/flashcards/${soloHash}`);
+        });
+    });
+
     // ── Card editing + detail ─────────────────────────────────────────────
     //
     // Editing an anchored card used to be refused outright ("edit from the document
@@ -2801,6 +2934,8 @@ describe('Flashback API', () => {
             assert.ok(Array.isArray(list));
             const day = list.find(d => d.date === DATE);
             assert.ok(day && day.hasEntry === true);
+            assert.equal(typeof day.reviews, 'number', 'each day carries its review count');
+            assert.ok(day.firstLine === null || typeof day.firstLine === 'string');
         });
 
         it('POST /api/diary/rebuild → 200 with a count', async () => {

@@ -209,6 +209,7 @@ export default function App() {
     setSelectedPath(null);
     setPendingSource(null);
     setPendingDeck(null);
+    setCatalogueRequest(null);
     setStudySession(null);
     setProgressAccount(null);
     try {
@@ -248,6 +249,12 @@ export default function App() {
 
   const [pendingSource, setPendingSource] = useState(null);
   const [pendingDeck, setPendingDeck] = useState(null);
+  /** Cards another screen asked Flashcards to show — a gap band, a tag, a category. */
+  const [catalogueRequest, setCatalogueRequest] = useState(null);
+  const handleShowCards = useCallback((filter) => {
+    setCatalogueRequest({ ...filter });
+    setActiveView("flashcards");
+  }, []);
   const handleOpenDocumentSource = useCallback((documentPath, highlightId) => {
     setActiveView("documents");
     setPendingSource({ path: documentPath, highlightId: highlightId ?? null });
@@ -420,6 +427,8 @@ export default function App() {
           <FlashcardsView
             isActive={activeView === "flashcards"}
             onOpenSource={handleOpenDocumentSource}
+            request={catalogueRequest}
+            onRequestConsumed={() => setCatalogueRequest(null)}
           />
         );
       case "decks":
@@ -452,13 +461,14 @@ export default function App() {
       case "seal":
         return <SealView isActive={activeView === "seal"} />;
       case "manage":
-        return <ManageView isActive={activeView === "manage"} />;
+        return <ManageView isActive={activeView === "manage"} onShowCards={handleShowCards} />;
       case "stats":
         return (
           <StatsView
             isActive={activeView === "stats"}
             viewingAccount={progressAccount}
             onViewingAccountChange={setProgressAccount}
+            onShowBand={(band) => handleShowCards({ band })}
           />
         );
       case "diary":

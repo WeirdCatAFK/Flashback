@@ -532,6 +532,13 @@ describe('Vault Doctor', () => {
             const doc = await query.getDocumentByPath(docARel);
             assert.ok((await query.getDirectTagNames(doc.node_id)).includes('direct-tag'));
             assert.ok((await query.getInheritedTagNames(doc.node_id)).includes('inherited-tag'));
+
+            // The folder pass that ends a rebuild used to hand each document's cards the
+            // folder's tags alone, so a card lost its own document's tags in the index.
+            const card = await db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
+            const carried = await query.getInheritedTagNames(card.node_id);
+            assert.ok(carried.includes('direct-tag'), 'the card carries its document’s tag');
+            assert.ok(carried.includes('inherited-tag'), 'and the folder’s');
         });
 
         it('restores highlights, links, media, and ease factors', async () => {

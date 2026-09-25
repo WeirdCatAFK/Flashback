@@ -11,13 +11,9 @@ export const todayIso = (d = new Date()) => {
 
 export const pct = (r) => (r == null ? '—' : `${Math.round(r * 100)}%`);
 
-/** A human date from a 'YYYY-MM-DD' key, parsed as UTC to match the key, in the chosen locale. */
-export const fmtDate = (iso, locale) =>
-  new Date(`${iso}T00:00:00Z`).toLocaleDateString(locale, { weekday: 'short', year: 'numeric', month: 'short', day: 'numeric', timeZone: 'UTC' });
-
 /** The rail always shows today, even before it has a summary or an entry. */
 export function withToday(dates, today) {
   const list = dates ?? [];
   if (list.some((d) => d.date === today)) return list;
-  return [{ date: today, hasSummary: false, hasEntry: false }, ...list];
+  return [{ date: today, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null }, ...list];
 }

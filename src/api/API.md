@@ -512,9 +512,39 @@ Response `200` — `{ tags }`.
 
 ### `GET /api/documents/tags/usage`
 
-Every tag with how many entities carry it — the Manage tab's tag list.
+Every tag with how many entities carry it.
 
 Response `200` — `{ tags }`, each `{ name, count }`.
+
+---
+
+### `GET /api/documents/tags/overview`
+
+Every tag with its reach — the Metadata screen's Tags list. Counts come from the index.
+
+Response `200` — `{ tags }`, each `{ name, folders, documents, decks, cardsDirect, cards }`:
+how many folders, documents and decks apply it directly, how many cards are tagged with it
+themselves, and how many cards carry it at all (directly, or inherited from a folder, document
+or deck).
+
+---
+
+### `POST /api/documents/tags/rename`
+
+Renames a tag everywhere it is written, or removes it. Sidecars first — every folder's and
+document's `tags`, `excludedTags` and each card's own `tags` — under one structure lock and
+one Seal commit, then the decks (a deck's direct tags, and the default deck's own cards).
+Renaming onto a tag that already exists merges the two. Admin (`manageTags`).
+
+| Body   | Type           | Description                                               |
+| ------ | -------------- | --------------------------------------------------------- |
+| `from` | string         | The tag to rename. Required.                              |
+| `to`   | string \| null | Its new name; `null` or absent removes the tag instead. |
+
+Response `200` — `{ from, to, sidecars, decks }`: the tag names after cleaning, and how many
+sidecars and decks were rewritten.
+
+Errors `400` `from` missing, or `to` given but empty after cleaning.
 
 ---
 
@@ -1254,6 +1284,11 @@ being averaged into a number that would then flatter every vault with new cards 
 
 Response `200` — the statistics object.
 
+`bands` counts the caller's cards by the gap between reviews — `{ new, d1, wk, w3, m2, long }`,
+the same bands (`shared/intervals.js GAP_BANDS`) the Flashcards catalogue groups and filters by,
+computed from the same interval the forecast uses. `maturity` (new/young/mature at 21 days) is
+the older, coarser view of the same thing and stays for existing callers.
+
 #### `completeness` — how far through the vault the caller is
 
 Not `acquisition`. The two sit side by side and mean different things: `acquisition` is about
@@ -1331,6 +1366,8 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 | `origin`   | string | `ai` (AI-created only) or `human` (everything else). Anything else is ignored.                                                                                                                                             |
 | `flagged`  | bool   | `1`/`true` — only cards carrying a live card-health flag.                                                                                                                                                                 |
 | `flagKind` | string | One signature; implies`flagged`. Unrecognized kinds are ignored rather than refused.                                                                                                                                         |
+| `tag`      | string | Only cards carrying this tag: their own, or inherited from a folder, document or deck. |
+| `category` | int    | Only cards in this category (its id). |
 | `band`     | string | One gap-between-reviews band: `new` \| `d1` \| `wk` \| `w3` \| `m2` \| `long` (`GAP_BANDS` in `src/shared/intervals.js`). |
 | `algorithm`| string | The scheduler `gap`, `band`, `due` and `groupBy=gap` are computed under. Omitted, the one the caller's history says they use. |
 | `source`   | string | `standalone` (the default deck's own cards), or `folder` / `document` with `sourcePath` (forward slashes; a folder matches everything under it). |
@@ -1475,12 +1512,13 @@ Response `200` — `{ ok: true }`. Errors `400` `path` missing.
 
 ## Categories `/api/categories`
 
-Editable pedagogical categories, managed in the Manage tab. A category carries a `priority` that
+Editable pedagogical categories, managed on the Metadata screen. A category carries a `priority` that
 `GET /api/srs/due?minPriority=` filters on. Roles: `GET` is Reader; writes are Admin.
 
 ### `GET /api/categories`
 
-Response `200` — array of `{ id, name, priority, description }`.
+Response `200` — array of `{ id, name, priority, description, cards }`, `cards` being how
+many cards use it.
 
 ### `POST /api/categories`
 
@@ -1489,16 +1527,22 @@ Response `201` — `{ id }`. Errors `400` `name` missing or blank.
 
 ### `PUT /api/categories/:id`
 
-Body `{ name?, priority?, description? }` — omitted fields keep their stored values.
-Response `200` — `{ ok: true }`.
+Body `{ name?, priority?, description? }` — omitted fields keep their stored values. A card
+names its category in its sidecar or deck file, so a rename also rewrites every card that
+names it (one Seal commit for the sidecars); renaming the row alone would leave the cards on the
+old name for the next rebuild to recreate.
+Response `200` — `{ ok: true }`. Errors `400` blank `name` · `404` unknown id · `409` another
+category already has that name.
 
 ### `DELETE /api/categories/:id`
 
 Refuses while any card still uses the category, rather than orphaning cards or silently
-reassigning them.
+reassigning them — unless `?clear=1` asks for it: those cards lose the category (their files
+are rewritten, as for a rename) and then the row goes. The Metadata screen sends it only after
+its confirmation has said how many cards lose it.
 
 Response `200` — `{ ok: true }`.
-Errors `409` — `{ error: "In use by N flashcard(s)" }`.
+Errors `404` unknown id · `409` — `{ error: "In use by N flashcard(s)" }` without `clear`.
 
 ---
 
@@ -1602,7 +1646,11 @@ enforcement, not client-side self-censoring.
 Date-descending list of days that have a summary and/or an entry.
 
 Query `from`, `to` — `YYYY-MM-DD`; anything malformed is ignored rather than refused.
-Response `200` — the day list.
+Response `200` — `[{ date, hasSummary, hasEntry, reviews, firstLine }]`. `reviews` is the day's
+review count from its summary (0 without one), for the Diary's calendar; `firstLine` is the
+entry's first line of prose with its Markdown marks removed, capped at 140 characters, or null.
+`firstLine` is the start of what someone wrote, so it is dropped for the MCP server unless
+`mcpDiaryAccess` is `full`.
 
 ### `POST /api/diary/summary`
 

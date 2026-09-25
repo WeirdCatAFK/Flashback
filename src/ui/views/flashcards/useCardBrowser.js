@@ -11,7 +11,7 @@ import { searchCards, getCatalogueSummary } from '../../api/decks';
 import { readFile } from '../../api/documents';
 import { getPref } from '../../prefs.js';
 import { useDataInvalidation } from '../../utils/dataBus';
-import { PAGE_SIZE, EMPTY_VIEW, searchArgsFor, isNarrowed, ancestorsOf } from './catalogue.js';
+import { PAGE_SIZE, EMPTY_VIEW, NO_NARROWING, searchArgsFor, isNarrowed, ancestorsOf } from './catalogue.js';
 
 const TYPE_DEBOUNCE = 250;
 
@@ -93,7 +93,7 @@ export default function useCardBrowser({ isActive, onOpenSource }) {
     cards: result.cards, total: result.total, groups: result.groups,
     loading, error, summary, reload,
     narrowed: isNarrowed(view),
-    clear: () => update({ query: '', source: null, band: null, health: null, cardType: '' }),
+    clear: () => update(NO_NARROWING),
     hasMore: result.cards.length < result.total,
     showMore: () => setPages((n) => n + 1),
     openSource,

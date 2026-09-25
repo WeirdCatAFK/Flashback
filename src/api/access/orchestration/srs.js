@@ -9,6 +9,7 @@ import { currentScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
 import { sm2Interval, leitnerInterval } from '../../../shared/intervals.js';
 
+import { gapBand, GAP_BANDS } from '../../../shared/intervals.js';
 export { gapBand, GAP_BANDS, LONG_TERM_DAYS } from '../../../shared/intervals.js';
 
 export const LEARNING_REVIEWS = 3;
@@ -335,7 +336,9 @@ class SRSService {
 
         let neu = 0, young = 0, mature = 0, overdue = 0;
         const forecast = new Array(FORECAST_DAYS).fill(0);
+        const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
         for (const c of cards) {
+            bands[gapBand(isReviewed(c) ? intervalOf(c) : null)] += 1;
             if (!isReviewed(c)) { neu++; continue; }
             if (intervalOf(c) >= MATURE_DAYS) mature++; else young++;
 
@@ -403,6 +406,7 @@ class SRSService {
                 reviewsToRecall,
             },
             maturity: { new: neu, young, mature },
+            bands,
             forecast: forecast.map((due, i) => ({ date: dayStr(i), due })),
             overdue,
             activity,

@@ -9,6 +9,7 @@ import { withDocument } from '../resources/pathLock.js';
 import { LATEST_VERSION } from '../../config/updates/registry.js';
 import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
 import SRS, { gapBand, GAP_BANDS, LONG_TERM_DAYS } from './srs.js';
+import { swapTag } from '../../../shared/tagNames.js';
 import { isDeckColor, deckColor, nextDeckColor } from '../../../shared/deckColors.js';
 import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, coverMime, clampCoverY } from '../../../shared/covers.js';
 
@@ -352,6 +353,52 @@ export default class Decks {
         }
     }
 
+    /**
+     * Renames a tag on every deck that applies it and every default-deck card tagged with
+     * it, or removes it when `to` is null — the `_decks/` half of a vault-wide tag rename
+     * (`Documents.rewriteTag` does the sidecars). Each deck goes through its own lock and
+     * commit, as a tag change on one deck does. Returns how many decks and cards changed.
+     */
+    async rewriteTag(from, to = null) {
+        let changed = 0;
+        for (const deck of await this.query.getAllDecks()) {
+            const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
+            const next = swapTag(tags, from, to);
+            if (!next) continue;
+            await this.setTags(deck.global_hash, next);
+            changed++;
+        }
+        const system = await this.query.getSystemDeck();
+        if (system) {
+            const file = await this._readOrRebuild(system.global_hash, system);
+            for (const entry of file?.entries ?? []) {
+                const next = swapTag(entry?.card?.tags, from, to);
+                if (!next || !entry.cardHash) continue;
+                await this.updateStandaloneCard(entry.cardHash, { tags: next });
+                changed++;
+            }
+        }
+        return changed;
+    }
+
+    /**
+     * Renames a category on every default-deck card that names it, or clears it when `to`
+     * is null — the `_decks/` half of a category rename or delete (`Documents.rewriteCategory`
+     * does the sidecars). Returns how many cards changed.
+     */
+    async rewriteCategory(from, to = null) {
+        const system = await this.query.getSystemDeck();
+        if (!system) return 0;
+        let changed = 0;
+        const file = await this._readOrRebuild(system.global_hash, system);
+        for (const entry of file?.entries ?? []) {
+            if (entry?.card?.category !== from || !entry.cardHash) continue;
+            await this.updateStandaloneCard(entry.cardHash, { category: to });
+            changed++;
+        }
+        return changed;
+    }
+
     /** Replaces a deck's tags, re-flowing them to its member cards. */
     async setTags(globalHash, tags) {
         return await this._withDeckFile(globalHash, () => this._setTagsLocked(globalHash, tags));
@@ -605,9 +652,9 @@ export default class Decks {
      * a header can say how many cards it heads even when the page shows a few.
      * Returns `{ cards, total, groups? }`.
      */
-    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         const scope = currentScope();
-        const filters = { search, level, cardType, origin, flagged, flagKind, source };
+        const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId };
         const gaps = await SRS.cardGaps({ algorithm, scope });
         const gapOf = (hash) => gaps.get(hash) ?? null;
         const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));

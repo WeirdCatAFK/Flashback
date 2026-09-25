@@ -5,6 +5,8 @@ import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
 import Documents from "../access/orchestration/documents.js";
+import Decks from "../access/orchestration/decks.js";
+import { cleanTagName } from "../../shared/tagNames.js";
 import { EDITABLE_BODY_EXTENSIONS } from "../access/resources/files.js";
 import { MAX_COVER_BYTES } from "../../shared/covers.js";
 
@@ -117,6 +119,36 @@ router.get(
   "/tags",
   catchError(async (req, res) => {
     res.json({ tags: await docs.query.getAllTags() });
+  }),
+);
+
+/**
+ * Every tag with its reach — folders, documents and decks applying it, and cards
+ * carrying it — for the Metadata screen.
+ */
+router.get(
+  "/tags/overview",
+  catchError(async (req, res) => {
+    res.json({ tags: await docs.query.getTagOverview() });
+  }),
+);
+
+/**
+ * Renames a tag everywhere it is applied (`{ from, to }`), or removes it (`{ from }`
+ * with no `to`): every sidecar first, then the decks. Admin, as the documents mount's
+ * writes are; it rewrites decks too, which are Admin to change.
+ */
+router.post(
+  "/tags/rename",
+  catchError(async (req, res) => {
+    const from = cleanTagName(req.body?.from);
+    const to = req.body?.to == null ? null : cleanTagName(req.body.to);
+    if (!from) return res.status(400).json({ error: "from required" });
+    if (to === "") return res.status(400).json({ error: "to must not be empty" });
+    if (to === from) return res.json({ from, to, sidecars: 0, decks: 0 });
+    const sidecars = await docs.rewriteTag(from, to);
+    const decks = await new Decks().rewriteTag(from, to);
+    res.json({ from, to, sidecars, decks });
   }),
 );
 

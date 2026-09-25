@@ -58,6 +58,15 @@ function todayLocal() {
 }
 
 /** Two summaries of the same day with the same content, ignoring when each was generated. */
+/** An entry's first line of prose, without its Markdown marks, for a list of entries. */
+export function firstLineOf(text) {
+    const line = String(text ?? "").split(/\r?\n/)
+        .map((l) => l.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)]\s+)/, "").replace(/[*_`~]/g, "").trim())
+        .find(Boolean);
+    if (!line) return null;
+    return line.length > 140 ? `${line.slice(0, 139).trimEnd()}…` : line;
+}
+
 function sameSummary(a, b) {
     const strip = ({ generatedAt, ...rest }) => (void generatedAt, rest);
     return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
@@ -245,7 +254,12 @@ class Diary {
         return { created: !existed, empty: text.trim() === "" };
     }
 
-    /** Every day this person has a summary or an entry for, newest first. */
+    /**
+     * Every day this person has a summary or an entry for, newest first, with the day's
+     * review count (from its summary, for the Diary's calendar) and its entry's first line
+     * (for the list of what was written that month). Reading them here costs one small
+     * file per day; the route strips `firstLine` for an assistant without full access.
+     */
     list({ from = null, to = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const dates = new Map();
@@ -257,8 +271,13 @@ class Diary {
                 const d = m[1];
                 if (from && d < from) continue;
                 if (to && d > to) continue;
-                const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false };
+                const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null };
                 entry[key] = true;
+                try {
+                    const text = fs.readFileSync(path.join(dir, name), "utf8");
+                    if (key === "hasSummary") entry.reviews = JSON.parse(text)?.totals?.reviews ?? 0;
+                    else entry.firstLine = firstLineOf(text);
+                } catch { }
                 dates.set(d, entry);
             }
         };

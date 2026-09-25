@@ -1,152 +1,338 @@
-/* Manage — vault-wide metadata (pedagogical categories + tags). Follows the same
-   flat, quiet language as Config: sectioned by thin dividers, uppercase section
-   labels, generous breathing room. All colors are theme tokens. */
+/* Metadata — a short report in two tabs. Categories on priority levels (bordered bands,
+   the first level's name in the accent), tags as rows with their reach. A row's actions
+   appear on hover or focus over its right end; an inline form or confirmation replaces
+   the row it is about. */
 
-.mng-view {
+.mt-view {
   height: 100%;
   overflow-y: auto;
-  padding: var(--space-6) var(--space-8) var(--space-12);
-  background: var(--color-bg-base);
+  background: var(--color-bg-surface);
 }
 
-.mng-body {
+.mt-report {
   max-width: var(--size-7xl);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-8) var(--space-16);
 }
 
-/* ── Header ───────────────────────────────────────────────────────────────── */
-
-.mng-header {
-  margin-bottom: var(--space-8);
+.mt-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-fg-tertiary);
 }
 
-.mng-title {
-  font-size: var(--text-lg);
-  font-weight: 600;
-  color: var(--color-fg-primary);
+.mt-title {
+  margin: var(--space-2) 0 var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
 }
 
-.mng-lede {
-  margin-top: var(--space-1);
-  max-width: 60ch;
-  font-size: var(--text-sm);
+.mt-lede {
+  max-width: 58ch;
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.mt-tabs {
+  margin: var(--space-5) 0 var(--space-4);
+}
+
+.mt-p {
+  max-width: 62ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-base);
   line-height: 1.6;
   color: var(--color-fg-secondary);
 }
 
-/* ── Section ──────────────────────────────────────────────────────────────── */
-
-.mng-section {
-  padding-bottom: var(--space-8);
-  margin-bottom: var(--space-8);
-  border-bottom: 1px solid var(--color-border);
-}
-
-.mng-section:last-child {
-  padding-bottom: 0;
-  margin-bottom: 0;
-  border-bottom: none;
-}
-
-.mng-section-label {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-1);
-}
-
-.mng-section-hint {
-  margin: 0;
-}
-
-.mng-tag-chip {
-  gap: var(--space-2);
-}
-
-.mng-tag-count {
-  opacity: 0.7;
-}
-
-.mng-section-head {
-  margin-bottom: var(--space-4);
-}
-
-/* ── Categories table ─────────────────────────────────────────────────────── */
-
-.mng-table {
-  width: 100%;
-  border-collapse: collapse;
-}
-
-.mng-th {
-  text-align: left;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.07em;
-  color: var(--color-fg-secondary);
-  opacity: 0.75;
-  padding: 0 var(--space-2) var(--space-2);
-}
-.mng-th:first-child { padding-left: 0; }
-
-.mng-th--priority { width: var(--size-xs); }
-.mng-th--action { width: var(--control-2xl); }
-
-.mng-cat-row td {
-  padding: var(--space-1) var(--space-2);
-  vertical-align: middle;
-}
-.mng-cat-row td:first-child { padding-left: 0; }
-.mng-cat-row td:last-child { padding-right: 0; }
-
-.mng-table .field {
-  width: 100%;
-}
-
-.mng-input--priority {
-  width: var(--size-xs);
-  text-align: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.mng-add-row td {
-  padding-top: var(--space-4);
-}
-
-/* ── Tags ─────────────────────────────────────────────────────────────────── */
-
-.mng-tag-filter {
-  max-width: var(--size-xl);
-  margin-bottom: var(--space-4);
-}
-
-.mng-tag-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-1);
-}
-
-/* Matches the direct tag chip (TagChipInput) so tags read the same everywhere. */
-
-.mng-tag-count {
-  min-width: var(--control-xs);
-  text-align: center;
-  font-size: var(--text-xs);
-  font-weight: 700;
-  font-variant-numeric: tabular-nums;
-  color: var(--color-fg-secondary);
-  background: var(--color-bg-surface);
-  border-radius: var(--radius-pill);
-  padding: var(--space-0-5) var(--space-1);
-}
-
-.mng-empty {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
-}
-
-.mng-error {
-  margin-top: var(--space-3);
+.mt-error {
+  margin: 0 0 var(--space-3);
   font-size: var(--text-sm);
   color: var(--color-danger);
+}
+
+.mt-empty {
+  margin: var(--space-3) 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Rows ───────────────────────────────────────────────────────────────── */
+
+.mt-list {
+  display: grid;
+}
+
+.mt-row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.mt-row:hover,
+.mt-row:focus-visible {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
+.mt-row.is-editing,
+.mt-row.is-confirming {
+  cursor: default;
+  background: var(--color-bg-sidebar);
+}
+
+.mt-row.is-dragging {
+  opacity: 0.4;
+}
+
+.mt-grip {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--space-3);
+  color: var(--color-fg-tertiary);
+  opacity: 0.6;
+  cursor: grab;
+}
+
+.mt-grip svg {
+  width: var(--space-2);
+  height: var(--space-3);
+}
+
+.mt-row:hover .mt-grip {
+  opacity: 1;
+}
+
+.mt-hash {
+  flex: none;
+  width: var(--space-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: right;
+  color: var(--color-fg-tertiary);
+}
+
+.mt-text {
+  flex: 1;
+  display: grid;
+  gap: var(--space-0-5);
+  min-width: 0;
+}
+
+.mt-name {
+  font-size: var(--text-md);
+  color: var(--color-fg-primary);
+}
+
+.mt-desc {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mt-row.is-confirming .mt-name {
+  color: var(--color-danger);
+}
+
+.mt-row.is-confirming .mt-desc {
+  white-space: normal;
+}
+
+.mt-share {
+  display: block;
+  max-width: var(--size-xl);
+  height: var(--track-thin);
+  margin-top: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.mt-share i {
+  display: block;
+  height: 100%;
+  background: color-mix(in srgb, var(--color-accent) 70%, var(--color-bg-surface));
+}
+
+.mt-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+/* The actions take the count's place in the row rather than floating over it, so a long
+   description ellipsizes before them instead of running underneath. */
+.mt-acts {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.mt-row:hover .mt-acts,
+.mt-row:focus-within .mt-acts {
+  display: flex;
+}
+
+.mt-row:has(.mt-acts):hover .mt-count,
+.mt-row:has(.mt-acts):focus-within .mt-count {
+  display: none;
+}
+
+.mt-acts.is-on {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.mt-note {
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.mt-acts .mt-note {
+  margin-right: var(--space-1);
+}
+
+.mt-fields {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, var(--size-md)) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.mt-fields.is-one {
+  grid-template-columns: minmax(0, var(--size-lg));
+}
+
+/* ── Priority levels ────────────────────────────────────────────────────── */
+
+.mt-tiers {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.mt-tier {
+  padding: var(--space-1) var(--space-1) var(--space-0-5);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  transition:
+    border-color var(--dur-fast) var(--ease-out),
+    background var(--dur-fast) var(--ease-out);
+}
+
+.mt-tier-head {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2) var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.mt-tier:first-child .mt-tier-name {
+  color: var(--color-accent);
+}
+
+.mt-tier-n {
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.mt-tier .mt-row:last-child {
+  border-bottom: 0;
+}
+
+.mt-newlevel {
+  display: none;
+  margin: var(--space-2) 0;
+  padding: var(--space-3);
+  border: var(--track-thin) dashed var(--color-line);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-sm);
+  text-align: center;
+  color: var(--color-fg-tertiary);
+}
+
+.is-dragging-cat .mt-newlevel {
+  display: block;
+}
+
+.mt-tier.is-drop,
+.mt-newlevel.is-drop {
+  border-color: var(--color-accent);
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+}
+
+.mt-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.mt-add {
+  padding: var(--space-1) var(--space-3);
+  border: 1px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  background: none;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+}
+
+.mt-add:hover {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* ── Tags ───────────────────────────────────────────────────────────────── */
+
+.mt-tagbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-2);
+}
+
+.mt-tagq {
+  width: min(var(--size-lg), 100%);
+}
+
+@media (max-width: 640px) {
+  .mt-report {
+    padding-inline: var(--space-4);
+  }
+  .mt-title {
+    font-size: var(--text-xl);
+  }
+  .mt-row {
+    flex-wrap: wrap;
+  }
+  .mt-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .mt-acts {
+    display: flex;
+  }
 }

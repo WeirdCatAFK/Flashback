@@ -7,8 +7,9 @@
  * never translated.
  */
 
-import { GAP_BANDS, gapBand } from '../../../shared/intervals.js';
+import { gapBand } from '../../../shared/intervals.js';
 import { slashed, leafName, docTitle } from '../../components/flashcard/cardLineText.js';
+import { bandLabel } from '../../gapBands.js';
 
 export { slashed, leafName, docTitle, frontLine, dueLabel, flagLabel } from '../../components/flashcard/cardLineText.js';
 
@@ -17,21 +18,7 @@ export const PAGE_SIZE = 50;
 /** The most rows the list grows to; past it, search or a source narrows instead. */
 export const MAX_SHOWN = 500;
 
-/** The gap-between-reviews bands, in order, with their sidebar labels. */
-export const bandOptions = (t) => GAP_BANDS.map((b) => ({ id: b.id, label: bandLabel(b.id, t) }));
-
-/** One band's label. */
-export function bandLabel(id, t) {
-  switch (id) {
-    case 'new': return t('New');
-    case 'd1': return t('1 day');
-    case 'wk': return t('Up to a week');
-    case 'w3': return t('Up to 3 weeks');
-    case 'm2': return t('Up to 2 months');
-    case 'long': return t('Longer');
-    default: return id;
-  }
-}
+export { bandOptions, bandLabel } from '../../gapBands.js';
 
 /**
  * The health rows. The two guards (reviewed late, late in session) have no row of
@@ -60,10 +47,18 @@ export const groupOptions = (t) => [
 /** Each order's direction: newest first, everything else ascending. */
 const SORT_DIR = { due: 'asc', source: 'asc', front: 'asc', created: 'desc' };
 
-export const EMPTY_VIEW = { query: '', source: null, band: null, health: null, cardType: '', sort: 'due', group: 'gap' };
+/**
+ * `tag` is a tag name and `category` a `{ id, name }`, both set only from Metadata's
+ * "Show cards"; the sidebar has no control for them, so the scope line names them and
+ * Clear drops them.
+ */
+export const EMPTY_VIEW = { query: '', source: null, band: null, health: null, cardType: '', tag: null, category: null, sort: 'due', group: 'gap' };
+
+/** Every narrowing field at its empty value: what Clear and another screen's request start from. */
+export const NO_NARROWING = { query: '', source: null, band: null, health: null, cardType: '', tag: null, category: null };
 
 /** Whether anything narrows the list (the order and grouping do not). */
-export const isNarrowed = (v) => !!(v.query || v.source || v.band || v.health || v.cardType);
+export const isNarrowed = (v) => !!(v.query || v.source || v.band || v.health || v.cardType || v.tag || v.category);
 
 /** The search request for a view state. */
 export function searchArgsFor(v, algorithm) {
@@ -73,6 +68,8 @@ export function searchArgsFor(v, algorithm) {
     flagged: v.health !== null,
     flagKind: v.health && v.health !== 'any' ? v.health : null,
     band: v.band,
+    tag: v.tag ?? null,
+    category: v.category?.id ?? null,
     source: v.source?.kind ?? null,
     sourcePath: v.source?.path ?? null,
     groupBy: v.group === 'none' ? null : v.group,
@@ -123,6 +120,8 @@ export function scopeParts(v, t, typeLabel) {
   if (v.source?.kind === 'standalone') parts.push(t('Cards (default deck)'));
   else if (v.source?.kind === 'document') parts.push(docTitle(v.source.path));
   else if (v.source?.kind === 'folder') parts.push(leafName(v.source.path));
+  if (v.tag) parts.push(`#${v.tag}`);
+  if (v.category) parts.push(v.category.name);
   if (v.band) parts.push(bandLabel(v.band, t).toLowerCase());
   if (v.health) parts.push(healthOptions(t).find((h) => h.id === v.health)?.label.toLowerCase());
   if (v.cardType) parts.push(typeLabel(v.cardType).toLowerCase());

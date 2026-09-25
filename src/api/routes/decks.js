@@ -70,10 +70,12 @@ router.get('/cards', catchError(async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 50, 500);
     const offset = parseInt(req.query.offset) || 0;
     const band = GAP_BANDS.some((b) => b.id === req.query.band) ? req.query.band : null;
+    const tag = req.query.tag ? String(req.query.tag) : null;
+    const categoryId = /^\d+$/.test(String(req.query.category ?? '')) ? Number(req.query.category) : null;
     const algorithm = ['leitner', 'sm2', 'fsrs'].includes(req.query.algorithm) ? req.query.algorithm : null;
     const source = sourceFrom(req.query);
     const groupBy = ['gap', 'source'].includes(req.query.groupBy) ? req.query.groupBy : null;
-    const filters = { search, level, cardType, origin, flagged, flagKind, source };
+    const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId };
     const { cards, total, groups } = await decks.searchCards({ ...filters, band, algorithm, groupBy, sortBy, sortDir, limit, offset });
     res.json({ cards, total, limit, offset, ...(groups ? { groups } : {}) });
 }));

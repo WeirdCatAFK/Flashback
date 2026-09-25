@@ -1334,6 +1334,71 @@ class DocumentQuery {
         `).all(tagConnTypeId);
     }
 
+    /**
+     * Whether card `f` carries a tag, the way the Trainer's tag filter reads it: tagged
+     * directly, or inheriting it from its document, folder or deck. Two `?` for the name.
+     */
+    _carriesTagSql() {
+        return `(EXISTS (
+                SELECT 1 FROM Connections ctag
+                JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                WHERE ctag.origin_id = f.node_id
+                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                  AND tg.name = ?
+            ) OR EXISTS (
+                SELECT 1 FROM InheritedTags it
+                JOIN Connections cinh ON cinh.id = it.connection_id
+                JOIN Tags tgi ON tgi.id = it.tag_id
+                WHERE cinh.destiny_id = f.node_id
+                  AND cinh.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
+                  AND tgi.name = ?
+            ))`;
+    }
+
+    /**
+     * Every tag with its reach: how many folders, documents and decks apply it directly,
+     * how many cards are tagged with it themselves, and how many cards carry it at all
+     * (directly or inherited). `[{ name, folders, documents, decks, cardsDirect, cards }]`.
+     */
+    async getTagOverview() {
+        const { tagConnTypeId } = await this._typeIds();
+        const reach = await this.db.prepare(`
+            SELECT t.id AS id, t.name AS name,
+                   SUM(CASE WHEN nt.name = 'Folder' THEN 1 ELSE 0 END) AS folders,
+                   SUM(CASE WHEN nt.name = 'Document' THEN 1 ELSE 0 END) AS documents,
+                   SUM(CASE WHEN nt.name = 'Deck' THEN 1 ELSE 0 END) AS decks,
+                   SUM(CASE WHEN nt.name = 'Flashcard' THEN 1 ELSE 0 END) AS cardsDirect
+            FROM Tags t
+            LEFT JOIN Connections c ON c.destiny_id = t.node_id AND c.type_id = ?
+            LEFT JOIN Nodes n ON n.id = c.origin_id
+            LEFT JOIN NodeTypes nt ON nt.id = n.type_id
+            GROUP BY t.id, t.name
+        `).all(tagConnTypeId);
+        const carried = await this.db.prepare(`
+            SELECT tag_id, COUNT(DISTINCT card_id) AS cards FROM (
+                SELECT tg.id AS tag_id, f.id AS card_id
+                FROM Flashcards f
+                JOIN Connections c ON c.origin_id = f.node_id AND c.type_id = ?
+                JOIN Tags tg ON tg.node_id = c.destiny_id
+                UNION
+                SELECT it.tag_id AS tag_id, f.id AS card_id
+                FROM Flashcards f
+                JOIN Connections cinh ON cinh.destiny_id = f.node_id
+                  AND cinh.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
+                JOIN InheritedTags it ON it.connection_id = cinh.id
+            ) GROUP BY tag_id
+        `).all(tagConnTypeId);
+        const cardsBy = new Map(carried.map((r) => [r.tag_id, r.cards]));
+        return reach.map((r) => ({
+            name: r.name,
+            folders: r.folders ?? 0,
+            documents: r.documents ?? 0,
+            decks: r.decks ?? 0,
+            cardsDirect: r.cardsDirect ?? 0,
+            cards: cardsBy.get(r.id) ?? 0,
+        }));
+    }
+
     /** One tag by name. */
     async getTagByName(name) {
         return await this.db.prepare('SELECT * FROM Tags WHERE name = ?').get(name);
@@ -2054,7 +2119,7 @@ class DocumentQuery {
     }
 
     /** Shared WHERE builder for the card browser's list and count queries, which must filter identically. */
-    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null }, scope) {
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null, tag = null, categoryId = null }, scope) {
         const account = scoped(scope);
         const params = [];
         const conditions = [];
@@ -2083,6 +2148,15 @@ class DocumentQuery {
             params.push(cardType);
         }
         this._flashcardOriginCondition(origin, conditions);
+
+        if (tag) {
+            conditions.push(this._carriesTagSql());
+            params.push(tag, tag);
+        }
+        if (categoryId != null) {
+            conditions.push('f.category_id = ?');
+            params.push(categoryId);
+        }
 
         if (flagged || flagKind) {
             const kindClause = flagKind ? ' AND cf.kind = ?' : '';
@@ -2170,9 +2244,9 @@ class DocumentQuery {
     }
 
     /** A page of the card browser, filtered and sorted. */
-    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
+    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
         return await this.db.prepare(`
             SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
                    p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
@@ -2195,9 +2269,9 @@ class DocumentQuery {
     }
 
     /** Row count matching the card browser's current filters. */
-    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}, scope) {
+    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
         return (await this.db.prepare(`
@@ -2629,9 +2703,11 @@ class DocumentQuery {
 
     /** Every pedagogical category. */
     async getCategories() {
-        return await this.db.prepare(
-            'SELECT id, name, priority, description FROM PedagogicalCategories ORDER BY priority ASC, name ASC'
-        ).all();
+        return await this.db.prepare(`
+            SELECT pc.id, pc.name, pc.priority, pc.description,
+                   (SELECT COUNT(*) FROM Flashcards f WHERE f.category_id = pc.id) AS cards
+            FROM PedagogicalCategories pc ORDER BY pc.priority ASC, pc.name ASC
+        `).all();
     }
 
     /** One category by name. */

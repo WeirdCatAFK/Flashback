@@ -52,6 +52,7 @@ export function toDate(value) {
 export function makeFormatters(locale) {
   const date     = new Intl.DateTimeFormat(locale, { dateStyle: 'medium' });
   const dateTime = new Intl.DateTimeFormat(locale, { dateStyle: 'medium', timeStyle: 'short' });
+  const time     = new Intl.DateTimeFormat(locale, { timeStyle: 'short' });
   const dayLong  = new Intl.DateTimeFormat(locale, {
     weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC',
   });
@@ -67,6 +68,12 @@ export function makeFormatters(locale) {
   const formatDateTime = (value) => {
     const d = toDate(value);
     return d ? dateTime.format(d) : '';
+  };
+
+  /** The time of day alone, as the locale writes it (14:02, 2:02 PM). */
+  const formatTime = (value) => {
+    const d = toDate(value);
+    return d ? time.format(d) : '';
   };
 
   const formatDay = (isoDay) => {
@@ -101,5 +108,5 @@ export function makeFormatters(locale) {
     return d ? weekdayNarrow.format(d) : '';
   };
 
-  return { formatDate, formatDateTime, formatDay, formatRelative, formatNumber, formatWeekdayNarrow };
+  return { formatDate, formatDateTime, formatTime, formatDay, formatRelative, formatNumber, formatWeekdayNarrow };
 }

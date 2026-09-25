@@ -105,9 +105,48 @@ The interface is moving to a new design language, one area at a time. In this re
 - **EPUBs scroll.** A book now flows down the page like a note instead of turning pages, so its
   head scrolls away above it. PDF zoom, Fit width and Box highlight, and an EPUB's text size, now
   sit in the reading strip rather than in a toolbar of their own.
+- **Statistics is a short report.** One column, read top to bottom: how complete the vault
+  is (read and known), what is coming, whether it is staying, where the cards are (the same
+  gap bands as Flashcards; click one to see those cards), and your reviews.
+- **The Diary puts the writing first.** A month calendar shows how busy each day was and marks
+  the days you wrote on, with the month's entries listed by their first line beneath it. The
+  chosen day reads like a journal page: one sentence summing it up, your reflection (written in
+  place; Ctrl+S saves, Esc cancels), then the day in detail.
+- **Metadata: categories on priority levels.** Several categories can share a level, and the
+  Trainer studies level 1 first. Drag a category to another level, or onto "new level" above
+  or below the rest; Raise and Lower (Alt+↑/↓) do the same from the keyboard. Deleting one
+  says how many cards lose it, and the cards stay.
+- **Metadata: tags with their reach.** Each tag shows where it is applied (folders, documents,
+  decks) and how many cards carry it. Rename one or remove it everywhere at once, or click it
+  to see its cards in Flashcards. A category opens its cards the same way.
+- **Seal: History and Health.** History reads like the Diary: seals grouped by day, one
+  sentence each, with a run of highlight and card edits to one document folded into a single
+  line. Restore asks right under the entry, saying what goes back and what does not. Health
+  holds the maintenance: files changed outside Flashback, and checking, syncing or rebuilding
+  the index (a rebuild now asks you to type `rebuild`).
 - **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
-  `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders, returns each card's
-  `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
+  `tag`, `category`, `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders,
+  returns each card's `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
+  `GET /api/documents/tags/overview` and `POST /api/documents/tags/rename` are new;
+  `GET /api/categories` rows carry `cards`, and `DELETE /api/categories/:id?clear=1` deletes
+  a category in use, clearing it from its cards. `GET /api/srs/statistics` carries `bands`, and
+  `GET /api/diary` items carry `reviews` and `firstLine` (the latter withheld from an MCP
+  client unless diary access is full).
+
+### Fixed — renaming a category left its cards behind
+
+A card names its category in its own file. Renaming a category changed the name in the list
+and nowhere else, so every card kept the old name, and the next Vault Doctor run brought the
+old category back ("Recovered by Vault Doctor") and moved the cards onto it. A rename now
+rewrites every card that uses the category, and renaming onto a name another category already
+has is refused.
+
+### Fixed — a card lost its document's tags in the index
+
+Saving a document inside a folder, and every index rebuild, handed that document's cards only
+the folder's tags, dropping the document's own. The files were always right; the index was
+not, so filtering or studying by such a tag missed those cards. Each save now repairs the
+document it touches, and a rebuild (Seal → Health) repairs the whole vault.
 
 ### Fixed — a second session on the same day never reached the Diary
 

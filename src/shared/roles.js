@@ -73,6 +73,7 @@ export const CAPABILITIES = {
     editCards:        { minimum: ROLES.ADMIN, guards: [["flashcards", "POST", "/"], ["flashcards", "DELETE", "/abc123"]] },
     manageDecks:      { minimum: ROLES.ADMIN, guards: [["decks", "POST", "/"], ["decks", "DELETE", "/abc123"], ["decks", "POST", "/abc123/cover"]] },
     manageCategories: { minimum: ROLES.ADMIN, guards: [["categories", "POST", "/"], ["categories", "PUT", "/1"]] },
+    manageTags:       { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/tags/rename"]] },
     manageMedia:      { minimum: ROLES.ADMIN, guards: [["media", "POST", "/reconcile"], ["media", "DELETE", "/"]] },
     viewHistory:      { minimum: ROLES.ADMIN, guards: [["seal", "GET", "/log"]] },
     checkIndex:       { minimum: ROLES.ADMIN, guards: [["doctor", "GET", "/check"]] },

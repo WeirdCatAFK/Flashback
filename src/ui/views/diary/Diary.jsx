@@ -1,25 +1,34 @@
 /**
- * Diary — the per-day study record: a rail of dates, the selected day's summary
- * and the reflection written for it. Called "Logs" on a shared server, where one
- * history holds several people's prose (diaryLabels.js). Data is in useDiary.js.
+ * Diary — the per-day study record, writing first: a rail with a month calendar and what
+ * was written (DiaryRail), and the chosen day as a journal page (DiaryPage). Called
+ * "Logs" on a shared server, where one history holds several people's prose
+ * (diaryLabels.js). Data is in useDiary.js; the calendar's arithmetic in calendar.js.
  */
 
 import { useState } from 'react';
 import { LoadingState } from '../../components/base/StateView';
-import IconDiary from '../../components/icons/IconDiary';
 import { useT } from '../../translations/index';
 import { diaryLabels, isSharedVault } from '../../diaryLabels.js';
-import { fmtDate } from './dates.js';
+import { todayIso } from './dates.js';
+import { ymOf } from './calendar.js';
 import useDiary from './useDiary';
-import { SummaryPanel, EntryEditor } from './DiaryPanels';
+import DiaryRail from './DiaryRail';
+import DiaryPage from './DiaryPage';
 import './Diary.css';
 
+/** How long "Rebuilt from your review history" stays after a rebuild. */
+const REBUILT_MS = 2400;
+
 export default function DiaryView({ isActive, connection, writeRequest = 0 }) {
-  const { t, locale } = useT();
+  const { t } = useT();
   const shared = isSharedVault(connection);
   const labels = diaryLabels(t, shared);
   const d = useDiary(isActive);
-  const { today, selectedDate, setSelectedDate, dates, datesError, summaryState, summary, entryLoading, entry, rebuilding, railDates, onEntrySaved } = d;
+  const { today, selectedDate, setSelectedDate, dates, railDates, summaryState, summary, entryLoading, entry, rebuilding, onEntrySaved } = d;
+  const [month, setMonth] = useState(() => ymOf(today));
+  const [rebuilt, setRebuilt] = useState(false);
+
+  const yesterday = (() => { const x = new Date(); x.setDate(x.getDate() - 1); return todayIso(x); })();
 
   const [seenWriteRequest, setSeenWriteRequest] = useState(0);
   const [editToken, setEditToken] = useState(0);
@@ -27,68 +36,47 @@ export default function DiaryView({ isActive, connection, writeRequest = 0 }) {
     setSeenWriteRequest(writeRequest);
     if (writeRequest) {
       setSelectedDate(today);
+      setMonth(ymOf(today));
       setEditToken((n) => n + 1);
     }
   }
-  const onRebuild = d.rebuild;
+
+  const select = (key) => { setSelectedDate(key); setMonth(ymOf(key)); };
+  const rebuild = async () => {
+    await d.rebuild();
+    setRebuilt(true);
+    setTimeout(() => setRebuilt(false), REBUILT_MS);
+  };
 
   if (dates === null) return <LoadingState message={labels.loading} />;
 
   return (
     <div className="diary">
-      <aside className="diary-rail">
-        <div className="diary-rail-head">
-          <IconDiary size={18} />
-          <span>{labels.title}</span>
-        </div>
-        {datesError && <p className="diary-rail-error">{t('Couldn’t load dates.')}</p>}
-        <ul className="diary-date-list">
-          {railDates.map((d) => (
-            <li key={d.date}>
-              <button
-                type="button"
-                className={`diary-date${d.date === selectedDate ? " diary-date--active" : ""}`}
-                onClick={() => setSelectedDate(d.date)}
-              >
-                <span className="diary-date-label">
-                  {d.date === today ? t('Today') : fmtDate(d.date, locale)}
-                </span>
-                <span className="diary-date-badges">
-                  {d.hasSummary && <span className="diary-badge diary-badge--summary" title={t('Has summary')}>S</span>}
-                  {d.hasEntry && <span className="diary-badge diary-badge--entry" title={t('Has entry')}>✎</span>}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      </aside>
-
+      <DiaryRail
+        title={labels.title}
+        days={railDates}
+        today={today}
+        selected={selectedDate}
+        month={month}
+        onMonth={setMonth}
+        onSelect={select}
+        rebuilding={rebuilding}
+        rebuilt={rebuilt}
+        onRebuild={rebuild}
+      />
       <main className="diary-main">
-        <header className="diary-main-head">
-          <h2 className="diary-main-title">{selectedDate === today ? t('Today') : fmtDate(selectedDate, locale)}</h2>
-          <span className="diary-main-date">{selectedDate}</span>
-          <div className="diary-main-actions">
-            <button
-              type="button"
-              className="btn btn--sm"
-              onClick={onRebuild}
-              disabled={rebuilding}
-              title={t('Rebuild every day’s summary from your review history')}
-            >
-              {rebuilding ? t('Rebuilding…') : t('Rebuild from history')}
-            </button>
-          </div>
-        </header>
-
-        {shared && (
-          <p className="diary-privacy-note" role="note">
-            {t('Everyone studying on this server shares one log history, and an administrator can read your summaries and anything you write.')}
-          </p>
-        )}
-
-        <SummaryPanel state={summaryState} summary={summary} />
-        <EntryEditor date={selectedDate} loading={entryLoading} content={entry} onSaved={onEntrySaved}
-          editRequest={editToken} />
+        <DiaryPage
+          date={selectedDate}
+          today={today}
+          yesterday={yesterday}
+          shared={shared}
+          summaryState={summaryState}
+          summary={summary}
+          entryLoading={entryLoading}
+          entry={entry}
+          onSaved={onEntrySaved}
+          editRequest={editToken}
+        />
       </main>
     </div>
   );

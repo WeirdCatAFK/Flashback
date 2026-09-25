@@ -39,11 +39,18 @@ router.post('/rebuild', catchError(async (req, res) => {
     res.json({ ok: true, count });
 }));
 
-/** The caller's diary days, newest first. */
+/**
+ * The caller's diary days, newest first. A day's `firstLine` is the start of what
+ * someone wrote, so only an assistant with full diary access sees it.
+ */
 router.get('/', catchError(async (req, res) => {
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    res.json(await diary.list({ from, to }));
+    const days = await diary.list({ from, to });
+    if (req.get('X-Flashback-Client') === 'mcp' && getMcpDiaryAccess() !== 'full') {
+        for (const d of days) delete d.firstLine;
+    }
+    res.json(days);
 }));
 
 /** One day's derived study summary. */

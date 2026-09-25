@@ -22,6 +22,7 @@ import newFileMetadata from '../../config/defaults/FlashbackFile.js';
 import { OWNER_SCOPE, currentScope, isOwnerScope, currentAccount } from '../../requestContext.js';
 import { ROLES, atLeast } from '../../../shared/roles.js';
 import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, clampCoverY } from '../../../shared/covers.js';
+import { swapTag } from '../../../shared/tagNames.js';
 
 /** Extracts the 11-char video id from any common YouTube URL shape (watch?v=, youtu.be/, /embed/, /shorts/, /live/). */
 export function extractYoutubeId(url) {
@@ -855,7 +856,7 @@ export default class Documents {
     }
 
     /** The body of updateMetadata, with the lock and the freshness check already applied. */
-    async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
+    async _updateMetadataLocked(relativePath, metadata, isFolder = false, { seal = true } = {}) {
         const onDisk = this.files.getMetadata(relativePath, isFolder);
 
         const removals = this._countCardRemovals(metadata, isFolder, onDisk);
@@ -887,7 +888,77 @@ export default class Documents {
         })();
 
         const sidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
-        await sealEmitter.edit(sidecar);
+        if (seal) await sealEmitter.edit(sidecar);
+        return sidecar;
+    }
+
+    /**
+     * Renames a tag in every folder and document sidecar that names it — the tags a file
+     * applies, the inherited ones it excludes, and its cards' own — or removes it when `to`
+     * is null. Holds the structural lock, since the set of files is the whole vault, and
+     * seals the lot as one commit. Decks and the default deck's cards live in `_decks/` and
+     * are rewritten by `Decks.rewriteTag` after this returns; calling it from inside this
+     * lock would wait on itself. Returns how many sidecars changed.
+     */
+    async rewriteTag(from, to = null) {
+        return await withStructure(async () => {
+            const touched = [];
+            const entities = [
+                ...(await this.query.getAllFolders()).map((f) => ({ rel: f.relative_path, isFolder: true })),
+                ...(await this.query.getAllDocuments()).map((d) => ({ rel: d.relative_path, isFolder: false })),
+            ];
+            for (const { rel, isFolder } of entities) {
+                if (rel === undefined || rel === null) continue;
+                const meta = this.files.getMetadata(rel, isFolder);
+                if (!meta) continue;
+                let changed = false;
+                const tags = swapTag(meta.tags, from, to);
+                if (tags) { meta.tags = tags; changed = true; }
+                const excluded = swapTag(meta.excludedTags, from, to);
+                if (excluded) { meta.excludedTags = excluded; changed = true; }
+                if (!isFolder && Array.isArray(meta.flashcards)) {
+                    for (const fc of meta.flashcards) {
+                        const own = swapTag(fc?.tags, from, to);
+                        if (own) { fc.tags = own; changed = true; }
+                    }
+                }
+                if (!changed) continue;
+                touched.push(await this._updateMetadataLocked(rel, meta, isFolder, { seal: false }));
+            }
+            if (touched.length) await sealEmitter.edit(touched[0], touched.slice(1));
+            return touched.length;
+        });
+    }
+
+    /**
+     * Renames a category on every document card that names it, or clears it when `to` is
+     * null — the sidecar half of a category rename or delete (`Decks.rewriteCategory` does
+     * the default deck's cards). A sidecar names a card's category rather than pointing at
+     * its row, so renaming the row alone would leave every card on the old name for the next
+     * rebuild to recreate. Rename the row first: the index resolves the new name as each
+     * sidecar is re-read. Same lock and single commit as `rewriteTag`. Returns how many
+     * sidecars changed.
+     */
+    async rewriteCategory(from, to = null) {
+        return await withStructure(async () => {
+            const touched = [];
+            for (const d of await this.query.getAllDocuments()) {
+                const rel = d.relative_path;
+                if (rel === undefined || rel === null) continue;
+                const meta = this.files.getMetadata(rel, false);
+                let changed = false;
+                for (const fc of meta?.flashcards ?? []) {
+                    if (fc?.category !== from) continue;
+                    if (to) fc.category = to;
+                    else delete fc.category;
+                    changed = true;
+                }
+                if (!changed) continue;
+                touched.push(await this._updateMetadataLocked(rel, meta, false, { seal: false }));
+            }
+            if (touched.length) await sealEmitter.edit(touched[0], touched.slice(1));
+            return touched.length;
+        });
     }
 
     /** Imports a file from disk into the workspace, folding its links into the sidecar before sealing. */
@@ -1924,7 +1995,7 @@ export default class Documents {
 
         for (const doc of childDocs) {
             await syncInheritance(doc.node_id);
-            await this._propagateTagsToFlashcards(doc.id, doc.node_id, effectiveToChildren);
+            await this._propagateTagsToFlashcards(doc.id, doc.node_id, await this._tagsPassedDownByDocument(doc.node_id));
         }
 
         for (const folder of childFolders) {

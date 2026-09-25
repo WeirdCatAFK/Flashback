@@ -285,7 +285,7 @@ an old sidecar at any time:
   so a card carries the union of its document chain's tags and every deck it belongs to. A card's
   `excludedTags` blocks named inherited tags.
 - **Categories** are a card's pedagogical role and set review priority (lower = first). Defaults,
-  seeded by `DefaultData.js` and editable in the Manage view:
+  seeded by `DefaultData.js` and editable on the Metadata screen:
 
 | Priority | Categories |
 | -------- | ---------- |

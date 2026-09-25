@@ -12,5 +12,6 @@ export const createCategory = (data) =>
 export const updateCategory = (id, data) =>
   request("PUT", `/api/categories/${id}`, data);
 
-export const deleteCategory = (id) =>
-  request("DELETE", `/api/categories/${id}`);
+/** Refused (409) while cards use it, unless `clear` asks for those cards to lose it first. */
+export const deleteCategory = (id, { clear = false } = {}) =>
+  request("DELETE", `/api/categories/${id}${clear ? "?clear=1" : ""}`);

@@ -79,6 +79,15 @@ describe('searchArgsFor', () => {
     const parts = scopeParts({ ...EMPTY_VIEW, source: { kind: 'document', path: 'a/Memory.epub' }, band: 'wk' }, t, (k) => k);
     assert.deepEqual(parts, ['Memory', 'up to a week']);
   });
+
+  test('a tag or category from Metadata narrows, searches by id, and is named in the scope line', () => {
+    const v = { ...EMPTY_VIEW, tag: 'memory', category: { id: 7, name: 'Definition' } };
+    assert.equal(isNarrowed(v), true);
+    assert.equal(searchArgsFor(v).tag, 'memory');
+    assert.equal(searchArgsFor(v).category, 7);
+    assert.deepEqual(scopeParts(v, t, (k) => k), ['#memory', 'Definition']);
+    assert.equal(searchArgsFor(EMPTY_VIEW).category, null);
+  });
 });
 
 describe('dueLabel', () => {

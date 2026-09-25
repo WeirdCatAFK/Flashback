@@ -653,7 +653,8 @@ export function registerReadTools(server) {
       title: 'List diary days',
       description:
         'List the days that have a diary summary and/or a written entry, newest first. Each item is ' +
-        '{ date, hasSummary, hasEntry }. Requires the user to have enabled diary access for AI assistants ' +
+        '{ date, hasSummary, hasEntry, reviews } (the day’s review count), plus the entry’s firstLine when the ' +
+        'user allows full diary access. Requires the user to have enabled diary access for AI assistants ' +
         '(otherwise every diary tool returns a 403). Read-only.',
       inputSchema: {
         from: z.string().optional().describe('Inclusive lower bound, YYYY-MM-DD.'),

@@ -59,6 +59,7 @@ const tests = [
   "tests/ui.shell.test.js",
   "tests/ui.flashcards.test.js",
   "tests/ui.documents.test.js",
+  "tests/ui.reports.test.js",
   "tests/stats.test.js",
   "tests/diary.test.js",
   "tests/mcpReader.test.js",
