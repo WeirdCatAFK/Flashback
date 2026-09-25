@@ -31,7 +31,10 @@ export default function GraphInfo({ selected, groups, colors, typeLabel, relatio
   const { t } = useT();
   return (
     <div className="graph-info">
-      <div className="graph-info-type" style={{ color: colors.nodes[selected.type] }}>{typeLabel(selected.type)}</div>
+      <div className="graph-info-type">
+        <span className="graph-info-group-dot" style={{ background: colors.nodes[selected.type] }} />
+        {typeLabel(selected.type)}
+      </div>
       <div className="graph-info-name">{selected.name}</div>
       <button type="button" className="btn-close graph-info-close" onClick={onClose} aria-label={t('Close')}>×</button>
 

@@ -64,74 +64,76 @@ export default function GraphControls({
         </svg>
       </button>
 
-      <div className="graph-controls-body" hidden={collapsed}>
-        <div className="graph-controls-section">
-          <div className="eyebrow graph-controls-heading">{t('Legend')}</div>
-          {Object.entries(colors.nodes).map(([type, color]) => (
-            <div key={type} className="graph-legend-item">
-              <Swatch color={color} />
-              <span>{typeLabel(type)}</span>
-            </div>
-          ))}
-        </div>
-
-        <div className="graph-controls-section">
-          <div className="eyebrow graph-controls-heading">{t('Show')}</div>
-          {rows.filter((f) => f.when).map((f) => (
+      <div className="graph-controls-clip" inert={collapsed ? '' : undefined}>
+        <div className="graph-controls-body">
+          <div className="graph-controls-section">
+            <div className="eyebrow graph-controls-heading">{t('Legend')}</div>
+            {Object.entries(colors.nodes).map(([type, color]) => (
+              <div key={type} className="graph-legend-item">
+                <Swatch color={color} />
+                <span>{typeLabel(type)}</span>
+              </div>
+            ))}
+          </div>
+  
+          <div className="graph-controls-section">
+            <div className="eyebrow graph-controls-heading">{t('Show')}</div>
+            {rows.filter((f) => f.when).map((f) => (
+              <FilterRow
+                key={f.key}
+                on={f.on}
+                onToggle={f.toggle}
+                label={f.label}
+                swatch={f.swatch}
+                color={f.color}
+                title={f.on ? t('Hide {label}', { label: f.label }) : t('Show {label}', { label: f.label })}
+              />
+            ))}
+          </div>
+  
+          <div className="graph-controls-section">
+            <div className="eyebrow graph-controls-heading">{t('Illumination')}</div>
             <FilterRow
-              key={f.key}
-              on={f.on}
-              onToggle={f.toggle}
-              label={f.label}
-              swatch={f.swatch}
-              color={f.color}
-              title={f.on ? t('Hide {label}', { label: f.label }) : t('Show {label}', { label: f.label })}
+              on={bloom}
+              onToggle={() => setBloom((b) => !b)}
+              label={t('Bloom')}
+              swatch="dot"
+              color={colors.nodes.Flashcard}
+              title={bloom ? t('Hide bloom around well-learned nodes') : t('Show bloom around well-learned nodes')}
             />
-          ))}
-        </div>
-
-        <div className="graph-controls-section">
-          <div className="eyebrow graph-controls-heading">{t('Illumination')}</div>
-          <FilterRow
-            on={bloom}
-            onToggle={() => setBloom((b) => !b)}
-            label={t('Bloom')}
-            swatch="dot"
-            color={colors.nodes.Flashcard}
-            title={bloom ? t('Hide bloom around well-learned nodes') : t('Show bloom around well-learned nodes')}
-          />
-          <label className="graph-slider-row">
-            <span className="graph-slider-label">{t('Cohesion')}</span>
-            <input
-              type="range"
-              className="graph-slider"
-              min="0" max="1" step="0.05"
-              value={cohesion}
-              onChange={(e) => setCohesion(parseFloat(e.target.value))}
-              title={t('How tightly related nodes clump together')}
-            />
-          </label>
-        </div>
-
-        <div className="graph-controls-actions">
-          <button type="button" className="btn btn--sm" onClick={onRefresh} title={t('Refresh graph data')} disabled={loading}>
-            {t('Refresh')}
-          </button>
-          <button
-            ref={exportRef}
-            type="button"
-            className={`btn btn--sm${exportOpen ? ' btn--accent-quiet' : ''}`}
-            onClick={() => setExportOpen((s) => !s)}
-            title={t('Export graph')}
-            aria-expanded={exportOpen}
-          >
-            {t('Export')}
-          </button>
-          <Popover anchorRef={exportRef} open={exportOpen} onClose={() => setExportOpen(false)} align="end">
-            <button type="button" className="popover__item" onClick={() => pick('png')}>{t('PNG image')}</button>
-            <button type="button" className="popover__item" onClick={() => pick('json')}>{t('JSON data')}</button>
-            <button type="button" className="popover__item" onClick={() => pick('html')}>{t('Interactive HTML')}</button>
-          </Popover>
+            <label className="graph-slider-row">
+              <span className="graph-slider-label">{t('Cohesion')}</span>
+              <input
+                type="range"
+                className="graph-slider"
+                min="0" max="1" step="0.05"
+                value={cohesion}
+                onChange={(e) => setCohesion(parseFloat(e.target.value))}
+                title={t('How tightly related nodes clump together')}
+              />
+            </label>
+          </div>
+  
+          <div className="graph-controls-actions">
+            <button type="button" className="btn btn--quiet btn--sm" onClick={onRefresh} title={t('Refresh graph data')} disabled={loading}>
+              {t('Refresh')}
+            </button>
+            <button
+              ref={exportRef}
+              type="button"
+              className={`btn btn--quiet btn--sm${exportOpen ? ' graph-action-btn--active' : ''}`}
+              onClick={() => setExportOpen((s) => !s)}
+              title={t('Export graph')}
+              aria-expanded={exportOpen}
+            >
+              {t('Export')}
+            </button>
+            <Popover anchorRef={exportRef} open={exportOpen} onClose={() => setExportOpen(false)} align="end">
+              <button type="button" className="popover__item" onClick={() => pick('png')}>{t('PNG image')}</button>
+              <button type="button" className="popover__item" onClick={() => pick('json')}>{t('JSON data')}</button>
+              <button type="button" className="popover__item" onClick={() => pick('html')}>{t('Interactive HTML')}</button>
+            </Popover>
+          </div>
         </div>
       </div>
     </div>

@@ -124,6 +124,9 @@ The interface is moving to a new design language, one area at a time. In this re
   line. Restore asks right under the entry, saying what goes back and what does not. Health
   holds the maintenance: files changed outside Flashback, and checking, syncing or rebuilding
   the index (a rebuild now asks you to type `rebuild`).
+- **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
+  glass. The Graph panel slides shut to its header instead of vanishing, and a selected
+  node's name no longer breaks mid-word.
 - **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
   `tag`, `category`, `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders,
   returns each card's `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
