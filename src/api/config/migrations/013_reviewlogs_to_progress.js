@@ -22,9 +22,11 @@
 // the card, so a surviving orphan means the index and the ledger had already diverged.
 //
 // Runs after 004/006/009/012, which add the columns copied below, so by the time this runs
-// `main.ReviewLogs` is at its final shape. On a fresh vault there is no `main.ReviewLogs` at
-// all — `SchemaSQL.js` no longer creates it — so `shouldRun` returns false and the table is
-// simply born in the progress store.
+// `main.ReviewLogs` is at its final shape. `SchemaSQL.js` still creates an empty
+// `main.ReviewLogs`, because 009 and 012 build indexes on an unqualified `ReviewLogs` and run on
+// every fresh or rebuilt database. `shouldRun` keys on that table existing in `main`, so this
+// migration moves nothing and drops it on the same boot — on a fresh vault, and again after any
+// schema rebuild recreates it.
 
 export const version = 13;
 export const description = 'ReviewLogs: move to the progress store, re-keyed by card_hash';

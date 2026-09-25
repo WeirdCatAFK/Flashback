@@ -933,7 +933,7 @@
   "Rebuild index from files": "Reconstruir el índice a partir de los archivos",
   "Rebuild index": "Reconstruir el índice",
   "This discards the entire document index and regenerates it from your {sidecar} files. Use it only when the index is corrupt or badly out of sync — {sync} is the safe everyday choice.": "Esto descarta todo el índice de documentos y lo regenera a partir de tus archivos {sidecar}. Úsalo solo cuando el índice esté corrupto o muy desincronizado — {sync} es la opción segura del día a día.",
-  "Card levels and ease survive, but each card’s review history is lost and scheduling restarts from the saved levels.": "Los niveles y la facilidad de las tarjetas sobreviven, pero el historial de revisiones de cada tarjeta se pierde y la planificación vuelve a empezar desde los niveles guardados.",
+  "Study progress is kept: schedules and review history live outside the index, so nobody’s cards reset.": "El progreso de estudio se conserva: la planificación y el historial de revisiones viven fuera del índice, así que las tarjetas de nadie se reinician.",
   "Type {token} to confirm": "Escribe {token} para confirmar",
   "{n} warnings — {first}": {
     "one": "{n} advertencia — {first}",

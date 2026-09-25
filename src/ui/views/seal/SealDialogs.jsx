@@ -1,7 +1,7 @@
 /**
  * The Seal view's confirmations: restoring the workspace to a commit, syncing the
  * index to disk (with the seal-drift option that keeps unsealed deletions from
- * resurrecting), and rebuilding the index outright, which loses review logs.
+ * resurrecting), and rebuilding the index outright.
  */
 
 import { useState } from 'react';
@@ -142,9 +142,9 @@ export function SyncConfirmModal({ report, onCancel, onConfirm }) {
 }
 
 /**
- * Type-to-confirm because rebuild wipes and regenerates the whole derived layer: card
- * levels and ease survive (they live in the sidecars) but per-review ReviewLogs history
- * is lost.
+ * Type-to-confirm because rebuild wipes and regenerates the whole derived index. Study
+ * progress is untouched: every schedule and review lives in the vault's progress store,
+ * which the rebuild never reads or writes.
  */
 
 export function RebuildConfirmModal({ onCancel, onConfirm }) {
@@ -191,7 +191,7 @@ export function RebuildConfirmModal({ onCancel, onConfirm }) {
                 />
             </p>
             <p className="seal-modal-hint">
-                {t('Card levels and ease survive, but each card’s review history is lost and scheduling restarts from the saved levels.')}
+                {t('Study progress is kept: schedules and review history live outside the index, so nobody’s cards reset.')}
             </p>
 
             <label className="seal-doctor-type-label">

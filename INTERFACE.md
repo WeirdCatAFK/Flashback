@@ -921,8 +921,8 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   diverges from the restored sidecars and `sealTools.inspect()` is blind (HEAD == workdir), so
   the banner offers the Doctor's `syncIndex` inline; after either, `invalidateData()` refreshes
   every DB-backed view.
-- **Doctor:** diagnosis is an admin's, repair is the Author's — a rebuild discards everyone's
-  review history. The admin sees the drift and a sentence naming who can act. The rebuild
+- **Doctor:** diagnosis is an admin's, repair is the Author's — a rebuild rewrites the index
+  under every connected user. The admin sees the drift and a sentence naming who can act. The rebuild
   confirmation token stays untranslated because it is retyped verbatim.
 
 ### Explorer (`components/document/explorer/`)

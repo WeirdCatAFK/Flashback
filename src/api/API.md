@@ -53,7 +53,7 @@ The alternative — a role check inside each handler — was rejected because it
 
 Every other mount names its privileged routes and ends in a weaker catch-all. `accounts` does the opposite: it enumerates its admin routes and falls through to `author`.
 
-First match wins, so a rule requiring *more* than the catch-all beneath it is only as strong as the matcher's ability to recognise the path — and any request that fails to match it lands on something weaker. That is not hypothetical. With `["POST", "/pure-token", AUTHOR]` sitting above an `ADMIN` catch-all, Express's case-insensitive routing sent `POST /api/accounts/Pure-Token` to the pure-token handler while the guard read it as an unremarkable admin call. Any admin could therefore mint the Author's token — and rotation revokes every existing Author token, locking the owner out of their own vault.
+First match wins, so a rule requiring *more* than the catch-all beneath it is only as strong as the matcher's ability to recognise the path — and any request that fails to match it lands on something weaker. Express routes case-insensitively, so with `["POST", "/pure-token", AUTHOR]` above an `ADMIN` catch-all, `POST /api/accounts/Pure-Token` reaches the pure-token handler while the guard reads it as an admin call: any admin could mint the Author's token, and rotation revokes every existing one, locking the owner out.
 
 `normalizePath` closes that particular door. Inverting the mount closes the corridor: `/pure-token` needs no rule at all, because falling through to `author` is the correct answer for it *and for every misspelling of it*. A route added to `routes/accounts.js` is author-only until someone deliberately lists it, which is the same fail-closed direction as an unknown mount.
 
@@ -61,7 +61,7 @@ First match wins, so a rule requiring *more* than the catch-all beneath it is on
 
 A switch closes the database and re-points every path resolver, so `app.use('/api', …)` refuses new requests with `503` + `Retry-After: 1` for the duration; the renderer polls rather than surfacing an error. It sits deliberately *after* the auth guard, so an unauthenticated caller learns nothing about vault state.
 
-Known limit. The gate used to lean on better-sqlite3 being synchronous: no single query could straddle the swap, so only the async work (Seal git operations, file IO) needed guarding. The data layer is async now and that guarantee is gone — a request already in flight can have queued statements on either side of `closeDatabase()`. The gate still bounds a switch by closing the door on new work, but a request that started before the switch can still fail against a closed handle.
+Known limit. The data layer is async, so a request already in flight can have queued statements on either side of `closeDatabase()`. The gate bounds a switch by closing the door on new work, but a request that started before the switch can still fail against a closed handle.
 
 ---
 
@@ -90,8 +90,8 @@ sidecar from a fresh read moments earlier, and refusing it would be a conflict a
 had already incorporated.
 
 Omitting `ifMatch` skips the check entirely. Deliberate: the MCP server, the test suite and
-every script written before this send no version, and the single-writer desktop case they serve
-has no conflict to detect. A server build makes it mandatory, because that is the first
+the scripts send no version, and the single-writer desktop case they serve has no conflict to
+detect. A server build makes it mandatory, because that is the first
 configuration where a second writer exists.
 
 Patches merge instead of conflicting. `POST|PUT|DELETE /api/flashcards/:hash` and the
@@ -710,7 +710,7 @@ Where the caller has read to in a document, and how far through a folder they ar
 
 Every endpoint here is about the caller's own reading. None takes an account parameter and none can reach anyone else's positions, which is why the whole mount sits at `reader` in the permission table: recording where you got to is not an administrative act, and a Reader who could not record one could not resume anything. Cross-person visibility, if it is ever wanted, belongs under `accounts` beside [`GET /api/accounts/:id/progress`](#get-apiaccountsidprogress), where an actor and a target can be compared.
 
-Positions are stored in `accounts.db`, for everyone including the owner, keyed by `(vault_id, scope, document globalHash)`. This is deliberately not the split SRS makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream; and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. Recording a position writes no file and produces no Seal commit. The trade-off is that positions do not travel with a copied vault folder — the same bargain the access list and every reader's schedule already make. See `DATAMODEL.md` § Read progress.
+Positions are stored in the vault's progress store (`{vault}/progress.db`, table `ReadProgress`), for everyone including the owner, keyed by `(account scope, document globalHash)`. Never in the sidecar: a position moves continuously, so sidecar storage would turn reading into a commit stream, and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. Recording a position writes no file and produces no Seal commit; positions travel with a copied vault folder. See `DATAMODEL.md` § Read progress.
 
 A position is a `unit` plus a format-specific locator, in the same vocabulary the reader paginates by, so a stored position can bound a text read:
 
@@ -1042,7 +1042,7 @@ Notes:
 
 - `curve` is `null` for a card that has never been reviewed, and its `points` span the last review → horizon — it describes the card's present memory state, not a reconstruction of its history (that's what `history` is for).
 - `model: "fsrs"` means the curve is `retrievability()` on the card's own stability with the vault's fitted weights — the same function that scheduled it. `model: "approximated"` means Leitner/SM-2, which have no memory model: the curve is drawn from `stability := the scheduled interval`, i.e. the scheduler's own premise that the interval is where recall has fallen to `requestRetention`. Clients must label the two differently.
-- `history` includes the synthetic rows a vault rebuild writes (`synthetic: true`, no outcome); they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows written before migration 006 report `algorithm: null` rather than a guess.
+- `history` includes synthetic rows (`synthetic: true`, no outcome) — the ease seed written when a card with no progress row is seeded from its sidecar snapshot; they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows with no recorded scheduler report `algorithm: null` rather than a guess.
 - `flags` is a read, never a computation: classification runs at review time and only on a card that has just failed (see `POST /api/srs/review`). Opening a card's detail view can never cause it to be accused of anything. `kind` is one of `mouthful`, `probe`, `overdue_drift`, `session_fatigue`; `evidence.memoryModel: "approximated"` means the vault's scheduler records no difficulty signal, so the verdict rests on intervals alone and its confidence is capped one step lower. Full semantics in `DATAMODEL.md` § Card Health.
 
 Errors `404` card not found.
@@ -1091,8 +1091,8 @@ Every endpoint here is about the caller's own studying. Progress, review history
 
 Two consequences worth stating outright:
 
-- A non-owner's review writes no file and produces no Seal commit. Their schedule is durable in the accounts store instead. Reading is not editing, and a reader's study record must not be sealed into a git history that travels with a copy of the vault.
-- `POST /optimize` is reader-level, not admin-level. Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see. It was an administrative action only while the weights were a single shared row per vault.
+- A review writes no file and produces no Seal commit, for anyone. Every schedule is durable in the progress store (`{vault}/progress.db`); a study record is not an edit and does not belong in the workspace's git history.
+- `POST /optimize` is reader-level, not admin-level. Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see.
 
 The `algorithm` parameter. Which scheduler (`leitner` | `sm2` | `fsrs`) the user reviews with is a browser preference (`localStorage` `fb-srs-algorithm`), so the app sends it explicitly on every request. It is optional on the read-only endpoints (`/due`, `/statistics`): when omitted, the server infers it from the vault's own review history — each `ReviewLogs` row records the scheduler that graded it (migration 006) — instead of falling back to a fixed default. Those responses echo the algorithm actually used in their `algorithm` field, so a caller with no browser (the MCP server) can trust what it reads back. A vault with no reviews yet has nothing to infer from and reports `leitner`.
 
@@ -1100,7 +1100,7 @@ The `algorithm` parameter. Which scheduler (`leitner` | `sm2` | `fsrs`) the user
 
 Submits a spaced-repetition review result for a flashcard. Updates the caller's level and ease factor for that card and appends a review log entry stamped with their account.
 
-The sidecar is written only when the caller is the vault's Author — the sidecar is the owner's record of the owner's progress. Every other account's schedule is mirrored into the accounts store (`AccountProgress`) inside the same transaction, so their review is just as durable while producing no file write and no Seal commit.
+The schedule and the log row are written to the progress store in one transaction. No sidecar is written. When the caller is the Author, the document's `presence` is recomputed afterwards.
 
 | Field               | Type   | Required | Description                                                                      |
 | ------------------- | ------ | -------- | -------------------------------------------------------------------------------- |
@@ -1537,7 +1537,7 @@ touches `accounts.db` — there is no canonical form of an account, so a rebuild
 every token in the deployment.
 
 Roles: `GET /check` is Admin (diagnosis is an audit power); `sync` and `rebuild` are Author,
-because they rewrite the derived layer and a rebuild discards review history.
+because they rewrite the derived layer under every connected user.
 
 ### `GET /api/doctor/check`
 
@@ -1557,9 +1557,9 @@ Response `200` — `{ ok: true, ... }`.
 
 Wipes the index and re-indexes the canonical layer from scratch.
 
-Destructive. `ReviewLogs` and everything derived from it — review history, card-health verdicts,
-optimizer input — do not survive, because no canonical file holds them. Non-owner schedules *do*
-survive: they are canonical in `accounts.db`'s `AccountProgress` and are re-projected.
+Destructive to the index only. Everyone's schedules, review history, card-health verdicts, fitted
+weights and read positions live in the progress store, which the wipe does not touch, so they all
+survive. The accounts store is never touched.
 
 Body `{ confirm: 'REBUILD' }` — the exact token is required.
 Response `200` — `{ ok: true, ... }`.
@@ -1717,12 +1717,11 @@ Response `200` — diff object with added, modified, and deleted sidecars since 
 
 ### `POST /api/seal/rollback`
 
-Rolls the canonical sidecar layer back to a given commit. By default, SRS progress (card levels and ease factors) is snapshotted before the checkout and re-applied afterward so review history is not lost. Call `GET /api/seal/inspect` after rollback to reconcile the derived database layer.
+Rolls the workspace back to a given commit. Study progress is untouched: it lives in the progress store, which git does not track. Afterwards, reconcile the derived index with `POST /api/doctor/sync` — right after a rollback `inspect` reports no drift, because HEAD equals the working tree.
 
-| Field               | Type    | Required | Description                                              |
-| ------------------- | ------- | -------- | -------------------------------------------------------- |
-| `ref`             | string  | Yes      | Commit OID to roll back to (from`GET /api/seal/log`).  |
-| `keepSrsProgress` | boolean | No       | Preserve SRS state across the rollback. Default`true`. |
+| Field   | Type   | Required | Description                                             |
+| ------- | ------ | -------- | ------------------------------------------------------- |
+| `ref` | string | Yes      | Commit OID to roll back to (from `GET /api/seal/log`). |
 
 Response `200` — `{ ok: true }`.
 

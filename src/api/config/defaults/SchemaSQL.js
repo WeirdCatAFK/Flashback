@@ -102,6 +102,11 @@ addTable('Highlights', (table) => {
     table.timestamp('created_at').defaultTo(k.fn.now());
 });
 
+/**
+ * Scaffold, not the real ledger: migrations 009 and 012 index an unqualified `ReviewLogs` on every
+ * fresh or rebuilt database, and migration 013 drops this empty copy on the same boot. The real
+ * table is `progress.ReviewLogs` (`access/primitives/progress.js`).
+ */
 addTable('ReviewLogs', (table) => {
     table.increments('id').primary();
     table.integer('flashcard_id').notNullable().references('id').inTable('Flashcards').onDelete('CASCADE');
