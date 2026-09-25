@@ -18,7 +18,7 @@ import { toLayoutRect, useUiZoomChange } from "../../utils/uiZoom";
  */
 function highlightAt(e) {
   const target = e.target;
-  if (!target?.closest || target.closest(".doc-margin")) return null;
+  if (!target?.closest || target.closest(".doc-margin, input, textarea, button")) return null;
   const mark = target.closest("mark[data-hl]");
   if (mark) return mark;
   const page = target.closest("[data-page]");

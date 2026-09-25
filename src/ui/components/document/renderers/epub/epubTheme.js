@@ -24,11 +24,12 @@ export function resolveColor(key, read = readVar) {
  */
 const MEASURE = '47.5rem';
 
-/** The variable on each section's root element that says where the column starts. */
+/** The variables on each section's root element: where the column starts, and how wide it is. */
 const START_VAR = '--fb-start';
+const WIDTH_VAR = '--fb-measure';
 
-/** The column start each rendition was last given, for sections laid out later. */
-const starts = new WeakMap();
+/** The column each rendition was last given (`{ start, width }`), for sections laid out later. */
+const columns = new WeakMap();
 
 /**
  * The epub.js theme for the active app theme: body colour and background, link
@@ -45,7 +46,7 @@ export function renditionTheme(read = readVar) {
     body: {
       color: v('--color-fg-primary', '#1c1a17'),
       background: v('--color-bg-reader', '#faf8f4'),
-      'max-width': MEASURE,
+      'max-width': `var(${WIDTH_VAR}, ${MEASURE})`,
       'margin-top': '0 !important',
       'margin-bottom': '0 !important',
       'margin-right': 'auto !important',
@@ -58,8 +59,9 @@ export function renditionTheme(read = readVar) {
 }
 
 /**
- * The room the card margin takes on the right, as a literal for the same reason as
- * MEASURE: `--size-lg` (the column) plus `--space-8` (the gap before it).
+ * The room the card margin takes on the right, as a literal because the frame
+ * cannot read the app's tokens: `--size-lg` (the column) plus `--space-8` (the gap
+ * before it).
  */
 const MARGIN_ROOM = '252px';
 
@@ -70,17 +72,27 @@ const MARGIN_ROOM = '252px';
  * the card margin showing, the column moves left by half the margin's room, so the
  * text and the cards are centred together as they are in a note.
  */
-export function marginStart(lean, withMargin) {
+export function marginStart(lean, withMargin, width = MEASURE) {
   if (lean && lean !== 'auto') return lean;
-  return withMargin ? `max(0px, (100% - ${MEASURE} - ${MARGIN_ROOM}) / 2)` : 'auto';
+  return withMargin ? `max(0px, (100% - ${width} - ${MARGIN_ROOM}) / 2)` : 'auto';
 }
 
-export function leanTo(rendition, viewport, withMargin = false) {
+/**
+ * Puts the book's column where the app's measure is: its start (`marginStart`)
+ * and its width (`--measure-width`, wider while the file tree is hidden), both
+ * read from the viewport. The document head, which sits above the book in the
+ * same scroller, is given the same start (`headHost`), so the two stay aligned
+ * when the column moves over for the card margin.
+ */
+export function leanTo(rendition, viewport, withMargin = false, headHost = null) {
   if (!rendition || !viewport) return;
-  const lean = getComputedStyle(viewport).getPropertyValue('--measure-start').trim();
-  const start = marginStart(lean, withMargin);
-  if (starts.get(rendition) === start) return;
-  starts.set(rendition, start);
+  const style = getComputedStyle(viewport);
+  const width = style.getPropertyValue('--measure-width').trim() || MEASURE;
+  const start = marginStart(style.getPropertyValue('--measure-start').trim(), withMargin, width);
+  if (headHost) headHost.style.setProperty('--measure-start', start);
+  const last = columns.get(rendition);
+  if (last && last.start === start && last.width === width) return;
+  columns.set(rendition, { start, width });
   for (const contents of rendition.getContents?.() ?? []) applyStart(rendition, contents);
   requestAnimationFrame(() => {
     for (const view of rendition.manager?.views?.all?.() ?? []) {
@@ -90,13 +102,16 @@ export function leanTo(rendition, viewport, withMargin = false) {
 }
 
 /**
- * Gives one section the rendition's column start. Called for every section on
- * the page by `leanTo`, and from the content hook for each section laid out after.
- * The highlight layer is drawn from the text's position, so `leanTo` redraws it.
+ * Gives one section the rendition's column. Called for every section on the page
+ * by `leanTo`, and from the content hook for each section laid out after. The
+ * highlight layer is drawn from the text's position, so `leanTo` redraws it.
  */
 export function applyStart(rendition, contents) {
   const root = contents?.document?.documentElement;
-  if (root) root.style.setProperty(START_VAR, starts.get(rendition) ?? 'auto');
+  if (!root) return;
+  const { start = 'auto', width = MEASURE } = columns.get(rendition) ?? {};
+  root.style.setProperty(START_VAR, start);
+  root.style.setProperty(WIDTH_VAR, width);
 }
 
 export const clampFont = (pct) => Math.min(FONT_MAX, Math.max(FONT_MIN, pct));

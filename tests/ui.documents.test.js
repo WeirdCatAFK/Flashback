@@ -144,6 +144,7 @@ describe('margin', () => {
     assert.equal(marginStart('48px', false), '48px');
     assert.equal(marginStart('auto', false), 'auto');
     assert.equal(marginStart('', false), 'auto');
+    assert.equal(marginStart('auto', true, '960px'), 'max(0px, (100% - 960px - 252px) / 2)');
     assert.match(marginStart('auto', true), /^max\(0px, \(100% - [\d.]+rem - \d+px\) \/ 2\)$/);
   });
 });
@@ -163,5 +164,63 @@ describe('finder reading order', () => {
   test('inline marks follow the page; one the page cannot place keeps its place after the rest', () => {
     const hls = [{ id: 'm1' }, { id: 'gone' }, { id: 'm2' }];
     assert.deepEqual(readingOrder(hls, ['m2', 'm1']).map((h) => h.id), ['m2', 'm1', 'gone']);
+  });
+});
+
+import { groupCues, placeHighlights, segments, paraIndexAt, timeAtOffset, isBlankNote, rangeOverlapping } from '../src/ui/components/document/renderers/youtube/transcript.js';
+import { nearestCorner, cornerPosition, storedCorner } from '../src/ui/components/document/renderers/youtube/floatCorner.js';
+
+describe('youtube transcript', () => {
+  const cues = [
+    { start: 0, dur: 4, text: 'Here is an experiment.' },
+    { start: 4, dur: 4, text: 'Take twenty facts.' },
+    { start: 30, dur: 5, text: 'Same total time.' },
+    { start: 36, dur: 6, text: 'A week later, test yourself' },
+    { start: 44, dur: 4, text: 'on all twenty' },
+    { start: 80, dur: 4, text: 'Why does it happen?' },
+  ];
+
+  test('captions group into paragraphs after a sentence, and regardless after a long run', () => {
+    const paras = groupCues(cues);
+    assert.deepEqual(paras.map((p) => p.start), [0, 30, 80]);
+    assert.equal(paras[1].text, 'Same total time. A week later, test yourself on all twenty');
+    assert.deepEqual(paras[1].cues.map((c) => c.offset), [0, 17, 45]);
+    assert.equal(paraIndexAt(paras, 50), 1);
+    assert.equal(paraIndexAt(paras, -1), -1);
+    assert.equal(timeAtOffset(paras[1], 20), 36);
+  });
+
+  test('a highlight lands on its words from its line; a blank moment covers its line; unknown words stay a note', () => {
+    const paras = groupCues(cues);
+    const { ranges, loose } = placeHighlights(paras, [
+      { id: 'a', start: 36, text: 'test yourself', color: 'blue' },
+      { id: 'b', start: 4, text: '@ 0:04' },
+      { id: 'c', start: 31, text: 'Something I wrote while watching' },
+    ]);
+    assert.deepEqual(ranges.get(1), [{ id: 'a', color: 'blue', from: 31, to: 44 }]);
+    assert.deepEqual(ranges.get(0), [{ id: 'b', color: 'amber', from: 23, to: 41 }]);
+    assert.deepEqual(loose.map((h) => h.id), ['c']);
+    assert.equal(rangeOverlapping(ranges.get(1), 35, 40).id, 'a');
+    assert.equal(rangeOverlapping(ranges.get(1), 0, 5), null);
+    assert.ok(isBlankNote('@ 1:12') && isBlankNote('') && !isBlankNote('A note'));
+  });
+
+  test('a paragraph cuts into plain and marked runs; an overlapping mark yields', () => {
+    const runs = segments('abcdefghij', [{ id: 'x', color: 'amber', from: 2, to: 5 }, { id: 'y', color: 'pink', from: 4, to: 7 }]);
+    assert.deepEqual(runs, [{ text: 'ab' }, { text: 'cde', id: 'x', color: 'amber' }, { text: 'fghij' }]);
+  });
+});
+
+describe('youtube small player', () => {
+  const area = { left: 100, top: 50, width: 800, height: 600 };
+  test('a drop settles in the nearest corner', () => {
+    assert.equal(nearestCorner(150, 80, area), 'tl');
+    assert.equal(nearestCorner(850, 600, area), 'br');
+    assert.equal(storedCorner('tr'), 'tr');
+    assert.equal(storedCorner('middle'), 'bl');
+  });
+  test('corners sit in from the edges, and the top ones below the bar', () => {
+    assert.deepEqual(cornerPosition('bl', area, 340, 190), { left: 116, top: 444 });
+    assert.deepEqual(cornerPosition('tr', area, 340, 190), { left: 544, top: 106 });
   });
 });

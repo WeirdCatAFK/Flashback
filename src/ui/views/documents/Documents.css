@@ -68,10 +68,12 @@
 }
 
 /* Hidden: the tree takes no room and waits off the left edge, and the document
-   leans left into the space it gave up rather than floating in the middle. Every
-   renderer's measure reads --measure-start for its left margin (auto = centred). */
+   moves into the space it gave up: it leans left (--measure-start, auto = centred)
+   and its measure widens by the tree's width (--measure-width), up to the widest
+   a line stays comfortable to read. Every renderer's measure reads both. */
 .documents-view--hidden {
   --measure-start: var(--space-12);
+  --measure-width: min(calc(var(--size-7xl) + var(--tree-w)), var(--size-8xl));
 }
 
 .documents-view--hidden .documents-tree {

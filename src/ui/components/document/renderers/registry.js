@@ -78,6 +78,7 @@ const RENDERERS = {
         editable: false,
         supportsHighlight: true,
         tracksProgress: true,
+        marginCards: true,
     },
     clip: {
         load: lazy(() => import('./clip/ClipRenderer')),

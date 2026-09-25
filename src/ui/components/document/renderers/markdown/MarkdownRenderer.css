@@ -36,7 +36,7 @@
 /* The reading measure, shared with the document head above. */
 .tiptap-wrapper > .ProseMirror {
   width: 100%;
-  max-width: var(--size-7xl);
+  max-width: var(--measure-width);
   min-height: var(--size-3xl);
   margin: 0 auto;
   margin-left: var(--measure-start);

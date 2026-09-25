@@ -209,8 +209,9 @@ function renderYoutubeEmbed(videoId) {
       host: 'https://www.youtube-nocookie.com',
       playerVars: { rel: 0, modestbranding: 1, playsinline: 1, origin: location.origin },
       events: {
-        onReady: function(){ post({ event: 'ready' }); startProgress(); },
-        onError: function(e){ post({ event: 'error', code: e && e.data }); }
+        onReady: function(){ post({ event: 'ready', duration: (player.getDuration && player.getDuration()) || 0 }); startProgress(); },
+        onError: function(e){ post({ event: 'error', code: e && e.data }); },
+        onStateChange: function(e){ post({ event: 'state', playing: e && e.data === 1 }); sendTime(); }
       }
     });
   };
@@ -221,12 +222,24 @@ function renderYoutubeEmbed(videoId) {
       if (d.cmd === 'seek') { player.seekTo(d.seconds, true); if (player.playVideo) player.playVideo(); }
       else if (d.cmd === 'seekQuiet') { player.seekTo(d.seconds, true); }
       else if (d.cmd === 'mark') { post({ event: 'markAt', seconds: (player.getCurrentTime && player.getCurrentTime()) || 0 }); }
+      else if (d.cmd === 'play') { player.playVideo(); }
+      else if (d.cmd === 'pause') { player.pauseVideo(); }
     } catch (e) {}
   });
   // Where the viewer has watched to. Only while actually playing: a paused video parked
   // on one frame is not someone watching, and reporting it would keep rewriting the same
   // position for as long as the tab stayed open.
+  // The clock the page shows beside the player: where the video is, twice a second while it
+  // plays, and once on every state change. Display only; progressAt is what gets stored.
+  function sendTime(){
+    try {
+      post({ event: 'time', seconds: (player.getCurrentTime && player.getCurrentTime()) || 0, duration: (player.getDuration && player.getDuration()) || 0 });
+    } catch (e) {}
+  }
   function startProgress(){
+    setInterval(function(){
+      try { if (player && player.getPlayerState && player.getPlayerState() === 1) sendTime(); } catch (e) {}
+    }, 500);
     setInterval(function(){
       try {
         if (!player || !player.getPlayerState || player.getPlayerState() !== 1) return;

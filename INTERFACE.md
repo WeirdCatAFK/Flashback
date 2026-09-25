@@ -217,7 +217,7 @@ declares no px, ms, `cubic-bezier()`, hex or `rgb()` of its own; `npm run check:
 | motion    | `--dur-fast` 120 · `-base` 200 · `-slow` 300; `--ease-out`, `--ease-in-out`                              |
 | focus     | `--shadow-focus` — the one ring every focusable control shares                                          |
 | lines     | `--track-thin` 1.5 — the read line under an item in a list                                              |
-| measure   | `--measure-start` — a document's left margin: `auto` centres it; the Documents view sets a length while the file tree is hidden, so the text leans into the space the tree gave up. Every renderer's measure (and the EPUB body, via `epubTheme.leanTo`) reads it |
+| measure   | `--measure-start`, `--measure-width` — where a document's reading column starts (`auto` centres it) and how wide it is (`--size-7xl`). While the file tree is hidden the Documents view leans the column left and widens it by the tree's width, up to `--size-8xl`, so the document fills the space the tree gave up. Every renderer's measure reads both, the document head included; the EPUB frame gets them as `--fb-start`/`--fb-measure` through `epubTheme.leanTo`, which also hands the head the book's start so the two stay aligned beside the card margin |
 
 **Snapping.** When a value is not on a ladder, take the nearest step; a tie rounds **down**,
 so the UI keeps the density it has rather than drifting looser (13px text became `--text-sm`,
@@ -470,8 +470,8 @@ references: they own their own load/save (metadata-only — the body is immutabl
 instead of `useHighlightableRenderer`, and supply their own `highlightRef` object.
 `ClipRenderer` anchors highlights by character offset into the container's
 `textContent` (`clip_range`); `YoutubeRenderer` anchors by timestamp
-(`video_timestamp`) created via a "Mark this moment" button rather than a text
-selection.
+(`video_timestamp`: a `start` and a `text`), made from a selection in the transcript, from
+Mark moment, or as a note.
 
 ### The renderer prop contract
 
@@ -635,8 +635,8 @@ inline marks (`mark[data-hl]`) and for PDF, whose boxes ignore the pointer so th
 them stays selectable: a box on the clicked page whose rectangle holds the point. A renderer
 that draws in a frame reports it through the `onHighlightPick({ id, rect })` prop instead —
 EPUB matches the click against each highlight's ranges in the section, since epub.js's
-highlight layer ignores the pointer too. YouTube moments are not marks, so a click on one still
-seeks.
+highlight layer ignores the pointer too. A YouTube moment is a mark in its transcript or notes
+like any other; the ticks on its bar are buttons, not marks, so a click on one seeks.
 
 The sidecar `highlights[]` registry shape is documented in `DATAMODEL.md`; it is
 uniform across anchoring strategies (offset fields are simply absent for inline
@@ -1005,7 +1005,7 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   PDF and EPUB make in-text editing hard. Edits there refresh the open sidecar rather than
   announcing a vault-wide change, which would remount the document and lose the scroll.
 - **Cards sit in the margin, level with their passage** (`margin/MarginCards`, for the
-  renderers whose registry entry sets `marginCards` — Markdown, text, clips and PDF, which all
+  renderers whose registry entry sets `marginCards` — Markdown, text, clips, PDF and YouTube's transcript or notes, which all
   draw a highlight as a `[data-hl]` element in the scroller, and EPUB, which does not). A highlight with no card is a
   tick; one card is the card itself, read-only — click to turn it over, Edit for the card
   editor; several are a kraft box (`DeckBox size="sm"`, card tops tinted by the highlight's
@@ -1067,8 +1067,38 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   153). Only messages from our own iframe are trusted; error codes 100/101/150 (removed,
   private, embedding disabled) surface a link out. Resume seeks without playing — reopening a
   document is not a request to play it. Position unit is `segment`, addressed by seconds, the
-  same vocabulary `/api/reader` uses; highlights are timestamps made by "Mark this moment", so
-  `toggle` is a no-op.
+  same vocabulary `/api/reader` uses. The page speaks a small postMessage protocol
+  (`player.js`): commands `seek` (and play), `seekQuiet`, `play`, `pause`, `mark`; events
+  `ready` (with the duration), `state` (playing or not), `time` (twice a second while playing,
+  for the clock), `progressAt` (every five seconds while playing, what is stored as reading
+  progress), `markAt` and `error`. An older server's page sends no `state`/`time`, so the clock
+  falls back to `progressAt`.
+  - **The text under the player is the document** (`VideoText`): the transcript, grouped into
+    paragraphs (`transcript.js groupCues`: a paragraph closes after a sentence past 25 s, and
+    regardless at 45 s), or, when the video has no captions, the moments as notes. Each
+    paragraph or note hangs its time in the gutter, the one at the current time carries the
+    accent, and highlights are `<mark data-hl>`, so the margin, Find, the selection toolbar and a
+    click on a highlight work unchanged (the registry sets `marginCards`). A highlight is placed
+    by `placeHighlights`: in the paragraph its `start` falls in, on its text from its line; a
+    blank one ("@ m:ss", marked before captions existed) covers its line; one whose words are
+    not in the captions is a note shown between the paragraphs. A selection is read back as
+    offsets into `<p data-para>`, which holds nothing but the paragraph's text, and becomes a
+    moment at its first line's time.
+  - **Mark moment** (M, and a button portaled into the reading strip's tools slot) asks the
+    player for its time; with captions it highlights the line being said then, or returns the
+    highlight already on it; without them it opens a note there (`composing`) — Enter keeps it,
+    Esc leaves it as the time. M is ignored while typing and while the Documents view is hidden;
+    focus inside YouTube's own frame keeps the key, which no page can intercept.
+  - **The bar** (`VideoBar`) is sticky: play/pause, the position with every moment as a tick in
+    its colour, the clock, and Back to now when the passage at the current time is scrolled away.
+  - **The small player** (`useFloatingPlayer`): scrolled past while playing, the player's box
+    becomes `position: fixed` in a corner of the document area while `.yt-player-slot` keeps its
+    space. The iframe is never moved in the DOM — that would reload it. It stays out when
+    paused, goes back when the video is in view again, on Back to the video, or when closed
+    (until the video has been in view once more). It is dragged by its bar — the video takes
+    the pointer inside its frame — and settles into the nearest corner (`floatCorner.js`),
+    remembered as `fb-video-corner`; the default is bottom-left, away from the margin cards,
+    and the top corners sit below the bar. Positions are layout pixels (`toLayoutRect`).
 - **`highlights.js`:** ids are 9 base36 chars (~47 bits) — unique per document, short enough
   not to bloat the inline HTML. Highlights that cannot be anchored are dropped, never guessed.
 

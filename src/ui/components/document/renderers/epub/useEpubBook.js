@@ -209,7 +209,7 @@ export default function useEpubBook({
         rendition.themes.register('fb', renditionTheme());
         rendition.themes.select('fb');
         rendition.themes.fontSize(`${fontPctRef.current}%`);
-        leanTo(rendition, viewportRef.current, marginShownRef.current);
+        leanTo(rendition, viewportRef.current, marginShownRef.current, headHost);
         wireRendition(rendition);
 
         const hls = meta.highlights ?? [];
@@ -278,17 +278,17 @@ export default function useEpubBook({
     const ro = new ResizeObserver(() => {
       clearTimeout(timer);
       timer = setTimeout(() => {
-        leanTo(renditionRef.current, el, marginShownRef.current);
+        leanTo(renditionRef.current, el, marginShownRef.current, headHost);
         try { renditionRef.current?.resize(); } catch { }
       }, RESIZE_DEBOUNCE);
     });
     ro.observe(el);
     return () => { ro.disconnect(); clearTimeout(timer); };
-  }, []);
+  }, [headHost]);
 
   useLayoutEffect(() => {
-    leanTo(renditionRef.current, viewportRef.current, marginShown);
-  }, [marginShown]);
+    leanTo(renditionRef.current, viewportRef.current, marginShown, headHost);
+  }, [marginShown, headHost]);
 
   useUiZoomChange(() => setImageHit(null));
 

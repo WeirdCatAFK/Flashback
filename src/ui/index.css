@@ -47,6 +47,9 @@
   /* Where a document's reading measure starts: auto centres it; the Documents
      view sets a length while the file tree is hidden, leaning it left */
   --measure-start: auto;
+  /* How wide a document's reading measure is; the Documents view widens it into
+     the tree's space while the tree is hidden */
+  --measure-width: var(--size-7xl);
 
   /* Icon boxes */
   --icon-sm: 14px;

@@ -66,12 +66,22 @@ The interface is moving to a new design language, one area at a time. In this re
   shows. Images are kept in `workspace/_decks/covers/`, versioned by Seal with the deck; the
   new routes are `GET`/`POST`/`PUT`/`DELETE /api/decks/:hash/cover`. `GET /api/decks` and `GET /api/decks/:hash` now return
   `color` and `standing`, and `PUT /api/decks/:hash` accepts `color`.
+- **YouTube videos read like documents.** Once a video's captions are fetched, the transcript
+  is the text under the player: paragraphs with their time in the margin (click to play from
+  there), highlights, cards beside the passage, and Find, as in a note. A card made from it
+  cites the line and its time. Without captions, the moments you mark are notes: press M (or
+  Mark moment above the page) and write what is happening while the video plays. A bar under
+  the player stays in view with play, the position and your moments; the passage being said
+  is marked as it plays. Scroll away while it plays and the video floats small in a corner of
+  your choice: drag it to another corner and it stays there next time. The old marker list
+  and the Show transcript button are gone. The embed page the API serves gains play, pause
+  and a clock; an older server still plays, with a slower clock.
 - **Click a highlight to change it.** A toolbar opens over it with its colour marked: pick
   another colour, make a card from the passage, or remove it (asking first when cards hang off
   it). Works in notes, text, web clips, PDFs and EPUBs.
 - **Documents: the file tree.** It can be hidden entirely — the first button in the tab bar,
   or choosing the Documents icon again — and the document then moves left into the space it
-  leaves, in every format. The tree slides out when you rest the pointer in the space left of
+  leaves and widens into it (up to a comfortable line length), in every format. The tree slides out when you rest the pointer in the space left of
   the text. Resizing it snaps to a few set widths. Its four header buttons are
   one "+" menu. Each document shows its name without the extension, its card count as a small
   card outline and a number, and a thin line under the name for how far you have read it. The

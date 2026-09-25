@@ -3,7 +3,7 @@
 
 .doc-head {
   position: relative;
-  max-width: var(--size-7xl);
+  max-width: var(--measure-width);
   margin: 0 auto;
   margin-left: var(--measure-start);
   padding: var(--space-6) var(--space-8) 0;

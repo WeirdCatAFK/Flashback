@@ -7,7 +7,7 @@
 }
 
 .clip-meta {
-  max-width: var(--size-7xl);
+  max-width: var(--measure-width);
   margin: 0 auto var(--space-5);
   margin-left: var(--measure-start);
   padding-inline: var(--space-8);
@@ -38,7 +38,7 @@
 /* Readable article column — the same measure as the document head, padding
    included, so the head and the text start on one line. */
 .clip-body {
-  max-width: var(--size-7xl);
+  max-width: var(--measure-width);
   margin: 0 auto;
   margin-left: var(--measure-start);
   padding-inline: var(--space-8);
