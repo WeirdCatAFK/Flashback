@@ -432,7 +432,7 @@ export default function FlashcardForm({
         onChange={(e) => setCategory(e.target.value)}
       >
         {categories.length === 0 && !missingCategory ? (
-          <option value="">{t('No categories — add one in Manage')}</option>
+          <option value="">{t('No categories — add one in Metadata')}</option>
         ) : (
           categories.map((c) => (
             <option key={c.id} value={c.name} title={c.description || undefined}>

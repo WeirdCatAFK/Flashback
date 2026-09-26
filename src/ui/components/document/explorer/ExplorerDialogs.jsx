@@ -72,7 +72,7 @@ export function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
         ))}
       </div>
       <div className="fsm-custom-row">
-        <span className="fsm-custom-label">{t("Custom")}</span>
+        <span className="fsm-custom-label">{t("Custom|colour")}</span>
         <input
           type="color"
           className="fsm-custom-input"

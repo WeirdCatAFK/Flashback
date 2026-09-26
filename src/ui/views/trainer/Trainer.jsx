@@ -75,7 +75,7 @@ function Meter({ passed, total, streak }) {
 }
 
 export default function FlashcardsTrainer({ isActive, studySession, onOpenSource, onWriteDiary }) {
-  const { t } = useT();
+  const { t, tp } = useT();
   const s = useTrainerSession({ isActive, studySession, onOpenSource });
   const { controls, session, figures } = s;
   const { sessionDone, lastSession, queue } = session;
@@ -89,7 +89,7 @@ export default function FlashcardsTrainer({ isActive, studySession, onOpenSource
           {algorithm && (
             <span className="trainer-algo">
               {ALGO_LABEL[algorithm] ?? algorithm}
-              {!s.loading && <> · {t('{n} due', { n: s.cards.length })}</>}
+              {!s.loading && <> · {tp('{n} due', '{n} due', s.cards.length)}</>}
             </span>
           )}
         </div>

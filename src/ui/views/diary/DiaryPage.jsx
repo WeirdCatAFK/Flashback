@@ -154,7 +154,7 @@ export default function DiaryPage({ date, today, yesterday, shared, reader = nul
           : hasDay ? (
             <>
               {reader ? t('{name} reviewed', { name: reader }) : t('You reviewed')} <F>{formatNumber(totals.reviews)}</F> {tp('card', 'cards', totals.reviews)}
-              {totals.newCards > 0 && <> ({t('{n} new', { n: formatNumber(totals.newCards) })})</>}
+              {totals.newCards > 0 && <> ({tp('{n} new', '{n} new', totals.newCards, { n: formatNumber(totals.newCards) })})</>}
               {' '}{t('and recalled')} <F>{pct(r.reviewPassRate ?? r.passRate)}</F>.
               {summary.streak?.current > 0 && <> {t('A streak of')} <F>{tp('{n} day', '{n} days', summary.streak.current, { n: formatNumber(summary.streak.current) })}</F>.</>}
             </>

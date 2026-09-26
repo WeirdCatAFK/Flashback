@@ -20,6 +20,7 @@ import Flashcard from "../flashcard/Flashcard.jsx";
 import { previewCardFor } from "../flashcard/flashcardFields.js";
 import { ankiSessionMediaSrc } from "../../api/documents.js";
 import { useT } from "../../translations/index";
+import { Rich } from "../../translations/components.jsx";
 import "./AnkiMappingModal.css";
 
 function cardTypeOptions(t) {
@@ -41,7 +42,7 @@ function slotsByType(t) {
   return {
     basic: [
       { key: "front", label: t("Front"), hint: t("Question or prompt") },
-      { key: "back", label: t("Back"), hint: t("Answer") },
+      { key: "back", label: t("Back|card side"), hint: t("Answer") },
     ],
     reversible: [
       { key: "front", label: t("Term"), hint: t("Asked in either direction") },
@@ -472,20 +473,25 @@ export default function AnkiMappingModal({
 
           <div className="anki-map__target">
             <label className="anki-map__section-title" htmlFor="anki-map-type">
-              {t("Becomes a")}
-              <select
-                id="anki-map-type"
-                className="field field--sm anki-map__select"
-                value={mapping.cardType}
-                onChange={(e) => setCardType(e.target.value)}
-              >
-                {cardTypeOptions(t).map((o) => (
-                  <option key={o.key} value={o.key}>
-                    {o.label}
-                  </option>
-                ))}
-              </select>
-              {t("card")}
+              <Rich
+                text={t("Becomes a {type} card")}
+                values={{
+                  type: (
+                    <select
+                      id="anki-map-type"
+                      className="field field--sm anki-map__select"
+                      value={mapping.cardType}
+                      onChange={(e) => setCardType(e.target.value)}
+                    >
+                      {cardTypeOptions(t).map((o) => (
+                        <option key={o.key} value={o.key}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  ),
+                }}
+              />
             </label>
 
             {mapping.cardType === "custom" ? (
