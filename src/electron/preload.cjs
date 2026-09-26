@@ -7,6 +7,7 @@ contextBridge.exposeInMainWorld('flashback', {
   setConfig:       (config) => ipcRenderer.invoke('set-config', config),
   restartApp:      ()       => ipcRenderer.invoke('restart-app'),
   isFirstRun:      ()       => ipcRenderer.invoke('is-first-run'),
+  isSetupPreview:  ()       => ipcRenderer.invoke('is-setup-preview'),
   completeSetup:   (config) => ipcRenderer.invoke('complete-setup', config),
   getUserDataPath: ()       => ipcRenderer.invoke('get-user-data-path'),
   getMcpConfig:    ()       => ipcRenderer.invoke('get-mcp-config'),

@@ -1,23 +1,22 @@
-import { request } from './client.js';
+/**
+ * Read-progress API (/api/progress): where one person has read to in each
+ * document, per folder and as rollups.
+ */
 
-// Read progress — where the current user has read to, and how far through a folder.
-//
-// Every call here is about the caller's own reading; nothing in this module can reach
-// anyone else's positions. Recording a position writes no file and produces no Seal
-// commit, which is why a Reader may do it even though they cannot save a document.
-// See src/api/API.md § Read progress.
+import { request } from "./client.js";
 
 const q = (params) => {
   const parts = [];
   for (const [key, value] of Object.entries(params)) {
-    if (value === undefined || value === null || value === '') continue;
+    if (value === undefined || value === null || value === "") continue;
     if (Array.isArray(value)) {
-      for (const v of value) parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
+      for (const v of value)
+        parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(v)}`);
     } else {
       parts.push(`${encodeURIComponent(key)}=${encodeURIComponent(value)}`);
     }
   }
-  return parts.length ? `?${parts.join('&')}` : '';
+  return parts.length ? `?${parts.join("&")}` : "";
 };
 
 /**
@@ -26,7 +25,8 @@ const q = (params) => {
  * @returns {Promise<{ unit, total, position, percent, furthest, furthestPercent,
  *   finished, stale, updatedAt }|null>} null when they have never opened it.
  */
-export const getProgress = (path) => request('GET', `/api/progress${q({ path })}`);
+export const getProgress = (path) =>
+  request("GET", `/api/progress${q({ path })}`);
 
 /**
  * Records a position.
@@ -39,10 +39,12 @@ export const getProgress = (path) => request('GET', `/api/progress${q({ path })}
  * @param {{unit: string, position: object, percent?: number, total?: number,
  *   mode?: 'auto'|'manual'}} body
  */
-export const setProgress = (path, body) => request('PUT', '/api/progress', { path, ...body });
+export const setProgress = (path, body) =>
+  request("PUT", "/api/progress", { path, ...body });
 
 /** Forgets the caller's position in one document. */
-export const clearProgress = (path) => request('DELETE', `/api/progress${q({ path })}`);
+export const clearProgress = (path) =>
+  request("DELETE", `/api/progress${q({ path })}`);
 
 /**
  * One folder listing's worth of progress in a single call: `documents` keyed by
@@ -54,13 +56,16 @@ export const clearProgress = (path) => request('DELETE', `/api/progress${q({ pat
  * @param {string[]} folders - subfolder paths to roll up.
  */
 export const listProgress = (folder, folders = []) =>
-  request('GET', `/api/progress/list${q({ folder, folders })}`);
+  request("GET", `/api/progress/list${q({ folder, folders })}`);
 
 /** How far through one folder the caller is. */
-export const getRollup = (path) => request('GET', `/api/progress/rollup${q({ path })}`);
+export const getRollup = (path) =>
+  request("GET", `/api/progress/rollup${q({ path })}`);
 
 /** What the caller is partway through, most recently read first. */
-export const listReading = (limit) => request('GET', `/api/progress/reading${q({ limit })}`);
+export const listReading = (limit) =>
+  request("GET", `/api/progress/reading${q({ limit })}`);
 
 /** The span read but not yet turned into flashcards. */
-export const getCoverage = (path) => request('GET', `/api/progress/coverage${q({ path })}`);
+export const getCoverage = (path) =>
+  request("GET", `/api/progress/coverage${q({ path })}`);

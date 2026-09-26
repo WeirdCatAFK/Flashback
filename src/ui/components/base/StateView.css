@@ -1,0 +1,79 @@
+/* Shared loading / error / empty states — see StateView.jsx. A sentence, centred and quiet:
+   a title in the text's own weight (in danger red for a failure), the detail under it, and
+   one quiet button. Loading is the thin running line the start-up screen uses, not a
+   spinner; with reduced motion it stands still, half drawn. */
+
+.state-view {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-8) var(--space-4);
+  text-align: center;
+  color: var(--color-fg-secondary);
+}
+
+.state-view__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: var(--space-1);
+  color: var(--color-fg-icon);
+}
+
+.state-view__title {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--color-fg-primary);
+}
+
+.state-view__message {
+  max-width: 48ch;
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.5;
+  color: var(--color-fg-secondary);
+}
+
+.state-view--error .state-view__title {
+  color: var(--color-danger);
+}
+
+.state-view__action {
+  margin-top: var(--space-2);
+}
+
+.state-view__line {
+  position: relative;
+  display: block;
+  width: var(--size-sm);
+  height: var(--track-thin);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.state-view__line i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--color-accent);
+  animation: state-view-run 1.4s var(--ease-out) infinite;
+}
+
+@keyframes state-view-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .state-view__line i {
+    width: 50%;
+    animation: none;
+  }
+}

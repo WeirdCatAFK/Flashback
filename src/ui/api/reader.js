@@ -1,13 +1,9 @@
-import { request, getBaseUrl, getToken, appendToken } from './client.js';
+/**
+ * Reader API (/api/reader): paginated text extraction and the images/media
+ * inside books and clips, for pickers and previews.
+ */
 
-// The renderer's half of /api/reader. That route was built for the MCP server, which
-// reads books it cannot render; this is the other client — the card form's media
-// pickers, which need the pictures and sound a document holds rather than its prose.
-//
-// Two pairs live here because the endpoints they call are two generations of the same
-// idea: `/images`+`/image` are EPUB-only and predate clips carrying media, while
-// `/media`+`/media-file` serve either format. The book helpers stay because the book
-// picker and the book MCP tools are built on their exact response shape.
+import { request, getBaseUrl, getToken, appendToken } from "./client.js";
 
 /**
  * Every image an EPUB declares, in reading order, as metadata only.
@@ -16,7 +12,7 @@ import { request, getBaseUrl, getToken, appendToken } from './client.js';
  *   index, href, name, mediaType, bytes, alt, caption, section, sectionIndex, isCover }> }>}
  */
 export const listBookImages = (path) =>
-  request('GET', `/api/reader/images?path=${encodeURIComponent(path)}`);
+  request("GET", `/api/reader/images?path=${encodeURIComponent(path)}`);
 
 /**
  * Streamable URL for one image inside a book — for an <img src>, which can't send an
@@ -58,7 +54,7 @@ export async function fetchBookImageFile(path, href, name) {
  * @returns {Promise<{ path, format, total, media: Array<object> }>}
  */
 export const listDocumentMedia = (path) =>
-  request('GET', `/api/reader/media?path=${encodeURIComponent(path)}`);
+  request("GET", `/api/reader/media?path=${encodeURIComponent(path)}`);
 
 /**
  * Streamable URL for one asset — for an `<img src>` or `<audio src>`, neither of which
@@ -90,16 +86,20 @@ export async function fetchDocumentMediaFile(path, href, name) {
   );
 }
 
-// Shared by both fetch helpers: `request` can't be used here because these responses
-// are bytes, not JSON, so the Bearer header has to be assembled by hand.
+/**
+ * Shared by both fetch helpers: `request` can't be used here because these responses
+ * are bytes, not JSON, so the Bearer header has to be assembled by hand.
+ */
 async function fetchAsFile(url, href, name) {
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
   const res = await fetch(url, { headers });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw Object.assign(new Error(err.error ?? res.statusText), { status: res.status });
+    throw Object.assign(new Error(err.error ?? res.statusText), {
+      status: res.status,
+    });
   }
   const blob = await res.blob();
-  return new File([blob], name || href.split('/').pop(), { type: blob.type });
+  return new File([blob], name || href.split("/").pop(), { type: blob.type });
 }

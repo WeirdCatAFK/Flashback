@@ -1,0 +1,76 @@
+/* AppGate — the full-window waiting state while the API process comes up: a sentence and
+   the thin line that stands for something in progress elsewhere in the app, running
+   because how long the wait lasts is unknown. With reduced motion it stands still, half
+   drawn. */
+
+.app-gate {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  width: 100%;
+  background: var(--color-bg-base);
+}
+
+.app-gate-inner {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-3);
+  padding: var(--space-6);
+  text-align: center;
+}
+
+.app-gate-title {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.app-gate-line {
+  position: relative;
+  display: block;
+  width: var(--size-md);
+  height: var(--track-thin);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.app-gate-line i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 40%;
+  background: var(--color-accent);
+  animation: app-gate-run 1.4s var(--ease-out) infinite;
+}
+
+@keyframes app-gate-run {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+
+.app-gate-slow {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.app-gate-slow-text {
+  max-width: var(--size-xl);
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--color-fg-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-gate-line i {
+    width: 50%;
+    animation: none;
+  }
+}

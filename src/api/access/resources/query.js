@@ -702,6 +702,23 @@ class DocumentQuery {
         `).get(scoped(scope)) ?? null;
     }
 
+    /** This person's FSRS latent state for several cards at once, as a Map keyed by card hash. */
+    async getFsrsStatesByHash(hashes, scope) {
+        const out = new Map();
+        for (let i = 0; i < hashes.length; i += 500) {
+            const chunk = hashes.slice(i, i + 500);
+            const rows = await this.db.prepare(`
+                SELECT card_hash, fsrs_stability AS stability, fsrs_difficulty AS difficulty,
+                       fsrs_due AS due, fsrs_state AS state,
+                       fsrs_reps AS reps, fsrs_lapses AS lapses, last_recall AS last_review
+                FROM progress.CardProgress
+                WHERE account_id = ? AND card_hash IN (${chunk.map(() => '?').join(', ')})
+            `).all(scoped(scope), ...chunk);
+            for (const r of rows) out.set(r.card_hash, r);
+        }
+        return out;
+    }
+
     /** This person's FSRS latent state for a card. */
     async getFlashcardFsrsState(id, scope) {
         return await this.db.prepare(`
@@ -1315,6 +1332,71 @@ class DocumentQuery {
             GROUP BY t.node_id, t.name
             ORDER BY count DESC, t.name ASC
         `).all(tagConnTypeId);
+    }
+
+    /**
+     * Whether card `f` carries a tag, the way the Trainer's tag filter reads it: tagged
+     * directly, or inheriting it from its document, folder or deck. Two `?` for the name.
+     */
+    _carriesTagSql() {
+        return `(EXISTS (
+                SELECT 1 FROM Connections ctag
+                JOIN Tags tg ON tg.node_id = ctag.destiny_id
+                WHERE ctag.origin_id = f.node_id
+                  AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
+                  AND tg.name = ?
+            ) OR EXISTS (
+                SELECT 1 FROM InheritedTags it
+                JOIN Connections cinh ON cinh.id = it.connection_id
+                JOIN Tags tgi ON tgi.id = it.tag_id
+                WHERE cinh.destiny_id = f.node_id
+                  AND cinh.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
+                  AND tgi.name = ?
+            ))`;
+    }
+
+    /**
+     * Every tag with its reach: how many folders, documents and decks apply it directly,
+     * how many cards are tagged with it themselves, and how many cards carry it at all
+     * (directly or inherited). `[{ name, folders, documents, decks, cardsDirect, cards }]`.
+     */
+    async getTagOverview() {
+        const { tagConnTypeId } = await this._typeIds();
+        const reach = await this.db.prepare(`
+            SELECT t.id AS id, t.name AS name,
+                   SUM(CASE WHEN nt.name = 'Folder' THEN 1 ELSE 0 END) AS folders,
+                   SUM(CASE WHEN nt.name = 'Document' THEN 1 ELSE 0 END) AS documents,
+                   SUM(CASE WHEN nt.name = 'Deck' THEN 1 ELSE 0 END) AS decks,
+                   SUM(CASE WHEN nt.name = 'Flashcard' THEN 1 ELSE 0 END) AS cardsDirect
+            FROM Tags t
+            LEFT JOIN Connections c ON c.destiny_id = t.node_id AND c.type_id = ?
+            LEFT JOIN Nodes n ON n.id = c.origin_id
+            LEFT JOIN NodeTypes nt ON nt.id = n.type_id
+            GROUP BY t.id, t.name
+        `).all(tagConnTypeId);
+        const carried = await this.db.prepare(`
+            SELECT tag_id, COUNT(DISTINCT card_id) AS cards FROM (
+                SELECT tg.id AS tag_id, f.id AS card_id
+                FROM Flashcards f
+                JOIN Connections c ON c.origin_id = f.node_id AND c.type_id = ?
+                JOIN Tags tg ON tg.node_id = c.destiny_id
+                UNION
+                SELECT it.tag_id AS tag_id, f.id AS card_id
+                FROM Flashcards f
+                JOIN Connections cinh ON cinh.destiny_id = f.node_id
+                  AND cinh.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
+                JOIN InheritedTags it ON it.connection_id = cinh.id
+            ) GROUP BY tag_id
+        `).all(tagConnTypeId);
+        const cardsBy = new Map(carried.map((r) => [r.tag_id, r.cards]));
+        return reach.map((r) => ({
+            name: r.name,
+            folders: r.folders ?? 0,
+            documents: r.documents ?? 0,
+            decks: r.decks ?? 0,
+            cardsDirect: r.cardsDirect ?? 0,
+            cards: cardsBy.get(r.id) ?? 0,
+        }));
     }
 
     /** One tag by name. */
@@ -1975,6 +2057,11 @@ class DocumentQuery {
         `).all();
     }
 
+    /** Every deck entry as `{ deck_id, card_hash }`, for per-deck counts in one read. */
+    async getAllDeckEntryHashes() {
+        return await this.db.prepare('SELECT deck_id, card_hash FROM DeckEntries').all();
+    }
+
     /** Updates a deck's mutable fields. */
     async updateDeck(id, data) {
         await this.db.prepare(`
@@ -2032,10 +2119,20 @@ class DocumentQuery {
     }
 
     /** Shared WHERE builder for the card browser's list and count queries, which must filter identically. */
-    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, scope) {
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null, tag = null, categoryId = null }, scope) {
         const account = scoped(scope);
         const params = [];
         const conditions = [];
+
+        if (source?.kind === 'standalone') {
+            conditions.push('f.document_id IS NULL');
+        } else if (source?.kind === 'document' && source.path) {
+            conditions.push("f.document_id IN (SELECT id FROM Documents WHERE REPLACE(relative_path, '\\', '/') = ?)");
+            params.push(source.path);
+        } else if (source?.kind === 'folder' && source.path) {
+            conditions.push("f.document_id IN (SELECT id FROM Documents WHERE REPLACE(relative_path, '\\', '/') LIKE ? ESCAPE '!')");
+            params.push(`${source.path.replace(/[!%_]/g, (ch) => `!${ch}`)}/%`);
+        }
 
         if (search) {
             const term = `%${search}%`;
@@ -2052,6 +2149,15 @@ class DocumentQuery {
         }
         this._flashcardOriginCondition(origin, conditions);
 
+        if (tag) {
+            conditions.push(this._carriesTagSql());
+            params.push(tag, tag);
+        }
+        if (categoryId != null) {
+            conditions.push('f.category_id = ?');
+            params.push(categoryId);
+        }
+
         if (flagged || flagKind) {
             const kindClause = flagKind ? ' AND cf.kind = ?' : '';
             conditions.push(`EXISTS (SELECT 1 FROM progress.CardFlags cf
@@ -2063,18 +2169,84 @@ class DocumentQuery {
         return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
     }
 
-    /** A page of the card browser, filtered and sorted. */
-    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
-        const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
+    /** The columns every card-browser row carries; `?` is the account for the flags subquery. */
+    _catalogueSelect() {
+        return `
+            SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
+                   p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
+                   c.frontText, c.backText, c.answerText, c.custom_html,
+                   d.relative_path as document_path, d.name as document_name,
+                   pc.name as category,
+                   (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
+                     WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
+            FROM Flashcards f
+            ${PROGRESS_JOIN()}
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON f.document_id = d.id
+            LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id`;
+    }
+
+    /**
+     * The card browser's ORDER BY for `sortBy`/`sortDir`. An order SQL cannot compute
+     * (`gap`, `due`) falls back to creation order, which the caller then re-sorts.
+     */
+    _catalogueOrder(sortBy, sortDir) {
         const sortCols = {
             level: 'p.level', name: 'f.name', last_recall: 'p.last_recall',
             lapses: 'p.fsrs_lapses', difficulty: 'p.fsrs_difficulty',
+            front: "LOWER(COALESCE(c.frontText, f.name, ''))", source: "LOWER(COALESCE(d.relative_path, ''))",
+            created: 'f.id',
         };
+        if (sortBy === 'gap' || sortBy === 'due') return 'f.id ASC';
         const sortCol = sortCols[sortBy] ?? 'p.level';
         const dir = sortDir === 'asc' ? 'ASC' : 'DESC';
         const nullsLast = sortCol === 'p.fsrs_difficulty' ? `${sortCol} IS NULL, ` : '';
+        return `${nullsLast}${sortCol} ${dir}, f.name ASC`;
+    }
 
+    /**
+     * Every card matching the card browser's filters, in `sortBy` order, as the few
+     * columns the orders and filters SQL cannot compute need (the gap between reviews
+     * depends on scheduler maths that lives in srs.js): hash, name, last review and
+     * document path.
+     */
+    async getFlashcardHashesFiltered(filters = {}, scope, { sortBy = 'created', sortDir = 'asc' } = {}) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters(filters, account);
+        return await this.db.prepare(`
+            SELECT f.global_hash, f.name, p.last_recall, REPLACE(d.relative_path, '\\', '/') AS document_path
+            FROM Flashcards f ${PROGRESS_JOIN()}
+            JOIN FlashcardContent c ON f.content_id = c.id
+            LEFT JOIN Documents d ON f.document_id = d.id
+            ${where}
+            ORDER BY ${this._catalogueOrder(sortBy, sortDir)}
+        `).all(account, ...params);
+    }
+
+    /** Card-browser rows for these hashes, in the order given. */
+    async getFlashcardsByHashes(hashes, scope) {
+        if (!hashes.length) return [];
+        const account = scoped(scope);
+        const rows = await this.db.prepare(`
+            ${this._catalogueSelect()}
+            WHERE f.global_hash IN (SELECT value FROM json_each(?))
+        `).all(account, account, JSON.stringify(hashes));
+        const byHash = new Map(rows.map((r) => [r.global_hash, r]));
+        return hashes.map((h) => byHash.get(h)).filter(Boolean);
+    }
+
+    /** Every card's document path (null for a standalone card), for the catalogue's source tree. */
+    async getFlashcardDocumentPaths() {
+        return await this.db.prepare(`
+            SELECT f.global_hash, REPLACE(d.relative_path, '\\', '/') AS document_path
+            FROM Flashcards f LEFT JOIN Documents d ON f.document_id = d.id
+        `).all();
+    }
+
+    /** A page of the card browser, filtered and sorted. */
+    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
+        const account = scoped(scope);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
         return await this.db.prepare(`
             SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
                    p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
@@ -2091,15 +2263,15 @@ class DocumentQuery {
             LEFT JOIN Documents d ON f.document_id = d.id
             LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
             ${where}
-            ORDER BY ${nullsLast}${sortCol} ${dir}, f.name ASC
+            ORDER BY ${this._catalogueOrder(sortBy, sortDir)}
             LIMIT ? OFFSET ?
         `).all(account, account, ...params, limit, offset);
     }
 
     /** Row count matching the card browser's current filters. */
-    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null } = {}, scope) {
+    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
         return (await this.db.prepare(`
@@ -2531,9 +2703,11 @@ class DocumentQuery {
 
     /** Every pedagogical category. */
     async getCategories() {
-        return await this.db.prepare(
-            'SELECT id, name, priority, description FROM PedagogicalCategories ORDER BY priority ASC, name ASC'
-        ).all();
+        return await this.db.prepare(`
+            SELECT pc.id, pc.name, pc.priority, pc.description,
+                   (SELECT COUNT(*) FROM Flashcards f WHERE f.category_id = pc.id) AS cards
+            FROM PedagogicalCategories pc ORDER BY pc.priority ASC, pc.name ASC
+        `).all();
     }
 
     /** One category by name. */

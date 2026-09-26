@@ -44,6 +44,7 @@ export const PERMISSIONS = {
     documents: [
         ["GET", "*", READER],
         ["PUT", "/metadata", COLLABORATOR],
+        ["*", "/cover", COLLABORATOR],
         ["*", "*", ADMIN],
     ],
 

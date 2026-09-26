@@ -27,6 +27,7 @@ import { ROLES, isRole, atLeast } from '../../shared/roles.js';
 import { getMaxAccounts } from '../access/primitives/config.js';
 import SRS from '../access/orchestration/srs.js';
 import Documents from '../access/orchestration/documents.js';
+import diary from '../access/orchestration/diary.js';
 import { vaultCompleteness } from './srs.js';
 import { OWNER_SCOPE } from '../requestContext.js';
 
@@ -171,6 +172,54 @@ router.get('/:id/graph', catchError(async (req, res) => {
     const graph = await docs.getGraphData(scope);
 
     res.json({ account: publicTarget(target), scope, ...graph });
+}));
+
+/**
+ * Someone's Logs, read-only: the days they have a summary or an entry, one day's summary, one
+ * day's entry. The Author's alone (the permission table), because the prose is private writing
+ * and only the server's owner is told they may read it (the Logs privacy note). An AI assistant
+ * never gets these, whatever its diary access: that setting is about the caller's own diary.
+ * Writing is always the caller's own, through `/api/diary`.
+ */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+async function logsTarget(req, res) {
+    if (req.get('X-Flashback-Client') === 'mcp') {
+        res.status(403).json({ error: "AI assistants cannot read other people's logs." });
+        return null;
+    }
+    const target = await getAccount(req.params.id);
+    if (!target) {
+        res.status(404).json({ error: 'No such account.' });
+        return null;
+    }
+    if (req.params.date !== undefined && !DATE_RE.test(req.params.date)) {
+        res.status(400).json({ error: 'date must be YYYY-MM-DD' });
+        return null;
+    }
+    return target;
+}
+
+router.get('/:id/logs', catchError(async (req, res) => {
+    const target = await logsTarget(req, res);
+    if (!target) return;
+    const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
+    const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
+    res.json(diary.list({ from, to, scope: scopeFor(target) }));
+}));
+
+router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
+    const target = await logsTarget(req, res);
+    if (!target) return;
+    const summary = diary.getSummary(req.params.date, scopeFor(target));
+    if (!summary) return res.status(404).json({ error: 'no summary for that date' });
+    res.json(summary);
+}));
+
+router.get('/:id/logs/entry/:date', catchError(async (req, res) => {
+    const target = await logsTarget(req, res);
+    if (!target) return;
+    res.json({ date: req.params.date, content: diary.getEntry(req.params.date, scopeFor(target)) ?? '' });
 }));
 
 /** Issues a token for an account, returning its plaintext once. */

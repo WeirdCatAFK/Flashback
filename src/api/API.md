@@ -53,7 +53,7 @@ The alternative — a role check inside each handler — was rejected because it
 
 Every other mount names its privileged routes and ends in a weaker catch-all. `accounts` does the opposite: it enumerates its admin routes and falls through to `author`.
 
-First match wins, so a rule requiring *more* than the catch-all beneath it is only as strong as the matcher's ability to recognise the path — and any request that fails to match it lands on something weaker. That is not hypothetical. With `["POST", "/pure-token", AUTHOR]` sitting above an `ADMIN` catch-all, Express's case-insensitive routing sent `POST /api/accounts/Pure-Token` to the pure-token handler while the guard read it as an unremarkable admin call. Any admin could therefore mint the Author's token — and rotation revokes every existing Author token, locking the owner out of their own vault.
+First match wins, so a rule requiring *more* than the catch-all beneath it is only as strong as the matcher's ability to recognise the path — and any request that fails to match it lands on something weaker. Express routes case-insensitively, so with `["POST", "/pure-token", AUTHOR]` above an `ADMIN` catch-all, `POST /api/accounts/Pure-Token` reaches the pure-token handler while the guard reads it as an admin call: any admin could mint the Author's token, and rotation revokes every existing one, locking the owner out.
 
 `normalizePath` closes that particular door. Inverting the mount closes the corridor: `/pure-token` needs no rule at all, because falling through to `author` is the correct answer for it *and for every misspelling of it*. A route added to `routes/accounts.js` is author-only until someone deliberately lists it, which is the same fail-closed direction as an unknown mount.
 
@@ -61,7 +61,7 @@ First match wins, so a rule requiring *more* than the catch-all beneath it is on
 
 A switch closes the database and re-points every path resolver, so `app.use('/api', …)` refuses new requests with `503` + `Retry-After: 1` for the duration; the renderer polls rather than surfacing an error. It sits deliberately *after* the auth guard, so an unauthenticated caller learns nothing about vault state.
 
-Known limit. The gate used to lean on better-sqlite3 being synchronous: no single query could straddle the swap, so only the async work (Seal git operations, file IO) needed guarding. The data layer is async now and that guarantee is gone — a request already in flight can have queued statements on either side of `closeDatabase()`. The gate still bounds a switch by closing the door on new work, but a request that started before the switch can still fail against a closed handle.
+Known limit. The data layer is async, so a request already in flight can have queued statements on either side of `closeDatabase()`. The gate bounds a switch by closing the door on new work, but a request that started before the switch can still fail against a closed handle.
 
 ---
 
@@ -90,8 +90,8 @@ sidecar from a fresh read moments earlier, and refusing it would be a conflict a
 had already incorporated.
 
 Omitting `ifMatch` skips the check entirely. Deliberate: the MCP server, the test suite and
-every script written before this send no version, and the single-writer desktop case they serve
-has no conflict to detect. A server build makes it mandatory, because that is the first
+the scripts send no version, and the single-writer desktop case they serve has no conflict to
+detect. A server build makes it mandatory, because that is the first
 configuration where a second writer exists.
 
 Patches merge instead of conflicting. `POST|PUT|DELETE /api/flashcards/:hash` and the
@@ -274,6 +274,29 @@ Response `200` — `{ ok: true, etag }`.
 Errors `409 { error, code: 'stale', etag }` — see [Concurrent writes](#concurrent-writes).
 
 Errors `400` path required.
+
+A document's `cover` is not written here: this route and `PUT /api/documents/file` keep the
+cover that is on disk whatever the body says, since renderers save highlights by writing back
+the sidecar they loaded. The cover routes below are the only way to change it.
+
+---
+
+### `POST` · `PUT` · `DELETE /api/documents/cover`
+
+The banner at the head of a document. Its sidecar's `cover` is absent, `{ kind: 'pattern',
+pattern }` (`cards` | `arcs`, drawn by the renderer, no file) or `{ kind: 'image', file, y }` —
+`file` a name in the folder's `media/` (`cover-<random>.<ext>`, fresh on every upload), served
+by `GET /api/media/file?docPath=&name=` like card media and registered in `Media`, and `y`
+(0..1) the image's vertical position. Collaborator, like the rest of a document's metadata.
+
+- `POST` — multipart `path` and `file`: PNG, JPEG, WebP, GIF or AVIF, up to 10 MB. Replaces
+  the cover, centred; the previous image is deleted in the same Seal commit. Response `201` —
+  `{ cover }`. Errors `400` no file or another type, `413` too large, `404` no such document.
+- `PUT` — `{ path, pattern }` for a drawn cover (deleting any image), or `{ path, y }` to
+  reposition the image one. Response `200` — `{ cover }`. Errors `400` an unknown pattern or
+  neither field, `404` `{ y }` when the cover is not an image, or no such document.
+- `DELETE` — `{ path }` (or `?path=`): removes the cover and its image. Response `200` —
+  `{ ok: true }`.
 
 ---
 
@@ -489,9 +512,39 @@ Response `200` — `{ tags }`.
 
 ### `GET /api/documents/tags/usage`
 
-Every tag with how many entities carry it — the Manage tab's tag list.
+Every tag with how many entities carry it.
 
 Response `200` — `{ tags }`, each `{ name, count }`.
+
+---
+
+### `GET /api/documents/tags/overview`
+
+Every tag with its reach — the Metadata screen's Tags list. Counts come from the index.
+
+Response `200` — `{ tags }`, each `{ name, folders, documents, decks, cardsDirect, cards }`:
+how many folders, documents and decks apply it directly, how many cards are tagged with it
+themselves, and how many cards carry it at all (directly, or inherited from a folder, document
+or deck).
+
+---
+
+### `POST /api/documents/tags/rename`
+
+Renames a tag everywhere it is written, or removes it. Sidecars first — every folder's and
+document's `tags`, `excludedTags` and each card's own `tags` — under one structure lock and
+one Seal commit, then the decks (a deck's direct tags, and the default deck's own cards).
+Renaming onto a tag that already exists merges the two. Admin (`manageTags`).
+
+| Body   | Type           | Description                                               |
+| ------ | -------------- | --------------------------------------------------------- |
+| `from` | string         | The tag to rename. Required.                              |
+| `to`   | string \| null | Its new name; `null` or absent removes the tag instead. |
+
+Response `200` — `{ from, to, sidecars, decks }`: the tag names after cleaning, and how many
+sidecars and decks were rewritten.
+
+Errors `400` `from` missing, or `to` given but empty after cleaning.
 
 ---
 
@@ -687,7 +740,7 @@ Where the caller has read to in a document, and how far through a folder they ar
 
 Every endpoint here is about the caller's own reading. None takes an account parameter and none can reach anyone else's positions, which is why the whole mount sits at `reader` in the permission table: recording where you got to is not an administrative act, and a Reader who could not record one could not resume anything. Cross-person visibility, if it is ever wanted, belongs under `accounts` beside [`GET /api/accounts/:id/progress`](#get-apiaccountsidprogress), where an actor and a target can be compared.
 
-Positions are stored in `accounts.db`, for everyone including the owner, keyed by `(vault_id, scope, document globalHash)`. This is deliberately not the split SRS makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream; and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. Recording a position writes no file and produces no Seal commit. The trade-off is that positions do not travel with a copied vault folder — the same bargain the access list and every reader's schedule already make. See `DATAMODEL.md` § Read progress.
+Positions are stored in the vault's progress store (`{vault}/progress.db`, table `ReadProgress`), for everyone including the owner, keyed by `(account scope, document globalHash)`. Never in the sidecar: a position moves continuously, so sidecar storage would turn reading into a commit stream, and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is `collaborator`-gated. Recording a position writes no file and produces no Seal commit; positions travel with a copied vault folder. See `DATAMODEL.md` § Read progress.
 
 A position is a `unit` plus a format-specific locator, in the same vocabulary the reader paginates by, so a stored position can bound a text read:
 
@@ -1019,7 +1072,7 @@ Notes:
 
 - `curve` is `null` for a card that has never been reviewed, and its `points` span the last review → horizon — it describes the card's present memory state, not a reconstruction of its history (that's what `history` is for).
 - `model: "fsrs"` means the curve is `retrievability()` on the card's own stability with the vault's fitted weights — the same function that scheduled it. `model: "approximated"` means Leitner/SM-2, which have no memory model: the curve is drawn from `stability := the scheduled interval`, i.e. the scheduler's own premise that the interval is where recall has fallen to `requestRetention`. Clients must label the two differently.
-- `history` includes the synthetic rows a vault rebuild writes (`synthetic: true`, no outcome); they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows written before migration 006 report `algorithm: null` rather than a guess.
+- `history` includes synthetic rows (`synthetic: true`, no outcome) — the ease seed written when a card with no progress row is seeded from its sidecar snapshot; they are excluded from `reviews`/`correct`/`retention` and counted in `syntheticEntries`. Rows with no recorded scheduler report `algorithm: null` rather than a guess.
 - `flags` is a read, never a computation: classification runs at review time and only on a card that has just failed (see `POST /api/srs/review`). Opening a card's detail view can never cause it to be accused of anything. `kind` is one of `mouthful`, `probe`, `overdue_drift`, `session_fatigue`; `evidence.memoryModel: "approximated"` means the vault's scheduler records no difficulty signal, so the verdict rests on intervals alone and its confidence is capped one step lower. Full semantics in `DATAMODEL.md` § Card Health.
 
 Errors `404` card not found.
@@ -1068,8 +1121,8 @@ Every endpoint here is about the caller's own studying. Progress, review history
 
 Two consequences worth stating outright:
 
-- A non-owner's review writes no file and produces no Seal commit. Their schedule is durable in the accounts store instead. Reading is not editing, and a reader's study record must not be sealed into a git history that travels with a copy of the vault.
-- `POST /optimize` is reader-level, not admin-level. Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see. It was an administrative action only while the weights were a single shared row per vault.
+- A review writes no file and produces no Seal commit, for anyone. Every schedule is durable in the progress store (`{vault}/progress.db`); a study record is not an edit and does not belong in the workspace's git history.
+- `POST /optimize` is reader-level, not admin-level. Fitted FSRS weights model one individual's forgetting curve and are stored per account, so refitting them changes nothing anyone else can see.
 
 The `algorithm` parameter. Which scheduler (`leitner` | `sm2` | `fsrs`) the user reviews with is a browser preference (`localStorage` `fb-srs-algorithm`), so the app sends it explicitly on every request. It is optional on the read-only endpoints (`/due`, `/statistics`): when omitted, the server infers it from the vault's own review history — each `ReviewLogs` row records the scheduler that graded it (migration 006) — instead of falling back to a fixed default. Those responses echo the algorithm actually used in their `algorithm` field, so a caller with no browser (the MCP server) can trust what it reads back. A vault with no reviews yet has nothing to infer from and reports `leitner`.
 
@@ -1077,7 +1130,7 @@ The `algorithm` parameter. Which scheduler (`leitner` | `sm2` | `fsrs`) the user
 
 Submits a spaced-repetition review result for a flashcard. Updates the caller's level and ease factor for that card and appends a review log entry stamped with their account.
 
-The sidecar is written only when the caller is the vault's Author — the sidecar is the owner's record of the owner's progress. Every other account's schedule is mirrored into the accounts store (`AccountProgress`) inside the same transaction, so their review is just as durable while producing no file write and no Seal commit.
+The schedule and the log row are written to the progress store in one transaction. No sidecar is written. When the caller is the Author, the document's `presence` is recomputed afterwards.
 
 | Field               | Type   | Required | Description                                                                      |
 | ------------------- | ------ | -------- | -------------------------------------------------------------------------------- |
@@ -1092,7 +1145,9 @@ The sidecar is written only when the caller is the vault's Author — the sideca
 
 The last three are session-ordering telemetry and are optional: omit them (the MCP server, a script, the Flashcards view) and the review is logged with no ordering context. When `sessionId` is present the server derives `prev_distance` and `nearest_sibling_lag` itself via `sequencer.measureOrdering()` — the client sends only what it displayed, never a distance. `prevCardHash` is what was *actually* presented rather than what the sequencer planned, so a card re-queued after a failed grade is measured where it really landed. See `DATAMODEL.md` § ReviewLogs.
 
-Response `200` — `{ ok: true, flags }`.
+Response `200` — `{ ok: true, flags, interval }`.
+
+`interval` is `{ before, after }`: the gap between reviews, in days, before and after this grade, under the scheduler that graded it (for FSRS, from the caller's own fitted weights and `requestRetention`). `before` is `null` when the caller had never reviewed the card. It is what the Trainer's pop shows ("4 d → 8 d") — the one number every scheduler can answer.
 
 `flags` is the card-health result for this review, and it is the only place classification is triggered:
 
@@ -1126,7 +1181,9 @@ Returns the cards to study now, already in presentation order.
 | `order`           | string | `interleaved` (default) \| `shuffle` \| `priority`.                  |
 | `seed`            | number | Fixed PRNG seed — reproduces a session exactly. Tests and bug reports.    |
 
-Response `200` — `{ queue, sessionId, order, relaxation, due, new, counts, nextDue, algorithm }`.
+Response `200` — `{ queue, sessionId, order, relaxation, due, new, counts, nextDue, algorithm, preview }`.
+
+`preview` is, for FSRS only, `{ [global_hash]: { again, hard, good, easy } }`: the gap in days each rating would give that card now, from the caller's fitted weights and `retention` (optional query parameter, 0.70–0.97, default 0.9). It is what the Trainer shows under its grade buttons, and nothing is written. For Leitner and SM-2 it is `null` — the renderer previews those itself from `src/shared/intervals.js`, the same formulas the server uses for `POST /api/srs/review`'s `interval`, so a button and the pop after it can never disagree.
 
 `queue` is the ordered session and is what a trainer should consume; do not re-sort it. `due` and `new` remain for callers that only want counts or bucket membership. `relaxation` reports which rung of the degradation ladder this session settled on (`none` | `no-folder-edge` | `short-lag` | `shuffle`), so an odd-looking order can be diagnosed without reproducing the vault.
 
@@ -1227,6 +1284,11 @@ being averaged into a number that would then flatter every vault with new cards 
 
 Response `200` — the statistics object.
 
+`bands` counts the caller's cards by the gap between reviews — `{ new, d1, wk, w3, m2, long }`,
+the same bands (`shared/intervals.js GAP_BANDS`) the Flashcards catalogue groups and filters by,
+computed from the same interval the forecast uses. `maturity` (new/young/mature at 21 days) is
+the older, coarser view of the same thing and stays for existing callers.
+
 #### `completeness` — how far through the vault the caller is
 
 Not `acquisition`. The two sit side by side and mean different things: `acquisition` is about
@@ -1274,11 +1336,19 @@ so an absolute path or a username never reaches a client.
 
 ### `GET /api/decks`
 
-Response `200` — array of decks.
+Query `algorithm?` (`leitner` | `sm2` | `fsrs`; the scheduler the caller's gaps are computed
+under — omitted, the one their review history says they use).
+
+Response `200` — array of decks. Each carries `entry_count`, `color` (a palette id —
+`slate` `sage` `ochre` `brick` `plum` `ink` — or `null` when its file has none; the renderer then
+shows the colour the deck's hash picks, and the system deck is always kraft) and `standing:
+{ due, fresh, longTerm }` for the caller: cards reviewed and past their gap, cards never
+reviewed, and cards whose gap is 21 days or more.
 
 ### `POST /api/decks`
 
-Body `{ name, description? }`.
+Body `{ name, description? }`. The deck is written with the first palette colour no deck shows
+yet.
 Response `201` — `{ globalHash }`. Errors `400` `name` missing.
 
 ### `GET /api/decks/cards`
@@ -1296,17 +1366,58 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 | `origin`   | string | `ai` (AI-created only) or `human` (everything else). Anything else is ignored.                                                                                                                                             |
 | `flagged`  | bool   | `1`/`true` — only cards carrying a live card-health flag.                                                                                                                                                                 |
 | `flagKind` | string | One signature; implies`flagged`. Unrecognized kinds are ignored rather than refused.                                                                                                                                         |
-| `sortBy`   | string | `level` (default) \| `name` \| `last_recall` \| `lapses` \| `difficulty`. The last two are FSRS-only and NULL for cards never rated under it; `difficulty` sinks those to the bottom in both directions. |
+| `tag`      | string | Only cards carrying this tag: their own, or inherited from a folder, document or deck. |
+| `category` | int    | Only cards in this category (its id). |
+| `band`     | string | One gap-between-reviews band: `new` \| `d1` \| `wk` \| `w3` \| `m2` \| `long` (`GAP_BANDS` in `src/shared/intervals.js`). |
+| `algorithm`| string | The scheduler `gap`, `band`, `due` and `groupBy=gap` are computed under. Omitted, the one the caller's history says they use. |
+| `source`   | string | `standalone` (the default deck's own cards), or `folder` / `document` with `sourcePath` (forward slashes; a folder matches everything under it). |
+| `groupBy`  | string | `gap` \| `source`. A stable sort on top of `sortBy`, so each group keeps that order; adds `groups`. |
+| `sortBy`   | string | `level` (default) \| `name` \| `last_recall` \| `lapses` \| `difficulty` \| `front` \| `source` \| `created` \| `gap` \| `due`. `lapses`/`difficulty` are FSRS-only and NULL for cards never rated under it; `difficulty` sinks those to the bottom in both directions. `due` is the last review plus the gap, with never-reviewed cards last. |
 | `sortDir`  | string | `asc` \| `desc` (default).                                                                                                                                                                                                 |
-| `limit`    | int    | Default 50, capped at 200.                                                                                                                                                                                                     |
+| `limit`    | int    | Default 50, capped at 500.                                                                                                                                                                                                     |
 | `offset`   | int    | Default 0.                                                                                                                                                                                                                     |
 
-Response `200` — `{ cards, total, limit, offset }`.
+Response `200` — `{ cards, total, limit, offset, groups? }`. Every row carries `gap`: the
+caller's days between reviews, `null` for a card they have never reviewed. `groups` (with
+`groupBy`) is `[{ key, count }]` in display order over every page — `key` a band id, or a
+document path with `null` for the default deck's cards (which come last).
+
+`band`, `groupBy` and the `gap` / `due` orders need the scheduler's maths, which SQL does not
+have: those requests read every matching card's hash, bucket and order them in
+`decks.searchCards`, and fetch only the page.
+
+### `GET /api/decks/cards/summary`
+
+Query `algorithm?`. The Flashcards sidebar in one read.
+Response `200` — `{ total, standalone: { cards, longTerm }, documents: [{ path, cards,
+longTerm }], bands: { new, d1, wk, w3, m2, long }, flags: { any, mouthful, probe } }`, where
+`longTerm` counts cards with a gap of 21 days or more.
 
 ### `GET /api/decks/:hash` · `PUT /api/decks/:hash`
 
-Read one deck, or update `{ name?, description? }`.
-Response `200` — the deck, or `{ ok: true }`.
+Read one deck (query `algorithm?`) — with `color`, `cover`, `tags`, `standing` as in `GET /api/decks`,
+and `entries` each carrying `gap` — or update `{ name?, description?, color? }`. `color` is a
+palette id, or `null` to drop the stored one.
+Response `200` — the deck, or `{ ok: true }`. Errors `400` an unknown colour, `403` a colour for
+the system deck, which is always kraft.
+
+### `GET` · `POST` · `PUT` · `DELETE /api/decks/:hash/cover`
+
+The banner at the head of a deck's page. `cover` on the deck is `null`, `{ kind: 'pattern',
+pattern }` (`cards` | `arcs`, drawn by the renderer in the deck's colour, no file) or
+`{ kind: 'image', file, y }` — `file` a name under `workspace/_decks/covers/`, fresh on every
+upload so it doubles as a cache key, and `y` (0..1) the image's vertical position in the banner.
+
+- `GET` — the image, with its content type. `404` for a drawn cover or none. Reader.
+- `POST` — multipart `file`: PNG, JPEG, WebP, GIF or AVIF, up to 10 MB. Replaces the cover,
+  centred (`y: 0.5`); the previous image, if any, is deleted in the same Seal commit.
+  Response `201` — `{ cover }`. Errors `400` no file or another type, `413` too large.
+- `PUT` — `{ pattern }` for a drawn cover (deleting any image), or `{ y }` to reposition the
+  image one. Response `200` — `{ cover }`. Errors `400` an unknown pattern or neither field,
+  `404` `{ y }` when the cover is not an image.
+- `DELETE` — removes the cover and its image. Response `200` — `{ ok: true }`.
+
+Deleting the deck deletes its cover image too.
 
 ### `DELETE /api/decks/:hash`
 
@@ -1401,12 +1512,13 @@ Response `200` — `{ ok: true }`. Errors `400` `path` missing.
 
 ## Categories `/api/categories`
 
-Editable pedagogical categories, managed in the Manage tab. A category carries a `priority` that
+Editable pedagogical categories, managed on the Metadata screen. A category carries a `priority` that
 `GET /api/srs/due?minPriority=` filters on. Roles: `GET` is Reader; writes are Admin.
 
 ### `GET /api/categories`
 
-Response `200` — array of `{ id, name, priority, description }`.
+Response `200` — array of `{ id, name, priority, description, cards }`, `cards` being how
+many cards use it.
 
 ### `POST /api/categories`
 
@@ -1415,16 +1527,22 @@ Response `201` — `{ id }`. Errors `400` `name` missing or blank.
 
 ### `PUT /api/categories/:id`
 
-Body `{ name?, priority?, description? }` — omitted fields keep their stored values.
-Response `200` — `{ ok: true }`.
+Body `{ name?, priority?, description? }` — omitted fields keep their stored values. A card
+names its category in its sidecar or deck file, so a rename also rewrites every card that
+names it (one Seal commit for the sidecars); renaming the row alone would leave the cards on the
+old name for the next rebuild to recreate.
+Response `200` — `{ ok: true }`. Errors `400` blank `name` · `404` unknown id · `409` another
+category already has that name.
 
 ### `DELETE /api/categories/:id`
 
 Refuses while any card still uses the category, rather than orphaning cards or silently
-reassigning them.
+reassigning them — unless `?clear=1` asks for it: those cards lose the category (their files
+are rewritten, as for a rename) and then the row goes. The Metadata screen sends it only after
+its confirmation has said how many cards lose it.
 
 Response `200` — `{ ok: true }`.
-Errors `409` — `{ error: "In use by N flashcard(s)" }`.
+Errors `404` unknown id · `409` — `{ error: "In use by N flashcard(s)" }` without `clear`.
 
 ---
 
@@ -1463,7 +1581,7 @@ touches `accounts.db` — there is no canonical form of an account, so a rebuild
 every token in the deployment.
 
 Roles: `GET /check` is Admin (diagnosis is an audit power); `sync` and `rebuild` are Author,
-because they rewrite the derived layer and a rebuild discards review history.
+because they rewrite the derived layer under every connected user.
 
 ### `GET /api/doctor/check`
 
@@ -1483,9 +1601,9 @@ Response `200` — `{ ok: true, ... }`.
 
 Wipes the index and re-indexes the canonical layer from scratch.
 
-Destructive. `ReviewLogs` and everything derived from it — review history, card-health verdicts,
-optimizer input — do not survive, because no canonical file holds them. Non-owner schedules *do*
-survive: they are canonical in `accounts.db`'s `AccountProgress` and are re-projected.
+Destructive to the index only. Everyone's schedules, review history, card-health verdicts, fitted
+weights and read positions live in the progress store, which the wipe does not touch, so they all
+survive. The accounts store is never touched.
 
 Body `{ confirm: 'REBUILD' }` — the exact token is required.
 Response `200` — `{ ok: true, ... }`.
@@ -1528,7 +1646,11 @@ enforcement, not client-side self-censoring.
 Date-descending list of days that have a summary and/or an entry.
 
 Query `from`, `to` — `YYYY-MM-DD`; anything malformed is ignored rather than refused.
-Response `200` — the day list.
+Response `200` — `[{ date, hasSummary, hasEntry, reviews, firstLine }]`. `reviews` is the day's
+review count from its summary (0 without one), for the Diary's calendar; `firstLine` is the
+entry's first line of prose with its Markdown marks removed, capped at 140 characters, or null.
+`firstLine` is the start of what someone wrote, so it is dropped for the MCP server unless
+`mcpDiaryAccess` is `full`.
 
 ### `POST /api/diary/summary`
 
@@ -1643,12 +1765,11 @@ Response `200` — diff object with added, modified, and deleted sidecars since 
 
 ### `POST /api/seal/rollback`
 
-Rolls the canonical sidecar layer back to a given commit. By default, SRS progress (card levels and ease factors) is snapshotted before the checkout and re-applied afterward so review history is not lost. Call `GET /api/seal/inspect` after rollback to reconcile the derived database layer.
+Rolls the workspace back to a given commit. Study progress is untouched: it lives in the progress store, which git does not track. Afterwards, reconcile the derived index with `POST /api/doctor/sync` — right after a rollback `inspect` reports no drift, because HEAD equals the working tree.
 
-| Field               | Type    | Required | Description                                              |
-| ------------------- | ------- | -------- | -------------------------------------------------------- |
-| `ref`             | string  | Yes      | Commit OID to roll back to (from`GET /api/seal/log`).  |
-| `keepSrsProgress` | boolean | No       | Preserve SRS state across the rollback. Default`true`. |
+| Field   | Type   | Required | Description                                             |
+| ------- | ------ | -------- | ------------------------------------------------------- |
+| `ref` | string | Yes      | Commit OID to roll back to (from `GET /api/seal/log`). |
 
 Response `200` — `{ ok: true }`.
 
@@ -1817,6 +1938,10 @@ Admin. Query `?algorithm=` (optional) → `200` `{ account, scope, statistics }`
 ### `GET /api/accounts/:id/graph`
 
 Admin. → `200` `{ account, scope, nodes, edges }`: the knowledge graph exactly as `GET /api/documents/graph` returns it, except that every node's `learned` and `mass` are computed from the target person's schedule. It is what lets an admin see the vault's halos as a reader sees them. `404` for an account that does not exist.
+
+### `GET /api/accounts/:id/logs`, `/:id/logs/summary/:date`, `/:id/logs/entry/:date`
+
+Author only (unlisted, so the mount's catch-all). Someone's Logs, read-only, in exactly the shapes `GET /api/diary`, `GET /api/diary/summary/:date` and `GET /api/diary/entry/:date` give the caller for their own: the days newest first (`?from=`/`?to=` bound them), one day's summary (`404` when there is none), one day's entry (`content` is `''` when nothing was written). The Author's own are read under the owner sentinel, like progress. Nothing here derives a summary or writes a file, and there is no route to write someone else's entry. Logs hold private writing, so only the server's owner may read them, and the Logs privacy note says so; an AI assistant (`X-Flashback-Client: mcp`) is refused with `403` whatever its diary access, which is about the caller's own diary. `400` for a malformed date, `404` for an unknown account.
 
 ### `POST /api/accounts/pure-token`
 

@@ -1,0 +1,191 @@
+/* Finder — the document's cards and highlights as a searchable index over the
+   document, anchored under the reading strip at the right. --hl is set per row. */
+
+.finder {
+  position: absolute;
+  z-index: var(--z-floating);
+  top: var(--space-12);
+  right: var(--space-4);
+  width: min(var(--size-3xl), calc(100% - var(--space-8)));
+  max-height: calc(100% - var(--space-16));
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  animation: finder-in var(--dur-base) var(--ease-pop) both;
+}
+
+@keyframes finder-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+.finder__head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-1) var(--space-3);
+}
+
+.finder__head input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-base);
+  outline: none;
+}
+
+.finder__head input:focus {
+  border-color: var(--color-accent);
+}
+
+.finder__close {
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
+}
+
+.finder__close:hover {
+  color: var(--color-fg-primary);
+}
+
+.finder__tabs {
+  display: flex;
+  gap: var(--space-4);
+  padding: var(--space-0-5) var(--space-3) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.finder__tabs button {
+  margin-bottom: calc(-1 * var(--space-0-5) / 2);
+  padding: var(--space-1) 0 var(--space-2);
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-sm);
+  cursor: pointer;
+}
+
+.finder__tabs button[aria-selected="true"] {
+  color: var(--color-fg-primary);
+  border-bottom-color: var(--color-accent);
+}
+
+.finder__tabs span {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.finder__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-2) var(--space-3);
+}
+
+.finder__row {
+  --hl: var(--color-border);
+  display: grid;
+  grid-template-columns: var(--space-1) minmax(0, 1fr);
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-fg-primary);
+  cursor: pointer;
+}
+
+.finder__row:hover,
+.finder__row:focus-visible,
+.finder__row.is-linked {
+  background: var(--color-bg-hover);
+  outline: none;
+}
+
+.finder__row > i {
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hl) 85%, var(--color-fg-primary) 10%);
+}
+
+.finder__text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.finder__sub {
+  display: grid;
+  gap: var(--space-0-5);
+  margin-top: var(--space-1);
+}
+
+.finder__sub div {
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.finder__meta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.finder__actions {
+  display: inline-flex;
+  gap: var(--space-3);
+  opacity: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.finder__actions .link-action {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.finder__row:hover .finder__actions,
+.finder__row:focus-within .finder__actions {
+  opacity: 1;
+}
+
+.finder__orphan {
+  font-style: italic;
+}
+
+.finder__empty {
+  margin: 0;
+  padding: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.finder .inline-confirm {
+  margin-top: var(--space-2);
+}

@@ -14,8 +14,6 @@ import { makeTranslators } from './translate.js';
 
 function readStoredLocale() {
   const saved = localStorage.getItem('fb-locale');
-  // A pack can disappear between sessions (removed from the build). Fall back to
-  // English rather than rendering raw keys against a dictionary that isn't there.
   return saved && LOCALES[saved] ? saved : 'en';
 }
 
@@ -54,8 +52,6 @@ export function Rich({ text, values }) {
   return text.split(/(\{\w+\})/g).map((part, i) => {
     const name = /^\{(\w+)\}$/.exec(part)?.[1];
     const hit = name && Object.prototype.hasOwnProperty.call(values ?? {}, name);
-    // An unmatched placeholder is left visible, same as interpolate() — a
-    // literal "{file}" on screen is a bug report; a blank is a mystery.
     return <Fragment key={i}>{hit ? values[name] : part}</Fragment>;
   });
 }

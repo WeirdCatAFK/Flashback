@@ -62,9 +62,9 @@ Config reader/writer. `USER_DATA_PATH` locates `config.json` wherever it is set 
 
 ### `sqliteAdapter.js`
 
-`createSqliteAdapter({ resolvePath, onOpen })` → `{ db, openDatabase, closeDatabase, isOpen }`. The async data layer, as a factory, because there are now two stores behind the same contract: the vault database and the accounts store. A Postgres driver has to satisfy this same interface for both.
+`createSqliteAdapter({ resolvePath, onOpen })` → `{ db, openDatabase, closeDatabase, isOpen }`. The async data layer, as a factory, because two stores share the contract: the vault database and the accounts store. A Postgres driver has to satisfy this same interface for both.
 
-`db` is an explicit surface — `prepare` / `exec` / `pragma` / `transaction` / `close` / `inTransaction` / `raw` — not a Proxy forwarding whatever better-sqlite3 exposes, because that surface *is* the contract a second driver implements. `prepare()` stays synchronous and returns a statement whose `.get`/`.all`/`.run` are async; that is what kept the port of `query.js`'s 221 statements to `await` rather than a rewrite of every call form.
+`db` is an explicit surface — `prepare` / `exec` / `pragma` / `transaction` / `close` / `inTransaction` / `raw` — not a Proxy forwarding whatever better-sqlite3 exposes, because that surface *is* the contract a second driver implements. `prepare()` is synchronous and returns a statement whose `.get`/`.all`/`.run` are async, so every call site reads `await db.prepare(sql).get(...)`.
 
 A transaction takes an exclusive lock against all access to its own store. On one connection an `await` inside a transaction is a yield, so a statement from another request would otherwise join the open `BEGIN` and vanish with it on rollback — no error, just a row that was written and is gone. Nesting maps to `SAVEPOINT`s. `tests/dbAdapter.test.js` pins this; the interleaving case there fails against a naive promisified wrapper.
 
@@ -86,14 +86,14 @@ Outside the vault deliberately: a vault folder is meant to be copied and handed 
 
 Tables `Accounts` / `AccountTokens` / `AccountsSchemaVersion`, created by the module itself on first open and never seen by `MigrationRunner` (that runner is the vault database's; one version counter must not mean two things).
 
-**Identity and access, and nothing else.** It used to hold two per-person tables as well — `AccountProgress` (every non-owner's SRS schedule) and `ReadProgress` (everyone's reading position) — for one reason only: it was the single store that did not travel with a copied vault. Migrations 015 and 016 moved both into `{vault}/progress.db`, which Seal does not version and which therefore serves that purpose without also being the access list. The two tables remain here as unread fossils; see `primitives/progress.js`.
+**Identity and access, and nothing else.** Per-person progress lives in `{vault}/progress.db` (`primitives/progress.js`). The file still contains `AccountProgress` and `ReadProgress` tables: unread fossils whose rows migrations 015 and 016 copied into the progress store.
 
 Only a SHA-256 hash of a token is stored; the plaintext is returned once at issue and is unrecoverable afterwards. `resolveToken()` therefore looks up by hash of the caller's input, which is why no constant-time comparison appears anywhere.
 
 - `ensureLocalAuthor(apiToken)` — idempotent provisioning, called from `Api.start()`. Creates the single Author from `config.getIdentity()` if absent, then adopts this install's `apiToken` as that Author's token. The adoption is what makes roles invisible on a desktop install.
 - `resolveToken()` / `hasUsableToken()` / `listAccounts()` / `getAccount()` / `getAuthorAccount()` / `getToken()`
 - `createAccount()` / `updateAccount()` / `issueToken()` / `revokeToken()` / `rotatePureToken()`
-- `listAccountProgress()` / `listReadProgress()` and their siblings — **migration-only now.** Migrations 015 and 016 are the last callers; they read the fossils once and write the rows into the progress store. Nothing in the running app reaches them. The live accessors are `query.getReadProgress()` and friends, because those tables are now on the vault connection and `query.js` is the only layer allowed `db.prepare`.
+- `listAccountProgress()` / `listReadProgress()` and their siblings — **migration-only.** Migrations 015 and 016 are their only callers; nothing in the running app reaches them. The live accessors are `query.getReadProgress()` and friends, because the progress tables are on the vault connection and `query.js` is the only layer allowed `db.prepare`.
 
 ### `vault.js`
 
@@ -101,6 +101,10 @@ Vault identity. `vault.json` at the vault root — a stable UUID that outlives r
 
 - `readManifest()` / `ensureManifest()` / `getVaultId()` — `ensureManifest()` is idempotent, which is how vaults predating it acquire an id on their next launch instead of needing a migration.
 - `inspectVaultDir(dir)` — does an arbitrary directory hold a vault? Tests for `workspace/` + a `*.db`; a manifest is not required, or an older vault could never be adopted.
+
+### `progress.js`
+
+The progress store's schema (`SCHEMA`, every statement qualified with the `progress.` schema), its table list (`PROGRESS_TABLES`) and its `REPAIRS`, recorded in `ProgressSchemaVersion`. Not a third adapter instance: `database.js` ATTACHes `{vault}/progress.db` to the vault connection and applies the schema and repairs on open. What lives there and the rules that follow: `DATAMODEL.md` § The progress store.
 
 ### `storage.js`
 
@@ -266,8 +270,8 @@ pins it, and the test fails if the lock is removed.
 The lock is not reentrant, so `decks.js` takes exactly one per operation. Every public
 mutator wraps its body through `_withDeckFile`; the private helpers (`_read`, `_write`,
 `_readOrRebuild`, `_ensureSystemDeckFile`) take none. That is why `createStandaloneCard` calls
-`_readOrRebuild` instead of the `_ensureSystemDeckFile` + `_read` pair it used to — the pair
-touched two keys — and why `updateDeck` no longer ensures a file it does not write.
+`_readOrRebuild` rather than `_ensureSystemDeckFile` + `_read` (a pair that would touch two
+keys), and why `updateDeck` ensures no file it does not write.
 `removeCardEverywhere` is deliberately unlocked: it loops over `removeEntry`, which locks each
 deck on its own, and locking the loop as well would re-enter on the first deck's key. The
 cross-module call chains are safe because they compose sequentially rather than nesting:
@@ -293,8 +297,9 @@ like `pathLock.js` and `safeFetch.js`.
 `PUT /api/documents/metadata` is COLLABORATOR-gated on purpose: cards, highlights and tags all
 live in the sidecar, so a collaborator who could not write metadata could not annotate. But the
 write is a whole-object replacement, and `documents._syncDocumentFlashcards` deletes every
-indexed card absent from what arrived — so `{"flashcards": []}` erased a document's entire card
-set, canonical file and index together, from the role meant to annotate rather than reshape.
+indexed card absent from what arrived — so an unbounded `{"flashcards": []}` would erase a
+document's entire card set, canonical file and index together, from the role meant to annotate
+rather than reshape.
 
 Removing a card *is* annotating, so the operation stays open and the volume is bounded
 instead. Two limits: per request (the one that matters — it makes "delete this document's
@@ -321,12 +326,11 @@ Main orchestrator. Coordinates `files`, `query`, `srs`, and `SealEventEmitter` a
 
 Web clips. `createClip`/`setClipSource` fetch a page, run it through Readability, sanitize it, and store the result as a `.clip` body. They download nothing else: the article's pictures and sound keep the absolute URLs Readability resolved and load from their own host as the clip is read. Mirroring a page's forty assets up front was slow and is exactly the burst asset hosts rate-limit, so an asset is fetched only when it is wanted — `saveClipAsset(relPath, href)` downloads one into `<folder>/media/`, registers it in `Media`, rewrites that `src` to `./media/clip-<hash>.<ext>` and seals the edit. The `href` must already be a src in that clip's body (resolved by the same addressing rules `mcpReader.mediaBuffer` uses: full src, `./`-less src, or bare file name), which is what stops the route above it from being a downloader for arbitrary URLs. It is a no-op for an href already local, so callers can save unconditionally. A sound published as a link rather than an `<audio>` (how Wikipedia renders every player) is saved the same way and the anchor becomes a real `<audio>` on the way in, so the clip plays what the page could only point at and everything downstream sees the shape it already knows.
 
-Only the owner's grade reaches the sidecar. `submitReview`/`undoReview` return early for a
-non-owner scope. A reader's schedule is canonical in `accounts.db`, and writing it into the
-sidecar would put one person's progress into git history, to travel with the folder to whoever
-receives a copy. It also keeps `propagatePresence` off the hottest path a multi-user vault has:
-that walk is a second store-wide transaction plus roughly three queries per folder level, and for
-a non-owner every value it wrote would be one it had just read.
+Grading writes no sidecar for anyone: `submitReview`/`undoReview` delegate the schedule to
+`srs.js` (the progress store), then run `propagatePresence` for the owner scope only. `presence`
+is derived from the owner's levels and stored on the document, so a reader's grade cannot move
+it — and skipping it keeps the walk (a second store-wide transaction plus roughly three queries
+per folder level) off the hottest path a multi-user vault has.
 
 Link write ordering (important): the sidecar's `links[]` array is derived from content but stored on disk, so it must be written *before* the operation's Seal commit — otherwise the post-commit link write leaves the sidecar permanently diverged from its sealed version (out-of-band drift that the Loose-pages panel and Vault Doctor report forever). `importFile` folds links into the sidecar before `sealEmitter.create`; `syncDocumentLinks` (the live-save path) only rewrites + reseals the sidecar when the links actually changed. `indexDocumentLinks(relPath)` is the read-only variant (Vault Doctor): it re-derives the DB `Connections` from content without writing the sidecar or emitting a Seal event.
 
@@ -374,9 +378,9 @@ What it deliberately does not do: produce highlight anchors. A highlight has to 
 
 ### `readProgress.js`
 
-Where one person has read to. Singleton export. The only module that knows both a document's *identity* and a reading *unit* — the unit vocabulary belongs to the reader and the identity belongs to the index, which is why this is a module rather than a few methods on `documents.js`. Imports `query.js`, `files.js`, `accounts.js`, `vault.js` and `requestContext.js`. Full HTTP surface in `API.md` § Read progress; data model in `DATAMODEL.md` § Read progress.
+Where one person has read to. Singleton export. The only module that knows both a document's *identity* and a reading *unit* — the unit vocabulary belongs to the reader and the identity belongs to the index, which is why this is a module rather than a few methods on `documents.js`. Imports `query.js`, `files.js` and `requestContext.js`. Full HTTP surface in `API.md` § Read progress; data model in `DATAMODEL.md` § Read progress.
 
-Stored in `accounts.db` for everyone, the owner included, under the same `OWNER_SCOPE` sentinel. That is deliberately *not* the split `srs.js` makes, and the two reasons are specific to reading: a position moves continuously, so sidecar storage would turn reading into a commit stream (`seal.js` already argues the weaker version of this for reviews), and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is COLLABORATOR-gated. A write here produces no file and no Seal commit — reading is not editing. Nothing is derived into the vault database, so a Doctor rebuild neither restores nor destroys it.
+Stored in `progress.ReadProgress` for everyone, the owner included under `OWNER_SCOPE`. Never in the sidecar: a position moves continuously, so sidecar storage would turn reading into a commit stream, and a Reader cannot write a sidecar at all, since `PUT /api/documents/metadata` is COLLABORATOR-gated. A write here produces no file and no Seal commit — reading is not editing. Nothing is derived into the vault database, so a Doctor rebuild neither restores nor destroys it.
 
 - `get(relPath, { scope })` / `set(relPath, { unit, position, percent, total, mode }, { scope })` / `clear(relPath, { scope })`
 - `listInProgress({ scope, limit, includeFinished })` — what the caller is partway through.
@@ -384,7 +388,7 @@ Stored in `accounts.db` for everyone, the owner included, under the same `OWNER_
 - `listForFolder(folderRelPath, { scope, folders })` — one folder listing's progress in one call, mirroring `listFolder`'s shape so the explorer never issues a request per node.
 - `coverage(relPath, { scope })` — the span read but not carded. Cards are vault-wide (only *schedules* are personal), so the carded depth is unscoped; it is read from the sidecar because a highlight-anchored card keeps its position on the highlight. Returns `cardedTo: null` for `section` units, since CFIs are not orderable without epub.js.
 - `studyFilter({ scope })` — `{ documents, excludeCards }`, the read gate behind `GET /api/srs/due?read=only`. Composed at the route layer, never inside `srs.js`, which may not import an orchestrator that reaches the filesystem. The two lists are asymmetric on purpose: a document you have never opened is absent from `documents` (holding its whole pile back), but a card lands in `excludeCards` only when its position is *provably* past your furthest mark — an unresolvable one (EPUB CFI, Markdown inline highlight, no anchor) and every standalone card stay in the session. A finished document short-circuits before its sidecar is read.
-- `_cardPositions(meta, unit)` (private) — card `globalHash` → position in `unit`, resolving the modern `{type:'highlight', id}` anchor through `highlights[]` by id, never through the highlight's `cardHashes[]` (an "optional mirror" nothing populates). Both `coverage` and `studyFilter` read card positions through it; before it existed, `_deepestCard` resolved only the legacy `location.data` forms and so answered `null` for every document carded by the app itself.
+- `_cardPositions(meta, unit)` (private) — card `globalHash` → position in `unit`, resolving the modern `{type:'highlight', id}` anchor through `highlights[]` by id, never through the highlight's `cardHashes[]` (an optional mirror nothing reliably populates). Both `coverage` and `studyFilter` read card positions through it; the legacy `location.data` forms alone would answer `null` for every document carded by the app itself.
 
 Positions are keyed by the CANONICAL `globalHash`, read from the sidecar — not by `Documents.global_hash`, which is derived and can disagree with it (`importFile` does not always carry a caller-supplied hash into the index). A Doctor rebuild re-derives that column *from* the sidecar, so a position keyed to the indexed value would be silently orphaned by a rebuild. When `set()` finds the two disagree it corrects the indexed column toward the canonical one, which is what the Doctor would do anyway, and is what lets every rollup join plainly on the index.
 
@@ -403,7 +407,7 @@ Two further detectors ship as guards, and they are not extras — they are what 
 - Addressing restarts the analysis. `CardHealth.epoch_at` is a watermark: after an edit, a recovery or a dismiss, reviews at or before it stop being evidence. History from before a fix is never held against the card that replaced it. Edits are detected by content fingerprint inside `buildContext`, not by a hook, so an edit through *any* path — the PUT route, MCP, a Seal rollback, a Doctor reindex — resets the window; `onCardEdited()` exists only so the flag disappears the instant the user saves.
 - Honest about its own limits. Leitner and SM-2 record no difficulty signal, so a verdict reached without one is capped one confidence step lower and reports `memoryModel: 'approximated'` in its evidence — the same honesty the retention curve applies. Every flag carries the numbers behind it (peak-interval series, difficulty slope, answer tokens vs. vault median, overdue ratios) so the user can disagree with it rather than being handed an oracle.
 - Never auto-splits, never auto-buries. A flag ends in a named recommendation, never an applied change.
-- Derived, never canonical. Flags live only in SQLite and are absent from `.flashback` sidecars — they are recomputable, and sealing one would mean a git commit on every failed review. `query.wipeDerivedContent()` clears them with `ReviewLogs`, so a Vault Doctor `rebuildIndex` destroys card health along with the review history it rests on; cards re-earn their flags from new review behaviour. That is a real limitation, not an oversight.
+- Derived, never canonical. Flags live in the progress store and are absent from `.flashback` sidecars — they are recomputable, and sealing one would mean a git commit on every failed review. A Vault Doctor `rebuildIndex` leaves them, and the `ReviewLogs` they rest on, untouched.
 
 ### `sequencer.js` / `sequencing.js`
 
@@ -452,7 +456,7 @@ Keeps the derived SQLite index consistent with the canonical `.flashback` layer.
 
 - `checkIndex()` — read-only whole-vault report. A direct workspace-walk ↔ DB comparison (via `files.walkWorkspace()`), *not* `sealTools.inspect()`, which diffs against git HEAD and is blind right after a rollback (HEAD == workdir while the index is maximally diverged); git drift is included as supplementary context only. Reports folders/documents `missingInDb`/`orphanedInDb`, `modified` (with reasons), `hashConflicts` (duplicate `globalHash`), media both directions, deck diagnosis, and counts. All cross-layer joins normalize `relative_path` to `/` once (the DB stores `path.sep`, git uses `/` — the #1 trap).
 - `syncIndex({sealDrift=true})` — applies the report; disk is the source of truth for CONTENT. Indexes new items, reindexes modified ones (a schedule is seeded only where none exists; the sidecar can neither raise nor lower an existing one), removes rows for deleted items, reconciles media both directions, repairs decks. Skips (never auto-resolves) hash conflicts, corrupt sidecars, and untracked files, reporting them instead — a `globalHash` is never regenerated. By default seals remaining out-of-band drift into one `reconcile:` commit (`sealTools.commitDrift()`). Idempotent. Refuses to run if `PRAGMA integrity_check` fails, directing the caller to rebuild.
-- `rebuildIndex()` — nuclear option. Wipes all derived content (`query.wipeDerivedContent()`, keeping only schema/seed tables) and re-indexes the entire canonical layer. Pre-creates any missing card categories (unknown categories are silently dropped at insert), restores standalone cards from deck inline snapshots, and re-seeds one synthetic `ReviewLogs` row per card to preserve its SM-2 ease. ReviewLogs *history* does not survive (levels and ease do, via the sidecars). Rerunnable but not atomic past the wipe: per-item failures collect into `warnings`.
+- `rebuildIndex()` — nuclear option. Wipes all derived content (`query.wipeDerivedContent()`, keeping only schema/seed tables) and re-indexes the entire canonical layer. Pre-creates any missing card categories (unknown categories are silently dropped at insert), restores standalone cards from deck inline snapshots. The progress store is not touched, so every schedule and all review history survive; a card's frozen sidecar SRS fields seed a schedule (plus one synthetic ease row) only when it has no progress row at all. Rerunnable but not atomic past the wipe: per-item failures collect into `warnings`.
 
 ---
 

@@ -1,0 +1,321 @@
+/* Setup — the first run, as a short report page on the desk: the steps as a ladder (the
+   same marks as Server Management's roles), a plain heading and lede per step, fields with
+   their note underneath, and the review as a two-column list of facts. The column scrolls
+   and centres with margin: auto, so a step taller than the window (Advanced open, a small
+   window) scrolls from its top rather than being cut off above it. */
+
+.ob-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  background: var(--color-bg-base);
+  color: var(--color-fg-primary);
+}
+
+.ob-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-8) var(--space-6) var(--space-12);
+}
+
+.ob-page {
+  width: 100%;
+  max-width: var(--size-5xl);
+  margin: auto;
+}
+
+.ob-top {
+  display: grid;
+  gap: var(--space-3);
+  margin-bottom: var(--space-8);
+}
+
+.ob-eyebrow {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-accent);
+}
+
+/* ── The ladder ─────────────────────────────────────────────────────────── */
+
+.ob-ladder {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.ob-rung {
+  display: grid;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.ob-rung i {
+  display: block;
+  height: var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-line);
+  transition: background var(--dur-base) var(--ease-out);
+}
+
+.ob-rung.is-done i {
+  background: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+}
+
+.ob-rung.is-here i {
+  background: var(--color-accent);
+}
+
+.ob-rung.is-here span {
+  color: var(--color-fg-primary);
+}
+
+/* ── A step ─────────────────────────────────────────────────────────────── */
+
+.ob-step {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.ob-head {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.ob-title {
+  margin: 0;
+  font-size: var(--text-xl);
+  font-weight: 400;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.ob-lede {
+  max-width: 58ch;
+  margin: 0;
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.ob-p {
+  max-width: 58ch;
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.ob-mark {
+  color: var(--color-accent);
+}
+
+.ob-step--welcome .ob-title {
+  font-size: var(--text-2xl);
+  line-height: 1.1;
+}
+
+.ob-locale {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Fields ─────────────────────────────────────────────────────────────── */
+
+.ob-field {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-1);
+}
+
+.ob-label {
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+}
+
+.ob-in {
+  width: 100%;
+  height: var(--control-lg);
+  font-size: var(--text-base);
+}
+
+.ob-in.is-invalid {
+  border-color: var(--color-danger);
+}
+
+.ob-msg {
+  max-width: 62ch;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--color-fg-tertiary);
+}
+
+.ob-msg.is-error {
+  color: var(--color-danger);
+}
+
+.ob-path {
+  max-width: 100%;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.ob-switch {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  width: 100%;
+}
+
+.ob-sub {
+  display: grid;
+  gap: var(--space-1);
+  width: 100%;
+  margin-top: var(--space-1);
+  padding-left: var(--space-5);
+  border-left: 2px solid var(--color-line);
+}
+
+.ob-stamp {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.ob-stamp p {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.ob-stamp code {
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.ob-more summary {
+  width: max-content;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+  cursor: pointer;
+}
+
+.ob-more summary:hover {
+  color: var(--color-accent);
+}
+
+.ob-more__rows {
+  display: grid;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding-left: var(--space-5);
+  border-left: 2px solid var(--color-line);
+}
+
+.ob-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.ob-row span {
+  width: var(--size-xs);
+  flex: none;
+}
+
+.ob-num {
+  width: var(--size-xs);
+}
+
+/* ── The review ─────────────────────────────────────────────────────────── */
+
+.ob-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: var(--space-2) var(--space-5);
+  align-items: baseline;
+  margin: 0;
+  padding: var(--space-4) 0;
+  border-block: 1px solid var(--color-line);
+}
+
+.ob-facts dt {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.ob-facts dd {
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.ob-facts .ob-mono {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.ob-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+/* ── Back / Next ────────────────────────────────────────────────────────── */
+
+.ob-nav {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding-top: var(--space-2);
+}
+
+.ob-grow {
+  flex: 1;
+}
+
+.ob-step--welcome .ob-nav {
+  padding-top: 0;
+}
+
+@media (max-width: 720px) {
+  .ob-body {
+    padding-inline: var(--space-4);
+  }
+  .ob-title,
+  .ob-step--welcome .ob-title {
+    font-size: var(--text-lg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ob-rung i {
+    transition: none;
+  }
+}

@@ -1,4 +1,19 @@
-import { lazy, Suspense, useState, useEffect, useCallback, useRef, useMemo } from "react";
+/**
+ * App — the shell: title bar, activity bar and the keep-alive view slots, plus
+ * the app-level state that crosses views (theme, zoom, the study hand-over to
+ * the Trainer, whose progress Stats and Graph show, the search palette, dialogs
+ * and the tour). Views are lazy per folder under views/.
+ */
+
+import {
+  lazy,
+  Suspense,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+} from "react";
 import "./App.css";
 
 import IconDocuments from "./components/icons/IconDocuments";
@@ -14,49 +29,71 @@ import IconDiary from "./components/icons/IconDiary";
 import IconServer from "./components/icons/IconServer";
 import { THEMES } from "./themes";
 import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
-import AppGate from "./components/AppGate";
-import SearchModal from "./components/search/SearchModal";
-import ShortcutsOverlay from "./components/ShortcutsOverlay";
-import OnboardingTour from "./components/onboarding/OnboardingTour";
-import TitleBar from "./components/TitleBar";
-import VaultManager from "./components/VaultManager";
+import AppGate from "./components/shell/AppGate";
+import SearchModal from "./components/shell/SearchModal";
+import ShortcutsOverlay from "./components/shell/ShortcutsOverlay";
+import OnboardingTour from "./components/shell/OnboardingTour";
+import TitleBar from "./components/shell/TitleBar";
+import ActivityBar from "./components/shell/ActivityBar";
+import useKeybindings from "./hooks/useKeybindings";
+import usePersisted from "./hooks/usePersisted";
+import { actionForKey, eventKeyName } from "./keybindings";
+import VaultManager from "./components/vault/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { invalidateData } from "./utils/dataBus";
-import { useT } from "./translations";
+import { useT } from "./translations/index";
 import { diaryLabels, isSharedVault } from "./diaryLabels.js";
 import useConnection from "./hooks/useConnection.js";
 import { SessionProvider } from "./session.jsx";
 import { getPref, setPref, setActiveVaultScope } from "./prefs.js";
 
-const ALL_VIEW_IDS = ['documents', 'flashcards', 'decks', 'graph', 'trainer', 'stats', 'diary', 'seal', 'manage', 'server', 'config'];
-
-const DocumentsView  = lazy(() => import("./views/Documents"));
-const FlashcardsView = lazy(() => import("./views/Flashcards"));
-const DecksView      = lazy(() => import("./views/Decks"));
-const GraphView      = lazy(() => import("./views/GraphView"));
-const TrainerView    = lazy(() => import("./views/Trainer"));
-const ConfigView     = lazy(() => import("./views/Config"));
-const SealView       = lazy(() => import("./views/Seal"));
-const ManageView     = lazy(() => import("./views/Manage"));
-const StatsView      = lazy(() => import("./views/Stats"));
-const DiaryView      = lazy(() => import("./views/Diary"));
-const ServerView     = lazy(() => import("./views/Server"));
-
-const NAV_ITEMS = [
-  { id: "documents",  Icon: IconDocuments },
-  { id: "flashcards", Icon: IconFlashcards },
-  { id: "decks",      Icon: IconDecks },
-  { id: "graph",      Icon: IconGraph },
-  { id: "trainer",    Icon: IconTrainer },
-  { id: "stats",      Icon: IconStats },
-  { id: "diary",      Icon: IconDiary },
-  { id: "seal",       Icon: IconSeal },
-  { id: "manage",     Icon: IconManage },
-  // Remote-only — filtered in the nav below. A local vault has one account, it is the
-  // Author, and there is nobody to manage.
-  { id: "server",     Icon: IconServer, remoteOnly: true },
+const ALL_VIEW_IDS = [
+  "documents",
+  "flashcards",
+  "decks",
+  "graph",
+  "trainer",
+  "stats",
+  "diary",
+  "seal",
+  "manage",
+  "server",
+  "config",
 ];
+
+const DocumentsView = lazy(() => import("./views/documents/Documents"));
+const FlashcardsView = lazy(() => import("./views/flashcards/Flashcards"));
+const DecksView = lazy(() => import("./views/decks/Decks"));
+const GraphView = lazy(() => import("./views/graph/GraphView"));
+const TrainerView = lazy(() => import("./views/trainer/Trainer"));
+const ConfigView = lazy(() => import("./views/config/Config"));
+const SealView = lazy(() => import("./views/seal/Seal"));
+const ManageView = lazy(() => import("./views/manage/Manage"));
+const StatsView = lazy(() => import("./views/stats/Stats"));
+const DiaryView = lazy(() => import("./views/diary/Diary"));
+const ServerView = lazy(() => import("./views/server/Server"));
+
+/**
+ * The screens in the order of the process: make (read, write cards, pack decks),
+ * study, look back (how memory is holding, the day's record, the map of what you
+ * know), keep (history, metadata, and on a remote who may reach it). ActivityBar
+ * draws a rule wherever `group` changes.
+ */
+const NAV_ITEMS = [
+  { id: "documents", Icon: IconDocuments, group: "make" },
+  { id: "flashcards", Icon: IconFlashcards, group: "make" },
+  { id: "decks", Icon: IconDecks, group: "make" },
+  { id: "trainer", Icon: IconTrainer, group: "study" },
+  { id: "stats", Icon: IconStats, group: "look" },
+  { id: "diary", Icon: IconDiary, group: "look" },
+  { id: "graph", Icon: IconGraph, group: "look" },
+  { id: "seal", Icon: IconSeal, group: "keep" },
+  { id: "manage", Icon: IconManage, group: "keep" },
+  { id: "server", Icon: IconServer, group: "keep", remoteOnly: true },
+];
+const CONFIG_ITEM = { id: "config", Icon: IconConfig, group: "config" };
+const NAV_ACTIONS = [...NAV_ITEMS, CONFIG_ITEM].map((n) => `nav.${n.id}`);
 
 /**
  * Labels live in a function of t, not in NAV_ITEMS. Two reasons, and both are the
@@ -75,59 +112,80 @@ const NAV_ITEMS = [
  */
 function navLabels(t, shared) {
   return {
-    documents:  t("Documents"),
+    documents: t("Documents"),
     flashcards: t("Flashcards"),
-    decks:      t("Decks"),
-    graph:      t("Graph"),
-    trainer:    t("Trainer"),
-    stats:      t("Statistics"),
-    // "Diary" locally, "Logs" on a server — see diaryLabels.js for why the name moves and
-    // why nothing underneath it does.
-    diary:      diaryLabels(t, shared).title,
-    seal:       t("Seal"),
-    manage:     t("Manage"),
-    server:     t("Server"),
-    config:     t("Config"),
+    decks: t("Decks"),
+    graph: t("Graph"),
+    trainer: t("Trainer"),
+    stats: t("Statistics"),
+    diary: diaryLabels(t, shared).title,
+    seal: t("Seal"),
+    manage: t("Metadata"),
+    server: t("Server Management"),
+    config: t("Config"),
+  };
+}
+
+/** What each screen is for, in a line — the second row of the tab bar's tooltip. */
+function navPurposes(t, shared) {
+  return {
+    documents: t("Read and highlight your sources"),
+    flashcards: t("Find and edit every card"),
+    decks: t("Pack cards to study together"),
+    trainer: t("Review the cards that are due"),
+    stats: t("How your memory is holding up"),
+    diary: shared ? t("The shared study record, day by day") : t("Your study record, day by day"),
+    graph: t("Your vault as a map, lit by what you know"),
+    seal: t("Every change to your documents; restore any point"),
+    manage: t("Categories and tags"),
+    server: t("Who can reach this server, and as what"),
+    config: t("Settings, themes and shortcuts"),
   };
 }
 
 export default function App() {
   const { t } = useT();
   const [activeView, setActiveView] = useState("documents");
-  // Whose progress the Stats and Graph tabs show: null is the caller's own. Held here rather
-  // than in either view so the choice carries across the two, and reset on a connection change
-  // with the rest of the App-level state below. Not a pref — it is a session-time choice.
+  const [docTreeHidden, setDocTreeHidden] = usePersisted("fb-doc-tree-hidden", false);
+
+  /** The activity bar: choosing the screen you are already on toggles its sidebar, as the Documents file tree does. */
+  const selectView = useCallback((id) => {
+    if (id === "documents" && activeViewRef.current === "documents") setDocTreeHidden((h) => !h);
+    else setActiveView(id);
+  }, [setDocTreeHidden]);
+  const activeViewRef = useRef(activeView);
+  activeViewRef.current = activeView;
   const [progressAccount, setProgressAccount] = useState(null);
+  const [logsAccount, setLogsAccount] = useState(null);
 
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("fb-theme");
     if (saved) return saved;
-    // No explicit choice yet — follow the OS light/dark preference.
-    const prefersDark = window.matchMedia?.("(prefers-color-scheme: dark)").matches;
+    const prefersDark = window.matchMedia?.(
+      "(prefers-color-scheme: dark)",
+    ).matches;
     return prefersDark ? "dark-workbench" : "light-workbench";
   });
   const [customThemes, setCustomThemes] = useState(() => loadCustomThemes());
-  const allThemes = useMemo(() => [...THEMES, ...customThemes.map(ct => ct.name)], [customThemes]);
+  const allThemes = useMemo(
+    () => [...THEMES, ...customThemes.map((ct) => ct.name)],
+    [customThemes],
+  );
 
-  // Inject custom theme CSS on startup and whenever custom themes change
-  useEffect(() => { injectCustomThemeCSS(customThemes); }, [customThemes]);
+  useEffect(() => {
+    injectCustomThemeCSS(customThemes);
+  }, [customThemes]);
 
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     localStorage.setItem("fb-theme", theme);
   }, [theme]);
 
-  // The vault (or remote server) the app is currently pointed at. Changing it re-points
-  // the API client and bumps connectionId, which is used as a remount key below.
   const { connection, connectionId } = useConnection();
-  // Where we are pointed decides one nav label — see diaryLabels.js.
   const shared = isSharedVault(connection);
   const labels = navLabels(t, shared);
 
   const [selectedPath, setSelectedPath] = useState(null);
-  // Persist which folders are expanded so the tree reopens the way the user
-  // left it on the next launch. Stored as a plain array of paths in localStorage,
-  // scoped to the vault — these are vault-relative paths and mean nothing in another one.
   const [openPaths, setOpenPaths] = useState(() => {
     try {
       const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
@@ -140,23 +198,22 @@ export default function App() {
     setPref("fb-open-folders", JSON.stringify([...openPaths]));
   }, [openPaths]);
 
-  // Re-scope preferences and drop anything holding a path from the vault we just left.
-  // The view tree itself is discarded by the connectionId key on AppGate; this covers the
-  // App-level state that lives above it.
   useEffect(() => {
     if (!connection) return;
     setActiveVaultScope(connection.id ?? null);
-    // A remote-only view has to be left behind when the app goes local, or the nav button
-    // disappears while its panel stays on screen with nothing to show.
     setActiveView((current) => {
       const item = NAV_ITEMS.find((n) => n.id === current);
-      return item?.remoteOnly && connection.kind !== 'remote' ? 'documents' : current;
+      return item?.remoteOnly && connection.kind !== "remote"
+        ? "documents"
+        : current;
     });
     setSelectedPath(null);
     setPendingSource(null);
     setPendingDeck(null);
+    setCatalogueRequest(null);
     setStudySession(null);
     setProgressAccount(null);
+    setLogsAccount(null);
     try {
       const saved = JSON.parse(getPref("fb-open-folders") ?? "[]");
       setOpenPaths(new Set(Array.isArray(saved) ? saved : []));
@@ -164,22 +221,26 @@ export default function App() {
       setOpenPaths(new Set());
     }
     invalidateData();
-  }, [connection?.id, connection?.url]);   // eslint-disable-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [connection?.id, connection?.url]);
 
   const [studySession, setStudySession] = useState(null);
   const handleStartStudy = useCallback((session) => {
     setStudySession(session);
-    setActiveView('trainer');
+    setActiveView("trainer");
+  }, []);
+
+  const [diaryWriteRequest, setDiaryWriteRequest] = useState(0);
+  const handleWriteDiary = useCallback(() => {
+    setLogsAccount(null);
+    setDiaryWriteRequest((n) => n + 1);
+    setActiveView("diary");
   }, []);
 
   const [searchOpen, setSearchOpen] = useState(false);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [vaultManagerOpen, setVaultManagerOpen] = useState(false);
 
-  // Feature tour ("onboarding"). Auto-runs once — the first time the app loads
-  // after setup, and once for existing users upgrading — then only on demand from
-  // Config. Gated purely by localStorage, never by config.json, so replaying it
-  // can't re-trigger the setup wizard.
   const [tourOpen, setTourOpen] = useState(false);
   useEffect(() => {
     if (!localStorage.getItem("fb-onboarding-seen")) setTourOpen(true);
@@ -189,15 +250,21 @@ export default function App() {
     setTourOpen(false);
   }, []);
 
-  const [pendingSource, setPendingSource] = useState(null); // { path, highlightId }
-  const [pendingDeck, setPendingDeck] = useState(null); // deck global_hash to open from search
+  const [pendingSource, setPendingSource] = useState(null);
+  const [pendingDeck, setPendingDeck] = useState(null);
+  /** Cards another screen asked Flashcards to show — a gap band, a tag, a category. */
+  const [catalogueRequest, setCatalogueRequest] = useState(null);
+  const handleShowCards = useCallback((filter) => {
+    setCatalogueRequest({ ...filter });
+    setActiveView("flashcards");
+  }, []);
   const handleOpenDocumentSource = useCallback((documentPath, highlightId) => {
-    setActiveView('documents');
+    setActiveView("documents");
     setPendingSource({ path: documentPath, highlightId: highlightId ?? null });
   }, []);
 
   const toggleOpen = useCallback((folderPath) => {
-    setOpenPaths(prev => {
+    setOpenPaths((prev) => {
       const next = new Set(prev);
       if (next.has(folderPath)) next.delete(folderPath);
       else next.add(folderPath);
@@ -206,8 +273,10 @@ export default function App() {
   }, []);
 
   const relocatePaths = useCallback((oldPrefix, newPrefix) => {
-    setOpenPaths(prev => {
-      const affected = [...prev].filter(p => p === oldPrefix || p.startsWith(oldPrefix + '/'));
+    setOpenPaths((prev) => {
+      const affected = [...prev].filter(
+        (p) => p === oldPrefix || p.startsWith(oldPrefix + "/"),
+      );
       if (affected.length === 0) return prev;
       const next = new Set(prev);
       for (const p of affected) {
@@ -216,43 +285,58 @@ export default function App() {
       }
       return next;
     });
-    // Keep the active selection pointing at the moved/renamed file so its open
-    // tab and any subsequent save follow it to the new location.
-    setSelectedPath(prev => relocatePath(prev, oldPrefix, newPrefix));
+    setSelectedPath((prev) => relocatePath(prev, oldPrefix, newPrefix));
   }, []);
 
-  const [zoom, setZoom] = useState(
-    () => parseFloat(localStorage.getItem("fb-zoom") ?? "1")
+  const [zoom, setZoom] = useState(() =>
+    parseFloat(localStorage.getItem("fb-zoom") ?? "1"),
   );
 
   useEffect(() => {
     document.documentElement.style.setProperty("--ui-zoom", zoom);
     localStorage.setItem("fb-zoom", zoom);
-    // Overlays anchored to a captured rect (selection toolbar, the renderers'
-    // hover buttons) dismiss on this — the element they point at just moved.
     notifyUiZoomChanged();
   }, [zoom]);
 
+  const keymap = useKeybindings();
+  const keymapRef = useRef(keymap);
+  keymapRef.current = keymap;
+  const remote = connection?.kind === "remote";
+  const remoteRef = useRef(remote);
+  remoteRef.current = remote;
+
   useEffect(() => {
     const onKeyDown = (e) => {
-      if (e.key === '?') {
-        const tag = document.activeElement?.tagName.toLowerCase();
-        if (!['input', 'textarea', 'select'].includes(tag) && !document.activeElement?.isContentEditable) {
+      if (e.ctrlKey || e.metaKey || e.altKey) {
+        const action = actionForKey(keymapRef.current, NAV_ACTIONS, eventKeyName(e));
+        const id = action?.slice("nav.".length);
+        if (id && (id !== "server" || remoteRef.current)) {
           e.preventDefault();
-          setShortcutsOpen(o => !o);
+          setActiveView(id);
+          return;
+        }
+      }
+      if (e.key === "?") {
+        const tag = document.activeElement?.tagName.toLowerCase();
+        if (
+          !["input", "textarea", "select"].includes(tag) &&
+          !document.activeElement?.isContentEditable
+        ) {
+          e.preventDefault();
+          setShortcutsOpen((o) => !o);
           return;
         }
       }
       if (!e.ctrlKey) return;
       if (e.key === "k" || e.key === "K") {
         e.preventDefault();
-        setSearchOpen(o => !o);
+        setSearchOpen((o) => !o);
       } else if (e.key === "=" || e.key === "+") {
         e.preventDefault();
-        setZoom(z => Math.min(2, parseFloat((z + 0.1).toFixed(1))));
+        setZoom((z) => Math.min(2, parseFloat((z + 0.1).toFixed(1))));
       } else if (e.key === "-") {
         e.preventDefault();
-        setZoom(z => Math.max(0.5, parseFloat((z - 0.1).toFixed(1))));
+        setZoom((z) => Math.max(0.5, parseFloat((z - 0.1).toFixed(1))));
       } else if (e.key === "0") {
         e.preventDefault();
         setZoom(1);
@@ -262,161 +346,250 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, []);
 
-  // The Server tab's "Progress" button: pick that person and land on Stats with them selected.
-  const handleViewProgress = useCallback((account) => {
-    setProgressAccount(account ? { id: account.id, name: account.name, role: account.role } : null);
-    setActiveView('stats');
+  const handleViewLogs = useCallback((account) => {
+    setLogsAccount(account ? { id: account.id, name: account.name, role: account.role } : null);
+    setActiveView("diary");
   }, []);
 
-  const handleSearchNavigate = useCallback(({ type, payload }) => {
-    switch (type) {
-      case 'document':
-        setActiveView('documents');
-        setPendingSource({ path: payload.path, highlightId: null });
-        break;
-      case 'folder':
-        setActiveView('documents');
-        setOpenPaths(prev => { const n = new Set(prev); n.add(payload.path); return n; });
-        setSelectedPath(payload.path);
-        break;
-      case 'flashcard':
-        if (payload.documentPath) {
-          setActiveView('documents');
-          setPendingSource({ path: payload.documentPath, highlightId: null });
-        } else {
-          setActiveView('flashcards');
-        }
-        break;
-      case 'tag':
-        handleStartStudy({ tags: [payload.name] });
-        break;
-      case 'deck':
-        setActiveView('decks');
-        setPendingDeck(payload.hash);
-        break;
-      default: break;
-    }
-  }, [handleStartStudy]);
+  const handleViewProgress = useCallback((account) => {
+    setProgressAccount(
+      account
+        ? { id: account.id, name: account.name, role: account.role }
+        : null,
+    );
+    setActiveView("stats");
+  }, []);
 
-  // Track which views have been visited so we only mount them on first visit
+  const handleSearchNavigate = useCallback(
+    ({ type, payload }) => {
+      switch (type) {
+        case "document":
+          setActiveView("documents");
+          setPendingSource({ path: payload.path, highlightId: null });
+          break;
+        case "folder":
+          setActiveView("documents");
+          setOpenPaths((prev) => {
+            const n = new Set(prev);
+            n.add(payload.path);
+            return n;
+          });
+          setSelectedPath(payload.path);
+          break;
+        case "flashcard":
+          if (payload.documentPath) {
+            setActiveView("documents");
+            setPendingSource({ path: payload.documentPath, highlightId: null });
+          } else {
+            setActiveView("flashcards");
+          }
+          break;
+        case "tag":
+          handleStartStudy({ tags: [payload.name] });
+          break;
+        case "deck":
+          setActiveView("decks");
+          setPendingDeck(payload.hash);
+          break;
+        default:
+          break;
+      }
+    },
+    [handleStartStudy],
+  );
+
+  const purposes = navPurposes(t, shared);
+  const describe = (item) => ({
+    ...item,
+    label: labels[item.id],
+    purpose: purposes[item.id],
+    shortcut: keymap[`nav.${item.id}`]?.[0] ?? null,
+  });
+  const navItems = NAV_ITEMS.filter((n) => !n.remoteOnly || remote).map(describe);
+  const configItems = [describe(CONFIG_ITEM)];
+
   const visitedRef = useRef(null);
   if (visitedRef.current === null) visitedRef.current = new Set();
   visitedRef.current.add(activeView);
 
   function renderView(view) {
     switch (view) {
-      case "documents":  return <DocumentsView isActive={activeView === 'documents'} openPaths={openPaths} toggleOpen={toggleOpen} relocatePaths={relocatePaths} selectedPath={selectedPath} onSelect={setSelectedPath} onStudy={handleStartStudy} openSource={pendingSource} onOpenSourceConsumed={() => setPendingSource(null)} />;
-      case "flashcards": return <FlashcardsView />;
-      case "decks":      return <DecksView onStudyDeck={handleStartStudy} openDeck={pendingDeck} onOpenDeckConsumed={() => setPendingDeck(null)} />;
-      case "graph":      return <GraphView isActive={activeView === 'graph'} onNavigate={handleSearchNavigate} viewingAccount={progressAccount} onViewingAccountChange={setProgressAccount} />;
-      case "trainer":    return <TrainerView isActive={activeView === 'trainer'} studySession={studySession} onOpenSource={handleOpenDocumentSource} />;
-      case "seal":       return <SealView isActive={activeView === 'seal'} />;
-      case "manage":     return <ManageView isActive={activeView === 'manage'} />;
-      case "stats":      return <StatsView isActive={activeView === 'stats'} viewingAccount={progressAccount} onViewingAccountChange={setProgressAccount} />;
-      case "diary":      return <DiaryView isActive={activeView === 'diary'} connection={connection} />;
-      case "server":     return <ServerView connection={connection} onViewProgress={handleViewProgress} />;
-      case "config":     return (
-        <ConfigView
-          theme={theme}
-          onThemeChange={setTheme}
-          allThemes={allThemes}
-          customThemes={customThemes}
-          onCustomThemesChange={setCustomThemes}
-          onReplayTour={() => setTourOpen(true)}
-          connection={connection}
-        />
-      );
-      default: return null;
+      case "documents":
+        return (
+          <DocumentsView
+            isActive={activeView === "documents"}
+            treeHidden={docTreeHidden}
+            onToggleTree={() => setDocTreeHidden((h) => !h)}
+            openPaths={openPaths}
+            toggleOpen={toggleOpen}
+            relocatePaths={relocatePaths}
+            selectedPath={selectedPath}
+            onSelect={setSelectedPath}
+            onStudy={handleStartStudy}
+            openSource={pendingSource}
+            onOpenSourceConsumed={() => setPendingSource(null)}
+          />
+        );
+      case "flashcards":
+        return (
+          <FlashcardsView
+            isActive={activeView === "flashcards"}
+            onOpenSource={handleOpenDocumentSource}
+            request={catalogueRequest}
+            onRequestConsumed={() => setCatalogueRequest(null)}
+          />
+        );
+      case "decks":
+        return (
+          <DecksView
+            isActive={activeView === "decks"}
+            onStudyDeck={handleStartStudy}
+            openDeck={pendingDeck}
+            onOpenDeckConsumed={() => setPendingDeck(null)}
+          />
+        );
+      case "graph":
+        return (
+          <GraphView
+            isActive={activeView === "graph"}
+            onNavigate={handleSearchNavigate}
+            viewingAccount={progressAccount}
+            onViewingAccountChange={setProgressAccount}
+          />
+        );
+      case "trainer":
+        return (
+          <TrainerView
+            isActive={activeView === "trainer"}
+            studySession={studySession}
+            onOpenSource={handleOpenDocumentSource}
+            onWriteDiary={handleWriteDiary}
+          />
+        );
+      case "seal":
+        return <SealView isActive={activeView === "seal"} />;
+      case "manage":
+        return <ManageView isActive={activeView === "manage"} onShowCards={handleShowCards} />;
+      case "stats":
+        return (
+          <StatsView
+            isActive={activeView === "stats"}
+            viewingAccount={progressAccount}
+            onViewingAccountChange={setProgressAccount}
+            onShowBand={(band) => handleShowCards({ band })}
+          />
+        );
+      case "diary":
+        return (
+          <DiaryView
+            isActive={activeView === "diary"}
+            connection={connection}
+            writeRequest={diaryWriteRequest}
+            viewingAccount={logsAccount}
+            onViewingAccountChange={setLogsAccount}
+          />
+        );
+      case "server":
+        return (
+          <ServerView
+            connection={connection}
+            onViewProgress={handleViewProgress}
+            onViewLogs={handleViewLogs}
+          />
+        );
+      case "config":
+        return (
+          <ConfigView
+            isActive={activeView === "config"}
+            zoom={zoom}
+            onZoomChange={setZoom}
+            theme={theme}
+            onThemeChange={setTheme}
+            allThemes={allThemes}
+            customThemes={customThemes}
+            onCustomThemesChange={setCustomThemes}
+            onReplayTour={() => setTourOpen(true)}
+            connection={connection}
+          />
+        );
+      default:
+        return null;
     }
   }
 
   return (
-    /* Wraps the WHOLE shell, title bar included: the role badge lives up there, and every
-       view below asks `can()` before drawing a destructive control. Keyed on the connection
-       so pointing the app somewhere else re-asks who you are there — the provider retries a
-       few times, because a local vault switch restarts the API underneath it. */
-    <SessionProvider key={`session-${connectionId}`} connectionId={connectionId}>
-    <div id="app-shell">
-      <TitleBar
-        onSearch={() => setSearchOpen(true)}
-        connection={connection}
-        onManageVaults={() => setVaultManagerOpen(true)}
-      />
-
-      {/* Keyed on the connection so switching vault (or connecting to a remote) unmounts
-          every view rather than leaving the previous vault's documents, cards and graph
-          on screen — the view-slot keep-alive below would otherwise preserve them all.
-          Remounting AppGate also resets its latched `ready`, so a local switch waits for
-          the API to finish re-opening instead of firing reads at a closing database. */}
-      <AppGate key={connectionId}>
-        <div id="app-body">
-          <nav id="activity-bar" aria-label={t("Main navigation")}>
-            <div id="activity-top">
-              {NAV_ITEMS
-                .filter(({ remoteOnly }) => !remoteOnly || connection?.kind === 'remote')
-                .map(({ id, Icon }) => (
-                <button type="button"
-                  key={id}
-                  data-tour={`nav-${id}`}
-                  className={`activity-btn${activeView === id ? " active" : ""}`}
-                  onClick={() => setActiveView(id)}
-                  title={labels[id]}
-                  aria-label={labels[id]}
-                  aria-current={activeView === id ? "page" : undefined}
-                >
-                  <Icon size={22} />
-                </button>
-              ))}
-            </div>
-
-            <div id="activity-bottom">
-              <button type="button"
-                data-tour="nav-config"
-                className={`activity-btn${activeView === "config" ? " active" : ""}`}
-                onClick={() => setActiveView("config")}
-                title={labels.config}
-                aria-label={labels.config}
-                aria-current={activeView === "config" ? "page" : undefined}
-              >
-                <IconConfig size={22} />
-              </button>
-            </div>
-          </nav>
-
-          <main id="content-area">
-            {ALL_VIEW_IDS.map(id => visitedRef.current.has(id) && (
-              <div key={id} className={`view-slot${activeView === id ? ' view-slot--active' : ''}`}>
-                <Suspense fallback={<div className="loading">{t("Loading…")}</div>}>
-                  {renderView(id)}
-                </Suspense>
-              </div>
-            ))}
-          </main>
-        </div>
-
-        {/* Mounted inside AppGate so the shell and its nav exist before the
-            spotlight tour tries to point at them. */}
-        {tourOpen && <OnboardingTour onClose={handleCloseTour} onNavigate={setActiveView} />}
-      </AppGate>
-
-      {searchOpen && (
-        <SearchModal
-          onClose={() => setSearchOpen(false)}
-          onNavigate={handleSearchNavigate}
+    <SessionProvider
+      key={`session-${connectionId}`}
+      connectionId={connectionId}
+    >
+      <div id="app-shell">
+        <TitleBar
+          screen={labels[activeView]}
+          onSearch={() => setSearchOpen(true)}
+          connection={connection}
+          onManageVaults={() => setVaultManagerOpen(true)}
+          zoom={zoom}
+          onResetZoom={() => setZoom(1)}
         />
-      )}
 
-      {shortcutsOpen && (
-        <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
-      )}
+        <AppGate key={connectionId}>
+          <div id="app-body">
+            <ActivityBar
+              label={t("Main navigation")}
+              items={navItems}
+              bottomItems={configItems}
+              activeView={activeView}
+              onSelect={selectView}
+            />
 
-      {/* Outside AppGate on purpose. Switching vault remounts everything inside the gate;
-          the manager is the thing that ORDERED the switch, so it has to outlive it long
-          enough to report a failure instead of vanishing with the vault it was leaving. */}
-      {vaultManagerOpen && (
-        <VaultManager connection={connection} onClose={() => setVaultManagerOpen(false)} />
-      )}
-    </div>
+            <main id="content-area">
+              {ALL_VIEW_IDS.map(
+                (id) =>
+                  visitedRef.current.has(id) && (
+                    <div
+                      key={id}
+                      className={`view-slot${activeView === id ? " view-slot--active" : ""}`}
+                    >
+                      <Suspense
+                        fallback={
+                          <div className="loading">{t("Loading…")}</div>
+                        }
+                      >
+                        {renderView(id)}
+                      </Suspense>
+                    </div>
+                  ),
+              )}
+            </main>
+          </div>
+
+          {tourOpen && (
+            <OnboardingTour
+              onClose={handleCloseTour}
+              onNavigate={setActiveView}
+              labels={labels}
+            />
+          )}
+        </AppGate>
+
+        {searchOpen && (
+          <SearchModal
+            onClose={() => setSearchOpen(false)}
+            onNavigate={handleSearchNavigate}
+          />
+        )}
+
+        {shortcutsOpen && (
+          <ShortcutsOverlay onClose={() => setShortcutsOpen(false)} />
+        )}
+
+        {vaultManagerOpen && (
+          <VaultManager
+            connection={connection}
+            onClose={() => setVaultManagerOpen(false)}
+          />
+        )}
+      </div>
     </SessionProvider>
   );
 }

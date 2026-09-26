@@ -76,13 +76,14 @@ export default [
     // co-located .md rather than in the source. These two rules catch trailing comments
     // only; "no comment inside a function body" has no core rule and stays review
     // discipline. Scoped to the trees that have been through the normalization pass --
-    // add src/ui once it has, and decide separately about tests/ and scripts/.
+    // every src/ tree now has; decide separately about tests/ and scripts/.
     files: [
       "src/api/**/*.js",
       "src/electron/**/*.js",
       "src/server/**/*.js",
       "src/mcp/**/*.js",
       "src/shared/**/*.js",
+      "src/ui/**/*.{js,jsx}",
     ],
     rules: {
       "no-inline-comments": "error",

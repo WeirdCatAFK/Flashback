@@ -1,0 +1,392 @@
+/* Stats — a short report: one column read top to bottom, figures inside sentences in
+   bold mono, charts with numbered captions. One accent, for today and for magnitude. */
+
+.stats-view {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--color-bg-surface);
+}
+
+.sx-report {
+  max-width: var(--size-8xl);
+  margin: 0 auto;
+  padding: var(--space-8) var(--space-8) var(--space-16);
+}
+
+.sx-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  min-height: var(--control-md);
+}
+
+.sx-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-fg-tertiary);
+}
+
+.sx-empty {
+  margin-top: var(--space-6);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Where am I ─────────────────────────────────────────────────────────── */
+
+.sx-viewing {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.sx-title {
+  margin: var(--space-2) 0 var(--space-2);
+  font-size: var(--text-2xl);
+  font-weight: 400;
+  line-height: 1.1;
+  letter-spacing: -0.01em;
+}
+
+.sx-title b {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.sx-lede {
+  max-width: 58ch;
+  margin: 0 0 var(--space-5);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.sx-halves {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3) var(--space-8);
+  padding-bottom: var(--space-6);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.sx-half {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-3);
+}
+
+.sx-half__label {
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.sx-half b {
+  justify-self: end;
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+}
+
+.sx-line {
+  grid-column: 1 / -1;
+  display: block;
+  height: var(--space-1);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.sx-line i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.sx-half__note {
+  grid-column: 1 / -1;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Sections ───────────────────────────────────────────────────────────── */
+
+.sx-sec {
+  padding: var(--space-6) 0;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.sx-sec:last-child {
+  border-bottom: 0;
+}
+
+.sx-h {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-lg);
+  font-weight: 400;
+}
+
+.sx-p {
+  max-width: 62ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-md);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.sx-fig-n {
+  font-family: var(--font-mono);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--color-fg-primary);
+}
+
+.sx-note {
+  max-width: 62ch;
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.sx-figure {
+  margin: 0;
+}
+
+.sx-figure figcaption {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.sx-figure figcaption > span:first-child {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.04em;
+  color: var(--color-fg-secondary);
+}
+
+/* Fig. 1: the forecast, today in the accent. */
+.sx-bars {
+  display: grid;
+  grid-template-columns: repeat(14, minmax(0, 1fr));
+  align-items: end;
+  gap: var(--space-2);
+  height: var(--size-md);
+}
+
+.sx-col {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: var(--space-1);
+  height: 100%;
+  text-align: center;
+}
+
+.sx-col__n,
+.sx-col__x {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.sx-col__n {
+  min-height: var(--space-3);
+}
+
+.sx-col__bar {
+  display: flex;
+  align-items: flex-end;
+  border-bottom: 1px solid var(--color-line);
+}
+
+.sx-col__bar i {
+  display: block;
+  width: 100%;
+  border-radius: 2px 2px 0 0;
+  background: color-mix(in srgb, var(--color-fg-primary) 22%, transparent);
+}
+
+.sx-col.is-today .sx-col__bar i {
+  background: var(--color-accent);
+  box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--color-accent) 70%, var(--color-fg-primary));
+}
+
+.sx-col.is-today .sx-col__n,
+.sx-col.is-today .sx-col__x {
+  color: var(--color-accent);
+}
+
+/* Retention's companions: three quiet figures. */
+.sx-trio {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-4) var(--space-6);
+}
+
+.sx-trio > div {
+  display: grid;
+  align-content: start;
+  gap: var(--space-0-5);
+}
+
+.sx-trio b {
+  font-family: var(--font-mono);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--color-fg-primary);
+}
+
+.sx-trio span {
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.sx-trio small {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+/* Fig. 2: the gap bands; the 21-day line is a dashed rule. */
+.sx-bands {
+  display: grid;
+  gap: var(--space-0-5);
+}
+
+.sx-band {
+  display: grid;
+  grid-template-columns: var(--size-md) minmax(0, 1fr) var(--control-bar) var(--control-bar);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: var(--color-fg-primary);
+}
+
+button.sx-band {
+  cursor: pointer;
+}
+
+button.sx-band:hover {
+  background: var(--color-bg-hover);
+}
+
+.sx-band__label {
+  font-size: var(--text-base);
+}
+
+.sx-band__bar {
+  height: var(--space-2);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.sx-band__bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 70%, var(--color-bg-surface));
+}
+
+button.sx-band:hover .sx-band__bar i {
+  background: var(--color-accent);
+}
+
+.sx-band__n {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-align: right;
+}
+
+.sx-band__pct {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  text-align: right;
+  color: var(--color-fg-tertiary);
+}
+
+.sx-band[data-band="m2"] {
+  border-top: 1px dashed var(--color-line);
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+/* Fig. 3: the heatmap, one column per week across the full width. */
+.sx-heat {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(7, auto);
+  grid-auto-columns: minmax(0, 1fr);
+  gap: var(--space-1);
+}
+
+.sx-cell {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+}
+
+.sx-cell.is-future {
+  background: none;
+}
+
+.sx-legend {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.sx-legend i {
+  display: inline-block;
+  width: var(--space-3);
+  height: var(--space-3);
+  margin: 0 var(--space-0-5);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+}
+
+.sx-figure [data-l="1"] { background: color-mix(in srgb, var(--color-accent) 28%, var(--color-bg-surface)); }
+.sx-figure [data-l="2"] { background: color-mix(in srgb, var(--color-accent) 52%, var(--color-bg-surface)); }
+.sx-figure [data-l="3"] { background: color-mix(in srgb, var(--color-accent) 76%, var(--color-bg-surface)); }
+.sx-figure [data-l="4"] { background: var(--color-accent); }
+
+@media (max-width: 640px) {
+  .sx-report {
+    padding-inline: var(--space-4);
+  }
+  .sx-title {
+    font-size: var(--text-xl);
+  }
+  .sx-halves,
+  .sx-trio {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .sx-band {
+    grid-template-columns: var(--size-sm) minmax(0, 1fr) var(--control-2xl);
+  }
+  .sx-band__pct {
+    display: none;
+  }
+  .sx-bars {
+    gap: var(--space-0-5);
+  }
+}

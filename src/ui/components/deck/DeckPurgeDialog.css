@@ -1,0 +1,87 @@
+/* Deck purge confirm — see DeckPurgeDialog.jsx. Reads like every other danger confirm: the
+   count that goes, where the anchored cards live, the opt-in for cards other decks share (set
+   apart on the sidebar ground, since it widens what is lost), and a footnote that Seal can
+   roll it back. The buttons are the shared quiet ones in the modal footer. */
+
+.deck-purge {
+  display: grid;
+  gap: var(--space-3);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.deck-purge p {
+  margin: 0;
+}
+
+.deck-purge__lead {
+  color: var(--color-fg-primary);
+}
+
+.deck-purge__breakdown {
+  display: grid;
+  gap: var(--space-0-5);
+  margin: 0;
+  padding-inline-start: var(--space-4);
+}
+
+/* Document paths and deck names are user-supplied and often unbreakable, so they have to
+   be allowed to break mid-word, or they widen the dialog into a horizontal scroll. */
+.deck-purge__docs {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+}
+
+.deck-purge__muted {
+  color: var(--color-fg-tertiary);
+}
+
+.deck-purge__seal {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--text-sm);
+}
+
+.deck-purge__error {
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.deck-purge__shared {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-sidebar);
+  cursor: pointer;
+}
+
+.deck-purge__shared input {
+  flex-shrink: 0;
+  margin-top: var(--space-1);
+  accent-color: var(--color-danger);
+}
+
+/* The label's text sits beside the checkbox and names the other decks, so it takes the
+   modal title's shrink-and-break pair. */
+.deck-purge__shared > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deck-purge__shared b {
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.deck-purge__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  width: 100%;
+}

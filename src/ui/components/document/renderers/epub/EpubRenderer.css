@@ -1,0 +1,74 @@
+/* EPUB reader — fills the editor area; epub.js scrolls its own container inside
+   the viewport (the book flows continuously), so the outer .doc-editor-renderer
+   does not scroll, and the document head lives in that container (.epub-head-host). */
+.epub-renderer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--color-bg-reader);
+}
+
+/* Text size, portaled into the reading strip. */
+.epub-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.epub-font-label {
+  min-width: var(--control-2xl);
+  text-align: center;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-fg-secondary);
+}
+
+/* Viewport — epub.js renders its section iframe(s) here */
+.epub-viewport-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.epub-viewport {
+  position: absolute;
+  inset: 0;
+}
+
+.epub-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-reader);
+}
+
+/* "Make a card from this image" — anchored to a clicked figure. Positioned from
+   shell-layout coordinates (the rect is translated out of the section iframe by
+   toShellRect), so it is fixed, not absolute: it escapes the viewport's overflow
+   without leaving the zoomed shell whose scale its offsets are read in. Sits above
+   the SelectionToolbar's stacking neighbours. */
+.epub-image-action {
+  position: fixed;
+  z-index: var(--z-floating);
+  box-shadow: var(--shadow-float);
+}
+
+
+/* The document head, kept above the first section inside epub.js's scroller. */
+.epub-head-host[hidden] {
+  display: none;
+}
+
+/* The card margin's host: at the top of epub.js's scrolling container, so the
+   column scrolls with the book; the column itself is placed from script. */
+.epub-margin-host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0;
+}

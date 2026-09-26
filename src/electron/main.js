@@ -151,6 +151,15 @@ function isFirstRun() {
   return forceOnboarding || !configExists();
 }
 
+/**
+ * `--onboarding` over an existing config.json: the wizard runs so it can be seen, and
+ * finishing it writes nothing. The config holds the API token, the vault registry and the
+ * remotes, none of which the wizard's form knows about, so writing it would lose them.
+ */
+function isSetupPreview() {
+  return forceOnboarding && configExists();
+}
+
 /** Mints and persists the API token if config.json has none; main is its sole minter. */
 function ensureApiToken() {
   if (!configExists()) return null;
@@ -179,7 +188,13 @@ ipcMain.handle('get-api-token', () => readConfig().apiToken ?? null);
 
 ipcMain.handle('is-first-run', () => isFirstRun());
 
+ipcMain.handle('is-setup-preview', () => isSetupPreview());
+
 ipcMain.handle('complete-setup', (_event, config) => {
+  if (isSetupPreview()) {
+    forceOnboarding = false;
+    return { ok: true, preview: true };
+  }
   try {
     if (!config.apiToken) config.apiToken = crypto.randomBytes(32).toString('hex');
     writeConfig(config);
@@ -369,7 +384,7 @@ if (!gotTheLock) {
   });
 
   app.on("ready", () => {
-    if (!isFirstRun()) {
+    if (configExists()) {
       ensureApiToken();
       vaults.ensureRegistry();
       spawn();

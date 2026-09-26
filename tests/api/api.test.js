@@ -411,6 +411,52 @@ describe('Flashback API', () => {
             assert.equal(res.status, 201);
         });
 
+        it('document covers: pattern, upload into media/, survives a metadata write, reposition, replace, remove', async () => {
+            await createFile('covered.md', ROOT);
+            const docPath = `${ROOT}/covered.md`;
+            const mediaDir = path.join(getWorkspacePath(), ROOT, 'media');
+            const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+            const uploadCover = (bytes, type) => {
+                const form = new FormData();
+                form.append('path', docPath);
+                form.append('file', new Blob([bytes], { type }), 'cover');
+                return fetch(`${baseUrl}/api/documents/cover`, { method: 'POST', body: form });
+            };
+            const sidecar = async () => (await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(docPath)}`)).json()).metadata;
+
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, pattern: 'arcs' })).status, 200);
+            assert.deepEqual((await sidecar()).cover, { kind: 'pattern', pattern: 'arcs' });
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, pattern: 'plaid' })).status, 400);
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: docPath, y: 0.3 })).status, 404, 'a drawn cover cannot be repositioned');
+
+            assert.equal((await uploadCover('nope', 'text/plain')).status, 400);
+            const up = await uploadCover(png, 'image/png');
+            assert.equal(up.status, 201);
+            const first = (await up.json()).cover;
+            assert.ok(fsSync.existsSync(path.join(mediaDir, first.file)), 'the image sits in the folder\'s media/');
+            const served = await fetch(`${baseUrl}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(first.file)}`);
+            assert.equal(served.status, 200);
+
+            const meta = await sidecar();
+            delete meta.cover;
+            assert.equal((await put(`${baseUrl}/api/documents/metadata`, { path: docPath, metadata: { ...meta, tags: ['covered'] } })).status, 200);
+            assert.equal((await sidecar()).cover?.file, first.file, 'a whole-object metadata write keeps the cover');
+            assert.equal((await updateFile(docPath, '# Covered', { ...meta, cover: null })).status, 200);
+            assert.equal((await sidecar()).cover?.file, first.file, 'a body save with its sidecar keeps the cover too');
+
+            assert.equal((await (await put(`${baseUrl}/api/documents/cover`, { path: docPath, y: 0.8 })).json()).cover.y, 0.8);
+
+            const second = (await (await uploadCover(png, 'image/png')).json()).cover;
+            assert.ok(!fsSync.existsSync(path.join(mediaDir, first.file)), 'the replaced image is deleted');
+
+            const del = await fetch(`${baseUrl}/api/documents/cover`, { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ path: docPath }) });
+            assert.equal(del.status, 200);
+            assert.equal((await sidecar()).cover, undefined);
+            assert.ok(!fsSync.existsSync(path.join(mediaDir, second.file)));
+
+            assert.equal((await put(`${baseUrl}/api/documents/cover`, { path: `${ROOT}/nope.md`, pattern: 'cards' })).status, 404);
+        });
+
         it('PUT /api/documents/file → updates content and flashcards', async () => {
             const res = await updateFile(`${ROOT}/note.md`, '# Hello API', {
                 tags: ['api'],
@@ -580,6 +626,55 @@ describe('Flashback API', () => {
             const body = await res.json();
             assert.ok(Array.isArray(body.tags), 'tags field should be an array');
             assert.ok(body.tags.includes('api'), 'Tag "api" was applied earlier and must appear');
+        });
+
+        it('GET /api/documents/tags/overview → each tag with where it is used and the cards it reaches', async () => {
+            const res = await fetch(`${baseUrl}/api/documents/tags/overview`);
+            assert.equal(res.status, 200);
+            const { tags } = await res.json();
+            assert.ok(Array.isArray(tags));
+            const api = tags.find(t => t.name === 'api');
+            assert.ok(api, 'the tag applied to renamed.md is listed');
+            assert.ok(api.documents >= 1, 'it counts the document carrying it');
+            assert.ok(api.cards >= 1, 'and the card that inherits it from that document');
+            for (const key of ['folders', 'decks', 'cardsDirect']) {
+                assert.equal(typeof api[key], 'number', `${key} is a number`);
+            }
+        });
+
+        it('GET /api/decks/cards?tag= keeps the cards carrying the tag, inherited included', async () => {
+            const tagged = await (await fetch(`${baseUrl}/api/decks/cards?tag=api&limit=200`)).json();
+            assert.ok(tagged.cards.some(c => c.global_hash === FC_HASH), 'the card inherits "api" from its document');
+            const none = await (await fetch(`${baseUrl}/api/decks/cards?tag=no-such-tag&limit=200`)).json();
+            assert.equal(none.total, 0);
+        });
+
+        it('POST /api/documents/tags/rename → renames a tag everywhere it is written', async () => {
+            const res = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api', to: 'api-renamed' });
+            assert.equal(res.status, 200);
+            const body = await res.json();
+            assert.equal(body.to, 'api-renamed');
+            assert.ok(body.sidecars >= 1, 'renamed.md’s sidecar was rewritten');
+
+            const { tags } = await (await fetch(`${baseUrl}/api/documents/tags`)).json();
+            assert.ok(tags.includes('api-renamed') && !tags.includes('api'));
+            const doc = await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/renamed.md`)}`)).json();
+            assert.deepEqual(doc.metadata.tags, ['api-renamed']);
+
+            const back = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api-renamed', to: 'api' });
+            assert.equal(back.status, 200, 'and renames it back for the tests that follow');
+        });
+
+        it('POST /api/documents/tags/rename with to: null → removes the tag', async () => {
+            const res = await post(`${baseUrl}/api/documents/tags/rename`, { from: 'viewer-only', to: null });
+            assert.equal(res.status, 200);
+            const doc = await (await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(`${ROOT}/data.json`)}`)).json();
+            assert.ok(!(doc.metadata.tags ?? []).includes('viewer-only'));
+        });
+
+        it('POST /api/documents/tags/rename → 400 without a from, or with an empty to', async () => {
+            assert.equal((await post(`${baseUrl}/api/documents/tags/rename`, { to: 'x' })).status, 400);
+            assert.equal((await post(`${baseUrl}/api/documents/tags/rename`, { from: 'api', to: '  ' })).status, 400);
         });
 
         it('GET /api/documents/list → each entry carries a numeric flashcardCount', async () => {
@@ -923,6 +1018,12 @@ describe('Flashback API', () => {
             assert.ok(!('percent' in stats.acquisition), 'and is a different shape entirely');
         });
 
+        it('GET /api/srs/statistics → counts the cards in each gap band', async () => {
+            const stats = await (await fetch(`${baseUrl}/api/srs/statistics`)).json();
+            assert.ok(stats.bands && typeof stats.bands === 'object', 'statistics carries bands');
+            for (const n of Object.values(stats.bands)) assert.equal(typeof n, 'number');
+        });
+
         it('GET /api/srs/statistics → its read half agrees with /api/progress/rollup', async () => {
             const [statsRes, rollupRes] = await Promise.all([
                 fetch(`${baseUrl}/api/srs/statistics`),
@@ -976,6 +1077,37 @@ describe('Flashback API', () => {
             assert.equal(res.status, 200);
             const body = await res.json();
             assert.equal(body.ok, true);
+        });
+
+        it('POST /api/srs/review → returns the gap before and after the grade', async () => {
+            // The Trainer's pop shows "4 d → 8 d"; the server is the only place that knows it
+            // for every scheduler (FSRS computes its schedule here).
+            const grade = (body) => post(`${baseUrl}/api/srs/review`, { path: `${ROOT}/${DOC}`, flashcardHash: FC_HASH, ...body });
+            await grade({ outcome: 1, easeFactor: 2.5, newLevel: 3 });
+            const leitner = await (await grade({ outcome: 1, easeFactor: 2.5, newLevel: 4 })).json();
+            assert.deepEqual(leitner.interval, { before: 4, after: 8 });
+
+            const fsrsRes = await (await grade({ algorithm: 'fsrs', rating: 3 })).json();
+            assert.ok(fsrsRes.interval, 'an FSRS review reports its interval too');
+            assert.equal(typeof fsrsRes.interval.after, 'number');
+            assert.ok(fsrsRes.interval.after > 0);
+        });
+
+        it('GET /api/srs/due?algorithm=fsrs → previews the gap each grade would give', async () => {
+            // The Trainer shows "in 8 days" under each grade button; for FSRS only the
+            // server can say, from the caller's weights and each card's state.
+            const res = await fetch(`${baseUrl}/api/srs/due?algorithm=fsrs&retention=0.9`);
+            assert.equal(res.status, 200);
+            const { queue, preview } = await res.json();
+            assert.ok(queue.length > 0, 'need a due card to preview');
+            for (const card of queue) {
+                const p = preview[card.global_hash];
+                assert.ok(p, `a preview for ${card.global_hash}`);
+                for (const g of ['again', 'hard', 'good', 'easy']) assert.equal(typeof p[g], 'number');
+                assert.ok(p.again <= p.good && p.good <= p.easy, 'a better grade never gives a shorter gap');
+            }
+            const leitner = await (await fetch(`${baseUrl}/api/srs/due?algorithm=leitner`)).json();
+            assert.equal(leitner.preview, null, 'Leitner and SM-2 are previewed in the renderer, from the shared maths');
         });
 
         it('POST /api/srs/review → accepts a session and records ordering telemetry', async () => {
@@ -1868,6 +2000,83 @@ describe('Flashback API', () => {
             assert.equal(deck.description, 'Updated desc', 'Description must be updated');
         });
 
+        it('POST /api/decks → a new deck gets a palette colour, stored in its file', async () => {
+            const hash = (await (await post(`${baseUrl}/api/decks`, { name: 'Coloured Deck' })).json()).globalHash;
+            const deck = await (await fetch(`${baseUrl}/api/decks/${hash}`)).json();
+            assert.ok(['slate', 'sage', 'ochre', 'brick', 'plum', 'ink'].includes(deck.color));
+            const file = JSON.parse(fsSync.readFileSync(path.join(getWorkspacePath(), '_decks', `${hash}.json`), 'utf-8'));
+            assert.equal(file.color, deck.color);
+            await fetch(`${baseUrl}/api/decks/${hash}`, { method: 'DELETE' });
+        });
+
+        it('PUT /api/decks/:hash { color } → recolours the box; null clears it; an unknown one is 400', async () => {
+            assert.ok(deckHash, 'Precondition: deck created');
+            assert.equal((await put(`${baseUrl}/api/decks/${deckHash}`, { color: 'plum' })).status, 200);
+            let deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.equal(deck.color, 'plum');
+            assert.equal(deck.name, 'Renamed Deck', 'a colour change leaves the name alone');
+            const listed = (await (await fetch(`${baseUrl}/api/decks`)).json()).find((d) => d.global_hash === deckHash);
+            assert.equal(listed.color, 'plum');
+            assert.ok(listed.standing && typeof listed.standing.due === 'number');
+
+            assert.equal((await put(`${baseUrl}/api/decks/${deckHash}`, { color: 'chartreuse' })).status, 400);
+            assert.equal((await put(`${baseUrl}/api/decks/${deckHash}`, { color: null })).status, 200);
+            deck = await (await fetch(`${baseUrl}/api/decks/${deckHash}`)).json();
+            assert.equal(deck.color, null);
+        });
+
+        it('deck covers: a drawn pattern, an uploaded image, repositioning, replacing and removing', async () => {
+            const hash = (await (await post(`${baseUrl}/api/decks`, { name: 'Covered Deck' })).json()).globalHash;
+            const coversDir = path.join(getWorkspacePath(), '_decks', 'covers');
+            const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+            const uploadCover = (bytes, type) => {
+                const form = new FormData();
+                form.append('file', new Blob([bytes], { type }), 'cover');
+                return fetch(`${baseUrl}/api/decks/${hash}/cover`, { method: 'POST', body: form });
+            };
+
+            assert.equal((await put(`${baseUrl}/api/decks/${hash}/cover`, { pattern: 'cards' })).status, 200);
+            let deck = await (await fetch(`${baseUrl}/api/decks/${hash}`)).json();
+            assert.deepEqual(deck.cover, { kind: 'pattern', pattern: 'cards' });
+            assert.equal((await fetch(`${baseUrl}/api/decks/${hash}/cover`)).status, 404, 'a drawn cover has no image to serve');
+            assert.equal((await put(`${baseUrl}/api/decks/${hash}/cover`, { pattern: 'polka' })).status, 400);
+
+            assert.equal((await uploadCover('not an image', 'text/plain')).status, 400);
+            const up = await uploadCover(png, 'image/png');
+            assert.equal(up.status, 201);
+            const first = (await up.json()).cover;
+            assert.equal(first.kind, 'image');
+            assert.equal(first.y, 0.5);
+            assert.ok(fsSync.existsSync(path.join(coversDir, first.file)));
+            const served = await fetch(`${baseUrl}/api/decks/${hash}/cover`);
+            assert.equal(served.status, 200);
+            assert.match(served.headers.get('content-type'), /image\/png/);
+            assert.deepEqual(Buffer.from(await served.arrayBuffer()), png);
+
+            const moved = await (await put(`${baseUrl}/api/decks/${hash}/cover`, { y: 0.2 })).json();
+            assert.equal(moved.cover.y, 0.2);
+            assert.equal(moved.cover.file, first.file, 'repositioning keeps the image');
+
+            const second = (await (await uploadCover(png, 'image/png')).json()).cover;
+            assert.notEqual(second.file, first.file);
+            assert.ok(!fsSync.existsSync(path.join(coversDir, first.file)), 'the replaced image is deleted');
+
+            assert.equal((await fetch(`${baseUrl}/api/decks/${hash}/cover`, { method: 'DELETE' })).status, 200);
+            deck = await (await fetch(`${baseUrl}/api/decks/${hash}`)).json();
+            assert.equal(deck.cover, null);
+            assert.ok(!fsSync.existsSync(path.join(coversDir, second.file)));
+
+            const third = (await (await uploadCover(png, 'image/png')).json()).cover;
+            await fetch(`${baseUrl}/api/decks/${hash}`, { method: 'DELETE' });
+            assert.ok(!fsSync.existsSync(path.join(coversDir, third.file)), 'deleting the deck deletes its cover');
+        });
+
+        it('PUT /api/decks/:hash { color } → 403 on the default deck, which is always kraft', async () => {
+            const system = (await (await fetch(`${baseUrl}/api/decks`)).json()).find((d) => d.is_system);
+            assert.ok(system, 'the system deck exists');
+            assert.equal((await put(`${baseUrl}/api/decks/${system.global_hash}`, { color: 'sage' })).status, 403);
+        });
+
         it('POST /api/decks/:hash/entries → 400 when cardHash is missing', async () => {
             assert.ok(deckHash, 'Precondition: deck created');
             const res = await post(`${baseUrl}/api/decks/${deckHash}/entries`, {});
@@ -1933,6 +2142,78 @@ describe('Flashback API', () => {
                 body.cards.some(c => c.global_hash === FC_HASH_1 || c.global_hash === FC_HASH_2),
                 'Card browser must find cards matching the search term'
             );
+        });
+
+        it('GET /api/decks/cards/summary → cards per document and per gap band, and health counts', async () => {
+            const res = await fetch(`${baseUrl}/api/decks/cards/summary?algorithm=leitner`);
+            assert.equal(res.status, 200);
+            const s = await res.json();
+            const inBands = Object.values(s.bands).reduce((a, b) => a + b, 0);
+            assert.equal(inBands, s.total, 'every card sits in exactly one band');
+            const inSources = s.documents.reduce((a, d) => a + d.cards, 0) + s.standalone.cards;
+            assert.equal(inSources, s.total, 'every card has one source');
+            assert.deepEqual(Object.keys(s.bands), ['new', 'd1', 'wk', 'w3', 'm2', 'long']);
+            for (const d of s.documents) assert.ok(!d.path.includes('\\'), 'paths use forward slashes');
+            for (const k of ['any', 'mouthful', 'probe']) assert.equal(typeof s.flags[k], 'number');
+        });
+
+        it('GET /api/decks/cards?band= keeps only cards in that gap band, with their gap', async () => {
+            const all = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&algorithm=leitner`)).json();
+            const fresh = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&algorithm=leitner&band=new`)).json();
+            assert.ok(fresh.cards.every((c) => c.gap === null), 'a new card has no gap yet');
+            assert.equal(fresh.total, all.cards.filter((c) => c.gap === null).length);
+        });
+
+        it('GET /api/decks/cards?sortBy=gap orders by the gap between reviews', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&algorithm=leitner&sortBy=gap&sortDir=asc`)).json();
+            const gaps = body.cards.map((c) => c.gap ?? -1);
+            assert.deepEqual(gaps, [...gaps].sort((a, b) => a - b));
+        });
+
+        it('GET /api/decks/cards?groupBy=gap keeps the bands in order and counts each across all pages', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?limit=1&algorithm=leitner&groupBy=gap&sortBy=front&sortDir=asc`)).json();
+            assert.ok(Array.isArray(body.groups) && body.groups.length > 0);
+            assert.equal(body.groups.reduce((n, g) => n + g.count, 0), body.total);
+            const order = ['new', 'd1', 'wk', 'w3', 'm2', 'long'];
+            const idx = body.groups.map((g) => order.indexOf(g.key));
+            assert.deepEqual(idx, [...idx].sort((a, b) => a - b));
+            assert.equal(body.cards.length, 1, 'the page is still one card');
+        });
+
+        it('GET /api/decks/cards?groupBy=source groups by document, standalone cards last', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?limit=500&groupBy=source`)).json();
+            const keys = body.cards.map((c) => (c.document_path ? c.document_path.replace(/\\/g, '/') : null));
+            const seen = new Set();
+            let prev;
+            for (const k of keys) {
+                if (k !== prev) { assert.ok(!seen.has(k), `group ${k} appears twice`); seen.add(k); }
+                prev = k;
+            }
+            if (keys.includes(null)) assert.equal(body.groups.at(-1).key, null);
+        });
+
+        it('GET /api/decks/cards?sortBy=due puts never-reviewed cards last', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?limit=500&algorithm=leitner&sortBy=due&sortDir=asc`)).json();
+            const firstNew = body.cards.findIndex((c) => c.gap === null);
+            if (firstNew >= 0) assert.ok(body.cards.slice(firstNew).every((c) => c.gap === null));
+        });
+
+        it('GET /api/decks/cards?source= narrows to a document, a folder, or the default deck', async () => {
+            const summary = await (await fetch(`${baseUrl}/api/decks/cards/summary`)).json();
+            const doc = summary.documents[0];
+            assert.ok(doc, 'need a document with cards');
+            const byDoc = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&source=document&sourcePath=${encodeURIComponent(doc.path)}`)).json();
+            assert.equal(byDoc.total, doc.cards);
+            assert.ok(byDoc.cards.every((c) => c.document_path.replace(/\\/g, '/') === doc.path));
+            const folder = doc.path.split('/').slice(0, -1).join('/');
+            if (folder) {
+                const byFolder = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&source=folder&sourcePath=${encodeURIComponent(folder)}`)).json();
+                assert.ok(byFolder.total >= doc.cards);
+                assert.ok(byFolder.cards.every((c) => c.document_path.replace(/\\/g, '/').startsWith(`${folder}/`)));
+            }
+            const alone = await (await fetch(`${baseUrl}/api/decks/cards?limit=200&source=standalone`)).json();
+            assert.equal(alone.total, summary.standalone.cards);
+            assert.ok(alone.cards.every((c) => !c.document_path));
         });
 
         it('GET /api/decks/cards → returns all cards when no search term given', async () => {
@@ -2235,6 +2516,84 @@ describe('Flashback API', () => {
             assert.equal(res.status, 200);
             assert.equal((await res.json()).documentPath, null);
             assert.equal((await fetch(`${baseUrl}/api/flashcards/${standaloneHash}`)).status, 404);
+        });
+    });
+
+    // ── Categories ────────────────────────────────────────────────────────
+    //
+    // A card names its category in its sidecar or deck file, not by id — so a rename that
+    // only touched the row left every card on the old name, and the next Doctor run brought
+    // the old category back. These pin that a rename and a clearing delete reach the files.
+
+    describe('Categories', () => {
+        const ROOT = 'CategoryApiTest';
+        const DOC = `${ROOT}/sorted.md`;
+        const CARD = 'fc-category-001';
+        const NAME = 'CatApiTest';
+        let catId = null;
+        let otherId = null;
+        let soloHash = null;
+
+        const docCard = async () => {
+            const res = await fetch(`${baseUrl}/api/documents/read?path=${encodeURIComponent(DOC)}`);
+            return ((await res.json()).metadata?.flashcards ?? []).find(f => f.globalHash === CARD);
+        };
+        const soloCard = async () => (await fetch(`${baseUrl}/api/flashcards/${soloHash}`)).json();
+        const row = async (id) => (await (await fetch(`${baseUrl}/api/categories`)).json()).find(c => c.id === id);
+
+        before(async () => {
+            catId = (await (await post(`${baseUrl}/api/categories`, { name: NAME, priority: 3 })).json()).id;
+            otherId = (await (await post(`${baseUrl}/api/categories`, { name: 'CatApiOther', priority: 3 })).json()).id;
+            await createFolder(ROOT);
+            await createFile('sorted.md', ROOT);
+            await updateFile(DOC, '# Sorted', {
+                flashcards: [{ globalHash: CARD, category: NAME, vanillaData: { frontText: 'Q', backText: 'A' } }],
+            });
+            const solo = await post(`${baseUrl}/api/flashcards`, {
+                frontText: 'Solo category front', backText: 'B', cardType: 'basic', category: NAME,
+            });
+            soloHash = (await solo.json()).globalHash;
+        });
+
+        it('GET /api/categories → each row counts the cards using it', async () => {
+            assert.equal((await row(catId)).cards, 2);
+            assert.equal((await row(otherId)).cards, 0);
+        });
+
+        it('GET /api/decks/cards?category= keeps the cards in that category', async () => {
+            const body = await (await fetch(`${baseUrl}/api/decks/cards?category=${catId}&limit=200`)).json();
+            assert.equal(body.total, 2);
+            assert.deepEqual(body.cards.map(c => c.global_hash).sort(), [CARD, soloHash].sort());
+        });
+
+        it('PUT /api/categories/:id → a rename rewrites the cards naming it', async () => {
+            const res = await put(`${baseUrl}/api/categories/${catId}`, { name: 'CatApiRenamed' });
+            assert.equal(res.status, 200);
+            assert.equal((await docCard()).category, 'CatApiRenamed', 'the sidecar names the new category');
+            assert.equal((await soloCard()).category, 'CatApiRenamed', 'and so does the default deck');
+            assert.equal((await row(catId)).cards, 2, 'both cards still resolve to the row');
+        });
+
+        it('PUT /api/categories/:id → 409 onto another category’s name, 404 unknown id', async () => {
+            assert.equal((await put(`${baseUrl}/api/categories/${catId}`, { name: 'CatApiOther' })).status, 409);
+            assert.equal((await put(`${baseUrl}/api/categories/999999`, { name: 'x' })).status, 404);
+        });
+
+        it('DELETE /api/categories/:id → refuses while in use, and clears its cards with ?clear=1', async () => {
+            assert.equal((await del(`${baseUrl}/api/categories/${catId}`)).status, 409);
+            const res = await del(`${baseUrl}/api/categories/${catId}?clear=1`);
+            assert.equal(res.status, 200);
+            assert.equal(await row(catId), undefined);
+            assert.equal((await docCard()).category, undefined, 'the card stays, without a category');
+            assert.ok(!(await soloCard()).category, 'the standalone card loses it too');
+        });
+
+        it('DELETE /api/categories/:id → an unused category goes without clear', async () => {
+            assert.equal((await del(`${baseUrl}/api/categories/${otherId}`)).status, 200);
+        });
+
+        after(async () => {
+            await del(`${baseUrl}/api/flashcards/${soloHash}`);
         });
     });
 
@@ -2575,6 +2934,8 @@ describe('Flashback API', () => {
             assert.ok(Array.isArray(list));
             const day = list.find(d => d.date === DATE);
             assert.ok(day && day.hasEntry === true);
+            assert.equal(typeof day.reviews, 'number', 'each day carries its review count');
+            assert.ok(day.firstLine === null || typeof day.firstLine === 'string');
         });
 
         it('POST /api/diary/rebuild → 200 with a count', async () => {
@@ -2967,6 +3328,62 @@ describe('Flashback API', () => {
 
         it('404s for an account that does not exist', async () => {
             const res = await fetch(`${baseUrl}/api/accounts/not-a-real-id/progress`);
+            assert.equal(res.status, 404);
+        });
+    });
+
+    // ── Accounts: reading somebody else's Logs ────────────────────────────
+    //
+    // The Author reads anyone's Logs through `/api/accounts/:id/logs`, read-only. Like
+    // progress, the Author's own are filed under the owner sentinel, so reading the Author by
+    // id must land on the same files `/api/diary` serves them.
+    describe('Account logs', () => {
+        const day = '2020-02-02';
+        let authorId;
+
+        before(async () => {
+            const { accounts } = await (await fetch(`${baseUrl}/api/accounts`)).json();
+            authorId = accounts.find(a => a.role === 'author')?.id;
+            const res = await fetch(`${baseUrl}/api/diary/entry/${day}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ content: 'Read by id.' }),
+            });
+            assert.equal(res.status, 200);
+        });
+
+        it("reads the Author's own logs by id, the same days and entry /api/diary serves", async () => {
+            const own = await (await fetch(`${baseUrl}/api/diary`)).json();
+            const byId = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs`)).json();
+            assert.deepEqual(byId, own);
+            assert.ok(byId.some((d) => d.date === day && d.hasEntry));
+
+            const entry = await (await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`)).json();
+            assert.equal(entry.content, 'Read by id.');
+        });
+
+        it("reads another person's logs from their own folder, not the caller's", async () => {
+            const created = await (await post(`${baseUrl}/api/accounts`, {
+                name: 'Logs Probe', email: `logs+${Date.now()}@example.invalid`, role: 'reader',
+            })).json();
+            const days = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs`)).json();
+            assert.deepEqual(days, [], 'a fresh reader has written nothing');
+            const entry = await (await fetch(`${baseUrl}/api/accounts/${created.id}/logs/entry/${day}`)).json();
+            assert.equal(entry.content, '');
+            const summary = await fetch(`${baseUrl}/api/accounts/${created.id}/logs/summary/${day}`);
+            assert.equal(summary.status, 404);
+        });
+
+        it('refuses an assistant, a malformed date and an unknown account', async () => {
+            const mcp = await fetch(`${baseUrl}/api/accounts/${authorId}/logs`, { headers: { 'X-Flashback-Client': 'mcp' } });
+            assert.equal(mcp.status, 403);
+            assert.equal((await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/yesterday`)).status, 400);
+            assert.equal((await fetch(`${baseUrl}/api/accounts/not-a-real-id/logs`)).status, 404);
+        });
+
+        it('offers no way to write someone else’s logs', async () => {
+            const res = await fetch(`${baseUrl}/api/accounts/${authorId}/logs/entry/${day}`, {
+                method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content: 'x' }),
+            });
             assert.equal(res.status, 404);
         });
     });

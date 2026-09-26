@@ -1,0 +1,178 @@
+/* MarginCards — cards beside their passage, in the room the scroller keeps on its
+   right (.doc-editor-renderer.has-margin). Items are placed by top from script;
+   --hl is the item's highlight colour. */
+
+.doc-margin {
+  position: absolute;
+  top: 0;
+  right: var(--space-5);
+  width: var(--size-lg);
+  z-index: var(--z-raised);
+}
+
+.m-item {
+  --hl: var(--color-hl-1);
+  position: absolute;
+  left: 0;
+  right: 0;
+  display: grid;
+  gap: var(--space-2);
+  transition: top var(--dur-base) var(--ease-out);
+}
+
+/* A card in the margin: the real card stock, small. */
+.mcard {
+  position: relative;
+  padding: var(--space-2) var(--space-3) var(--space-2);
+  border: 1px solid var(--color-card-edge);
+  border-radius: var(--radius-card);
+  background: var(--color-card);
+  box-shadow: var(--shadow-card);
+  color: var(--color-card-ink);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.mcard:hover,
+.mcard:focus-visible,
+.m-item.is-linked .mcard {
+  transform: translateY(-2px);
+}
+
+.mcard:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.mcard__front {
+  overflow-wrap: anywhere;
+}
+
+.mcard__gap {
+  display: inline-block;
+  min-width: 3em;
+  margin: 0 0.15em;
+  border-bottom: 1.5px solid var(--color-card-ink);
+  transform: translateY(-0.12em);
+}
+
+.mcard__fill {
+  padding: 0 0.1em;
+  border-bottom: 1.5px solid var(--color-accent);
+  color: var(--color-accent);
+}
+
+.mcard__back {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-card-line);
+  color: var(--color-card-ink-2);
+}
+
+.mcard__foot {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-card-ink-2);
+}
+
+.mcard__edit {
+  display: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  color: var(--color-card-ink-2);
+  cursor: pointer;
+}
+
+.mcard:hover .mcard__edit,
+.mcard:focus-within .mcard__edit {
+  display: inline;
+}
+
+.mcard__edit:hover {
+  color: var(--color-accent);
+}
+
+/* A passage with several cards: the kraft box. */
+.m-box {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.m-box:hover,
+.m-item.is-linked .m-box {
+  transform: translateY(-2px);
+}
+
+.m-box:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.m-box[aria-expanded="true"] .deck-box__peek {
+  opacity: 0;
+}
+
+.m-box .deck-box__peek {
+  transition: opacity var(--dur-base) var(--ease-out);
+}
+
+/* A highlight with no card: a short mark in its colour. */
+.m-tick {
+  display: block;
+  width: var(--space-1);
+  height: var(--space-5);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--hl) 85%, var(--color-fg-primary) 10%);
+}
+
+/* The passage a hovered card or Find row belongs to: a ring in the highlight's
+   own colour that blooms in with a soft glow and settles, so the eye finds it. */
+.doc-editor-renderer [data-color="amber"],
+.doc-editor-renderer .pdf-hl--amber { --hl-ring: var(--color-hl-1); }
+.doc-editor-renderer [data-color="green"],
+.doc-editor-renderer .pdf-hl--green { --hl-ring: var(--color-hl-2); }
+.doc-editor-renderer [data-color="blue"],
+.doc-editor-renderer .pdf-hl--blue { --hl-ring: var(--color-hl-3); }
+.doc-editor-renderer [data-color="pink"],
+.doc-editor-renderer .pdf-hl--pink { --hl-ring: var(--color-hl-4); }
+
+.doc-editor-renderer [data-hl].is-linked {
+  --hl-ring-strong: color-mix(in srgb, var(--hl-ring, var(--color-accent)) 75%, var(--color-fg-primary));
+  box-shadow: 0 0 0 2px var(--hl-ring-strong);
+  border-radius: 2px;
+  animation: hl-glow var(--dur-flip) var(--ease-out);
+}
+
+.doc-editor-renderer .pdf-hl.is-linked {
+  opacity: 0.6;
+}
+
+@keyframes hl-glow {
+  from {
+    box-shadow: 0 0 0 0 transparent, 0 0 0 0 transparent;
+  }
+  45% {
+    box-shadow: 0 0 0 3px var(--hl-ring-strong), 0 0 14px 4px color-mix(in srgb, var(--hl-ring, var(--color-accent)) 70%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 2px var(--hl-ring-strong), 0 0 0 0 transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .doc-editor-renderer [data-hl].is-linked {
+    animation: none;
+  }
+}

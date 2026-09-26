@@ -1,0 +1,10 @@
+/* Confirm dialog — see ConfirmDialog.jsx. The sentence says what will happen; the buttons
+   are the shared quiet ones in the modal footer (Cancel as text, the action outlined, in
+   danger red when it destroys something). */
+
+.confirm-message {
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}

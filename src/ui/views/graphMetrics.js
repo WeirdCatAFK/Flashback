@@ -16,13 +16,17 @@
  * was reporting mastery rate and calling it knowledge.
  */
 
-// Matches NODE_R + 4 in GraphView — the halo an unstudied node would have if it
-// were drawn at all. Nothing shrinks below it.
+/**
+ * Matches NODE_R + 4 in GraphView — the halo an unstudied node would have if it
+ * were drawn at all. Nothing shrinks below it.
+ */
 export const HALO_BASE = 11;
-// Pixels of radius per √(mastered card). Tuned so one mastered card is a visible
-// bump and a few hundred fill a neighbourhood without leaving the screen.
+/**
+ * Pixels of radius per √(mastered card). Tuned so one mastered card is a visible
+ * bump and a few hundred fill a neighbourhood without leaving the screen.
+ */
 export const HALO_K = 4;
-// Past this the exact size has stopped carrying information. Bites above mass ~390.
+/** Past this the exact size has stopped carrying information. Bites above mass ~390. */
 export const HALO_MAX = 90;
 
 /**
@@ -87,9 +91,7 @@ export function aggregateMass(nodes, edges) {
   const byId = new Map(nodes.map((n) => [n.id, n]));
   const out = new Map();
 
-  // Group each aggregator's member nodes first, so the tag guard can see a tag's
-  // whole endpoint set before deciding which flashcards are redundant.
-  const membersOf = new Map(); // aggregator id → member nodes
+  const membersOf = new Map();
   for (const e of edges) {
     if (e.relation !== 'tag' && e.relation !== 'deck') continue;
     const a = byId.get(idOf(e.fromId ?? e.source));
@@ -101,7 +103,7 @@ export function aggregateMass(nodes, edges) {
     if (a.type === wanted) { host = a; member = b; }
     else if (b.type === wanted) { host = b; member = a; }
     else continue;
-    if (member.type === wanted) continue; // tag-of-a-tag: nothing to sum
+    if (member.type === wanted) continue;
 
     if (!membersOf.has(host.id)) membersOf.set(host.id, []);
     membersOf.get(host.id).push(member);
@@ -120,11 +122,10 @@ export function aggregateMass(nodes, edges) {
       if (m.type === 'Document') {
         seen.add(m.id);
       } else if (m.type === 'Flashcard') {
-        // Redundant only when the card's own document is in this same set.
         if (m.flashcardDocPath && taggedDocs.has(m.flashcardDocPath)) continue;
         seen.add(m.id);
       } else {
-        continue; // Folder, and anything else that aggregates documents
+        continue;
       }
       mass += Number(m.mass) || 0;
       cardCount += Number(m.cardCount) || 0;

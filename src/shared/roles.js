@@ -62,7 +62,7 @@ export const CAPABILITIES = {
     dismissCardFlag:  { minimum: ROLES.READER, guards: [["flashcards", "POST", "/abc123/flags/mouthful/dismiss"]] },
     readLogs:         { minimum: ROLES.READER, guards: [["diary", "GET", "/"]] },
 
-    annotate:         { minimum: ROLES.COLLABORATOR, guards: [["highlights", "POST", "/"], ["documents", "PUT", "/metadata"]],
+    annotate:         { minimum: ROLES.COLLABORATOR, guards: [["highlights", "POST", "/"], ["documents", "PUT", "/metadata"], ["documents", "POST", "/cover"]],
         note: "Highlights, tags and cards all live in the sidecar, so annotating IS a metadata write." },
     attachMedia:      { minimum: ROLES.COLLABORATOR, guards: [["media", "POST", "/vanilla"], ["media", "POST", "/custom"]] },
 
@@ -71,8 +71,9 @@ export const CAPABILITIES = {
     changeVaultShape: { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/move"], ["documents", "DELETE", "/"]] },
     importDocuments:  { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/import"], ["subscriptions", "POST", "/import"]] },
     editCards:        { minimum: ROLES.ADMIN, guards: [["flashcards", "POST", "/"], ["flashcards", "DELETE", "/abc123"]] },
-    manageDecks:      { minimum: ROLES.ADMIN, guards: [["decks", "POST", "/"], ["decks", "DELETE", "/abc123"]] },
+    manageDecks:      { minimum: ROLES.ADMIN, guards: [["decks", "POST", "/"], ["decks", "DELETE", "/abc123"], ["decks", "POST", "/abc123/cover"]] },
     manageCategories: { minimum: ROLES.ADMIN, guards: [["categories", "POST", "/"], ["categories", "PUT", "/1"]] },
+    manageTags:       { minimum: ROLES.ADMIN, guards: [["documents", "POST", "/tags/rename"]] },
     manageMedia:      { minimum: ROLES.ADMIN, guards: [["media", "POST", "/reconcile"], ["media", "DELETE", "/"]] },
     viewHistory:      { minimum: ROLES.ADMIN, guards: [["seal", "GET", "/log"]] },
     checkIndex:       { minimum: ROLES.ADMIN, guards: [["doctor", "GET", "/check"]] },
@@ -84,6 +85,8 @@ export const CAPABILITIES = {
     switchVault:      { minimum: ROLES.AUTHOR, guards: [["vault", "POST", "/switch"]] },
     manageRemotes:    { minimum: ROLES.AUTHOR, guards: [["remotes", "GET", "/"]] },
     rotatePureToken:  { minimum: ROLES.AUTHOR, guards: [["accounts", "POST", "/pure-token"]] },
+    readAllLogs:      { minimum: ROLES.AUTHOR, guards: [["accounts", "GET", "/abc123/logs"], ["accounts", "GET", "/abc123/logs/entry/2026-01-01"]],
+        note: "Logs hold private writing; only the server's owner is told they may read them." },
 };
 
 /**

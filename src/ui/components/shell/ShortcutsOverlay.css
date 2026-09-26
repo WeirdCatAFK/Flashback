@@ -1,0 +1,78 @@
+/* ShortcutsOverlay — the shortcut groups, rows and keys. The dialog chrome is Modal's. Each
+   group opens with a small mono label; each row is the action and its keys, over a soft rule.
+   Keys are drawn as Config → Keyboard draws them: mono, a hairline edge, a heavier bottom
+   edge, so a key reads as a key. */
+
+.so-panel {
+  max-width: var(--size-5xl);
+}
+
+.so-group + .so-group {
+  margin-top: var(--space-4);
+}
+
+.so-group-title {
+  margin-bottom: var(--space-1);
+  color: var(--color-fg-tertiary);
+}
+
+.so-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
+}
+
+.so-row:last-child {
+  border-bottom: 0;
+}
+
+.so-row-label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.so-row-keys {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.so-combo,
+.so-combo-inner {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0-5);
+}
+
+.so-plus,
+.so-alt-sep {
+  margin: 0 var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.so-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: var(--control-xs);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-line);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+}

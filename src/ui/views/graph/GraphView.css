@@ -1,0 +1,504 @@
+/* GraphView — the force-graph canvas, its floating controls panel, the
+   selection panel and the Ko-fi tag, each a solid object on the desk. Switches,
+   buttons and the export menu are base components; only their placement and
+   dress live here. */
+
+.graph-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The person picker's own row. Empty (Reader, or a vault with nobody else on it) it takes no
+   space at all, so a local vault's graph is pixel-identical to before it existed. Quiet on
+   purpose: same ground as the canvas, no rule under it, muted label — a caption over the
+   graph rather than a toolbar. */
+.graph-topbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4) 0;
+  background: var(--color-bg-base);
+}
+.graph-topbar:empty {
+  display: none;
+}
+.graph-topbar .scope-picker {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-3);
+  font-size: var(--text-xs);
+}
+.graph-topbar .scope-picker__label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  opacity: 0.65;
+}
+.graph-topbar .scope-picker__select {
+  max-width: 20rem;
+  padding: var(--space-0-5) var(--space-2);
+  border-color: var(--color-border);
+  background: color-mix(in srgb, var(--color-bg-surface) 70%, transparent);
+  color: var(--color-fg-secondary);
+  font-size: var(--text-xs);
+}
+.graph-topbar .scope-picker__select:hover,
+.graph-topbar .scope-picker__select:focus-visible {
+  color: var(--color-fg-primary);
+  border-color: var(--color-border-strong);
+}
+.graph-topbar .scope-picker__note {
+  font-size: var(--text-xs);
+  opacity: 0.75;
+}
+
+.graph-root {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  overflow: hidden;
+  background: var(--color-bg-base);
+  zoom: calc(1 / var(--ui-zoom, 1));
+}
+
+.graph-status {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-fg-secondary);
+  font-size: var(--text-base);
+}
+
+.graph-status--error {
+  color: var(--color-review-again);
+}
+
+/* ── The floating pieces ────────────────────────────────────────────────────
+   Objects on the desk, like the app's popovers: a solid surface, a real edge and
+   the float shadow. No frosted glass. `.graph-root` undoes the app zoom for the
+   canvas's sake; the panels take it back, so at any Ctrl+/− level their corners,
+   text and spacing are the size every other panel in the app is. */
+
+.graph-kofi,
+.graph-controls,
+.graph-info {
+  zoom: var(--ui-zoom, 1);
+  border: 1px solid var(--color-border);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+}
+
+/* ── Ko-fi support button (top-left) ────────────────────────────────────── */
+
+.graph-kofi {
+  position: absolute;
+  top: var(--space-4);
+  left: var(--space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-1) var(--space-2);
+  border-color: color-mix(in srgb, var(--color-accent) 35%, var(--color-border));
+  border-radius: var(--radius-pill);
+  color: var(--color-accent);
+  font-size: var(--text-sm);
+  line-height: 1;
+  text-decoration: none;
+  user-select: none;
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              transform var(--dur-base) var(--ease-out);
+}
+
+.graph-kofi:hover {
+  background: var(--color-accent-subtle);
+  border-color: color-mix(in srgb, var(--color-accent) 60%, var(--color-border));
+  transform: translateY(-1px);
+}
+
+.graph-kofi-icon {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.graph-kofi-label {
+  white-space: nowrap;
+}
+
+/* ── Controls panel (top-right) ─────────────────────────────────────────────
+   Collapsing slides the body shut (its rows 1fr to 0fr, with a fade) and narrows the
+   panel to its header. The body keeps the open width, and the clip adds nothing to the
+   panel's own width, so `fit-content` is the header's width alone; `interpolate-size`
+   lets that width animate. */
+
+.graph-controls {
+  --graph-panel-w: calc(var(--size-md) + var(--space-8));
+  position: absolute;
+  top: var(--space-4);
+  right: var(--space-4);
+  width: var(--graph-panel-w);
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  color: var(--color-fg-primary);
+  display: flex;
+  flex-direction: column;
+  user-select: none;
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.graph-controls--collapsed {
+  width: fit-content;
+}
+
+.graph-controls-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: none;
+  color: var(--color-fg-primary);
+  font-family: inherit;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.graph-controls-toggle:hover {
+  background: var(--color-bg-hover);
+}
+
+.graph-controls-glyph {
+  flex-shrink: 0;
+  color: var(--color-accent);
+}
+
+.graph-controls-title {
+  flex: none;
+  margin-right: auto;
+  white-space: nowrap;
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-secondary);
+}
+
+.graph-controls-chevron {
+  flex-shrink: 0;
+  color: var(--color-fg-tertiary);
+  transition: transform var(--dur-base) var(--ease-out);
+}
+
+.graph-controls--collapsed .graph-controls-chevron {
+  transform: rotate(-90deg);
+}
+
+.graph-controls-clip {
+  display: grid;
+  grid-template-rows: 1fr;
+  contain: inline-size;
+  transition: grid-template-rows var(--dur-base) var(--ease-out),
+              opacity var(--dur-base) var(--ease-out);
+}
+
+.graph-controls--collapsed .graph-controls-clip {
+  grid-template-rows: 0fr;
+  opacity: 0;
+}
+
+.graph-controls-body {
+  min-height: 0;
+  width: calc(var(--graph-panel-w) - var(--space-0-5));
+  overflow: hidden;
+  box-shadow: inset 0 1px 0 var(--color-line);
+}
+
+.graph-controls-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0-5);
+  padding: var(--space-2) var(--space-3);
+}
+
+.graph-controls-heading {
+  margin-bottom: var(--space-1);
+  color: var(--color-fg-tertiary);
+}
+
+.graph-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-0-5) 0;
+  pointer-events: none;
+}
+
+.graph-controls-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+.graph-controls-line {
+  width: var(--space-4);
+  height: 2px;
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+  transition: opacity var(--dur-fast) var(--ease-out);
+}
+
+/* ── Filter toggles (switch rows) ───────────────────────────────────────── */
+
+/* Stretched into its negative margins (not `width: 100%`), so the hover wash reaches past
+   the text while the switch lines up with the slider below. */
+.graph-filter.toggle--trailing {
+  width: auto;
+}
+
+.graph-filter {
+  margin: 0 calc(-1 * var(--space-1));
+  padding: var(--space-0-5) var(--space-1);
+  border-radius: var(--radius-sm);
+  font-size: var(--text-base);
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.graph-filter:hover {
+  background: var(--color-bg-hover);
+}
+
+.graph-filter .toggle__label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1;
+  min-width: 0;
+}
+
+.graph-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-fg-primary);
+  transition: color var(--dur-fast) var(--ease-out);
+}
+
+.graph-filter[aria-checked="false"] .graph-filter-label {
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Cohesion slider ────────────────────────────────────────────────────── */
+
+.graph-slider-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) 0;
+  cursor: pointer;
+}
+
+.graph-slider-label {
+  flex-shrink: 0;
+  color: var(--color-fg-primary);
+  font-size: var(--text-base);
+}
+
+.graph-slider {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-xs);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+.graph-slider::-webkit-slider-runnable-track {
+  height: var(--space-0-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.graph-slider::-moz-range-track {
+  height: var(--space-0-5);
+  border-radius: var(--radius-pill);
+  background: var(--color-border);
+}
+
+.graph-slider::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: var(--space-3);
+  height: var(--space-3);
+  margin-top: calc(var(--space-1) * -1);
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-float);
+}
+
+.graph-slider::-moz-range-thumb {
+  width: var(--space-3);
+  height: var(--space-3);
+  border: none;
+  border-radius: 50%;
+  background: var(--color-accent);
+  box-shadow: var(--shadow-float);
+}
+
+.graph-slider:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+/* ── Action row (refresh / export) ──────────────────────────────────────── */
+
+.graph-controls-actions {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-3) var(--space-3);
+}
+
+.graph-action-btn--active {
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+}
+
+/* ── Node info panel (bottom-left) ──────────────────────────────────────── */
+
+.graph-info {
+  position: absolute;
+  bottom: var(--space-4);
+  left: var(--space-4);
+  border-radius: var(--radius-lg);
+  padding: var(--space-3) var(--space-4);
+  min-width: calc(var(--size-md) + var(--space-8));
+  max-width: calc(var(--size-xl) + var(--space-10));
+}
+
+.graph-info-type {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.graph-info-name {
+  font-size: var(--text-md);
+  line-height: 1.3;
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
+  padding-right: var(--space-5);
+}
+
+.graph-info-close {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+}
+
+.graph-info-neighbors {
+  margin-top: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--color-line);
+  padding-top: var(--space-2);
+}
+
+.graph-info-group-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  margin-bottom: var(--space-1);
+}
+
+.graph-info-group-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.graph-info-group-label {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.graph-info-group-count {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.graph-info-group-items {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.graph-info-neighbor {
+  max-width: 100%;
+  padding: var(--space-0-5) var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-base);
+  font: inherit;
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.graph-info-neighbor--link {
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out),
+              color var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out);
+}
+
+.graph-info-neighbor--link:hover {
+  background: var(--color-accent-subtle);
+  color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+}
+
+.graph-info-overflow {
+  padding: var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph-controls,
+  .graph-controls-clip,
+  .graph-controls-chevron,
+  .graph-kofi {
+    transition: none;
+  }
+}

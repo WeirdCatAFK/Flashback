@@ -1,0 +1,369 @@
+/* The flashcard as an object: an index card (5 x 3) in its own stock, with a real
+   edge and shadow and nothing on it but its content. Colours are the --color-card*
+   family, not the surfaces, so a theme can make the card darker than the desk
+   (Focus) or lighter (Lamp). See INTERFACE.md, Design language. */
+
+.flashcard {
+  --fc-radius: var(--radius-card);
+  position: relative;
+  width: 100%;
+  max-width: var(--size-5xl);
+  aspect-ratio: 5 / 3;
+  margin: 0 auto;
+  perspective: 1400px;
+  cursor: pointer;
+  user-select: none;
+  touch-action: pan-y;
+}
+
+.flashcard:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 3px;
+  border-radius: var(--fc-radius);
+}
+
+.flashcard-inner {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  transition: transform var(--dur-flip) var(--ease-in-out);
+  transform-style: preserve-3d;
+}
+
+.flashcard[data-face='back'] .flashcard-inner {
+  transform: rotateY(180deg);
+}
+
+/* Turning the card over lifts it off the desk for a moment, the way a hand does. */
+.flashcard[data-face='back']:not(.flashcard--static) {
+  animation: flashcard-lift var(--dur-flip) var(--ease-in-out);
+}
+@keyframes flashcard-lift {
+  50% { transform: translateY(calc(-1 * var(--space-2))) scale(1.025); }
+}
+
+.flashcard-face {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  overflow: hidden;
+  border-radius: var(--fc-radius);
+  background: var(--color-card);
+  color: var(--color-card-ink);
+  border: 1px solid var(--color-card-edge);
+  box-shadow: var(--shadow-card);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+  container-type: size;
+}
+
+.flashcard-face--back {
+  transform: rotateY(180deg);
+}
+
+/* Room at the foot for the source line, so the answer never runs under it. */
+.flashcard-face--cited {
+  padding-bottom: var(--space-10);
+}
+
+/* Static variant: single face, no 3D, no flip. */
+.flashcard--static { cursor: default; perspective: none; }
+.flashcard--static .flashcard-inner { transition: none; transform: none; }
+.flashcard--static .flashcard-face {
+  position: relative;
+  transform: none;
+  -webkit-backface-visibility: visible;
+  backface-visibility: visible;
+}
+
+/* Image takes only the space left over by text + button (flex-basis 0), then
+   scales to fit it — so a large image never pushes the text off the card. */
+.flashcard-media {
+  flex: 1 1 0;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.flashcard-media img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+}
+
+.flashcard-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  text-align: center;
+  text-wrap: balance;
+  line-height: 1.35;
+  font-size: clamp(var(--text-sm), 7.2cqh, var(--text-2xl));
+  word-break: break-word;
+}
+
+/* Markdown block elements rendered inside card text — kept tight so they read
+   like a single card face rather than a full document. */
+.flashcard-text p { margin: 0 0 0.5em; }
+.flashcard-text p:last-child { margin-bottom: 0; }
+.flashcard-text ul,
+.flashcard-text ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; text-align: left; }
+.flashcard-text blockquote {
+  margin: 0 0 0.5em;
+  padding-inline-start: 0.8em;
+  border-inline-start: 3px solid var(--color-card-line);
+  text-align: left;
+}
+.flashcard-text code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--color-card-field);
+  border: 1px solid var(--color-card-line);
+  border-radius: var(--radius-sm);
+  padding: 0.1em 0.35em;
+}
+.flashcard-text pre {
+  margin: 0 0 0.5em;
+  padding: 0.6em 0.8em;
+  background: var(--color-card-field);
+  border: 1px solid var(--color-card-line);
+  border-radius: var(--radius-md);
+  text-align: left;
+  overflow-x: auto;
+}
+.flashcard-text pre code {
+  background: none;
+  border: none;
+  padding: 0;
+}
+.flashcard-text .katex-display {
+  margin: 0.4em 0;
+  text-align: center;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* What was typed, under the answer on a type_answer card's answer side. */
+.flashcard-you-wrote {
+  flex: 0 0 auto;
+  font-size: clamp(var(--text-xs), 4.6cqh, var(--text-lg));
+  color: var(--color-card-ink-2);
+}
+.flashcard-you-wrote--ok {
+  color: var(--color-review-good);
+}
+.flashcard-you-wrote--no {
+  color: var(--color-review-again);
+  text-decoration: line-through;
+}
+
+/* type_answer's post-review notes: a mnemonic or explanation shown under the answer once
+   the card has been checked. Deliberately quieter and smaller than .flashcard-text — it is
+   support material, and must never be mistaken for the answer that was graded. */
+.flashcard-notes {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-width: 100%;
+  overflow-y: auto;
+  margin-top: 0.6em;
+  padding-top: 0.6em;
+  border-top: 1px solid var(--color-card-line);
+  color: var(--color-card-ink-2);
+  text-align: center;
+  line-height: 1.45;
+  font-size: clamp(var(--text-xs), 4.6cqh, var(--text-lg));
+  word-break: break-word;
+}
+
+.flashcard-notes p { margin: 0 0 0.5em; }
+.flashcard-notes p:last-child { margin-bottom: 0; }
+.flashcard-notes ul,
+.flashcard-notes ol { margin: 0 0 0.5em; padding-inline-start: 1.4em; }
+
+/* Floats in the bottom-right corner, out of the content flow, so it stays clear
+   of the main flashcard text/image. */
+.flashcard-audio-btn {
+  position: absolute;
+  bottom: var(--space-2);
+  right: var(--space-2);
+  z-index: var(--z-raised);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--control-md);
+  height: var(--control-md);
+  padding: 0;
+  color: var(--color-card-ink-2);
+  background: none;
+  border: 1px solid var(--color-card-line);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast);
+}
+
+.flashcard-audio-btn:hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.flashcard-audio-btn:active {
+  transform: scale(0.92);
+}
+
+.flashcard-audio-btn:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.flashcard-audio-btn svg {
+  display: block;
+}
+
+/* Custom card */
+.flashcard--custom .flashcard-custom-slot {
+  gap: var(--space-2);
+  border-style: dashed;
+  color: var(--color-card-ink-2);
+}
+
+.flashcard-custom-badge {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-card-ink-2);
+}
+
+.flashcard-custom-note {
+  font-size: var(--text-sm);
+  text-align: center;
+  max-width: 80%;
+}
+
+.flashcard-custom-live {
+  padding: 0;
+  overflow: hidden;
+}
+
+.flashcard-custom-iframe {
+  width: 100%;
+  height: 100%;
+  border: none;
+  display: block;
+  border-radius: var(--fc-radius);
+}
+
+/* Reversible: which side is up, printed small in the corner like a card's side mark */
+.flashcard-direction-badge {
+  position: absolute;
+  top: var(--space-3);
+  left: var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.06em;
+  color: var(--color-card-ink-2);
+}
+
+/* The source, cited at the foot of the answer side: the card quotes where it came from */
+.flashcard-source {
+  position: absolute;
+  left: var(--space-6);
+  right: var(--space-6);
+  bottom: var(--space-3);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-card-ink-2);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Cloze: inline text with blanks */
+.flashcard-cloze {
+  line-height: 1.8;
+}
+
+.cloze-blank {
+  display: inline-block;
+  min-width: 4.2em;
+  border-bottom: 2px solid var(--color-card-ink);
+  margin: 0 var(--space-0-5);
+  vertical-align: bottom;
+}
+
+.cloze-answer {
+  display: inline;
+  color: var(--color-accent);
+  border-bottom: 2px solid var(--color-accent);
+  padding: 0 var(--space-0-5);
+  margin: 0 var(--space-0-5);
+}
+
+/* Type Answer: textarea + check button inside the card face */
+.flashcard-face--front .type-answer-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  width: 100%;
+  max-width: var(--size-2xl);
+  margin-top: var(--space-2);
+}
+
+.type-answer-input {
+  width: 100%;
+  font-size: clamp(var(--text-xs), 3cqw, var(--text-base));
+  font-family: inherit;
+  text-align: center;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-card-line);
+  border-radius: var(--radius-sm);
+  background: var(--color-card-field);
+  color: var(--color-card-ink);
+  outline: none;
+  resize: vertical;
+  min-height: var(--size-xs);
+  transition: border-color var(--dur-fast);
+  box-sizing: border-box;
+}
+
+.type-answer-input:focus {
+  border-color: var(--color-accent);
+}
+
+.type-answer-check {
+  font-size: clamp(var(--text-xs), 2.5cqw, var(--text-sm));
+  padding: var(--space-0-5) var(--space-2);
+  background: none;
+  color: var(--color-card-ink-2);
+  border: 1px solid var(--color-card-line);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: color var(--dur-fast), border-color var(--dur-fast);
+  white-space: nowrap;
+  align-self: center;
+}
+
+.type-answer-check:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.type-answer-check:not(:disabled):hover {
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+
+.type-answer-input::placeholder {
+  color: var(--color-card-ink-2);
+}

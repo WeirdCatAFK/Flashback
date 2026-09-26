@@ -1,0 +1,301 @@
+/* Flashcards — the catalogue: the sources tree on the left, then the search, the
+   count line and the card list. The card editor (CardBench) floats over .fc-main. */
+
+.flashcards-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* ── Sources, drawn like the file tree ─────────────────────────────────── */
+
+.fc-side {
+  width: var(--size-lg);
+  min-width: var(--size-lg);
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-sidebar);
+  border-right: 1px solid var(--color-border);
+}
+
+.fc-side-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: var(--space-3) var(--space-3) var(--space-1) var(--space-4);
+}
+
+.fc-side-total {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--color-fg-primary);
+}
+
+.fc-tree {
+  flex: 1;
+  overflow: auto;
+  padding: 0 var(--space-1) var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.fc-tree-label {
+  padding: var(--space-3) var(--space-2) var(--space-0-5);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.fc-src-row {
+  --depth: 0;
+  display: grid;
+  grid-template-columns: var(--icon-md) var(--icon-md) minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-1);
+  padding: var(--space-0-5) var(--space-2) var(--space-0-5) calc(var(--space-1) + var(--depth) * var(--space-3));
+  min-height: var(--control-sm);
+  border-radius: var(--radius-sm);
+  color: var(--color-fg-primary);
+  cursor: pointer;
+  user-select: none;
+}
+
+.fc-src-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.fc-src-row:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.fc-src-row.is-selected {
+  background: var(--color-accent-subtle);
+  box-shadow: inset 2px 0 0 var(--color-accent);
+}
+
+.fc-src-icon {
+  display: grid;
+  place-items: center;
+  color: var(--color-fg-icon);
+}
+
+.fc-src-row.is-selected .fc-src-icon {
+  color: var(--color-accent);
+}
+
+.fc-src-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Folder chevron: a drawn caret that turns when the folder opens */
+.fc-chev,
+.fc-chev-space {
+  width: var(--icon-md);
+  height: var(--icon-md);
+}
+
+.fc-chev {
+  position: relative;
+  padding: 0;
+  background: none;
+  border: 0;
+  color: var(--color-fg-tertiary);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.fc-chev::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  margin: auto;
+  width: var(--space-1);
+  height: var(--space-1);
+  border-right: 1.4px solid currentColor;
+  border-bottom: 1.4px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.fc-chev.is-open {
+  transform: rotate(90deg);
+}
+
+/* A band or health row's marker: a hollow dot, filled when chosen */
+.fc-dot {
+  width: var(--space-2);
+  height: var(--space-2);
+  border-radius: 50%;
+  border: 1.3px solid var(--color-fg-secondary);
+}
+
+.fc-src-row.is-selected .fc-dot {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+}
+
+/* A count: a small card outline and the number */
+.fc-count {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.fc-count i {
+  width: var(--space-2);
+  height: calc(var(--space-2) * 0.75);
+  border: 1px solid currentColor;
+  border-radius: 1px;
+  opacity: 0.7;
+}
+
+/* The thin line under a row: long-term share for a source, library share for a band */
+.fc-line-bar {
+  grid-column: 3 / -1;
+  display: block;
+  height: var(--track-thin);
+  margin: var(--space-0-5) 0;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.fc-line-bar i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+/* ── The catalogue: the search is the screen ───────────────────────────── */
+
+.fc-main {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+}
+
+.fc-search {
+  display: flex;
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-1);
+}
+
+.fc-search input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-0-5) var(--space-2);
+  border: 0;
+  border-bottom: 1px solid var(--color-line);
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-lg);
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease-out);
+}
+
+.fc-search input::placeholder {
+  color: var(--color-fg-tertiary);
+}
+
+.fc-search input:focus {
+  border-bottom-color: var(--color-accent);
+}
+
+.fc-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-1) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-3);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.fc-bar-count b {
+  font-family: var(--font-mono);
+  color: var(--color-fg-primary);
+}
+
+.fc-bar-field {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.fc-bar-grow {
+  flex: 1;
+}
+
+.fc-select {
+  height: var(--control-sm);
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.fc-select:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: var(--shadow-focus);
+}
+
+.fc-list {
+  flex: 1;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  padding: var(--space-0-5) clamp(var(--space-2), 2.4vw, var(--space-6)) var(--space-10);
+}
+
+.fc-group {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-4) var(--space-3) var(--space-1);
+  border-bottom: 1px solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-fg-tertiary);
+}
+
+.fc-group:first-child {
+  padding-top: var(--space-1);
+}
+
+.fc-group-n {
+  letter-spacing: 0;
+  color: var(--color-fg-primary);
+}
+
+.fc-empty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--color-fg-tertiary);
+}
+
+.fc-more {
+  justify-self: start;
+  margin: var(--space-3);
+}
+
+@media (max-width: 760px) {
+  .fc-side {
+    display: none;
+  }
+}

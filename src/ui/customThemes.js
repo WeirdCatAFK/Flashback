@@ -1,108 +1,147 @@
-const STORAGE_KEY = 'fb-custom-themes';
-const STYLE_ID    = 'fb-custom-theme-styles';
+/**
+ * User-defined themes: the list of theme variables the editor exposes, their
+ * persistence in localStorage, injecting a saved theme as a [data-theme] rule,
+ * and reading the resolved colours of the active theme.
+ */
+
+const STORAGE_KEY = "fb-custom-themes";
+const STYLE_ID = "fb-custom-theme-styles";
 
 export const THEME_VARS = [
-  // Chrome
-  { key: '--color-bg-base',        label: 'Window background' },
-  { key: '--color-bg-sidebar',     label: 'Activity bar' },
-  { key: '--color-bg-surface',     label: 'Panels & cards' },
-  { key: '--color-bg-hover',       label: 'Hover state' },
-  { key: '--color-title-bar',      label: 'Title bar' },
-  { key: '--color-sidebar-header', label: 'Sidebar header' },
-  // Reader & editor
-  { key: '--color-bg-reader',      label: 'Reader background' },
-  { key: '--color-bg-editor',      label: 'Editor theme' },
-  // Text & icons
-  { key: '--color-fg-primary',     label: 'Primary text' },
-  { key: '--color-fg-secondary',   label: 'Secondary text' },
-  { key: '--color-fg-icon',        label: 'Inactive icons' },
-  // Accent
-  { key: '--color-accent',         label: 'Accent / active' },
-  { key: '--color-accent-subtle',  label: 'Accent tint' },
-  { key: '--color-on-accent',      label: 'Text on accent' },
-  // Borders
-  { key: '--color-border',         label: 'Borders' },
-  { key: '--color-border-strong',  label: 'Input & control borders' },
-  { key: '--color-tree-indent',    label: 'Tree indent line' },
-  // Highlight swatches
-  { key: '--color-hl-1',       label: 'Highlight 1' },
-  { key: '--color-hl-2',       label: 'Highlight 2' },
-  { key: '--color-hl-3',        label: 'Highlight 3' },
-  { key: '--color-hl-4',        label: 'Highlight 4' },
-  // Review grade swatches
-  { key: '--color-on-review',      label: 'Review · Button label' },
-  { key: '--color-review-again',   label: 'Review · Again' },
-  { key: '--color-review-hard',    label: 'Review · Hard' },
-  { key: '--color-review-good',    label: 'Review · Good' },
-  { key: '--color-review-easy',    label: 'Review · Easy' },
-  // Graph node & link colors
-  { key: '--color-graph-edge',      label: 'Graph · Resting links' },
-  { key: '--color-graph-document',  label: 'Graph · Document' },
-  { key: '--color-graph-folder',    label: 'Graph · Folder' },
-  { key: '--color-graph-flashcard', label: 'Graph · Flashcard' },
-  { key: '--color-graph-tag',       label: 'Graph · Tag' },
-  { key: '--color-graph-deck',      label: 'Graph · Deck' },
-  { key: '--color-graph-link',      label: 'Graph · Link' },
-  { key: '--color-graph-disconnect',label: 'Graph · Disconnect' },
-  { key: '--color-graph-inherit',   label: 'Graph · Inherit' },
-  // Semantic UI colors
-  { key: '--color-danger',          label: 'Danger / error' },
-  { key: '--color-danger-bg',       label: 'Danger background', type: 'text' },
-  // Elevation
-  { key: '--shadow-sm',             label: 'Resting shadow',    type: 'text' },
-  { key: '--shadow-float',          label: 'Float shadow',      type: 'text' },
+  { key: "--color-bg-base", label: "Window background" },
+  { key: "--color-bg-sidebar", label: "Activity bar" },
+  { key: "--color-bg-surface", label: "Panels & cards" },
+  { key: "--color-bg-hover", label: "Hover state" },
+  { key: "--color-title-bar", label: "Title bar" },
+  { key: "--color-sidebar-header", label: "Sidebar header" },
+  { key: "--color-bg-reader", label: "Reader background" },
+  { key: "--color-bg-desk", label: "Trainer desk" },
+  { key: "--color-bg-editor", label: "Editor theme" },
+  { key: "--color-fg-primary", label: "Primary text" },
+  { key: "--color-fg-secondary", label: "Secondary text" },
+  { key: "--color-fg-tertiary", label: "Dimmed text" },
+  { key: "--color-fg-icon", label: "Inactive icons" },
+  { key: "--color-accent", label: "Accent / active" },
+  { key: "--color-accent-subtle", label: "Accent tint" },
+  { key: "--color-on-accent", label: "Text on accent" },
+  { key: "--color-border", label: "Borders" },
+  { key: "--color-line", label: "Dividers" },
+  { key: "--color-border-strong", label: "Input & control borders" },
+  { key: "--color-tree-indent", label: "Tree indent line" },
+  { key: "--color-hl-1", label: "Highlight 1" },
+  { key: "--color-hl-2", label: "Highlight 2" },
+  { key: "--color-hl-3", label: "Highlight 3" },
+  { key: "--color-hl-4", label: "Highlight 4" },
+  { key: "--color-on-review", label: "Review · Button label" },
+  { key: "--color-review-again", label: "Review · Again" },
+  { key: "--color-review-hard", label: "Review · Hard" },
+  { key: "--color-review-good", label: "Review · Good" },
+  { key: "--color-review-easy", label: "Review · Easy" },
+  { key: "--color-graph-edge", label: "Graph · Resting links" },
+  { key: "--color-graph-document", label: "Graph · Document" },
+  { key: "--color-graph-folder", label: "Graph · Folder" },
+  { key: "--color-graph-flashcard", label: "Graph · Flashcard" },
+  { key: "--color-graph-tag", label: "Graph · Tag" },
+  { key: "--color-graph-deck", label: "Graph · Deck" },
+  { key: "--color-graph-link", label: "Graph · Link" },
+  { key: "--color-graph-disconnect", label: "Graph · Disconnect" },
+  { key: "--color-graph-inherit", label: "Graph · Inherit" },
+  { key: "--color-card", label: "Card" },
+  { key: "--color-card-edge", label: "Card · Edge" },
+  { key: "--color-card-ink", label: "Card · Text" },
+  { key: "--color-card-ink-2", label: "Card · Secondary text" },
+  { key: "--color-card-line", label: "Card · Divider" },
+  { key: "--color-card-field", label: "Card · Answer field" },
+  { key: "--color-card-pile", label: "Card · Pile" },
+  { key: "--color-card-pile-edge", label: "Card · Pile edge" },
+  { key: "--shadow-card", label: "Card · Shadow", type: "text" },
+  { key: "--color-pop-halo", label: "Review pop halo", type: "text" },
+  { key: "--color-kraft", label: "Box · Kraft" },
+  { key: "--color-kraft-edge", label: "Box · Kraft edge" },
+  { key: "--color-kraft-print", label: "Box · Count" },
+  { key: "--color-box-slate", label: "Deck box · Slate" },
+  { key: "--color-box-sage", label: "Deck box · Sage" },
+  { key: "--color-box-ochre", label: "Deck box · Ochre" },
+  { key: "--color-box-brick", label: "Deck box · Brick" },
+  { key: "--color-box-plum", label: "Deck box · Plum" },
+  { key: "--color-box-ink", label: "Deck box · Ink" },
+  { key: "--color-danger", label: "Danger / error" },
+  { key: "--color-danger-bg", label: "Danger background", type: "text" },
+  { key: "--color-on-danger", label: "Text on danger" },
+  { key: "--shadow-sm", label: "Resting shadow", type: "text" },
+  { key: "--shadow-float", label: "Float shadow", type: "text" },
 ];
 
 export function loadCustomThemes() {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? '[]');
+    return JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
   } catch {
     return [];
   }
 }
 
 export function saveCustomTheme(theme) {
-  const themes = loadCustomThemes().filter(t => t.name !== theme.name);
+  const themes = loadCustomThemes().filter((t) => t.name !== theme.name);
   themes.push(theme);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(themes));
   injectCustomThemeCSS(themes);
 }
 
 export function deleteCustomTheme(name) {
-  const themes = loadCustomThemes().filter(t => t.name !== name);
+  const themes = loadCustomThemes().filter((t) => t.name !== name);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(themes));
   injectCustomThemeCSS(themes);
+}
+
+/**
+ * Colours added after a theme may have been saved, derived from ones it has, so
+ * an older custom theme still gets a dimmed text level, quiet dividers, a desk for
+ * the Trainer a shade off the window, and a scrim behind dialogs. Without them a
+ * custom theme would show the built-in theme's values for these.
+ */
+const withDerived = (colors) => ({
+  "--color-fg-tertiary": "color-mix(in srgb, var(--color-fg-secondary) 65%, var(--color-bg-base))",
+  "--color-line": "color-mix(in srgb, var(--color-border) 70%, var(--color-bg-base))",
+  "--color-bg-desk": "color-mix(in srgb, var(--color-bg-base) 94%, var(--color-fg-primary))",
+  "--color-scrim": "rgba(0, 0, 0, 0.5)",
+  ...colors,
+});
+
+/**
+ * One theme as a `[data-theme]` rule, derived colours included: what a saved theme
+ * injects and what the editor's preview injects, so a preview shows exactly what
+ * saving will.
+ */
+export function themeRule(name, colors) {
+  return `[data-theme="${CSS.escape(name)}"] {\n` +
+    Object.entries(withDerived(colors)).map(([k, v]) => `  ${k}: ${v};`).join("\n") +
+    "\n}";
 }
 
 export function injectCustomThemeCSS(themes) {
   let el = document.getElementById(STYLE_ID);
   if (!el) {
-    el = document.createElement('style');
+    el = document.createElement("style");
     el.id = STYLE_ID;
     document.head.appendChild(el);
   }
-  el.textContent = themes.map(t =>
-    `[data-theme="${CSS.escape(t.name)}"] {\n` +
-    Object.entries(t.colors).map(([k, v]) => `  ${k}: ${v};`).join('\n') +
-    '\n}'
-  ).join('\n\n');
+  el.textContent = themes.map((t) => themeRule(t.name, t.colors)).join("\n\n");
 }
 
-// Converts any CSS color string to #rrggbb for use with <input type="color">
+/** Converts any CSS color string to #rrggbb for use with <input type="color"> */
 function toHex(color) {
-  if (!color) return '#000000';
-  // Already a plain 6-digit hex
+  if (!color) return "#000000";
   if (/^#[0-9a-fA-F]{6}$/.test(color)) return color.toLowerCase();
   try {
-    const canvas = document.createElement('canvas');
+    const canvas = document.createElement("canvas");
     canvas.width = canvas.height = 1;
-    const ctx = canvas.getContext('2d');
+    const ctx = canvas.getContext("2d");
     ctx.fillStyle = color;
     ctx.fillRect(0, 0, 1, 1);
     const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-    return '#' + [r, g, b].map(v => v.toString(16).padStart(2, '0')).join('');
+    return "#" + [r, g, b].map((v) => v.toString(16).padStart(2, "0")).join("");
   } catch {
-    return '#000000';
+    return "#000000";
   }
 }
 
@@ -111,9 +150,9 @@ export function resolvedThemeColors() {
   return Object.fromEntries(
     THEME_VARS.map(({ key, type }) => {
       const raw = style.getPropertyValue(key).trim();
-      if (key === '--color-bg-editor') return [key, raw || 'dark'];
-      if (type === 'text') return [key, raw || ''];
+      if (key === "--color-bg-editor") return [key, raw || "dark"];
+      if (type === "text") return [key, raw || ""];
       return [key, toHex(raw)];
-    })
+    }),
   );
 }

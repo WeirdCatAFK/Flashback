@@ -1,0 +1,46 @@
+/* The "Progress of" / "Logs of" picker shared by Stats, Graph and Logs. See
+   ProgressScopePicker.jsx for when it renders at all. A label and the shared field; its
+   host places it.
+
+   The select must never dictate its own width: a <select> sizes to its longest option, and a
+   long account name would push it out of the Graph tab's narrow controls panel. It shrinks to
+   the room it gets and ellipsizes the chosen name instead; the dropdown list itself is drawn
+   by the browser at full width, so nothing is lost. */
+
+.scope-picker {
+  display: grid;
+  gap: var(--space-1);
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+.scope-picker__control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.scope-picker__label {
+  flex-shrink: 0;
+  white-space: nowrap;
+  color: var(--color-fg-tertiary);
+}
+
+.scope-picker__select {
+  flex: 1 1 auto;
+  min-width: 0;
+  max-width: 16rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-picker__note {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--color-fg-tertiary);
+  overflow-wrap: anywhere;
+}

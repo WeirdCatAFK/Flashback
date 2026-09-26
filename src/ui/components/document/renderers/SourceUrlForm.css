@@ -1,0 +1,53 @@
+/* SourceUrlForm — what a YouTube or web-clip document shows before it has a source: a
+   heading, a sentence, the address field and one quiet button, set on the page where the
+   document will be rather than in a box of its own. */
+
+.srcform {
+  height: 100%;
+  padding: var(--space-12) var(--space-6);
+  overflow-y: auto;
+}
+
+.srcform-card {
+  width: 100%;
+  max-width: var(--size-5xl);
+  margin: 0 auto;
+}
+
+.srcform-title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-xl);
+  font-weight: 400;
+  line-height: 1.15;
+  color: var(--color-fg-primary);
+}
+
+.srcform-hint {
+  max-width: 58ch;
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-md);
+  line-height: 1.55;
+  color: var(--color-fg-secondary);
+}
+
+.srcform-row {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.srcform-input {
+  flex: 1;
+  min-width: 0;
+  height: var(--control-lg);
+  font-size: var(--text-base);
+}
+
+.srcform-row .btn {
+  height: var(--control-lg);
+}
+
+.srcform-error {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}

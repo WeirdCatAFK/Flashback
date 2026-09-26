@@ -1,0 +1,157 @@
+/* OnboardingTour — a spotlight walk. A fixed overlay dims the running app; a ring cuts a
+   hole around the live target (a transparent box whose huge box-shadow is the scrim) and
+   a callout explains it: a paper note with a thin progress line across its top, the
+   screen's name and a count, the sentence, and quiet buttons. Every colour is a token.
+   The callout's width is fixed, so nothing in it may be wider than it: the title and body
+   break long words, and the buttons wrap onto a second line in a language whose words run
+   longer (Spanish pushed Next out past the edge when the footer could not wrap). */
+
+.spot-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+}
+
+.spot-fulldim {
+  position: absolute;
+  inset: 0;
+  background: var(--color-scrim);
+}
+
+.spot-ring {
+  position: fixed;
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 0 0 9999px var(--color-scrim),
+    0 0 0 1.5px var(--color-accent);
+  transition: top var(--dur-base) var(--ease-out),
+              left var(--dur-base) var(--ease-out),
+              width var(--dur-base) var(--ease-out),
+              height var(--dur-base) var(--ease-out);
+  pointer-events: none;
+}
+
+/* ── Callout ──────────────────────────────────────────────────────────────── */
+
+.spot-callout {
+  position: fixed;
+  width: min(var(--size-2xl), calc(100vw - 2 * var(--space-4)));
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+  transition: top var(--dur-base) var(--ease-out),
+              left var(--dur-base) var(--ease-out);
+}
+
+/* The point back at the spotlighted element. */
+.spot-callout::before {
+  content: "";
+  position: absolute;
+  width: var(--space-3);
+  height: var(--space-3);
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-line);
+  transform: rotate(45deg);
+}
+.spot-callout[data-placement="right"]::before {
+  left: calc(var(--space-2) * -1);
+  top: var(--space-6);
+  border-right: none;
+  border-top: none;
+}
+.spot-callout[data-placement="left"]::before {
+  right: calc(var(--space-2) * -1);
+  top: var(--space-6);
+  border-left: none;
+  border-bottom: none;
+}
+.spot-callout[data-placement="bottom"]::before {
+  top: calc(var(--space-2) * -1);
+  left: var(--space-6);
+  border-right: none;
+  border-bottom: none;
+}
+.spot-callout[data-placement="top"]::before {
+  bottom: calc(var(--space-2) * -1);
+  left: var(--space-6);
+  border-left: none;
+  border-top: none;
+}
+.spot-callout[data-placement="center"]::before {
+  display: none;
+}
+
+.spot-line {
+  display: block;
+  height: var(--track-thin);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-fg-primary) 7%, transparent);
+  overflow: hidden;
+}
+
+.spot-line i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+  transition: width var(--dur-base) var(--ease-out);
+}
+
+.spot-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spot-icon {
+  display: flex;
+  flex: none;
+  color: var(--color-accent);
+}
+
+.spot-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-lg);
+  font-weight: 400;
+  color: var(--color-fg-primary);
+}
+
+.spot-count {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.spot-body {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-base);
+  line-height: 1.6;
+  color: var(--color-fg-secondary);
+}
+
+.spot-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.spot-grow {
+  flex: 1;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spot-ring,
+  .spot-callout,
+  .spot-line i {
+    transition: none;
+  }
+}

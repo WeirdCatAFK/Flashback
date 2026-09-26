@@ -21,6 +21,8 @@ import highlightsService from './highlights.js';
 import newFileMetadata from '../../config/defaults/FlashbackFile.js';
 import { OWNER_SCOPE, currentScope, isOwnerScope, currentAccount } from '../../requestContext.js';
 import { ROLES, atLeast } from '../../../shared/roles.js';
+import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, clampCoverY } from '../../../shared/covers.js';
+import { swapTag } from '../../../shared/tagNames.js';
 
 /** Extracts the 11-char video id from any common YouTube URL shape (watch?v=, youtu.be/, /embed/, /shorts/, /live/). */
 export function extractYoutubeId(url) {
@@ -490,6 +492,7 @@ export default class Documents {
 
     /** The body of updateFile, with the lock and the freshness check already applied. */
     async _updateFileLocked(relativePath, content, metadata) {
+        if (metadata) this._preserveCover(metadata, this.files.getMetadata(relativePath));
         await this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
@@ -765,14 +768,102 @@ export default class Documents {
         else delete metadata.createdBy;
     }
 
+    /**
+     * Keeps a document's cover as it is on disk through a whole-object metadata
+     * write. Renderers save highlights by writing back the sidecar they loaded, so a
+     * cover set since then would otherwise be erased by a highlight; the cover routes
+     * are the only way to change it.
+     */
+    _preserveCover(metadata, onDisk) {
+        if (!metadata || typeof metadata !== 'object') return;
+        if (onDisk?.cover) metadata.cover = onDisk.cover;
+        else delete metadata.cover;
+    }
+
+    /**
+     * Stores an uploaded image as a document's cover, centred, replacing whatever
+     * cover it had. The file goes in the folder's `media/` beside the document's
+     * card media, registered in `Media` like them, under a fresh name each time.
+     */
+    async uploadCover(relativePath, buffer, mime) {
+        const ext = COVER_TYPES[mime];
+        if (!ext) throw Object.assign(new Error(`Unsupported cover type: ${mime}`), { status: 400 });
+        if (buffer.length > MAX_COVER_BYTES) throw Object.assign(new Error('Cover image too large'), { status: 413 });
+        return await withDocument(relativePath, async () => {
+            const meta = this._coverSidecar(relativePath);
+            const before = cleanCover(meta.cover);
+            const name = `cover-${crypto.randomBytes(6).toString('hex')}.${ext}`;
+            const abs = this.files.mediaPathFor(relativePath, name);
+            fs.mkdirSync(path.dirname(abs), { recursive: true });
+            fs.writeFileSync(abs, buffer);
+            const rel = path.relative(this.files.workspaceRoot, abs);
+            meta.cover = { kind: 'image', file: name, y: 0.5 };
+            this.files.writeMetadata(relativePath, meta, false);
+            const removed = await this._dropCoverFile(relativePath, before);
+            await db.transaction(async () => {
+                const hash = crypto.createHash('sha256').update(buffer).digest('hex');
+                await this.query.insertMedia({ hash, name, relativePath: rel, absolutePath: abs });
+            })();
+            await sealEmitter.edit(relativePath + '.flashback', [rel], removed);
+            return meta.cover;
+        });
+    }
+
+    /**
+     * Changes a document's cover without a new upload: `{ pattern }` for a drawn
+     * one, `{ y }` (0..1) to reposition the image it has, or null to remove it. An
+     * image that stops being the cover is deleted with it.
+     */
+    async setCover(relativePath, change) {
+        return await withDocument(relativePath, async () => {
+            const meta = this._coverSidecar(relativePath);
+            const before = cleanCover(meta.cover);
+            let removed = [];
+            if (change === null) {
+                delete meta.cover;
+                removed = await this._dropCoverFile(relativePath, before);
+            } else if (change.pattern !== undefined) {
+                if (!COVER_PATTERNS.includes(change.pattern)) throw Object.assign(new Error(`Unknown cover pattern: ${change.pattern}`), { status: 400 });
+                meta.cover = { kind: 'pattern', pattern: change.pattern };
+                removed = await this._dropCoverFile(relativePath, before);
+            } else {
+                if (before?.kind !== 'image') throw Object.assign(new Error(`This document's cover is not an image`), { status: 404 });
+                meta.cover = { ...before, y: clampCoverY(change.y) };
+            }
+            this.files.writeMetadata(relativePath, meta, false);
+            await sealEmitter.edit(relativePath + '.flashback', [], removed);
+            return cleanCover(meta.cover);
+        });
+    }
+
+    /** A document's sidecar, for a cover change; 404 for a folder or a missing document. */
+    _coverSidecar(relativePath) {
+        if (!this.files.exists(relativePath) || fs.lstatSync(this.files.safePath(relativePath)).isDirectory()) {
+            throw Object.assign(new Error(`Document not found: ${relativePath}`), { status: 404 });
+        }
+        const meta = this.files.getMetadata(relativePath, false);
+        if (!meta) throw Object.assign(new Error(`Document not found: ${relativePath}`), { status: 404 });
+        return meta;
+    }
+
+    /** Deletes a cover's image and its Media row, if it had one; returns the paths Seal should drop. */
+    async _dropCoverFile(relativePath, cover) {
+        if (cover?.kind !== 'image') return [];
+        const abs = this.files.mediaPathFor(relativePath, cover.file);
+        if (fs.existsSync(abs)) fs.unlinkSync(abs);
+        await db.transaction(async () => { await this.query.deleteMediaByAbsPath(abs); })();
+        return [path.relative(this.files.workspaceRoot, abs)];
+    }
+
     /** The body of updateMetadata, with the lock and the freshness check already applied. */
-    async _updateMetadataLocked(relativePath, metadata, isFolder = false) {
+    async _updateMetadataLocked(relativePath, metadata, isFolder = false, { seal = true } = {}) {
         const onDisk = this.files.getMetadata(relativePath, isFolder);
 
         const removals = this._countCardRemovals(metadata, isFolder, onDisk);
         const charged = this._assertRemovalAllowed(relativePath, removals);
 
         this._preserveIdentity(metadata, onDisk);
+        if (!isFolder) this._preserveCover(metadata, onDisk);
         this.files.writeMetadata(relativePath, metadata, isFolder);
         if (charged) cardRemovalBudget.consume(charged.id, removals);
 
@@ -797,7 +888,77 @@ export default class Documents {
         })();
 
         const sidecar = isFolder ? path.join(relativePath, '.flashback') : relativePath + '.flashback';
-        await sealEmitter.edit(sidecar);
+        if (seal) await sealEmitter.edit(sidecar);
+        return sidecar;
+    }
+
+    /**
+     * Renames a tag in every folder and document sidecar that names it — the tags a file
+     * applies, the inherited ones it excludes, and its cards' own — or removes it when `to`
+     * is null. Holds the structural lock, since the set of files is the whole vault, and
+     * seals the lot as one commit. Decks and the default deck's cards live in `_decks/` and
+     * are rewritten by `Decks.rewriteTag` after this returns; calling it from inside this
+     * lock would wait on itself. Returns how many sidecars changed.
+     */
+    async rewriteTag(from, to = null) {
+        return await withStructure(async () => {
+            const touched = [];
+            const entities = [
+                ...(await this.query.getAllFolders()).map((f) => ({ rel: f.relative_path, isFolder: true })),
+                ...(await this.query.getAllDocuments()).map((d) => ({ rel: d.relative_path, isFolder: false })),
+            ];
+            for (const { rel, isFolder } of entities) {
+                if (rel === undefined || rel === null) continue;
+                const meta = this.files.getMetadata(rel, isFolder);
+                if (!meta) continue;
+                let changed = false;
+                const tags = swapTag(meta.tags, from, to);
+                if (tags) { meta.tags = tags; changed = true; }
+                const excluded = swapTag(meta.excludedTags, from, to);
+                if (excluded) { meta.excludedTags = excluded; changed = true; }
+                if (!isFolder && Array.isArray(meta.flashcards)) {
+                    for (const fc of meta.flashcards) {
+                        const own = swapTag(fc?.tags, from, to);
+                        if (own) { fc.tags = own; changed = true; }
+                    }
+                }
+                if (!changed) continue;
+                touched.push(await this._updateMetadataLocked(rel, meta, isFolder, { seal: false }));
+            }
+            if (touched.length) await sealEmitter.edit(touched[0], touched.slice(1));
+            return touched.length;
+        });
+    }
+
+    /**
+     * Renames a category on every document card that names it, or clears it when `to` is
+     * null — the sidecar half of a category rename or delete (`Decks.rewriteCategory` does
+     * the default deck's cards). A sidecar names a card's category rather than pointing at
+     * its row, so renaming the row alone would leave every card on the old name for the next
+     * rebuild to recreate. Rename the row first: the index resolves the new name as each
+     * sidecar is re-read. Same lock and single commit as `rewriteTag`. Returns how many
+     * sidecars changed.
+     */
+    async rewriteCategory(from, to = null) {
+        return await withStructure(async () => {
+            const touched = [];
+            for (const d of await this.query.getAllDocuments()) {
+                const rel = d.relative_path;
+                if (rel === undefined || rel === null) continue;
+                const meta = this.files.getMetadata(rel, false);
+                let changed = false;
+                for (const fc of meta?.flashcards ?? []) {
+                    if (fc?.category !== from) continue;
+                    if (to) fc.category = to;
+                    else delete fc.category;
+                    changed = true;
+                }
+                if (!changed) continue;
+                touched.push(await this._updateMetadataLocked(rel, meta, false, { seal: false }));
+            }
+            if (touched.length) await sealEmitter.edit(touched[0], touched.slice(1));
+            return touched.length;
+        });
     }
 
     /** Imports a file from disk into the workspace, folding its links into the sidecar before sealing. */
@@ -1601,15 +1762,15 @@ export default class Documents {
      * not editing — and as of this change, neither is studying.
      */
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const { documentId, scope } = await this.srs.submitReview(
+        const { documentId, scope, interval } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
 
         // `presence` is derived from the OWNER's levels and stored on the document, so a
         // reader's review must not move it. It is the only thing left that the owner's review
         // does and a reader's does not.
-        if (!isOwnerScope(scope)) return;
-        await this.propagatePresence(documentId);
+        if (isOwnerScope(scope)) await this.propagatePresence(documentId);
+        return { interval };
     }
 
     /** Reverts the caller's last grade on a card. */
@@ -1834,7 +1995,7 @@ export default class Documents {
 
         for (const doc of childDocs) {
             await syncInheritance(doc.node_id);
-            await this._propagateTagsToFlashcards(doc.id, doc.node_id, effectiveToChildren);
+            await this._propagateTagsToFlashcards(doc.id, doc.node_id, await this._tagsPassedDownByDocument(doc.node_id));
         }
 
         for (const folder of childFolders) {

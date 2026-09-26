@@ -11,7 +11,7 @@ Each module in this folder is executed by `validate.js` before the API starts. T
    - Automatically generates a default configuration if the file is missing.
 3. **Database Integrity & Schema Validation**:
    - Performs a `PRAGMA integrity_check` to ensure the SQLite database is not corrupted.
-   - Verifies the existence of all 19 required tables.
+   - Verifies the existence of every table in `requiredTables`.
    - **Atomic Repair**: If integrity fails or tables are missing, it triggers an atomic transaction to rebuild the schema and populate default pedagogical categories, connection types, and node types.
 
 Each validator returns `true` if the system is operational or has been successfully repaired, and `false` if it cannot recover from a critical failure.

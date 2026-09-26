@@ -2,6 +2,246 @@
 
 ## Unreleased
 
+### Changed — Tactile Learner: themes, fonts and the tab bar
+
+The interface is moving to a new design language, one area at a time. In this release:
+
+- **Every dark theme comes in two variants.** *Focus* keeps the card a step darker than the
+  desk; *Lamp* makes it a step lighter. Pick them in Config → Theme. The theme called "Focus
+  blue" is now listed as "Calm blue". Existing theme choices carry over unchanged.
+- **Fonts are bundled** with the app instead of downloaded at start-up, so they render offline,
+  and numbers, paths and small labels now use Geist Mono.
+- **The tab bar follows the way you work:** make (Documents, Flashcards, Decks), study
+  (Trainer), look back (Statistics, Diary, Graph), keep (Seal, Metadata). Graph moved down to
+  sit with the look-back screens. Hovering a tab tells you what it is for and its shortcut.
+- **Quieter where it should be.** Paths, counts, shortcuts and other small labels are a shade
+  lighter than the text beside them, dividers inside a page are softer than the edges of a
+  panel, no corner is rounder than a card's, and the document page is the brightest surface
+  in the window.
+- **Icons are quieter and easier to tell apart.** The tab bar's and the file tree's icons are
+  solid shapes in a muted tone instead of outlines, and each has a shape of its own: a stamp
+  for Seal, an open book for the Diary, a globe for a web clip, stacked pages for a PDF.
+- **The zoom shows while you use it.** After Ctrl+plus or Ctrl+minus, the title bar shows the
+  zoom (for example 110%); click it, or press Ctrl+0, to go back to 100%.
+- **Ctrl+1 to Ctrl+9 open the tabs** in that order, and Ctrl+, opens Config. They can be
+  rebound in Config like the Trainer's keys. A Trainer key such as `1` no longer fires when
+  pressed together with Ctrl or Alt.
+- **Renamed:** Manage is now **Metadata**, and the Server tab (on a remote) is **Server
+  Management**. The title bar now shows the screen you are on.
+- **The card is a real card.** It follows the theme (paper in the light theme, a darker or
+  lighter card in the dark ones), keeps an index card's 5 × 3 shape, and carries nothing but its
+  content — its source is cited at the foot of the answer side.
+- **The Trainer** has one top bar: what to study, folded into a single button with a panel for
+  Study and Leave out; the session's settings (Per session, New cards, Only what I've read) in
+  view as steppers; and the count and streak. The progress bar spans the window.
+- **Per session** splits a long queue into batches (5 to 100, or All). A batch ends once every
+  card in it has been remembered; the end says what happened and offers the next batch or a
+  line in your diary.
+- **After each grade** the card shows the grade and how the gap to its next review changed
+  ("4 d → 8 d"), for every scheduler, and the next card waits a moment so you can read it.
+  `POST /api/srs/review` now returns that `interval`.
+- **Each grade button says when that grade brings the card back** ("Good · in 8 days"). For
+  FSRS, `GET /api/srs/due` returns the preview (`preview`, optional `retention` parameter).
+- **The card grows with the window** and sits just above the grade buttons.
+- **Flashcards is a catalogue.** A large search comes first; on the left, your cards' sources
+  are drawn like the file tree (documents, then Cards, the default deck), each with a count and
+  a thin line for how much of it you hold long-term. Below them, cards are sorted by the **gap
+  between reviews** — New, 1 day, up to a week, up to 3 weeks, up to 2 months, longer — which
+  works the same for every scheduler and replaces the Levels chart; then Health (flagged,
+  overloaded, productive). The list can be ordered by next review, source, A to Z or newest,
+  and grouped by gap or source. Each row says where the card comes from and when it is next
+  due; Ctrl+F jumps to the search.
+- **One card editor.** Clicking a card opens it in a card editor that floats over the screen,
+  with the type picker, the fields and a live preview side by side; a blank card previews a
+  worked example of its type. Deleting a card confirms in place. The same editor makes new
+  cards on Flashcards and Decks, and appears in the card details.
+- **Decks are boxes.** Each deck is drawn as a box of cards in its own colour, with what is
+  due and how much is held long-term; the default deck is the kraft one. A deck's page shows
+  its box, lets you rename it and edit its description in place, recolour it, and add cards
+  from a finder over the page. "New deck" makes the deck at once and opens it, ready to name.
+  A deck's colour is stored in its `_decks/<uuid>.json` (`color`); decks made before this show
+  a colour picked from their id.
+- **Deck covers.** A deck's page can carry a banner, like a Notion cover: upload an image, or
+  pick one of the patterns drawn in the deck's colour. Drag an image to choose which part
+  shows. Images are kept in `workspace/_decks/covers/`, versioned by Seal with the deck; the
+  new routes are `GET`/`POST`/`PUT`/`DELETE /api/decks/:hash/cover`. `GET /api/decks` and `GET /api/decks/:hash` now return
+  `color` and `standing`, and `PUT /api/decks/:hash` accepts `color`.
+- **YouTube videos read like documents.** Once a video's captions are fetched, the transcript
+  is the text under the player: paragraphs with their time in the margin (click to play from
+  there), highlights, cards beside the passage, and Find, as in a note. A card made from it
+  cites the line and its time. Without captions, the moments you mark are notes: press M (or
+  Mark moment above the page) and write what is happening while the video plays. A bar under
+  the player stays in view with play, the position and your moments; the passage being said
+  is marked as it plays. Scroll away while it plays and the video floats small in a corner of
+  your choice: drag it to another corner and it stays there next time. The old marker list
+  and the Show transcript button are gone. The embed page the API serves gains play, pause
+  and a clock; an older server still plays, with a slower clock.
+- **Click a highlight to change it.** A toolbar opens over it with its colour marked: pick
+  another colour, make a card from the passage, or remove it (asking first when cards hang off
+  it). Works in notes, text, web clips, PDFs and EPUBs.
+- **Documents: the file tree.** It can be hidden entirely — the first button in the tab bar,
+  or choosing the Documents icon again — and the document then moves left into the space it
+  leaves and widens into it (up to a comfortable line length), in every format. The tree slides out when you rest the pointer in the space left of
+  the text. Resizing it snaps to a few set widths. Its four header buttons are
+  one "+" menu. Each document shows its name without the extension, its card count as a small
+  card outline and a number, and a thin line under the name for how far you have read it. The
+  icons are redrawn in one monoline set, told apart by shape; they can be turned off in Config →
+  Appearance.
+- **Documents: the head, the reading strip and Find.** Every document opens with a head that
+  scrolls away with it — the folder path, the title and the tags, which you now add and remove
+  right there — and can carry a cover like a deck's (`POST`/`PUT`/`DELETE
+  /api/documents/cover`). The reading strip (Set mark here, Mark finished, Clear, Go to start)
+  sits under the tabs for every format, PDF, EPUB and YouTube included, with a full-width line
+  for how far you have read. The Inspector column is gone: Ctrl+F (or Find) opens a searchable
+  index of the document's cards and highlights over it, in reading order with each passage's
+  cards together. Hovering a row makes its passage glow in the text and lifts its cards in the
+  margin; choosing one jumps to the passage, which glows as you land. Cards are written and edited in the card editor over the document. Removing a
+  highlight that has cards asks in place, in the toolbar or the row, instead of in a dialog.
+- **Documents: cards in the margin**, in notes, text, web clips, PDFs and EPUBs. A document's cards sit beside their passage: a passage
+  with one card shows the card (click to turn it over, Edit to change it), a passage with
+  several shows them in a kraft box you pull them out of, and a highlight with no card shows a
+  short mark. Hovering a card lights its passage (except in an EPUB, where only the card
+  lifts). The column appears when the window is wide enough.
+- **EPUBs scroll.** A book now flows down the page like a note instead of turning pages, so its
+  head scrolls away above it. PDF zoom, Fit width and Box highlight, and an EPUB's text size, now
+  sit in the reading strip rather than in a toolbar of their own.
+- **Statistics is a short report.** One column, read top to bottom: how complete the vault
+  is (read and known), what is coming, whether it is staying, where the cards are (the same
+  gap bands as Flashcards; click one to see those cards), and your reviews.
+- **The Diary puts the writing first.** A month calendar shows how busy each day was and marks
+  the days you wrote on, with the month's entries listed by their first line beneath it. The
+  chosen day reads like a journal page: one sentence summing it up, your reflection (written in
+  place; Ctrl+S saves, Esc cancels), then the day in detail.
+- **Metadata: categories on priority levels.** Several categories can share a level, and the
+  Trainer studies level 1 first. Drag a category to another level, or onto "new level" above
+  or below the rest; Raise and Lower (Alt+↑/↓) do the same from the keyboard. Deleting one
+  says how many cards lose it, and the cards stay.
+- **Metadata: tags with their reach.** Each tag shows where it is applied (folders, documents,
+  decks) and how many cards carry it. Rename one or remove it everywhere at once, or click it
+  to see its cards in Flashcards. A category opens its cards the same way.
+- **Seal: History and Health.** History reads like the Diary: seals grouped by day, one
+  sentence each, with a run of highlight and card edits to one document folded into a single
+  line. Restore asks right under the entry, saying what goes back and what does not. Health
+  holds the maintenance: files changed outside Flashback, and checking, syncing or rebuilding
+  the index (a rebuild now asks you to type `rebuild`).
+- **Config is short sections.** An index on the left (Study, Appearance, Keyboard, You, AI
+  assistant, Local server, About) sums each section up in a line, and "Search settings"
+  (Ctrl+F) finds any setting by name. Themes are chosen from swatches drawn in their own
+  colours; the zoom can be set there too. The theme editor opens as its own page. Every
+  shortcut, including the ones that can't be changed, is listed under Keyboard.
+- **Server Management reads like a report.** One sentence says who you're signed in as and
+  how many seats are in use; your role is shown as a step on the Reader-to-Author ladder, with
+  what each role can do one click away. People are quiet rows whose actions appear on hover,
+  and Deactivate and Revoke confirm inside the row. **New: Reactivate** brings a deactivated
+  person back with the progress they had, while a seat is free. Adding someone hands you their
+  first token at once. Readers no longer see an empty People section.
+- **The server's owner can read anyone's Logs.** The Logs privacy note always said someone
+  else could read yours; now the Author can, in the app: Logs on a person's row in Server
+  Management, or "Logs of" on the Logs screen. It is read-only, and the note now names the
+  server's owner rather than "an administrator", since admins cannot.
+- **The first run and the tour match the rest.** Setup shows its four steps as a ladder,
+  uses the same scheduler control as Config → Study, and ends on a list of what it will write.
+  It no longer fills in your name while leaving the email blank, which stopped Next until you
+  cleared it. The welcome tour gains a Diary step, names each screen as its tab does, and no
+  longer runs off the edge of its box in Spanish. Waiting for the app to start shows a thin
+  line instead of a spinner.
+- **Dialogs, menus and the smaller pieces match too.** Confirmations, the import progress
+  box, the right-click menu, the edit-conflict banner, loading and error states, deleting a deck
+  with its cards, the Anki field mapping, a card's details, the vault manager, the media
+  pickers, the keyboard shortcuts list, search and your role in the title bar now use the same
+  quiet buttons, mono labels and softer dividers as the rest of the app, with no bold or
+  uppercase text left over from the old look. Loading shows a thin line instead of a spinner.
+- **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
+  glass. The Graph panel slides shut to its header instead of vanishing, and a selected
+  node's name no longer breaks mid-word.
+- **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
+  `tag`, `category`, `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders,
+  returns each card's `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
+  `GET /api/documents/tags/overview` and `POST /api/documents/tags/rename` are new;
+  `GET /api/categories` rows carry `cards`, and `DELETE /api/categories/:id?clear=1` deletes
+  a category in use, clearing it from its cards. `GET /api/srs/statistics` carries `bands`, and
+  `GET /api/diary` items carry `reviews` and `firstLine` (the latter withheld from an MCP
+  client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
+  `/entry/:date`) is new: the Author reads someone's Logs, read-only.
+
+### Added — forty-four more drawn covers
+
+A deck or a document can now wear forty-six drawn covers instead of two, all in its own
+colour, grouped in Change cover by subject:
+
+- **Study desk:** a pile of notes, a card stack, Leitner boxes, a bookshelf and a
+  constellation, beside the scattered cards.
+- **Mathematics:** Euclid's first construction, the golden spiral, the Sierpiński triangle, a
+  harmonograph's trace and a stella octangula.
+- **Sciences:** the periodic table, the double helix, two-slit wave interference, a crystal
+  lattice and an atom.
+- **Life and earth:** a botanical plate, the tree of life, a sunflower's seed spiral, an old
+  atlas's hemispheres, a terrain scan (a scanner's wireframe hologram of a spire, a ridge, a
+  crater and a mesa, each flagged) and the aurora borealis.
+- **Humanities:** a Doric colonnade, the opening of the "Ode to Joy", an orrery, the
+  pyramids of Giza, and the Aztec Templo Mayor on its lake.
+- **Space:** a space elevator seen from orbit, its great ring station round the tether; an
+  orbital shipyard with a ship half built; and, built in isometric on one grid, a factory
+  network of hubs and belts, an asteroid refinery with its mass driver, a planetary base
+  under a banded giant, a maglev launch track up a terraced mountain and a space telescope
+  on its sunshield. Beside them a wheel station over the Earth, an asteroid field,
+  Earthrise, a ringed planet and a black hole.
+- **Patterns:** ruled paper, graph paper with a forgetting curve plotted on it, contours,
+  halftone, mosaic and stripes, beside the rings.
+
+Thirty-two of them move, slowly. Every space cover does: the elevator's ring turns and
+climbers ride its tether; parts ride the factory's belts; welds flicker in the shipyard as
+drones hover; containers fly down the mass driver; the lander hovers and the beacon blinks;
+the spaceplane gathers speed up its track, each coil flashing as it passes, and flies off the
+end; the station's wheel turns; the asteroids tumble; the Earth rises and sinks behind the
+Moon; the ringed planet's moons go round; the black hole's disk swirls, fastest near the
+middle; and the telescope's stars twinkle. The terrain scanner pings: a ring of light spreads
+over the land, the mesh flares where it passes and dims to an afterglow, and the flags blink.
+Euclid's figure is constructed circle by circle, again and again; the golden spirals, the
+harmonograph and the forgetting curve draw themselves like a pen; the stella octangula, the
+sunflowers and the double helix turn; the orrery's planets go round, the outer ones slower by
+Kepler's third law, and the atom's electrons orbit; the waves travel out through fringes that
+stay put and the rings ripple; the globes spin; the "Ode to Joy" plays, each note lighting as
+it sounds; the ferns sway, the aurora drifts, the stars twinkle, the scattered cards float,
+the mosaic shimmers and the stripes slide.
+
+**Moving covers** (Config → Appearance) turns the motion off: every cover stays still and
+nothing is redrawn. Covers are always still when the system asks for reduced motion, and in
+the Change cover menu.
+
+> **Downgrade:** an older version shows any of the new covers as no cover. Choosing a cover
+> again in the older version replaces it; nothing else is affected.
+
+### Fixed — a YouTube transcript's times slid under the file tree
+
+With the file tree open and the reading pane narrower than about 840px, the time beside each
+transcript paragraph started to the left of the pane and its first digits hid under the tree.
+The column still centres, but now stops just short of the edge, leaving the times enough room.
+
+### Fixed — renaming a category left its cards behind
+
+A card names its category in its own file. Renaming a category changed the name in the list
+and nowhere else, so every card kept the old name, and the next Vault Doctor run brought the
+old category back ("Recovered by Vault Doctor") and moved the cards onto it. A rename now
+rewrites every card that uses the category, and renaming onto a name another category already
+has is refused.
+
+### Fixed — a card lost its document's tags in the index
+
+Saving a document inside a folder, and every index rebuild, handed that document's cards only
+the folder's tags, dropping the document's own. The files were always right; the index was
+not, so filtering or studying by such a tag missed those cards. Each save now repairs the
+document it touches, and a rebuild (Seal → Health) repairs the whole vault.
+
+### Fixed — a second session on the same day never reached the Diary
+
+Studying twice in one day left the Diary showing the first session until you ran "Rebuild
+from history". The page loaded a day's summary once and kept it, and the summary file was
+only rewritten when a session was recorded — and even then it could be written a moment
+before the session's last review was saved. The Diary now recalculates today from the whole
+day's review history every time you open it, the Trainer waits for the last review before
+recording, and an unchanged day is no longer re-committed to the diary's history.
+
 ### Added — a published server image, and a server that knows when it is behind
 
 `docs/SERVER.md` has always told operators that upgrading is `docker compose pull` and that

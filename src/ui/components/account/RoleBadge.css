@@ -1,0 +1,43 @@
+/* RoleBadge — see RoleBadge.jsx.
+ *
+ * The same mark as a role in Server Management: a small mono pill with a hairline edge. It
+ * sits in the title bar, which has its own surface (--color-title-bar), so it reads against
+ * that rather than the app background.
+ *
+ * Deliberately quiet. It is a persistent label, not a notification: something you can read
+ * when you wonder why a button is missing, and ignore the rest of the time. Only the Author
+ * gets the accent, because that is the one role where "you can do anything here" is worth
+ * saying out loud. Reader and Collaborator are constrained, not wrong, so neither is coloured
+ * like an error; an unknown role is dashed, since the app still works and is only being
+ * cautious, and the tooltip carries the detail.
+ */
+
+.role-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--space-2);
+  padding: 0 var(--space-2);
+  height: var(--control-xs);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
+  background: transparent;
+  color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1;
+  white-space: nowrap;
+  /* The title bar is the window drag region; a label inside it must not become a drag
+     handle that looks selectable. */
+  -webkit-app-region: no-drag;
+  user-select: none;
+}
+
+.role-badge--author {
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
+  color: var(--color-accent);
+}
+
+.role-badge--unknown {
+  border-style: dashed;
+  color: var(--color-fg-tertiary);
+}

@@ -1,11 +1,9 @@
-import { request } from './client.js';
+/**
+ * Who this install stamps new work as: the local identity from Electron main
+ * (get-identity IPC) and GET /api/identity for a connected server.
+ */
 
-// The local user identity, split the way remotes are: reads over HTTP, writes over IPC.
-//
-// That is not an inconsistency. `user` lives in config.json, whose writers are split by
-// ownership — the Electron main process owns that key. But what gets STAMPED is resolved
-// by the API (override → global → derived), and asking the connected server keeps that
-// precedence rule in one place instead of reimplementing it here.
+import { request } from "./client.js";
 
 const ipc = () => window.flashback ?? null;
 
@@ -14,7 +12,7 @@ const ipc = () => window.flashback ?? null;
  * @returns {Promise<{name: string, email: string, source: 'vault'|'global'|'default', author: string}>}
  */
 export function getEffectiveIdentity() {
-    return request('GET', '/api/identity');
+  return request("GET", "/api/identity");
 }
 
 /**
@@ -29,21 +27,31 @@ export function getEffectiveIdentity() {
  *                    activeVaultId: string|null}>}
  */
 export async function getStoredIdentity() {
-    return (await ipc()?.getIdentity?.()) ?? {
-        user: { name: '', email: '' },
-        override: null,
-        suggested: { name: '', email: '' },
-        activeVaultId: null,
-    };
+  return (
+    (await ipc()?.getIdentity?.()) ?? {
+      user: { name: "", email: "" },
+      override: null,
+      suggested: { name: "", email: "" },
+      activeVaultId: null,
+    }
+  );
 }
 
 export async function setIdentity(identity) {
-    return (await ipc()?.setIdentity?.(identity))
-        ?? { ok: false, error: 'Not available outside the desktop app.' };
+  return (
+    (await ipc()?.setIdentity?.(identity)) ?? {
+      ok: false,
+      error: "Not available outside the desktop app.",
+    }
+  );
 }
 
 /** Passing null for `identity` clears this vault's override. */
 export async function setVaultIdentity(vaultId, identity) {
-    return (await ipc()?.setVaultIdentity?.(vaultId, identity))
-        ?? { ok: false, error: 'Not available outside the desktop app.' };
+  return (
+    (await ipc()?.setVaultIdentity?.(vaultId, identity)) ?? {
+      ok: false,
+      error: "Not available outside the desktop app.",
+    }
+  );
 }

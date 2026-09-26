@@ -1,0 +1,505 @@
+/* Decks — the grid of boxes and one deck's page. The box itself is DeckBox, the
+   card rows CardLine; this file lays them out. */
+
+.decks-view {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--color-bg-surface);
+}
+
+.dk-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-3);
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-1);
+}
+
+.dk-title {
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-lg);
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.dk-title-input {
+  width: min(var(--size-3xl), 60vw);
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--color-accent);
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-lg);
+  outline: none;
+}
+
+.dk-sub {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-grow {
+  flex: 1;
+}
+
+.dk-back {
+  flex: none;
+  white-space: nowrap;
+}
+
+.dk-body {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+
+/* ── The grid ──────────────────────────────────────────────────────────── */
+
+.dk-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(var(--size-md), 1fr));
+  gap: var(--space-6) var(--space-5);
+  padding: var(--space-4) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-10);
+}
+
+.dk-tile {
+  display: grid;
+  gap: var(--space-1);
+  align-content: start;
+  min-width: 0;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-lg);
+  background: none;
+  color: var(--color-fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--dur-fast) var(--ease-out);
+}
+
+.dk-tile:hover {
+  background: var(--color-bg-hover);
+}
+
+.dk-tile:hover .deck-box,
+.dk-tile:focus-visible .deck-box {
+  transform: translateY(-3px);
+}
+
+.dk-tile .deck-box {
+  margin-bottom: var(--space-1);
+}
+
+.dk-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+  font-size: var(--text-base);
+}
+
+/* A long name wraps, even without spaces, and stops at two lines; the tooltip has it whole.
+   Without this the tile grew past its column and ran over its neighbour. */
+.dk-name__text {
+  display: -webkit-box;
+  min-width: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+}
+
+.dk-default {
+  flex: none;
+}
+
+.dk-default {
+  padding: 0 var(--space-2);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-line));
+  border-radius: var(--radius-pill);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.6;
+  color: var(--color-accent);
+}
+
+.dk-meta {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-meta b {
+  color: var(--color-fg-primary);
+  font-weight: 700;
+}
+
+.dk-line {
+  display: block;
+  height: var(--track-thin);
+  margin-top: var(--space-0-5);
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--color-fg-primary) 8%, transparent);
+  overflow: hidden;
+}
+
+.dk-line i {
+  display: block;
+  height: 100%;
+  background: var(--color-accent);
+}
+
+.dk-add-box {
+  display: grid;
+  place-items: center;
+  height: calc(var(--size-sm) + var(--space-4));
+  border: 1.5px dashed var(--color-line);
+  border-radius: var(--radius-md);
+  font-size: var(--text-xl);
+  color: var(--color-fg-tertiary);
+  transition: border-color var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out);
+}
+
+.dk-add:hover .dk-add-box {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.dk-note {
+  max-width: 60ch;
+  margin: 0 clamp(var(--space-4), 3vw, var(--space-8)) var(--space-6);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-base);
+  font-size: var(--text-sm);
+  color: var(--color-fg-secondary);
+}
+
+/* ── One deck ──────────────────────────────────────────────────────────── */
+
+.dk-detail {
+  position: relative;
+  padding: var(--space-2) clamp(var(--space-4), 3vw, var(--space-8)) var(--space-10);
+}
+
+.dk-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: var(--space-8);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-1);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.dk-info {
+  flex: 1;
+  min-width: var(--size-lg);
+  display: grid;
+  gap: var(--space-3);
+}
+
+.dk-desc {
+  max-width: 60ch;
+  margin: 0;
+  font-size: var(--text-base);
+  color: var(--color-fg-secondary);
+}
+
+.dk-desc--editable {
+  cursor: text;
+}
+
+.dk-desc--editable:hover {
+  color: var(--color-fg-primary);
+}
+
+.dk-desc-input {
+  max-width: 60ch;
+  resize: vertical;
+}
+
+.dk-facts {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-4);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-facts b {
+  color: var(--color-fg-primary);
+}
+
+.dk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.dk-danger.btn {
+  border-color: transparent;
+  color: var(--color-danger);
+}
+
+.dk-error {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-danger);
+}
+
+.dk-colors {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.dk-colors-label,
+.dk-colors-name {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-colors-label {
+  margin-right: var(--space-0-5);
+}
+
+.dk-swatch {
+  --sw: var(--color-kraft);
+  width: var(--icon-lg);
+  height: var(--icon-lg);
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--color-fg-primary) 18%, transparent);
+  border-radius: 50%;
+  background: var(--sw);
+  cursor: pointer;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.dk-swatch:hover:not(:disabled) {
+  transform: scale(1.12);
+}
+
+.dk-swatch:disabled {
+  cursor: default;
+}
+
+.dk-swatch[aria-pressed="true"] {
+  box-shadow: 0 0 0 2px var(--color-bg-surface), 0 0 0 3.5px var(--color-fg-secondary);
+}
+
+.dk-kraft-note {
+  font-size: var(--text-sm);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-cards {
+  display: grid;
+  align-content: start;
+}
+
+.dk-empty {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--color-fg-tertiary);
+}
+
+/* ── Adding cards: a finder layer over the page ────────────────────────── */
+
+.dk-finder {
+  position: absolute;
+  z-index: var(--z-floating);
+  top: var(--space-2);
+  right: clamp(var(--space-4), 3vw, var(--space-8));
+  width: min(var(--size-3xl), calc(100% - var(--space-8)));
+  max-height: min(var(--size-6xl), calc(100vh - var(--size-lg)));
+  display: flex;
+  flex-direction: column;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-float);
+  animation: dk-finder-in var(--dur-base) var(--ease-pop) both;
+}
+
+@keyframes dk-finder-in {
+  from { opacity: 0; transform: translateY(-6px) scale(0.99); }
+  to { opacity: 1; transform: none; }
+}
+
+.dk-finder-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-line);
+}
+
+.dk-finder-head input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-fg-primary);
+  font: inherit;
+  font-size: var(--text-base);
+  outline: none;
+}
+
+.dk-finder-close {
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-sm);
+  background: none;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+.dk-finder-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--space-1);
+}
+
+.dk-pick {
+  display: grid;
+  grid-template-columns: var(--space-1) minmax(0, 1fr);
+  column-gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-fg-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dk-pick:hover {
+  background: var(--color-bg-hover);
+}
+
+.dk-pick i {
+  grid-row: span 2;
+  border-radius: 1px;
+  background: var(--color-border);
+}
+
+.dk-pick.is-in {
+  cursor: default;
+}
+
+.dk-pick.is-in i {
+  background: var(--color-accent);
+}
+
+.dk-pick-text {
+  font-size: var(--text-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dk-pick-meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-pick-meta b {
+  font-weight: 400;
+  color: var(--color-accent);
+}
+
+.dk-finder-empty {
+  margin: 0;
+  padding: var(--space-4);
+  color: var(--color-fg-tertiary);
+}
+
+.dk-finder-foot {
+  padding: var(--space-1) var(--space-3);
+  border-top: 1px solid var(--color-line);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+/* ── Import error toast ────────────────────────────────────────────────── */
+
+.decks-import-error {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-4);
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  max-width: 90%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
+  box-shadow: var(--shadow-float);
+  color: var(--color-fg-primary);
+  font-size: var(--text-sm);
+}
+
+.decks-import-error button {
+  color: var(--color-fg-secondary);
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.decks-import-error button:hover {
+  color: var(--color-danger);
+}
+
+/* ── Deck tags ─────────────────────────────────────────────────────────── */
+
+.deck-tags {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.deck-tags[aria-busy="true"] {
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+.deck-tags-hint {
+  font-size: var(--text-xs);
+  color: var(--color-fg-secondary);
+}
+
+@media (max-width: 760px) {
+  .dk-head-row {
+    gap: var(--space-4);
+  }
+  .dk-finder {
+    left: var(--space-4);
+    right: var(--space-4);
+    width: auto;
+  }
+}

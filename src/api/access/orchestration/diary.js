@@ -57,6 +57,21 @@ function todayLocal() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/** Two summaries of the same day with the same content, ignoring when each was generated. */
+/** An entry's first line of prose, without its Markdown marks, for a list of entries. */
+export function firstLineOf(text) {
+    const line = String(text ?? "").split(/\r?\n/)
+        .map((l) => l.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)]\s+)/, "").replace(/[*_`~]/g, "").trim())
+        .find(Boolean);
+    if (!line) return null;
+    return line.length > 140 ? `${line.slice(0, 139).trimEnd()}…` : line;
+}
+
+function sameSummary(a, b) {
+    const strip = ({ generatedAt, ...rest }) => (void generatedAt, rest);
+    return JSON.stringify(strip(a)) === JSON.stringify(strip(b));
+}
+
 function assertDate(date) {
     if (!DATE_RE.test(date)) throw new Error(`Diary date must be YYYY-MM-DD, got: ${date}`);
     return date;
@@ -166,12 +181,20 @@ class Diary {
         };
     }
 
-    /** Derives and stores one day's summary; idempotent. */
+    /**
+     * Re-derives one day's summary from the whole day's review ledger and stores it;
+     * idempotent. The Diary calls it for today every time it is opened, so a day with
+     * several sessions always shows all of them — the stored file is written, and
+     * committed, only when the day actually changed, or opening the Diary would add a
+     * commit every visit.
+     */
     async generateSummary(date = todayLocal(), scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
         const summary = await this.buildSummary(date, scope);
         if (!summary) return null;
+        const stored = this.getSummary(date, scope);
+        if (stored && sameSummary(stored, summary)) return stored;
         await this._ensureInit(scope);
         this._atomicWrite(summaryAbs(date, scope), JSON.stringify(summary, null, 2) + "\n");
         await this._commit([summaryRel(date, scope)], `summary: ${summaryRel(date, scope)}`);
@@ -231,7 +254,12 @@ class Diary {
         return { created: !existed, empty: text.trim() === "" };
     }
 
-    /** Every day this person has a summary or an entry for, newest first. */
+    /**
+     * Every day this person has a summary or an entry for, newest first, with the day's
+     * review count (from its summary, for the Diary's calendar) and its entry's first line
+     * (for the list of what was written that month). Reading them here costs one small
+     * file per day; the route strips `firstLine` for an assistant without full access.
+     */
     list({ from = null, to = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const dates = new Map();
@@ -243,8 +271,13 @@ class Diary {
                 const d = m[1];
                 if (from && d < from) continue;
                 if (to && d > to) continue;
-                const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false };
+                const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null };
                 entry[key] = true;
+                try {
+                    const text = fs.readFileSync(path.join(dir, name), "utf8");
+                    if (key === "hasSummary") entry.reviews = JSON.parse(text)?.totals?.reviews ?? 0;
+                    else entry.firstLine = firstLineOf(text);
+                } catch { }
                 dates.set(d, entry);
             }
         };
