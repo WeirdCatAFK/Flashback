@@ -9,6 +9,7 @@ import { createRoot } from "react-dom/client";
 import { initClient } from "./api/client.js";
 import { setActiveVaultScope } from "./prefs.js";
 import { applyTreeIcons } from "./treeIcons.js";
+import { applyCoverMotion } from "./coverMotion.js";
 import App from "./App.jsx";
 import SetupView from "./views/setup/Setup.jsx";
 import { ConfirmProvider } from "./components/base/ConfirmDialog.jsx";
@@ -25,6 +26,7 @@ import "./index.css";
 import "./components/base/base.css";
 
 applyTreeIcons();
+applyCoverMotion();
 const root = createRoot(document.getElementById("root"));
 
 /**

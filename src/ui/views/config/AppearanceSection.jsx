@@ -1,6 +1,7 @@
 /**
  * AppearanceSection — this computer's look: the theme as swatches, the theme editor (its
- * own page, opened from here), the language, the zoom, and the file tree's icons.
+ * own page, opened from here), the language, the zoom, the file tree's icons, and whether
+ * drawn covers move.
  *
  * A swatch draws itself in its theme: it carries `data-theme`, and every theme, built-in
  * or custom, is a `[data-theme]` block of variables, so the swatch shows the theme's real
@@ -11,6 +12,7 @@ import { useState } from 'react';
 import Stepper from '../../components/base/Stepper';
 import Toggle from '../../components/base/Toggle';
 import { treeIconsOn, setTreeIcons } from '../../treeIcons.js';
+import { coverMotionOn, setCoverMotion } from '../../coverMotion.js';
 import { themeLabel } from '../../themes';
 import { useT } from '../../translations/index';
 import { LanguagePicker } from '../../translations/components.jsx';
@@ -24,6 +26,7 @@ const stepZoom = (z, d) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, parseFloat((z +
 export default function AppearanceSection({ theme, onThemeChange, allThemes, zoom, onZoomChange, onOpenEditor }) {
   const { t } = useT();
   const [treeIcons, setTreeIconsState] = useState(treeIconsOn);
+  const [coverMotion, setCoverMotionState] = useState(coverMotionOn);
   const current = theme ?? 'light-workbench';
 
   return (
@@ -68,6 +71,10 @@ export default function AppearanceSection({ theme, onThemeChange, allThemes, zoo
 
       <ConfigRow id="treeIcons">
         <Toggle checked={treeIcons} onChange={(on) => { setTreeIcons(on); setTreeIconsState(on); }} ariaLabel={t('Icons in the file tree')} />
+      </ConfigRow>
+
+      <ConfigRow id="coverMotion">
+        <Toggle checked={coverMotion} onChange={(on) => { setCoverMotion(on); setCoverMotionState(on); }} ariaLabel={t('Moving covers')} />
       </ConfigRow>
     </>
   );

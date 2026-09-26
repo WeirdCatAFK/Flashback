@@ -1,12 +1,14 @@
-/* DeckCover — the banner at the head of a deck's page, and its Change cover menu.
-   --sleeve (the deck's colour) is set inline; drawn covers paint with it. */
+/* CoverBanner — the banner at the head of a deck's page or a document, and its Change
+   cover menu. --sleeve (the owner's colour) is set inline; drawn covers paint with it
+   on --cover-ground, the banner's own background. */
 
 .cover-banner {
   --sleeve: var(--color-kraft);
   position: relative;
   height: var(--size-md);
   overflow: hidden;
-  background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+  --cover-ground: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+  background: var(--cover-ground);
 }
 
 .cover-banner svg,
@@ -32,16 +34,6 @@
 
 .cover-banner.is-busy {
   opacity: 0.7;
-}
-
-.cover-banner__shape rect,
-.cover-banner-menu__art .cover-banner__shape rect {
-  fill: var(--sleeve);
-}
-
-.cover-banner__line circle,
-.cover-banner-menu__art .cover-banner__line circle {
-  stroke: var(--sleeve);
 }
 
 .cover-banner__hint {
@@ -128,13 +120,14 @@
 
 /* The Change cover menu: drawn covers as thumbnails, then the upload */
 .cover-banner-menu {
-  width: var(--size-xl);
+  width: var(--size-3xl);
+  max-height: min(var(--size-5xl), 80vh);
   padding: var(--space-1);
 }
 
 .cover-banner-menu__patterns {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2) var(--space-2);
 }
@@ -153,11 +146,12 @@
 
 .cover-banner-menu__art {
   display: block;
-  height: var(--control-bar);
+  aspect-ratio: 3 / 1;
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+  --cover-ground: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+  background: var(--cover-ground);
 }
 
 .cover-banner-menu__art svg {

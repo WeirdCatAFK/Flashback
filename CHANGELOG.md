@@ -164,6 +164,42 @@ The interface is moving to a new design language, one area at a time. In this re
   client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
   `/entry/:date`) is new: the Author reads someone's Logs, read-only.
 
+### Added — thirty-two more drawn covers
+
+A deck or a document can now wear thirty-four drawn covers instead of two, all in its own
+colour, grouped in Change cover by subject:
+
+- **Study desk:** a pile of notes, a card stack, Leitner boxes, a bookshelf and a
+  constellation, beside the scattered cards.
+- **Mathematics:** Euclid's first construction, the golden spiral, the Sierpiński triangle, a
+  harmonograph's trace and a stella octangula.
+- **Sciences:** the periodic table, the double helix, two-slit wave interference, a crystal
+  lattice and an atom.
+- **Life and earth:** a botanical plate, the tree of life, a sunflower's seed spiral, an old
+  atlas's hemispheres, a terrain scan (a scanner's wireframe hologram of a spire, a ridge, a
+  crater and a mesa, each flagged) and the aurora borealis.
+- **Humanities:** a Doric colonnade, the opening of the "Ode to Joy", an orrery, the
+  pyramids of Giza, and the Aztec Templo Mayor on its lake.
+- **Patterns:** ruled paper, graph paper with a forgetting curve plotted on it, contours,
+  halftone, mosaic and stripes, beside the rings.
+
+Twenty of them move, slowly. The terrain scanner pings: a ring of light spreads over the
+land, the mesh flares where it passes and dims to an afterglow, and the flags blink.
+Euclid's figure is constructed circle by circle, again and again; the golden spirals, the
+harmonograph and the forgetting curve draw themselves like a pen; the stella octangula, the
+sunflowers and the double helix turn; the orrery's planets go round, the outer ones slower
+by Kepler's third law, and the atom's electrons orbit; the waves travel out through fringes
+that stay put and the rings ripple; the globes spin; the "Ode to Joy" plays, each note
+lighting as it sounds; the ferns sway, the aurora drifts, the stars twinkle, the scattered
+cards float, the mosaic shimmers and the stripes slide.
+
+**Moving covers** (Config → Appearance) turns the motion off: every cover stays still and
+nothing is redrawn. Covers are always still when the system asks for reduced motion, and in
+the Change cover menu.
+
+> **Downgrade:** an older version shows any of the new covers as no cover. Choosing a cover
+> again in the older version replaces it; nothing else is affected.
+
 ### Fixed — a YouTube transcript's times slid under the file tree
 
 With the file tree open and the reading pane narrower than about 840px, the time beside each

@@ -13,6 +13,8 @@ import {
 import { sortDecks, deckStatus, longTermShare, newDeckName } from '../src/ui/views/decks/deckShelf.js';
 import { DECK_COLORS, deckColor, nextDeckColor } from '../src/shared/deckColors.js';
 import { coverTravel, dragCoverY } from '../src/ui/components/cover/coverMath.js';
+import { COVER_GROUPS, coverPatternLabel } from '../src/ui/components/cover/coverPatterns.js';
+import { COVER_PATTERNS } from '../src/shared/covers.js';
 
 const t = (s, vars = {}) => s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`));
 const DAY = 86_400_000;
@@ -197,5 +199,13 @@ describe('deck cover reposition', () => {
     assert.equal(dragCoverY(0.1, 640, 640), 0);
     assert.equal(dragCoverY(0.9, -640, 640), 1);
     assert.equal(dragCoverY(0.3, 50, 0), 0.3, 'nothing to travel, nothing moves');
+  });
+});
+
+describe('drawn covers', () => {
+  test('the menu offers every cover the API accepts, once, and each has a name', () => {
+    const offered = COVER_GROUPS.flatMap((g) => g.patterns);
+    assert.deepEqual([...offered].sort(), [...COVER_PATTERNS].sort());
+    for (const id of COVER_PATTERNS) assert.notEqual(coverPatternLabel(id, t), id, `${id} has a name`);
   });
 });

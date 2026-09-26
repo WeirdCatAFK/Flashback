@@ -1,0 +1,343 @@
+/* CoverArt — the drawn covers. Every piece paints from the owner's colour (--sleeve), set
+   by whoever hosts the art, or cuts back to --cover-ground, the same mix the banner and
+   the menu's thumbnails use for their background. The motion at the end runs only while
+   the person lets covers move (coverMotion.js), the system does not ask for reduced
+   motion, and the cover is not a still thumbnail; unmoving, every piece is whole. */
+
+.cover-art {
+  --cover-ground: color-mix(in srgb, var(--sleeve) 26%, var(--color-bg-surface));
+}
+
+.cover-art__fill * {
+  fill: var(--sleeve);
+}
+
+.cover-art__line * {
+  fill: none;
+  stroke: var(--sleeve);
+}
+
+.cover-art__ground * {
+  fill: var(--cover-ground);
+}
+
+.cover-art__glyph {
+  font-family: var(--font-mono);
+}
+
+.cover-art__rule * {
+  fill: none;
+  stroke: var(--cover-ground);
+}
+
+.cover-art .is-full {
+  fill: var(--sleeve);
+}
+
+.cover-art .is-mid {
+  fill: color-mix(in srgb, var(--sleeve) 72%, var(--cover-ground));
+}
+
+.cover-art .is-light {
+  fill: color-mix(in srgb, var(--sleeve) 46%, var(--cover-ground));
+}
+
+.cover-art .is-ground {
+  fill: var(--cover-ground);
+}
+
+.cover-art .is-sheet {
+  stroke: var(--cover-ground);
+}
+
+/* A pen stroke drawing itself (pathLength="1", so a dash of 1 is the whole line), holding
+   whole, then fading to start again: the golden spirals and the harmonograph. */
+@keyframes cover-pen {
+  0% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 1; }
+  70%, 90% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; }
+  100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+/* Euclid I.1, constructed: circle A, then circle B, then the triangle up to the point
+   where they meet, which appears as the triangle reaches it; a hold, a fade, again. */
+@keyframes cover-euclid-a {
+  0% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 1; }
+  12%, 86% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; }
+  94%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes cover-euclid-b {
+  0%, 12% { stroke-dasharray: 1; stroke-dashoffset: 1; opacity: 1; }
+  24%, 86% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 1; }
+  94%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; opacity: 0; }
+}
+
+@keyframes cover-euclid-c {
+  0%, 24% { stroke-dasharray: 1; stroke-dashoffset: 1; fill-opacity: 0; opacity: 1; }
+  40% { stroke-dasharray: 1; stroke-dashoffset: 0; fill-opacity: 0; opacity: 1; }
+  48%, 86% { stroke-dasharray: 1; stroke-dashoffset: 0; fill-opacity: 0.6; opacity: 1; }
+  94%, 100% { stroke-dasharray: 1; stroke-dashoffset: 0; fill-opacity: 0.6; opacity: 0; }
+}
+
+/* Something carried round an orbit (the orrery's planets, the atom's electrons): its arm
+   stands at its angle (--from, set inline) and what it carries turns back by as much, so
+   it stays upright; moving, both turn a full circle. */
+.cover-orbit {
+  --from: 0deg;
+  transform: rotate(var(--from));
+}
+
+.cover-upright {
+  transform: rotate(calc(var(--from) * -1));
+}
+
+@keyframes cover-orbit {
+  from { transform: rotate(var(--from)); }
+  to { transform: rotate(calc(var(--from) + 360deg)); }
+}
+
+@keyframes cover-upright {
+  from { transform: rotate(calc(var(--from) * -1)); }
+  to { transform: rotate(calc(var(--from) * -1 - 360deg)); }
+}
+
+@keyframes cover-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* A wave's ring growing by one wavelength, from --r0 to --r1 (set inline). */
+.wave-ring {
+  --r0: 0px;
+  --r1: 0px;
+}
+
+@keyframes cover-ripple {
+  from { r: var(--r0); }
+  to { r: var(--r1); }
+}
+
+/* The still values the moving covers start from, set inline where they differ. */
+.cover-slide {
+  --slide: 0px;
+}
+
+.globe-meridian {
+  --s: 1;
+  transform: scaleX(var(--s));
+}
+
+.ring-fade {
+  --r0: 0px;
+  --r1: 0px;
+  --o0: 1;
+  --o1: 1;
+}
+
+@keyframes cover-float {
+  from { transform: translateY(-2px); }
+  to { transform: translateY(2px); }
+}
+
+@keyframes cover-twinkle {
+  from { opacity: 1; }
+  to { opacity: 0.25; }
+}
+
+@keyframes cover-shimmer {
+  from { fill-opacity: 1; }
+  to { fill-opacity: 0.3; }
+}
+
+@keyframes cover-sway {
+  from { transform: rotate(-1.5deg); }
+  to { transform: rotate(1.5deg); }
+}
+
+@keyframes cover-drift {
+  from { transform: translateX(-8px); opacity: 0.8; }
+  to { transform: translateX(8px); opacity: 1; }
+}
+
+/* A repeat sliding by exactly one period, so the loop has no seam. */
+@keyframes cover-slide {
+  from { transform: translateX(0); }
+  to { transform: translateX(var(--slide)); }
+}
+
+/* A meridian's width going from +1 to −1: with alternate and a sine-shaped ease, its
+   width is the cosine of its turning longitude. */
+@keyframes cover-globe {
+  from { transform: scaleX(1); }
+  to { transform: scaleX(-1); }
+}
+
+@keyframes cover-ripple-fade {
+  from { r: var(--r0); opacity: var(--o0); }
+  to { r: var(--r1); opacity: var(--o1); }
+}
+
+@keyframes cover-note {
+  0%, 6% { opacity: 1; }
+  18%, 100% { opacity: 0.4; }
+}
+
+/* The terrain scan's ping (terrainScan.jsx, whose PING and SWEEP match these): the ring
+   crosses the land in the first 70% of the 8s, each band of the mesh flares as it is
+   reached and dims to an afterglow, and a flagged place blinks and holds a little longer.
+   Still, the ring rests part way out. */
+.scan-pulse {
+  transform: scale(0.6);
+}
+
+@keyframes cover-scan-pulse {
+  0% { transform: scale(0.01); opacity: 1; }
+  70% { transform: scale(1); opacity: 0.25; }
+  72%, 100% { transform: scale(1); opacity: 0; }
+}
+
+@keyframes cover-scan-band {
+  0% { opacity: 1; }
+  10% { opacity: 0.55; }
+  30%, 100% { opacity: 0.2; }
+}
+
+@keyframes cover-scan-blip {
+  0%, 35% { opacity: 1; }
+  55%, 100% { opacity: 0.35; }
+}
+
+@keyframes cover-euclid-p {
+  0%, 30% { opacity: 0; }
+  34%, 86% { opacity: 1; }
+  94%, 100% { opacity: 0; }
+}
+
+/* While a line draws itself it scales with the drawing: a non-scaling stroke measures
+   its dashes on screen but pathLength in the drawing's units, and the two disagree. The
+   widths are the still ones' hairlines, in the drawing's units at a usual banner width. */
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen,
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-a,
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-b,
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-c {
+    vector-effect: none;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen {
+    stroke-width: 1.9px;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--late,
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--later {
+    stroke-width: 1.4px;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--slow {
+    stroke-width: 0.7px;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-a,
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-b {
+    stroke-width: 0.9px;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-c {
+    stroke-width: 1.4px;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen {
+    animation: cover-pen 20s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--late {
+    animation-delay: -7s;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--later {
+    animation-delay: -14s;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-art__pen--slow {
+    animation-duration: 48s;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-a {
+    animation: cover-euclid-a 24s var(--ease-in-out) infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-b {
+    animation: cover-euclid-b 24s var(--ease-in-out) infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-c {
+    animation: cover-euclid-c 24s var(--ease-in-out) infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .euclid-p {
+    animation: cover-euclid-p 24s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-orbit {
+    animation: cover-orbit 60s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-upright {
+    animation: cover-upright 60s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-turn {
+    animation: cover-spin 5s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-float {
+    animation: cover-float 6s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-twinkle {
+    animation: cover-twinkle 4s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-shimmer {
+    animation: cover-shimmer 5s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-sway {
+    animation: cover-sway 7s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-drift {
+    animation: cover-drift 11s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-slide {
+    animation: cover-slide 10s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .globe-meridian {
+    animation: cover-globe 20s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .ring-fade {
+    animation: cover-ripple-fade 4s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .music-note {
+    animation: cover-note 12s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .scan-pulse {
+    animation: cover-scan-pulse 8s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .scan-band {
+    animation: cover-scan-band 8s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .scan-blip {
+    animation: cover-scan-blip 8s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .wave-ring {
+    animation: cover-ripple 3s linear infinite;
+  }
+}

@@ -62,6 +62,7 @@ export function settingRows(t, ctx = {}) {
   add('look', 'language', t('Language'), t('Interface language.'), 'locale translation');
   add('look', 'zoom', t('Zoom'), t('Also Ctrl + and Ctrl −; Ctrl 0 resets.'), 'size scale text');
   add('look', 'treeIcons', t('Icons in the file tree'), t('A small icon for each document and folder in the Documents tree.'), 'file tree icons');
+  add('look', 'coverMotion', t('Moving covers'), t('Some drawn covers move slowly: a star turns, a figure draws itself. Off keeps every cover still and does no drawing work.'), 'cover animation motion animated');
 
   for (const group of keybindingActions(t)) {
     for (const a of group.actions) add('keys', `key:${a.id}`, a.label, '', `${group.group} shortcut key`);

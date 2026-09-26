@@ -214,7 +214,7 @@ declares no px, ms, `cubic-bezier()`, hex or `rgb()` of its own; `npm run check:
 | icons     | `--icon-sm` 14 · `-md` 16 · `-lg` 20 · `-xl` 24                                                          |
 | sizes     | `--size-xs` 80 … `--size-9xl` 1240 — the large-box ladder: panels, popovers, dialogs, prose measures    |
 | z-index   | `--z-raised` 1 · `-sticky` 10 · `-floating` 100 · `-modal` 1000 · `-popover` 1100                       |
-| motion    | `--dur-fast` 120 · `-base` 200 · `-slow` 300; `--ease-out`, `--ease-in-out`                              |
+| motion    | `--dur-fast` 120 · `-base` 200 · `-slow` 300; `--ease-out`, `--ease-in-out`, `--ease-sine` (back and forth) |
 | focus     | `--shadow-focus` — the one ring every focusable control shares                                          |
 | lines     | `--track-thin` 1.5 — the read line under an item in a list                                              |
 | measure   | `--measure-start`, `--measure-width` — where a document's reading column starts (`auto` centres it) and how wide it is (`--size-7xl`). While the file tree is hidden the Documents view leans the column left and widens it by the tree's width, up to `--size-8xl`, so the document fills the space the tree gave up. Every renderer's measure reads both, the document head included; the EPUB frame gets them as `--fb-start`/`--fb-measure` through `epubTheme.leanTo`, which also hands the head the book's start so the two stay aligned beside the card margin |
@@ -356,7 +356,10 @@ components/
                BookImagePicker, ClipMediaPicker, ReviewStrip, RetentionCurve,
                flashcardFields.js, cardLineText.js
   deck/        DeckBox, DeckPurgeDialog, AnkiMappingModal
-  cover/       CoverBanner (a deck's or a document's banner), coverMath.js
+  cover/       CoverBanner (a deck's or a document's banner), CoverArt (the drawn covers: one
+               module per menu section, *Art.jsx, over artKit.js; StellaOctangula,
+               terrainScan),
+               coverPatterns.js, coverMath.js
   highlight/   SelectionToolbar
   document/    DocumentEditor (+ useDocumentEditor, useSelectionToolbar, useHighlightActions,
                tabsState.js), EditorTabBar, ReadingBar, useReadProgress, DocumentHead,
@@ -1173,9 +1176,25 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   edited in place (Enter or blur commits, Escape gives up); Delete confirms inline; Erase keeps
   `DeckPurgeDialog` because it destroys cards and has a choice to make. Adding cards is a
   finder layer over the page. The **cover** is a banner below the title row (`cover/CoverBanner`):
-  an uploaded image, or one of two patterns drawn in the deck's colour, so a deck can have a
-  face without anyone finding a picture. Change cover opens a small menu (the drawn ones as
-  thumbnails, then Upload); Reposition turns the banner into a drag surface and saves one number,
+  an uploaded image, or one of thirty-four drawings in the deck's colour (`cover/CoverArt`: the
+  study desk, mathematics, the sciences, life and earth, the humanities, and plain patterns),
+  so a deck can have a face without anyone finding a picture. Each is geometry in a 620×150
+  box cropped to fill, so it keeps its interest in the band a wide banner shows. Twenty
+  move, all but one with CSS keyframes in `CoverArt.css`, on classes the drawings put on
+  their pieces. A line draws itself as a dash over `pathLength="1"` (the stroke stops being
+  non-scaling while it draws, because a non-scaling dash is measured on screen). Something
+  carried round an orbit (the orrery's planets, the atom's electrons) sits on an arm turned
+  by `--from` inside a squashed circle, counter-turned to stay round and upright. Rings grow
+  by one spacing and restart, and repeats slide by exactly one period, so neither loop has a
+  seam. A globe's meridians scale between +1 and −1 on `--ease-sine`, which makes their
+  widths a cosine. The terrain scan's mesh is cut into segments filed into bands by distance
+  from the scanner, one path each, whose flare is delayed by that distance, so its ping is
+  a few dozen staggered animations. The stella octangula is the exception: it writes its paths straight into
+  the DOM about twenty times a second.
+  "Moving covers" (Config → Appearance) is `data-cover-motion` on the root (`coverMotion.js`,
+  like the tree's icons): off stops the keyframes and the stella's loop alike. Reduced motion
+  and the menu's thumbnails (`still`) never move. Change cover opens a small menu (the
+  drawings as thumbnails by section, then Upload); Reposition turns the banner into a drag surface and saves one number,
   the image's vertical position (`coverMath.js` holds the arithmetic, tested). A manager sees
   "Add cover" when there is none; everyone else sees the cover or nothing. The detail page is keyed on the deck alone and reloads on
   `version`, so a data change elsewhere refreshes it without unmounting an open editor.

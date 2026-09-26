@@ -102,6 +102,8 @@
   /* Feedback that lands: a pop that overshoots a little, a count that bumps */
   --ease-pop: cubic-bezier(0.2, 0.8, 0.3, 1);
   --ease-spring: cubic-bezier(0.3, 1.8, 0.5, 1);
+  /* Back and forth, as a pendulum or a turning globe moves: the shape of a sine */
+  --ease-sine: cubic-bezier(0.37, 0, 0.63, 1);
   --dur-fast: 120ms;
   --dur-base: 200ms;
   --dur-slow: 300ms;

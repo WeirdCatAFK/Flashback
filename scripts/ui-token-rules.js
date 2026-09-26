@@ -181,6 +181,7 @@ export const RUNTIME_VARS = new Set([
   "--y",
   "--fill",
   "--hl",
+  "--sleeve",
 ]);
 
 /** Every `--name` declared anywhere in index.css. */

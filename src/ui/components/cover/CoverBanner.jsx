@@ -1,6 +1,6 @@
 /**
  * CoverBanner — the banner at the head of a deck's page or a document: an image of
- * your own, or a pattern drawn in the owner's colour. Someone who may edit gets
+ * your own, or one of the drawings in CoverArt in the owner's colour. Someone who may edit gets
  * "Add cover" when there is none, and on hover Change cover (the drawn ones, or
  * upload an image), Reposition (an image only: drag it, then Save position) and
  * Remove. `source` is how this owner's cover is reached — `{ imageUrl(file),
@@ -14,39 +14,9 @@ import { useRef, useState } from 'react';
 import Popover from '../base/Popover';
 import { useT } from '../../translations/index';
 import { coverTravel, dragCoverY } from './coverMath.js';
-import { COVER_PATTERNS } from '../../../shared/covers.js';
+import CoverArt from './CoverArt';
+import { COVER_GROUPS, coverGroupLabel, coverPatternLabel } from './coverPatterns.js';
 import './CoverBanner.css';
-
-/** A drawn cover. Pure geometry; its colour comes from --sleeve. */
-export function CoverArt({ pattern }) {
-  if (pattern === 'arcs') {
-    return (
-      <svg viewBox="0 0 620 150" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-        <g className="cover-banner__line">
-          {Array.from({ length: 9 }, (_, k) => (
-            <circle key={k} cx="540" cy="170" r={40 + k * 26} fill="none" strokeWidth="10" opacity={0.18 + k * 0.07} />
-          ))}
-        </g>
-      </svg>
-    );
-  }
-  return (
-    <svg viewBox="0 0 620 150" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
-      <g className="cover-banner__shape">
-        {Array.from({ length: 18 }, (_, k) => {
-          const x = 20 + (k % 9) * 66;
-          const y = 18 + Math.floor(k / 9) * 64;
-          const r = ((k * 37) % 9) - 4;
-          return <rect key={k} x={x} y={y} width="48" height="30" rx="3" transform={`rotate(${r} ${x + 24} ${y + 15})`} opacity={0.35 + ((k * 13) % 5) / 10} />;
-        })}
-      </g>
-    </svg>
-  );
-}
-
-function patternLabel(id, t) {
-  return id === 'arcs' ? t('Rings') : t('Scattered cards');
-}
 
 export default function CoverBanner({ cover, tint = 'var(--color-kraft)', source, editable = false, addClassName = '', onChange }) {
   const { t } = useT();
@@ -102,22 +72,26 @@ export default function CoverBanner({ cover, tint = 'var(--color-kraft)', source
 
   const menu = (anchor) => (
     <Popover anchorRef={anchor} open={menuOpen} onClose={() => setMenuOpen(false)} align="end" role="dialog" ariaLabel={t('Change cover')} className="cover-banner-menu">
-      <div className="popover__heading">{t('Drawn')}</div>
-      <div className="cover-banner-menu__patterns">
-        {COVER_PATTERNS.map((p) => (
-          <button
-            key={p}
-            type="button"
-            className="cover-banner-menu__pattern"
-            style={{ '--sleeve': sleeve }}
-            aria-pressed={cover?.kind === 'pattern' && cover.pattern === p}
-            onClick={() => choosePattern(p)}
-          >
-            <span className="cover-banner-menu__art"><CoverArt pattern={p} /></span>
-            <span>{patternLabel(p, t)}</span>
-          </button>
-        ))}
-      </div>
+      {COVER_GROUPS.map((group) => (
+        <div key={group.id}>
+          <div className="popover__heading">{coverGroupLabel(group.id, t)}</div>
+          <div className="cover-banner-menu__patterns">
+            {group.patterns.map((p) => (
+              <button
+                key={p}
+                type="button"
+                className="cover-banner-menu__pattern"
+                style={{ '--sleeve': sleeve }}
+                aria-pressed={cover?.kind === 'pattern' && cover.pattern === p}
+                onClick={() => choosePattern(p)}
+              >
+                <span className="cover-banner-menu__art"><CoverArt pattern={p} still /></span>
+                <span>{coverPatternLabel(p, t)}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ))}
       <div className="popover__sep" />
       <button type="button" className="popover__item" onClick={() => { setMenuOpen(false); fileRef.current?.click(); }}>
         {t('Upload an image…')}
