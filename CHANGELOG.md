@@ -164,9 +164,9 @@ The interface is moving to a new design language, one area at a time. In this re
   client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
   `/entry/:date`) is new: the Author reads someone's Logs, read-only.
 
-### Added — thirty-two more drawn covers
+### Added — forty-four more drawn covers
 
-A deck or a document can now wear thirty-four drawn covers instead of two, all in its own
+A deck or a document can now wear forty-six drawn covers instead of two, all in its own
 colour, grouped in Change cover by subject:
 
 - **Study desk:** a pile of notes, a card stack, Leitner boxes, a bookshelf and a
@@ -180,18 +180,30 @@ colour, grouped in Change cover by subject:
   crater and a mesa, each flagged) and the aurora borealis.
 - **Humanities:** a Doric colonnade, the opening of the "Ode to Joy", an orrery, the
   pyramids of Giza, and the Aztec Templo Mayor on its lake.
+- **Space:** a space elevator seen from orbit, its great ring station round the tether; an
+  orbital shipyard with a ship half built; and, built in isometric on one grid, a factory
+  network of hubs and belts, an asteroid refinery with its mass driver, a planetary base
+  under a banded giant, a maglev launch track up a terraced mountain and a space telescope
+  on its sunshield. Beside them a wheel station over the Earth, an asteroid field,
+  Earthrise, a ringed planet and a black hole.
 - **Patterns:** ruled paper, graph paper with a forgetting curve plotted on it, contours,
   halftone, mosaic and stripes, beside the rings.
 
-Twenty of them move, slowly. The terrain scanner pings: a ring of light spreads over the
-land, the mesh flares where it passes and dims to an afterglow, and the flags blink.
+Thirty-two of them move, slowly. Every space cover does: the elevator's ring turns and
+climbers ride its tether; parts ride the factory's belts; welds flicker in the shipyard as
+drones hover; containers fly down the mass driver; the lander hovers and the beacon blinks;
+the spaceplane gathers speed up its track, each coil flashing as it passes, and flies off the
+end; the station's wheel turns; the asteroids tumble; the Earth rises and sinks behind the
+Moon; the ringed planet's moons go round; the black hole's disk swirls, fastest near the
+middle; and the telescope's stars twinkle. The terrain scanner pings: a ring of light spreads
+over the land, the mesh flares where it passes and dims to an afterglow, and the flags blink.
 Euclid's figure is constructed circle by circle, again and again; the golden spirals, the
 harmonograph and the forgetting curve draw themselves like a pen; the stella octangula, the
-sunflowers and the double helix turn; the orrery's planets go round, the outer ones slower
-by Kepler's third law, and the atom's electrons orbit; the waves travel out through fringes
-that stay put and the rings ripple; the globes spin; the "Ode to Joy" plays, each note
-lighting as it sounds; the ferns sway, the aurora drifts, the stars twinkle, the scattered
-cards float, the mosaic shimmers and the stripes slide.
+sunflowers and the double helix turn; the orrery's planets go round, the outer ones slower by
+Kepler's third law, and the atom's electrons orbit; the waves travel out through fringes that
+stay put and the rings ripple; the globes spin; the "Ode to Joy" plays, each note lighting as
+it sounds; the ferns sway, the aurora drifts, the stars twinkle, the scattered cards float,
+the mosaic shimmers and the stripes slide.
 
 **Moving covers** (Config → Appearance) turns the motion off: every cover stays still and
 nothing is redrawn. Covers are always still when the system asks for reduced motion, and in

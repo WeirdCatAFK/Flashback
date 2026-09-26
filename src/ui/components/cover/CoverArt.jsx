@@ -12,7 +12,8 @@
  * in the ground so overlapping sheets read apart. The scatter comes from a fixed hash,
  * so a cover looks the same every time it is drawn (artKit.js). The drawings are built
  * once, at load, one module per menu section (studyArt, mathArt, scienceArt, natureArt,
- * humanitiesArt, patternArt). The ids are in shared/covers.js, since the API checks them;
+ * humanitiesArt, patternArt; space has three, spaceWorksArt, spaceIsoArt and spaceSkyArt,
+ * over spaceKit and spaceParts). The ids are in shared/covers.js, since the API checks them;
  * their names and the menu's order are in coverPatterns.js.
  */
 
@@ -22,10 +23,13 @@ import { MATH_ART } from './mathArt.jsx';
 import { SCIENCE_ART } from './scienceArt.jsx';
 import { NATURE_ART } from './natureArt.jsx';
 import { HUMANITIES_ART } from './humanitiesArt.jsx';
+import { SPACE_WORKS_ART } from './spaceWorksArt.jsx';
+import { SPACE_SKY_ART } from './spaceSkyArt.jsx';
+import { SPACE_ISO_ART } from './spaceIsoArt.jsx';
 import { PATTERN_ART } from './patternArt.jsx';
 import './CoverArt.css';
 
-const ART = { ...STUDY_ART, ...MATH_ART, ...SCIENCE_ART, ...NATURE_ART, ...HUMANITIES_ART, ...PATTERN_ART };
+const ART = { ...STUDY_ART, ...MATH_ART, ...SCIENCE_ART, ...NATURE_ART, ...HUMANITIES_ART, ...SPACE_WORKS_ART, ...SPACE_ISO_ART, ...SPACE_SKY_ART, ...PATTERN_ART };
 
 /**
  * A drawn cover, filling its box; an unknown id draws the scattered cards. `still` keeps

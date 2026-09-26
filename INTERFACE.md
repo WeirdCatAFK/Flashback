@@ -358,7 +358,8 @@ components/
   deck/        DeckBox, DeckPurgeDialog, AnkiMappingModal
   cover/       CoverBanner (a deck's or a document's banner), CoverArt (the drawn covers: one
                module per menu section, *Art.jsx, over artKit.js; StellaOctangula,
-               terrainScan),
+               terrainScan; space in spaceWorksArt, spaceIsoArt and spaceSkyArt over
+               spaceKit.js, an isometric projection, and spaceParts),
                coverPatterns.js, coverMath.js
   highlight/   SelectionToolbar
   document/    DocumentEditor (+ useDocumentEditor, useSelectionToolbar, useHighlightActions,
@@ -1176,10 +1177,11 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   edited in place (Enter or blur commits, Escape gives up); Delete confirms inline; Erase keeps
   `DeckPurgeDialog` because it destroys cards and has a choice to make. Adding cards is a
   finder layer over the page. The **cover** is a banner below the title row (`cover/CoverBanner`):
-  an uploaded image, or one of thirty-four drawings in the deck's colour (`cover/CoverArt`: the
-  study desk, mathematics, the sciences, life and earth, the humanities, and plain patterns),
+  an uploaded image, or one of forty-six drawings in the deck's colour (`cover/CoverArt`: the
+  study desk, mathematics, the sciences, life and earth, the humanities, space, and plain
+  patterns),
   so a deck can have a face without anyone finding a picture. Each is geometry in a 620×150
-  box cropped to fill, so it keeps its interest in the band a wide banner shows. Twenty
+  box cropped to fill, so it keeps its interest in the band a wide banner shows. Thirty-two
   move, all but one with CSS keyframes in `CoverArt.css`, on classes the drawings put on
   their pieces. A line draws itself as a dash over `pathLength="1"` (the stroke stops being
   non-scaling while it draws, because a non-scaling dash is measured on screen). Something
@@ -1189,8 +1191,11 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   seam. A globe's meridians scale between +1 and −1 on `--ease-sine`, which makes their
   widths a cosine. The terrain scan's mesh is cut into segments filed into bands by distance
   from the scanner, one path each, whose flare is delayed by that distance, so its ping is
-  a few dozen staggered animations. The stella octangula is the exception: it writes its paths straight into
-  the DOM about twenty times a second.
+  a few dozen staggered animations. The stella octangula is the exception: it writes its
+  paths straight into the DOM about twenty times a second. Every cover paints in the owner's
+  colour on the banner's ground, except the black hole, which needs a real void and real
+  light in every theme: it paints its own deep sky from the platform black and white
+  (`is-deep`, `is-void`, `is-hot`, `is-glow` in `CoverArt.css`).
   "Moving covers" (Config → Appearance) is `data-cover-motion` on the root (`coverMotion.js`,
   like the tree's icons): off stops the keyframes and the stella's loop alike. Reduced motion
   and the menu's thumbnails (`still`) never move. Change cover opens a small menu (the

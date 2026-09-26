@@ -10,6 +10,7 @@ export const COVER_GROUPS = [
   { id: 'sciences', patterns: ['periodic', 'helix', 'waves', 'lattice', 'atom'] },
   { id: 'nature', patterns: ['botanical', 'tree', 'sunflower', 'graticule', 'scan', 'aurora'] },
   { id: 'humanities', patterns: ['colonnade', 'music', 'orrery', 'giza', 'aztec'] },
+  { id: 'space', patterns: ['elevator', 'factory', 'shipyard', 'refinery', 'outpost', 'maglev', 'station', 'asteroids', 'earthrise', 'ringed', 'blackhole', 'telescope'] },
   { id: 'paper', patterns: ['ruled', 'graph', 'contours', 'halftone', 'mosaic', 'stripes', 'arcs'] },
 ];
 
@@ -21,6 +22,7 @@ export function coverGroupLabel(id, t) {
     sciences: t('Sciences'),
     nature: t('Life and earth'),
     humanities: t('Humanities'),
+    space: t('Space'),
     paper: t('Patterns'),
   };
   return labels[id] ?? id;
@@ -63,6 +65,18 @@ export function coverPatternLabel(id, t) {
     orrery: t('Orrery'),
     giza: t('Egyptian pyramids'),
     aztec: t('Aztec pyramid'),
+    elevator: t('Space elevator'),
+    factory: t('Factory'),
+    shipyard: t('Orbital shipyard'),
+    refinery: t('Asteroid refinery'),
+    outpost: t('Planetary base'),
+    maglev: t('Maglev launch'),
+    station: t('Space station'),
+    asteroids: t('Asteroid field'),
+    earthrise: t('Earthrise'),
+    ringed: t('Ringed planet'),
+    blackhole: t('Black hole'),
+    telescope: t('Space telescope'),
   };
   return labels[id] ?? id;
 }

@@ -50,6 +50,43 @@
   stroke: var(--cover-ground);
 }
 
+/* Deep space, for a scene that needs real dark and real light whatever the theme (the
+   black hole): a near-black sky, a blacker void, a white-hot light and a warm glow in the
+   owner's colour, built on the two platform constants. */
+.cover-art .is-deep {
+  fill: color-mix(in srgb, var(--color-media-bg) 84%, var(--sleeve));
+}
+
+.cover-art .is-void {
+  fill: color-mix(in srgb, var(--color-media-bg) 96%, var(--sleeve));
+}
+
+.cover-art .is-hot {
+  fill: color-mix(in srgb, var(--sleeve) 22%, var(--color-white));
+}
+
+.cover-art .is-glow {
+  fill: color-mix(in srgb, var(--sleeve) 65%, var(--color-white));
+}
+
+.cover-art__hot * {
+  fill: none;
+  stroke: color-mix(in srgb, var(--sleeve) 22%, var(--color-white));
+}
+
+.cover-art__glow * {
+  fill: none;
+  stroke: color-mix(in srgb, var(--sleeve) 65%, var(--color-white));
+}
+
+.cover-art .is-stroke-full {
+  stroke: var(--sleeve);
+}
+
+.cover-art .is-stroke-mid {
+  stroke: color-mix(in srgb, var(--sleeve) 72%, var(--cover-ground));
+}
+
 /* A pen stroke drawing itself (pathLength="1", so a dash of 1 is the whole line), holding
    whole, then fading to start again: the golden spirals and the harmonograph. */
 @keyframes cover-pen {
@@ -206,6 +243,76 @@
   55%, 100% { opacity: 0.35; }
 }
 
+/* The space covers' motion. A carried thing (a climber, a container) travels --dx, --dy
+   and fades in and out at the ends; a hovering thing bobs by --hover; a belt's parts and a
+   dashed flow slide by one dash period; a weld flickers. The maglev plane gathers speed up
+   its track (ease-in: a variable is not resolved in a keyframe's own timing function) and
+   flies off the end; still, it rests part way up. */
+.cover-carry {
+  --dx: 0px;
+  --dy: 0px;
+  --rest-x: 0px;
+  --rest-y: 0px;
+  transform: translate(var(--rest-x), var(--rest-y));
+}
+
+.cover-hover {
+  --hover: 3px;
+}
+
+.maglev-run {
+  --dx: 0px;
+  --dy: 0px;
+  transform: translate(calc(var(--dx) * 0.62), calc(var(--dy) * 0.62));
+}
+
+@keyframes cover-belt {
+  to { stroke-dashoffset: -9; }
+}
+
+@keyframes cover-flow {
+  to { stroke-dashoffset: -20; }
+}
+
+@keyframes cover-carry {
+  0% { transform: translate(0, 0); opacity: 0; }
+  8%, 88% { opacity: 1; }
+  100% { transform: translate(var(--dx), var(--dy)); opacity: 0; }
+}
+
+@keyframes cover-hover {
+  from { transform: translateY(calc(var(--hover) * -1)); }
+  to { transform: translateY(var(--hover)); }
+}
+
+@keyframes cover-flicker {
+  0% { opacity: 1; }
+  15% { opacity: 0.25; }
+  30% { opacity: 0.9; }
+  45% { opacity: 0.15; }
+  60% { opacity: 1; }
+  80% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+@keyframes maglev-run {
+  0% { transform: translate(0, 0); opacity: 0; animation-timing-function: ease-in; }
+  3% { opacity: 1; }
+  62% { transform: translate(var(--dx), var(--dy)); opacity: 1; animation-timing-function: linear; }
+  72%, 100% { transform: translate(calc(var(--dx) * 1.3), calc(var(--dy) * 1.3 - 16px)); opacity: 0; }
+}
+
+/* A glow that swells and settles, as the black hole's corona does. */
+@keyframes cover-breathe {
+  from { opacity: 0.7; }
+  to { opacity: 1; }
+}
+
+@keyframes maglev-coil {
+  0% { opacity: 1; }
+  6%, 100% { opacity: 0.4; }
+}
+
 @keyframes cover-euclid-p {
   0%, 30% { opacity: 0; }
   34%, 86% { opacity: 1; }
@@ -335,6 +442,38 @@
 
   :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .scan-blip {
     animation: cover-scan-blip 8s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .belt-items {
+    animation: cover-belt 1.2s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .flow-dash {
+    animation: cover-flow 2s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-carry {
+    animation: cover-carry 10s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-hover {
+    animation: cover-hover 4s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-flicker {
+    animation: cover-flicker 0.9s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .maglev-run {
+    animation: maglev-run 10s linear infinite;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .cover-breathe {
+    animation: cover-breathe 7s var(--ease-sine) infinite alternate;
+  }
+
+  :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .maglev-coil {
+    animation: maglev-coil 10s linear infinite;
   }
 
   :root:not([data-cover-motion="off"]) .cover-art:not(.is-still) .wave-ring {

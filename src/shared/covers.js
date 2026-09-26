@@ -16,7 +16,8 @@ export const COVER_TYPES = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/web
 /** The drawn covers, which need no file. */
 export const COVER_PATTERNS = ['cards', 'arcs', 'notes', 'stack', 'leitner', 'shelf', 'stars', 'ruled', 'graph', 'contours', 'halftone', 'mosaic', 'stripes',
   'euclid', 'golden', 'sierpinski', 'harmonograph', 'stella', 'periodic', 'helix', 'waves', 'lattice', 'atom',
-  'botanical', 'tree', 'sunflower', 'graticule', 'scan', 'aurora', 'colonnade', 'music', 'orrery', 'giza', 'aztec'];
+  'botanical', 'tree', 'sunflower', 'graticule', 'scan', 'aurora', 'colonnade', 'music', 'orrery', 'giza', 'aztec',
+  'elevator', 'factory', 'shipyard', 'refinery', 'outpost', 'maglev', 'station', 'asteroids', 'earthrise', 'ringed', 'blackhole', 'telescope'];
 
 /** The largest cover image accepted, in bytes. */
 export const MAX_COVER_BYTES = 10 * 1024 * 1024;
