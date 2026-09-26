@@ -567,6 +567,7 @@ export default function App() {
             <OnboardingTour
               onClose={handleCloseTour}
               onNavigate={setActiveView}
+              labels={labels}
             />
           )}
         </AppGate>

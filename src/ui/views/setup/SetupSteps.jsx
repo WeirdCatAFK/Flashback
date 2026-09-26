@@ -1,26 +1,88 @@
 /**
- * The wizard's four screens: welcome, the vault name and location, identity,
- * and the review before writing. Each validates its own fields with the
- * sentences from validation.js.
+ * The wizard's four screens: welcome, the vault (name, scheduler, location), who you are,
+ * and the review before anything is written. Each validates its own fields with the
+ * sentences from validation.js. Who you are starts blank, with the computer account as the
+ * placeholder: blank is a valid answer (that account is stamped), while a name filled in
+ * for you beside an empty email is not. The scheduler reads as it does in Config → Study (the same
+ * control and the same sentences), since that is where it is changed later.
  */
 
 import { useState, useEffect } from 'react';
 import { LOCALE_OPTIONS, useT } from '../../translations/index';
 import { LanguagePicker } from '../../translations/components.jsx';
+import SegmentedControl from '../../components/base/SegmentedControl';
+import Toggle from '../../components/base/Toggle';
 import { getStoredIdentity } from '../../api/identity.js';
 import { getUserDataPath, isDesktop } from '../../api/desktop';
-import { nameError, joinPath, identityProblem, bothBlank } from './validation.js';
+import { nameError, joinPath, identityProblem, bothBlank, SCHEDULERS } from './validation.js';
 
-export function StepDots({ step, total }) {
+/** One sentence per scheduler, the same as Config → Study's. */
+function schedulerHint(id, t) {
+  switch (id) {
+    case 'leitner': return t('Cards move up a box when you remember them and back to the first when you don’t; each box doubles the gap.');
+    case 'sm2': return t('Each card has an ease factor that grows or shrinks with your grades and stretches the gap.');
+    case 'fsrs': return t('A memory model that predicts when you’re about to forget each card, fitted to your own history.');
+    default: return '';
+  }
+}
+
+/** Where the vault would land, once Electron has said where its data lives. */
+function useDataPath() {
+  const [dataPath, setDataPath] = useState('');
+  useEffect(() => {
+    if (isDesktop()) getUserDataPath().then((p) => setDataPath(p ?? '')).catch(() => {});
+  }, []);
+  return dataPath;
+}
+
+/** The identity Flashback falls back on (the computer account), or null. */
+function useSuggestedIdentity() {
+  const [suggested, setSuggested] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    getStoredIdentity().then((stored) => {
+      if (!cancelled) setSuggested(stored?.suggested?.name ? stored.suggested : null);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  return suggested;
+}
+
+/** The steps as a ladder: done, here, still to come. */
+export function StepLadder({ step, labels }) {
   const { t } = useT();
   return (
-    <div className="ob-stepdots" aria-label={t('Step {step} of {total}', { step: step + 1, total })}>
-      {Array.from({ length: total }, (_, i) => (
-        <div
-          key={i}
-          className={`ob-dot${i === step ? " ob-dot--active" : i < step ? " ob-dot--done" : ""}`}
-        />
+    <ol className="ob-ladder" aria-label={t('Step {step} of {total}', { step: step + 1, total: labels.length })}>
+      {labels.map((label, i) => (
+        <li
+          key={label}
+          className={`ob-rung${i < step ? ' is-done' : ''}${i === step ? ' is-here' : ''}`}
+          aria-current={i === step ? 'step' : undefined}
+        >
+          <i aria-hidden="true" />
+          <span>{label}</span>
+        </li>
       ))}
+    </ol>
+  );
+}
+
+function StepHead({ title, lede }) {
+  return (
+    <header className="ob-head">
+      <h1 className="ob-title">{title}</h1>
+      {lede && <p className="ob-lede">{lede}</p>}
+    </header>
+  );
+}
+
+function StepNav({ onBack, onNext, nextLabel, busy = false }) {
+  const { t } = useT();
+  return (
+    <div className="ob-nav">
+      {onBack && <button type="button" className="btn btn--ghost" onClick={onBack} disabled={busy}>{t('Back')}</button>}
+      {onBack && <span className="ob-grow" />}
+      <button type="button" className="btn btn--quiet-accent" onClick={onNext} disabled={busy}>{nextLabel ?? t('Next')}</button>
     </div>
   );
 }
@@ -29,29 +91,20 @@ export function StepWelcome({ onNext }) {
   const { t } = useT();
   return (
     <div className="ob-step ob-step--welcome">
-      <svg className="ob-mark" width="52" height="52" viewBox="0 0 52 52" fill="none" aria-hidden="true">
-        <path d="M26 6L46 26L26 46L6 26Z" stroke="var(--color-accent)" strokeWidth="1.5"/>
-        <path d="M26 16L36 26L26 36L16 26Z" fill="var(--color-accent)"/>
+      <svg className="ob-mark" width="44" height="44" viewBox="0 0 52 52" fill="none" aria-hidden="true">
+        <path d="M26 6L46 26L26 46L6 26Z" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M26 16L36 26L26 36L16 26Z" fill="currentColor" />
       </svg>
-
-      <h1 className="ob-welcome-title">{t('Welcome to Flashback')}</h1>
-      <p className="ob-welcome-desc">
-        {t('A knowledge database with all your spaced repetition needs.')}<br/>
-        {t('Your notes, documents, and flashcards — all in one place.')}
-      </p>
-
-      <button type="button" className="btn btn--primary btn--lg" onClick={onNext}>
-        {t('Get started')}
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-          <line x1="2" y1="7" x2="12" y2="7"/>
-          <polyline points="8,3 12,7 8,11"/>
-        </svg>
-      </button>
-
+      <StepHead
+        title={t('Welcome to Flashback')}
+        lede={t('The desk where reading becomes memory: read, mark, write the card, file it, in a vault you own.')}
+      />
+      <p className="ob-p">{t('Setting up takes a minute: a vault, your name, and a look at both before anything is written.')}</p>
+      <StepNav onNext={onNext} nextLabel={t('Get started')} />
       {LOCALE_OPTIONS.length > 1 && (
         <div className="ob-locale">
           <label htmlFor="ob-locale-select">{t('Language')}</label>
-          <LanguagePicker id="ob-locale-select" />
+          <LanguagePicker id="ob-locale-select" className="field field--sm" />
         </div>
       )}
     </div>
@@ -61,183 +114,109 @@ export function StepWelcome({ onNext }) {
 export function StepVault({ state, onChange, onNext, onBack }) {
   const { t } = useT();
   const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
-  const [advanced, setAdvanced] = useState(false);
-  const [touched, setTouched]   = useState(false);
-  const [dataPath, setDataPath] = useState("");
-
-  useEffect(() => {
-    if (isDesktop()) getUserDataPath().then((p) => setDataPath(p ?? ''));
-  }, []);
+  const [touched, setTouched] = useState(false);
+  const dataPath = useDataPath();
 
   const err = nameError(vaultName, t);
-  const previewBase = isCustomPath ? (customPath.trim() || "…") : (dataPath || "…");
-  const previewPath = joinPath(previewBase, vaultName.trim() || "…");
-  const canNext = !err && (!isCustomPath || customPath.trim());
+  const pathMissing = isCustomPath && !customPath.trim();
+  const previewBase = isCustomPath ? (customPath.trim() || '…') : (dataPath || '…');
+  const previewPath = joinPath(previewBase, vaultName.trim() || '…');
 
   const handleNext = () => {
     setTouched(true);
-    if (canNext) onNext();
+    if (!err && !pathMissing) onNext();
   };
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">{t('Name your vault')}</h2>
-      <p className="ob-step-desc">
-        {t('A vault is a self-contained workspace — its own folder and database on disk.')}
-      </p>
+      <StepHead
+        title={t('Name your vault')}
+        lede={t('A vault is a self-contained workspace: its own folder of documents and its own database, on your disk.')}
+      />
 
       <div className="ob-field">
         <label className="ob-label" htmlFor="ob-vault-name">{t('Vault name')}</label>
         <input
           id="ob-vault-name"
-          className={`ob-input ob-input--lg${touched && err ? " ob-input--err" : ""}`}
+          className={`field ob-in${touched && err ? ' is-invalid' : ''}`}
           value={vaultName}
-          onChange={e => { onChange("vaultName", e.target.value); setTouched(false); }}
+          onChange={(e) => { onChange('vaultName', e.target.value); setTouched(false); }}
           onBlur={() => setTouched(true)}
+          aria-invalid={touched && !!err}
+          aria-describedby="ob-vault-name-msg"
           placeholder="dreams"
           autoFocus
           spellCheck={false}
           autoComplete="off"
         />
         {touched && err
-          ? <span className="ob-field-msg ob-field-msg--err">{err}</span>
-          : (
-            <span className="ob-field-msg ob-path-preview">
-              <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="1.3" aria-hidden="true">
-                <rect x="1" y="3" width="9" height="7" rx="0"/>
-                <path d="M1 5h9M4 3V1h3v2"/>
-              </svg>
-              {previewPath}
-            </span>
-          )
-        }
+          ? <span id="ob-vault-name-msg" className="ob-msg is-error">{err}</span>
+          : <span id="ob-vault-name-msg" className="ob-msg ob-path" title={previewPath}>{previewPath}</span>}
       </div>
-
-      <div className="ob-divider" />
 
       <div className="ob-field">
-        <label className="ob-label">{t('SRS algorithm')}</label>
-        <div className="ob-algo-group">
-          <label className={`ob-algo-option${algorithm === 'sm2' ? ' ob-algo-option--active' : ''}`}>
-            <input
-              type="radio"
-              name="ob-algorithm"
-              value="sm2"
-              checked={algorithm === 'sm2'}
-              onChange={() => onChange("algorithm", "sm2")}
-            />
-            <span className="ob-algo-name">SM-2</span>
-            <span className="ob-algo-desc">{t('Ease factor — adapts to your recall speed. Better for large collections.')}</span>
-          </label>
-          <label className={`ob-algo-option${algorithm === 'leitner' ? ' ob-algo-option--active' : ''}`}>
-            <input
-              type="radio"
-              name="ob-algorithm"
-              value="leitner"
-              checked={algorithm === 'leitner'}
-              onChange={() => onChange("algorithm", "leitner")}
-            />
-            <span className="ob-algo-name">Leitner</span>
-            <span className="ob-algo-desc">{t('Box system — intervals double each level. Simple and effective.')}</span>
-          </label>
-          <label className={`ob-algo-option${algorithm === 'fsrs' ? ' ob-algo-option--active' : ''}`}>
-            <input
-              type="radio"
-              name="ob-algorithm"
-              value="fsrs"
-              checked={algorithm === 'fsrs'}
-              onChange={() => onChange("algorithm", "fsrs")}
-            />
-            <span className="ob-algo-name">FSRS</span>
-            <span className="ob-algo-desc">{t('Memory model — predicts recall to minimise reviews. Most efficient; the modern default.')}</span>
-          </label>
-        </div>
-        <span className="ob-field-msg">{t('You can change this later in Settings → Flashcards.')}</span>
+        <span className="ob-label">{t('Scheduler')}</span>
+        <SegmentedControl
+          label={t('Scheduler')}
+          value={algorithm}
+          onChange={(v) => onChange('algorithm', v)}
+          options={SCHEDULERS}
+        />
+        <span className="ob-msg">{schedulerHint(algorithm, t)} {t('You can change it later in Config → Study.')}</span>
       </div>
 
-      <div className="ob-divider" />
-
-      <label className="ob-check-row">
-        <input
-          type="checkbox"
-          className="ob-checkbox"
-          checked={isCustomPath}
-          onChange={e => onChange("isCustomPath", e.target.checked)}
-        />
-        <span className="ob-check-label">{t('Store vault at a custom location')}</span>
-      </label>
-
-      {isCustomPath && (
-        <div className="ob-field ob-field--indented">
-          <label className="ob-label" htmlFor="ob-custom-path">{t('Vault root folder')}</label>
-          <input
-            id="ob-custom-path"
-            className="field"
-            value={customPath}
-            onChange={e => onChange("customPath", e.target.value)}
-            placeholder="C:\Users\you\Vaults"
-            spellCheck={false}
-            autoComplete="off"
-          />
-          <span className="ob-field-msg">{t('Absolute path — the vault folder will be created inside it.')}</span>
+      <div className="ob-field">
+        <div className="ob-switch">
+          <span className="ob-label" id="ob-custom-label">{t('Keep the vault in a folder of your choosing')}</span>
+          <Toggle checked={isCustomPath} onChange={(v) => onChange('isCustomPath', v)} ariaLabel={t('Keep the vault in a folder of your choosing')} />
         </div>
-      )}
+        {isCustomPath && (
+          <div className="ob-sub">
+            <input
+              className={`field ob-in${touched && pathMissing ? ' is-invalid' : ''}`}
+              value={customPath}
+              onChange={(e) => onChange('customPath', e.target.value)}
+              aria-labelledby="ob-custom-label"
+              aria-invalid={touched && pathMissing}
+              placeholder="C:\Users\you\Vaults"
+              spellCheck={false}
+              autoComplete="off"
+            />
+            <span className={`ob-msg${touched && pathMissing ? ' is-error' : ''}`}>
+              {touched && pathMissing ? t('Required.') : t('An absolute path. The vault’s folder is made inside it.')}
+            </span>
+          </div>
+        )}
+      </div>
 
-      <button
-        type="button"
-        className="ob-advanced-toggle"
-        aria-expanded={advanced}
-        onClick={() => setAdvanced(v => !v)}
-      >
-        <svg width="9" height="9" viewBox="0 0 9 9" fill="none" stroke="currentColor" strokeWidth="1.5"
-          aria-hidden="true"
-          style={{ transform: advanced ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 140ms ease" }}>
-          <polyline points="2,1 7,4.5 2,8"/>
-        </svg>
-        {t('Advanced')}
-      </button>
-
-      {advanced && (
-        <div className="ob-advanced">
-          <div className="ob-inline-row">
-            <label className="ob-label" htmlFor="ob-port">{t('API port')}</label>
+      <details className="ob-more">
+        <summary>{t('Advanced')}</summary>
+        <div className="ob-more__rows">
+          <label className="ob-row" htmlFor="ob-port">
+            <span>{t('API port')}</span>
             <input
               id="ob-port"
-              className="field ob-input--short"
+              className="field ob-num"
               type="number"
               value={port}
               min={1024}
               max={65535}
-              onChange={e => onChange("port", Number(e.target.value))}
+              onChange={(e) => onChange('port', Number(e.target.value))}
             />
-          </div>
-          <div className="ob-inline-row">
-            <label className="ob-label" htmlFor="ob-log">{t('Log format')}</label>
-            <select
-              id="ob-log"
-              className="field"
-              value={logFormat}
-              onChange={e => onChange("logFormat", e.target.value)}
-            >
+          </label>
+          <label className="ob-row" htmlFor="ob-log">
+            <span>{t('Log format')}</span>
+            <select id="ob-log" className="field" value={logFormat} onChange={(e) => onChange('logFormat', e.target.value)}>
               <option value="dev">dev</option>
               <option value="combined">combined</option>
               <option value="tiny">tiny</option>
               <option value="short">short</option>
             </select>
-          </div>
+          </label>
         </div>
-      )}
+      </details>
 
-      <div className="ob-nav">
-        <button type="button" className="btn btn--ghost btn--lg" onClick={onBack}>{t('Back')}</button>
-        <button type="button" className="btn btn--primary btn--lg" onClick={handleNext}>
-          {t('Next')}
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-            <line x1="2" y1="7" x2="12" y2="7"/>
-            <polyline points="8,3 12,7 8,11"/>
-          </svg>
-        </button>
-      </div>
+      <StepNav onBack={onBack} onNext={handleNext} />
     </div>
   );
 }
@@ -246,21 +225,13 @@ export function StepIdentity({ state, onChange, onNext, onBack }) {
   const { t } = useT();
   const { userName, userEmail } = state;
   const [touched, setTouched] = useState(false);
-  const [suggested, setSuggested] = useState(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    getStoredIdentity().then((stored) => {
-      if (cancelled || !stored?.suggested?.name) return;
-      setSuggested(stored.suggested);
-      if (!state.userName) onChange("userName", stored.suggested.name);
-    });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  const suggested = useSuggestedIdentity();
 
   const skipping = bothBlank({ name: userName, email: userEmail });
   const problem = skipping ? null : identityProblem({ name: userName, email: userEmail }, t);
+  const stamp = skipping
+    ? (suggested ? `${suggested.name} <${suggested.email}>` : null)
+    : `${userName.trim()} <${userEmail.trim()}>`;
 
   const handleNext = () => {
     setTouched(true);
@@ -269,18 +240,18 @@ export function StepIdentity({ state, onChange, onNext, onBack }) {
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">{t('Who’s studying?')}</h2>
-      <p className="ob-step-desc">
-        {t('Your name and email are stamped on documents you create and on every entry in the vault history. Nothing checks it and nothing signs you in.')}
-      </p>
+      <StepHead
+        title={t('Who’s studying?')}
+        lede={t('Your name and email are stamped on documents you create and on every entry in the vault history. Nothing checks it and nothing signs you in.')}
+      />
 
       <div className="ob-field">
         <label className="ob-label" htmlFor="ob-user-name">{t('Name')}</label>
         <input
           id="ob-user-name"
-          className="field ob-input--lg"
+          className="field ob-in"
           value={userName}
-          onChange={e => { onChange("userName", e.target.value); setTouched(false); }}
+          onChange={(e) => { onChange('userName', e.target.value); setTouched(false); }}
           onBlur={() => setTouched(true)}
           placeholder={suggested?.name}
           autoFocus
@@ -293,114 +264,85 @@ export function StepIdentity({ state, onChange, onNext, onBack }) {
         <label className="ob-label" htmlFor="ob-user-email">{t('Email')}</label>
         <input
           id="ob-user-email"
-          className={`ob-input ob-input--lg${touched && problem ? " ob-input--err" : ""}`}
+          className={`field ob-in${touched && problem ? ' is-invalid' : ''}`}
           type="email"
           value={userEmail}
-          onChange={e => { onChange("userEmail", e.target.value); setTouched(false); }}
+          onChange={(e) => { onChange('userEmail', e.target.value); setTouched(false); }}
           onBlur={() => setTouched(true)}
+          aria-invalid={touched && !!problem}
+          aria-describedby="ob-user-msg"
           placeholder={suggested?.email}
           spellCheck={false}
           autoComplete="off"
         />
-        {touched && problem
-          ? <span className="ob-field-msg ob-field-msg--err">{problem}</span>
-          : (
-            <span className="ob-field-msg">
-              {skipping && suggested
-                ? t('Leave both blank and Flashback uses {fallback}. You can change this later in Settings.')
-                    .replace('{fallback}', `${suggested.name} <${suggested.email}>`)
-                : t('You can change this later in Settings, and keep a different address for a particular vault.')}
-            </span>
-          )
-        }
+        {touched && problem && <span id="ob-user-msg" className="ob-msg is-error">{problem}</span>}
       </div>
 
-      <div className="ob-nav">
-        <button type="button" className="btn btn--ghost btn--lg" onClick={onBack}>{t('Back')}</button>
-        <button type="button" className="btn btn--primary btn--lg" onClick={handleNext}>
-          {t('Next')}
-          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-            <line x1="2" y1="7" x2="12" y2="7"/>
-            <polyline points="8,3 12,7 8,11"/>
-          </svg>
-        </button>
-      </div>
+      {!(touched && problem) && (
+        <div className="ob-stamp">
+          {stamp && <p>{t('Stamping new work as')} <code>{stamp}</code></p>}
+          <span className="ob-msg">
+            {skipping
+              ? t('Leave both blank and Flashback uses your computer’s account. You can change this later in Config → You.')
+              : t('You can change this later in Config → You, and keep a different address for a particular vault.')}
+          </span>
+        </div>
+      )}
+
+      <StepNav onBack={onBack} onNext={handleNext} />
     </div>
   );
 }
 
-export function StepReady({ state, onBack, onSubmit, submitting, submitError }) {
+export function StepReady({ state, onBack, onSubmit, submitting, submitError, preview }) {
   const { t } = useT();
-  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm,
-          userName, userEmail } = state;
-  const [dataPath, setDataPath] = useState("");
-  const [suggested, setSuggested] = useState(null);
+  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm, userName, userEmail } = state;
+  const dataPath = useDataPath();
+  const suggested = useSuggestedIdentity();
 
-  useEffect(() => {
-    if (isDesktop()) getUserDataPath().then((p) => setDataPath(p ?? ''));
-    getStoredIdentity().then(s => setSuggested(s?.suggested?.name ? s.suggested : null));
-  }, []);
-
-  const skippedIdentity = bothBlank({ name: userName, email: userEmail });
-  const authorLine = skippedIdentity
-    ? (suggested ? `${suggested.name} <${suggested.email}>` : "…")
+  const author = bothBlank({ name: userName, email: userEmail })
+    ? (suggested ? `${suggested.name} <${suggested.email}>` : '…')
     : `${userName.trim()} <${userEmail.trim()}>`;
-
-  const previewBase = isCustomPath ? (customPath.trim() || "…") : (dataPath || "…");
-  const vaultPath   = joinPath(previewBase, vaultName.trim());
-  const dbPath      = joinPath(vaultPath, `${vaultName.trim()}.db`);
+  const previewBase = isCustomPath ? (customPath.trim() || '…') : (dataPath || '…');
+  const vaultPath = joinPath(previewBase, vaultName.trim());
+  const scheduler = SCHEDULERS.find((s) => s.value === algorithm)?.label ?? algorithm;
 
   return (
     <div className="ob-step">
-      <h2 className="ob-step-title">{t('You’re all set')}</h2>
-      <p className="ob-step-desc">{t('Review your vault settings before creating it.')}</p>
+      <StepHead
+        title={t('You’re all set')}
+        lede={preview
+          ? t('This is a preview: Flashback is already set up, so finishing writes nothing and opens the app as it is.')
+          : t('Nothing is written until you create the vault. Go back to change anything.')}
+      />
 
-      <div className="ob-summary">
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('Vault name')}</span>
-          <span className="ob-summary-val">{vaultName}</span>
-        </div>
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('Documents')}</span>
-          <span className="ob-summary-val ob-summary-val--path">{joinPath(vaultPath, "workspace")}</span>
-        </div>
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('Database')}</span>
-          <span className="ob-summary-val ob-summary-val--path">{dbPath}</span>
-        </div>
-        <div className="ob-summary-divider" />
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('Stamped as')}</span>
-          <span className="ob-summary-val ob-summary-val--path">{authorLine}</span>
-        </div>
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('SRS algorithm')}</span>
-          <span className="ob-summary-val">{algorithm === 'sm2' ? 'SM-2' : algorithm === 'fsrs' ? 'FSRS' : 'Leitner'}</span>
-        </div>
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('API port')}</span>
-          <span className="ob-summary-val">{port}</span>
-        </div>
-        <div className="ob-summary-row">
-          <span className="ob-summary-key">{t('Log format')}</span>
-          <span className="ob-summary-val">{logFormat}</span>
-        </div>
-      </div>
+      <dl className="ob-facts">
+        <dt>{t('Vault')}</dt>
+        <dd>{vaultName.trim()}</dd>
+        <dt>{t('Documents')}</dt>
+        <dd className="ob-mono">{joinPath(vaultPath, 'workspace')}</dd>
+        <dt>{t('Database')}</dt>
+        <dd className="ob-mono">{joinPath(vaultPath, `${vaultName.trim()}.db`)}</dd>
+        <dt>{t('Stamped as')}</dt>
+        <dd className="ob-mono">{author}</dd>
+        <dt>{t('Scheduler')}</dt>
+        <dd>{scheduler}</dd>
+        <dt>{t('API port')}</dt>
+        <dd className="ob-mono">{port}</dd>
+        <dt>{t('Log format')}</dt>
+        <dd className="ob-mono">{logFormat}</dd>
+      </dl>
 
-      {submitError && <p className="ob-submit-error">{submitError}</p>}
+      {submitError && <p className="ob-error" role="alert">{submitError}</p>}
 
-      <div className="ob-nav">
-        <button type="button" className="btn btn--ghost btn--lg" onClick={onBack} disabled={submitting}>{t('Back')}</button>
-        <button type="button" className="btn btn--primary btn--lg" onClick={onSubmit} disabled={submitting}>
-          {submitting ? t('Creating vault…') : t('Create vault')}
-          {!submitting && (
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
-              <line x1="2" y1="7" x2="12" y2="7"/>
-              <polyline points="8,3 12,7 8,11"/>
-            </svg>
-          )}
-        </button>
-      </div>
+      <StepNav
+        onBack={onBack}
+        onNext={onSubmit}
+        busy={submitting}
+        nextLabel={preview
+          ? t('Finish preview')
+          : submitting ? t('Creating vault…') : t('Create vault')}
+      />
     </div>
   );
 }

@@ -660,7 +660,8 @@ Vault, identity and connection channels are the exception to "the renderer talks
 | `get-config`            | renderer → main | Read the full config.json object                                                                                                                                                                        |
 | `set-config`            | renderer → main | Write a new config.json object; returns`{ ok, error? }`                                                                                                                                               |
 | `is-first-run`          | renderer → main | True when config.json is absent or`--onboarding` was passed                                                                                                                                           |
-| `complete-setup`        | renderer → main | Write initial config, mint token, spawn API; returns`{ ok, error? }`                                                                                                                                  |
+| `is-setup-preview`      | renderer → main | True when `--onboarding` was passed over an existing config.json (`npm run dev:onboarding`): the wizard is shown but writes nothing |
+| `complete-setup`        | renderer → main | Write initial config, mint token, spawn API; returns`{ ok, error? }`. In a preview it writes nothing and returns `{ ok: true, preview: true }` |
 | `restart-app`           | renderer → main | Relaunch the app                                                                                                                                                                                        |
 | `get-user-data-path`    | renderer → main | Electron userData path (onboarding path preview)                                                                                                                                                        |
 | `get-mcp-config`        | renderer → main | Ready-to-paste MCP server config snippet                                                                                                                                                                |
@@ -1241,10 +1242,17 @@ recognizability][nng-icons], Apple's and Material's guidance on emphasis):
   vaults — editing the name used to rename the folder without moving the database. The AI
   Assistant block says "diary" regardless of connection: it gates the local MCP server against
   the local vault.
-- **Setup:** identity is fetched over IPC because the API does not exist yet; only the name
-  is pre-filled (the suggested address is a `.local` placeholder). The algorithm is written to the
-  global pref key because the vault has no id yet, and `prefs.js` copies it forward. Blank
-  identity writes no `user` at all.
+- **Setup** (`views/setup/`): four steps under a ladder (Welcome, Vault, You, Review), each a
+  heading, a lede and its fields; the review is a list of the facts it will write. Identity is
+  fetched over IPC because the API does not exist yet; both fields start blank with the suggested
+  identity as placeholder, since blank is valid (nothing is written and the computer account is
+  stamped) while a pre-filled name beside an empty email is not. The algorithm is written to the
+  global pref key because the vault has no id yet, and `prefs.js` copies it forward. Finishing
+  clears `fb-onboarding-seen`, so the tour follows.
+- **Seeing Setup again:** `npm run dev:onboarding` starts Electron with `--onboarding`. Over an
+  existing config.json that is a preview: the API starts as usual, the wizard says it is a
+  preview, and finishing writes nothing (the config holds the token, vault registry and remotes,
+  which the form knows nothing about) and opens the app. The tour replays from Config → About.
 - **Server Management** (`views/server/`): the one place that says out loud what the role hides
   elsewhere, set as a report like Metadata and Seal. The lede names you and your role and, for
   an admin, the seats in use; your role is a ladder with "What each role can do" behind a

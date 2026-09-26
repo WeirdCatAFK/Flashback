@@ -40,6 +40,9 @@ export const windowClose = () => bridge()?.windowClose?.();
 /** First run: write config.json and create the first vault; the API is spawned after. */
 export const completeSetup = (config) => call("completeSetup", config);
 
+/** Whether the wizard is a preview over an existing config (`--onboarding`); false outside Electron. */
+export const isSetupPreview = async () => !!(await bridge()?.isSetupPreview?.());
+
 /** Subscribe to `flashback://` links the OS handed to main; returns the unsubscribe, or undefined outside Electron. */
 export const onFlashbackNavigate = (handler) =>
   bridge()?.onFlashbackNavigate?.(handler);

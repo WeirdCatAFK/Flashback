@@ -53,13 +53,13 @@ export default function AppGate({ children }) {
 
   return (
     <div className="app-gate">
-      <div className="app-gate-inner">
-        <div className="app-gate-spinner" />
+      <div className="app-gate-inner" role="status">
         <p className="app-gate-title">{t('Starting Flashback…')}</p>
+        <span className="app-gate-line" aria-hidden="true"><i /></span>
         {slow && (
           <div className="app-gate-slow">
             <p className="app-gate-slow-text">{t('The workspace service is taking a while to start.')}</p>
-            <button type="button" className="app-gate-retry" onClick={() => setAttempt(a => a + 1)}>
+            <button type="button" className="btn btn--quiet btn--sm" onClick={() => setAttempt(a => a + 1)}>
               {t('Retry now')}
             </button>
           </div>

@@ -8,6 +8,13 @@
 import { vaultNameError } from '../../../shared/vaultName.js';
 import { identityError } from '../../../shared/identity.js';
 
+/** The schedulers, in Config → Study's order; their names are not translated. */
+export const SCHEDULERS = [
+  { value: 'leitner', label: 'Leitner' },
+  { value: 'sm2', label: 'SM-2' },
+  { value: 'fsrs', label: 'FSRS' },
+];
+
 export function nameError(v, t) {
   switch (vaultNameError(v)) {
     case "required":      return t("Required.");

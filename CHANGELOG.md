@@ -139,6 +139,12 @@ The interface is moving to a new design language, one area at a time. In this re
   else could read yours; now the Author can, in the app: Logs on a person's row in Server
   Management, or "Logs of" on the Logs screen. It is read-only, and the note now names the
   server's owner rather than "an administrator", since admins cannot.
+- **The first run and the tour match the rest.** Setup shows its four steps as a ladder,
+  uses the same scheduler control as Config → Study, and ends on a list of what it will write.
+  It no longer fills in your name while leaving the email blank, which stopped Next until you
+  cleared it. The welcome tour gains a Diary step, names each screen as its tab does, and no
+  longer runs off the edge of its box in Spanish. Waiting for the app to start shows a thin
+  line instead of a spinner.
 - **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
   glass. The Graph panel slides shut to its header instead of vanishing, and a selected
   node's name no longer breaks mid-word.
