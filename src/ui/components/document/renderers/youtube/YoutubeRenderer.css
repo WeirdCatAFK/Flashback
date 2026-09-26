@@ -473,6 +473,26 @@
   opacity: 1;
 }
 
+/* The times hang 72px left of the text: in the measure's 32px padding and the margin beside
+   the centred column. In a pane narrower than the measure that margin is gone and they ran
+   off the edge, under the file tree. So with the tree shown the column still centres, but
+   never closer to the pane's edge than the times need: 12px for m:ss, 24px once a video runs
+   an hour (h:mm:ss, `is-hours`). The head takes the same margin so the title stays over the
+   text. 100cqw is the reading pane (DocumentEditor.css's `doc-pane` container). With the tree
+   hidden the measure starts 48px in, which always holds them. */
+.doc-editor-renderer:has(.yt-renderer) {
+  --yt-edge: var(--space-3);
+}
+
+.doc-editor-renderer:has(.yt-renderer.is-hours) {
+  --yt-edge: var(--space-6);
+}
+
+.documents-view:not(.documents-view--hidden) .yt-renderer,
+.documents-view:not(.documents-view--hidden) .doc-editor-renderer:has(.yt-renderer) .doc-head {
+  margin-left: max(var(--yt-edge), calc((100cqw - var(--measure-width)) / 2));
+}
+
 /* A narrow column has no room for the gutter: the time sits above its paragraph. */
 @container (max-width: 480px) {
   .yt-time {

@@ -1,4 +1,6 @@
-/* Base modal — see Modal.jsx. Backdrop + centered panel, tokenized throughout. */
+/* Base modal — see Modal.jsx. A layer over the content: the scrim, and a panel that is a
+   solid surface with an edge and the popover's shadow. The title is set in the text's own
+   weight, and the header and footer rules are the soft dividers used inside a page. */
 
 .modal-backdrop {
   position: fixed;
@@ -49,7 +51,7 @@
   justify-content: space-between;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--color-line);
 }
 
 /* Titles quote user-supplied names (decks, files, folders), so they can be long and
@@ -59,8 +61,9 @@
    the close button outside the panel, where overflow:hidden clips it out of reach. */
 .modal__title {
   min-width: 0;
+  margin: 0;
   font-size: var(--text-md);
-  font-weight: 600;
+  font-weight: 400;
   overflow-wrap: anywhere;
 }
 
@@ -75,7 +78,7 @@
   justify-content: flex-end;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-line);
 }
 
 @keyframes modal-fade-in {
@@ -95,5 +98,12 @@
   to {
     opacity: 1;
     transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop,
+  .modal {
+    animation: none;
   }
 }

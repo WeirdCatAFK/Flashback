@@ -389,7 +389,7 @@ export default function AnkiMappingModal({
           <div className="anki-map__footer-actions">
             <button
               type="button"
-              className="anki-map__btn"
+              className="btn btn--ghost"
               onClick={onCancel}
               disabled={importing}
             >
@@ -397,7 +397,7 @@ export default function AnkiMappingModal({
             </button>
             <button
               type="button"
-              className="anki-map__btn anki-map__btn--primary"
+              className="btn btn--quiet-accent"
               onClick={() => onConfirm(mappings)}
               disabled={importing}
             >
@@ -411,7 +411,7 @@ export default function AnkiMappingModal({
     >
       <div className="anki-map">
         <p className="anki-map__intro">
-          {filename ? <strong>{filename}</strong> : t("This deck")}{" "}
+          {filename ? <b>{filename}</b> : t("This deck")}{" "}
           {t(
             "uses Anki note types, which have their own fields. Drag each field onto the part of the Flashback card it should become. Fields left on the left are not imported.",
           )}
@@ -420,14 +420,13 @@ export default function AnkiMappingModal({
         {error && <div className="anki-map__error">{error}</div>}
 
         {notetypes.length > 1 && (
-          <div className="anki-map__tabs" role="tablist">
+          <div className="tabs anki-map__tabs" role="tablist">
             {notetypes.map((nt) => (
               <button
                 key={nt.id}
                 type="button"
                 role="tab"
                 aria-selected={nt.id === active.id}
-                className={`anki-map__tab${nt.id === active.id ? " is-active" : ""}`}
                 onClick={() => {
                   setActiveId(nt.id);
                   setSampleIndex(0);
@@ -435,7 +434,7 @@ export default function AnkiMappingModal({
                 }}
               >
                 {nt.name}
-                <span className="anki-map__tab-count">{nt.noteCount}</span>
+                <span>{nt.noteCount}</span>
               </button>
             ))}
           </div>
@@ -476,7 +475,7 @@ export default function AnkiMappingModal({
               {t("Becomes a")}
               <select
                 id="anki-map-type"
-                className="anki-map__select"
+                className="field field--sm anki-map__select"
                 value={mapping.cardType}
                 onChange={(e) => setCardType(e.target.value)}
               >

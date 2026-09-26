@@ -59,14 +59,14 @@ export function ConfirmProvider({ children }) {
             <>
               <button
                 type="button"
-                className="confirm-btn"
+                className="btn btn--ghost"
                 onClick={() => settle(false)}
               >
                 {dialog.cancelLabel ?? t("Cancel")}
               </button>
               <button
                 type="button"
-                className={`confirm-btn confirm-btn--primary confirm-btn--${dialog.tone}`}
+                className={`btn ${dialog.tone === "danger" ? "btn--danger-quiet" : "btn--quiet-accent"}`}
                 onClick={() => settle(true)}
               >
                 {dialog.confirmLabel ?? t("Confirm")}

@@ -61,7 +61,7 @@ export default function ContextMenu({ x, y, items, onClose }) {
             <span>{t("Delete?")}</span>
             <button
               type="button"
-              className="ctx-confirm-yes"
+              className="btn btn--danger-quiet btn--sm"
               onClick={() => {
                 item.action();
                 onClose();
@@ -71,7 +71,7 @@ export default function ContextMenu({ x, y, items, onClose }) {
             </button>
             <button
               type="button"
-              className="ctx-confirm-no"
+              className="btn btn--ghost btn--sm"
               onClick={() => setConfirmIdx(null)}
             >
               {t("No")}

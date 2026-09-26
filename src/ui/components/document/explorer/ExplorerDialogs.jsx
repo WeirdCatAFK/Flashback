@@ -81,7 +81,7 @@ export function FolderSwatchModal({ path, currentColor, onClose, onSaved }) {
         />
         <button
           type="button"
-          className="btn btn--primary btn--sm"
+          className="btn btn--quiet-accent btn--sm"
           disabled={saving}
           onClick={() => apply(custom)}
         >
@@ -155,7 +155,7 @@ export function FolderTagsModal({ path, onClose }) {
           </button>
           <button
             type="button"
-            className="btn btn--primary"
+            className="btn btn--quiet-accent"
             onClick={handleSave}
             disabled={!dirty || saving}
           >
@@ -271,7 +271,7 @@ export function ClipUrlModal({ targetPath, onClose, onCreated }) {
           </button>
           <button
             type="button"
-            className="btn btn--primary"
+            className="btn btn--quiet-accent"
             onClick={submit}
             disabled={busy || !url.trim()}
           >
@@ -301,7 +301,7 @@ export function ClipUrlModal({ targetPath, onClose, onCreated }) {
           />
         </label>
         <div
-          className="clip-kind"
+          className="segmented clip-kind"
           role="radiogroup"
           aria-label={t("Capture as")}
         >
@@ -315,7 +315,7 @@ export function ClipUrlModal({ targetPath, onClose, onCreated }) {
               type="button"
               role="radio"
               aria-checked={kind === val}
-              className={`btn btn--sm${kind === val ? " btn--accent-quiet" : ""}`}
+              className="segmented__option"
               disabled={busy}
               onClick={() => setKind(val)}
             >

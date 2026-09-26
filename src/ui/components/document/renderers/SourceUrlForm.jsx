@@ -48,7 +48,7 @@ export default function SourceUrlForm({
         {hint && <p className="srcform-hint">{hint}</p>}
         <div className="srcform-row">
           <input
-            className="srcform-input"
+            className="field srcform-input"
             type="url"
             inputMode="url"
             placeholder={placeholder}
@@ -58,7 +58,7 @@ export default function SourceUrlForm({
             onChange={(e) => setUrl(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); submit(); } }}
           />
-          <button type="button" className="srcform-btn" onClick={submit} disabled={busy || !url.trim()}>
+          <button type="button" className="btn btn--quiet-accent" onClick={submit} disabled={busy || !url.trim()}>
             {busy ? busyText : submitText}
           </button>
         </div>

@@ -8,16 +8,14 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
 }
 
 .cmp-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  padding: var(--space-2);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-line) 70%, transparent);
 }
 
 .cmp-row-meta {
@@ -34,6 +32,5 @@
    choosing it is what brings it into the vault — so this is a footnote, not a state:
    lighter than the section line above it and never competing with the picture. */
 .cmp-sub--remote {
-  font-style: italic;
-  opacity: 0.75;
+  opacity: 0.8;
 }

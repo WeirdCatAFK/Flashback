@@ -1,75 +1,50 @@
-/* AnkiMappingModal — field palette, card slots, live preview. */
+/* AnkiMappingModal — the note types as tabs, then three columns: the Anki fields still to
+   place, the Flashback card's slots they are dropped into, and a live preview on a real card.
+   Field names are chips with a hairline edge; slot names are small mono labels; the buttons
+   are the shared quiet ones in the footer. */
 
 .anki-map {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-3);
 }
 
 .anki-map__intro {
+  max-width: 72ch;
   margin: 0;
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
+  line-height: 1.55;
   color: var(--color-fg-secondary);
-  line-height: 1.5;
+}
+
+.anki-map__intro b {
+  font-weight: 400;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  color: var(--color-fg-primary);
+  overflow-wrap: anywhere;
 }
 
 .anki-map__error {
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
   font-size: var(--text-sm);
+  color: var(--color-danger);
 }
-
-/* --- note type tabs --- */
 
 .anki-map__tabs {
-  display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
-  border-bottom: 1px solid var(--color-border);
-  padding-bottom: var(--space-2);
-}
-
-.anki-map__tab {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid transparent;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.anki-map__tab:hover {
-  background: var(--color-bg-hover);
-}
-
-.anki-map__tab.is-active {
-  background: var(--color-accent-subtle);
-  border-color: var(--color-accent);
-  color: var(--color-fg-primary);
-}
-
-.anki-map__tab-count {
-  font-size: var(--text-sm);
-  opacity: 0.7;
+  row-gap: var(--space-1);
 }
 
 /* --- three-column body --- */
 
-/* The preview column carries a 4:3 card, so it needs real width or the card ends
-   up too short to show an image, its text and the audio button at once. */
+/* The preview column carries a 4:3 card, so it needs real width or the card ends up too
+   short to show an image, its text and the audio button at once. */
 .anki-map__grid {
   display: grid;
-  grid-template-columns: minmax(var(--size-md), 1fr) minmax(
-      var(--size-lg),
-      1.3fr
-    ) minmax(var(--size-lg), 1.2fr);
-  gap: var(--space-3);
+  grid-template-columns:
+    minmax(var(--size-md), 1fr)
+    minmax(var(--size-lg), 1.3fr)
+    minmax(var(--size-lg), 1.2fr);
+  gap: var(--space-4);
   align-items: start;
 }
 
@@ -81,27 +56,31 @@
 
 .anki-map__section-title {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-size: var(--text-base);
   color: var(--color-fg-primary);
 }
 
+label.anki-map__section-title {
+  justify-content: flex-start;
+}
+
 .anki-map__sample-cycle {
+  padding: 0;
   border: none;
   background: none;
-  padding: 0;
-  font-size: var(--text-sm);
-  font-weight: 400;
-  color: var(--color-accent);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
   cursor: pointer;
 }
 
 .anki-map__sample-cycle:hover {
-  text-decoration: underline;
+  color: var(--color-accent);
 }
 
 /* --- palette --- */
@@ -113,12 +92,11 @@
 }
 
 .anki-map__palette-list {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-1);
   min-height: var(--size-xs);
   padding: var(--space-2);
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-bg-sidebar);
 }
@@ -127,12 +105,12 @@
 .anki-map__note {
   margin: var(--space-1) 0 0;
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .anki-map__note--block {
   padding: var(--space-3);
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-line);
   border-radius: var(--radius-md);
   line-height: 1.5;
 }
@@ -143,12 +121,13 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
+  min-width: 0;
   padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-sm);
   background: var(--color-bg-surface);
+  box-shadow: var(--shadow-sm);
   cursor: grab;
-  min-width: 0;
 }
 
 .anki-map__chip:active {
@@ -157,7 +136,6 @@
 
 .anki-map__chip-name {
   font-size: var(--text-sm);
-  font-weight: 600;
   color: var(--color-fg-primary);
   white-space: nowrap;
 }
@@ -166,7 +144,7 @@
   flex: 1;
   min-width: 0;
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -174,10 +152,10 @@
 
 .anki-map__chip-remove,
 .anki-map__chip-swap {
+  padding: 0 var(--space-0-5);
   border: none;
   background: none;
-  padding: 0 var(--space-0-5);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   font-size: var(--text-md);
   line-height: 1;
   cursor: pointer;
@@ -194,30 +172,24 @@
 /* --- card slots --- */
 
 .anki-map__select {
-  padding: var(--space-0-5) var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  font-weight: 400;
+  width: auto;
 }
 
 .anki-map__slots {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-2);
 }
 
 .anki-map__slot {
   padding: var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   background: var(--color-bg-base);
 }
 
 .anki-map__slot-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: var(--space-2);
@@ -225,21 +197,20 @@
 }
 
 .anki-map__slot-label {
-  font-size: var(--text-sm);
-  font-weight: 600;
-  color: var(--color-fg-primary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  color: var(--color-fg-tertiary);
 }
 
 .anki-map__slot-hint {
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .anki-map__slot-body {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-1);
   min-height: var(--control-lg);
 }
@@ -249,10 +220,10 @@
   align-items: center;
   min-height: var(--control-lg);
   padding: 0 var(--space-2);
-  border: 1px dashed var(--color-border);
+  border: 1px dashed var(--color-line);
   border-radius: var(--radius-sm);
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .anki-map__media {
@@ -268,10 +239,10 @@
 /* --- preview --- */
 
 .anki-map__preview-card {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-line);
   border-radius: var(--radius-md);
   padding: var(--space-2);
-  background: var(--color-bg-base);
+  background: var(--color-bg-desk);
   overflow: hidden;
 }
 
@@ -321,36 +292,12 @@
 }
 
 .anki-map__count {
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  color: var(--color-fg-tertiary);
 }
 
 .anki-map__footer-actions {
   display: flex;
   gap: var(--space-2);
-}
-
-.anki-map__btn {
-  padding: var(--space-1) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.anki-map__btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.anki-map__btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.anki-map__btn--primary {
-  border-color: var(--color-accent);
-  background: var(--color-accent);
-  color: var(--color-on-accent);
 }

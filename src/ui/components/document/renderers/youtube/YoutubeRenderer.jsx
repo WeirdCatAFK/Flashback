@@ -121,7 +121,7 @@ export default function YoutubeRenderer({
   };
 
   return (
-    <div className="yt-renderer" ref={rootRef}>
+    <div className={`yt-renderer${duration >= 3600 ? ' is-hours' : ''}`} ref={rootRef}>
       {toolsTarget && createPortal(
         <button
           type="button"

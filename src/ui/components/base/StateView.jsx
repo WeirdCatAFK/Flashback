@@ -39,7 +39,7 @@ export function LoadingState({ message }) {
   return (
     <StateView
       tone="neutral"
-      icon={<span className="state-view__spinner" />}
+      icon={<span className="state-view__line"><i /></span>}
       message={message ?? t("Loading…")}
     />
   );
@@ -58,7 +58,7 @@ export function ErrorState({ error, title, onRetry }) {
       message={message}
       action={
         onRetry && (
-          <button type="button" className="state-view__btn" onClick={onRetry}>
+          <button type="button" className="btn btn--quiet btn--sm" onClick={onRetry}>
             {t("Try again")}
           </button>
         )

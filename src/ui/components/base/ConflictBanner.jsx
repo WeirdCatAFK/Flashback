@@ -29,14 +29,14 @@ export default function ConflictBanner({ onReload, onOverwrite, message }) {
       <span className="conflict-banner__actions">
         <button
           type="button"
-          className="conflict-banner__btn"
+          className="btn btn--quiet btn--sm"
           onClick={onReload}
         >
           {t("Reload")}
         </button>
         <button
           type="button"
-          className="conflict-banner__btn conflict-banner__btn--primary"
+          className="btn btn--quiet-accent btn--sm"
           onClick={onOverwrite}
         >
           {t("Overwrite")}

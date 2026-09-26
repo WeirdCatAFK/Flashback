@@ -36,7 +36,6 @@
    made, and the difference in casing is what stops the two reading as one title. */
 .vault-switcher__name {
   font-size: var(--text-sm);
-  font-weight: 500;
   max-width: 22ch;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -103,8 +102,9 @@
 
 .vault-switcher__note {
   flex: none;
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .vault-switcher__error {

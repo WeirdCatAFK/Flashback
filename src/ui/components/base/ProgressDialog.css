@@ -1,19 +1,22 @@
-/* ProgressDialog — the interior of the progress modal; the dialog chrome is Modal's. */
+/* ProgressDialog — the interior of the progress modal; the dialog chrome is Modal's. What is
+   happening, the file in mono, the full-width bar (the scale for what you are doing now), and
+   a status line. Once the server is processing the bar breathes, since the percentage no
+   longer moves. */
 
 .pd-dialog .modal__body {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-2);
 }
 
 .pd-title {
-  font-size: var(--text-base);
-  font-weight: 600;
+  font-size: var(--text-md);
+  color: var(--color-fg-primary);
 }
 
 .pd-filename {
+  font-family: var(--font-mono);
   font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -24,7 +27,7 @@
 }
 
 .pd-status {
-  font-size: var(--text-xs);
+  font-size: var(--text-sm);
   color: var(--color-fg-secondary);
 }
 
@@ -35,5 +38,11 @@
   }
   50% {
     opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pd-bar--processing .progress__fill {
+    animation: none;
   }
 }

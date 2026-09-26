@@ -1,46 +1,10 @@
-/* Confirm dialog — see ConfirmDialog.jsx. Buttons live in the modal footer. */
+/* Confirm dialog — see ConfirmDialog.jsx. The sentence says what will happen; the buttons
+   are the shared quiet ones in the modal footer (Cancel as text, the action outlined, in
+   danger red when it destroys something). */
 
 .confirm-message {
-  font-size: var(--text-sm);
-  line-height: 1.5;
+  margin: 0;
+  font-size: var(--text-base);
+  line-height: 1.55;
   color: var(--color-fg-secondary);
-}
-
-.confirm-btn {
-  padding: var(--space-1) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    border-color var(--dur-fast) var(--ease-out),
-    filter var(--dur-fast) var(--ease-out);
-}
-
-.confirm-btn:hover {
-  background: var(--color-bg-hover);
-}
-
-.confirm-btn--primary {
-  background: var(--color-accent);
-  border-color: var(--color-accent);
-  color: var(--color-on-accent);
-}
-
-.confirm-btn--primary:hover {
-  background: var(--color-accent);
-  filter: brightness(1.08);
-}
-
-.confirm-btn--danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-  color: var(--color-on-danger);
-}
-
-.confirm-btn--danger:hover {
-  background: var(--color-danger);
-  filter: brightness(1.08);
 }

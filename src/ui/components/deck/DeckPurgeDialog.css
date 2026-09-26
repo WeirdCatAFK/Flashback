@@ -1,81 +1,81 @@
-/* Deck purge confirm — see DeckPurgeDialog.jsx. Buttons live in the modal footer.
-   Mirrors ConfirmDialog.css so a destructive deck erase looks like every other
-   danger confirm in the app, rather than announcing itself as a new pattern. */
+/* Deck purge confirm — see DeckPurgeDialog.jsx. Reads like every other danger confirm: the
+   count that goes, where the anchored cards live, the opt-in for cards other decks share (set
+   apart on the sidebar ground, since it widens what is lost), and a footnote that Seal can
+   roll it back. The buttons are the shared quiet ones in the modal footer. */
 
 .deck-purge {
-  display: flex;
-  flex-direction: column;
+  display: grid;
   gap: var(--space-3);
-  font-size: var(--text-sm);
-  line-height: 1.5;
+  font-size: var(--text-base);
+  line-height: 1.55;
   color: var(--color-fg-secondary);
 }
 
-.deck-purge__lead {
+.deck-purge p {
   margin: 0;
+}
+
+.deck-purge__lead {
   color: var(--color-fg-primary);
 }
 
 .deck-purge__breakdown {
+  display: grid;
+  gap: var(--space-0-5);
   margin: 0;
   padding-inline-start: var(--space-4);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-0-5);
 }
 
-/* Document paths and deck names are user-supplied and often unbreakable, so they
-   have to be allowed to break mid-word — otherwise they widen the dialog body and
-   push it into a horizontal scroll. */
+/* Document paths and deck names are user-supplied and often unbreakable, so they have to
+   be allowed to break mid-word, or they widen the dialog into a horizontal scroll. */
 .deck-purge__docs {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
   color: var(--color-fg-primary);
   overflow-wrap: anywhere;
 }
 
 .deck-purge__muted {
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 
 .deck-purge__seal {
-  margin: 0;
   padding-top: var(--space-2);
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-line);
+  font-size: var(--text-sm);
 }
 
 .deck-purge__error {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: var(--radius-sm);
-  background: var(--color-danger-bg);
+  font-size: var(--text-sm);
   color: var(--color-danger);
 }
 
-/* Opting in to destroying cards other decks also hold — off by default, and
-   visually set apart because it widens the blast radius beyond this deck. */
 .deck-purge__shared {
   display: flex;
   align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
   background: var(--color-bg-sidebar);
   cursor: pointer;
 }
 
 .deck-purge__shared input {
-  margin-top: var(--space-0-5);
   flex-shrink: 0;
+  margin-top: var(--space-1);
+  accent-color: var(--color-danger);
 }
 
-/* The label's text is a flex item beside the checkbox; same shrink/break pair as
-   the modal title, since it names the other decks holding these cards. */
+/* The label's text sits beside the checkbox and names the other decks, so it takes the
+   modal title's shrink-and-break pair. */
 .deck-purge__shared > span {
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-.deck-purge__shared strong {
+.deck-purge__shared b {
+  font-weight: 400;
   color: var(--color-fg-primary);
 }
 
@@ -84,37 +84,4 @@
   justify-content: flex-end;
   gap: var(--space-2);
   width: 100%;
-}
-
-.deck-purge__btn {
-  padding: var(--space-1) var(--space-4);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-surface);
-  color: var(--color-fg-primary);
-  font-size: var(--text-sm);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease-out),
-    filter var(--dur-fast) var(--ease-out);
-}
-
-.deck-purge__btn:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-}
-
-.deck-purge__btn:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.deck-purge__btn--danger {
-  background: var(--color-danger);
-  border-color: var(--color-danger);
-  color: var(--color-on-danger);
-}
-
-.deck-purge__btn--danger:hover:not(:disabled) {
-  background: var(--color-danger);
-  filter: brightness(1.08);
 }

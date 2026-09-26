@@ -71,7 +71,7 @@ function CardFlag({ flag, hash, onDismissed }) {
         <span className="cd-flag-confidence" title={t('How much history this rests on')}>
           {flag.confidence}
         </span>
-        <button type="button" className="cd-flag-dismiss" onClick={dismiss} disabled={busy}
+        <button type="button" className="link-action cd-flag-dismiss" onClick={dismiss} disabled={busy}
           title={t('Stop showing this flag for this card')}>
           {t('Dismiss')}
         </button>
@@ -243,7 +243,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
 
               <button
                 type="button"
-                className="cd-edit-btn"
+                className="btn btn--quiet btn--sm cd-edit-btn"
                 onClick={() => setEditing(true)}
                 disabled={!mayEdit}
                 title={mayEdit ? undefined : capabilityHint(t, 'editCards')}

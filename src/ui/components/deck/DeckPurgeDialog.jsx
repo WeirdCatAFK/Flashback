@@ -62,7 +62,7 @@ export default function DeckPurgeDialog({
     <div className="deck-purge__footer">
       <button
         type="button"
-        className="deck-purge__btn"
+        className="btn btn--ghost"
         onClick={onCancel}
         disabled={busy}
       >
@@ -70,7 +70,7 @@ export default function DeckPurgeDialog({
       </button>
       <button
         type="button"
-        className="deck-purge__btn deck-purge__btn--danger"
+        className="btn btn--danger-quiet"
         onClick={() => onConfirm(includeShared)}
         disabled={busy || !summary}
       >
@@ -162,7 +162,7 @@ export default function DeckPurgeDialog({
                     "Also delete {n} cards that are also in",
                     summary.shared,
                   )}{" "}
-                  <strong>{summary.otherDecks.join(", ")}</strong>
+                  <b>{summary.otherDecks.join(", ")}</b>
                   <span className="deck-purge__muted">
                     {" "}
                     {includeShared

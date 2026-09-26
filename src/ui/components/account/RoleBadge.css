@@ -1,12 +1,15 @@
 /* RoleBadge — see RoleBadge.jsx.
  *
- * Every value is a token. The badge sits in the title bar, which has its own surface
- * (--color-title-bar), so it must read against that rather than against the app background.
+ * The same mark as a role in Server Management: a small mono pill with a hairline edge. It
+ * sits in the title bar, which has its own surface (--color-title-bar), so it reads against
+ * that rather than the app background.
  *
  * Deliberately quiet. It is a persistent label, not a notification: something you can read
  * when you wonder why a button is missing, and ignore the rest of the time. Only the Author
  * gets the accent, because that is the one role where "you can do anything here" is worth
- * saying out loud — and it is the role the local app is always in, so it stays familiar.
+ * saying out loud. Reader and Collaborator are constrained, not wrong, so neither is coloured
+ * like an error; an unknown role is dashed, since the app still works and is only being
+ * cautious, and the tooltip carries the detail.
  */
 
 .role-badge {
@@ -15,13 +18,13 @@
   margin-left: var(--space-2);
   padding: 0 var(--space-2);
   height: var(--control-xs);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
   line-height: 1;
-  letter-spacing: 0.02em;
   white-space: nowrap;
   /* The title bar is the window drag region; a label inside it must not become a drag
      handle that looks selectable. */
@@ -30,23 +33,11 @@
 }
 
 .role-badge--author {
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 45%, var(--color-line));
   color: var(--color-accent);
 }
 
-/* Reader and Collaborator are the constrained roles, and the badge is the explanation for
-   what they cannot see. Neither is an error, so neither is coloured like one. */
-.role-badge--admin,
-.role-badge--collaborator,
-.role-badge--reader {
-  border-color: var(--color-border-strong);
-  color: var(--color-fg-secondary);
-}
-
-/* We asked and got no answer. Not styled as a failure either — the app still works, it is
-   just being cautious about what it offers. The tooltip carries the detail. */
 .role-badge--unknown {
   border-style: dashed;
-  color: var(--color-fg-secondary);
-  opacity: 0.8;
+  color: var(--color-fg-tertiary);
 }

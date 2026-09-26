@@ -37,8 +37,10 @@
 }
 
 /* The one scroller for every format: the document head sits at its top and
-   scrolls away with the text, the pages or the player. */
+   scrolls away with the text, the pages or the player. It is the `doc-pane` container, so
+   a renderer can ask how much room the reading pane has (YouTube's time gutter does). */
 .doc-editor-renderer {
+  container: doc-pane / inline-size;
   flex: 1;
   overflow-y: auto;
   position: relative;

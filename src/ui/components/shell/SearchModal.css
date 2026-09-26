@@ -40,7 +40,6 @@
 .sq-mode-hint {
   font-size: var(--text-xs);
   color: var(--color-accent);
-  font-weight: 500;
   white-space: nowrap;
 }
 
@@ -100,16 +99,16 @@
 }
 
 .sq-group-label {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.07em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   padding: var(--space-2) var(--space-3) var(--space-1);
 }
 
 .sq-group + .sq-group {
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--color-line);
   margin-top: var(--space-1);
   padding-top: var(--space-1);
 }

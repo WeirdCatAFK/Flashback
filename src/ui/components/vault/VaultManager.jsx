@@ -197,7 +197,7 @@ export default function VaultManager({ connection, onClose }) {
             {vaults.map((v) => (
               renamingId === v.id ? (
                 <li key={v.id} className="vm-row vm-row--editing">
-                  <input
+                  <input className="field"
                     aria-label={t('New vault name')}
                     value={renameValue}
                     autoFocus
@@ -208,11 +208,11 @@ export default function VaultManager({ connection, onClose }) {
                     }}
                   />
                   <div className="vm-row__actions is-open">
-                    <button type="button" className="vm-mini" onClick={() => handleRename(v.id)}
+                    <button type="button" className="btn btn--quiet btn--sm" onClick={() => handleRename(v.id)}
                       disabled={busy === `rename-${v.id}`}>
                       {busy === `rename-${v.id}` ? t('Renaming…') : t('Save')}
                     </button>
-                    <button type="button" className="vm-mini" onClick={() => setRenamingId(null)}>
+                    <button type="button" className="btn btn--quiet btn--sm" onClick={() => setRenamingId(null)}>
                       {t('Cancel')}
                     </button>
                   </div>
@@ -233,11 +233,11 @@ export default function VaultManager({ connection, onClose }) {
                     </>
                   }
                 >
-                  <button type="button" className="vm-mini" disabled={!!busy}
+                  <button type="button" className="btn btn--quiet btn--sm" disabled={!!busy}
                     onClick={() => { setRenamingId(v.id); setRenameValue(v.name); setError(null); }}>
                     {t('Rename')}
                   </button>
-                  <button type="button" className="vm-mini" disabled={!!busy || (v.active && !onRemote)}
+                  <button type="button" className="btn btn--quiet btn--sm" disabled={!!busy || (v.active && !onRemote)}
                     onClick={() => handleRemove(v)}>
                     {t('Remove')}
                   </button>
@@ -267,11 +267,11 @@ export default function VaultManager({ connection, onClose }) {
                     </>
                   }
                 >
-                  <button type="button" className="vm-mini" disabled={!!busy}
+                  <button type="button" className="btn btn--quiet btn--sm" disabled={!!busy}
                     onClick={() => handleTestRemote(r.id)}>
                     {busy === `test-${r.id}` ? t('Testing…') : t('Test')}
                   </button>
-                  <button type="button" className="vm-mini" disabled={!!busy}
+                  <button type="button" className="btn btn--quiet btn--sm" disabled={!!busy}
                     onClick={() => run(`remove-remote-${r.id}`, () => removeRemote(r.id), t('Remote removed.'))}>
                     {t('Remove')}
                   </button>
@@ -282,7 +282,7 @@ export default function VaultManager({ connection, onClose }) {
         </aside>
 
         <div className="vault-manager__main">
-          <button type="button" className="vm-close" onClick={onClose} aria-label={t('Close')}>×</button>
+          <button type="button" className="btn-close vm-close" onClick={onClose} aria-label={t('Close')}>×</button>
 
           <div className="vm-brand">
             <img className="vm-brand__mark" src={logoUrl} alt="" width="52" height="52" />
@@ -309,7 +309,7 @@ export default function VaultManager({ connection, onClose }) {
                 <p className="vm-action__title">{t('Create new vault')}</p>
                 <p className="vm-action__desc">{t('Start an empty vault in its own folder on this computer.')}</p>
               </div>
-              <button type="button" className="vm-btn vm-btn--primary" disabled={!!busy}
+              <button type="button" className="btn btn--quiet-accent" disabled={!!busy}
                 onClick={() => { setShowCreate((s) => !s); setShowRemoteForm(false); }}>
                 {t('Create')}
               </button>
@@ -317,7 +317,7 @@ export default function VaultManager({ connection, onClose }) {
 
             {showCreate && (
               <div className="vm-form">
-                <input
+                <input className="field"
                   aria-label={t('New vault name')}
                   placeholder={t('New vault name')}
                   autoFocus
@@ -325,7 +325,7 @@ export default function VaultManager({ connection, onClose }) {
                   onChange={(e) => setNewVaultName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === 'Enter') handleCreate(); }}
                 />
-                <button type="button" className="vm-btn vm-btn--primary" onClick={handleCreate}
+                <button type="button" className="btn btn--quiet-accent" onClick={handleCreate}
                   disabled={!!busy || !newVaultName.trim() || !!newNameProblem}>
                   {busy === 'create' ? t('Creating…') : t('Create vault')}
                 </button>
@@ -338,7 +338,7 @@ export default function VaultManager({ connection, onClose }) {
                 <p className="vm-action__title">{t('Open folder as vault')}</p>
                 <p className="vm-action__desc">{t('Choose a vault folder already on this computer.')}</p>
               </div>
-              <button type="button" className="vm-btn" disabled={!!busy}
+              <button type="button" className="btn btn--quiet" disabled={!!busy}
                 onClick={() => run('adopt', openVaultFromDisk, t('Vault added.'))}>
                 {busy === 'adopt' ? t('Opening…') : t('Open')}
               </button>
@@ -349,7 +349,7 @@ export default function VaultManager({ connection, onClose }) {
                 <p className="vm-action__title">{t('Connect to a remote')}</p>
                 <p className="vm-action__desc">{t('A remote is a Flashback Server holding a vault somewhere else.')}</p>
               </div>
-              <button type="button" className="vm-btn" disabled={!!busy}
+              <button type="button" className="btn btn--quiet" disabled={!!busy}
                 onClick={() => { setShowRemoteForm((s) => !s); setShowCreate(false); }}>
                 {t('Connect')}
               </button>
@@ -360,18 +360,18 @@ export default function VaultManager({ connection, onClose }) {
                 <div className="vm-form__pair">
                   <label>
                     {t('Name')}
-                    <input value={remoteForm.label}
+                    <input className="field" value={remoteForm.label}
                       onChange={(e) => setRemoteForm((f) => ({ ...f, label: e.target.value }))} />
                   </label>
                   <label>
                     {t('Server address')}
-                    <input placeholder="https://flashback.example.com" value={remoteForm.url}
+                    <input className="field" placeholder="https://flashback.example.com" value={remoteForm.url}
                       onChange={(e) => setRemoteForm((f) => ({ ...f, url: e.target.value }))} />
                   </label>
                 </div>
                 <label>
                   {t('Access token')}
-                  <input type="password" autoComplete="off" value={remoteForm.token}
+                  <input className="field" type="password" autoComplete="off" value={remoteForm.token}
                     onChange={(e) => setRemoteForm((f) => ({ ...f, token: e.target.value }))} />
                 </label>
                 <div className="vm-form__buttons">
@@ -380,11 +380,11 @@ export default function VaultManager({ connection, onClose }) {
                     {' '}
                     {t('Give the same server a different name to connect as a second account.')}
                   </p>
-                  <button type="button" className="vm-btn vm-btn--primary" onClick={handleAddRemote}
+                  <button type="button" className="btn btn--quiet-accent" onClick={handleAddRemote}
                     disabled={!!busy || !remoteForm.url.trim()}>
                     {busy === 'add-remote' ? t('Adding…') : t('Add remote')}
                   </button>
-                  <button type="button" className="vm-btn" onClick={() => setShowRemoteForm(false)}>
+                  <button type="button" className="btn btn--quiet" onClick={() => setShowRemoteForm(false)}>
                     {t('Cancel')}
                   </button>
                 </div>

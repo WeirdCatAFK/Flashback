@@ -145,6 +145,12 @@ The interface is moving to a new design language, one area at a time. In this re
   cleared it. The welcome tour gains a Diary step, names each screen as its tab does, and no
   longer runs off the edge of its box in Spanish. Waiting for the app to start shows a thin
   line instead of a spinner.
+- **Dialogs, menus and the smaller pieces match too.** Confirmations, the import progress
+  box, the right-click menu, the edit-conflict banner, loading and error states, deleting a deck
+  with its cards, the Anki field mapping, a card's details, the vault manager, the media
+  pickers, the keyboard shortcuts list, search and your role in the title bar now use the same
+  quiet buttons, mono labels and softer dividers as the rest of the app, with no bold or
+  uppercase text left over from the old look. Loading shows a thin line instead of a spinner.
 - **The Graph's panels are solid**, like the app's other floating panels, instead of frosted
   glass. The Graph panel slides shut to its header instead of vanishing, and a selected
   node's name no longer breaks mid-word.
@@ -157,6 +163,12 @@ The interface is moving to a new design language, one area at a time. In this re
   `GET /api/diary` items carry `reviews` and `firstLine` (the latter withheld from an MCP
   client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
   `/entry/:date`) is new: the Author reads someone's Logs, read-only.
+
+### Fixed — a YouTube transcript's times slid under the file tree
+
+With the file tree open and the reading pane narrower than about 840px, the time beside each
+transcript paragraph started to the left of the pane and its first digits hid under the tree.
+The column still centres, but now stops just short of the edge, leaving the times enough room.
 
 ### Fixed — renaming a category left its cards behind
 

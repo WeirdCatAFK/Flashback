@@ -1,4 +1,6 @@
-/* ContextMenu — the right-click menu and its inline delete confirmation. */
+/* ContextMenu — the right-click menu: a solid surface with an edge and the popover's shadow,
+   rows that fill on hover, and a delete that asks in its own row with the shared quiet
+   buttons. */
 
 .ctx-menu {
   position: fixed;
@@ -9,7 +11,7 @@
   padding: var(--space-1);
   min-width: var(--size-md);
   box-shadow: var(--shadow-float);
-  font-size: var(--text-sm);
+  font-size: var(--text-base);
   user-select: none;
 }
 
@@ -38,12 +40,11 @@
 
 .ctx-item.ctx-muted {
   color: var(--color-fg-secondary);
-  font-size: var(--text-sm);
 }
 
 .ctx-sep {
   height: 1px;
-  background: var(--color-border);
+  background: var(--color-line);
   margin: var(--space-1) 0;
 }
 
@@ -60,20 +61,3 @@
   flex: 1;
 }
 
-.ctx-confirm-yes,
-.ctx-confirm-no {
-  padding: var(--space-0-5) var(--space-2);
-  border-radius: var(--radius-sm);
-  font-size: var(--text-sm);
-  cursor: pointer;
-}
-
-.ctx-confirm-yes {
-  background: var(--color-danger);
-  color: var(--color-on-danger);
-}
-
-.ctx-confirm-no {
-  background: var(--color-bg-hover);
-  color: var(--color-fg-primary);
-}

@@ -191,10 +191,9 @@
   border-radius: var(--radius-pill);
   background: var(--color-bg-hover);
   color: var(--color-fg-secondary);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
+  font-weight: 400;
   white-space: nowrap;
   line-height: 1;
 }
@@ -371,23 +370,22 @@ textarea.field {
   background: var(--color-fg-secondary);
 }
 
+/* A number with its name: no box, a hairline above, the value in mono. */
 .stat-tile {
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-4);
-  background: var(--color-bg-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
+  padding: var(--space-3) 0 0;
+  border-top: 1px solid var(--color-line);
 }
 .stat-tile--compact {
   gap: var(--space-0-5);
-  padding: var(--space-2);
-  border-radius: var(--radius-md);
+  padding-top: var(--space-2);
 }
 .stat-tile__value {
+  font-family: var(--font-mono);
   font-size: var(--text-xl);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.1;
   color: var(--color-fg-primary);
   font-variant-numeric: tabular-nums;
@@ -396,11 +394,11 @@ textarea.field {
   font-size: var(--text-md);
 }
 .stat-tile__label {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 .stat-tile__hint {
   font-size: var(--text-sm);
@@ -485,7 +483,8 @@ textarea.field {
   background: var(--color-bg-hover);
   color: var(--color-fg-primary);
 }
-.segmented__option[aria-pressed="true"] {
+.segmented__option[aria-pressed="true"],
+.segmented__option[aria-checked="true"] {
   background: var(--color-fg-primary);
   color: var(--color-bg-base);
 }
@@ -717,15 +716,15 @@ textarea.field {
 .popover__sep {
   height: 1px;
   margin: var(--space-1) 0;
-  background: var(--color-border);
+  background: var(--color-line);
 }
 .popover__heading {
   padding: var(--space-1) var(--space-2);
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
 }
 .popover__empty {
   padding: var(--space-2);

@@ -92,7 +92,7 @@ export default function ProgressScopePicker({
       <label className="scope-picker__control">
         <span className="scope-picker__label">{label ?? labels.pickerLabel}</span>
         <select
-          className="scope-picker__select"
+          className="field field--sm scope-picker__select"
           value={current}
           title={value && current ? value.name : undefined}
           onChange={(e) => {

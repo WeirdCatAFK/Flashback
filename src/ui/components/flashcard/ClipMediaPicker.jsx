@@ -23,7 +23,7 @@ function AudioRow({ m, clipPath, onPick }) {
         {!m.cached && <span className="bip-sub cmp-sub--remote">{t('Saved to the vault when you use it')}</span>}
       </span>
       <audio className="cmp-audio" src={previewSrc(m, clipPath)} controls preload="none" />
-      <button type="button" className="btn btn--sm" onClick={() => onPick(m)}>{t('Use')}</button>
+      <button type="button" className="btn btn--quiet-accent btn--sm" onClick={() => onPick(m)}>{t('Use')}</button>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 /* Media pickers (book figures, clip assets) — the grid of tiles and their
    captions; the dialog chrome is Modal's. Shared by BookImagePicker and
-   ClipMediaPicker through MediaPickerParts.jsx. */
+   ClipMediaPicker through MediaPickerParts.jsx. A tile is a quiet object with a
+   hairline edge that lifts on hover; its caption is the text, where it came from is
+   the mono line under it. */
 
 .bip-body {
   overflow-y: auto;
@@ -23,8 +25,8 @@
 .bip-note {
   margin: var(--space-6) 0;
   text-align: center;
-  font-size: var(--text-sm);
-  color: var(--color-fg-secondary);
+  font-size: var(--text-base);
+  color: var(--color-fg-tertiary);
 }
 
 .bip-note--error { color: var(--color-danger); }
@@ -44,19 +46,20 @@
   gap: var(--space-1);
   width: 100%;
   padding: var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-surface);
   color: inherit;
   cursor: pointer;
   text-align: left;
-  transition: border-color var(--dur-fast), background var(--dur-fast);
+  transition: border-color var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast) var(--ease-out);
 }
 
 .bip-item:hover,
 .bip-item:focus-visible {
-  border-color: var(--color-accent);
-  background: var(--color-bg-hover);
+  outline: none;
+  border-color: color-mix(in srgb, var(--color-accent) 50%, var(--color-line));
+  box-shadow: var(--shadow-sm);
 }
 
 .bip-thumb {
@@ -95,8 +98,9 @@
 }
 
 .bip-sub {
+  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  color: var(--color-fg-secondary);
+  color: var(--color-fg-tertiary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

@@ -51,7 +51,7 @@ export default function ShortcutsOverlay({ onClose }) {
   ];
 
   return (
-    <Modal title={t('Keyboard Shortcuts')} onClose={onClose} className="so-panel">
+    <Modal title={t('Keyboard shortcuts')} onClose={onClose} className="so-panel">
       {groups.map(({ title, rows }) => (
         <div key={title} className="so-group">
           <div className="eyebrow so-group-title">{title}</div>
