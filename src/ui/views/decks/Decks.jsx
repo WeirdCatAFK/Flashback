@@ -29,11 +29,11 @@ function DeckTile({ deck, onOpen }) {
       type="button"
       className="dk-tile"
       onClick={onOpen}
-      title={deck.is_system ? t('Cards: the default deck. Cards made without a document live here.') : (deck.description || deck.name)}
+      title={deck.is_system ? t('Cards: the default deck. Cards made without a document live here.') : [deck.name, deck.description].filter(Boolean).join('\n')}
     >
       <DeckBox color={deckColor(deck)} count={deck.entry_count} />
       <span className="dk-name">
-        {deck.name}
+        <span className="dk-name__text">{deck.name}</span>
         {deck.is_system ? <span className="dk-default">{t('default')}</span> : null}
       </span>
       <span className="dk-meta">{status.strong ? <b>{status.text}</b> : status.text}</span>
