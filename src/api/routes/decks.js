@@ -62,7 +62,7 @@ router.get('/cards', catchError(async (req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
     const cardType = req.query.cardType || null;
-    const origin = ['ai', 'human'].includes(req.query.origin) ? req.query.origin : null;
+    const origin = ['ai', 'human', 'import'].includes(req.query.origin) ? req.query.origin : null;
     const flagKind = FLAG_KINDS.includes(req.query.flagKind) ? req.query.flagKind : null;
     const flagged = flagKind !== null || req.query.flagged === '1' || req.query.flagged === 'true';
     const sortBy = req.query.sortBy || 'level';
@@ -75,7 +75,8 @@ router.get('/cards', catchError(async (req, res) => {
     const algorithm = ['leitner', 'sm2', 'fsrs'].includes(req.query.algorithm) ? req.query.algorithm : null;
     const source = sourceFrom(req.query);
     const groupBy = ['gap', 'source'].includes(req.query.groupBy) ? req.query.groupBy : null;
-    const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId };
+    const anchor = ['highlight', 'missing', 'none'].includes(req.query.anchor) ? req.query.anchor : null;
+    const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
     const { cards, total, groups } = await decks.searchCards({ ...filters, band, algorithm, groupBy, sortBy, sortDir, limit, offset });
     res.json({ cards, total, limit, offset, ...(groups ? { groups } : {}) });
 }));

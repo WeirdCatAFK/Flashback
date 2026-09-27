@@ -19,7 +19,7 @@
 const flashbackCards = {
     name: 'flashback-cards',
     description:
-        'Author, diagnose, and repair flashcards in the Flashback vault (spaced repetition + knowledge graph app) so they survive long-interval review — decomposing material into atomic, precisely-cued prompts and creating them through the Flashback MCP tools. Use this whenever the user asks to make, add, generate, fix, rewrite, or review flashcards, cards, prompts, or a deck in Flashback, or asks to turn a document, book, chapter, article, video, or topic into study material — even if they only say "make me some cards on X" or "card this chapter." Also use when the user says cards feel too hard, keep lapsing, are "a mouthful," or when they want to know whether a deck is well built.',
+        'Author, diagnose, and repair flashcards in the Flashback vault (spaced repetition + knowledge graph app) so they survive long-interval review — decomposing material into atomic, precisely-cued prompts and creating them through the Flashback MCP tools. Use this whenever the user asks to make, add, generate, fix, rewrite, or review flashcards, cards, prompts, or a deck in Flashback, or asks to turn a document, book, chapter, article, video, or topic into study material — even if they only say "make me some cards on X" or "card this chapter." Also use when the user says cards feel too hard, keep lapsing, are "a mouthful," or when they want to know whether a deck is well built. New cards are made only from the user\'s own highlights.',
 
     body: `# Authoring Flashback cards
 
@@ -46,7 +46,7 @@ In this order, every time:
 2. \`list_cards\` with \`origin: "human"\` — the handmade cards **are the style spec**. Match their length, phrasing, and cue conventions rather than inventing a house style.
 3. \`list_decks\` — locate the target deck. Note whether a new one is needed.
 4. \`list_cards\` with \`sortBy: "lapses"\` — cards the user keeps failing. A high-lapse card is nearly always a formulation problem, not a memory problem. Offer to rewrite them; this is often more valuable than adding new cards.
-5. If carding a document: \`list_highlights\` with \`uncardedOnly: true\`, then read the body. The user's highlights are their declaration of what matters — prefer them over your own judgment of importance.
+5. If carding a document: \`list_highlights\` with \`uncardedOnly: true\`, then read the body around them. The user's highlights are their declaration of what matters, and **they are the only material you card**: \`create_flashcard\` requires the \`highlightHash\` of one of them, and nothing here can make a highlight. Read as widely as you need for context — the paragraph before a highlight often decides what the card should ask — but a passage the user did not highlight is not a target. When they ask for cards on something unhighlighted ("card this chapter", "make me some cards on X"), say which passages you would card and ask them to highlight those in the app; then card the highlights. This keeps every AI card on something the user chose and under their eye, and it is why cards are never mass-produced from a document.
 
    **Reading the body.** \`read_document\` returns \`content\` for Markdown, plain text, and \`.clip\`/\`.youtube\` stubs, plus the sidecar (existing cards, tags, highlights) for everything. For a PDF, EPUB, image, audio, or video it returns \`content: null\` — this is **not** a dead end. Call \`read_document_text\` with the same path: it extracts and paginates server-side, addressed by format. PDFs by page number, EPUBs by spine section number or href, YouTube transcripts by segment (or \`at\` = seconds to jump to a moment). Start with \`path\` alone, then follow \`next\` until \`hasMore\` is false, and \`nextCharOffset\` when a unit comes back \`truncated\`. Each response carries a \`label\` like "p. 37" or a timestamp — cite it when a card comes from a specific place.
 
@@ -67,7 +67,7 @@ Read from the handmade cards, and worth preserving:
 
 These are two separate jobs. Do them in order and do not merge them — merging is how you end up writing a prompt for whatever sentence you happen to be looking at.
 
-**First, choose targets.** Read the material and mark the specific pieces worth being able to recall. Not everything is a target: things the user already knows, things trivially inferable from what they know, and things they will never need cold are all correctly skipped. When highlights exist, they are the target list.
+**First, choose targets.** Read the material and mark the specific pieces worth being able to recall. Not everything is a target: things the user already knows, things trivially inferable from what they know, and things they will never need cold are all correctly skipped. The user's highlights are the target list — a highlight may hold several targets, but nothing outside the highlights is one.
 
 **Then, write one or more prompts per target.** How depends on the kind of knowledge — factual, procedural, or conceptual. See \`references/knowledge-types.md\` for worked patterns for each, including closed vs. open lists and the conceptual lenses (attributes, similarities/differences, parts/wholes, causes/effects, significance).
 
@@ -181,18 +181,18 @@ The counterweight is not coarseness but selection. Do not card what the user alr
 ## Mechanics and known gotchas
 
 - Cards created through the MCP server are permanently marked \`origin: "ai"\`. This is how the user audits provenance — do not work around it.
-- \`create_flashcard\` without \`path\` lands the card in the **system deck**. Putting it in a named deck is a **separate \`add_to_deck\` call**. This is easy to forget and leaves the intended deck empty.
+- Putting a card in a named deck is a **separate \`add_to_deck\` call** after \`create_flashcard\`. This is easy to forget and leaves the intended deck empty.
 - \`backText\` and \`answerText\` store HTML entities literally — \`&gt;\` is saved as those four characters, not \`>\`. Write the literal character, then read back and fix with \`update_flashcard\` if needed. On \`answerText\` this is not cosmetic: the stored string is what the typed input is compared against.
 - **Old \`type_answer\` cards look answer-less and are not.** A card written before \`answerText\` existed reports it as null and still keeps its graded answer in \`backText\`. Read null as "old shape", not "empty card", and never overwrite \`backText\` on one without first moving its contents into \`answerText\` in the same \`update_flashcard\` call — otherwise you have deleted the answer and kept nothing.
-- Anchor to source when possible: \`path\` plus \`highlightHash\` ties the card to the passage it came from, which is what makes the vault a graph rather than a pile of cards.
+- Every card is anchored to its source: \`path\` plus \`highlightHash\` (both required) ties it to the highlighted passage it came from, which is what makes the vault a graph rather than a pile of cards. There is no document-less or highlight-less card from here.
 - \`update_flashcard\` takes the \`globalHash\` returned by \`create_flashcard\`, plus \`documentPath\` for document-anchored cards.
 
 ## Workflow
 
 1. Read the vault (Step 0).
-2. Choose targets. For sets over ~10, show the list before drafting.
+2. Choose targets from the user's uncarded highlights. For sets over ~10, show the list before drafting. If what they asked for is not highlighted, stop here and ask them to highlight it.
 3. Draft the cards, applying the five properties and both litmus tests to each.
-4. Create them, then \`add_to_deck\` — do not skip this.
+4. Create them, each with its highlight's \`path\` and \`highlightHash\`, then \`add_to_deck\` when a named deck is wanted — do not skip this.
 5. Read a sample back to verify rendering, especially anything with symbols or escapes.
 6. Report what was made, and flag anything deliberately omitted and why.`,
 

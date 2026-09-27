@@ -20,8 +20,16 @@ const INSTRUCTIONS = `
 Flashback is a local spaced-repetition knowledge vault. A few things aren't obvious from
 individual tool schemas alone:
 
-- Cards are either DOCUMENT-ANCHORED (created with a \`path\`; they live in that document's
-  sidecar) or STANDALONE (no path; they live in the system deck). update_flashcard and
+- THE ONE RULE FOR MAKING CARDS: every card you create comes from a highlight the USER made.
+  create_flashcard requires a document \`path\` and the \`highlightHash\` of one of the user's
+  highlights there, and there is no tool to highlight for them. This keeps AI cards on what the
+  user chose as worth remembering and under their supervision; it exists so cards are never
+  mass-produced from a document. Read freely for CONTEXT — the whole document, the passage around
+  a highlight — but card only what a highlight marks. When asked to card something no highlight
+  covers, say which passage the user should highlight in the app and card it once they have;
+  never look for a way around the rule. One highlight may become several cards.
+- Cards are either DOCUMENT-ANCHORED (they live in that document's sidecar) or STANDALONE
+  (the user's own document-less cards, in the system deck). update_flashcard and
   delete_flashcard work on both and resolve the card's home automatically; passing
   \`documentPath\` (from search_flashback/list_cards \`document_path\`) just skips the lookup.
 - Documents wiki-link to each other with \`[anchor text](flashback://<document globalHash>)\`
@@ -42,22 +50,34 @@ individual tool schemas alone:
   the old shape", never as "this card has no answer". If you split one yourself with
   update_flashcard, move the text: send the answer as \`answerText\` AND send the new
   \`backText\` in the same call, or the old answer stays behind and reads as notes.
-- Every card has a \`level\` field: it's the card's spaced-repetition strength, starting at 0 for
-  a never-reviewed card and increasing after each correct review — higher = better known, 0 = new.
+- How well a card is held is its GAP: the days between its reviews under the user's scheduler
+  (\`gap\` in list_cards, null = never reviewed). The app groups cards into bands by it — new,
+  up to 1 day, a week, 3 weeks, 2 months, longer — and a gap of 21+ days counts as held
+  long-term; decks, sources and the Statistics report are all summed up that way. Speak in those
+  terms. \`level\` is the scheduler's raw strength (0 = new, higher = better known); it means
+  different things under Leitner, SM-2 and FSRS, so it is no longer what the app shows.
+  get_card_overview is the one-call picture: cards per band, per source document, and flagged.
   Reviewing is the user's job: there is deliberately no tool to submit review grades.
 - Decks link to cards by hash; cards aren't copied into a deck (delete_deck keeps the cards,
   delete_flashcard destroys one). One deck always has \`is_system: 1\` — it's the automatic home
-  for cards with no source document. Create a document-less card with create_flashcard (omit
-  \`path\`) and it lands there on its own; you generally don't need to call add_to_deck on it
-  yourself. Deck tags (update_deck) propagate to every member card.
+  for the user's cards with no source document, and you don't need to call add_to_deck on it.
+  Deck tags (update_deck) propagate to every member card.
+- Answers are SMALL by default, because a vault's raw payloads run to hundreds of thousands of
+  characters: list_folder gives names and counts, read_document counts a sidecar's cards and
+  highlights instead of listing them, get_due_cards gives counts per source, list_cards clips
+  card text. Each tool names the opt-in for the rest (sidecar: "full", queueLimit, verbose).
+  search_flashback caps every group and says so in \`truncated\`; list_cards pages exhaustively.
+- Cleaning up many cards is delete_flashcards: a dry run first (count, sources, sample), shown
+  to the user, then the same selection with confirm and the previewed count. Never loop
+  delete_flashcard over a large set.
 - Sidecar changes (cards, tags, highlights) are versioned by Seal, the built-in git layer.
   Document BODY text is not — update_document overwrites irreversibly, so read_document first.
 - Every card records its provenance in \`origin\`: cards created through these tools are marked
-  'ai' automatically; handmade cards have no origin. The core highlight→card workflow: the user
-  highlights passages while reading, you turn them into flashcards. list_highlights (with
-  \`uncardedOnly\`) shows which highlights still lack a card, with the highlighted text and its
-  surrounding context; anchor each new card to its source passage by passing the highlight's
-  \`id\` as create_flashcard's \`highlightHash\`. Before drafting, study the vault's existing
+  'ai' automatically, imported ones 'import'; handmade cards have no origin (nor do cards imported
+  before imports were marked, so treat a null origin as "made by the user or imported"). The workflow: the user highlights passages
+  while reading, you turn them into flashcards. list_highlights (with \`uncardedOnly\`) shows which
+  highlights still lack a card, with the highlighted text and its surrounding context; pass the
+  highlight's \`documentPath\` and \`id\` to create_flashcard. Before drafting, study the vault's existing
   cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
   cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
   the vault has no handmade cards.
@@ -77,7 +97,9 @@ individual tool schemas alone:
   and the failure modes that make a card lapse for years. Read it before drafting cards or
   diagnosing ones that keep failing — not after.
 - Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
-  what already exists rather than guessing or duplicating.
+  what already exists rather than guessing or duplicating. Categories sit on priority levels
+  (several per level, level 1 studied first); tags come with their reach, and rename_tag merges
+  near-duplicates vault-wide.
 - The diary tools (diary_list/diary_get_summary/diary_get_entry) read a personal, per-day study
   record kept outside the vault. They are OFF by default: unless the user has enabled diary access
   for AI assistants in Flashback's settings, every diary call returns a 403. Don't retry on that

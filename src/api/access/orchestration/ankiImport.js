@@ -477,6 +477,7 @@ export default class AnkiImport {
                         backText: content.backText,
                         answerText: content.answerText ?? null,
                         media: content.media,
+                        origin: 'import',
                     });
 
                     await this.decksService.addEntry(deckHash, { cardHash: globalHash });

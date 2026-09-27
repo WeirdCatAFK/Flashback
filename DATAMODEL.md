@@ -194,7 +194,7 @@ Folder tags are inherited by every file and card below it.
       "tags": ["Definition", "Supervised Learning"],
       "category": "Concept",
       "cardType": "basic",
-      "origin": "ai",                  // present + 'ai' = created via MCP; absent = handmade
+      "origin": "ai",                  // 'ai' = created via MCP; 'import' = Anki/Obsidian import; absent = handmade
       "customData": { "html": "" },
       "vanillaData": {
         "frontText": "What is KNN?",
@@ -669,8 +669,9 @@ table here is re-derivable from the canonical layer. The flashcard is the atomic
 | category_id | integer (FK) | Pedagogical category. |
 | content_id | integer (FK) | → `FlashcardContent`. |
 | reference_id | integer (FK) | → `FlashcardReference`. |
+| highlight_hash | varchar(500) | The highlight the card was made from — the sidecar's `vanillaData.location.id` when its `type` is `highlight` — or NULL. Derived; a highlight deleted since leaves it pointing at nothing, which the card browser reports as `anchor_status: 'missing'`. |
 | name | varchar(500) | Optional descriptive name. |
-| origin | varchar(500) | `'ai'` = created via the MCP server; NULL = handmade. Set once. Mirrors the sidecar's `origin`. |
+| origin | varchar(500) | `'ai'` = created via the MCP server; `'import'` = an Anki or Obsidian import; NULL = handmade (and cards imported before imports were marked, which carry no trace to tell them apart). Set once. Mirrors the sidecar's `origin`. |
 | presence | float | Owner-derived familiarity metric, mirrored into the canonical layer. |
 | fileIndex | integer | Position within the source file. |
 | card_type | text | `basic` / `reversible` / `cloze` / `type_answer` / `custom`. Default `basic`. |

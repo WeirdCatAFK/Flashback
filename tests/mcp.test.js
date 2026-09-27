@@ -13,11 +13,13 @@ import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import db from '../src/api/access/primitives/database.js';
 import Documents from '../src/api/access/orchestration/documents.js';
+import highlightsService from '../src/api/access/orchestration/highlights.js';
 import Api from '../src/api/api.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 import { buildPdf, buildEpub, buildPng } from './fixtures.js';
 import { registerReadTools } from '../src/mcp/tools/read.js';
 import { registerWriteTools } from '../src/mcp/tools/write.js';
+import { request } from '../src/mcp/client.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
@@ -51,6 +53,21 @@ const cardRow = async (hash) => await db.prepare(`
     WHERE f.global_hash = ?
 `).get(hash);
 
+// Highlights are the user's: the MCP has no tool to make one, so the tests make them
+// the way the app does, through the API. Returns the highlight's id.
+const userHighlight = async (relPath, snippet, extra = {}) => {
+    const body = fs.readFileSync(path.join(getWorkspacePath(), relPath), 'utf8');
+    const start = body.indexOf(snippet);
+    assert.ok(start !== -1, `"${snippet}" is in ${relPath}`);
+    const { highlight } = await request('POST', '/api/highlights', {
+        path: relPath, type: 'text_offset', start, end: start + snippet.length, text: snippet, color: 'amber', ...extra,
+    });
+    return highlight.id;
+};
+
+// A standalone card, made the way the app makes one — the MCP cannot.
+const userStandaloneCard = async (fields) => (await request('POST', '/api/flashcards', fields)).globalHash;
+
 // Delete through the orchestrator so the DB rows go too. Removing the folder with
 // fs alone leaves orphaned Documents rows behind, and the NEXT run of this file then
 // collides on Documents.global_hash — a rerun has to start from the same clean slate
@@ -67,6 +84,7 @@ describe('MCP tools', () => {
     let api;
     let anchoredHash;   // document-anchored card under test
     let highlightHash;
+    let docHighlight;   // the user's highlight most tests hang their cards off
 
     before(async () => {
         if (!await validate()) throw new Error('Validation failed');
@@ -92,20 +110,24 @@ describe('MCP tools', () => {
             'list_book_images', 'view_book_image',
             'list_clip_media', 'view_clip_image',
             'list_decks', 'list_tags', 'list_categories', 'get_graph',
-            'get_statistics', 'list_cards', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
+            'get_statistics', 'list_cards', 'get_card_overview', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
             'get_read_progress', 'list_reading', 'reading_rollup', 'reading_coverage',
             // write
-            'create_flashcard', 'update_flashcard', 'delete_flashcard',
+            'create_flashcard', 'update_flashcard', 'delete_flashcard', 'delete_flashcards',
             'create_document', 'update_document', 'create_folder', 'update_tags',
             'fetch_youtube_transcript',
             'create_deck', 'update_deck', 'delete_deck', 'add_to_deck', 'remove_from_deck',
-            'create_highlight', 'update_highlight', 'delete_highlight', 'attach_media',
+            'update_highlight', 'delete_highlight', 'attach_media',
             'attach_book_image', 'attach_clip_media',
-            'create_category', 'update_category',
+            'create_category', 'update_category', 'delete_category', 'rename_tag',
             'set_read_progress',
         ];
         for (const name of expected) assert.ok(tools.has(name), `missing tool: ${name}`);
+    });
+
+    it('offers no way to highlight: highlights are the user\'s, and cards come only from them', () => {
+        assert.equal(tools.has('create_highlight'), false);
     });
 
     describe('get_card_guide', () => {
@@ -154,7 +176,7 @@ describe('MCP tools', () => {
     it('create_document writes content readable via read_document', async () => {
         const created = await call('create_document', { name: 'notes.md', parentPath: ROOT, content: DOC_TEXT });
         assert.equal(created.isError, false, created.text);
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         assert.equal(read.isError, false, read.text);
         assert.ok(read.data.content.includes('mitochondria'));
     });
@@ -163,13 +185,14 @@ describe('MCP tools', () => {
         const appended = `${DOC_TEXT}\n\nATP is the cell's energy currency.`;
         const res = await call('update_document', { path: docRel, content: appended });
         assert.equal(res.isError, false, res.text);
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         assert.ok(read.data.content.includes('ATP'));
     });
 
-    it('create_flashcard anchors a card to the document', async () => {
+    it('create_flashcard anchors a card to the user\'s highlight', async () => {
+        docHighlight = await userHighlight(docRel, 'The mitochondria is the powerhouse of the cell');
         const res = await call('create_flashcard', {
-            path: docRel, cardType: 'basic',
+            path: docRel, highlightHash: docHighlight, cardType: 'basic',
             frontText: 'What organelle powers the cell?', backText: 'The mitochondria',
             tags: ['mcp-test'],
         });
@@ -178,9 +201,11 @@ describe('MCP tools', () => {
         assert.ok(anchoredHash, 'globalHash assigned');
         assert.equal(res.data.documentPath, docRel);
 
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const card = read.data.metadata.flashcards.find((f) => f.globalHash === anchoredHash);
         assert.ok(card, 'card in sidecar');
+        assert.deepEqual(card.vanillaData.location, { type: 'highlight', id: docHighlight }, 'anchored to the highlight');
+        assert.equal(card.origin, 'ai');
         const row = await cardRow(anchoredHash);
         assert.ok(row?.document_id, 'card linked to a document in the DB');
     });
@@ -207,7 +232,7 @@ describe('MCP tools', () => {
         });
         assert.equal(res.isError, false, res.text);
 
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const card = read.data.metadata.flashcards.find((f) => f.globalHash === anchoredHash);
         assert.equal(card.vanillaData.frontText, 'Which organelle is the powerhouse of the cell?');
         assert.equal(card.vanillaData.backText, 'The mitochondria', 'omitted backText preserved');
@@ -235,6 +260,59 @@ describe('MCP tools', () => {
         assert.ok(row, 'category survives update (kept by id)');
         assert.equal(row.name, renamed);
         assert.equal(row.priority, 3);
+        assert.equal(typeof row.cards, 'number', 'carries its card count');
+
+        // `level` is the 1-based rank among the distinct priorities, the number the Metadata screen shows.
+        const priorities = [...new Set(listed.data.map((c) => c.priority))].sort((a, b) => a - b);
+        for (const c of listed.data) assert.equal(c.level, priorities.indexOf(c.priority) + 1, `${c.name} level`);
+    });
+
+    it('delete_category refuses a category in use until asked to clear it from its cards', async () => {
+        const name = `MCP Doomed ${Date.now()}`;
+        const created = await call('create_category', { name });
+        const card = await call('create_flashcard', {
+            path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'category Q', backText: 'category A', category: name,
+        });
+        assert.equal(card.isError, false, card.text);
+
+        const refused = await call('delete_category', { id: created.data.id });
+        assert.equal(refused.isError, true);
+        assert.match(refused.text, /409/);
+
+        const deleted = await call('delete_category', { id: created.data.id, clear: true });
+        assert.equal(deleted.isError, false, deleted.text);
+        const listed = await call('list_categories');
+        assert.ok(!listed.data.some((c) => c.id === created.data.id), 'category is gone');
+
+        const doc = await call('read_document', { path: docRel, sidecar: 'full' });
+        const kept = doc.data.metadata.flashcards.find((c) => c.globalHash === card.data.globalHash);
+        assert.ok(kept, 'the card survives');
+        assert.ok(!kept.category, 'and no longer names the category');
+        await call('delete_flashcard', { globalHash: card.data.globalHash });
+    });
+
+    it('list_tags reports each tag\'s reach, and rename_tag renames and removes it everywhere', async () => {
+        const res = await call('update_tags', { path: docRel, tags: ['mcp-old-tag'], isFolder: false });
+        assert.equal(res.isError, false, res.text);
+
+        let tags = (await call('list_tags')).data.tags;
+        const old = tags.find((t) => t.name === 'mcp-old-tag');
+        assert.ok(old, 'tag is listed');
+        assert.equal(old.documents, 1);
+        for (const key of ['folders', 'decks', 'cardsDirect', 'cards']) assert.equal(typeof old[key], 'number', key);
+
+        const renamed = await call('rename_tag', { from: 'mcp-old-tag', to: 'mcp-new-tag' });
+        assert.equal(renamed.isError, false, renamed.text);
+        assert.equal(renamed.data.to, 'mcp-new-tag');
+        tags = (await call('list_tags')).data.tags;
+        assert.ok(tags.some((t) => t.name === 'mcp-new-tag'));
+        assert.ok(!tags.some((t) => t.name === 'mcp-old-tag'));
+
+        const removed = await call('rename_tag', { from: 'mcp-new-tag' });
+        assert.equal(removed.isError, false, removed.text);
+        assert.equal(removed.data.to, null);
+        tags = (await call('list_tags')).data.tags;
+        assert.ok(!tags.some((t) => t.name === 'mcp-new-tag'), 'removed everywhere');
     });
 
     it('update_flashcard rejects an unknown category on the sidecar path', async () => {
@@ -256,28 +334,23 @@ describe('MCP tools', () => {
         assert.match(res.text, /404.*not found/i);
     });
 
-    it('create_highlight + highlight-anchored create_flashcard', async () => {
-        const hl = await call('create_highlight', {
-            path: docRel, snippet: 'Photosynthesis creates glucose', color: 'green', note: 'key process',
-        });
-        assert.equal(hl.isError, false, hl.text);
-        highlightHash = hl.data.highlight.id;
-        assert.ok(highlightHash);
+    it('create_flashcard anchors only to a highlight that exists in that document', async () => {
+        highlightHash = await userHighlight(docRel, 'Photosynthesis creates glucose', { color: 'green', note: 'key process' });
 
         const bogus = await call('create_flashcard', {
-            path: docRel, cardType: 'basic', frontText: 'q', backText: 'a', highlightHash: 'bogus-hash',
+            path: docRel, highlightHash: 'bogus-hash', cardType: 'basic', frontText: 'q', backText: 'a',
         });
         assert.equal(bogus.isError, true);
         assert.match(bogus.text, /No highlight/);
+        assert.match(bogus.text, /list_highlights/, 'points at where highlights come from');
 
         const res = await call('create_flashcard', {
-            path: docRel, cardType: 'basic',
+            path: docRel, highlightHash, cardType: 'basic',
             frontText: 'What does photosynthesis create?', backText: 'Glucose',
-            highlightHash,
         });
         assert.equal(res.isError, false, res.text);
 
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const card = read.data.metadata.flashcards.find((f) => f.globalHash === res.data.globalHash);
         assert.deepEqual(card.vanillaData.location, { type: 'highlight', id: highlightHash });
     });
@@ -298,7 +371,7 @@ describe('MCP tools', () => {
         assert.ok(!uncarded.data.highlights.some((h) => h.id === highlightHash), 'uncardedOnly excludes carded highlights');
 
         // Provenance: the anchored card is origin 'ai' in the sidecar (canonical) and the DB row.
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const aiCard = read.data.metadata.flashcards.find((f) => f.vanillaData?.location?.id === highlightHash);
         assert.equal(aiCard.origin, 'ai');
         const row = await db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(aiCard.globalHash);
@@ -314,20 +387,32 @@ describe('MCP tools', () => {
         assert.ok(!human.data.cards.some((c) => c.global_hash === aiCard.globalHash));
     });
 
-    it('standalone create_flashcard is marked origin ai too', async () => {
-        const res = await call('create_flashcard', {
-            cardType: 'basic', frontText: 'Standalone provenance Q', backText: 'A',
-        });
-        assert.equal(res.isError, false, res.text);
-        const row = await db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(res.data.globalHash);
-        assert.equal(row.origin, 'ai');
-        await call('delete_flashcard', { globalHash: res.data.globalHash });
+    it('create_flashcard makes no card that a highlight does not anchor', async () => {
+        const before = (await call('list_cards', { limit: 1 })).data.total;
+        const attempts = [
+            { cardType: 'basic', frontText: 'Standalone Q', backText: 'A' },
+            { path: docRel, cardType: 'basic', frontText: 'Unhighlighted Q', backText: 'A' },
+            { highlightHash: docHighlight, cardType: 'basic', frontText: 'Pathless Q', backText: 'A' },
+        ];
+        for (const args of attempts) {
+            const res = await call('create_flashcard', args);
+            assert.equal(res.isError, true, JSON.stringify(args));
+            assert.match(res.text, /needs `path` and `highlightHash`/);
+            assert.match(res.text, /highlight that passage in the app/, 'tells the model to ask the user');
+        }
+        assert.equal((await call('list_cards', { limit: 1 })).data.total, before, 'nothing was written');
     });
 
-    it('highlightHash without path is rejected up front', async () => {
-        const res = await call('create_flashcard', { cardType: 'basic', frontText: 'q', backText: 'a', highlightHash: 'h' });
-        assert.equal(res.isError, true);
-        assert.match(res.text, /requires `path`/);
+    it('create_flashcard puts several cards on one highlight: no cap', async () => {
+        const made = [];
+        for (const n of [1, 2, 3]) {
+            const res = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: `split Q${n}`, backText: `A${n}` });
+            assert.equal(res.isError, false, res.text);
+            made.push(res.data.globalHash);
+        }
+        const hl = (await call('list_highlights', { path: docRel })).data.highlights.find((h) => h.id === docHighlight);
+        for (const hash of made) assert.ok(hl.cardHashes.includes(hash), 'each card hangs off the highlight');
+        for (const hash of made) await call('delete_flashcard', { globalHash: hash });
     });
 
     it('update_highlight and delete_highlight round-trip', async () => {
@@ -337,17 +422,14 @@ describe('MCP tools', () => {
 
         const del = await call('delete_highlight', { path: docRel, highlightHash });
         assert.equal(del.isError, false, del.text);
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         assert.ok(!(read.data.metadata.highlights ?? []).some((h) => h.id === highlightHash));
     });
 
-    it('standalone card: partial update merges instead of wiping omitted fields', async () => {
-        const created = await call('create_flashcard', {
+    it('the user\'s standalone card: partial update merges instead of wiping omitted fields', async () => {
+        const hash = await userStandaloneCard({
             cardType: 'basic', frontText: 'Standalone Q', backText: 'Standalone A', name: 'Standalone card',
         });
-        assert.equal(created.isError, false, created.text);
-        const hash = created.data.globalHash;
-        assert.equal(created.data.documentPath, null);
 
         const res = await call('update_flashcard', { globalHash: hash, frontText: 'Standalone Q (edited)' });
         assert.equal(res.isError, false, res.text);
@@ -361,10 +443,8 @@ describe('MCP tools', () => {
         assert.equal(await cardRow(hash), undefined);
     });
 
-    it('standalone custom card: customHtml is editable', async () => {
-        const created = await call('create_flashcard', { cardType: 'custom', customHtml: '<b>front v1</b>', name: 'Custom card' });
-        assert.equal(created.isError, false, created.text);
-        const hash = created.data.globalHash;
+    it('the user\'s standalone custom card: customHtml is editable', async () => {
+        const hash = await userStandaloneCard({ cardType: 'custom', customHtml: '<b>front v1</b>', name: 'Custom card' });
         assert.equal((await cardRow(hash)).custom_html, '<b>front v1</b>');
 
         const res = await call('update_flashcard', { globalHash: hash, customHtml: '<b>front v2</b>' });
@@ -380,7 +460,7 @@ describe('MCP tools', () => {
         const res = await call('delete_flashcard', { globalHash: anchoredHash });
         assert.equal(res.isError, false, res.text);
         assert.equal(res.data.documentPath.replace(/\\/g, '/'), docRel, 'resolved to the right document');
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         assert.ok(!read.data.metadata.flashcards.some((f) => f.globalHash === anchoredHash), 'gone from sidecar');
         assert.equal(await cardRow(anchoredHash), undefined, 'gone from DB');
     });
@@ -390,12 +470,20 @@ describe('MCP tools', () => {
         assert.equal(created.isError, false, created.text);
         const deckHash = created.data.globalHash;
 
-        const upd = await call('update_deck', { deckHash, name: 'MCP Test Deck (renamed)', tags: ['mcp-deck-tag'] });
+        const upd = await call('update_deck', { deckHash, name: 'MCP Test Deck (renamed)', color: 'plum', tags: ['mcp-deck-tag'] });
         assert.equal(upd.isError, false, upd.text);
         assert.deepEqual(upd.data.tags, ['mcp-deck-tag']);
 
+        const listed = (await call('list_decks', {})).data.find((d) => d.global_hash === deckHash);
+        assert.equal(listed.name, 'MCP Test Deck (renamed)');
+        assert.equal(listed.color, 'plum', 'colour is stored');
+        assert.deepEqual(Object.keys(listed.standing).sort(), ['due', 'fresh', 'longTerm'], 'standing sums the deck up');
+
+        const badColor = await call('update_deck', { deckHash, color: 'chartreuse' });
+        assert.equal(badColor.isError, true, 'an off-palette colour is refused');
+
         const card = await call('create_flashcard', {
-            path: docRel, cardType: 'basic', frontText: 'deck member Q', backText: 'deck member A',
+            path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'deck member Q', backText: 'deck member A',
         });
         const added = await call('add_to_deck', { deckHash, cardHash: card.data.globalHash, documentPath: docRel });
         assert.equal(added.isError, false, added.text);
@@ -435,6 +523,202 @@ describe('MCP tools', () => {
         assert.equal(due.isError, false, due.text);
     });
 
+    it('get_statistics carries the gap bands and completeness the report shows', async () => {
+        const stats = await call('get_statistics', {});
+        assert.equal(stats.isError, false, stats.text);
+        assert.deepEqual(Object.keys(stats.data.bands).sort(), ['d1', 'long', 'm2', 'new', 'w3', 'wk']);
+        assert.ok('completeness' in stats.data);
+    });
+
+    it('list_cards filters by source and groups by gap band, every row carrying its gap', async () => {
+        const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'gap Q', backText: 'gap A' });
+        const res = await call('list_cards', { source: 'document', sourcePath: docRel, band: 'new', groupBy: 'gap', sortBy: 'due', sortDir: 'asc' });
+        assert.equal(res.isError, false, res.text);
+        assert.ok(res.data.cards.some((c) => c.global_hash === card.data.globalHash || c.globalHash === card.data.globalHash), 'the new card is listed');
+        for (const c of res.data.cards) {
+            assert.ok('gap' in c, 'row carries gap');
+            assert.equal(c.document_path.replace(/\\/g, '/'), docRel, 'only this document');
+        }
+        assert.deepEqual(res.data.groups, [{ key: 'new', count: res.data.total }], 'one group, the new band');
+        await call('delete_flashcard', { globalHash: card.data.globalHash });
+    });
+
+    it('get_card_overview sums the cards up by band, source and flag', async () => {
+        const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'overview Q', backText: 'overview A' });
+        const res = await call('get_card_overview', {});
+        assert.equal(res.isError, false, res.text);
+        assert.equal(typeof res.data.total, 'number');
+        assert.deepEqual(Object.keys(res.data.bands).sort(), ['d1', 'long', 'm2', 'new', 'w3', 'wk']);
+        assert.ok(res.data.bands.new >= 1, 'the fresh card is in the new band');
+        const doc = res.data.documents.find((d) => d.path === docRel);
+        assert.ok(doc && doc.cards >= 1 && typeof doc.longTerm === 'number', 'the document is listed with its counts');
+        assert.ok('cards' in res.data.standalone && 'any' in res.data.flags);
+        await call('delete_flashcard', { globalHash: card.data.globalHash });
+    });
+
+    describe('small responses by default', () => {
+        it('list_folder lists names and counts, not every sidecar', async () => {
+            const res = await call('list_folder', { path: ROOT });
+            assert.equal(res.isError, false, res.text);
+            const notes = res.data.find((i) => i.name === 'notes.md');
+            assert.deepEqual(Object.keys(notes).sort(), ['flashcardCount', 'globalHash', 'highlights', 'name', 'tags', 'type']);
+            assert.ok(notes.highlights >= 1 && notes.flashcardCount >= 1);
+        });
+
+        it('read_document summarises the sidecar unless asked for it in full', async () => {
+            const summary = await call('read_document', { path: docRel });
+            assert.equal(typeof summary.data.metadata.flashcards, 'number');
+            assert.equal(typeof summary.data.metadata.highlights, 'number');
+            assert.match(summary.data.metadata._arrays, /list_cards/);
+            const full = await call('read_document', { path: docRel, sidecar: 'full' });
+            assert.ok(Array.isArray(full.data.metadata.flashcards));
+            assert.equal(full.data.metadata.flashcards.length, summary.data.metadata.flashcards);
+        });
+
+        it('get_due_cards answers with counts per source, and lists the queue only on request', async () => {
+            const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'due Q', backText: 'A' });
+            const summary = await call('get_due_cards', {});
+            assert.equal(summary.isError, false, summary.text);
+            assert.equal(summary.data.queue.length, 0, 'counts only by default');
+            assert.ok(summary.data.counts.new >= 1);
+            assert.ok(summary.data.bySource.some((s) => s.path === docRel && s.new >= 1), 'counted under its document');
+            assert.ok(!summary.text.includes('render_html'), 'no card bodies');
+
+            const withQueue = await call('get_due_cards', { queueLimit: 2 });
+            assert.ok(withQueue.data.queue.length >= 1 && withQueue.data.queue.length <= 2);
+            assert.deepEqual(Object.keys(withQueue.data.queue[0]).filter((k) => k !== 'preview').sort(),
+                ['card_type', 'category', 'document_path', 'frontText', 'global_hash', 'level', 'new']);
+            await call('delete_flashcard', { globalHash: card.data.globalHash });
+        });
+
+        it('list_cards clips long text unless verbose, and returns forward-slash paths', async () => {
+            const long = 'x'.repeat(400);
+            const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'clip Q', backText: long });
+            const compact = await call('list_cards', { search: 'clip Q' });
+            const row = compact.data.cards.find((c) => c.global_hash === card.data.globalHash);
+            assert.ok(row.backText.length <= 160 && row.backText.endsWith('…'), 'clipped');
+            assert.equal(row.document_path, docRel, 'forward slashes whatever the OS');
+            assert.ok(!('document_name' in row));
+            const verbose = await call('list_cards', { search: 'clip Q', verbose: true });
+            assert.equal(verbose.data.cards.find((c) => c.global_hash === card.data.globalHash).backText, long);
+            await call('delete_flashcard', { globalHash: card.data.globalHash });
+        });
+
+        it('search_flashback says when it cut a group short', async () => {
+            const made = [];
+            for (const n of [1, 2]) {
+                made.push((await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: `truncprobe ${n}`, backText: 'A' })).data.globalHash);
+            }
+            const cut = await call('search_flashback', { query: 'truncprobe', limit: 1 });
+            assert.equal(cut.data.flashcards.length, 1);
+            assert.equal(cut.data.truncated.flashcards, true, 'more matches than shown');
+            const whole = await call('search_flashback', { query: 'truncprobe', limit: 5 });
+            assert.equal(whole.data.flashcards.length, 2);
+            assert.equal(whole.data.truncated.flashcards, false);
+            const filtered = await call('search_flashback', { document: docRel, query: 'truncprobe', limit: 1 });
+            assert.equal(filtered.data.truncated.flashcards, true, 'filter mode reports it too');
+            for (const h of made) await call('delete_flashcard', { globalHash: h });
+        });
+    });
+
+    describe('where a card came from', () => {
+        it('list_cards names each card\'s highlight and says when it has been deleted', async () => {
+            const hl = await userHighlight(docRel, 'Photosynthesis creates glucose from light', { note: 'anchor probe' });
+            const card = await call('create_flashcard', { path: docRel, highlightHash: hl, frontText: 'anchor Q', backText: 'A' });
+            const standalone = await userStandaloneCard({ cardType: 'basic', frontText: 'unanchored Q', backText: 'A' });
+
+            let rows = (await call('list_cards', { anchor: 'highlight', limit: 500 })).data.cards;
+            const live = rows.find((c) => c.global_hash === card.data.globalHash);
+            assert.equal(live.highlight_hash, hl);
+            assert.equal(live.anchor_status, 'live');
+            assert.ok(!rows.some((c) => c.global_hash === standalone), 'a card from no highlight is not listed');
+
+            rows = (await call('list_cards', { anchor: 'none', limit: 500 })).data.cards;
+            const loose = rows.find((c) => c.global_hash === standalone);
+            assert.equal(loose.highlight_hash, null);
+            assert.equal(loose.anchor_status, null);
+
+            await call('delete_highlight', { path: docRel, highlightHash: hl });
+            rows = (await call('list_cards', { anchor: 'missing', limit: 500 })).data.cards;
+            const orphan = rows.find((c) => c.global_hash === card.data.globalHash);
+            assert.ok(orphan, 'a card whose highlight was deleted is found');
+            assert.equal(orphan.anchor_status, 'missing');
+
+            await call('delete_flashcard', { globalHash: card.data.globalHash });
+            await call('delete_flashcard', { globalHash: standalone });
+        });
+
+        it('fills in the highlight of cards indexed before the index kept it', async () => {
+            const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'backfill Q', backText: 'A' });
+            await db.prepare('UPDATE Flashcards SET highlight_hash = NULL WHERE global_hash = ?').run(card.data.globalHash);
+
+            const filled = await highlightsService.backfillCardAnchors();
+            assert.ok(filled >= 1, `filled ${filled}`);
+            const row = await db.prepare('SELECT highlight_hash FROM Flashcards WHERE global_hash = ?').get(card.data.globalHash);
+            assert.equal(row.highlight_hash, docHighlight);
+            assert.equal(await highlightsService.backfillCardAnchors(), 0, 'nothing left to do the second time');
+            await call('delete_flashcard', { globalHash: card.data.globalHash });
+        });
+
+        it('list_cards tells imported cards apart from handmade ones', async () => {
+            const hash = await userStandaloneCard({ cardType: 'basic', frontText: 'imported Q', backText: 'A' });
+            await db.prepare("UPDATE Flashcards SET origin = 'import' WHERE global_hash = ?").run(hash);
+            const imported = (await call('list_cards', { origin: 'import', limit: 500 })).data.cards;
+            assert.ok(imported.some((c) => c.global_hash === hash));
+            assert.ok(imported.every((c) => c.origin === 'import'));
+            const human = (await call('list_cards', { origin: 'human', limit: 500 })).data.cards;
+            assert.ok(!human.some((c) => c.global_hash === hash), 'an import is not handmade');
+            await call('delete_flashcard', { globalHash: hash });
+        });
+    });
+
+    describe('delete_flashcards', () => {
+        const bulkFilter = { source: 'document', sourcePath: docRel, search: 'bulk Q' };
+        const exists = async (hash) => !!(await cardRow(hash));
+
+        it('previews, refuses a changed set, then deletes exactly what was previewed', async () => {
+            const made = [];
+            for (const n of [1, 2, 3]) {
+                made.push((await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: `bulk Q${n}`, backText: 'A' })).data.globalHash);
+            }
+
+            const preview = await call('delete_flashcards', { filter: bulkFilter });
+            assert.equal(preview.isError, false, preview.text);
+            assert.equal(preview.data.dryRun, true);
+            assert.equal(preview.data.count, 3);
+            assert.deepEqual(preview.data.bySource, [{ path: docRel, cards: 3 }]);
+            assert.equal(preview.data.sample.length, 3);
+            for (const h of made) assert.ok(await exists(h), 'a dry run deletes nothing');
+
+            const stale = await call('delete_flashcards', { filter: bulkFilter, confirm: true, expectedCount: 2 });
+            assert.equal(stale.isError, true);
+            assert.match(stale.text, /Nothing was deleted/);
+            for (const h of made) assert.ok(await exists(h));
+
+            const done = await call('delete_flashcards', { filter: bulkFilter, confirm: true, expectedCount: 3 });
+            assert.equal(done.isError, false, done.text);
+            assert.equal(done.data.deleted, 3);
+            for (const h of made) assert.equal(await exists(h), false, 'gone');
+        });
+
+        it('takes a list of hashes and reports the ones that do not exist', async () => {
+            const hash = (await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'bulk by hash', backText: 'A' })).data.globalHash;
+            const preview = await call('delete_flashcards', { hashes: [hash, 'no-such-card-hash'] });
+            assert.equal(preview.data.count, 1);
+            assert.deepEqual(preview.data.missing, ['no-such-card-hash']);
+            const done = await call('delete_flashcards', { hashes: [hash], confirm: true, expectedCount: 1 });
+            assert.equal(done.data.deleted, 1);
+            assert.equal(await exists(hash), false);
+        });
+
+        it('needs exactly one of hashes or a non-empty filter', async () => {
+            for (const args of [{}, { filter: {} }, { hashes: ['a'], filter: { origin: 'ai' } }]) {
+                const res = await call('delete_flashcards', args);
+                assert.equal(res.isError, true, JSON.stringify(args));
+            }
+        });
+    });
+
     it('create_folder makes a folder create_document can target', async () => {
         const res = await call('create_folder', { name: 'chapters', parentPath: ROOT });
         assert.equal(res.isError, false, res.text);
@@ -457,7 +741,7 @@ describe('MCP tools', () => {
     });
 
     it('get_links reports outgoing, backlinks, and pending wiki links', async () => {
-        const read = await call('read_document', { path: docRel });
+        const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const notesHash = read.data.metadata.globalHash;
         const linkedRel = `${ROOT}/linked.md`;
         const created = await call('create_document', {
@@ -489,6 +773,24 @@ describe('MCP tools', () => {
         assert.ok(res.data.some((e) => /^(create|edit|move|delete|reconcile):/.test(e.message)), 'messages follow the Seal convention');
     });
 
+    it('get_recent_changes folds a run of identical commits into one counted entry', async () => {
+        // Seal may land two quick writes in one commit, so the run's exact length is not fixed.
+        for (const note of ['one', 'two', 'three']) {
+            await userHighlight(docRel, 'powerhouse', { color: 'green', note });
+        }
+        const res = await call('get_recent_changes', { limit: 50 });
+        assert.equal(res.isError, false, res.text);
+        const raw = await request('GET', '/api/seal/log?limit=50');
+        assert.equal(res.data.reduce((n, e) => n + e.count, 0), raw.length, 'folding drops no commit');
+        for (let i = 1; i < res.data.length; i++) {
+            const [a, b] = [res.data[i - 1], res.data[i]];
+            assert.ok(!(a.message === b.message && a.author === b.author), 'no two neighbours could have folded');
+        }
+        const runs = res.data.filter((e) => e.count > 1);
+        assert.ok(runs.length > 0, 'at least one run folded');
+        for (const run of runs) assert.ok(Date.parse(run.since) <= Date.parse(run.date), '`since` is the oldest, `date` the newest');
+    });
+
     it('attach_media puts a local image on a card', async () => {
         const png = Buffer.from(
             'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
@@ -498,7 +800,7 @@ describe('MCP tools', () => {
         fs.writeFileSync(tmpFile, png);
         try {
             const card = await call('create_flashcard', {
-                path: docRel, cardType: 'basic', frontText: 'media Q', backText: 'media A',
+                path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'media Q', backText: 'media A',
             });
             assert.equal(card.isError, false, card.text);
 
@@ -515,7 +817,7 @@ describe('MCP tools', () => {
             assert.equal(res.isError, false, res.text);
             assert.equal(res.data.type, 'image');
 
-            const read = await call('read_document', { path: docRel });
+            const read = await call('read_document', { path: docRel, sidecar: 'full' });
             const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
             assert.ok(saved.vanillaData.media?.front_img, 'front image reference stored in the sidecar');
 
@@ -754,7 +1056,7 @@ describe('MCP tools', () => {
 
             it('attach_book_image copies a figure out of the zip onto a card', async () => {
                 const card = await call('create_flashcard', {
-                    path: docRel, cardType: 'basic', frontText: 'Which organelle?', backText: 'Mitochondrion',
+                    path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'Which organelle?', backText: 'Mitochondrion',
                 });
                 assert.equal(card.isError, false, card.text);
                 try {
@@ -767,7 +1069,7 @@ describe('MCP tools', () => {
                     // The book's name plus a short unique suffix, not the bare name.
                     assert.match(res.data.name, /^fig1-[0-9a-f]{8}\.png$/);
 
-                    const read = await call('read_document', { path: docRel });
+                    const read = await call('read_document', { path: docRel, sidecar: 'full' });
                     const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
                     assert.ok(saved.vanillaData.media?.front_img, 'the sidecar references it');
 
@@ -795,7 +1097,7 @@ describe('MCP tools', () => {
                 const cards = [];
                 for (const n of [1, 2]) {
                     const c = await call('create_flashcard', {
-                        path: docRel, cardType: 'basic', frontText: `organelle Q${n}`, backText: `A${n}`,
+                        path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: `organelle Q${n}`, backText: `A${n}`,
                     });
                     assert.equal(c.isError, false, c.text);
                     cards.push(c.data.globalHash);
@@ -812,7 +1114,7 @@ describe('MCP tools', () => {
                     }
                     assert.notEqual(names[0], names[1], 'each attachment gets its own file');
 
-                    const read = await call('read_document', { path: docRel });
+                    const read = await call('read_document', { path: docRel, sidecar: 'full' });
                     for (const [i, hash] of cards.entries()) {
                         const saved = read.data.metadata.flashcards.find((f) => f.globalHash === hash);
                         assert.equal(saved.vanillaData.media.front_img, `./media/${names[i]}`);
@@ -899,7 +1201,7 @@ describe('MCP tools', () => {
 
             it('attach_clip_media puts a clipped picture on a card', async () => {
                 const card = await call('create_flashcard', {
-                    path: docRel, cardType: 'basic', frontText: 'Which bird?', backText: 'A wren',
+                    path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'Which bird?', backText: 'A wren',
                 });
                 assert.equal(card.isError, false, card.text);
                 try {
@@ -910,7 +1212,7 @@ describe('MCP tools', () => {
                     assert.equal(res.isError, false, res.text);
                     assert.equal(res.data.type, 'image');
 
-                    const read = await call('read_document', { path: docRel });
+                    const read = await call('read_document', { path: docRel, sidecar: 'full' });
                     const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
                     assert.ok(saved.vanillaData.media?.front_img, 'lands in the picture slot');
 
@@ -928,7 +1230,7 @@ describe('MCP tools', () => {
                 // The slot follows the bytes rather than a caller-supplied flag: an mp3 in
                 // an image slot would fail silently at review time instead of here.
                 const card = await call('create_flashcard', {
-                    path: docRel, cardType: 'basic', frontText: 'Name this call', backText: 'Wren',
+                    path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'Name this call', backText: 'Wren',
                 });
                 assert.equal(card.isError, false, card.text);
                 try {
@@ -939,7 +1241,7 @@ describe('MCP tools', () => {
                     assert.equal(res.isError, false, res.text);
                     assert.equal(res.data.type, 'sound');
 
-                    const read = await call('read_document', { path: docRel });
+                    const read = await call('read_document', { path: docRel, sidecar: 'full' });
                     const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
                     assert.ok(saved.vanillaData.media?.front_sound, 'lands in the sound slot');
                     assert.ok(!saved.vanillaData.media?.front_img, 'and not in the picture slot');
@@ -1016,12 +1318,6 @@ describe('MCP tools', () => {
             const abs = path.join(getWorkspacePath(), ROOT, 'scan.pdf');
             assert.equal(fs.statSync(abs).size, scanBytes.length, 'the PDF still has its original bytes');
         });
-
-        it('create_highlight rejects a text-offset anchor on it', async () => {
-            const res = await call('create_highlight', { path: scanRel, snippet: 'anything', color: 'amber' });
-            assert.equal(res.isError, true);
-            assert.match(res.text, /binary document/i);
-        });
     });
 
     // list_cards reports *that* a card is flagged; get_card_health reports why, so an
@@ -1029,7 +1325,7 @@ describe('MCP tools', () => {
     // The classifier itself is exercised in tests/cardHealth.test.js and over HTTP in
     // tests/api/api.test.js — here we only prove the tool reaches it and shapes the reply.
     it('get_card_health returns no flags for a healthy card', async () => {
-        const created = await call('create_flashcard', { frontText: 'health probe Q', backText: 'A' });
+        const created = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'health probe Q', backText: 'A' });
         assert.equal(created.isError, false, created.text);
 
         const res = await call('get_card_health', { cardHash: created.data.globalHash });

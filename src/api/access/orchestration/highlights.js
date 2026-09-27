@@ -185,6 +185,38 @@ class Highlights {
         })();
     }
 
+    /**
+     * Fills `Flashcards.highlight_hash` for cards indexed before migration 017, reading each
+     * card's highlight id out of its sidecar — the index never stored it before. Only cards whose
+     * reference says they are highlight-anchored are looked at, so once they are filled this is
+     * one query that finds nothing. Writes the derived index only.
+     *
+     * @returns {Promise<number>} how many cards were filled
+     */
+    async backfillCardAnchors() {
+        const rows = await this.query.getCardsMissingHighlightHash();
+        if (!rows.length) return 0;
+
+        const byDocument = new Map();
+        for (const r of rows) byDocument.set(r.relative_path, [...(byDocument.get(r.relative_path) ?? []), r]);
+
+        let filled = 0;
+        await db.transaction(async () => {
+            for (const [relPath, cards] of byDocument) {
+                let sidecar;
+                try { sidecar = this.files.getMetadata(relPath, false); } catch { continue; }
+                const anchors = new Map((sidecar?.flashcards ?? []).map((fc) => [fc?.globalHash, fc?.vanillaData?.location]));
+                for (const card of cards) {
+                    const loc = anchors.get(card.global_hash);
+                    if (loc?.type !== 'highlight' || typeof loc.id !== 'string') continue;
+                    await this.query.setFlashcardHighlightHash(card.id, loc.id);
+                    filled += 1;
+                }
+            }
+        })();
+        return filled;
+    }
+
     /** Reconciles a document's Highlights rows against its sidecar. */
     async syncFromSidecar(documentId, highlightsData) {
         if (!Array.isArray(highlightsData) || highlightsData.length === 0) return;

@@ -652,9 +652,9 @@ export default class Decks {
      * a header can say how many cards it heads even when the page shows a few.
      * Returns `{ cards, total, groups? }`.
      */
-    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         const scope = currentScope();
-        const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId };
+        const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
         const gaps = await SRS.cardGaps({ algorithm, scope });
         const gapOf = (hash) => gaps.get(hash) ?? null;
         const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));

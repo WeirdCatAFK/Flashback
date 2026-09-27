@@ -230,6 +230,7 @@ export default class ObsidianImport {
 
                                     flashcards.push({
                                         name: `Obsidian Card ${flashcards.length + 1}`,
+                                        origin: 'import',
                                         globalHash: cardHash,
                                         level: 0,
                                         easeFactor: 2.5,
@@ -251,6 +252,7 @@ export default class ObsidianImport {
 
                                     flashcards.push({
                                         name: `Obsidian Card ${flashcards.length + 1}`,
+                                        origin: 'import',
                                         globalHash: cardHash,
                                         level: 0,
                                         easeFactor: 2.5,
@@ -268,6 +270,7 @@ export default class ObsidianImport {
 
                                     flashcards.push({
                                         name: `Obsidian Card ${flashcards.length + 1}`,
+                                        origin: 'import',
                                         globalHash: cardHash,
                                         level: 0,
                                         easeFactor: 2.5,
@@ -287,6 +290,7 @@ export default class ObsidianImport {
 
                                         flashcards.push({
                                             name: `Obsidian Card ${flashcards.length + 1}`,
+                                            origin: 'import',
                                             globalHash: cardHash,
                                             level: 0,
                                             easeFactor: 2.5,

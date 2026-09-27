@@ -1,10 +1,98 @@
 import { z } from 'zod';
 import { request, requestBuffer } from '../client.js';
 import cardGuide from '../skills/flashbackCards.js';
+import { GAP_BANDS, LONG_TERM_DAYS } from '../../shared/intervals.js';
+import { asText, clip } from './shape.js';
 
 const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
-const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+const BAND_IDS = GAP_BANDS.map((b) => b.id);
+
+/** The bands as the app labels them, for tool descriptions: `new` = never reviewed, `d1` ≤ 1 day, … */
+const BANDS_TEXT = GAP_BANDS.map((b, i) => {
+  if (b.max == null) return `"${b.id}" = never reviewed`;
+  if (b.max === Infinity) return `"${b.id}" = over ${GAP_BANDS[i - 1].max} days`;
+  return `"${b.id}" = up to ${b.max} day${b.max === 1 ? '' : 's'}`;
+}).join(', ');
+
+/**
+ * Folds consecutive commits with the same message by the same author into one entry with a
+ * `count`, as the Seal History tab folds a reading session's run of highlight and card edits
+ * to one document. Anything in between breaks the run, so the order of events survives.
+ */
+function foldRuns(entries) {
+  const out = [];
+  for (const e of entries) {
+    const last = out[out.length - 1];
+    if (last && last.message === e.message && last.author === e.author) {
+      last.count += 1;
+      last.since = e.date;
+      continue;
+    }
+    out.push({ ...e, count: 1, since: e.date });
+  }
+  return out.map(({ since, ...e }) => (e.count > 1 ? { ...e, since } : e));
+}
+
+/** A card-browser row with its long fields clipped, for the compact listing. */
+const compactCard = ({ frontText, backText, answerText, custom_html: html, ...row }) => ({
+  ...row,
+  document_name: undefined,
+  frontText: clip(frontText),
+  backText: clip(backText),
+  answerText: clip(answerText),
+  ...(html ? { custom_html: clip(html) } : {}),
+});
+
+/**
+ * A sidecar with its card and highlight arrays replaced by counts. The arrays are what makes
+ * a heavily-carded book's read_document run to hundreds of thousands of characters, and both
+ * have their own paged tools.
+ */
+function sidecarSummary(meta, relPath) {
+  if (!meta || typeof meta !== 'object') return meta;
+  const { flashcards, highlights, ...rest } = meta;
+  return {
+    ...rest,
+    flashcards: Array.isArray(flashcards) ? flashcards.length : 0,
+    highlights: Array.isArray(highlights) ? highlights.length : 0,
+    _arrays: `Counts only. list_cards with source "document" and sourcePath "${String(relPath).replace(/\\/g, '/')}" ` +
+      `pages its cards; list_highlights with this path lists its highlights; pass sidecar: "full" for the raw arrays.`,
+  };
+}
+
+/** The due queue as counts per source document, plus the first `queueLimit` cards clipped. */
+function dueSummary(data, queueLimit) {
+  const newHashes = new Set((data.new ?? []).map((c) => c.global_hash));
+  const byDoc = new Map();
+  for (const c of [...(data.due ?? []), ...(data.new ?? [])]) {
+    const key = c.document_path ? c.document_path.replace(/\\/g, '/') : null;
+    const entry = byDoc.get(key) ?? { path: key, due: 0, new: 0 };
+    entry[newHashes.has(c.global_hash) ? 'new' : 'due'] += 1;
+    byDoc.set(key, entry);
+  }
+  const queue = (data.queue ?? data.due ?? []).slice(0, queueLimit).map((c) => ({
+    global_hash: c.global_hash,
+    card_type: c.card_type,
+    frontText: clip(c.frontText ?? c.name),
+    document_path: c.document_path ?? null,
+    category: c.category ?? null,
+    level: c.level,
+    new: newHashes.has(c.global_hash),
+    ...(data.preview?.[c.global_hash] ? { preview: data.preview[c.global_hash] } : {}),
+  }));
+  return {
+    algorithm: data.algorithm,
+    counts: data.counts,
+    nextDue: data.nextDue ?? null,
+    bySource: [...byDoc.values()].sort((a, b) => (b.due + b.new) - (a.due + a.new)),
+    queue,
+    ...(queueLimit < (data.queue ?? data.due ?? []).length
+      ? { _queue: `First ${queueLimit} of the session's ${(data.queue ?? data.due ?? []).length} cards; raise queueLimit (max 100) to see more.` }
+      : {}),
+  };
+}
+
 const asMarkdown = (text) => ({ content: [{ type: 'text', text }] });
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
@@ -89,7 +177,11 @@ export function registerReadTools(server) {
         'name literally appears in the card text too (use `deck` filter mode, or list_decks + get_graph, to ' +
         'browse a deck\'s actual contents). Filter mode (any of tag/deck/document/folder) returns only ' +
         'flashcards matching all supplied filters — mirrors the in-app Ctrl+K search modal. Flashcard results ' +
-        'include `level` (spaced-repetition strength, 0 = new) alongside their content.',
+        'include `level` (the scheduler\'s raw strength, 0 = new) alongside their content; for how well a card ' +
+        'is held in the terms the app shows — the gap between reviews — use list_cards. Every group is capped ' +
+        'at `limit` (default 20, max 100), and `truncated` says which groups had more: when ' +
+        '`truncated.flashcards` is true you are NOT seeing every match — narrow the query, or use list_cards, ' +
+        'which pages exhaustively and returns a `total`.',
       inputSchema: {
         query: z.string().optional().describe('Free-text query for global mode. Omit if using filters only.'),
         tag: z.string().optional().describe('Restrict to flashcards tagged with this name.'),
@@ -112,14 +204,26 @@ export function registerReadTools(server) {
     'list_folder',
     {
       title: 'List folder',
-      description: 'List the documents and subfolders directly inside a workspace folder. Omit path for the workspace root.',
+      description:
+        'List the documents and subfolders directly inside a workspace folder. Omit path for the workspace ' +
+        'root. Each item is `{ name, type, globalHash, tags, flashcardCount, highlights }`: `flashcardCount` ' +
+        'counts every card beneath a folder; `highlights` is a document\'s highlight count; `globalHash` is ' +
+        'what a flashback:// wiki link points at. For one document\'s cards or highlights use list_cards ' +
+        '(source "document") or list_highlights.',
       inputSchema: {
         path: z.string().optional().describe('Relative path from the workspace root. Omit or empty string for root.'),
       },
     },
     safe(async ({ path } = {}) => {
       const data = await request('GET', `/api/documents/list${qs({ path: path ?? '' })}`);
-      return asText(data);
+      return asText(data.map(({ name, type, metadata, flashcardCount }) => ({
+        name,
+        type,
+        globalHash: metadata?.globalHash ?? null,
+        tags: metadata?.tags ?? [],
+        flashcardCount,
+        ...(type === 'file' ? { highlights: metadata?.highlights?.length ?? 0 } : {}),
+      })));
     }),
   );
 
@@ -135,17 +239,23 @@ export function registerReadTools(server) {
         'the text is unavailable: it means the body is not plain text and you must read it with the companion tool ' +
         '**read_document_text**, which extracts and paginates it (PDF by page, EPUB by section). Rule of thumb: if ' +
         '`content` comes back null, immediately call read_document_text with the SAME path — never conclude the ' +
-        'document is unreadable. The response also spells out the exact next call.',
+        'document is unreadable. The response also spells out the exact next call. ' +
+        'The sidecar metadata comes back SUMMARISED by default: its `flashcards` and `highlights` arrays are ' +
+        'replaced by counts, because a well-studied book carries hundreds of each. Page its cards with ' +
+        'list_cards (source "document") and its highlights with list_highlights; pass `sidecar: "full"` only ' +
+        'when you need the raw arrays.',
       inputSchema: {
         path: z.string().describe('Relative path to the document from the workspace root.'),
+        sidecar: z.enum(['summary', 'full']).optional().describe('"summary" (default): card and highlight counts. "full": the raw sidecar arrays — large on a heavily carded document.'),
       },
     },
-    safe(async ({ path }) => {
-      const data = await request('GET', `/api/documents/read${qs({ path })}`);
+    safe(async ({ path, sidecar = 'summary' }) => {
+      const raw = await request('GET', `/api/documents/read${qs({ path })}`);
+      const data = sidecar === 'full' ? raw : { ...raw, metadata: sidecarSummary(raw.metadata, path) };
       if (data.binary) {
         const kb = data.size != null ? `${Math.max(1, Math.round(data.size / 1024)).toLocaleString()} KB` : 'unknown size';
-        const cards = data.metadata?.flashcards?.length ?? 0;
-        const highlights = data.metadata?.highlights?.length ?? 0;
+        const cards = raw.metadata?.flashcards?.length ?? 0;
+        const highlights = raw.metadata?.highlights?.length ?? 0;
         let readable = null;
         try {
           const info = await request('GET', `/api/reader/info${qs({ path })}`);
@@ -237,7 +347,7 @@ export function registerReadTools(server) {
         limit: z.number().int().min(1).optional().describe('Character-window text formats only: how many characters to return. Capped server-side.'),
         charOffset: z.number().int().min(0).optional().describe('Resume inside a single oversized page/section — pass the `nextCharOffset` from a truncated response.'),
         at: z.number().min(0).optional().describe('YouTube transcript only: seconds to jump to. Lands on the transcript block covering that moment (e.g. a video_timestamp highlight\'s `start`); pass `count` for surrounding blocks.'),
-        upTo: z.literal('progress').optional().describe('Clamp the read to how far the user has actually read. Pass "progress" whenever the request is about what THEY have read ("make cards for what I have read so far") - it stops you reading past their mark, so you cannot spoil a document they are partway through. Errors if they have no recorded position here.'),
+        upTo: z.literal('progress').optional().describe('Clamp the read to how far the user has actually read. Pass "progress" whenever the request is about what THEY have read ("summarise what I have read so far") - it stops you reading past their mark, so you cannot spoil a document they are partway through. Cards still come only from their highlights. Errors if they have no recorded position here.'),
       },
     },
     safe(async ({ path, index, count, offset, limit, charOffset, at, upTo }) => {
@@ -386,10 +496,11 @@ export function registerReadTools(server) {
         'List highlights with everything needed to act on them: the highlighted text, ~200 chars of ' +
         'surrounding document context, the user\'s note/color, and which flashcards already anchor to each ' +
         'one (`hasCards`/`cardHashes`). Vault-wide by default; pass `path` to scope to one document. This is ' +
-        'the entry point for the highlight→flashcard workflow: the user highlights passages while reading, ' +
-        'you turn them into cards. Use `uncardedOnly` to find the highlights still waiting for a card, then ' +
-        'create_flashcard with `highlightHash` set to the highlight\'s `id` so the card stays anchored to its ' +
-        'source passage. Before writing the cards, look at the vault\'s existing HANDMADE cards (list_cards ' +
+        'the ONLY way into card-making: every card you create must come from one of these highlights, which ' +
+        'the user made while reading. Use `uncardedOnly` to find the highlights still waiting for a card, then ' +
+        'create_flashcard with `path` = `documentPath` and `highlightHash` = the highlight\'s `id`. When the ' +
+        'user wants cards on something no highlight covers, ask them to highlight it in the app — you cannot ' +
+        'highlight for them. Before writing the cards, look at the vault\'s existing HANDMADE cards (list_cards ' +
         'with origin "human" — prefer them over AI-made ones as style examples) and match their conventions.',
       inputSchema: {
         path: z.string().optional().describe('Relative path to one document. Omit for a vault-wide listing.'),
@@ -412,9 +523,14 @@ export function registerReadTools(server) {
     {
       title: 'Get due cards',
       description:
-        'List flashcards that are due or new for review, optionally scoped by folder, deck, tags, or minimum ' +
-        'pedagogical priority. Each card\'s `level` is its spaced-repetition strength (0 = never reviewed, ' +
-        'higher = better known) — not a difficulty rating you set, it changes automatically as the card is reviewed.',
+        'What is due or new for review, optionally scoped by folder, deck, tags, or minimum pedagogical ' +
+        'priority — the Trainer\'s queue. Returns a SUMMARY: `counts` ({ due, new }, new capped at `maxNew`), ' +
+        '`nextDue` (when the next card falls due once today\'s are done), and `bySource` — due and new per ' +
+        'source document (path null = the user\'s document-less cards), busiest first. Add `queueLimit` to also ' +
+        'see the first cards of the session in the order the Trainer would show them, text clipped; each ' +
+        'carries `level` (the scheduler\'s raw strength, 0 = never reviewed) and, under FSRS, `preview`: the ' +
+        'gap in days each grade (again/hard/good/easy) would give it now — what the app shows on its grade ' +
+        'buttons. For a card\'s full text use list_cards or search_flashback.',
       inputSchema: {
         folder: z.string().optional().describe('Restrict to a folder subtree (relative path).'),
         deck: z.string().optional().describe('Restrict to a deck (by globalHash).'),
@@ -422,14 +538,15 @@ export function registerReadTools(server) {
         minPriority: z.number().int().optional().describe('Only include cards whose category priority >= this value.'),
         maxNew: z.number().int().optional().describe('Cap on how many never-reviewed cards to include.'),
         algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduling algorithm to compute dueness with. Leave it out unless you have a reason to override: the server infers the user\'s actual scheduler from their review history, and the response echoes back the one it used.'),
+        queueLimit: z.number().int().min(0).max(100).optional().describe('How many cards of the session to list, in Trainer order. Default 0: counts only.'),
       },
     },
-    safe(async ({ folder, deck, tags, minPriority, maxNew, algorithm }) => {
+    safe(async ({ folder, deck, tags, minPriority, maxNew, algorithm, queueLimit = 0 }) => {
       const data = await request(
         'GET',
         `/api/srs/due${qs({ folder, deck, tag: tags, minPriority, maxNew, algorithm })}`,
       );
-      return asText(data);
+      return asText(dueSummary(data, queueLimit));
     }),
   );
 
@@ -438,10 +555,17 @@ export function registerReadTools(server) {
     {
       title: 'Get study statistics',
       description:
-        'Vault-wide spaced-repetition analytics: retention rate, card maturity distribution, due-date ' +
-        'forecast, review activity heatmap, and streaks — the same data as the app\'s Stats view. Read-only. ' +
+        'Vault-wide spaced-repetition analytics — the data behind the app\'s Statistics report, which reads top ' +
+        'to bottom as: how complete the vault is (`completeness`: how much has been READ and how well its cards ' +
+        'are KNOWN, each 0-1, plus their mean), what is coming (`forecast`, `overdue`), whether it is staying ' +
+        '(`totals.retention30` / `retentionAll`), where the cards are (`bands`), and the reviews themselves ' +
+        '(`activity` per day, `streak`). Lead with those when ' +
+        `summarising progress. \`bands\` counts cards by the gap between reviews — ${BANDS_TEXT} — the same ` +
+        'bands the app\'s Flashcards screen groups by; it works the same under every scheduler, so prefer it to ' +
+        '`maturity`, the older and coarser new/young/mature split kept for compatibility. ' +
         'Retention counts only reviews past a card\'s learning phase (its first few reviews); the learning ' +
-        'phase is reported separately in `acquisition` (new-card pass rate, first-recall rate, attempts to learn a card).',
+        'phase is reported separately in `acquisition` (new-card pass rate, first-recall rate, attempts to ' +
+        'learn a card). Read-only.',
       inputSchema: {
         algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Algorithm to compute schedule-dependent stats with. Leave it out unless you have a reason to override: the server infers the user\'s actual scheduler from their review history, and the returned `algorithm` field is the one it used.'),
       },
@@ -457,12 +581,23 @@ export function registerReadTools(server) {
     {
       title: 'List cards',
       description:
-        'Browse every flashcard in the vault with filters, sorting, and pagination — unlike search_flashback ' +
-        '(fuzzy text match, capped results), this can enumerate exhaustively: e.g. all cloze cards, all ' +
-        'never-reviewed cards (level 0), or the strongest cards first. Returns `total` so you know when to ' +
-        'paginate with offset. Each card includes its `document_path` (null for standalone cards) — the ' +
-        'value update_flashcard/delete_flashcard need as `documentPath` — and its `origin` (\'ai\' = created ' +
-        'by an AI assistant, null = handmade). Each card also carries `flags`: a comma-joined list of ' +
+        'Browse every flashcard in the vault with filters, sorting, grouping and pagination — the app\'s ' +
+        'Flashcards catalogue. Unlike search_flashback (fuzzy text match, capped results), this can enumerate ' +
+        'exhaustively: e.g. all cloze cards, every card from one document, or the cards held longest. Returns ' +
+        '`total` so you know when to paginate with offset. ' +
+        'HOW WELL A CARD IS HELD is its `gap`: the days between its reviews under the user\'s scheduler, null ' +
+        `for a card never reviewed. The app sorts cards into bands by it — ${BANDS_TEXT} — and a gap of ` +
+        `${LONG_TERM_DAYS} days or more counts as held long-term. Talk about cards in those terms ("12 cards are ` +
+        'still on a 1-day gap"), not by `level`, which is the scheduler\'s raw box/repetition count and means ' +
+        'different things under Leitner, SM-2 and FSRS. `groupBy` adds `groups` (counts per band or per source ' +
+        'over every page, in display order). For just the counts, get_card_overview is one cheap call. ' +
+        'Rows come back COMPACT, their text fields clipped to 160 characters; pass `verbose` for the full text. ' +
+        'Each card includes its `document_path` (null for standalone cards) — the ' +
+        'value update_flashcard/delete_flashcard need as `documentPath` — and its `origin`: \'ai\' = created ' +
+        'by an AI assistant, \'import\' = imported from Anki or Obsidian, null = handmade (and, for cards ' +
+        'imported before imports were marked, imported — those cannot be told apart). Each card carries ' +
+        '`highlight_hash`, the highlight it was made from (null if none), and `anchor_status`: "live", or ' +
+        '"missing" when that highlight has since been deleted — filter with `anchor` to find either. Each card also carries `flags`: a comma-joined list of ' +
         'card-health signatures the app raised from the user\'s own review behaviour, or null. ' +
         'IMPORTANT: "mouthful" means the card keeps resetting to a short interval and its answer is long ' +
         'for this vault — a genuine candidate for splitting. "probe" means the card fails often but ' +
@@ -474,24 +609,53 @@ export function registerReadTools(server) {
         'Never rewrite a card on flags alone; show the user what you would change and why.',
       inputSchema: {
         search: z.string().optional().describe('Substring filter on front/back text, a type_answer card\'s answerText, and card name.'),
-        level: z.number().int().optional().describe('Exact spaced-repetition level to filter on (0 = never reviewed).'),
+        band: z.enum(BAND_IDS).optional().describe(`Only cards in this gap-between-reviews band: ${BANDS_TEXT}.`),
+        source: z.enum(['standalone', 'document', 'folder']).optional().describe('Where the cards come from: "standalone" = the default deck\'s own document-less cards; "document" or "folder" with `sourcePath` (a folder matches everything beneath it).'),
+        sourcePath: z.string().optional().describe('With source "document" or "folder": the relative path, forward slashes.'),
+        tag: z.string().optional().describe('Only cards carrying this tag — their own, or inherited from a folder, document or deck.'),
+        category: z.number().int().optional().describe('Only cards in this pedagogical category — its numeric `id` from list_categories.'),
+        anchor: z.enum(['highlight', 'missing', 'none']).optional().describe('By the highlight a card was made from: "highlight" = anchored to one that still exists; "missing" = anchored to a highlight since deleted, so the card has lost its passage; "none" = made from no highlight.'),
+        level: z.number().int().optional().describe('Exact raw scheduler level (0 = never reviewed). Prefer `band`, which means the same thing under every scheduler.'),
         cardType: z.enum(['basic', 'reversible', 'cloze', 'type_answer', 'custom']).optional(),
-        origin: z.enum(['ai', 'human']).optional().describe('Filter by provenance: "human" = handmade cards only — use these as style examples when drafting new cards; "ai" = AI-created cards only.'),
+        origin: z.enum(['ai', 'human', 'import']).optional().describe('Filter by provenance: "human" = cards with no origin, i.e. handmade — use these as style examples when drafting new cards; "import" = imported from Anki or Obsidian; "ai" = AI-created cards only.'),
         flagged: z.boolean().optional().describe('Only cards carrying a live card-health flag of any kind.'),
         flagKind: z.enum(['mouthful', 'probe', 'overdue_drift', 'session_fatigue']).optional().describe('Only cards carrying this specific signature. Use "mouthful" to find cards actually worth rewriting — it is far more selective than sorting by lapses, which cannot tell a badly-built card from a productively hard one.'),
-        sortBy: z.enum(['level', 'name', 'last_recall', 'lapses', 'difficulty']).optional().describe('Sort key. Default "level". "lapses" (descending) surfaces the cards the user keeps failing — but note that a high lapse count alone does NOT mean a card is badly written; prefer flagKind "mouthful" for that. "difficulty" (descending) is the FSRS estimate of how much effort a card costs; it is null for cards never rated under FSRS, and those always sort last.'),
+        sortBy: z.enum(['gap', 'due', 'source', 'front', 'created', 'level', 'name', 'last_recall', 'lapses', 'difficulty']).optional().describe('Sort key. Default "level". The app\'s own orders are "due" (next review first with sortDir "asc"; never-reviewed cards last), "source", "front" (A to Z with "asc") and "created" (newest first); "gap" orders by how well each card is held. "lapses" (descending) surfaces the cards the user keeps failing — but note that a high lapse count alone does NOT mean a card is badly written; prefer flagKind "mouthful" for that. "difficulty" (descending) is the FSRS estimate of how much effort a card costs; it is null for cards never rated under FSRS, and those always sort last.'),
         sortDir: z.enum(['asc', 'desc']).optional().describe('Sort direction. Default "desc".'),
-        limit: z.number().int().min(1).max(200).optional().describe('Page size. Default 50, max 200.'),
+        groupBy: z.enum(['gap', 'source']).optional().describe('Group the listing by band or by source document, keeping `sortBy` order within each group, and return `groups`: [{ key, count }] over every page.'),
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduler to compute `gap`, `band`, "due" and grouping under. Leave it out: the server uses the one the user\'s review history says they use.'),
+        limit: z.number().int().min(1).max(500).optional().describe('Page size. Default 50, max 500.'),
         offset: z.number().int().min(0).optional().describe('Pagination offset.'),
+        verbose: z.boolean().optional().describe('Return every field in full. Default false: frontText, backText, answerText and custom_html are clipped to 160 characters, enough to recognise a card; read one card in full with verbose on a narrow search.'),
       },
     },
-    safe(async ({ search, level, cardType, origin, flagged, flagKind, sortBy, sortDir, limit, offset } = {}) => {
+    safe(async ({ search, band, source, sourcePath, tag, category, anchor, level, cardType, origin, flagged, flagKind, sortBy, sortDir, groupBy, algorithm, limit, offset, verbose = false } = {}) => {
       const data = await request(
         'GET',
-        `/api/decks/cards${qs({ search, level, cardType, origin, flagged: flagged ? '1' : undefined, flagKind, sortBy, sortDir, limit, offset })}`,
+        `/api/decks/cards${qs({ search, band, source, sourcePath, tag, category, anchor, level, cardType, origin, flagged: flagged ? '1' : undefined, flagKind, sortBy, sortDir, groupBy, algorithm, limit, offset })}`,
       );
-      return asText(data);
+      return asText(verbose ? data : { ...data, cards: data.cards.map(compactCard) });
     }),
+  );
+
+  server.registerTool(
+    'get_card_overview',
+    {
+      title: 'Where the cards are',
+      description:
+        'The whole card collection in one cheap read — the app\'s Flashcards sidebar. Returns `total`; ' +
+        '`bands`, how many cards sit in each gap-between-reviews band ' +
+        `(${BANDS_TEXT}); \`documents\`, every source document with its \`cards\` and \`longTerm\` count ` +
+        `(cards held ${LONG_TERM_DAYS}+ days), plus \`standalone\` for the default deck's document-less cards; ` +
+        'and `flags`, how many cards carry a card-health flag (`any`, `mouthful`, `probe`). Start here to ' +
+        'answer "how are my cards doing?" or "which sources are weakest?" — `longTerm / cards` per document ' +
+        'is the thin line the app draws under each source — then use list_cards with `band` or ' +
+        '`source`/`sourcePath` to see the cards behind a number.',
+      inputSchema: {
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduler to compute gaps under. Leave it out: the server uses the one the user\'s review history says they use.'),
+      },
+    },
+    safe(async ({ algorithm } = {}) => asText(await request('GET', `/api/decks/cards/summary${qs({ algorithm })}`))),
   );
 
   server.registerTool(
@@ -531,13 +695,19 @@ export function registerReadTools(server) {
     {
       title: 'List decks',
       description:
-        'List every deck in the vault. Exactly one has `is_system: 1` — it automatically holds every ' +
-        'document-less card (created via create_flashcard with no `path`) and you should not need to call ' +
-        'add_to_deck on it directly; use create_deck for a named deck to organize cards into instead.',
-      inputSchema: {},
+        'List every deck in the vault. The app draws each deck as a box of cards: each row carries ' +
+        '`entry_count`, its `color` (a palette id, or null when none is stored and the app picks one from ' +
+        'its hash) and `standing` — `{ due, fresh, longTerm }`: cards past their gap and due now, cards never ' +
+        `reviewed, and cards held ${LONG_TERM_DAYS}+ days. That standing is how the app sums a deck up; use ` +
+        'it to say how a deck is doing. Exactly one deck has `is_system: 1` — the default deck (drawn in ' +
+        'kraft), which automatically holds every document-less card the user made; you should not need to ' +
+        'call add_to_deck on it directly. Use create_deck for a named deck to organize cards into instead.',
+      inputSchema: {
+        algorithm: z.enum(['leitner', 'sm2', 'fsrs']).optional().describe('Scheduler to compute `standing` under. Leave it out: the server uses the one the user\'s review history says they use.'),
+      },
     },
-    safe(async () => {
-      const data = await request('GET', '/api/decks');
+    safe(async ({ algorithm } = {}) => {
+      const data = await request('GET', `/api/decks${qs({ algorithm })}`);
       return asText(data);
     }),
   );
@@ -546,11 +716,17 @@ export function registerReadTools(server) {
     'list_tags',
     {
       title: 'List tags',
-      description: 'List every tag already used in the vault, so new content can reuse existing tags instead of creating near-duplicates.',
+      description:
+        'List every tag used in the vault with its reach, as the app\'s Metadata screen shows it: each ' +
+        '`{ name, folders, documents, decks, cardsDirect, cards }` — how many folders, documents and decks ' +
+        'apply it directly, how many cards carry it themselves, and how many carry it at all (their own, or ' +
+        'inherited from a folder, document or deck). Check it before tagging anything, so new content reuses ' +
+        'an existing tag instead of creating a near-duplicate; list_cards with `tag` shows the cards behind ' +
+        'a count, and rename_tag merges duplicates.',
       inputSchema: {},
     },
     safe(async () => {
-      const data = await request('GET', '/api/documents/tags');
+      const data = await request('GET', '/api/documents/tags/overview');
       return asText(data);
     }),
   );
@@ -561,12 +737,17 @@ export function registerReadTools(server) {
       title: 'List pedagogical categories',
       description:
         'List the valid pedagogical category names (e.g. "Concept", "Definition") that can be passed as ' +
-        '`category` to create_flashcard, along with each one\'s review priority (lower = studied first).',
+        '`category` to create_flashcard. Each row is `{ id, name, priority, description, cards, level }`. ' +
+        'The app arranges categories on priority LEVELS: several categories can share one, and the Trainer ' +
+        'studies level 1 first. `level` is that 1-based position — the number the user sees — and ' +
+        '`priority` the stored value behind it (lower = studied first; levels are the distinct priorities in ' +
+        'order). `cards` is how many cards use the category; list_cards with `category` (the `id`) shows them.',
       inputSchema: {},
     },
     safe(async () => {
       const data = await request('GET', '/api/categories');
-      return asText(data);
+      const levels = [...new Set(data.map((c) => c.priority))].sort((a, b) => a - b);
+      return asText(data.map((c) => ({ ...c, level: levels.indexOf(c.priority) + 1 })));
     }),
   );
 
@@ -630,9 +811,12 @@ export function registerReadTools(server) {
         'Recent commits from Seal, the vault\'s built-in versioning of the canonical layer (sidecars and deck ' +
         'files — every card/tag/highlight/deck change, including ones made through these tools). Messages ' +
         'follow "<action>: <sidecar-path>" (create/edit/move/delete/reconcile). Use it to answer "what changed ' +
-        'lately" or to show the user what you just modified. Read-only.',
+        'lately" or to show the user what you just modified. Like the app\'s Seal History, a run of identical ' +
+        'consecutive commits by one author — a reading session\'s highlight and card edits to one document — ' +
+        'comes back as ONE entry with `count` > 1: `ref` and `date` are the newest commit\'s, `since` the ' +
+        'oldest\'s. Read-only.',
       inputSchema: {
-        limit: z.number().int().min(1).max(100).optional().describe('Max commits to return, newest first. Default 20.'),
+        limit: z.number().int().min(1).max(100).optional().describe('Max commits to read, newest first, before runs fold. Default 20.'),
       },
     },
     safe(async ({ limit } = {}) => {
@@ -643,7 +827,7 @@ export function registerReadTools(server) {
         author: e.commit?.author?.name ?? null,
         date: e.commit?.author?.timestamp ? new Date(e.commit.author.timestamp * 1000).toISOString() : null,
       }));
-      return asText(entries);
+      return asText(foldRuns(entries));
     }),
   );
 
@@ -769,8 +953,10 @@ export function registerReadTools(server) {
       description:
         'The gap between how far the user has READ into a document and how far the flashcards for it ' +
         'go — "read to page 120, the last card is from page 44". This is the tool that turns a big ' +
-        'import back into a to-do list: call it to find where card-making should resume, then read that ' +
-        'span with read_document_text and draft cards for it. `gap` is null when the cards already reach ' +
+        'import back into a to-do list: call it to find where card-making should resume, then card the ' +
+        'user\'s highlights in that span (list_highlights with `path`, `uncardedOnly`), reading around them ' +
+        'with read_document_text for context. A span with no highlights is not yours to card: tell the user ' +
+        'what is uncarded so they can highlight what they want kept. `gap` is null when the cards already reach ' +
         'the mark; with no cards at all it is everything read so far, because "nothing carded yet" is ' +
         'not the same answer as "nothing left to card" — check `gapKnown` to tell a real absence ' +
         'from an undeterminable one. `cardedTo` is null for EPUBs, whose cards are anchored by CFI and cannot be ordered ' +

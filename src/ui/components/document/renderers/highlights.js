@@ -345,8 +345,8 @@ function findQuote(text, quote) {
 
 /**
  * Apply inline marks for registry entries that have none in a freshly-loaded
- * markdown doc — highlights created out-of-band (the MCP server's
- * create_highlight writes only the sidecar; it can't rewrite the body). Anchors
+ * markdown doc — highlights created out-of-band (`POST /api/highlights` writes
+ * only the sidecar, as older MCP servers' create_highlight did). Anchors
  * by quote search against the `text` snapshot, mirroring the .txt re-anchor
  * path. Entries that can't be anchored are left untouched here and dropped by
  * the next reconcile, same as a stale .txt highlight. Once the user saves, the

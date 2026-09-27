@@ -157,12 +157,51 @@ The interface is moving to a new design language, one area at a time. In this re
 - **For the API:** `GET /api/decks/cards` gains `band`, `algorithm`, `source`/`sourcePath`,
   `tag`, `category`, `groupBy` and the `front`, `source`, `created`, `gap` and `due` orders,
   returns each card's `gap`, and allows up to 500 rows; `GET /api/decks/cards/summary` is new.
+  `GET /api/decks/cards` also gains `anchor` (`highlight` | `missing` | `none`) and returns each
+  card's `highlight_hash` and `anchor_status`; `origin` accepts `import`, and `human` now means
+  no origin at all. `GET /api/search` carries `truncated`, per result group.
   `GET /api/documents/tags/overview` and `POST /api/documents/tags/rename` are new;
   `GET /api/categories` rows carry `cards`, and `DELETE /api/categories/:id?clear=1` deletes
   a category in use, clearing it from its cards. `GET /api/srs/statistics` carries `bands`, and
   `GET /api/diary` items carry `reviews` and `firstLine` (the latter withheld from an MCP
   client unless diary access is full). `GET /api/accounts/:id/logs` (with `/summary/:date` and
   `/entry/:date`) is new: the Author reads someone's Logs, read-only.
+
+### Changed — the AI assistant describes your vault the way the app does
+
+The MCP server had fallen behind the redesign. An assistant connected to Flashback now:
+
+- **makes cards only from your highlights.** Every card it creates is anchored to a passage
+  you highlighted, so what gets carded is always your choice and never a document turned
+  wholesale into cards. It still reads whole documents for context. Asked to card something
+  you haven't highlighted, it asks you to highlight it first. It can no longer highlight
+  passages itself (`create_highlight` is gone) or make cards without a document.
+
+- **talks about cards by the gap between reviews**, in the same bands as Flashcards and
+  Statistics, rather than by each scheduler's raw level. `list_cards` gains the catalogue's
+  filters (`band`, `source`/`sourcePath`, `tag`, `category`), orders (`due`, `gap`, `source`,
+  `front`, `created`) and `groupBy`, up to 500 rows a page. **New: `get_card_overview`** is the
+  Flashcards sidebar in one call: cards per band, per source document, and flagged.
+- **sees what the app shows about decks, tags and categories**: each deck's colour and standing
+  (due, never reviewed, held long-term); each tag's reach; each category's level. `update_deck`
+  can recolour a deck.
+- **can do what Metadata does**: **new `rename_tag`** renames, merges or removes a tag
+  everywhere, and **new `delete_category`** deletes a category. It refuses one in use unless
+  told to clear it from its cards, and the assistant is told to ask you first.
+- **reads Statistics as the report reads**: completeness, what is coming, retention, bands and
+  reviews. Recent changes fold a run of edits to one document into one line, as Seal History
+  does.
+- **gets short answers first.** Due cards come back as counts per document, folders as names and
+  counts, a document's cards and highlights as counts, and card lists with their text trimmed.
+  Each tool can still return the full data on request. Paths always use forward slashes.
+- **can clean up in one step.** **New: `delete_flashcards`** removes a set of cards chosen by
+  list or by filter (a document, an origin…). It first shows what would go, and deletes only
+  when the same set is confirmed.
+- **knows which highlight each card came from**, and which cards point at a highlight you have
+  since deleted.
+- **tells imported cards apart.** Cards imported from Anki or Obsidian are now marked as
+  imported rather than looking handmade. Cards imported before this version still count as
+  handmade: nothing recorded where they came from. Searches also say when they left results out.
 
 ### Added — forty-four more drawn covers
 

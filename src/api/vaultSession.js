@@ -20,6 +20,7 @@ import Files from "./access/resources/files.js";
 import Decks from "./access/orchestration/decks.js";
 import cardHealth from "./access/orchestration/cardHealth.js";
 import mcpReader from "./access/orchestration/mcpReader.js";
+import highlights from "./access/orchestration/highlights.js";
 import storage from "./access/primitives/storage.js";
 
 let switching = false;
@@ -75,6 +76,13 @@ export async function openVault({ onFatal } = {}) {
         }
     } catch (err) {
         console.error("Canonical updates failed (continuing; will retry next launch):", err?.stack || err);
+    }
+
+    try {
+        const filled = await highlights.backfillCardAnchors();
+        if (filled) console.log(`Recorded the source highlight of ${filled} card(s) in the index.`);
+    } catch (err) {
+        console.error("Card highlight backfill failed (continuing; will retry next launch):", err?.stack || err);
     }
 
     await ensureVaultDirs();

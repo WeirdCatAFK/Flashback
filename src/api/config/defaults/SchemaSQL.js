@@ -86,6 +86,7 @@ addTable('Flashcards', (table) => {
     table.float('presence').index();
     table.integer('fileIndex');
     table.string('card_type', 50).notNullable().defaultTo('basic');
+    table.string('highlight_hash', 500);
 });
 
 addTable('Highlights', (table) => {

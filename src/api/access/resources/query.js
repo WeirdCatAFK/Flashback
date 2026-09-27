@@ -21,6 +21,15 @@ function scoped(scope) {
     return scope;
 }
 
+/** The highlight a card was made from — its `vanillaData.location` id — or null. */
+const highlightAnchor = (card) => {
+    const loc = card?.vanillaData?.location;
+    return loc?.type === 'highlight' && typeof loc.id === 'string' ? loc.id : null;
+};
+
+/** True when the card's highlight still exists; `f` is the Flashcards alias. */
+const LIVE_ANCHOR_SQL = 'SELECT 1 FROM Highlights hl WHERE hl.global_hash = f.highlight_hash';
+
 /** The camelCase names a caller (sidecar data, a scheduler result) uses for schedule state. */
 export const PROGRESS_KEYS = [
     'level', 'sm2Reps', 'lastRecall', 'fsrsStability', 'fsrsDifficulty',
@@ -295,13 +304,14 @@ class DocumentQuery {
 
         const stmt = this.db.prepare(`
             INSERT INTO Flashcards (global_hash, node_id, document_id, category_id, content_id, reference_id,
-                name, fileIndex, presence, card_type, origin)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+                name, fileIndex, presence, card_type, origin, highlight_hash)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
         `);
         const info = await stmt.run(
             data.globalHash, data.nodeId, data.documentId, categoryId,
             contentInfo.lastInsertRowid, referenceId,
-            data.name || null, data.fileIndex || 0, data.cardType || 'basic', data.origin || null
+            data.name || null, data.fileIndex || 0, data.cardType || 'basic', data.origin || null,
+            highlightAnchor(data),
         );
 
         await this._writeProgress(info.lastInsertRowid, scope, data);
@@ -323,6 +333,9 @@ class DocumentQuery {
         `).run(
             categoryId, data.name || null, data.fileIndex, data.cardType || 'basic', data.origin || null, id,
         );
+        if (data.vanillaData !== undefined) {
+            await this.db.prepare('UPDATE Flashcards SET highlight_hash = ? WHERE id = ?').run(highlightAnchor(data), id);
+        }
 
         await this._writeProgress(id, scope, data);
 
@@ -1628,23 +1641,31 @@ class DocumentQuery {
         return [...docs, ...cards, ...tags];
     }
 
-    /** Unified search: `{ folders, documents, flashcards, tags, decks }` for a bare `q`, `{ flashcards }` once any filter is supplied. */
+    /**
+     * Unified search: `{ folders, documents, flashcards, tags, decks }` for a bare `q`, `{ flashcards }`
+     * once any filter is supplied, each with `truncated: { <group>: boolean }` saying which groups
+     * had more matches than `limit`. Each group reads one row past the limit to know; a COUNT
+     * would double the cost of the tag filter, which has a latency budget.
+     */
     async superSearch({ q = null, tag = null, deck = null, document: docQ = null, folder = null, limit = 20 } = {}, scope) {
         const hasFilter = tag || deck || docQ || folder;
+        const probe = limit + 1;
+        const cut = (rows) => rows.slice(0, limit);
         if (hasFilter) {
-            return { flashcards: await this._searchFlashcards({ q, tag, deck, docQ, folder, limit }, scope) };
+            const flashcards = await this._searchFlashcards({ q, tag, deck, docQ, folder, limit: probe }, scope);
+            return { flashcards: cut(flashcards), truncated: { flashcards: flashcards.length > limit } };
         }
 
-        if (!q || !q.trim()) return { folders: [], documents: [], flashcards: [], tags: [], decks: [] };
+        if (!q || !q.trim()) return { folders: [], documents: [], flashcards: [], tags: [], decks: [], truncated: {} };
         const term = `%${q.trim()}%`;
 
         const folders = await this.db.prepare(
             `SELECT name, relative_path as path, global_hash FROM Folders WHERE name LIKE ? LIMIT ?`
-        ).all(term, limit);
+        ).all(term, probe);
 
         const documents = await this.db.prepare(
             `SELECT name, relative_path as path, global_hash FROM Documents WHERE name LIKE ? LIMIT ?`
-        ).all(term, limit);
+        ).all(term, probe);
 
         const flashcards = await this.db.prepare(`
             SELECT f.global_hash, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
@@ -1656,17 +1677,19 @@ class DocumentQuery {
             LEFT JOIN Documents d ON d.id = f.document_id
             WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
             LIMIT ?
-        `).all(scoped(scope), term, term, term, term, limit);
+        `).all(scoped(scope), term, term, term, term, probe);
 
         const tags = await this.db.prepare(
             `SELECT name FROM Tags WHERE name LIKE ? LIMIT ?`
-        ).all(term, limit);
+        ).all(term, probe);
 
         const decks = await this.db.prepare(
             `SELECT name, global_hash FROM Decks WHERE name LIKE ? LIMIT ?`
-        ).all(term, limit);
+        ).all(term, probe);
 
-        return { folders, documents, flashcards, tags, decks };
+        const groups = { folders, documents, flashcards, tags, decks };
+        const truncated = Object.fromEntries(Object.entries(groups).map(([k, rows]) => [k, rows.length > limit]));
+        return { ...Object.fromEntries(Object.entries(groups).map(([k, rows]) => [k, cut(rows)])), truncated };
     }
 
     /** Flashcard half of `superSearch`, matching every supplied filter at once. */
@@ -2112,14 +2135,18 @@ class DocumentQuery {
         return (await this.db.prepare('SELECT COUNT(*) as c FROM DeckEntries WHERE deck_id = ?').get(deckId)).c;
     }
 
-    /** Adds the card browser's `origin` filter (`ai` or `human`) to a condition list. */
+    /**
+     * Adds the card browser's `origin` filter to a condition list: `ai` (made through the MCP
+     * server), `import` (Anki or Obsidian) or `human` (no origin: made in the app, or imported by
+     * a build from before imports were marked, which cannot be told apart).
+     */
     _flashcardOriginCondition(origin, conditions) {
-        if (origin === 'ai') conditions.push("f.origin = 'ai'");
-        else if (origin === 'human') conditions.push("(f.origin IS NULL OR f.origin <> 'ai')");
+        if (origin === 'ai' || origin === 'import') conditions.push(`f.origin = '${origin}'`);
+        else if (origin === 'human') conditions.push('f.origin IS NULL');
     }
 
     /** Shared WHERE builder for the card browser's list and count queries, which must filter identically. */
-    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null, tag = null, categoryId = null }, scope) {
+    _flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source = null, tag = null, categoryId = null, anchor = null }, scope) {
         const account = scoped(scope);
         const params = [];
         const conditions = [];
@@ -2148,6 +2175,10 @@ class DocumentQuery {
             params.push(cardType);
         }
         this._flashcardOriginCondition(origin, conditions);
+        if (anchor === 'none') conditions.push('f.highlight_hash IS NULL');
+        else if (anchor === 'highlight' || anchor === 'missing') {
+            conditions.push(`f.highlight_hash IS NOT NULL AND ${anchor === 'missing' ? 'NOT ' : ''}EXISTS (${LIVE_ANCHOR_SQL})`);
+        }
 
         if (tag) {
             conditions.push(this._carriesTagSql());
@@ -2169,14 +2200,20 @@ class DocumentQuery {
         return { where: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
     }
 
-    /** The columns every card-browser row carries; `?` is the account for the flags subquery. */
+    /**
+     * The columns every card-browser row carries; `?` is the account for the flags subquery.
+     * `flags` is a scalar subquery, not a join: the browser renders a flag chip per row
+     * without an N+1, and a twice-flagged card stays one row.
+     */
     _catalogueSelect() {
         return `
             SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
                    p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
                    c.frontText, c.backText, c.answerText, c.custom_html,
                    d.relative_path as document_path, d.name as document_name,
-                   pc.name as category,
+                   pc.name as category, f.highlight_hash,
+                   CASE WHEN f.highlight_hash IS NULL THEN NULL
+                        WHEN EXISTS (${LIVE_ANCHOR_SQL}) THEN 'live' ELSE 'missing' END AS anchor_status,
                    (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
                      WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
             FROM Flashcards f
@@ -2244,24 +2281,11 @@ class DocumentQuery {
     }
 
     /** A page of the card browser, filtered and sorted. */
-    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
+    async getAllFlashcards({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor }, account);
         return await this.db.prepare(`
-            SELECT f.global_hash, f.name, COALESCE(p.level, 0) AS level, p.last_recall, f.card_type,
-                   p.fsrs_lapses as lapses, p.fsrs_difficulty as difficulty, f.origin,
-                   c.frontText, c.backText, c.answerText, c.custom_html,
-                   d.relative_path as document_path, d.name as document_name,
-                   pc.name as category,
-                   -- Scalar subquery, not a join: the browser renders a flag chip per
-                   -- row without an N+1, and a twice-flagged card stays one row.
-                   (SELECT GROUP_CONCAT(cf.kind) FROM progress.CardFlags cf
-                     WHERE cf.card_hash = f.global_hash AND cf.account_id = ? AND cf.dismissed_at IS NULL) AS flags
-            FROM Flashcards f
-            ${PROGRESS_JOIN()}
-            JOIN FlashcardContent c ON f.content_id = c.id
-            LEFT JOIN Documents d ON f.document_id = d.id
-            LEFT JOIN PedagogicalCategories pc ON f.category_id = pc.id
+            ${this._catalogueSelect()}
             ${where}
             ORDER BY ${this._catalogueOrder(sortBy, sortDir)}
             LIMIT ? OFFSET ?
@@ -2269,9 +2293,9 @@ class DocumentQuery {
     }
 
     /** Row count matching the card browser's current filters. */
-    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null } = {}, scope) {
+    async getFlashcardCountFiltered({ search = null, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null } = {}, scope) {
         const account = scoped(scope);
-        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId }, account);
+        const { where, params } = this._flashcardFilters({ search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor }, account);
         const contentJoin = search ? 'JOIN FlashcardContent c ON f.content_id = c.id' : '';
 
         return (await this.db.prepare(`
@@ -2660,6 +2684,25 @@ class DocumentQuery {
     /** Deletes a highlight. */
     async deleteHighlight(hash) {
         return await this.db.prepare('DELETE FROM Highlights WHERE global_hash = ?').run(hash);
+    }
+
+    /**
+     * Cards whose reference says they came from a highlight but whose row has no
+     * `highlight_hash` yet — the ones indexed before migration 017 — with their document path.
+     */
+    async getCardsMissingHighlightHash() {
+        return await this.db.prepare(`
+            SELECT f.id, f.global_hash, d.relative_path
+            FROM Flashcards f
+            JOIN FlashcardReference r ON r.id = f.reference_id
+            JOIN Documents d ON d.id = f.document_id
+            WHERE r.type = 'highlight' AND f.highlight_hash IS NULL
+        `).all();
+    }
+
+    /** Records the highlight a card was made from. */
+    async setFlashcardHighlightHash(id, highlightHash) {
+        return await this.db.prepare('UPDATE Flashcards SET highlight_hash = ? WHERE id = ?').run(highlightHash, id);
     }
 
     /** Paths of every document carrying at least one highlight. */

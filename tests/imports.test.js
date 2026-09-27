@@ -231,6 +231,8 @@ describe('Importers Integration Tests', () => {
         assert.equal(entries.length, 1, 'One card per note');
         assert.equal(entries[0].card_type, 'basic');
         assert.equal(entries[0].level, 1); // reps=5 → floor(5/3)=1
+        const origin = await importer.query.db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(entries[0].card_hash);
+        assert.equal(origin.origin, 'import', 'an imported card says so, apart from handmade ones');
 
         const srsState = (await importer.query.getAllFlashcardSrsState('owner'))
             .find(s => s.global_hash === entries[0].card_hash);
@@ -788,6 +790,8 @@ This is the boundary. ![[boundary.png]]
         assert.equal(cardsA.length, 3, 'Mitochondria.md should have 3 flashcards');
         assert.ok(cardsA.some(c => c.card_type === 'basic'));
         assert.ok(cardsA.some(c => c.card_type === 'cloze'));
+        const origins = await importer.documents.query.db.prepare('SELECT origin FROM Flashcards WHERE document_id = ?').all(docA.id);
+        assert.ok(origins.every(c => c.origin === 'import'), 'every imported card is marked origin import');
 
         const tagsA = await importer.documents.query.getDirectTagNames(docA.node_id);
         assert.ok(tagsA.includes('science'));

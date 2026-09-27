@@ -3,9 +3,50 @@ import crypto from 'node:crypto';
 import fs from 'node:fs/promises';
 import nodePath from 'node:path';
 import { request, requestBuffer, upload } from '../client.js';
+import { DECK_COLORS } from '../../shared/deckColors.js';
+import { asText, clip as clipText } from './shape.js';
 
-/** Wraps a value as an MCP text content block. */
-const asText = (data) => ({ content: [{ type: 'text', text: JSON.stringify(data, null, 2) }] });
+/** The most cards delete_flashcards removes in one call. */
+const MAX_BULK = 500;
+
+/** Cards named by hash, as `{ globalHash, frontText, documentPath, origin }`; unknown hashes come back in `missing`. */
+async function cardsByHash(hashes) {
+  const cards = [];
+  const missing = [];
+  for (const hash of hashes) {
+    try {
+      const c = await request('GET', `/api/flashcards/${encodeURIComponent(hash)}`);
+      cards.push({ globalHash: c.globalHash, frontText: c.frontText ?? c.name, documentPath: c.documentPath ?? null, origin: c.origin ?? null });
+    } catch (err) {
+      if (err.status !== 404) throw err;
+      missing.push(hash);
+    }
+  }
+  return { cards, missing };
+}
+
+/** Every card the card browser matches for `filter`, paged through; one past MAX_BULK is enough to refuse. */
+async function cardsByFilter(filter) {
+  const cards = [];
+  for (let offset = 0; ; offset += 500) {
+    const page = await request('GET', `/api/decks/cards?${new URLSearchParams({ ...filter, limit: '500', offset: String(offset), sortBy: 'created', sortDir: 'asc' })}`);
+    for (const c of page.cards) {
+      cards.push({ globalHash: c.global_hash, frontText: c.frontText ?? c.name, documentPath: c.document_path ?? null, origin: c.origin ?? null });
+    }
+    if (page.cards.length < 500 || cards.length > MAX_BULK) return { cards, missing: [] };
+  }
+}
+
+/** `[{ path, cards }]`, largest first; path null is the user's document-less cards. */
+function countBySource(cards) {
+  const counts = new Map();
+  for (const c of cards) {
+    const key = c.documentPath ? c.documentPath.replace(/\\/g, '/') : null;
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts].map(([path, n]) => ({ path, cards: n })).sort((a, b) => b.cards - a.cards);
+}
+
 /** Wraps a message as an MCP error result. */
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
@@ -23,19 +64,28 @@ export function registerWriteTools(server) {
     {
       title: 'Create flashcard',
       description:
-        'Create a new flashcard. Pass `path` to anchor it to a document (it is appended to that document\'s ' +
-        'sidecar, same as creating a card from the Inspector); omit `path` to create a standalone card in the ' +
-        'system deck. For "cloze" cards, wrap blanks in {{double curly braces}} in frontText and backText. ' +
-        'For "type_answer" cards, frontText is the question, answerText is the expected answer (the only ' +
-        'thing compared to what the user types), and backText is optional notes shown afterwards. For "custom" ' +
-        'cards, put raw HTML in customHtml (frontText/backText are unused). Pass `highlightHash` (from ' +
-        'create_highlight or the document sidecar\'s highlights[]) to anchor the card to the exact passage it ' +
-        'came from. Cards you create are permanently marked `origin: "ai"` in the data model, so the user can ' +
+        'Create a new flashcard FROM ONE OF THE USER\'S HIGHLIGHTS. Every card made through this tool is ' +
+        'anchored to a highlight the user made while reading: `path` names the document and `highlightHash` ' +
+        'the highlight (its `id` from list_highlights — use `uncardedOnly` to find the ones still waiting). ' +
+        'This is a rule, not a default: it keeps AI cards on what the user chose as worth remembering, and ' +
+        'keeps every one of them under their supervision, so it is never used to mass-produce cards from a ' +
+        'document. Read as much of the document as you need for CONTEXT (read_document, read_document_text) ' +
+        '— the passage around a highlight often decides what the card should ask — but only card what a ' +
+        'highlight marks. If the user asks for cards on something no highlight covers, tell them which ' +
+        'passage to highlight in the app, and card it once they have; there is no way to create a highlight ' +
+        'or a document-less card from here. One highlight may become several cards when the passage holds ' +
+        'several retrievals. The card is appended to the document\'s sidecar and sits in its margin beside ' +
+        'the passage, same as a card made in the app. For "cloze" cards, wrap blanks in {{double curly ' +
+        'braces}} in frontText and backText. For "type_answer" cards, frontText is the question, answerText ' +
+        'is the expected answer (the only thing compared to what the user types), and backText is optional ' +
+        'notes shown afterwards. For "custom" cards, put raw HTML in customHtml (frontText/backText are ' +
+        'unused). Cards you create are permanently marked `origin: "ai"` in the data model, so the user can ' +
         'always tell them apart from handmade ones. Before drafting, look at existing HANDMADE cards ' +
         '(list_cards with origin "human", or the same document\'s cards via read_document) and match their ' +
         'style — length, tone, front/back phrasing conventions.',
       inputSchema: {
-        path: z.string().optional().describe('Relative path of the document to attach this card to. Omit for a standalone card.'),
+        path: z.string().describe('Relative path of the highlighted document (`documentPath` from list_highlights).'),
+        highlightHash: z.string().describe('The `id` of the user\'s highlight in that document, from list_highlights. Required: every card made here comes from a highlight.'),
         cardType: z.enum(CARD_TYPES).default('basic'),
         frontText: z.string().optional(),
         backText: z.string().optional().describe('The answer side. On a "type_answer" card this is instead optional post-review notes (a mnemonic, an explanation) — shown after checking, never compared.'),
@@ -43,47 +93,48 @@ export function registerWriteTools(server) {
         customHtml: z.string().optional().describe('Raw HTML body, only used when cardType is "custom".'),
         name: z.string().optional().describe('Optional descriptive name for the card.'),
         category: z.string().optional().describe('Pedagogical category name. Call list_categories first to see valid values — an unrecognized name is rejected with an error, not silently dropped.'),
-        tags: z.array(z.string()).optional().describe('Tags to apply to the card. Works with or without `path`: an anchored card keeps them in its sidecar, a standalone card on the card itself.'),
-        highlightHash: z.string().optional().describe('The `id` of a highlight in the same document to anchor this card to (returned by create_highlight, listed in the sidecar\'s highlights[]). Requires `path`.'),
+        tags: z.array(z.string()).optional().describe('Tags to apply to the card itself, kept in the document\'s sidecar. It also inherits the document\'s and its folders\' tags.'),
       },
     },
-    async ({ path, cardType, frontText, backText, answerText, customHtml, name, category, tags, highlightHash }) => {
+    async ({ path, highlightHash, cardType = 'basic', frontText, backText, answerText, customHtml, name, category, tags }) => {
       try {
-        if (highlightHash && !path) {
-          return asToolError('`highlightHash` requires `path` — a highlight anchor only makes sense on a document-anchored card.');
-        }
-        if (path) {
-          if (highlightHash) {
-            const { highlights } = await request('GET', `/api/highlights?path=${encodeURIComponent(path)}`);
-            if (!highlights?.some((h) => h.id === highlightHash)) {
-              return asToolError(`No highlight ${highlightHash} in ${path}. Read the document's sidecar (read_document) or create one with create_highlight first.`);
-            }
-          }
-          const formData = new FormData();
-          formData.append('docPath', path);
-          formData.append(
-            'card',
-            JSON.stringify({
-              cardType,
-              origin: 'ai',
-              name: name || undefined,
-              category: category || undefined,
-              tags: tags && tags.length ? tags : undefined,
-              vanillaData: {
-                frontText: frontText || '',
-                backText: backText || '',
-                ...(cardType === 'type_answer' ? { answerText: answerText || '' } : {}),
-                media: {},
-                location: highlightHash ? { type: 'highlight', id: highlightHash } : undefined,
-              },
-              customData: { html: customHtml || '' },
-            }),
+        if (!path || !highlightHash) {
+          return asToolError(
+            'create_flashcard needs `path` and `highlightHash`: cards made through Flashback\'s AI tools ' +
+            'come only from the user\'s own highlights. Call list_highlights (uncardedOnly: true) for the ' +
+            'highlights still waiting for a card. If what you want to card is not highlighted, ask the user ' +
+            'to highlight that passage in the app first.',
           );
-          const data = await upload('/api/media/vanilla', formData);
-          return asText({ globalHash: data.card?.globalHash, documentPath: path, cardType, category: category ?? null });
         }
-        const data = await request('POST', '/api/flashcards', { frontText, backText, answerText, name, cardType, category, customHtml, tags, origin: 'ai' });
-        return asText({ globalHash: data.globalHash, documentPath: null, cardType, category: category ?? null });
+        const { highlights } = await request('GET', `/api/highlights?path=${encodeURIComponent(path)}`);
+        if (!highlights?.some((h) => h.id === highlightHash)) {
+          return asToolError(
+            `No highlight ${highlightHash} in ${path}. Take the \`id\` and \`documentPath\` from ` +
+            `list_highlights; if the passage has no highlight yet, ask the user to highlight it in the app.`,
+          );
+        }
+        const formData = new FormData();
+        formData.append('docPath', path);
+        formData.append(
+          'card',
+          JSON.stringify({
+            cardType,
+            origin: 'ai',
+            name: name || undefined,
+            category: category || undefined,
+            tags: tags && tags.length ? tags : undefined,
+            vanillaData: {
+              frontText: frontText || '',
+              backText: backText || '',
+              ...(cardType === 'type_answer' ? { answerText: answerText || '' } : {}),
+              media: {},
+              location: { type: 'highlight', id: highlightHash },
+            },
+            customData: { html: customHtml || '' },
+          }),
+        );
+        const data = await upload('/api/media/vanilla', formData);
+        return asText({ globalHash: data.card?.globalHash, documentPath: path, highlightHash, cardType, category: category ?? null });
       } catch (err) {
         return asError(err);
       }
@@ -167,6 +218,89 @@ export function registerWriteTools(server) {
       try {
         const data = await request('DELETE', `/api/flashcards/${encodeURIComponent(globalHash)}`);
         return asText({ ok: true, deleted: globalHash, documentPath: data?.documentPath ?? null });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_flashcards',
+    {
+      title: 'Delete many flashcards',
+      description:
+        'Permanently delete a set of flashcards in one call — named by `hashes`, or chosen by a `filter` ' +
+        'with list_cards\' fields (e.g. { source: "document", sourcePath: "courses/R", origin: "ai" }). ' +
+        'TWO STEPS, ALWAYS: called without `confirm` it is a DRY RUN that deletes nothing and returns how many ' +
+        'cards match, how they spread over their source documents, and a sample. Show the user that preview ' +
+        'and get their go-ahead, then call again with the same selection, `confirm: true` and `expectedCount` ' +
+        'set to the count the preview reported; if the set has changed since, it refuses rather than delete ' +
+        `something nobody previewed. At most ${MAX_BULK} cards per call. Each card goes with its review ` +
+        'history and cannot be restored from here; the documents themselves are untouched.',
+      inputSchema: {
+        hashes: z.array(z.string()).optional().describe('The cards\' globalHashes. Give this or `filter`, not both.'),
+        filter: z.object({
+          source: z.enum(['standalone', 'document', 'folder']).optional(),
+          sourcePath: z.string().optional(),
+          origin: z.enum(['ai', 'human', 'import']).optional(),
+          band: z.string().optional(),
+          tag: z.string().optional(),
+          category: z.number().int().optional(),
+          anchor: z.enum(['highlight', 'missing', 'none']).optional(),
+          cardType: z.enum(CARD_TYPES).optional(),
+          search: z.string().optional(),
+          flagKind: z.enum(['mouthful', 'probe', 'overdue_drift', 'session_fatigue']).optional(),
+        }).optional().describe('Select by list_cards\' filters, all of which must match. At least one is required — there is no delete-everything.'),
+        confirm: z.boolean().optional().describe('Actually delete. Omit for the dry run, which is the required first step.'),
+        expectedCount: z.number().int().optional().describe('With `confirm`: the `count` the dry run reported.'),
+      },
+    },
+    async ({ hashes, filter, confirm = false, expectedCount }) => {
+      try {
+        const byHashes = Array.isArray(hashes) && hashes.length > 0;
+        const filterKeys = Object.entries(filter ?? {}).filter(([, v]) => v !== undefined && v !== '');
+        if (byHashes === (filterKeys.length > 0)) {
+          return asToolError('Give either `hashes` or a `filter` with at least one field — exactly one of the two.');
+        }
+
+        const { cards, missing } = byHashes
+          ? await cardsByHash([...new Set(hashes)])
+          : await cardsByFilter(Object.fromEntries(filterKeys));
+        if (cards.length > MAX_BULK) {
+          return asToolError(`${cards.length} cards match; one call deletes at most ${MAX_BULK}. Narrow the selection.`);
+        }
+
+        const bySource = countBySource(cards);
+        if (!confirm) {
+          return asText({
+            dryRun: true,
+            count: cards.length,
+            bySource,
+            sample: cards.slice(0, 10).map((c) => ({ globalHash: c.globalHash, frontText: clipText(c.frontText), documentPath: c.documentPath, origin: c.origin })),
+            ...(missing.length ? { missing } : {}),
+            next: cards.length
+              ? `Nothing was deleted. After the user agrees, call again with the same selection, confirm: true and expectedCount: ${cards.length}.`
+              : 'Nothing matches; nothing to delete.',
+          });
+        }
+        if (expectedCount !== cards.length) {
+          return asToolError(
+            `The selection now holds ${cards.length} card(s), not the ${expectedCount ?? '(missing expectedCount)'} ` +
+            'previewed. Nothing was deleted — run the dry run again and show the user the new preview.',
+          );
+        }
+
+        const deleted = [];
+        const failed = [];
+        for (const c of cards) {
+          try {
+            await request('DELETE', `/api/flashcards/${encodeURIComponent(c.globalHash)}`);
+            deleted.push(c);
+          } catch (err) {
+            failed.push({ globalHash: c.globalHash, error: `${err.status ?? ''} ${err.message}`.trim() });
+          }
+        }
+        return asText({ deleted: deleted.length, bySource: countBySource(deleted), ...(failed.length ? { failed } : {}), ...(missing.length ? { missing } : {}) });
       } catch (err) {
         return asError(err);
       }
@@ -274,7 +408,7 @@ export function registerWriteTools(server) {
     'create_deck',
     {
       title: 'Create deck',
-      description: 'Create a new, empty deck to organize flashcards into (e.g. "Interview Prep"). Add cards to it afterward with add_to_deck.',
+      description: 'Create a new, empty deck to organize flashcards into (e.g. "Interview Prep"). Add cards to it afterward with add_to_deck. It gets the first box colour no other deck shows yet; update_deck changes it.',
       inputSchema: {
         name: z.string().describe('Deck name.'),
         description: z.string().optional(),
@@ -295,19 +429,21 @@ export function registerWriteTools(server) {
     {
       title: 'Update deck',
       description:
-        'Rename a deck, change its description, or replace its tags. Deck tags flow down to every member ' +
-        'card, so tagging a deck is the fast way to tag a whole collection at once.',
+        'Rename a deck, change its description or box colour, or replace its tags. Deck tags flow down to ' +
+        'every member card, so tagging a deck is the fast way to tag a whole collection at once. The default ' +
+        'deck (`is_system: 1`) is always kraft and refuses a colour.',
       inputSchema: {
         deckHash: z.string().describe('The deck\'s globalHash (from list_decks).'),
         name: z.string().optional(),
         description: z.string().optional(),
+        color: z.enum(DECK_COLORS).nullable().optional().describe('The colour of the deck\'s box, from the app\'s palette. null drops the stored colour, and the app goes back to the one the deck\'s hash picks.'),
         tags: z.array(z.string()).optional().describe('Replaces the deck\'s full tag set (does not merge); the tags propagate to member cards.'),
       },
     },
-    async ({ deckHash, name, description, tags }) => {
+    async ({ deckHash, name, description, color, tags }) => {
       try {
-        if (name !== undefined || description !== undefined) {
-          await request('PUT', `/api/decks/${encodeURIComponent(deckHash)}`, { name, description });
+        if (name !== undefined || description !== undefined || color !== undefined) {
+          await request('PUT', `/api/decks/${encodeURIComponent(deckHash)}`, { name, description, color });
         }
         let savedTags;
         if (tags !== undefined) {
@@ -539,66 +675,10 @@ export function registerWriteTools(server) {
   );
 
   server.registerTool(
-    'create_highlight',
-    {
-      title: 'Create highlight',
-      description:
-        'Create a highlight anchored to a passage in a document, so a flashcard can later reference the exact ' +
-        'text it came from (pass the returned globalHash as create_flashcard\'s `highlightHash`). Prefer ' +
-        '`snippet` — an exact-substring quote copied from read_document\'s output — over `start`/`end`: ' +
-        'hand-counted character offsets are error-prone and easy to get off-by-one. If the snippet appears ' +
-        'more than once, the first occurrence is used. Works on plain-text and Markdown documents; for ' +
-        'Markdown, keep the snippet inside one paragraph and avoid spans containing links or images (the app ' +
-        're-anchors it against the rendered text). PDF/video anchoring requires page/bbox or timestamp data ' +
-        'this tool does not compute.',
-      inputSchema: {
-        path: z.string().describe('Relative path to the document.'),
-        snippet: z.string().optional().describe('Exact text to anchor to, copied verbatim from the document. Preferred over start/end.'),
-        start: z.number().int().optional().describe('Character offset where the highlight starts. Only used if snippet is omitted.'),
-        end: z.number().int().optional().describe('Character offset where the highlight ends. Only used if snippet is omitted.'),
-        color: z.enum(['amber', 'green', 'blue', 'pink']).default('amber'),
-        note: z.string().optional(),
-      },
-    },
-    async ({ path, snippet, start, end, color, note }) => {
-      try {
-        let text = snippet || null;
-        if (snippet) {
-          const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
-          if (doc.binary || doc.content == null) {
-            return asToolError(
-              `${path} is a binary document (PDF/EPUB/media), so text-offset highlights do not apply to it. ` +
-              `Highlights on these formats have to be made in the app by selecting the passage; you can then ` +
-              `read them with list_highlights and build cards from them with create_flashcard's highlightHash.`,
-            );
-          }
-          const idx = doc.content.indexOf(snippet);
-          if (idx === -1) {
-            return asToolError(`Snippet not found verbatim in ${path}. Re-check whitespace/punctuation against read_document's output and try again.`);
-          }
-          start = idx;
-          end = idx + snippet.length;
-        } else if (start == null || end == null) {
-          return asToolError('Provide either `snippet`, or both `start` and `end`.');
-        } else {
-          try {
-            const doc = await request('GET', `/api/documents/read?path=${encodeURIComponent(path)}`);
-            text = doc.content?.slice(start, end) || null;
-          } catch { }
-        }
-        const data = await request('POST', '/api/highlights', { path, type: 'text_offset', start, end, color, note, text });
-        return asText(data);
-      } catch (err) {
-        return asError(err);
-      }
-    },
-  );
-
-  server.registerTool(
     'update_highlight',
     {
       title: 'Update highlight',
-      description: 'Change the color or note of an existing highlight. Its anchored text range cannot be changed — delete and recreate for that.',
+      description: 'Change the color or note of one of the user\'s highlights. Its anchored passage cannot be changed from here — only the user can highlight, in the app.',
       inputSchema: {
         path: z.string().describe('Relative path to the highlight\'s document.'),
         highlightHash: z.string().describe('The highlight\'s `id` (from the document sidecar\'s highlights[]).'),
@@ -621,8 +701,9 @@ export function registerWriteTools(server) {
     {
       title: 'Delete highlight',
       description:
-        'Delete a highlight from a document. Flashcards anchored to it lose their source reference (the ' +
-        'cards themselves survive) — check the sidecar via read_document if that matters.',
+        'Delete a highlight from a document. Highlights are the user\'s own marks and cannot be recreated ' +
+        'from here, so delete one only when the user asks. Flashcards anchored to it lose their source ' +
+        'reference (the cards themselves survive) — check the sidecar via read_document if that matters.',
       inputSchema: {
         path: z.string().describe('Relative path to the highlight\'s document.'),
         highlightHash: z.string().describe('The highlight\'s `id`.'),
@@ -644,12 +725,14 @@ export function registerWriteTools(server) {
       title: 'Create pedagogical category',
       description:
         'Add a new pedagogical category (e.g. "Concept", "Definition") that flashcards can be tagged with ' +
-        'via the `category` field of create_flashcard/update_flashcard. Priority orders review — lower is ' +
-        'studied first. There is deliberately no way to delete a category; if a name is wrong, rename it ' +
-        'with update_category rather than removing it.',
+        'via the `category` field of create_flashcard/update_flashcard. Categories sit on priority levels ' +
+        '(see list_categories): several can share one, and the Trainer studies level 1 first. To put the new ' +
+        'category on an existing level, pass that level\'s `priority` from list_categories; the app itself ' +
+        'puts a new category on the last level. If a name is wrong, rename it with update_category rather ' +
+        'than deleting and recreating it.',
       inputSchema: {
         name: z.string().describe('Category name. Must be unique; the create fails if it already exists.'),
-        priority: z.number().int().optional().describe('Review priority; lower = studied first. Defaults to 0.'),
+        priority: z.number().int().optional().describe('The stored priority of the level to join (from list_categories); lower = studied first. Defaults to 0.'),
         description: z.string().optional().describe('Optional human-readable description of what the category means.'),
       },
     },
@@ -668,14 +751,15 @@ export function registerWriteTools(server) {
     {
       title: 'Update pedagogical category',
       description:
-        'Rename a pedagogical category, change its review priority, or edit its description. Identify it by ' +
-        '`id` from list_categories. Every field is optional — only the ones you pass are changed. Renaming ' +
-        'keeps all flashcards linked (they reference the category by id), which is why this, not a ' +
-        'delete-and-recreate, is the correct way to fix a category.',
+        'Rename a pedagogical category, move it to another priority level, or edit its description. Identify ' +
+        'it by `id` from list_categories. Every field is optional — only the ones you pass are changed. A card ' +
+        'names its category in its own file, so a rename rewrites every card that uses it (one versioned ' +
+        'change) and they all follow; renaming onto a name another category already has is refused (409). ' +
+        'To move a category onto an existing level, pass that level\'s `priority` from list_categories.',
       inputSchema: {
         id: z.number().int().describe('The category\'s numeric `id` (from list_categories).'),
         name: z.string().optional().describe('New name. Must stay unique.'),
-        priority: z.number().int().optional().describe('New review priority; lower = studied first.'),
+        priority: z.number().int().optional().describe('The stored priority of the level to move to; lower = studied first.'),
         description: z.string().optional().describe('New description.'),
       },
     },
@@ -683,6 +767,57 @@ export function registerWriteTools(server) {
       try {
         await request('PUT', `/api/categories/${encodeURIComponent(id)}`, { name, priority, description });
         return asText({ ok: true, id });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'delete_category',
+    {
+      title: 'Delete pedagogical category',
+      description:
+        'Delete a pedagogical category. Refused (409, "In use by N flashcard(s)") while any card still uses ' +
+        'it, unless `clear` is true: then those cards lose the category — their files are rewritten, the ' +
+        'cards themselves stay — and the category goes. Before passing `clear`, tell the user how many cards ' +
+        'lose it (`cards` in list_categories) and get their go-ahead, as the app asks before it does the same. ' +
+        'To fix a wrong name, use update_category instead.',
+      inputSchema: {
+        id: z.number().int().describe('The category\'s numeric `id` (from list_categories).'),
+        clear: z.boolean().optional().describe('Delete it even though cards use it, clearing it from them. Default false.'),
+      },
+    },
+    async ({ id, clear }) => {
+      try {
+        await request('DELETE', `/api/categories/${encodeURIComponent(id)}${clear ? '?clear=1' : ''}`);
+        return asText({ ok: true, deleted: id });
+      } catch (err) {
+        return asError(err);
+      }
+    },
+  );
+
+  server.registerTool(
+    'rename_tag',
+    {
+      title: 'Rename or remove a tag everywhere',
+      description:
+        'Rename a tag everywhere it is written — every folder, document, deck and card that carries it — or ' +
+        'remove it from all of them by leaving `to` out. Renaming onto a tag that already exists MERGES the ' +
+        'two, which is how near-duplicates from list_tags ("ml" and "machine-learning") become one. Returns ' +
+        'how many sidecars and decks were rewritten; the sidecar changes are one versioned commit. This is ' +
+        'the vault-wide operation; update_tags and update_deck change one item\'s tags. Confirm with the ' +
+        'user before a removal or a merge — list_tags shows its reach.',
+      inputSchema: {
+        from: z.string().describe('The tag to rename or remove.'),
+        to: z.string().optional().describe('Its new name. Omit to remove the tag everywhere.'),
+      },
+    },
+    async ({ from, to }) => {
+      try {
+        const data = await request('POST', '/api/documents/tags/rename', { from, to: to ?? null });
+        return asText(data);
       } catch (err) {
         return asError(err);
       }

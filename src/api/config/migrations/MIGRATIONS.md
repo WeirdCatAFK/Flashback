@@ -108,6 +108,9 @@ migration aborts startup — fix the `up()` function and restart.
 | 12      | `012_reviewlogs_account_index.js` | ReviewLogs: composite (account_id, flashcard_id) index instead of account_id alone | Registered |
 | 13      | `013_reviewlogs_to_progress.js` | ReviewLogs: move to the progress store, re-keyed by card_hash | Registered |
 | 14      | `014_card_health_to_progress.js` | CardHealth, CardFlags and FsrsParameters: move to the progress store, re-keyed by card_hash | Registered |
+| 15      | `015_card_progress_to_progress.js` | CardProgress: move to the progress store and absorb accounts.db AccountProgress | Registered |
+| 16      | `016_read_progress_to_progress.js` | ReadProgress: move out of accounts.db into the progress store | Registered |
+| 17      | `017_card_highlight_hash.js` | Flashcards.highlight_hash: the highlight a card was made from (derived-only; existing rows filled from sidecars on vault open by `Highlights.backfillCardAnchors()`) | Registered |
 
 ---
 

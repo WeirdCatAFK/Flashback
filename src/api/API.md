@@ -1363,11 +1363,12 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 | `search`   | string | Substring over name and content.                                                                                                                                                                                               |
 | `level`    | int    | Exact SRS level.                                                                                                                                                                                                               |
 | `cardType` | string | `basic` \| `reversible` \| `cloze` \| `type_answer` \| `custom`.                                                                                                                                                     |
-| `origin`   | string | `ai` (AI-created only) or `human` (everything else). Anything else is ignored.                                                                                                                                             |
+| `origin`   | string | `ai` (made through the MCP server), `import` (Anki or Obsidian) or `human` (no origin: made in the app, or imported before imports were marked). Anything else is ignored. |
 | `flagged`  | bool   | `1`/`true` — only cards carrying a live card-health flag.                                                                                                                                                                 |
 | `flagKind` | string | One signature; implies`flagged`. Unrecognized kinds are ignored rather than refused.                                                                                                                                         |
 | `tag`      | string | Only cards carrying this tag: their own, or inherited from a folder, document or deck. |
 | `category` | int    | Only cards in this category (its id). |
+| `anchor`   | string | The highlight a card was made from: `highlight` (anchored to one that still exists), `missing` (anchored to one since deleted) or `none` (no highlight). |
 | `band`     | string | One gap-between-reviews band: `new` \| `d1` \| `wk` \| `w3` \| `m2` \| `long` (`GAP_BANDS` in `src/shared/intervals.js`). |
 | `algorithm`| string | The scheduler `gap`, `band`, `due` and `groupBy=gap` are computed under. Omitted, the one the caller's history says they use. |
 | `source`   | string | `standalone` (the default deck's own cards), or `folder` / `document` with `sourcePath` (forward slashes; a folder matches everything under it). |
@@ -1377,7 +1378,9 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 | `limit`    | int    | Default 50, capped at 500.                                                                                                                                                                                                     |
 | `offset`   | int    | Default 0.                                                                                                                                                                                                                     |
 
-Response `200` — `{ cards, total, limit, offset, groups? }`. Every row carries `gap`: the
+Response `200` — `{ cards, total, limit, offset, groups? }`. Every row carries
+`highlight_hash`, the highlight the card was made from (null when it was not), and
+`anchor_status`: `live`, `missing` when that highlight has since been deleted, or null. Every row carries `gap`: the
 caller's days between reviews, `null` for a card they have never reviewed. `groups` (with
 `groupBy`) is `[{ key, count }]` in display order over every page — `key` a band id, or a
 document path with `null` for the default deck's cards (which come last).
@@ -1568,6 +1571,11 @@ places that has to name the scope itself.
 - Global mode (`q`, no filters) → `{ folders, documents, flashcards, tags, decks }`.
 - Filter mode (any of `tag`/`deck`/`document`/`folder`) → `{ flashcards }` matching *all*
   supplied filters.
+
+Both also carry `truncated: { <group>: boolean }`, true for each group that had more matches
+than `limit`, so a capped list is never mistaken for a complete one. It is a flag rather than a
+count: each group reads one row past the limit, where a `COUNT` would double the cost of the
+tag filter. `GET /api/decks/cards` is the listing with an exact `total`.
 
 Errors `400` — neither `q` nor any filter was supplied.
 
