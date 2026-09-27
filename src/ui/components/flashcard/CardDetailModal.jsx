@@ -1,6 +1,8 @@
 /**
  * CardDetailModal — one card in full: its faces, its schedule and review
- * history, the card-health verdict with what it rests on, and in-place editing.
+ * history, the card-health verdict with what it rests on, and an Edit button.
+ * With `onEdit(hash)` the button hands the card to the caller's editor (the card
+ * bench); without it, the card is edited in place here.
  */
 
 import { useCallback, useEffect, useState } from 'react';
@@ -88,7 +90,7 @@ function CardFlag({ flag, hash, onDismissed }) {
   );
 }
 
-export default function CardDetailModal({ hash, onClose, onSaved }) {
+export default function CardDetailModal({ hash, onClose, onSaved, onEdit }) {
   const [data, setData]       = useState(null);
   const [error, setError]     = useState(null);
   const [loading, setLoading] = useState(true);
@@ -244,7 +246,7 @@ export default function CardDetailModal({ hash, onClose, onSaved }) {
               <button
                 type="button"
                 className="btn btn--quiet btn--sm cd-edit-btn"
-                onClick={() => setEditing(true)}
+                onClick={() => (onEdit ? onEdit(hash) : setEditing(true))}
                 disabled={!mayEdit}
                 title={mayEdit ? undefined : capabilityHint(t, 'editCards')}
               >

@@ -2,8 +2,8 @@
  * Flashcards — the catalogue: every card you own, wherever it lives, to find, check
  * and fix. The sources are drawn like the file tree (documents, then the default
  * deck), with the gap between reviews and card health beneath; the search is the
- * screen. A card opens in the card editor, or in its details for someone who may
- * not edit. State lives in useCardBrowser.js; the vocabulary in catalogue.js.
+ * screen. A card opens in its details; editing starts from there, in the card
+ * editor. State lives in useCardBrowser.js; the vocabulary in catalogue.js.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -179,7 +179,6 @@ export default function FlashcardsView({ isActive = true, onOpenSource, request 
   const scope = scopeParts(view, t, (k) => cardTypeLabel(k, t));
   const libraryTotal = b.summary?.total ?? b.total;
   const rows = withGroupHeaders(b.cards, view.group, b.groups);
-  const open = (card) => (canEdit ? bench.openEdit(card.global_hash) : setDetailHash(card.global_hash));
 
   return (
     <>
@@ -242,14 +241,10 @@ export default function FlashcardsView({ isActive = true, onOpenSource, request 
               <CardLine
                 key={r.card.global_hash}
                 card={r.card}
-                onOpen={() => open(r.card)}
-                actions={(
-                  <>
-                    {r.card.document_path && <button type="button" className="link-action" onClick={() => b.openSource(r.card)}>{t('Open source')}</button>}
-                    <button type="button" className="link-action" onClick={() => setDetailHash(r.card.global_hash)}>{t('Details')}</button>
-                    {canEdit && <button type="button" className="link-action" onClick={() => bench.openEdit(r.card.global_hash)}>{t('Edit')}</button>}
-                  </>
-                )}
+                onOpen={() => setDetailHash(r.card.global_hash)}
+                actions={r.card.document_path ? (
+                  <button type="button" className="link-action" onClick={() => b.openSource(r.card)}>{t('Open source')}</button>
+                ) : null}
               />
             )))}
             {!b.loading && b.error && <ErrorState error={b.error} title={t("Couldn't load your cards")} onRetry={b.reload} />}
@@ -268,7 +263,14 @@ export default function FlashcardsView({ isActive = true, onOpenSource, request 
           {bench.benchProps && <CardBench key={bench.benchKey} {...bench.benchProps} />}
         </div>
       </div>
-      {detailHash && <CardDetailModal hash={detailHash} onClose={() => setDetailHash(null)} onSaved={b.reload} />}
+      {detailHash && (
+        <CardDetailModal
+          hash={detailHash}
+          onClose={() => setDetailHash(null)}
+          onSaved={b.reload}
+          onEdit={(hash) => { setDetailHash(null); bench.openEdit(hash); }}
+        />
+      )}
     </>
   );
 }
