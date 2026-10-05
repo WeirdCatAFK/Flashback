@@ -17,7 +17,6 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const CSS = path.join(root, "src/ui/index.css");
 
-// ── colour maths ────────────────────────────────────────────────────────────
 
 const hex2rgb = (h) => {
   h = h.replace("#", "");
@@ -45,8 +44,6 @@ const contrast = (a, b) => {
 /** Approximates CSS `color-mix(in srgb, a p%, b)`. */
 const mix = (a, b, p) => a.map((c, i) => c * (p / 100) + b[i] * (1 - p / 100));
 
-// ── token parsing ───────────────────────────────────────────────────────────
-
 function parseThemes(css) {
   const themes = {};
   const blockRe =
@@ -64,7 +61,6 @@ function parseThemes(css) {
   return themes;
 }
 
-// ── OKLab, for the graph palette's perceptual separation checks ─────────────
 
 function oklab([r, g, b]) {
   const f = (c) => {
@@ -133,7 +129,6 @@ function resolve(vars, token, depth = 0) {
   return /^#[0-9a-fA-F]{3,8}$/.test(raw) ? hex2rgb(raw) : null;
 }
 
-// ── the contract ────────────────────────────────────────────────────────────
 // [foreground, background, minRatio, what renders this pair]
 
 const TEXT_PAIRS = [
