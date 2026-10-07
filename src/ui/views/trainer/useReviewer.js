@@ -7,7 +7,7 @@
 import { useState, useRef } from 'react';
 import { submitReview } from '../../api/srs';
 import { typeAnswerParts } from '../../components/flashcard/flashcardFields';
-import { getPref, getNumberPref } from '../../prefs.js';
+import { getPref, getNumberPref } from '../../utils/prefs.js';
 import { useT } from '../../translations/index';
 import { FSRS_GRADES, gradesFor, gradeSm2, isTypedCorrect } from './grading';
 import useTrainerKeys from './useTrainerKeys';

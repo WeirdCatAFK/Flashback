@@ -7,7 +7,7 @@ import { addEntry, searchCards, setDeckTags } from '../../api/decks';
 import { frontLine, docTitle } from '../../components/flashcard/cardLineText.js';
 import { getTags } from '../../api/documents';
 import TagChipInput from '../../components/base/TagChipInput';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
 
 const SEARCH_DEBOUNCE = 250;

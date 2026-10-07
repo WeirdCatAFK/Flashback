@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { getDue } from '../../api/srs';
-import { getPref, getNumberPref } from '../../prefs.js';
+import { getPref, getNumberPref } from '../../utils/prefs.js';
 import { mapApiCard } from './cards';
 
 export default function useDueCards({ folder, document, deck, tags, exclude, readOnly, maxNew, refreshToken }) {

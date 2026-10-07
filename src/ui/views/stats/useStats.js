@@ -6,7 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { getStatistics } from '../../api/srs';
 import { getAccountProgress } from '../../api/accounts';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 
 export default function useStats(isActive, viewingId = null) {
   const [stats, setStats] = useState(null);

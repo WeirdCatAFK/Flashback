@@ -7,8 +7,8 @@
 import { useEffect, useState } from "react";
 import "./ProgressScopePicker.css";
 import { listAccounts } from "../../api/accounts";
-import { useCan } from "../../sessionContext.js";
-import { roleLabel, progressScopeLabels } from "../../roleLabels.js";
+import { useCan } from "../../utils/sessionContext.js";
+import { roleLabel, progressScopeLabels } from "../../utils/roleLabels.js";
 import { useT } from "../../translations/index";
 
 /**

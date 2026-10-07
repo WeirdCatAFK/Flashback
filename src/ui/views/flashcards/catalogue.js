@@ -9,7 +9,7 @@
 
 import { gapBand } from '../../../shared/intervals.js';
 import { slashed, leafName, docTitle } from '../../components/flashcard/cardLineText.js';
-import { bandLabel } from '../../gapBands.js';
+import { bandLabel } from '../../utils/gapBands.js';
 
 export { slashed, leafName, docTitle, frontLine, dueLabel, flagLabel } from '../../components/flashcard/cardLineText.js';
 
@@ -18,7 +18,7 @@ export const PAGE_SIZE = 50;
 /** The most rows the list grows to; past it, search or a source narrows instead. */
 export const MAX_SHOWN = 500;
 
-export { bandOptions, bandLabel } from '../../gapBands.js';
+export { bandOptions, bandLabel } from '../../utils/gapBands.js';
 
 /**
  * The health rows. The two guards (reviewed late, late in session) have no row of

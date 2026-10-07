@@ -9,7 +9,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { searchCards, getCatalogueSummary } from '../../api/decks';
 import { readFile } from '../../api/documents';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { useDataInvalidation } from '../../utils/dataBus';
 import { PAGE_SIZE, EMPTY_VIEW, NO_NARROWING, searchArgsFor, isNarrowed, ancestorsOf } from './catalogue.js';
 

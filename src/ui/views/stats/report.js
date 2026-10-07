@@ -5,7 +5,7 @@
  */
 
 import { GAP_BANDS } from '../../../shared/intervals.js';
-import { heatLevel } from '../../activityLevel.js';
+import { heatLevel } from '../../utils/activityLevel.js';
 
 export { heatLevel };
 

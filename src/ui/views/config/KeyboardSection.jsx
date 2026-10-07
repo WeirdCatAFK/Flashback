@@ -7,7 +7,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { keybindingActions, fixedShortcutGroups, saveKeybinding, resetKeybinding, resetAllKeybindings, eventKeyName, formatKeyLabel, MODIFIER_KEYS } from '../../keybindings';
+import { keybindingActions, fixedShortcutGroups, saveKeybinding, resetKeybinding, resetAllKeybindings, eventKeyName, formatKeyLabel, MODIFIER_KEYS } from '../../utils/keybindings';
 import useKeybindings from '../../hooks/useKeybindings';
 import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';

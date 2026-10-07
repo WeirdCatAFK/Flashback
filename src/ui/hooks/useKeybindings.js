@@ -4,7 +4,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { loadKeybindings, KB_EVENT } from '../keybindings';
+import { loadKeybindings, KB_EVENT } from '../utils/keybindings';
 
 /**
  * Reactive access to the resolved keybinding map. Like the theme state it lives

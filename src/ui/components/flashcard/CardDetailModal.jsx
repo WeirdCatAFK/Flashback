@@ -14,11 +14,11 @@ import RetentionCurve from './RetentionCurve';
 import ReviewStrip from './ReviewStrip';
 import { LoadingState, ErrorState } from '../base/StateView';
 import { getCardDetail, updateCard, dismissCardFlag } from '../../api/decks';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { mediaFileSrc } from '../../api/media';
 import { useT } from '../../translations/index';
-import { useSession } from '../../sessionContext.js';
-import { capabilityHint } from '../../roleLabels.js';
+import { useSession } from '../../utils/sessionContext.js';
+import { capabilityHint } from '../../utils/roleLabels.js';
 import './CardDetailModal.css';
 
 const pct = (r) => (r == null ? '—' : `${Math.round(r * 100)}%`);

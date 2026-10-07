@@ -5,10 +5,10 @@
  * Going back to Appearance ends a preview. State lives in useThemeEditor.js.
  */
 
-import { THEME_VARS, loadCustomThemes } from '../../customThemes';
+import { THEME_VARS, loadCustomThemes } from '../../utils/customThemes';
 import { useT } from '../../translations/index';
-import useThemeEditor from './useThemeEditor';
-import useThemeVarLabels from './useThemeVarLabels';
+import useThemeEditor from '../../utils/useThemeEditor';
+import useThemeVarLabels from '../../utils/useThemeVarLabels';
 
 function VarInputs({ varKey, type, label, value, onChange }) {
   const { t } = useT();

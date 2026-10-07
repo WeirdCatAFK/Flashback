@@ -11,7 +11,7 @@ import ContextMenu from "../../base/ContextMenu";
 import Popover from "../../base/Popover";
 import ProgressDialog from "../../base/ProgressDialog";
 import AnkiMappingModal from "../../deck/AnkiMappingModal";
-import { useSession } from "../../../sessionContext.js";
+import { useSession } from "../../../utils/sessionContext.js";
 import { useT } from "../../../translations/index";
 import { canDropInto, destPathFor } from "./dragDrop.js";
 import { contextMenuItems } from "./contextMenu.js";

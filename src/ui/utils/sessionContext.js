@@ -9,7 +9,7 @@
  */
 
 import { createContext, useContext } from 'react';
-import { can as roleCan } from '../shared/roles.js';
+import { can as roleCan } from '../../shared/roles.js';
 
 /** @type {import('react').Context<null | object>} */
 export const SessionContext = createContext(null);

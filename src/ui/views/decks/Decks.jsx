@@ -12,7 +12,7 @@ import ProgressDialog from '../../components/base/ProgressDialog';
 import { ErrorState } from '../../components/base/StateView';
 import useImports from '../../hooks/useImports';
 import { createDeck } from '../../api/decks';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
 import useDecks from './useDecks';
 import DeckDetail from './DeckDetail';

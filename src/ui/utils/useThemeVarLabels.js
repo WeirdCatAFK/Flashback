@@ -6,7 +6,7 @@
  */
 
 import { useMemo } from 'react';
-import { useT } from '../../translations/index';
+import { useT } from '../translations/index';
 
 export default function useThemeVarLabels() {
   const { t } = useT();

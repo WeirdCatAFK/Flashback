@@ -15,8 +15,8 @@
  */
 
 import { useT } from "../../translations/index";
-import { useSession } from "../../sessionContext.js";
-import { roleLabel } from "../../roleLabels.js";
+import { useSession } from "../../utils/sessionContext.js";
+import { roleLabel } from "../../utils/roleLabels.js";
 import "./RoleBadge.css";
 
 export default function RoleBadge({ connection }) {

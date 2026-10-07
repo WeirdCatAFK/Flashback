@@ -7,7 +7,7 @@
 
 import { useMemo } from 'react';
 import { useT } from '../../translations/index';
-import { bandLabel } from '../../gapBands.js';
+import { bandLabel } from '../../utils/gapBands.js';
 import { heatDays, bandRows } from './report.js';
 
 export function Forecast({ forecast }) {

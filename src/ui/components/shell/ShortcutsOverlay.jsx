@@ -4,7 +4,7 @@
  */
 
 import Modal from '../base/Modal';
-import { fixedShortcutGroups, keybindingActions, keyParts } from '../../keybindings';
+import { fixedShortcutGroups, keybindingActions, keyParts } from '../../utils/keybindings';
 import useKeybindings from '../../hooks/useKeybindings';
 import { useT } from '../../translations/index';
 import './ShortcutsOverlay.css';

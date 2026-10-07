@@ -7,7 +7,7 @@
 
 import { useEffect, useRef } from 'react';
 import useKeybindings from '../../hooks/useKeybindings';
-import { eventKeyName } from '../../keybindings';
+import { eventKeyName } from '../../utils/keybindings';
 
 const isEditable = (el) =>
   !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.tagName === 'SELECT' || el.isContentEditable);

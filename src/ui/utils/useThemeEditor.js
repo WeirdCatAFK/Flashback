@@ -6,10 +6,10 @@
  */
 
 import { useState } from 'react';
-import { THEMES } from '../../themes';
-import { useT } from '../../translations/index';
-import { THEME_VARS, saveCustomTheme, deleteCustomTheme, loadCustomThemes, resolvedThemeColors, themeRule } from '../../customThemes';
-import { DARK_DEFAULTS, PREVIEW_THEME } from './themeDefaults.js';
+import { THEMES } from './themes.js';
+import { useT } from '../translations/index';
+import { THEME_VARS, saveCustomTheme, deleteCustomTheme, loadCustomThemes, resolvedThemeColors, themeRule } from './customThemes.js';
+import { DARK_DEFAULTS, PREVIEW_THEME } from '../views/config/themeDefaults.js';
 
 const KEYS = { name: 'fb-editor-name', colors: 'fb-editor-colors:v1', editing: 'fb-editor-editing' };
 const PREVIEW_STYLE_ID = 'fb-preview-style';

@@ -6,7 +6,7 @@
 
 import { createPortal } from 'react-dom';
 import { useT } from '../../translations/index';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import './SelectionToolbar.css';
 
 /**

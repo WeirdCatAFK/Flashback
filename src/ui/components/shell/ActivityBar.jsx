@@ -12,7 +12,7 @@
  */
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { keyParts } from "../../keybindings";
+import { keyParts } from "../../utils/keybindings";
 import "./ActivityBar.css";
 
 const TIP_DELAY = 450;

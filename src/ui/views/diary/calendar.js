@@ -5,7 +5,7 @@
  * Dates are `YYYY-MM-DD` keys in the user's local calendar. No React, no DOM.
  */
 
-import { heatLevel } from '../../activityLevel.js';
+import { heatLevel } from '../../utils/activityLevel.js';
 
 const pad = (n) => String(n).padStart(2, '0');
 export const keyOf = (y, m, d) => `${y}-${pad(m + 1)}-${pad(d)}`;

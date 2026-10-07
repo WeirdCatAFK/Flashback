@@ -11,9 +11,9 @@
 import { useState } from 'react';
 import Stepper from '../../components/base/Stepper';
 import Toggle from '../../components/base/Toggle';
-import { treeIconsOn, setTreeIcons } from '../../treeIcons.js';
-import { coverMotionOn, setCoverMotion } from '../../coverMotion.js';
-import { themeLabel } from '../../themes';
+import { treeIconsOn, setTreeIcons } from '../../utils/treeIcons.js';
+import { coverMotionOn, setCoverMotion } from '../../utils/coverMotion.js';
+import { themeLabel } from '../../utils/themes';
 import { useT } from '../../translations/index';
 import { LanguagePicker } from '../../translations/components.jsx';
 import ConfigRow from './ConfigRow';

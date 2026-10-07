@@ -5,7 +5,7 @@
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { eventKeyName, keyParts, formatKeyLabel, actionForKey, keybindingActions, MODIFIER_KEYS } from '../src/ui/keybindings.js';
+import { eventKeyName, keyParts, formatKeyLabel, actionForKey, keybindingActions, MODIFIER_KEYS } from '../src/ui/utils/keybindings.js';
 
 const key = (k, mods = {}) => ({ key: k, code: k === ' ' ? 'Space' : `Key${k}`, ctrlKey: false, metaKey: false, altKey: false, ...mods });
 

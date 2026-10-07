@@ -13,7 +13,7 @@
  */
 
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
-import { getPref, setPref } from '../../../../prefs.js';
+import { getPref, setPref } from '../../../../utils/prefs.js';
 import { toLayoutRect, getUiZoom, useUiZoomChange } from '../../../../utils/uiZoom';
 import { cornerPosition, nearestCorner, storedCorner } from './floatCorner.js';
 

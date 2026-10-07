@@ -13,7 +13,7 @@ import { useState } from 'react';
 import { LoadingState } from '../../components/base/StateView';
 import ProgressScopePicker from '../../components/account/ProgressScopePicker';
 import { useT } from '../../translations/index';
-import { diaryLabels, isSharedVault } from '../../diaryLabels.js';
+import { diaryLabels, isSharedVault } from '../../utils/diaryLabels.js';
 import { todayIso } from './dates.js';
 import { ymOf } from './calendar.js';
 import useDiary from './useDiary';

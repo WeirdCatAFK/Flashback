@@ -5,7 +5,7 @@
  */
 
 import { useState } from 'react';
-import { getPref, setPref, getNumberPref } from '../../prefs.js';
+import { getPref, setPref, getNumberPref } from './prefs.js';
 
 export default function useSrsPrefs() {
   const [algorithm, setAlgorithmState] = useState(

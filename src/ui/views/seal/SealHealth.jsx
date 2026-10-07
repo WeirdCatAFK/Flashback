@@ -9,7 +9,7 @@
  */
 
 import { useState } from 'react';
-import { useCan } from '../../sessionContext.js';
+import { useCan } from '../../utils/sessionContext.js';
 import { invalidateData } from '../../utils/dataBus';
 import { useT } from '../../translations/index';
 import { Rich } from '../../translations/components.jsx';

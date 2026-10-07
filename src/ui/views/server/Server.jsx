@@ -26,7 +26,7 @@ import { roleLabels, roleBlurbs, signedInAs, nowRole, addedAs, fmtDate, grantabl
 import useAccounts from './useAccounts';
 import './Server.css';
 import { LoadingState } from '../../components/base/StateView';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { ROLES, ROLE_ORDER } from '../../../shared/roles.js';
 import { useT } from '../../translations/index';
 import { Rich } from '../../translations/components.jsx';

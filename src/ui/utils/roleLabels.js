@@ -10,7 +10,7 @@
  * keeps working, and out of `sessionContext.js` so the session layer stays free of copy.
  */
 
-import { CAPABILITIES, ROLES } from '../shared/roles.js';
+import { CAPABILITIES, ROLES } from '../../shared/roles.js';
 
 /** @param {(s: string) => string} t @param {string} role */
 export function roleLabel(t, role) {

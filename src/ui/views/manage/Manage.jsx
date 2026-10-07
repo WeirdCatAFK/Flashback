@@ -20,7 +20,7 @@
 import { useState } from 'react';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import { useT } from '../../translations/index';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { cleanTagName } from '../../../shared/tagNames.js';
 import { tiersOf, shiftTarget, reachOf, shownTags, uncategorized } from './metadata.js';
 import useManage from './useManage';

@@ -12,7 +12,7 @@
  * offers a row that is not there to show.
  */
 
-import { keybindingActions, fixedShortcutGroups } from '../../keybindings.js';
+import { keybindingActions, fixedShortcutGroups } from '../../utils/keybindings.js';
 
 /** The sections, in the index's order, and whose they are: the vault's prefs or this computer's. */
 export const SECTIONS = [

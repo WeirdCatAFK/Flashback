@@ -21,7 +21,7 @@ import { rendererFor } from "./renderers/registry";
 import ReadingBar from "./ReadingBar";
 import { useReadProgress } from "./useReadProgress";
 import { useT } from "../../translations/index";
-import { useSession } from "../../sessionContext.js";
+import { useSession } from "../../utils/sessionContext.js";
 import { barProgressFor } from "./tabsState.js";
 import useDocumentEditor from "./useDocumentEditor";
 import useSelectionToolbar from "./useSelectionToolbar";

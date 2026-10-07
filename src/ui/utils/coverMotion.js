@@ -1,10 +1,5 @@
 /**
- * Whether drawn covers move — a cosmetic preference that belongs to the person, like
- * the tree's icons, so it is a plain global localStorage key (`fb-cover-motion`). It is
- * applied as `data-cover-motion` on the document root, where CoverArt.css reads it, so
- * the Config switch stills an open cover at once; a cover moved from script (the stella
- * octangula) listens through `onCoverMotionChange` and stops its loop instead of
- * spinning idle. Reduced motion, when the system asks for it, stills them regardless.
+ * Whether drawn covers move
  */
 
 const KEY = 'fb-cover-motion';

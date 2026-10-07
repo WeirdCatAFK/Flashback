@@ -16,7 +16,7 @@ import { deckCoverUrl, uploadDeckCover, setDeckCover, removeDeckCover } from '..
 import DeckPurgeDialog from '../../components/deck/DeckPurgeDialog';
 import InlineConfirm from '../../components/base/InlineConfirm';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
 import useDeckDetail from './useDeckDetail';
 import { AddCardsPanel, DeckTags } from './DeckPanels';

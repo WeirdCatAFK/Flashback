@@ -6,7 +6,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { listDecks } from '../../api/decks';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { useDataInvalidation } from '../../utils/dataBus';
 import { sortDecks } from './deckShelf.js';
 

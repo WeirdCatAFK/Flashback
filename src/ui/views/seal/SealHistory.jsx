@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { getCommitFiles } from '../../api/seal';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
 import { Rich } from '../../translations/components.jsx';
 import { formatOid, isSidecar, documentPath, LIST_VISIBLE_CAP } from './describe.js';

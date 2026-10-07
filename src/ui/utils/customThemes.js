@@ -93,12 +93,7 @@ export function deleteCustomTheme(name) {
   injectCustomThemeCSS(themes);
 }
 
-/**
- * Colours added after a theme may have been saved, derived from ones it has, so
- * an older custom theme still gets a dimmed text level, quiet dividers, a desk for
- * the Trainer a shade off the window, and a scrim behind dialogs. Without them a
- * custom theme would show the built-in theme's values for these.
- */
+
 const withDerived = (colors) => ({
   "--color-fg-tertiary": "color-mix(in srgb, var(--color-fg-secondary) 65%, var(--color-bg-base))",
   "--color-line": "color-mix(in srgb, var(--color-border) 70%, var(--color-bg-base))",

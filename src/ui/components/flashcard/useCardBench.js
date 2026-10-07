@@ -12,7 +12,7 @@
 import { useState } from 'react';
 import { getCardDetail, updateCard, createStandaloneCard, deleteCard } from '../../api/decks';
 import { mediaFileSrc } from '../../api/media';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { invalidateData } from '../../utils/dataBus';
 import { useT } from '../../translations/index';
 import { docTitle } from './cardLineText.js';

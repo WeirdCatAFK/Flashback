@@ -9,7 +9,7 @@
 
 import { useEffect, useRef } from 'react';
 import { HAIR } from './artKit.js';
-import { coverMotionOn, onCoverMotionChange } from '../../coverMotion.js';
+import { coverMotionOn, onCoverMotionChange } from '../../utils/coverMotion.js';
 
 /** Alternate corners of a cube: one tetrahedron; the other is its mirror through the centre. */
 const TETRA_A = [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]];

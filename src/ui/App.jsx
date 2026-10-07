@@ -27,8 +27,8 @@ import IconManage from "./components/icons/IconManage";
 import IconStats from "./components/icons/IconStats";
 import IconDiary from "./components/icons/IconDiary";
 import IconServer from "./components/icons/IconServer";
-import { THEMES } from "./themes";
-import { loadCustomThemes, injectCustomThemeCSS } from "./customThemes";
+import { THEMES } from "./utils/themes";
+import { loadCustomThemes, injectCustomThemeCSS } from "./utils/customThemes";
 import AppGate from "./components/shell/AppGate";
 import SearchModal from "./components/shell/SearchModal";
 import ShortcutsOverlay from "./components/shell/ShortcutsOverlay";
@@ -37,16 +37,16 @@ import TitleBar from "./components/shell/TitleBar";
 import ActivityBar from "./components/shell/ActivityBar";
 import useKeybindings from "./hooks/useKeybindings";
 import usePersisted from "./hooks/usePersisted";
-import { actionForKey, eventKeyName } from "./keybindings";
+import { actionForKey, eventKeyName } from "./utils/keybindings";
 import VaultManager from "./components/vault/VaultManager";
 import { relocatePath } from "./utils/relocatePath";
 import { notifyUiZoomChanged } from "./utils/uiZoom";
 import { invalidateData } from "./utils/dataBus";
 import { useT } from "./translations/index";
-import { diaryLabels, isSharedVault } from "./diaryLabels.js";
+import { diaryLabels, isSharedVault } from "./utils/diaryLabels.js";
 import useConnection from "./hooks/useConnection.js";
 import { SessionProvider } from "./session.jsx";
-import { getPref, setPref, setActiveVaultScope } from "./prefs.js";
+import { getPref, setPref, setActiveVaultScope } from "./utils/prefs.js";
 
 const ALL_VIEW_IDS = [
   "documents",

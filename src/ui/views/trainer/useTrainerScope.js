@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { getPref, setPref, getBoolPref, getNumberPref } from '../../prefs.js';
+import { getPref, setPref, getBoolPref, getNumberPref } from '../../utils/prefs.js';
 import { initialScope, withExclusion, withoutExclusion, mergeStudySession, sameScope } from './scope';
 
 /**

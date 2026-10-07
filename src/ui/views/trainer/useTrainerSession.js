@@ -10,7 +10,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { undoReview } from '../../api/srs';
 import { generateSummary as generateDiarySummary } from '../../api/diary';
 import { readFile } from '../../api/documents';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { useT } from '../../translations/index';
 import { getUiZoom } from '../../utils/uiZoom';
 import useTrainerScope from './useTrainerScope';

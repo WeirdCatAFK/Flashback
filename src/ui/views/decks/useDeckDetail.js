@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { getDeck, updateDeck, deleteDeck, purgeDeck, removeEntry } from '../../api/decks';
-import { getPref } from '../../prefs.js';
+import { getPref } from '../../utils/prefs.js';
 import { useT } from '../../translations/index';
 
 export default function useDeckDetail({ deckHash, version, fresh, onDeleted, onRefreshList }) {

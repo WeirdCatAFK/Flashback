@@ -17,7 +17,7 @@ import IconFolderOpen from '../../components/icons/IconFolderOpen';
 import IconDecks from '../../components/icons/IconDecks';
 import IconFlashcards from '../../components/icons/IconFlashcards';
 import getFileIcon from '../../components/icons/fileIconMap';
-import { useSession } from '../../sessionContext.js';
+import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
 import {
   bandOptions, healthOptions, sortOptions, groupOptions, buildSourceTree, scopeParts, NO_NARROWING,

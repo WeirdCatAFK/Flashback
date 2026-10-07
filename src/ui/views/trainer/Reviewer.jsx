@@ -10,7 +10,7 @@
 import { useEffect, useState } from 'react';
 import { mediaFileSrc } from '../../api/media';
 import Flashcard from '../../components/flashcard/Flashcard';
-import { formatKeyLabel } from '../../keybindings';
+import { formatKeyLabel } from '../../utils/keybindings';
 import { useT } from '../../translations/index';
 import { displayCardFor, sourceTitle } from './cards';
 import { previewGap } from './grading';
