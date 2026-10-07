@@ -7,8 +7,7 @@
  * apart by its outer shape, and reads as quieter at the same colour. Each icon is
  * one shape with at most one cut-out for its cue; a second layer, where one is
  * needed (the card behind a card, the back of an open folder), is the same colour
- * at 45%. The colour is the caller's, and the callers keep it muted — see
- * INTERFACE.md § Icons.
+ * at 45%. The colour is the caller's, and the callers keep it muted.
  */
 
 export default function Glyph({ size = 15, grid = 16, className = "", children }) {

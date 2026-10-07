@@ -1,25 +1,4 @@
-/**
- * Turns a presented token into `req.account`.
- *
- * This replaces the single shared secret that used to guard `/api`. The change is smaller
- * than it looks from the outside: the token a desktop install already holds is adopted as the
- * Author's token when the store is provisioned, so the renderer, the MCP server and the test
- * suite present exactly what they presented before and get exactly what they got before —
- * only now the API knows WHO that is, and the role table has something to compare against.
- *
- * Two things are kept byte-identical on purpose, because clients depend on them:
- *
- *   - **Where the token may appear.** `Authorization: Bearer <token>` OR a `?token=` query
- *     parameter. The query form is not a convenience — a `<img>` or `<audio>` element loading
- *     a PDF page or a media file cannot set a header, and dropping it would break every
- *     renderer that displays an asset.
- *   - **The 401 body.** `{ error: "Unauthorized: ..." }`, which the API client branches on.
- *
- * What is gone is the constant-time comparison, and its absence is not a regression: lookup
- * is now by SHA-256 of the caller's input against an indexed column. Hashing attacker-supplied
- * bytes leaks nothing about the stored value by timing, which is the whole reason tokens are
- * stored hashed.
- */
+/** Resolves a Bearer token or ?token= to req.account via SHA-256 lookup. */
 
 import { resolveToken, getAuthorAccount } from "../access/primitives/accounts.js";
 import { runWithAccount } from "../requestContext.js";

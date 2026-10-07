@@ -1,6 +1,4 @@
-/*
- Module to rename diary to logs because on a remote vault there is an ammount of access of an owner to the diary
- */
+/** The UI says "Logs" on a remote vault for privacy; routes and directories keep "diary". */
 
 /** Is the vault we are pointed at one other people can also study in? */
 export function isSharedVault(connection) {

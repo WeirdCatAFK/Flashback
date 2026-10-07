@@ -1,6 +1,4 @@
-/**
- * ankiPackage.js
- * Pure reader for Anki .apkg packages. No DB, no sidecars, no IO beyond the
+/** Pure reader for Anki .apkg packages. No DB, no sidecars, no IO beyond the
  * temp dir it is handed — the Anki-format knowledge lives here so `ankiImport.js`
  * only has to think about mapping notes onto Flashback cards.
  *

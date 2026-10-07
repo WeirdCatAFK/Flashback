@@ -1,7 +1,4 @@
-/**
- * SRS.js
- * Spaced Repetition System service.
- */
+/** Spaced repetition scheduling and grading. Sole caller of fsrs.js. */
 
 import query from '../resources/query.js';
 import db from '../primitives/database.js';

@@ -1,8 +1,6 @@
 # Flashback Access Layer
 
-The Access layer is the core of the Flashback system, responsible for maintaining synchronization between the canonical (filesystem) and derived (SQLite) data layers.
-
-All data modifications must go through these modules. Never write directly to `.flashback` sidecars, and never call `db.prepare()` against the vault database outside of `query.js` (the accounts store and the `.apkg` reader are separate databases with their own handles — see Import rules). For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
+All data modifications go through these modules. Never write directly to `.flashback` sidecars, and never call `db.prepare()` against the vault database outside of `query.js` (the accounts store and the `.apkg` reader are separate databases with their own handles — see Import rules). For the data model, see [DATAMODEL.md](../../../DATAMODEL.md).
 
 ---
 

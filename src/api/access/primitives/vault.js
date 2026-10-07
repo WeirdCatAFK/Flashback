@@ -1,16 +1,4 @@
-// Tier 1 — vault identity.
-//
-// Every vault carries a `vault.json` manifest at its root giving it a stable UUID that
-// survives renames, moves and copies of the folder. The derived database can be rebuilt
-// from the canonical layer at any time and `vaultName` is just a folder name the user is
-// free to change, so neither is an identity — this file is.
-//
-// It lives at the vault root, a SIBLING of `workspace/` rather than inside it, for the
-// same reason the database does: `workspace/` is the Seal git repo, and a vault's identity
-// is not something to version, roll back, or carry into a diff. Keeping it out also means
-// `UpdateRunner`'s workspace walk never sees it and it needs no `formatVersion`.
-//
-// Imports `config` only, per the Tier 1 rules in ACCESS.md.
+/** Vault identity via vault.json. Stable UUID that survives renames and copies. */
 
 import path from "path";
 import fs from "fs";

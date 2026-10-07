@@ -1,12 +1,4 @@
-/**
- * Seal — Workspace versioning for the Flashback canonical layer.
- *
- * Two classes with different responsibilities:
- *   SealEventEmitter  Primitive. Called by Documents.js after each write. Stages files and
- *                     commits to the workspace git repo. No knowledge of the database.
- *   SealTools         Orchestrator. Coordinates git operations to handle
- *                     history navigation, out-of-band change detection, and SRS-aware rollback.
- */
+/** Git-backed workspace versioning. SealEventEmitter commits; SealTools navigates history. */
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";

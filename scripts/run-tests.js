@@ -1,16 +1,6 @@
-/**
- * run-tests.js
- * Runs the test suite against system Node by temporarily hiding the
- * Electron-compiled better-sqlite3 binary (build/Debug) so that `bindings`
- * falls through to the Node-compiled one (build/Release).
- *
- * Flow:
- *   1. Rename build/Debug → build/Debug.electron  (hide Electron binary)
- *   2. npm rebuild better-sqlite3                  (build Release for system Node)
- *   3. Run every test file
- *   4. Rename build/Debug.electron → build/Debug   (restore Electron binary)
- *   5. Delete build/Release                        (remove system Node binary)
- */
+/** Swaps the Electron-compiled better-sqlite3 for a system-Node build, runs every test, then restores.
+ * Read the exit code, not the tail — piping through tail/grep replaces the status with the pipe's.
+ * Tests write to ./data despite USER_DATA_PATH; rm -rf data before trusting a surprising failure. */
 
 import { execSync, spawnSync } from "child_process";
 import fs from "fs";

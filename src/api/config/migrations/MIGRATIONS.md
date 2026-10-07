@@ -99,7 +99,7 @@ older release still grades against, so a build from before answerText misreads a
 vault. Migration 008 alone is harmless there — old queries name their columns explicitly and
 never see the new one — but the canonical half is not. When a pair has that property, record
 it where ../updates/UPDATES.md § One-way updates says to, and warn the user in
-CHANGELOG.md.
+the release notes.
 
 ## Migration 010 — the first one-way migration on its own
 
@@ -109,7 +109,7 @@ sm2_reps, last_recall and the six fsrs_*, all moved into the new CardProgress ta
 and an older build names those columns in a dozen statements. It fails loudly on a migrated
 vault, which is the good outcome; the bad one would have been leaving them behind as dead
 weight, where a query that forgot to scope itself would keep working and quietly serve one
-person another person's schedule. CHANGELOG.md carries the downgrade warning, because
+person another person's schedule. The release notes carry the downgrade warning, because
 electron-updater only ever moves users forward and nothing else will tell someone who steps
 back on purpose.
 

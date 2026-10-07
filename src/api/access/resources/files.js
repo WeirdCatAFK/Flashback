@@ -1,19 +1,4 @@
-/* 
- A bridge for the operations of the flashback canonical data system.
- Default: all file operations are handled inside the flashback directory at userData.
- If the config provides a custom path it will be used instead to mount files elsewhere.
-
- Some things to be aware of:
- Since the system uses a derived data system, the file reads are done at the document.js level
- The canonical data system is a group of jsons with metadata and a media file at root level of folders check out DATAMODEL.md
- The canonical data makes all writes to the file system, document.js makes all writes to the database and calls  files.js
-
- Las rutas relativas se resuelven contra el workspaceRoot.
- The metadata of the files is stored as <file>.flashback o <folder>/.flashback
- The globalHash is inmutable after generated, copying a file will generate a new one.
- Insecure operations throw errors to be handled by the UI
-
-*/
+/** Canonical sidecar reader/writer. Writes are atomic (tmp + rename). safePath() prevents traversal. */
 
 import path from "path";
 import fs from "fs";
@@ -35,18 +20,11 @@ const BINARY_EXTENSIONS = new Set([
 /** The formats whose BODY a user can write — the ones with an editable renderer. */
 export const EDITABLE_BODY_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text"]);
 
-/**
- * True when the file should never be decoded as text.
- *
- * @param {string} relPath - used for the format check.
- * @param {Buffer} sample - the first bytes of the file.
- * @param {string|null} encoding - chardet's guess, if any.
- */
-/** Who to stamp a new sidecar's `createdBy` with. */
 function stampedBy() {
     return currentAuthorString(getAuthorString);
 }
 
+/** True when the file should never be decoded as text. */
 function looksBinary(relPath, sample, encoding) {
     if (BINARY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) return true;
     if (encoding && /^utf-?(16|32)/i.test(encoding)) return false;
@@ -54,7 +32,6 @@ function looksBinary(relPath, sample, encoding) {
 }
 
 export default class Files {
-    /** Constructor for the Files class. */
     constructor() {
         this._ensureRoot();
     }

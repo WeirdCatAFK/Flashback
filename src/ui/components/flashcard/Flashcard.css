@@ -1,7 +1,7 @@
 /* The flashcard as an object: an index card (5 x 3) in its own stock, with a real
    edge and shadow and nothing on it but its content. Colours are the --color-card*
    family, not the surfaces, so a theme can make the card darker than the desk
-   (Focus) or lighter (Lamp). See INTERFACE.md, Design language. */
+   (Focus) or lighter (Lamp). */
 
 .flashcard {
   --fc-radius: var(--radius-card);

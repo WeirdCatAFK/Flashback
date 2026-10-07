@@ -1,12 +1,4 @@
-/**
- * The session context object and the hooks that read it. See `session.jsx` for the provider
- * that fills it, and for why session identity is a Context at all when INTERFACE.md says
- * server state is not.
- *
- * Split from the provider because eslint-plugin-react-refresh is right: a module that exports
- * both a component and plain functions breaks Fast Refresh for everything importing it. The
- * context lives here, with the hooks, so `session.jsx` exports exactly one component.
- */
+/** Session context and hooks. Split from session.jsx so the provider is its sole component export (react-refresh). */
 
 import { createContext, useContext } from 'react';
 import { can as roleCan } from '../../shared/roles.js';

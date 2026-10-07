@@ -1,3 +1,5 @@
+/** Deck lifecycle. Locks on _decks/<uuid>.json; the lock is not reentrant. */
+
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';

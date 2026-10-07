@@ -1,37 +1,4 @@
-/**
- * What each role may reach. One table, one place to be wrong.
- *
- * The alternative — a role check inside each handler — was rejected because the failure mode
- * is silence: a handler that forgets its check is indistinguishable from one that is meant to
- * be open, and nothing about the file says which. Here, every endpoint's answer is on one
- * screen, a reviewer can read the whole policy in a minute, and `tests/accounts.test.js`
- * asserts that every router mounted in `api.js` appears below.
- *
- * ## How it is applied
- *
- * `api.js` mounts the guard alongside each router:
- *
- *     app.use('/api/documents', guard('documents'), documentsRouter);
- *
- * Express strips the mount prefix inside a `use` middleware, so `req.path` here is the path
- * WITHIN the router — `/list`, `/metadata` — which is exactly the granularity the rules need
- * without touching a single handler.
- *
- * ## How a rule is read
- *
- *     [method, pathPattern, minimumRole]
- *
- * `method` is an HTTP verb or `*`. `pathPattern` is `*` for everything, a literal path, or a
- * prefix ending in `/*`. **First match wins**, so rules go from most specific to least, and
- * every mount ends with a catch-all.
- *
- * ## It fails closed
- *
- * A mount with no entry resolves to `author` — the most restrictive role — rather than to
- * "allowed". A new router that nobody added here stops working immediately and loudly, which
- * is the correct direction for the mistake to fall: the alternative is a route that quietly
- * serves everyone.
- */
+/** Per-endpoint role policy. First match wins; unknown mounts fail closed to author. */
 
 import { ROLES, atLeast } from "../../shared/roles.js";
 
@@ -171,7 +138,8 @@ export function requiredRole(mount, method, reqPath) {
 }
 
 /**
- * Express middleware factory.
+ * Express middleware factory. Rules are [method, pathPattern, minimumRole], first match wins.
+ * req.path is the path within the router (Express strips the mount prefix).
  *
  * @param {string} mount
  * @returns {import('express').RequestHandler}

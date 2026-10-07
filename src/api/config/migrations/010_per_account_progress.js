@@ -27,9 +27,8 @@
 //
 // It drops columns that an older build still reads (f.level appears in getDueFlashcards,
 // getStatistics and a dozen other statements), so an older build opening a migrated vault
-// fails loudly. electron-updater only moves users forward, so CHANGELOG.md carries the
-// downgrade warning — that file is the only thing that will tell someone who downgrades on
-// purpose. Leaving the columns behind as dead weight was the alternative and is worse: a
+// fails loudly. electron-updater only moves users forward, so the release notes carry the
+// downgrade warning. Leaving the columns behind as dead weight was the alternative and is worse: a
 // stale column that still reads turns "this query forgot to scope itself" from a hard error
 // into one person silently studying another person's schedule.
 //

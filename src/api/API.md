@@ -1,18 +1,6 @@
 # Flashback API
 
-The Flashback API provides the core logic for the memorization workspace, including file system orchestration and data persistence.
-
-## Validation & Initialization
-
-Before the API starts, it undergoes a mandatory validation process to ensure the runtime environment and database are in a healthy state.
-
-Critical Step: For details on how the environment and database are validated or repaired at startup, please consult the [Validation Guide](./config/validators/VALIDATION.md).
-
-## Core Responsibilities
-
-- Orchestration: Synchronizes canonical `.flashback` files with the derived SQLite database.
-- SRS Engine: Manages the Spaced Repetition logic and mastery propagation.
-- File Management: Handles secure file operations within the workspace root.
+Startup validation: [Validation Guide](./config/validators/VALIDATION.md).
 
 ---
 
@@ -28,7 +16,7 @@ All request bodies are JSON unless marked multipart. All responses are JSON unle
 
 ## Authentication and roles
 
-Every `/api/*` request resolves to an accountbefore it reaches a router. The `GET /` readiness ping stays open.
+Every `/api/*` request resolves to an account before it reaches a router. The `GET /` readiness ping stays open.
 
 A token is presented as `Authorization: Bearer <token>` or, for browser-initiated loads that cannot set a header (PDF and media URLs, `<img>`/`<audio>`), as a `?token=` query parameter. It is looked up by SHA-256 hash against the accounts store (`{baseDir}/accounts.db`, outside every vault) and yields `req.account` = `{ id, name, email, role }`.
 

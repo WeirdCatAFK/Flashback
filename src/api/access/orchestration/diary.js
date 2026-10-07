@@ -1,32 +1,4 @@
-/**
- * Diary — a per-day record of study activity, living OUTSIDE the workspace graph.
- *
- * Two kinds of files, joined only by their date key (never sidecars of each other):
- *   summaries/summary-YYYY-MM-DD.json  — machine-written, structured stats (canonical, read-only in UI)
- *   entries/entry-YYYY-MM-DD.md        — optional user-written markdown reflection
- *
- * Design decisions (see DATAMODEL.md § Diary):
- *  - Location `{vault}/diary/` is a SIBLING of `{vault}/workspace`. Because the file
- *    walker, search, and knowledge graph only ever descend inside workspaceRoot, diary
- *    files are invisible to them for free — no exclusion code needed. The trade-off is
- *    that Seal (whose git repo root IS the workspace) does not version diary files, so
- *    diary/ carries its OWN isomorphic-git repo, committed with the same atomic pattern.
- *  - Summaries are DERIVED data: fully regenerable from ReviewLogs. generateSummary() is
- *    idempotent and cumulative — re-running it for a past date reproduces the same file
- *    (modulo `generatedAt`), which is what makes "rebuild diary" safe.
- *  - Day boundary is the user's LOCAL calendar day (date(timestamp, 'localtime') in
- *    SQLite), matching the Stats view. The API runs on the user's own machine, so its
- *    local time is the clock they were studying by; bucketing in UTC filed evening
- *    sessions west of Greenwich under the next day's summary.
- *
- * Opt-in is a client preference (localStorage), so the server never auto-creates diary/:
- * every write lazily inits the repo, and reads no-op cleanly when the folder is absent.
- * This is a Tier 3 orchestrator; it talks to query.js (for aggregates) and its own git
- * repo. It never imports documents/files, and from srs.js it takes only the shared
- * LEARNING_REVIEWS constant (no service, no scheduling) so the day's pass rate is split
- * on exactly the same boundary the Stats view uses — diary data is metadata about
- * studying, not study material.
- */
+/** Per-day study record outside the workspace graph. Own git repo at {vault}/diary/. */
 import git from "isomorphic-git";
 import fs from "fs";
 import path from "path";

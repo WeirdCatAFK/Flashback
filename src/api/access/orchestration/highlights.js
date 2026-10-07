@@ -1,3 +1,5 @@
+/** Highlight CRUD. Anchors to document content via type-specific geometry. */
+
 import crypto from 'crypto';
 import Files from '../resources/files.js';
 import { withDocument } from '../resources/pathLock.js';

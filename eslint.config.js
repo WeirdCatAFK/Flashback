@@ -61,9 +61,8 @@ export default [
       // With the above, `catch (e) {}` has no reason to keep an unused binding —
       // dropping it is what marks the block as intentional rather than unfinished.
       "no-unused-vars": ["error", { caughtErrors: "all" }],
-      // This codebase does not use prop-types (runtime validation) anywhere;
-      // component contracts are documented in INTERFACE.md instead. Leaving the
-      // recommended rule on would flag every component in the app.
+      // This codebase does not use prop-types. Leaving the rule on would flag
+      // every component.
       "react/prop-types": "off",
       "react-refresh/only-export-components": [
         "warn",

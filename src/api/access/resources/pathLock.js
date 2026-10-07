@@ -1,51 +1,4 @@
-/**
- * Serialization for canonical writes — the lock that makes a shared vault safe to write to.
- *
- * ## What it protects, and why the database's own lock is not enough
- *
- * `db.transaction()` (see primitives/sqliteAdapter.js) holds an exclusive lock for the length
- * of its body, so the derived index is already safe from interleaving. The canonical layer is
- * not: a document write touches the filesystem BEFORE it opens that transaction
- * (`documents.updateFile` writes the body and sidecar, then syncs the index), and `move()`
- * goes further — it moves on disk first and rolls the filesystem back by hand if the
- * transaction throws. Between those two steps another request is free to run.
- *
- * The filesystem has no transactions to borrow, so the serialization has to be explicit.
- *
- * ## The shape: readers–writer over the workspace tree
- *
- * Two kinds of write, with different scopes:
- *
- *   - `withDocument(relPath, fn)` — an edit to ONE document. Exclusive against other writes
- *     to the same path, shared with edits to any other path. This is the common case and it
- *     stays concurrent, which matters: several readers annotating different documents is
- *     exactly what a server is for.
- *
- *   - `withStructure(fn)` — a move, rename, copy or delete. Exclusive against EVERYTHING,
- *     because the paths those operations invalidate are not knowable from the operation
- *     alone: moving a folder renames every document beneath it, and an edit already in
- *     flight against one of them holds a path that is about to stop existing.
- *
- * Tree-wide exclusivity for structural operations, rather than locking the subtree, is a
- * deliberate trade. Structural operations are rare and short; subtree containment checks
- * (prefix matching across two path spellings, on a case-insensitive filesystem, while a
- * rename is halfway applied) are exactly where this class of lock goes wrong. A correct
- * coarse lock beats a clever one.
- *
- * Writers do not starve: a waiting structural operation blocks documents that arrive after
- * it, so a steady stream of edits cannot postpone a move indefinitely.
- *
- * ## Scope, stated plainly
- *
- * **This is an in-process lock.** It is the right scope for every deployment this project
- * describes — the desktop app and a server host each run exactly one API process, and
- * `documents.js` is the only writer of canonical files. It is NOT a file lock: two API
- * processes over one vault remain unsupported, and anything written to the workspace from
- * outside the app is the Vault Doctor's job, not this module's.
- *
- * Tier 2 (resources). Imports nothing — it holds no path knowledge beyond using the string
- * as a key, which is what lets `tests/conflicts.test.js` exercise it without a SQLite binary.
- */
+/** Serializes canonical writes. withDocument per path, withStructure exclusive. Path lock first, DB lock second. */
 
 /**
  * Normalizes a path into a lock key. Not a security boundary — `Files.safePath()` is, and it
@@ -169,7 +122,9 @@ class PathLock {
 
 const pathLock = new PathLock();
 
+/** Exclusive per path, shared across paths. The common case — concurrent edits to different documents. */
 export const withDocument = (relPath, fn) => pathLock.withDocument(relPath, fn);
+/** Exclusive against everything. For moves, renames, deletes — structural changes that invalidate paths. */
 export const withStructure = (fn) => pathLock.withStructure(fn);
 export const isIdle = () => pathLock.isIdle();
 

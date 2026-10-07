@@ -1,13 +1,4 @@
-// Vault session — opening a vault, and moving between vaults without restarting.
-//
-// Lives beside main.js rather than under access/ on purpose: it spans config validation,
-// the schema migrator, Seal and the canonical UpdateRunner, so it belongs to no single
-// access tier and importing it from one would violate ACCESS.md's import rules.
-//
-// The whole design is one idea: `config.js`'s path resolvers are pure per-call functions
-// over the active config, so switching vaults is moving a pointer. Everything here exists
-// to make that safe — quiesce what is mid-flight, close what is open, then re-run the
-// exact same boot sequence against the new vault.
+/** Opens and switches vaults. Quiesce, close, move pointer, reopen. */
 
 import validate from "./config/validate.js";
 import runUpdates from "./config/UpdateRunner.js";

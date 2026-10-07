@@ -112,16 +112,9 @@ if (dryRun) {
   console.log(`  next    : ${next}${next === pkg.version ? '  (unchanged — would tag HEAD)' : ''}`);
   console.log(`  tag     : ${tag}`);
 
-  // Advisory, never fatal. CHANGELOG.md is the release body someone pastes into the draft,
-  // so an entry that does not exist yet is worth saying out loud at the point the version
-  // is decided — but it is prose, and prose is not a reason to block a build.
-  try {
-    if (!readFileSync(path.join(root, 'CHANGELOG.md'), 'utf8').includes(next)) {
-      console.log(`\n! CHANGELOG.md does not mention ${next} yet — write the release body before publishing the draft.`);
-    }
-  } catch {
-    console.log('\n! CHANGELOG.md could not be read.');
-  }
+  // Advisory, never fatal. The GitHub Release draft body is the release notes;
+  // this just reminds you to write it before publishing.
+  console.log(`\n  Write the release body in the GitHub Release draft before publishing.`);
 
   if (problems.length) {
     console.error('\n✗ Not releasable:');

@@ -1,37 +1,4 @@
-/**
- * The VAULT database — the derived layer, rebuildable from the canonical `.flashback` files.
- *
- * All of the machinery lives in `sqliteAdapter.js`; this module is one instance of it,
- * pointed at whatever vault `config.js` currently resolves. It stayed a module of its own
- * because its default export is the object nine modules import and query.js stores in a
- * constructor — that identity must never change, whatever happens to the connection behind
- * it.
- *
- * The path is resolved PER CALL rather than captured, which is the whole reason an
- * in-process vault switch is possible: `openDatabase()` after `config.reload()` opens the
- * new vault with no importer noticing.
- *
- * The accounts store (`accounts.js`) is the OTHER instance of the same factory. The two
- * share no connection, no queue and no transaction context — see the factory's header for
- * why that separation is load-bearing rather than tidy.
- *
- * ## The progress store rides on this connection
- *
- * `progress.js` is deliberately NOT a third instance. It is ATTACHed here as the schema
- * `progress`, so a card's schedule joins against `Flashcards` in one statement and a review
- * writes both files from inside ONE transaction on ONE queue. A second adapter over the same
- * file would give back exactly the split `srs.js`'s cross-store mirror exists to paper over.
- *
- * Two things about `onOpen` are load-bearing rather than tidy:
- *
- *   - The path is resolved INSIDE the callback. Closing over a resolved string would keep
- *     attaching the previous vault's progress store after a switch — the same trap
- *     `resolvePath` exists to avoid for the main file.
- *   - `journal_mode` is per file, not per connection. The adapter's `WAL` pragma applies to
- *     `main` only; an attached database opens in `delete` mode unless told otherwise, which
- *     would leave two files beside each other with different durability and locking
- *     behaviour. Verified, not assumed.
- */
+/** Derived-layer DB. ATTACHes progress.db as the `progress` schema. Never hoist db.prepare() to module scope. */
 
 import fs from "fs";
 import path from "path";
@@ -60,6 +27,11 @@ function applyProgressRepairs(raw) {
 
 /**
  * Attaches the progress store and brings its schema up to date.
+ *
+ * The path is resolved here, not captured at module scope — closing over a string would
+ * keep attaching the previous vault after a switch. journal_mode is set per-file because
+ * the adapter's WAL pragma only applies to `main`; without it the attached DB opens in
+ * delete mode.
  *
  * @param {import('better-sqlite3').Database} raw
  */

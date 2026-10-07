@@ -1,34 +1,4 @@
-/**
- * How much room the vault occupies, and how much it is allowed.
- *
- * ## Why the ceiling has to be declared rather than measured
- *
- * `statvfs` inside a container reports the HOST's filesystem, not the volume you provisioned.
- * A 10 GB Fly volume, a 25 GB Render disk and a Docker named volume all sit on a device whose
- * free space says nothing about what this deployment may actually use — a named volume has no
- * quota of its own at all. So the limit is configuration (`FLASHBACK_STORAGE_LIMIT`, persisted
- * as `config.storageLimit`) and only the USAGE is measured.
- *
- * Reporting only. Nothing here refuses a write: a limit that blocked an upload would be a new
- * failure mode on every write path, and the number that actually helps an operator is what the
- * vault costs today, not a wall to hit. A deployment that runs out of disk fails the way any
- * other one does.
- *
- * ## Why the breakdown is by durability class
- *
- * The four figures are not arbitrary — they are the classes the volume split exists to
- * separate, so they are what tells you which mount to grow:
- *
- *   canonical  workspace/ — documents, sidecars, media, the Seal git repo. Irreplaceable.
- *   progress   progress.db — every person's schedule and history. Irreplaceable.
- *   accounts   accounts.db — who may log in. Irreplaceable, and lives outside the vault.
- *   index      {vaultName}.db — derived. The one figure you may ignore, because the Doctor
- *              rebuilds it and (since migrations 013-016) it carries nobody's history.
- *
- * A primitive because it imports `config.js` and nothing else, the same shape as `vault.js`.
- * It reads the filesystem but touches no sidecar and no database, so it owes `files.js` and
- * `query.js` nothing.
- */
+/** Disk usage by durability class. Reporting only — never refuses a write. */
 
 import fs from "fs";
 import path from "path";

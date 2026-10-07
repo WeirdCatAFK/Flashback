@@ -21,7 +21,7 @@
 // taking the answer with it. Accepted deliberately rather than kept dual-written: leaving the
 // answer in both fields would mean "notes that equal the answer are not notes", a rule every
 // reader would have to carry forever to buy compatibility with a version nobody should run.
-// Recorded for the user in CHANGELOG.md; the reverse is a Seal rollback, not a down().
+// Recorded in the release notes; the reverse is a Seal rollback, not a down().
 
 export const version = 1;
 export const description = 'type_answer: move the compared answer from backText into answerText';

@@ -1,13 +1,8 @@
-/**
- * Query.js
- * Data Access Layer for Flashback.
- * Handles all direct SQLite interactions.
- */
+/** Data access layer. The only module allowed to db.prepare() against the vault DB. */
 
 import db from '../primitives/database.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
-/** Returns `scope` unchanged, refusing a missing one rather than defaulting to the owner. */
 /** The stored columns of a reading position, in the order every statement writes them. */
 const READ_FIELDS = ['unit', 'total', 'pos', 'pos_pct', 'far', 'far_pct', 'body_etag'];
 
@@ -69,7 +64,7 @@ const CARD_LEARNED_SQL = (t) => `
     END`;
 
 /** A comma-separated run of `?` placeholders, one per element. */
-class DocumentQuery {
+class VaultQuery {
     constructor() {
         this.db = db;
         this._typeCache = null;
@@ -2790,4 +2785,4 @@ class DocumentQuery {
     }
 }
 
-export default new DocumentQuery();
+export default new VaultQuery();

@@ -1,23 +1,4 @@
-/**
- * Who the current request belongs to, available without threading it through every call.
- *
- * Authorship used to be a property of the INSTALL: `config.getIdentity()` answered "who is
- * using this computer", and a sidecar's `createdBy` and every Seal commit read it. On a
- * server that answer is wrong — the install is a machine in a datacentre, and the person who
- * made the edit is whoever presented the token.
- *
- * Threading an account object from the auth middleware down to `seal.js`'s `author()` would
- * mean a parameter on every orchestrator method between them, most of which have nothing to
- * do with identity. `AsyncLocalStorage` is the right tool for exactly this: the auth
- * middleware enters the context once, and anything running under that request reads it.
- *
- * Deliberately a leaf module — it imports nothing from `access/`, so `config.js`, `seal.js`
- * and `files.js` can all read it without an import cycle or a tier violation.
- *
- * **Background work has no request**, and that is the case the fallback exists for: the
- * canonical UpdateRunner, the Seal debounce firing after its request finished, the recovery
- * CLI. Those legitimately act as the install, so they get the local identity.
- */
+/** AsyncLocalStorage carrying the current request's account. Leaf module — no access/ imports. */
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { ROLES } from "../shared/roles.js";

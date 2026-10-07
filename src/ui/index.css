@@ -1,7 +1,7 @@
 /* Design tokens and themes. The theme-invariant scale (spacing, radius, type,
    controls, sizes, z-index, motion) lives on :root; every colour token is
    defined per [data-theme] block, and scripts/check-contrast.js reads those
-   blocks — see INTERFACE.md § Theme tokens before editing them. */
+   blocks — run `npm run check:contrast` after editing them. */
 
 /* ── Design tokens (theme-invariant) ─────────────────────────────────────────
    Spacing, radius, type, and motion scales are the same across every theme, so
@@ -122,10 +122,10 @@
 
 /* ── Theme variables ─────────────────────────────────────────────────────────
    One job per colour token; the roles, the pairs check-contrast.js asserts and
-   the graph-palette rules are in INTERFACE.md § Theme tokens. */
+   the graph-palette rules are documented beside each token below. */
 
 /* light-workbench: bg-base, bg-surface and accent-subtle are solved backwards
-   from the accent's 4.5:1 floor, not hand-picked — see INTERFACE.md. */
+   from the accent's 4.5:1 floor, not hand-picked. */
 :root,
 [data-theme="light-workbench"] {
   --color-bg-base: #fcf4e2;

@@ -1,7 +1,4 @@
-/**
- * Documents.js
- * The Orchestrator. Coordinates File System, Database, and specialized services.
- */
+/** Main orchestrator. Coordinates filesystem, database and specialized services. */
 
 import path from 'path';
 import fs from 'fs';

@@ -1,57 +1,17 @@
-/**
- * The PROGRESS store — every person's behavioural record for one vault.
- *
- * The third of the three data classes, and the one the app had no home for. The canonical
- * `.flashback` files are what the user wrote; the vault database is what we computed from
- * them and can compute again; this is what people *did*, which nothing can recompute. It
- * lives at `{vault}/progress.db`, a sibling of `workspace/` — inside the vault so it travels
- * with a copied folder, outside the workspace so Seal never versions it. Recording a review
- * is not editing a document, and a scroll position is not a commit.
- *
- * ## Why this is not a third adapter instance
- *
- * `accounts.js` and `database.js` are two instances of `sqliteAdapter.js` and must stay that
- * way — see that factory's header. This store is deliberately NOT a third one. It is
- * ATTACHed to the vault connection as the schema `progress`, so the five tables below join
- * against `Flashcards` in single statements and every write lands on ONE queue inside the
- * caller's existing transaction. That is what removes `srs.js`'s cross-store mirror: a JS
- * throw now rolls back the vault write and the progress write together.
- *
- * It buys serialization and joins, NOT crash atomicity. In WAL mode SQLite commits each
- * attached file separately — atomic per file, not across the set — so a host crash mid-COMMIT
- * can land one and not the other. The safety argument is the direction of the dependency, not
- * a guarantee: the review path READS `main` and WRITES `progress`, so the only reachable skew
- * is "progress landed, the index did not", which the Doctor repairs. Do not write "atomic"
- * here; someone will build on it.
- *
- * ## Two rules this schema cannot state in SQL
- *
- * Keyed by `card_hash` — a card's `globalHash` — and never by `flashcard_id`, for the reason
- * `accounts.js` already gives about `AccountProgress`: a Doctor rebuild reassigns every row id
- * in the vault database and only the hash survives it. After the sidecars stop carrying
- * progress there is no second copy to re-derive from, so an id key would silently zero
- * everyone's history on the next rebuild. The id↔hash mapping stays where it belongs, in the
- * disposable store, as `Flashcards.global_hash`.
- *
- * And no `REFERENCES` clause appears below, deliberately. Foreign keys may not cross a schema
- * boundary: `REFERENCES Flashcards(id)` written here resolves against `progress.Flashcards`,
- * which does not exist. SQLite resolves parent tables lazily, so such a constraint is accepted
- * at CREATE and then fails on every INSERT with `no such table: progress.Flashcards` — a
- * landmine rather than an error. Card deletion cascades by hand instead; see
- * `query.deleteFlashcard`, which must purge for a user-initiated delete and must NOT purge for
- * sidecar reconciliation.
- *
- * Every statement is schema-qualified. An unqualified `CREATE TABLE` here would silently
- * create the table in `main`, and an empty table in `main` SHADOWS the real one for every
- * unqualified read — no error, just wrong answers.
- */
+/** Per-person behavioural record, ATTACHed to the vault DB — not a separate adapter. */
 
-/** Schema name the vault connection attaches this store under. */
+/**
+ * Schema name the vault connection attaches this store under.
+ * Every statement must be schema-qualified (`progress.CardProgress`). An unqualified
+ * CREATE TABLE lands in `main`, and an empty table there shadows the real one silently.
+ * No REFERENCES clause — foreign keys cannot cross a schema boundary in SQLite.
+ * Keyed by card_hash (globalHash), never by flashcard_id — a Doctor rebuild reassigns row ids.
+ */
 export const SCHEMA_NAME = "progress";
 
 /**
- * Tables that must exist ONLY in this store. `validators/database.js` asserts `main` holds
- * none of them: an empty shadow in `main` wins every unqualified lookup, silently.
+ * Tables that must exist only in this store. `validators/database.js` asserts `main` holds
+ * none of them.
  */
 export const PROGRESS_TABLES = Object.freeze([
     "CardProgress",

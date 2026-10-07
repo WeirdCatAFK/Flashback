@@ -1,6 +1,4 @@
-/**
- * ankiImport.js
- * Orchestrator to parse and import Anki .apkg packages into Flashback.
+/** Imports Anki .apkg packages into Flashback.
  *
  * Anki has no fixed card shape: a notetype declares N named fields, and its
  * templates decide which field renders where. Flashback has five card types with

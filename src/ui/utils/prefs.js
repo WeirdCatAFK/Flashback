@@ -1,8 +1,4 @@
-/**
- * Vault-scoped localStorage preferences. Study settings are stored as
- * <key>@<vaultId>, falling back to and copying forward the old global key;
- * cosmetic settings stay global (INTERFACE.md § preferences).
- */
+/** Vault-scoped localStorage preferences. Study settings are <key>@<vaultId>; cosmetic settings stay global. */
 
 /** Keys that follow the vault. Everything else stays global. */
 export const VAULT_SCOPED_KEYS = new Set([

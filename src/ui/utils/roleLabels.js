@@ -23,14 +23,7 @@ export function roleLabel(t, role) {
     }
 }
 
-/**
- * Why a control is disabled rather than simply absent — the tooltip half of the hide/disable
- * rule (see INTERFACE.md). Names the role required, because "you can't do that" without a
- * reason is the thing that sends people to a support channel.
- *
- * Returns null for an unknown capability rather than a guess, so a typo shows up as a missing
- * tooltip rather than as a confident wrong sentence.
- */
+/** Why a control is disabled: names the role required so the user knows, not just that they can't. */
 export function capabilityHint(t, capability) {
     const minimum = CAPABILITIES[capability]?.minimum;
     const label = roleLabel(t, minimum);

@@ -1,7 +1,4 @@
-/**
- * obsidianImport.js
- * Orchestrator to parse and import Obsidian vault ZIP packages into Flashback.
- */
+/** Imports an Obsidian vault ZIP into Flashback. */
 
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';

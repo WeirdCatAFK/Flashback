@@ -1,6 +1,4 @@
-/*The idea is that this file manages the api mounting process, so it
- can be called on it's own or as a module on the backend, the spawn.js
- file creates a child process and the main.js file runs it on it's own*/
+/** Express app — build()/start()/stop(). Every mount: app.use('/api/X', guard('X'), router). */
 import express from "express";
 import cors from './config/cors.js';
 import morgan from "morgan";

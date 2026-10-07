@@ -103,7 +103,7 @@ The runner owns the stamp — do not set `formatVersion` yourself.
 5. **Keep `up()` pure and synchronous.** It transforms a plain object. All IO, ordering,
    stamping and sealing belong to the runner.
 6. **Say so when an update is one-way.** See below — the header comment, the table, and
-   `CHANGELOG.md` all have to carry it, because the user is the one who finds out.
+   the release notes all have to carry it, because the user is the one who finds out.
 
 ---
 
@@ -120,7 +120,7 @@ When an update is one-way, three things must record it:
 
 - the update's own header comment, for whoever debugs it later;
 - the **Downgrade** column below, so the property is visible at a glance;
-- a "downgrading breaks X" section in `CHANGELOG.md`, which is what reaches the user.
+- a "downgrading breaks X" section in the release notes (GitHub Release body), which is what reaches the user.
 
 There is no `down()`, and adding one would be a lie: the runner rewrites files and seals
 them, so the honest reverse of a canonical update is a Seal rollback or a vault backup, not

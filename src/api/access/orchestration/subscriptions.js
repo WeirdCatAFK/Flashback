@@ -1,7 +1,4 @@
-/**
- * Subscriptions.js
- * Manages magazine subscriptions, checks for updates, and handles the import and merging of new issues.
- */
+/** Magazine subscriptions. Checks for updates and imports new issues. */
 
 import Documents from './documents.js';
 import AdmZip from 'adm-zip';

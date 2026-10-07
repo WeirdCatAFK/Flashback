@@ -1,3 +1,5 @@
+/** Config reader. Resolves vault/workspace/database paths from config.json + USER_DATA_PATH. */
+
 import path from "path";
 import fs from "fs";
 import os from "os";

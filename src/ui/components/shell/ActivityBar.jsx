@@ -8,7 +8,7 @@
  * focus. Items arrive already filtered and labelled — App owns which screens exist.
  *
  * Positions are read from `offsetTop`, which is in layout pixels, so the marker and
- * the tooltip need no conversion under the app zoom (see INTERFACE.md).
+ * the tooltip need no conversion under the app zoom.
  */
 
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";

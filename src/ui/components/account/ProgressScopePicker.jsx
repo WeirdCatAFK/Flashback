@@ -30,7 +30,7 @@ const clipName = (name) =>
  *
  * Renders nothing unless the session holds `viewAllProgress` AND the server lists at least
  * one other active account (you are the "You" option, not a row). Hidden rather than disabled
- * on purpose (INTERFACE.md): looking at other people's schedules is categorically not a
+ * on purpose: looking at other people's schedules is categorically not a
  * Reader's, and on a local vault there is exactly one account, so the desktop app never shows
  * this at all. The list is fetched once per mount and any failure hides the control, which
  * fails closed the way the session itself does.

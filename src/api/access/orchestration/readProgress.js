@@ -1,41 +1,4 @@
-/**
- * Read progress — where one person has read to in one document.
- *
- * Tier 3 (orchestration). It is the only module that knows both a document's identity and a
- * reading *unit*, which is why it exists rather than living inside `documents.js`: the unit
- * vocabulary belongs to the reader, and the identity belongs to the index.
- *
- * ## Where it is stored, and why that is not where SRS progress is stored
- *
- * Everything here lives in `accounts.db`'s `ReadProgress`, for EVERYONE — the owner included,
- * under the same `OWNER_SCOPE` sentinel the rest of the app uses. That is deliberately NOT the
- * split `srs.js` makes (owner in the sidecar, everyone else in the accounts store), and the
- * two differences that justify it are specific to reading:
- *
- *   - A position moves continuously. `seal.js` justifies its review debounce with "nobody will
- *     ever roll back to the state of a card between two answers"; a scroll position is that
- *     argument several orders of magnitude over. Sidecar storage would turn reading into a
- *     commit stream, and skipping Seal would leave working-tree drift for the Doctor.
- *   - A Reader must be able to record one. `PUT /api/documents/metadata` is COLLABORATOR-gated,
- *     so a Reader cannot write a sidecar at all. Reading is not editing.
- *
- * Nothing here is derived, so a Doctor rebuild neither restores nor destroys it, and there is
- * no second canonical copy for this one to drift from.
- *
- * ## Units
- *
- * Positions are expressed in `mcpReader`'s vocabulary — `page` | `section` | `chars` |
- * `segment` — rather than a fifth one, because that is the only pagination model the renderers
- * and the MCP reader share. `GET /api/reader/read` already addresses documents in these terms,
- * which is what lets a stored position bound a text read.
- *
- * The locator is JSON and format-specific; the percent is a flat column so listings and
- * rollups stay SQL-able without parsing it.
- *
- * `total` is always supplied by the caller and never computed here. `mcpReader.info()` performs
- * a full extraction — parsing a PDF, unzipping an EPUB — so deriving a denominator on read
- * would make a 500-document folder listing parse 500 PDFs. The client already knows it.
- */
+/** Where one person has read to in one document. Keyed by canonical globalHash. */
 import path from "path";
 import query from "../resources/query.js";
 import Files from "../resources/files.js";
