@@ -2144,6 +2144,13 @@ describe('Flashback API', () => {
             );
         });
 
+        it('GET /api/decks/cards?search= and /api/search?q= find a card by the name of its deck', async () => {
+            const browser = await (await fetch(`${baseUrl}/api/decks/cards?search=renamed+deck&limit=200`)).json();
+            assert.ok(browser.cards.some(c => c.global_hash === FC_HASH_1), 'the card browser must match the deck name');
+            const global = await (await fetch(`${baseUrl}/api/search?q=renamed+deck`)).json();
+            assert.ok(global.flashcards.some(c => c.global_hash === FC_HASH_1), 'global search must match the deck name');
+        });
+
         it('GET /api/decks/cards/summary → cards per document and per gap band, and health counts', async () => {
             const res = await fetch(`${baseUrl}/api/decks/cards/summary?algorithm=leitner`);
             assert.equal(res.status, 200);

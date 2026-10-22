@@ -172,10 +172,9 @@ export function registerReadTools(server) {
       description:
         'Search the vault. Global mode (query only) matches against actual content — folder/document/deck ' +
         'NAMES, tag names, and flashcard frontText/backText/answerText/name — and returns results grouped by ' +
-        'type. It does ' +
-        'NOT search by theme or association: querying a deck\'s name won\'t surface cards inside it unless the ' +
-        'name literally appears in the card text too (use `deck` filter mode, or list_decks + get_graph, to ' +
-        'browse a deck\'s actual contents). Filter mode (any of tag/deck/document/folder) returns only ' +
+        'type. A flashcard also matches when the query is in the name of a deck holding it, a tag it carries ' +
+        '(inherited included) or its source document. It does NOT search by theme or association beyond ' +
+        'those names. Filter mode (any of tag/deck/document/folder) returns only ' +
         'flashcards matching all supplied filters — mirrors the in-app Ctrl+K search modal. Flashcard results ' +
         'include `level` (the scheduler\'s raw strength, 0 = new) alongside their content; for how well a card ' +
         'is held in the terms the app shows — the gap between reviews — use list_cards. Every group is capped ' +

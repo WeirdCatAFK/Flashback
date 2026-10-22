@@ -1348,7 +1348,7 @@ the card's live flag kinds, or `null`. `total` honours the filter, so the pager 
 
 | Param        | Type   | Description                                                                                                                                                                                                                    |
 | ------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `search`   | string | Substring over name and content.                                                                                                                                                                                               |
+| `search`   | string | Substring over the card's name and content, or the name of a deck holding it, a tag it carries (inherited included) or its source document. |
 | `level`    | int    | Exact SRS level.                                                                                                                                                                                                               |
 | `cardType` | string | `basic` \| `reversible` \| `cloze` \| `type_answer` \| `custom`.                                                                                                                                                     |
 | `origin`   | string | `ai` (made through the MCP server), `import` (Anki or Obsidian) or `human` (no origin: made in the app, or imported before imports were marked). Anything else is ignored. |
@@ -1549,7 +1549,7 @@ places that has to name the scope itself.
 
 | Param        | Type   | Description                                                                                                                                |
 | ------------ | ------ | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `q`        | string | Free-text query. Alone, this selectsglobal mode.                                                                                 |
+| `q`        | string | Free-text query. Alone, this selects global mode. A flashcard matches as `search` does on `/api/decks/cards`: its text, or a deck, tag or document name. |
 | `tag`      | string | Filter by tag name.                                                                                                                        |
 | `deck`     | string | Filter by deck`globalHash`.                                                                                                              |
 | `document` | string | Filter by document path. Normalized — a POSIX-style path from an MCP tool or a script matches the backslash-separated paths in the index. |

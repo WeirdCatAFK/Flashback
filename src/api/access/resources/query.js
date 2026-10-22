@@ -1344,23 +1344,40 @@ class VaultQuery {
 
     /**
      * Whether card `f` carries a tag, the way the Trainer's tag filter reads it: tagged
-     * directly, or inheriting it from its document, folder or deck. Two `?` for the name.
+     * directly, or inheriting it from its document, folder or deck. Two `?` for the name,
+     * compared with `op` (`=`, or `LIKE` for a pattern).
      */
-    _carriesTagSql() {
+    _carriesTagSql(op = '=') {
         return `(EXISTS (
                 SELECT 1 FROM Connections ctag
                 JOIN Tags tg ON tg.node_id = ctag.destiny_id
                 WHERE ctag.origin_id = f.node_id
                   AND ctag.type_id = (SELECT id FROM ConnectionTypes WHERE name = 'tag')
-                  AND tg.name = ?
+                  AND tg.name ${op} ?
             ) OR EXISTS (
                 SELECT 1 FROM InheritedTags it
                 JOIN Connections cinh ON cinh.id = it.connection_id
                 JOIN Tags tgi ON tgi.id = it.tag_id
                 WHERE cinh.destiny_id = f.node_id
                   AND cinh.type_id IN (SELECT id FROM ConnectionTypes WHERE name IN ('inheritance', 'deck'))
-                  AND tgi.name = ?
+                  AND tgi.name ${op} ?
             ))`;
+    }
+
+    /**
+     * A free-text card search: the card's text or name, or the name of a deck that holds it,
+     * a tag it carries or the document it comes from — a card of kana in a deck called
+     * Hiragana is found by "hiragana". Returns the condition and its params.
+     */
+    _cardMatchSql(text) {
+        const term = `%${text}%`;
+        return {
+            sql: `(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
+                OR f.global_hash IN (SELECT de.card_hash FROM DeckEntries de JOIN Decks dk ON dk.id = de.deck_id WHERE dk.name LIKE ?)
+                OR f.document_id IN (SELECT id FROM Documents WHERE name LIKE ?)
+                OR ${this._carriesTagSql('LIKE')})`,
+            params: [term, term, term, term, term, term, term, term],
+        };
     }
 
     /**
@@ -1662,17 +1679,7 @@ class VaultQuery {
             `SELECT name, relative_path as path, global_hash FROM Documents WHERE name LIKE ? LIMIT ?`
         ).all(term, probe);
 
-        const flashcards = await this.db.prepare(`
-            SELECT f.global_hash, f.name, f.card_type, COALESCE(p.level, 0) AS level, f.origin,
-                   c.frontText, c.backText, c.answerText,
-                   d.relative_path as document_path, d.name as document_name
-            FROM Flashcards f
-            ${PROGRESS_JOIN()}
-            JOIN FlashcardContent c ON f.content_id = c.id
-            LEFT JOIN Documents d ON d.id = f.document_id
-            WHERE c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
-            LIMIT ?
-        `).all(scoped(scope), term, term, term, term, probe);
+        const flashcards = await this._searchFlashcards({ q: q.trim(), limit: probe }, scope);
 
         const tags = await this.db.prepare(
             `SELECT name FROM Tags WHERE name LIKE ? LIMIT ?`
@@ -1742,8 +1749,9 @@ class VaultQuery {
         }
 
         if (q) {
-            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?)');
-            condParams.push(`%${q}%`, `%${q}%`, `%${q}%`, `%${q}%`);
+            const match = this._cardMatchSql(q);
+            conditions.push(match.sql);
+            condParams.push(...match.params);
         }
 
         const whereSQL = conditions.length ? `WHERE ${conditions.join(' AND ')}` : '';
@@ -2157,9 +2165,9 @@ class VaultQuery {
         }
 
         if (search) {
-            const term = `%${search}%`;
-            conditions.push('(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?)');
-            params.push(term, term, term, term);
+            const match = this._cardMatchSql(search);
+            conditions.push(match.sql);
+            params.push(...match.params);
         }
         if (level !== null && level !== undefined) {
             conditions.push('COALESCE(p.level, 0) = ?');
