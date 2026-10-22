@@ -1,16 +1,17 @@
 /**
  * FlashcardForm — the one card editor: type, faces, answer text for type_answer,
- * category, tags, and media from files, a book's figures or a clip's assets, beside
+ * category, tags, and media from files, a book's figures, a clip's assets or a PDF box highlight, beside
  * a live preview that shows a worked example until anything is written. Edit mode is
  * text-only; media is preserved server-side. `onDelete` adds a Delete that confirms
  * in place. CardBench is the floating shell it opens in; the card details host it bare.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import InlineConfirm from '../base/InlineConfirm';
 import Flashcard from './Flashcard';
 import BookImagePicker from './BookImagePicker';
 import ClipMediaPicker from './ClipMediaPicker';
+const PdfBoxPicker = lazy(() => import('./PdfBoxPicker'));
 import { fetchBookImageFile, fetchDocumentMediaFile } from '../../api/reader';
 import { saveClipAsset } from '../../api/documents';
 import { getCategories } from '../../api/categories';
@@ -78,7 +79,7 @@ export default function FlashcardForm({
   const [tagInput, setTagInput]         = useState('');
   const [category, setCategory]         = useState(initial?.category ?? '');
   const [categories, setCategories]     = useState([]);
-  const [files, setFiles]               = useState(EMPTY_FILES);
+  const [files, setFiles]               = useState(() => (seedImage?.file ? { ...EMPTY_FILES, [seedImage.slot]: seedImage.file } : EMPTY_FILES));
   const [previewFace, setPreviewFace]   = useState('front');
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
@@ -175,7 +176,7 @@ export default function FlashcardForm({
     setPickError(null);
     setLoadingSlot(slot);
     try {
-      setFile(slot, await fetchSourceFile(asset.href, asset.name));
+      setFile(slot, asset.file ?? await fetchSourceFile(asset.href, asset.name));
     } catch (err) {
       setPickError(err.message ?? t('Could not load that media'));
     } finally {
@@ -373,7 +374,7 @@ export default function FlashcardForm({
                         className="fc-form-media-add fc-form-media-add--book"
                         onClick={() => setPickingFor(key)}
                       >
-                        {sourceKind === 'clip' ? t('From clip') : t('From book')}
+                        {sourceKind === 'clip' ? t('From clip') : sourceKind === 'pdf' ? t('From PDF') : t('From book')}
                       </button>
                     )}
                   </div>
@@ -392,6 +393,14 @@ export default function FlashcardForm({
           onPick={handleSourcePick}
           onClose={() => setPickingFor(null)}
         />
+      ) : sourceKind === 'pdf' ? (
+        <Suspense fallback={null}>
+          <PdfBoxPicker
+            pdfPath={sourcePath}
+            onPick={handleSourcePick}
+            onClose={() => setPickingFor(null)}
+          />
+        </Suspense>
       ) : (
         <BookImagePicker
           bookPath={sourcePath}

@@ -46,7 +46,7 @@ export default function PdfRenderer({
   const { t, tp } = useT();
   const doc = usePdfDocument({ path, saveRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef });
   const { pages, highlights, loading, error, scale } = doc;
-  const hl = usePdfHighlights({ highlightRef, highlightsRef: doc.highlightsRef, setAll: doc.setAll, pagesRef: doc.pagesRef, scale, save: doc.save });
+  const hl = usePdfHighlights({ highlightRef, highlightsRef: doc.highlightsRef, setAll: doc.setAll, pages, pagesRef: doc.pagesRef, scale, save: doc.save });
 
   if (loading) return <div className="renderer-loading">{t('Loading PDF…')}</div>;
   if (error) return <div className="renderer-error">{t('Could not load PDF: {error}', { error })}</div>;

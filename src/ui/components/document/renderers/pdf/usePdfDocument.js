@@ -7,14 +7,11 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { getDocument, GlobalWorkerOptions } from 'pdfjs-dist';
-import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.min.mjs?url';
 import { readFile, updateMetadata, rawDocumentUrl } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
 import { findScroller } from '../scroller';
 import { SCALE_DEFAULT, zoomedIn, zoomedOut, fitScale, pageAtTop } from './geometry.js';
-
-GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+import { getDocument } from './pdfjs.js';
 
 export default function usePdfDocument({ path, saveRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef }) {
   const { t } = useT();

@@ -4,7 +4,8 @@
  * what the card is anchored to — `{ text, highlightId, color, image? }`, or `{}`
  * for a blank card — stable state that, unlike the live selection, does not vanish
  * when a field is clicked. `image` is set when the card started from a figure in
- * the reader rather than from a passage.
+ * the reader rather than from a passage — `{ kind, href }` for one read from the
+ * source, or `{ kind, file }` for a picture already made, like a PDF box highlight's.
  */
 
 import { useState } from 'react';
@@ -20,9 +21,9 @@ export default function DocumentCardBench({ path, draft, onClose, onSaved }) {
 
   const title = docStem(path.replace(/\\/g, '/').split('/').pop() ?? '');
   const highlightId = draft?.highlightId ?? null;
-  const sourceKind = /\.epub$/i.test(path) ? 'epub' : /\.clip$/i.test(path) ? 'clip' : null;
-  const seedImage = draft?.image?.href
-    ? { slot: draft.image.kind === 'audio' ? 'front_sound' : 'front_img', href: draft.image.href }
+  const sourceKind = /\.epub$/i.test(path) ? 'epub' : /\.clip$/i.test(path) ? 'clip' : /\.pdf$/i.test(path) ? 'pdf' : null;
+  const seedImage = draft?.image?.href || draft?.image?.file
+    ? { slot: draft.image.kind === 'audio' ? 'front_sound' : 'front_img', href: draft.image.href, file: draft.image.file }
     : null;
 
   const source = draft?.text

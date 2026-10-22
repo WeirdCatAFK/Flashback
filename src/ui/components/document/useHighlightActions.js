@@ -125,12 +125,19 @@ export default function useHighlightActions({
     if (activeTab) refreshSidecar(activeTab);
   };
 
-  const cardFromHighlight = (highlightId) => {
+  /** A box highlight has no text, so its card starts from a picture of the box instead. */
+  const cardFromHighlight = async (highlightId) => {
     const h = highlights.find((x) => x.id === highlightId);
+    let image;
+    if (h?.type === "pdf_bbox" && !h.text) {
+      const file = await highlightRef.current?.snapshot?.(highlightId).catch(() => null);
+      if (file) image = { kind: "image", file };
+    }
     openNewCard({
       text: h?.text ?? "",
       highlightId,
       color: h?.color ?? DEFAULT_HL_COLOR,
+      image,
     });
   };
 
