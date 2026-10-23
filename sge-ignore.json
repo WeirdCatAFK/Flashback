@@ -1,0 +1,7 @@
+[
+  {
+    "rule": "synonym-rotation",
+    "path": "src/mcp/skills/flashback-cards/SKILL.md",
+    "reason": "User-authored guide prose; 'fix' and 'correct' are used in distinct senses (fix = repair a broken card, correct = the right answer shape)"
+  }
+]
