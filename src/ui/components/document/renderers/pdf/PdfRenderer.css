@@ -50,6 +50,22 @@
   font-size: var(--text-xs);
   font-variant-numeric: tabular-nums;
   color: var(--color-fg-primary);
+  cursor: text;
+}
+
+.pdf-zoom-input {
+  width: 3.5ch;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font: inherit;
+  color: inherit;
+  text-align: right;
+}
+
+.pdf-zoom-input:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 /* Labeled tool buttons: Fit width, Box highlight */

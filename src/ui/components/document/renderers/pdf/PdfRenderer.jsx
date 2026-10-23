@@ -2,14 +2,17 @@
  * PdfRenderer — a PDF as a scroll of lazily rendered pages, text-selection
  * highlights and a box-draw mode for scanned pages. Its tools (zoom, Fit width,
  * Box highlight) are portaled into the reading strip's `toolsTarget`, so the
- * document has one bar above it rather than a strip and a toolbar. Capabilities
+ * document has one bar above it rather than a strip and a toolbar. The zoom
+ * percentage is a field: type any value in range and Enter (or leave it) applies
+ * it, Esc puts back the current one. Capabilities
  * are declared in ../registry.js; the lifecycle is usePdfDocument.js and the
  * highlight logic usePdfHighlights.js.
  */
 
+import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useT } from '../../../../translations/index';
-import { SCALE_MIN, SCALE_MAX } from './geometry.js';
+import { SCALE_MIN, SCALE_MAX, scaleFromPercent } from './geometry.js';
 import PdfPage from './PdfPage';
 import usePdfDocument from './usePdfDocument';
 import usePdfHighlights from './usePdfHighlights';
@@ -40,6 +43,34 @@ const BoxIcon = () => (
   </svg>
 );
 
+/** The zoom percentage as a field; `draft` is what is typed until it is applied or dropped. */
+function ZoomField({ scale, onZoom, label }) {
+  const [draft, setDraft] = useState(null);
+  const apply = () => {
+    const next = draft === null ? null : scaleFromPercent(draft);
+    if (next) onZoom(next);
+    setDraft(null);
+  };
+  return (
+    <label className="pdf-zoom-label">
+      <input
+        className="pdf-zoom-input"
+        inputMode="numeric"
+        aria-label={label}
+        value={draft ?? String(Math.round(scale * 100))}
+        onFocus={(e) => e.target.select()}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={apply}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') apply();
+          else if (e.key === 'Escape') setDraft(null);
+        }}
+      />
+      %
+    </label>
+  );
+}
+
 export default function PdfRenderer({
   path, saveRef, highlightRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef, toolsTarget,
 }) {
@@ -58,7 +89,7 @@ export default function PdfRenderer({
           <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={doc.zoomOut} disabled={scale <= SCALE_MIN} title={t('Zoom out')} aria-label={t('Zoom out')}>
             <MinusIcon />
           </button>
-          <span className="pdf-zoom-label">{Math.round(scale * 100)}%</span>
+          <ZoomField scale={scale} onZoom={doc.zoomTo} label={t('Zoom percentage')} />
           <button type="button" className="btn btn--ghost btn--icon btn--sm" onClick={doc.zoomIn} disabled={scale >= SCALE_MAX} title={t('Zoom in')} aria-label={t('Zoom in')}>
             <PlusIcon />
           </button>

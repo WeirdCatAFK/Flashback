@@ -12,6 +12,7 @@ import {
 import { docStem, docKind, readFacts } from '../src/ui/components/document/explorer/rowFacts.js';
 import { cardFront, cardsByHighlight, cardMatches, highlightMatches, orderedCards, hlColor, readingOrder } from '../src/ui/components/document/finderRows.js';
 import { marginStart } from '../src/ui/components/document/renderers/epub/epubTheme.js';
+import { wheelScale, scaleFromPercent, SCALE_MIN, SCALE_MAX } from '../src/ui/components/document/renderers/pdf/geometry.js';
 import { marginItems, stackTops, marginFits, marginFront, marginLeft, COLUMN_GAP, EDGE, LIFT, GAP } from '../src/ui/components/document/margin/marginLayout.js';
 
 const t = (s, vars = {}) => s.replace(/\{(\w+)\}/g, (_, k) => String(vars[k] ?? `{${k}}`));
@@ -222,5 +223,30 @@ describe('youtube small player', () => {
   test('corners sit in from the edges, and the top ones below the bar', () => {
     assert.deepEqual(cornerPosition('bl', area, 340, 190), { left: 116, top: 444 });
     assert.deepEqual(cornerPosition('tr', area, 340, 190), { left: 544, top: 106 });
+  });
+});
+
+describe('pdf zoom', () => {
+  test('a wheel down zooms out, up zooms in, and both stay in range', () => {
+    assert.ok(wheelScale(1.2, 100) < 1.2);
+    assert.ok(wheelScale(1.2, -100) > 1.2);
+    assert.equal(wheelScale(SCALE_MIN, 1000), SCALE_MIN);
+    assert.equal(wheelScale(SCALE_MAX, -1000), SCALE_MAX);
+  });
+
+  test('many tiny pinch steps add up instead of rounding away', () => {
+    let s = 1.2;
+    for (let i = 0; i < 50; i++) s = wheelScale(s, -1);
+    assert.ok(s > 1.3, `got ${s}`);
+  });
+
+  test('a typed percentage becomes a clamped scale, and junk is refused', () => {
+    assert.equal(scaleFromPercent('137'), 1.37);
+    assert.equal(scaleFromPercent(' 80% '), 0.8);
+    assert.equal(scaleFromPercent('9000'), SCALE_MAX);
+    assert.equal(scaleFromPercent('10'), SCALE_MIN);
+    assert.equal(scaleFromPercent('abc'), null);
+    assert.equal(scaleFromPercent(''), null);
+    assert.equal(scaleFromPercent('-5'), null);
   });
 });

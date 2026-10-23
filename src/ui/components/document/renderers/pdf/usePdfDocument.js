@@ -4,13 +4,17 @@
  * saved position once both are ready, and save the sidecar on Ctrl+S. Nothing
  * the renderer owns scrolls, so the scroller is looked up (findScroller) and
  * re-bound when the scale changes — a short PDF only acquires one when zoomed.
+ * Ctrl+wheel and a trackpad pinch zoom around the cursor: the wheel handler notes
+ * where the cursor sits in the scroller, and once the new scale is laid out the
+ * scroller is moved so the same point of the page is back under it.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, rawDocumentUrl } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
+import { getUiZoom } from '../../../../utils/uiZoom';
 import { findScroller } from '../scroller';
-import { SCALE_DEFAULT, zoomedIn, zoomedOut, fitScale, pageAtTop } from './geometry.js';
+import { SCALE_DEFAULT, zoomedIn, zoomedOut, fitScale, pageAtTop, wheelScale } from './geometry.js';
 import { getDocument } from './pdfjs.js';
 
 export default function usePdfDocument({ path, saveRef, onHighlightsChange, onSidecarRefresh, initialProgress, onProgress, progressRef }) {
@@ -133,6 +137,39 @@ export default function usePdfDocument({ path, saveRef, onHighlightsChange, onSi
     return () => { if (saveRef) saveRef.current = null; };
   });
 
+  const anchorRef = useRef(null);
+  const prevScaleRef = useRef(scale);
+
+  useEffect(() => {
+    const el = rendererRef.current;
+    if (!el) return undefined;
+    const onWheel = (e) => {
+      if (!e.ctrlKey) return;
+      e.preventDefault();
+      const box = scroller();
+      if (box) {
+        const r = box.getBoundingClientRect();
+        const z = getUiZoom();
+        anchorRef.current = { x: (e.clientX - r.left) / z, y: (e.clientY - r.top) / z };
+      }
+      setScale((s) => wheelScale(s, e.deltaY));
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, [pages, scroller]);
+
+  useLayoutEffect(() => {
+    const prev = prevScaleRef.current;
+    prevScaleRef.current = scale;
+    const anchor = anchorRef.current;
+    anchorRef.current = null;
+    const box = anchor && prev !== scale ? scroller() : null;
+    if (!box) return;
+    const k = scale / prev;
+    box.scrollTop = (box.scrollTop + anchor.y) * k - anchor.y;
+    box.scrollLeft = (box.scrollLeft + anchor.x) * k - anchor.x;
+  }, [scale, scroller]);
+
   const fitWidth = useCallback(() => {
     if (!rendererRef.current || !pages[0]) return;
     setScale(fitScale(rendererRef.current.clientWidth, pages[0].getViewport({ scale: 1 }).width));
@@ -141,7 +178,7 @@ export default function usePdfDocument({ path, saveRef, onHighlightsChange, onSi
   return {
     pages, highlights, highlightsRef, setAll, loading, error, scale,
     rendererRef, pagesRef,
-    zoomIn: () => setScale(zoomedIn), zoomOut: () => setScale(zoomedOut), fitWidth,
+    zoomIn: () => setScale(zoomedIn), zoomOut: () => setScale(zoomedOut), zoomTo: setScale, fitWidth,
     save: () => saveHandlerRef.current?.(),
   };
 }

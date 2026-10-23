@@ -13,12 +13,26 @@ export const SCALE_STEP = 0.25;
 export const SCALE_DEFAULT = 1.2;
 const FIT_MARGIN = 48;
 const MIN_BOX = 5;
+const WHEEL_RATE = 0.002;
 
 const round2 = (n) => parseFloat(n.toFixed(2));
 
 export const clampScale = (s) => round2(Math.min(SCALE_MAX, Math.max(SCALE_MIN, s)));
 export const zoomedOut = (s) => Math.max(SCALE_MIN, round2(s - SCALE_STEP));
 export const zoomedIn = (s) => Math.min(SCALE_MAX, round2(s + SCALE_STEP));
+
+/**
+ * The scale after a Ctrl+wheel or a trackpad pinch (which Chromium reports as one)
+ * of `deltaY`. Left unrounded so a pinch's many tiny steps add up instead of each
+ * rounding back to where it started.
+ */
+export const wheelScale = (s, deltaY) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, s * Math.exp(-deltaY * WHEEL_RATE)));
+
+/** A typed zoom percentage ("137", "137%") as a scale within range, or null when it is not one. */
+export function scaleFromPercent(text) {
+  const n = parseFloat(String(text).replace('%', ''));
+  return Number.isFinite(n) && n > 0 ? clampScale(n / 100) : null;
+}
 
 /** The scale at which a page of `nativeWidth` fills `containerWidth`. */
 export const fitScale = (containerWidth, nativeWidth) => clampScale((containerWidth - FIT_MARGIN) / nativeWidth);

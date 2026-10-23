@@ -82,6 +82,7 @@ export default function usePdfHighlights({ highlightRef, highlightsRef, setAll, 
   }, [drawMode, pagesRef, highlightsRef, setAll, save, cancelDrag]);
 
   useUiZoomChange(() => { if (dragRef.current) cancelDrag(); });
+  useEffect(() => { if (dragRef.current) cancelDrag(); }, [scale, cancelDrag]);
 
   const selectionOnPage = () => {
     const sel = window.getSelection();
