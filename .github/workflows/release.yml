@@ -1,37 +1,5 @@
 name: Release
 
-# Publishes an electron-updater-compatible GitHub Release.
-#
-# Trigger: push a tag like `v0.2.0` (see scripts/release.js, `npm run release`).
-# electron-builder builds the installers AND the update-metadata files
-# (latest.yml / latest-linux.yml + *.blockmap) and uploads them to a *draft*
-# GitHub Release. Review the draft, then hit "Publish release" — electron-updater
-# only sees published, non-prerelease releases.
-#
-# Requires no extra secrets: the built-in GITHUB_TOKEN can create releases and
-# upload assets for this repo.
-#
-# Two jobs:
-#   release — the desktop installers, one per platform (matrix): Windows NSIS,
-#             Linux AppImage, and an UNSIGNED macOS .dmg (see the matrix comment)
-#   server  — calls the reusable `server.yml` with `upload: true`: the Docker image, the
-#             standalone Linux zip and both Windows zips, each built, booted and exercised.
-#             The zips are then attached to this draft and the image — the same one that was
-#             booted, retagged rather than rebuilt — is pushed to
-#             ghcr.io/weirdcatafk/flashback-server under this version and `latest`.
-#
-# The server steps used to be spelled out here and ran ONLY on a tag: a commit that broke
-# the container or the zip stayed green until someone cut a tag. They now live in
-# `server.yml`, which `prerelease.yml` also calls; this workflow calls the same file and
-# adds the upload. A failed installer build skips the server call — on a tag that is not
-# shipping anyway, which is the right coupling to accept.
-#
-# By the time this runs, everything below should already have passed on this exact commit
-# via `prerelease.yml`. That is the intended order — run Prerelease from the Actions tab,
-# then `npm run release` — because the tag is what triggers this workflow, so a failure
-# here is a failure discovered after the tag is public. Nothing enforces the order; the
-# tag is still the trigger and always was.
-
 on:
   push:
     tags:
@@ -51,16 +19,6 @@ jobs:
             build: npm run dist:win -- --publish always
           - os: ubuntu-latest
             build: npm run dist:linux -- --publish always
-          # macOS is UNSIGNED, and that has two consequences worth stating rather than
-          # discovering. Gatekeeper refuses an unsigned .dmg on a machine that did not build
-          # it, so a user has to right-click -> Open the first time; and electron-updater
-          # cannot apply a mac update without a signature, so the `latest-mac.yml` this job
-          # writes into the draft is inert — mac is manual download until there is a
-          # Developer ID certificate to sign with.
-          #
-          # arm64, not x64: the runner is Apple Silicon, electron-rebuild compiles
-          # better-sqlite3 for the host arch, and packing that into an x64 app produces a
-          # binary that only fails when someone launches it.
           - os: macos-latest
             build: npm run dist:mac -- --publish always
     runs-on: ${{ matrix.os }}
@@ -78,9 +36,6 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # Fail early if the tag (e.g. v0.2.0) doesn't match package.json version (0.2.0).
-      # electron-updater keys everything off the version in latest.yml, which comes
-      # from package.json — a mismatch ships an update no client will ever see.
       - name: Verify tag matches package.json version
         shell: bash
         run: |
@@ -96,20 +51,8 @@ jobs:
         run: ${{ matrix.build }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # No-op off macOS. On the mac runner there is no certificate to find, so this
-          # makes the unsigned build a decision recorded here rather than a keychain lookup
-          # that can fail for reasons of its own.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
-  # The three server artifacts — Docker image, Linux zip, both Windows zips — live in
-  # `server.yml`, which `prerelease.yml` also calls. One copy of the boot sequence and the
-  # API assertions, two callers; `upload: true` is the only thing a release adds —
-  # and it is what turns the image from a thing that was tested into a thing anyone can pull.
-  #
-  # `needs: release` because those zips are attached to the draft that electron-builder
-  # creates, so the installers have to land first. The gate covers the Docker image job too,
-  # which publishes nothing and does not need it — that job loses some parallelism on a tag,
-  # which is the price of one entry point for all three.
   server:
     needs: release
     uses: ./.github/workflows/server.yml

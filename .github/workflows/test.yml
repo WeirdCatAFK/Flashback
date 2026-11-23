@@ -1,37 +1,11 @@
-# Test CI.
-#
-# The repo had only `release.yml` until now — every check was run by hand on one Windows
-# machine. That was survivable while the only build was the desktop app a developer runs
-# daily; it stops being survivable with a headless server build, which is the first
-# configuration nobody exercises by accident.
-#
-# Two jobs, deliberately separate so a failure names itself:
-#   test    — the suite, on Linux (the platform the server actually deploys to)
-#   lint    — advisory for now, see below
-#
-# No BUILD is checked here — not the desktop installers, not the server image, not the
-# zips. `prerelease.yml` owns all of that; the split is by kind of answer, so a red X names
-# either "the code is wrong" or "it does not package", never both.
-#
-# The two run on different triggers, and that is deliberate. This workflow is cheap — two
-# Linux jobs — so it runs on every push and is the fast feedback loop. Packaging is three
-# platforms, and macOS bills at 10x, so it runs when someone is about to release rather
-# than on every commit. It used to run on every push too (`build.yml`, now folded into
-# prerelease.yml); the tradeoff of moving it is written up at the top of that file.
-
 name: Tests
 
 on:
   push:
     branches: ['**']
   pull_request:
-  # Also callable, so `prerelease.yml` runs THIS suite rather than a copy of it. Same
-  # argument as server.yml being reusable: a prerelease that ran its own transcription of
-  # these two jobs would drift from them, and the drift would show up as a release that
-  # passed a check nobody actually runs. One copy, three triggers.
   workflow_call:
 
-# A new push to the same branch makes the previous run's answer irrelevant.
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -48,13 +22,8 @@ jobs:
           node-version: '22'
           cache: npm
 
-      # Not `--omit=dev`: the suite needs the dev dependencies.
       - run: npm ci
 
-      # scripts/run-tests.js hides an Electron-compiled better-sqlite3 and rebuilds for
-      # system Node. On CI there is no Electron build to hide, so the hide step no-ops and
-      # the rebuild is the only thing that happens — which is exactly what we want. Running
-      # the suite through the same script the developer runs means CI cannot diverge from it.
       - run: npm run tests
 
   lint:
@@ -68,10 +37,5 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # Advisory ON PURPOSE, and this is not a permanent excuse. The tree has a standing
-      # baseline of 40 problems / 37 errors / 3 warnings that predates this workflow;
-      # failing every build on them would train everyone to ignore a red X, which is worse
-      # than not having the check. The number is recorded here so a future change can hold
-      # the line or lower it deliberately.
       - run: npm run lint
         continue-on-error: true

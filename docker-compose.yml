@@ -1,143 +1,41 @@
-# Flashback Server — a minimal, complete deployment.
-#
-#   docker compose up --build          build this checkout and run it
-#   docker compose pull && up -d       run a published release (see Upgrading in docs/SERVER.md)
-#
-# On the FIRST start the log prints an author token, once. Copy it: the store keeps only its
-# SHA-256, so it cannot be shown again. Then add the server as a remote in the desktop app.
-#
-# This file deliberately publishes on loopback only. Putting a TLS-terminating reverse proxy
-# in front is not an optional hardening step — the API authenticates with a bearer token, and
-# a token sent over plain HTTP across a network is a token you have given away. See
-# docs/SERVER.md.
-#
-# ── Configuring this without editing this file ────────────────────────────────────────────
-#
-# Every value below is `${NAME:-default}`, so copy `.env.example` to `.env` BESIDE THIS FILE
-# and edit that instead. Compose loads `./.env` on its own and substitutes here before the
-# container is created.
-#
-# Interpolation rather than `env_file:`, and the choice is load-bearing:
-#
-#   - `environment:` entries WIN over `env_file:` entries. Using both would mean every key
-#     named below silently ignores the same key in your `.env` — the exact failure this is
-#     fixing, wearing a different hat.
-#   - `env_file:` reaches the container only. `ports:` needs the port too, and a deployment
-#     whose published port disagrees with the port the server binds is a deployment that
-#     answers nothing.
-#
-# One mechanism, one precedence rule: your shell's environment beats `.env`, `.env` beats the
-# defaults written here. (Inside the container there is a third, lowest, layer — `/data/.env`,
-# read by `--env-file-if-exists`; it exists for `docker run -v`, where there is no Compose.)
+# Flashback Server. Copy .env.example to .env beside this file to set the values below.
+# The first start logs the author token once. Put a TLS proxy in front: this publishes on loopback.
 
 services:
   flashback:
     build: .
-    # A registry reference, so `docker compose pull` and pinning a version both work; `build:`
-    # above is still what a clone uses. Compose builds when the image is not present locally
-    # and pulls when asked, which lets one file serve both paths.
     image: ghcr.io/weirdcatafk/flashback-server:${FLASHBACK_VERSION:-latest}
     restart: unless-stopped
 
-    # 127.0.0.1 on the host side: reachable by a reverse proxy on this machine, not by the
-    # network. Change FLASHBACK_BIND_ADDR in `.env` only when something else is terminating
-    # TLS in front of it.
     ports:
       - "${FLASHBACK_BIND_ADDR:-127.0.0.1}:${FLASHBACK_PORT:-50500}:${FLASHBACK_PORT:-50500}"
 
     environment:
       FLASHBACK_PORT: "${FLASHBACK_PORT:-50500}"
-      FLASHBACK_HOST: "${FLASHBACK_HOST:-0.0.0.0}"   # inside the container; the port mapping is the boundary
+      FLASHBACK_HOST: "${FLASHBACK_HOST:-0.0.0.0}"
       FLASHBACK_VAULT_NAME: "${FLASHBACK_VAULT_NAME:-shared}"
-
-      # Who this server stamps its own work as. Set these BEFORE the first start: without
-      # them the identity comes from the container's unix user, so documents and Seal
-      # commits are authored by "node <node@flashback.local>" forever after.
       FLASHBACK_USER_NAME: "${FLASHBACK_USER_NAME:-Flashback Server}"
       FLASHBACK_USER_EMAIL: "${FLASHBACK_USER_EMAIL:-server@example.com}"
-
-      # Browser origins allowed to call the API. Node clients (the MCP server, scripts) send
-      # no Origin header and are gated by the token instead, so this list is only about
-      # browsers. Loopback and the packaged renderer's `file://` origin are always allowed.
       FLASHBACK_ALLOWED_ORIGINS: "${FLASHBACK_ALLOWED_ORIGINS:-}"
-
       FLASHBACK_LOG_FORMAT: "${FLASHBACK_LOG_FORMAT:-combined}"
-
-      # Whether the server asks GitHub, once a day, whether a newer release exists. It only
-      # ever LOGS the answer — nothing here updates itself.
       FLASHBACK_UPDATE_CHECK: "${FLASHBACK_UPDATE_CHECK:-on}"
-
-      # Supply your own author token instead of having one minted on first start. Put it in
-      # `.env` (gitignored), never here — anything in this file is in your repo.
-      #
-      # Empty is not "set to nothing": serverConfig.js treats a whitespace-only variable as
-      # unset, so the default below leaves first-start minting exactly as it was, and an
-      # empty FLASHBACK_ALLOWED_ORIGINS leaves whatever config.json already holds alone.
       FLASHBACK_AUTHOR_TOKEN: "${FLASHBACK_AUTHOR_TOKEN:-}"
-
-      # Split the vault across mounts. Both are ABSOLUTE container paths, and both are unset
-      # by default so the layout below stays exactly as it has always been. See the volumes
-      # block; read the migration note there before setting either on a running deployment.
-      #
+      FLASHBACK_STORAGE_LIMIT: "${FLASHBACK_STORAGE_LIMIT:-}"
+      FLASHBACK_MAX_ACCOUNTS: "${FLASHBACK_MAX_ACCOUNTS:-}"
+      # Split mounts: uncomment these two and the two mounts below.
       # FLASHBACK_WORKSPACE_PATH: "/canonical"
       # FLASHBACK_INDEX_PATH: "/cache"
 
-      # How much room the vault actually has — the volume you provisioned, not what `df`
-      # inside the container claims. Reporting only, on GET /api/vault; nothing is refused.
-      FLASHBACK_STORAGE_LIMIT: "${FLASHBACK_STORAGE_LIMIT:-}"
-
-      # The most ACTIVE accounts this server may hold, the Author included. Enforced: a
-      # creation or re-activation past it is refused with 409. Unset means no cap.
-      FLASHBACK_MAX_ACCOUNTS: "${FLASHBACK_MAX_ACCOUNTS:-}"
-
-    # ── One volume by default ────────────────────────────────────────────────────────────
-    #
-    # Everything the deployment owns lives here: config.json, accounts.db, and the vault
-    # (workspace/ and its git repo, progress.db, the derived database, the diary).
-    #
-    # Back this up. TWO stores in here cannot be rebuilt from anything: `accounts.db` holds
-    # who may reach this install, and `progress.db` holds every person's schedule, review
-    # history, card-health verdicts and fitted FSRS weights. The derived database is
-    # rebuildable by the Vault Doctor; the workspace is not rebuildable by anything.
     volumes:
       - flashback-data:/data
-
-      # ── Or three, one per durability class ──────────────────────────────────────────
-      #
-      # Uncomment these (and the two variables in `environment:` above) to give each mount a
-      # single answer to "can I lose this?":
-      #
-      #   /canonical   workspace/       authorial, git-versioned   BACK UP
-      #   /data        progress.db, accounts.db, config.json       BACK UP
-      #   /cache       {vaultName}.db   derived index              THROWAWAY
-      #
-      # A BIND MOUNT for the canonical layer, deliberately. A named volume would work, but it
-      # buries your documents under /var/lib/docker/volumes where only root and `docker cp`
-      # can reach them — and the whole premise of the canonical layer is that it is ordinary
-      # files you can grep, rsync and copy to a stick. It must stay a real local filesystem:
-      # NFS or SMB is fine, S3FS and other FUSE layers are not, because git needs real locking.
-      #
-      # Set ownership ONCE before the first start — the container runs as uid 1000 and a fresh
-      # host directory is root-owned:
-      #
-      #   mkdir -p ./workspace && sudo chown -R 1000:1000 ./workspace
-      #
-      # MIGRATING AN EXISTING DEPLOYMENT IS NOT JUST UNCOMMENTING THIS. Your workspace is
-      # currently INSIDE flashback-data; pointing the server at an empty /canonical makes it
-      # create a new empty one and quietly orphan the real one. Copy it across first — the
-      # recipe is in docs/SERVER.md § The volumes, and what each one is worth.
-      #
+      # Split mounts. Copy the workspace out of flashback-data first, or the server serves an empty one.
+      # Run `sudo chown -R 1000:1000 ./workspace` once before the first start.
       # - ${FLASHBACK_CANONICAL_DIR:-./workspace}:/canonical
       # - flashback-cache:/cache
 
-    # The default 10s is not enough: shutdown flushes Seal's pending commits and checkpoints
-    # the WAL, and being killed mid-checkpoint is how a restart loses recent writes.
+    # Shutdown flushes Seal and checkpoints the WAL.
     stop_grace_period: 30s
 
 volumes:
   flashback-data:
-
-  # Only used by the split layout above. Safe to destroy and recreate: the Vault Doctor
-  # rebuilds the index from the canonical files, and since migrations 013-016 it no longer
-  # takes anybody's schedule or history with it.
   # flashback-cache:

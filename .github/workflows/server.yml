@@ -1,28 +1,5 @@
 name: Server
 
-# The server artifacts: the Docker image, the standalone Linux zip and the two Windows zips.
-#
-# A reusable workflow (`workflow_call`) rather than a set of jobs, because two callers need
-# exactly the same build-and-boot sequence and differ only in what happens at the end:
-#
-#   prerelease.yml  manual, before a tag, `upload: false` — verification only
-#   release.yml     a `v*` tag,           `upload: true`  — the same, then publish: the zips
-#                                                           to the draft, the image to GHCR
-#
-# Before this split the sequence lived only in release.yml, so a commit that broke the
-# container or the zip stayed green until someone cut a tag — by which point the tag was
-# already public. Copying the steps into the verification workflow would have closed that
-# gap and opened a worse one: two copies of a two-hundred-line smoke test drift the first
-# time either is edited. This file is the one copy.
-#
-# The verification caller used to be `build.yml`, which ran on every push. It is now
-# `prerelease.yml`, which is dispatched by hand before a release — same call, same input,
-# far fewer runner minutes. See the note at the top of prerelease.yml for the tradeoff.
-#
-# Ordering against the desktop installers is the CALLER's business, not this file's: the
-# zips upload into a draft release that electron-builder creates, so release.yml gates its
-# call on `needs: release`. Nothing here knows that.
-
 on:
   workflow_call:
     inputs:
@@ -43,9 +20,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # The real assertion here is that better-sqlite3 compiles against the image's Node.
-      # It is a native addon, and a broken build surfaces at container start as a
-      # NODE_MODULE_VERSION error — far too late to be useful.
       - uses: docker/build-push-action@v6
         with:
           context: .
@@ -53,9 +27,6 @@ jobs:
           load: true
           tags: flashback-server:ci
 
-      # Boot it. An image that builds and then cannot open a vault has told us nothing, so
-      # this starts a real container on a real volume and waits for the unauthenticated
-      # readiness ping — the same one the HEALTHCHECK uses.
       - name: Boot the server and wait for readiness
         run: |
           docker run -d --name flashback-ci \
@@ -76,8 +47,6 @@ jobs:
           echo "anonymous /api -> $code"
           test "$code" = "401" || { docker logs flashback-ci; exit 1; }
 
-      # A clean stop is what checkpoints the WAL; if SIGTERM handling regressed, this is
-      # where it shows up rather than as a corrupted volume in production.
       - name: Stop cleanly
         run: |
           docker stop -t 30 flashback-ci
@@ -85,24 +54,6 @@ jobs:
           docker logs flashback-ci 2>&1 | grep -q "Shutdown complete" \
             || { echo "container did not shut down gracefully"; exit 1; }
 
-      # ── Publish ──────────────────────────────────────────────────────────────────────
-      #
-      # What is pushed is the image the steps above BOOTED — retagged, never rebuilt. That is
-      # what makes "nothing reaches the registry that did not start, answer a readiness ping
-      # and refuse an anonymous caller" a property of this workflow rather than a hope. A
-      # second build-push-action with `push: true` would produce a fresh image and assert
-      # nothing whatsoever about it.
-      #
-      # `inputs.upload` gates these, exactly as the zip uploads are gated — but the real lock
-      # is the caller's permissions. A reusable workflow runs with the permissions its caller
-      # granted, and `prerelease.yml` grants `contents: read` and nothing else, so the
-      # verification caller cannot push an image even if this input were set by mistake.
-      #
-      # amd64 only, deliberately. Multi-arch needs buildx with QEMU and cannot `load: true`,
-      # so an arm64 image could not be started here — it would ship untested, which is the
-      # one thing this job exists to prevent. If arm64 is wanted (plenty of home servers are),
-      # add a second push step with `platforms: linux/amd64,linux/arm64` AFTER this one, so
-      # the image that gates the release is still the one that was booted.
       - name: Log in to GHCR
         if: ${{ inputs.upload }}
         uses: docker/login-action@v3
@@ -114,12 +65,9 @@ jobs:
       - name: Push the tested image
         if: ${{ inputs.upload }}
         run: |
-          # An image reference must be lowercase, and the owner is not.
           owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           repo="ghcr.io/$owner/flashback-server"
 
-          # package.json, not the tag: release.yml has already refused to run if the two
-          # disagree, and this is the version the running server reports on /api/vault.
           version=$(node -p "require('./package.json').version")
 
           echo "publishing $repo:$version and $repo:latest"
@@ -139,9 +87,6 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # The artifact is platform-specific: better-sqlite3 is a compiled addon, so a Linux zip
-      # can only be built on Linux. Until this job existed the zip had been built and tested
-      # on Windows only, while Linux is the actual deployment target.
       - name: Build the zip
         run: npm run package:server
 
@@ -151,25 +96,15 @@ jobs:
           zip=$(ls flashback-server-*-linux-x64.zip)
           unzip -q "$zip" -d extracted
 
-          # Renamed to a fixed path so every later step can address it literally. The
-          # alternative — passing the globbed directory forward through $GITHUB_ENV — is
-          # cross-step state that only fails once it reaches a real runner, and there is
-          # nothing here it buys.
           mv "extracted/$(ls extracted)" app
           dir=app
           ls -l "$dir"
 
-          # The Windows build cannot set a Unix execute bit, so the mode is stamped into the
-          # zip entry explicitly. If that regressed, the launcher is unrunnable and this is
-          # the only place it would be noticed.
           test -x "$dir/flashback-server.sh" \
             || { echo "flashback-server.sh is not executable"; exit 1; }
           test ! -e "$dir/flashback-server.cmd" \
             || { echo "the Windows launcher should not be in a Linux artifact"; exit 1; }
 
-      # PDF and EPUB are the formats that resolve package files at RUNTIME (pdfjs needs its
-      # worker and standard_fonts; jsdom needs its own stylesheet). Both were broken in the
-      # first bundle and both pass a markdown-only smoke test, so they are built here.
       - name: Build reader fixtures
         run: |
           node --input-type=module -e "
@@ -216,8 +151,6 @@ jobs:
             echo "  $fmt extraction ok"
           done
 
-      # `exec` in the launcher means the shell is replaced by node, so SIGTERM reaches the
-      # process that installed the handler.
       - name: Stop cleanly
         run: |
           cd dist-server/app
@@ -229,9 +162,6 @@ jobs:
           done
           test ! -s data/ci/ci.db-wal || { echo "WAL was not checkpointed"; exit 1; }
 
-      # Kept for seven days on EVERY caller, tag or not, so a commit can be put on a test box
-      # without cutting a release. On a tag the same zip also goes to the draft below; this
-      # copy is the one that exists for every other commit.
       - name: Keep the zip as a workflow artifact
         uses: actions/upload-artifact@v4
         with:
@@ -240,9 +170,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # Attached to the SAME draft the installers went to, so a server deployment is a
-      # download from the Releases page rather than a 14-day workflow artifact. `gh` can
-      # address a draft by its tag; --clobber makes a re-run of this job idempotent.
       - name: Attach the zip to the draft release
         if: ${{ inputs.upload }}
         env:
@@ -252,9 +179,6 @@ jobs:
   server-zip-windows:
     name: Standalone zip (Windows)
     runs-on: windows-latest
-    # PowerShell throughout rather than the runner's Git Bash. The bash job's three load-bearing
-    # verbs — `unzip`, `nohup`, `kill -TERM` — are exactly the ones that do not mean the same
-    # thing on Windows, so copying its steps would look portable and behave differently.
     defaults:
       run:
         shell: pwsh
@@ -266,9 +190,6 @@ jobs:
           cache: npm
       - run: npm ci
 
-      # Both variants, because a Windows box is far less likely to have Node 22 on PATH than a
-      # Linux server is. They differ only in the embedded runtime and are named apart
-      # (`-standalone`) so neither overwrites the other.
       - name: Build both zips
         run: |
           npm run package:server
@@ -279,24 +200,18 @@ jobs:
           Set-Location dist-server
           $zip = (Get-ChildItem 'flashback-server-*-win32-x64.zip' | Where-Object { $_.Name -notlike '*standalone*' })[0]
           Expand-Archive -Path $zip.FullName -DestinationPath extracted
-          # Fixed path so every later step can address it literally, exactly as the Linux job does.
           Move-Item (Get-ChildItem extracted -Directory)[0].FullName app
           Get-ChildItem app | Select-Object Name, Length
 
-          # The mirror of the Linux job's assertion: one launcher, and it is this platform's.
           if (-not (Test-Path 'app/flashback-server.cmd')) { throw 'flashback-server.cmd is missing' }
           if (Test-Path 'app/flashback-server.sh') { throw 'the shell launcher should not be in a Windows artifact' }
 
-          # The standalone variant's whole promise is that it needs nothing installed.
           $std = (Get-ChildItem 'flashback-server-*-win32-x64-standalone.zip')[0]
           Expand-Archive -Path $std.FullName -DestinationPath standalone
           $exe = Get-ChildItem standalone -Recurse -Filter node.exe
           if (-not $exe) { throw 'the standalone zip does not embed node.exe' }
           '  standalone embeds node.exe ({0:N1} MB)' -f ($exe[0].Length / 1MB)
 
-      # PDF and EPUB are the formats that resolve package files at RUNTIME (pdfjs needs its
-      # worker and standard_fonts; jsdom needs its own stylesheet from __dirname). Both pass a
-      # markdown-only smoke test while being completely broken, so they are built here.
       - name: Build reader fixtures
         run: |
           New-Item -ItemType Directory -Force dist-server/app/data/ci/workspace | Out-Null
@@ -310,32 +225,6 @@ jobs:
             ]));
           "
 
-      # ONE step for the whole life of this server, where the Linux job uses three.
-      #
-      # A background process does not survive a step boundary on Windows the way it does on
-      # Linux, and the two jobs' launch verbs are exactly where that difference lives:
-      # `nohup ... &` detaches from the session, so the Linux server outlives the shell that
-      # started it, while `Start-Process` leaves the child attached to the step's console and
-      # to its process tree — both of which go away when the step's pwsh exits. The symptom was
-      # precise about it: the boot step's readiness probe got its 200 and `GET / 200` is the
-      # last line in boot.log, then the very next step found no node process at all, with
-      # nothing further in the server's own logs. Nothing this server does exits silently
-      # (every crash path logs a stack, SIGTERM logs "Shutdown complete", and both update-check
-      # timers are unref'd), so "gone without a word" is something done TO it from outside.
-      #
-      # So each server here now boots, is exercised and is killed inside a single step. The
-      # liveness check is `$server.HasExited` rather than `Get-Process node`: cmd.exe waits on
-      # node, so the launcher's own exit is the exact signal, and it carries an exit code.
-      #
-      # Reading a status code is deliberately NOT done by catching the exception and digging
-      # `$_.Exception.Response.StatusCode.value__` out of it. That idiom is Windows PowerShell
-      # 5.1's shape (System.Net.WebException carrying an HttpWebResponse) and this job runs
-      # pwsh 7, where a failing request throws an HttpResponseException carrying an
-      # HttpResponseMessage instead — and where a connection-level failure carries no
-      # `.Response` at all. Both produced an EMPTY code and the useless message
-      # "anonymous /api expected 401, got ", with nothing said about the server. PowerShell 7's
-      # own `-SkipHttpErrorCheck` makes a 4xx an ordinary response object, so the status is
-      # read off the response and no exception shape is involved.
       - name: Boot it, exercise the API, and hard-kill it
         run: |
           $app = Resolve-Path dist-server/app
@@ -359,8 +248,6 @@ jobs:
               "ready after ${i}s"
               break
             } catch {
-              # A launcher that has already exited will never answer; say so now rather than
-              # spending a minute proving it.
               if ($server.HasExited) {
                 Dump-Logs; throw "the server exited during startup with code $($server.ExitCode)"
               }
@@ -370,8 +257,6 @@ jobs:
           }
 
           Write-Host '--- exercising the API ---'
-          # Prove the server is still there BEFORE asserting anything about what it answers.
-          # Without this, a process that died is indistinguishable from a wrong status code.
           if ($server.HasExited) {
             Dump-Logs; throw "the server exited with code $($server.ExitCode)"
           }
@@ -386,8 +271,6 @@ jobs:
           function Check($name, $expected, $method, $url, $headers) {
             $r = Invoke-WebRequest -Uri $url -Method $method -Headers $headers `
                    -UseBasicParsing -TimeoutSec 120 -SkipHttpErrorCheck
-            # Write-Host, not the output stream: this function RETURNS the response, and a
-            # progress line written to output would be returned along with it.
             Write-Host ('  {0,-34} {1}' -f $name, $r.StatusCode)
             if ("$($r.StatusCode)" -ne "$expected") {
               Write-Host $r.Content
@@ -406,19 +289,12 @@ jobs:
             if ($r.Content -match '"error"') { throw "$fmt extraction failed: $($r.Content)" }
           }
 
-          # Windows has no signals. `Stop-Process` and `taskkill` map to TerminateProcess, so no
-          # SIGTERM handler runs and "Shutdown complete" can never be asserted from outside the
-          # console — Ctrl+C reaches the handler, but that is not drivable from CI. So the next
-          # step asserts the property that actually matters after an ungraceful stop on Windows:
-          # the vault recovers. The kill happens HERE, in the step that owns the process, and
-          # leaves the whole database in an unread WAL (ci.db stays at 4 KB) for it to replay.
           Write-Host '--- hard kill ---'
           taskkill /PID $server.Id /T /F
           Start-Sleep -Seconds 2
           if (-not (Test-Path "$app/data/ci/ci.db-wal")) { throw 'expected an unchecked WAL after a hard kill' }
           '  killed, WAL left unchecked'
 
-      # A second boot that lists both documents has genuinely replayed that WAL.
       - name: Reopen after the hard kill
         run: |
           $app = Resolve-Path dist-server/app
@@ -440,7 +316,6 @@ jobs:
               "reopened after ${i}s"
               break
             } catch {
-              # A WAL replay that dies takes the launcher with it — report the code, don't wait.
               if ($server.HasExited) {
                 Dump-Logs; throw "the reopened server exited with code $($server.ExitCode)"
               }
@@ -449,8 +324,6 @@ jobs:
             }
           }
 
-          # accounts.db is outside the vault and is the one store nothing can rebuild: the first
-          # token must still work, and no second one may be minted.
           $token = (Select-String -Path "$app/boot.log" -Pattern '^\s*([0-9a-f]{64})\s*$').Matches[0].Groups[1].Value
           $r = Invoke-WebRequest 'http://127.0.0.1:50500/api/documents/list?path=' `
                  -Headers @{ Authorization = "Bearer $token" } -UseBasicParsing -SkipHttpErrorCheck
@@ -472,11 +345,6 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-      # Both variants go to the SAME draft the installers and the Linux zip went to.
-      # Pinned to this version rather than globbed loosely: `*-win32-x64*.zip` also matches an
-      # older build sitting in dist-server, which is not possible on a fresh runner but is
-      # exactly what happens when someone runs these steps locally. The count check turns a
-      # renamed artifact into a failure here rather than a release that quietly ships one zip.
       - name: Attach the zips to the draft release
         if: ${{ inputs.upload }}
         env:
