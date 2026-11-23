@@ -9,51 +9,17 @@ const debugDir = path.join(buildDir, "Debug");
 const electronDir = path.join(buildDir, "Debug.electron");
 const releaseDir = path.join(buildDir, "Release");
 
-const tests = [
-  "tests/dbAdapter.test.js",
-  "tests/accounts.test.js",
-  "tests/docs.test.js",
-  "tests/graph.test.js",
-  "tests/performance.test.js",
-  "tests/media.test.js",
-  "tests/subs.test.js",
-  "tests/seal.test.js",
-  "tests/doctor.test.js",
-  "tests/updates.test.js",
-  "tests/vault.test.js",
-  "tests/upgrade.test.js",
-  "tests/identity.test.js",
-  "tests/tags.test.js",
-  "tests/imports.test.js",
-  "tests/clips.test.js",
-  "tests/fsrs.test.js",
-  "tests/fsrs.api.test.js",
-  "tests/cardHealth.test.js",
-  "tests/perUserSrs.test.js",
-  "tests/readProgress.test.js",
-  "tests/conflicts.test.js",
-  "tests/sequencing.test.js",
-  "tests/safeFetch.test.js",
-  "tests/cardRemovalBudget.test.js",
-  "tests/httpErrors.test.js",
-  "tests/capabilities.test.js",
-  "tests/connection.test.js",
-  "tests/translations.test.js",
-  "tests/ui.trainer.test.js",
-  "tests/ui.graph.test.js",
-  "tests/ui.seal.test.js",
-  "tests/ui.shell.test.js",
-  "tests/ui.flashcards.test.js",
-  "tests/ui.documents.test.js",
-  "tests/ui.reports.test.js",
-  "tests/ui.config.test.js",
-  "tests/stats.test.js",
-  "tests/diary.test.js",
-  "tests/mcpReader.test.js",
-  "tests/server.test.js",
-  "tests/api/api.test.js",
-  "tests/mcp.test.js",
-];
+const tiers = process.argv.slice(2);
+if (tiers.length === 0) {
+  console.error("usage: node scripts/run-tests.js <tier>...  (unit, integration, legacy, system)");
+  process.exit(2);
+}
+const tests = tiers.flatMap((tier) =>
+  fs.readdirSync(path.join(root, "tests", tier), { recursive: true })
+    .filter((file) => file.endsWith(".test.js"))
+    .sort()
+    .map((file) => path.join("tests", tier, file)),
+);
 
 function restore() {
   if (fs.existsSync(electronDir)) {
@@ -78,7 +44,6 @@ try {
 let failed = false;
 for (const testFile of tests) {
   const fullPath = path.join(root, testFile);
-  if (!fs.existsSync(fullPath)) continue;
   console.log(`\n--- ${testFile} ---`);
   const result = spawnSync(process.execPath, ["--test", fullPath], {
     stdio: "inherit",

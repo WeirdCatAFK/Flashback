@@ -20,7 +20,7 @@ const WORKER_SWEEP = flag('workers', null)
     ? [Number(flag('workers', null))]
     : [1, 10, 50, 200];
 
-const ROOT = path.resolve(flag('root', path.join(process.cwd(), 'data_bench')));
+const ROOT = path.resolve(flag('root', path.join(process.cwd(), 'test-data', 'bench')));
 process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
