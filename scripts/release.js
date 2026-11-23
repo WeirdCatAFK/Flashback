@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
- * Usage: npm run release -- [patch | minor | major | <version>] [--dry-run]
- * The default is patch. --dry-run prints the plan and changes nothing.
+ * Pass the bump after npm's argument separator: patch, minor, major or an exact version.
+ * The default is patch. The --dry-run flag prints the plan and changes nothing.
  */
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
