@@ -1,19 +1,3 @@
-// Vault registry and remote registry, owned by the Electron main process.
-//
-// Two registries live in config.json and are written ONLY from here:
-//
-//   vaults[]  — the local vaults this install knows about, plus which one is active.
-//   remotes[] — Flashback Server instances the user has connected to, with their
-//               credentials encrypted via safeStorage.
-//
-// The one field main does not write is the active-vault pointer itself. Switching closes
-// a database and re-points path resolvers, and only the API process can do that, so
-// `switchVault()` here asks the API over HTTP and the API writes `activeVaultId` and the
-// flat vaultName/isCustomPath/customPath projection. One writer per field, no split-brain.
-//
-// Credentials never reach the API process at all: it serves the remote LIST (so the MCP
-// server and a dev:web browser can see it) while the token stays here, encrypted.
-
 import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";
@@ -28,7 +12,6 @@ function baseDirFor(entry) {
     return entry.isCustomPath && entry.customPath ? entry.customPath : app.getPath("userData");
 }
 
-/** Absolute path of a registry entry's vault directory. */
 export function vaultRoot(entry) {
     return path.join(baseDirFor(entry), entry.name);
 }
@@ -56,7 +39,6 @@ function stampManifestAt(root, name) {
     return manifest;
 }
 
-/** Does this directory hold a vault? */
 function looksLikeVault(dir) {
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return "Not a directory.";
     if (!fs.existsSync(path.join(dir, "workspace"))) return "No workspace/ folder — not a Flashback vault.";
@@ -64,7 +46,6 @@ function looksLikeVault(dir) {
     return null;
 }
 
-/** Makes sure config.json has a vaults[] registry, synthesizing one from the flat fields when it does not — which is what every install upgrading into… */
 export function ensureRegistry() {
     const config = readConfig();
     if (Array.isArray(config.vaults) && config.vaults.length && config.activeVaultId) return config;
@@ -83,7 +64,6 @@ export function ensureRegistry() {
     });
 }
 
-/** @returns {{activeVaultId: string|null, vaults: Array}} */
 export function listVaults() {
     const config = readConfig();
     const vaults = Array.isArray(config.vaults) ? config.vaults : [];
@@ -108,7 +88,6 @@ function nameTaken(name, exceptId = null) {
     );
 }
 
-/** Registers a new, empty vault. */
 export function createVault(name) {
     const err = vaultNameError(name);
     if (err) return { ok: false, error: `Invalid vault name (${err}).` };
@@ -133,7 +112,6 @@ export function createVault(name) {
     return { ok: true, vault: { ...entry, path: root } };
 }
 
-/** Registers a vault directory the user picked off disk — a vault restored from a backup, carried over from another machine, or one this install has… */
 export function adoptVault(dirPath) {
     const problem = looksLikeVault(dirPath);
     if (problem) return { ok: false, error: problem };
@@ -153,7 +131,6 @@ export function adoptVault(dirPath) {
     return { ok: true, vault: { ...entry, path: dirPath } };
 }
 
-/** Unregisters a vault. */
 export function removeVault(id) {
     const { vaults, activeVaultId } = listVaults();
     if (id === activeVaultId) return { ok: false, error: "Switch to another vault before removing this one." };
@@ -181,11 +158,6 @@ async function apiPost(pathname, body = {}) {
     return res.json();
 }
 
-/**
- * Switches the running API to another registered vault.
- *
- * @returns {Promise<{ok: true, vault: object}|{ok: false, error: string}>}
- */
 export async function switchVault(id) {
     const entry = findEntry(id);
     if (!entry) return { ok: false, error: "No such vault." };
@@ -201,7 +173,6 @@ export async function switchVault(id) {
     }
 }
 
-/** Renames a vault, moving its folder AND its database file together. */
 export async function renameVault(id, newName) {
     const err = vaultNameError(newName);
     if (err) return { ok: false, error: `Invalid vault name (${err}).` };
@@ -255,7 +226,6 @@ export async function renameVault(id, newName) {
     return { ok: true, vault: { ...entry, name: trimmed, path: newRoot } };
 }
 
-/** The registry as the renderer sees it. */
 export function listRemotes() {
     const remotes = readConfig().remotes ?? [];
     return remotes.map((r) => ({ id: r.id, label: r.label, url: r.url, hasToken: !!r.tokenEnc }));
@@ -267,7 +237,6 @@ function normalizeUrl(url) {
     return trimmed;
 }
 
-/** Registers a remote Flashback Server. */
 export function addRemote({ label, url, token }) {
     const normalized = normalizeUrl(url);
     if (!normalized) return { ok: false, error: "Enter a full URL, including http:// or https://." };
@@ -295,13 +264,11 @@ export function addRemote({ label, url, token }) {
     return { ok: true, remote: { id: entry.id, label: entry.label, url: entry.url, hasToken: !!tokenEnc } };
 }
 
-/** Forgets a remote and its stored credential. */
 export function removeRemote(id) {
     updateConfig((c) => { c.remotes = (c.remotes ?? []).filter((r) => r.id !== id); });
     return { ok: true };
 }
 
-/** Decrypts a remote's token. Main-process only — this value never crosses to the renderer. */
 function remoteToken(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote?.tokenEnc) return null;
@@ -312,7 +279,6 @@ function remoteToken(id) {
     }
 }
 
-/** Handshakes with a remote: GET /api/vault, the endpoint the local API answers too. */
 export async function testRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return { ok: false, error: "No such remote." };
@@ -334,7 +300,6 @@ export async function testRemote(id) {
     }
 }
 
-/** What the renderer needs to point its API client at a remote: the URL and, yes, the token — a browser fetch cannot send a header it does not have. */
 export function connectionForRemote(id) {
     const remote = (readConfig().remotes ?? []).find((r) => r.id === id);
     if (!remote) return null;

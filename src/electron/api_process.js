@@ -1,4 +1,3 @@
-// This file should be run on an electron's main process after the on event has been called
 import { utilityProcess, app } from "electron";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -6,10 +5,8 @@ import { logApiLine } from "./logger.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-/** Spawns a new process to run the api. */
 let apiChild = null;
 
-/** Forks the API utility process with piped stdio. */
 export default async function spawn() {
     process.env.USER_DATA_PATH = app.getPath("userData");
     const child = utilityProcess.fork(
@@ -28,7 +25,6 @@ export default async function spawn() {
     return child;
 }
 
-/** Force-terminate the API utility process if one is running. */
 export function killApi() {
     if (apiChild) {
         try { apiChild.kill(); } catch { }

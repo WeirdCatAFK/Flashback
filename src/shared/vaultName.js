@@ -1,16 +1,4 @@
-// Vault-name rules, shared by the renderer (Setup wizard, vault management UI) and the
-// Electron main process (create/rename IPC).
-//
-// Plain JS with no Node or Electron imports on purpose: Vite bundles it into the renderer
-// and main imports it directly, so there is exactly one definition of what a legal vault
-// name is. It used to live only in Setup.jsx, which meant Config's vault-name field —
-// the one that actually renamed a folder on disk — validated nothing at all.
-//
-// Returns a CODE rather than a sentence, because the renderer runs the result through
-// t() for translation and main writes it to a log.
-
-// The control-character range is intentional — these are the characters Windows rejects
-// in a path component, and \x00-\x1f is part of that set.
+/** The characters that Windows rejects in a path component. */
 // eslint-disable-next-line no-control-regex
 export const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
 
@@ -23,10 +11,6 @@ export const RESERVED_NAMES = new Set([
     'indexeddb', 'databases', 'blob_storage', 'partitions', 'crashpad',
 ]);
 
-/**
- * @param {string} name
- * @returns {'required'|'invalid-chars'|'too-long'|'reserved'|'trailing-dot'|null} null when the name is usable.
- */
 export function vaultNameError(name) {
     const v = (name ?? '').trim();
     if (!v) return 'required';

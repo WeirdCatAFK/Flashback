@@ -1,4 +1,3 @@
-// src/electron/main.js
 import { app, BrowserWindow, Tray, Menu, nativeImage, ipcMain, dialog, shell } from "electron";
 import path from "path";
 import crypto from "crypto";
@@ -34,7 +33,6 @@ let mainWindow;
 let tray;
 let isQuitting = false;
 
-/** Absolute path of the tray and window icon for this platform. */
 function getIconPath(ext = process.platform === 'win32' ? 'ico' : 'png') {
   const file = `flashback.${ext}`;
   return app.isPackaged
@@ -42,7 +40,6 @@ function getIconPath(ext = process.platform === 'win32' ? 'ico' : 'png') {
     : path.join(__dirname, '../../', file);
 }
 
-/** Builds the system tray icon and its menu; Quit is the only exit. */
 function createTray() {
   const icon = nativeImage.createFromPath(getIconPath());
   tray = new Tray(icon);
@@ -78,7 +75,6 @@ function createTray() {
   });
 }
 
-/** Creates the frameless main window and wires its close-to-tray behaviour. */
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1200,
@@ -146,21 +142,14 @@ function createWindow() {
   initUpdater(mainWindow, { isPackaged: app.isPackaged });
 }
 
-/** True when no config.json exists, or when --onboarding was passed. */
 function isFirstRun() {
   return forceOnboarding || !configExists();
 }
 
-/**
- * `--onboarding` over an existing config.json: the wizard runs so it can be seen, and
- * finishing it writes nothing. The config holds the API token, the vault registry and the
- * remotes, none of which the wizard's form knows about, so writing it would lose them.
- */
 function isSetupPreview() {
   return forceOnboarding && configExists();
 }
 
-/** Mints and persists the API token if config.json has none; main is its sole minter. */
 function ensureApiToken() {
   if (!configExists()) return null;
   const config = readConfig();
@@ -275,12 +264,10 @@ const connection = createConnectionState({
   apiBaseUrl,
 });
 
-/** Where the renderer is currently pointed: the local vault, or a remote with its decrypted token. */
 function currentConnection() {
   return connection.current();
 }
 
-/** Pushes the current connection to the renderer over IPC. */
 function broadcastConnection() {
   mainWindow?.webContents.send('connection-changed', currentConnection());
 }
@@ -340,7 +327,6 @@ ipcMain.handle('updater-install', () => {
   return { ok: true };
 });
 
-/** The .mcp.json snippet shown in Config, with FLASHBACK_API_TOKEN injected. */
 function getMcpServerConfig() {
   const serverPath = path.join(__dirname, '../mcp/server.js');
   const config = readConfig();
