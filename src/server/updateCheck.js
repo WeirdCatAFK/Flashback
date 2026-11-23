@@ -61,8 +61,8 @@ export function startUpdateCheck({ currentVersion, enabled = updateCheckEnabled(
             console.log(
                 `\nA newer Flashback release is available: ${latest} (this server runs ${currentVersion}).` +
                 `\n  ${last.url}` +
-                '\n  Nothing has been downloaded. See docs/SERVER.md § Upgrading, and snapshot the' +
-                '\n  volume first — migrations are one-way.\n',
+                '\n  Nothing has been downloaded. Snapshot the volume before you upgrade,' +
+                '\n  because migrations are one-way.\n',
             );
         }
     }

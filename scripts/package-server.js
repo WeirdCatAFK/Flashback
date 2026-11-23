@@ -276,10 +276,8 @@ TLS
   behind a TLS-terminating reverse proxy. Do not expose it directly.
 
 BACK UP
-  Everything is under USER_DATA_PATH. accounts.db is the only file nothing can rebuild:
-  it holds the access list and every non-owner's study schedule.
-
-  Full documentation: docs/SERVER.md in the Flashback repository.
+  Everything is under USER_DATA_PATH. Back up the vault's workspace/ and progress.db,
+  and accounts.db. Nothing can rebuild them.
 `);
 
 
