@@ -142,15 +142,12 @@ dist-react
 /data_bench/
 
 #Vibecoding
-CLAUDE.md
+/CLAUDE.md
 .claudeignore
 claude concepts/
-Backlog.md
-Features.md
 RELEASING.md
-OldBacklog.md
+docs/internal/
 docs/superpowers
-docs/SERVER.md
 graphify-out/
 # Standalone server artifacts (scripts/package-server.js)
 dist-server
