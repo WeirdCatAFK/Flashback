@@ -3,7 +3,6 @@ import { getIdentity, getAuthorString } from '../access/primitives/config.js';
 
 const router = Router();
 
-/** GET /api/identity — who this install stamps work as. */
 router.get('/', (req, res) => {
     const { name, email, source } = getIdentity();
     res.json({

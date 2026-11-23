@@ -6,7 +6,6 @@ import { currentScope } from '../requestContext.js';
 const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;
 
-/** Unified search across folders, documents, cards, tags and decks. */
 router.get('/', async (req, res) => {
     const { q, tag, deck } = req.query;
     const docQ = norm(req.query.document);

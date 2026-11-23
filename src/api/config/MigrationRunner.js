@@ -1,4 +1,3 @@
-// Import migration modules here in order — never reorder or remove entries.
 import * as m001 from './migrations/001_pre_beta.js';
 import * as m002 from './migrations/002_document_links.js';
 import * as m003 from './migrations/003_system_deck.js';
@@ -32,7 +31,6 @@ async function appliedVersions(db) {
     );
 }
 
-/** Runs all pending migrations in version order. */
 export default async function runMigrations(db) {
     await ensureVersionTable(db);
     const applied = await appliedVersions(db);

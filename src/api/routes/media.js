@@ -19,7 +19,6 @@ const catchError = fn => (req, res, next) =>
         next(err);
     });
 
-/** Serves one asset's bytes. */
 router.get('/', catchError(async (req, res) => {
     const { hash } = req.query;
     if (!hash) return res.status(400).json({ error: 'hash required' });
@@ -27,7 +26,6 @@ router.get('/', catchError(async (req, res) => {
     res.sendFile(entry.absolute_path);
 }));
 
-/** Every asset a document carries. */
 router.get('/list', catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? '');
     const items = await media.list(folderPath);
@@ -35,7 +33,6 @@ router.get('/list', catchError(async (req, res) => {
     res.json(items.map(({ absolutePath, ...rest }) => rest));
 }));
 
-/** Serves one asset by name. */
 router.get('/file', catchError((req, res) => {
     const docPath = norm(req.query.docPath);
     const { name } = req.query;
@@ -55,7 +52,6 @@ const vanillaUpload = upload.fields([
     ...Object.keys(VANILLA_MEDIA_FIELDS).map((name) => ({ name, maxCount: 1 })),
 ]);
 
-/** Attaches an asset to a vanilla card slot. */
 router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
     const files = req.files || {};
     const { docPath } = req.body;
@@ -85,7 +81,6 @@ router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-/** Attaches an asset to a custom card. */
 router.post('/custom', upload.single('file'), catchError(async (req, res) => {
     const { docPath, flashcardHash, name } = req.body;
     if (!req.file || !docPath || !flashcardHash || !name) {
@@ -95,7 +90,6 @@ router.post('/custom', upload.single('file'), catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-/** Detaches an asset and deletes it when nothing else references it. */
 router.delete('/', catchError(async (req, res) => {
     const { docPath, mediaName } = req.body;
     if (!docPath || !mediaName) return res.status(400).json({ error: 'docPath and mediaName required' });
@@ -103,7 +97,6 @@ router.delete('/', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-/** Re-derives the Media table from what is on disk. */
 router.post('/reconcile', catchError(async (req, res) => {
     const folderPath = norm(req.body.folderPath ?? '');
     const orphans = await media.reconcile(folderPath);

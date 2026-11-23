@@ -1,5 +1,3 @@
-/** Opens and switches vaults. Quiesce, close, move pointer, reopen. */
-
 import validate from "./config/validate.js";
 import runUpdates from "./config/UpdateRunner.js";
 import { sealTools, sealEmitter } from "./seal/seal.js";
@@ -16,12 +14,10 @@ import storage from "./access/primitives/storage.js";
 
 let switching = false;
 
-/** @returns {boolean} whether a vault switch is in flight. */
 export function isSwitching() {
     return switching;
 }
 
-/** Resets the module-scope singletons that cache something vault-shaped. */
 async function resetVaultScopedCaches() {
     await query.onVaultOpened();
     await cardHealth.onVaultOpened();
@@ -29,18 +25,11 @@ async function resetVaultScopedCaches() {
     storage.onVaultOpened();
 }
 
-/** Creates the directories and canonical files a vault cannot answer a request without. */
 async function ensureVaultDirs() {
     new Files();
     await new Decks().onVaultOpened();
 }
 
-/**
- * Brings the vault config.js currently points at into a fully serviceable state.
- *
- * @param {{onFatal?: (msg: string) => void}} [options]
- * @returns {Promise<boolean>} false when validation failed and the vault is unusable.
- */
 export async function openVault({ onFatal } = {}) {
     if (!await validate()) {
         onFatal?.("Validation failed.");
@@ -80,12 +69,6 @@ export async function openVault({ onFatal } = {}) {
     return true;
 }
 
-/**
- * Switches the API to a different local vault, in process.
- *
- * @param {{id: string, name: string, isCustomPath?: boolean, customPath?: string}} entry
- * @returns {Promise<{ok: true, vault: object}|{ok: false, error: string}>}
- */
 export async function switchVault(entry) {
     if (!entry?.name) return { ok: false, error: "A vault entry with a name is required." };
     if (switching) return { ok: false, error: "A vault switch is already in progress." };
@@ -112,11 +95,6 @@ export async function switchVault(entry) {
     }
 }
 
-/**
- * Releases the active vault without opening another — used before the Electron host renames a vault's folder on disk, since Windows will not rename a…
- *
- * @returns {Promise<void>}
- */
 export async function releaseVault() {
     await sealEmitter.quiesce();
     closeDatabase();

@@ -1,4 +1,3 @@
-/** Express app — build()/start()/stop(). Every mount: app.use('/api/X', guard('X'), router). */
 import express from "express";
 import cors from './config/cors.js';
 import morgan from "morgan";
@@ -30,7 +29,6 @@ morgan.token('url', (req) =>
     String(req.originalUrl || req.url || '').replace(/([?&]token=)[^&]*/gi, '$1[redacted]'),
 );
 
-/** Every router this API serves, keyed by its mount name under `/api/`. */
 export const ROUTERS = {
   documents: documentsRouter,
   media: mediaRouter,
@@ -53,16 +51,6 @@ export const ROUTERS = {
 };
 
 class api {
-/**
- * Constructor for the api class.
- *
- * @param {object} config - Configuration options for the api.
- * @param {number} [config.port=3000] - The port number to bind to.
- * @param {string} [config.logFormat="dev"] - The log format to use.
- * @param {string} [config.host="localhost"] - The host to bind to.
- * @param {boolean} [config.isLocalhost=true] - Whether to bind to localhost or all interfaces.
- * @param {() => object|null} [config.updateStatus] - Getter for the headless server's release check. Omitted by the desktop build; the handshake then reports `update: null`.
- */
   constructor(config = {}) {
     this.app = express();
 
@@ -89,7 +77,6 @@ class api {
 
     this.build();
   }
-  /** Builds the Express app: middleware, guards and every router. */
   async build() {
     this.app.locals.updateStatus = this.updateStatus;
 
@@ -144,7 +131,6 @@ class api {
       res.status(status).json(body);
     });
   }
-  /** Provisions the accounts store, then listens. */
   async start() {
     await ensureLocalAuthor(this.apiToken);
 
@@ -166,7 +152,6 @@ class api {
         });
     });
   }
-  /** Stops listening and releases the port. */
   async stop() {
     return new Promise((resolve, reject) => {
       if (this.server) {

@@ -1,5 +1,3 @@
-/** Accounts store at {baseDir}/accounts.db. Outside vaults so roles don't travel with copies. */
-
 import crypto from "crypto";
 import path from "path";
 import { createSqliteAdapter } from "./sqliteAdapter.js";
@@ -9,7 +7,6 @@ import { OWNER_SCOPE } from "../../requestContext.js";
 
 export { ROLES };
 
-/** @returns {string} absolute path to the store. Resolved per call, like every other path. */
 export function getAccountsPath() {
     return path.join(getBaseDir(), "accounts.db");
 }
@@ -72,7 +69,6 @@ CREATE TABLE IF NOT EXISTS ReadProgress (
 CREATE INDEX IF NOT EXISTS idx_read_progress_scope ON ReadProgress(vault_id, scope, updated_at);
 `;
 
-/** Repairs recorded against `AccountsSchemaVersion`, applied in order after `SCHEMA`. */
 export const REPAIRS = [
     {
         version: 1,
@@ -99,25 +95,20 @@ const adapter = createSqliteAdapter({
 
 const db = adapter.db;
 
-/** Closes the store. Tests and the CLI use it; the API process never does. */
 export const closeAccounts = adapter.closeDatabase;
 
-/** @returns {boolean} whether the store is currently open. */
 export const isAccountsOpen = adapter.isOpen;
 
-/** @returns {string} a fresh opaque token. Same shape and entropy as `config.apiToken`. */
 export function generateToken() {
     return crypto.randomBytes(32).toString("hex");
 }
 
-/** @returns {string} the stored form of a token. */
 export function hashToken(token) {
     return crypto.createHash("sha256").update(String(token)).digest("hex");
 }
 
 const now = () => new Date().toISOString();
 
-/** Strips a row down to what a caller may see. Never includes a hash. */
 function publicAccount(row) {
     if (!row) return null;
     return {
@@ -130,19 +121,16 @@ function publicAccount(row) {
     };
 }
 
-/** @returns {Promise<object|null>} */
 export async function getAccount(id) {
     return publicAccount(await db.prepare("SELECT * FROM Accounts WHERE id = ?").get(id));
 }
 
-/** @returns {Promise<object|null>} the Author, or null on a store that has never been seeded. */
 export async function getAuthorAccount() {
     return publicAccount(
         await db.prepare("SELECT * FROM Accounts WHERE role = ? ORDER BY created_at LIMIT 1").get(ROLES.AUTHOR),
     );
 }
 
-/** @returns {Promise<object[]>} every account, with its token metadata. Never a hash. */
 export async function listAccounts() {
     const rows = await db.prepare("SELECT * FROM Accounts ORDER BY created_at").all();
     const tokens = await db.prepare(
@@ -165,7 +153,6 @@ export async function listAccounts() {
     }));
 }
 
-/** @returns {Promise<object|null>} one token's metadata (no hash), for the revoke checks. */
 export async function getToken(tokenId) {
     const row = await db.prepare(
         `SELECT id, account_id, label, created_at, last_used_at, revoked_at
@@ -185,12 +172,6 @@ export async function getToken(tokenId) {
 const TOUCH_INTERVAL_MS = 60_000;
 const lastTouched = new Map();
 
-/**
- * Resolves a presented token to the account behind it.
- *
- * @param {string} token plaintext, as presented by the caller.
- * @returns {Promise<{account: object, tokenId: string}|null>}
- */
 export async function resolveToken(token) {
     if (!token) return null;
     const row = await db.prepare(
@@ -210,7 +191,6 @@ export async function resolveToken(token) {
     return { account: publicAccount(row), tokenId: row.token_id };
 }
 
-/** @returns {Promise<boolean>} whether any usable token exists at all — the server-boot check. */
 export async function hasUsableToken() {
     const row = await db.prepare(
         `SELECT 1 AS ok FROM AccountTokens t JOIN Accounts a ON a.id = t.account_id
@@ -219,10 +199,6 @@ export async function hasUsableToken() {
     return !!row;
 }
 
-/**
- * @param {{name: string, email: string, role: string}} account
- * @returns {Promise<object>} the created account.
- */
 export async function createAccount({ name, email, role }) {
     if (!isRole(role)) throw new Error(`Unknown role: ${role}`);
     const trimmedName = String(name ?? "").trim();
@@ -236,13 +212,6 @@ export async function createAccount({ name, email, role }) {
     return await getAccount(id);
 }
 
-/**
- * Changes an account's role and/or active flag.
- *
- * @param {string} id
- * @param {{role?: string, active?: boolean}} changes
- * @returns {Promise<object|null>}
- */
 export async function updateAccount(id, { role, active } = {}) {
     if (role !== undefined && !isRole(role)) throw new Error(`Unknown role: ${role}`);
 
@@ -256,13 +225,6 @@ export async function updateAccount(id, { role, active } = {}) {
     return await getAccount(id);
 }
 
-/**
- * Issues a token.
- *
- * @param {string} accountId
- * @param {string} [label] free text, so an admin can tell a laptop from a phone.
- * @returns {Promise<{id: string, token: string, accountId: string, label: string}>}
- */
 export async function issueToken(accountId, label = "") {
     const account = await getAccount(accountId);
     if (!account) throw new Error("No such account.");
@@ -276,11 +238,6 @@ export async function issueToken(accountId, label = "") {
     return { id, token, accountId, label: String(label ?? "") };
 }
 
-/**
- * Revokes a token.
- *
- * @returns {Promise<boolean>} whether a token was found.
- */
 export async function revokeToken(tokenId) {
     const result = await db.prepare(
         "UPDATE AccountTokens SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
@@ -289,12 +246,6 @@ export async function revokeToken(tokenId) {
     return !!(await getToken(tokenId));
 }
 
-/**
- * Issues a new PURE TOKEN and revokes every previous Author token.
- *
- * @param {string} [label]
- * @returns {Promise<{token: string, accountId: string, revoked: number}>}
- */
 export async function rotatePureToken(label = "Pure token") {
     return await db.transaction(async () => {
         const author = await getAuthorAccount();
@@ -313,15 +264,8 @@ export async function rotatePureToken(label = "Pure token") {
     })();
 }
 
-/** The label the desktop install's adopted token carries, so it is recognisable in a list. */
 export const LOCAL_TOKEN_LABEL = "This install";
 
-/**
- * Brings the store to a serviceable state, idempotently.
- *
- * @param {string|null} [apiToken]
- * @returns {Promise<object>} the Author account.
- */
 export async function ensureLocalAuthor(apiToken = null) {
     let author = await getAuthorAccount();
 
@@ -347,7 +291,6 @@ export async function ensureLocalAuthor(apiToken = null) {
     return author;
 }
 
-/** The nine schedule fields plus ease, in the order the statements below use them. */
 const PROGRESS_FIELDS = [
     "level", "sm2_reps", "last_recall", "ease_factor",
     "fsrs_stability", "fsrs_difficulty", "fsrs_due",
@@ -356,14 +299,6 @@ const PROGRESS_FIELDS = [
 
 const PROGRESS_DEFAULTS = { sm2_reps: 0, fsrs_state: 0, fsrs_reps: 0, fsrs_lapses: 0 };
 
-/**
- * Records one account's schedule for one card.
- *
- * @param {string} vaultId    from vault.json
- * @param {string} accountId  a real account id, never OWNER_SCOPE
- * @param {string} cardHash   the card's globalHash
- * @param {object} state      any subset of PROGRESS_FIELDS; absent fields reset to defaults
- */
 export async function saveAccountProgress(vaultId, accountId, cardHash, state = {}) {
     const values = PROGRESS_FIELDS.map((f) => state[f] ?? PROGRESS_DEFAULTS[f] ?? null);
     await db.prepare(`
@@ -376,19 +311,12 @@ export async function saveAccountProgress(vaultId, accountId, cardHash, state = 
     `).run(vaultId, accountId, cardHash, ...values, now());
 }
 
-/** @returns {Promise<object|null>} one account's snapshot for one card. */
 export async function getAccountProgress(vaultId, accountId, cardHash) {
     return await db.prepare(
         "SELECT * FROM AccountProgress WHERE vault_id = ? AND account_id = ? AND card_hash = ?",
     ).get(vaultId, accountId, cardHash);
 }
 
-/**
- * Every non-owner snapshot for a vault, for the Doctor to re-project into CardProgress.
- *
- * @param {string} vaultId
- * @param {string|null} accountId  restrict to one account, or null for all of them
- */
 export async function listAccountProgress(vaultId, accountId = null) {
     const filter = accountId ? " AND p.account_id = ?" : "";
     const params = accountId ? [vaultId, accountId] : [vaultId];
@@ -399,24 +327,14 @@ export async function listAccountProgress(vaultId, accountId = null) {
     `).all(...params);
 }
 
-/** Forgets one card's snapshot for one account. Used when a review is undone to nothing. */
 export async function deleteAccountProgress(vaultId, accountId, cardHash) {
     await db.prepare(
         "DELETE FROM AccountProgress WHERE vault_id = ? AND account_id = ? AND card_hash = ?",
     ).run(vaultId, accountId, cardHash);
 }
 
-/** The stored columns, in the order the statements below use them. */
 const READ_FIELDS = ["unit", "total", "pos", "pos_pct", "far", "far_pct", "body_etag"];
 
-/**
- * Records where one person has read to in one document.
- *
- * @param {string} vaultId   from vault.json
- * @param {string} scope     an account id, or OWNER_SCOPE
- * @param {string} docHash   the document's globalHash
- * @param {object} state     subset of READ_FIELDS; `unit`, `pos` and `far` are required
- */
 export async function saveReadProgress(vaultId, scope, docHash, state = {}) {
     const values = READ_FIELDS.map((f) => state[f] ?? null);
     await db.prepare(`
@@ -429,19 +347,12 @@ export async function saveReadProgress(vaultId, scope, docHash, state = {}) {
     `).run(vaultId, scope, docHash, ...values, now());
 }
 
-/** @returns {Promise<object|null>} one person's position in one document, or null if unread. */
 export async function getReadProgress(vaultId, scope, docHash) {
     return await db.prepare(
         "SELECT * FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",
     ).get(vaultId, scope, docHash);
 }
 
-/**
- * Every position one person holds in a vault.
- *
- * @param {string} vaultId
- * @param {string|null} scope  restrict to one scope, or null for every scope in the vault
- */
 export async function listReadProgress(vaultId, scope = null) {
     const filter = scope ? " AND p.scope = ?" : "";
     const params = scope ? [vaultId, scope, OWNER_SCOPE] : [vaultId, OWNER_SCOPE];
@@ -453,7 +364,6 @@ export async function listReadProgress(vaultId, scope = null) {
     `).all(...params);
 }
 
-/** Forgets one person's position in one document. */
 export async function deleteReadProgress(vaultId, scope, docHash) {
     await db.prepare(
         "DELETE FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",

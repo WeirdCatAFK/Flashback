@@ -97,15 +97,6 @@ router.get('/fsrs-info', catchError(async (req, res) => {
     res.json(await SRS.getFsrsInfo());
 }));
 
-/**
- * How far through the vault one person is: how much of it they have read, and how well they
- * know the cards drawn from it. Composed here rather than in `srs.js` because the scheduler
- * may not import `readProgress.js`. Exported for `routes/accounts.js`, which reports it for a
- * person other than the caller; the scope defaults to the caller's.
- *
- * @param {object} stats - The `SRS.getStatistics()` result whose `maturity` block is reused.
- * @param {{scope?: string}} [options]
- */
 export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
     const scope = scopeArg ?? currentScope();
     const [rollup, learned] = await Promise.all([
@@ -142,7 +133,6 @@ export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
     };
 }
 
-/** The caller's review analytics, joined with vault completeness. */
 router.get('/statistics', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const stats = await SRS.getStatistics({ algorithm });
@@ -150,7 +140,6 @@ router.get('/statistics', catchError(async (req, res) => {
     res.json(stats);
 }));
 
-/** The cards to study now, already in presentation order. */
 router.get('/due', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
     const folder = req.query.folder ? norm(req.query.folder) : null;
@@ -163,7 +152,6 @@ router.get('/due', catchError(async (req, res) => {
     const order = req.query.order || 'interleaved';
     const seed = req.query.seed != null ? parseInt(req.query.seed, 10) : null;
 
-    /** Every day this person has a summary or an entry for, newest first. */
     const list = (raw, map = (v) => v) => {
         const values = raw ? [].concat(raw).filter(Boolean).map(map) : [];
         return values.length ? values : null;

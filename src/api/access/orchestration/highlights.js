@@ -1,5 +1,3 @@
-/** Highlight CRUD. Anchors to document content via type-specific geometry. */
-
 import crypto from 'crypto';
 import Files from '../resources/files.js';
 import { withDocument } from '../resources/pathLock.js';
@@ -12,21 +10,11 @@ class Highlights {
         this.query = query;
     }
 
-    /** One document's highlights. */
     getHighlights(relPath) {
         const sidecar = this.files.getMetadata(relPath, false);
         return sidecar?.highlights ?? [];
     }
 
-    /**
-     * Annotated highlight listing: every highlight enriched with the context needed to act on it without re-deriving the data.
-     *
-     * @param {object} [opts]
-     * @param {string|null} [opts.path]  Restrict to one document.
-     * @param {string|null} [opts.color] Restrict to one highlight color.
-     * @param {boolean} [opts.uncardedOnly] Only highlights no flashcard anchors to yet.
-     * @returns {Array<object>} Newest first.
-     */
     async listAnnotated({ path = null, color = null, uncardedOnly = false } = {}) {
         const paths = path ? [path] : await this.query.getHighlightedDocumentPaths();
         const results = [];
@@ -102,7 +90,6 @@ class Highlights {
         return { text, context };
     }
 
-    /** Creates a highlight in the index and the sidecar. */
     async createHighlight(relPath, data) {
         return await withDocument(relPath, () => this._createHighlightLocked(relPath, data));
     }
@@ -146,7 +133,6 @@ class Highlights {
         })();
     }
 
-    /** Updates a highlight's colour, note or anchor. */
     async updateHighlight(relPath, hash, data, { ifMatch } = {}) {
         return await withDocument(relPath, () => this._updateHighlightLocked(relPath, hash, data, ifMatch));
     }
@@ -173,7 +159,6 @@ class Highlights {
         })();
     }
 
-    /** Deletes a highlight from the index and the sidecar. */
     async deleteHighlight(relPath, hash) {
         return await withDocument(relPath, () => this._deleteHighlightLocked(relPath, hash));
     }
@@ -187,14 +172,6 @@ class Highlights {
         })();
     }
 
-    /**
-     * Fills `Flashcards.highlight_hash` for cards indexed before migration 017, reading each
-     * card's highlight id out of its sidecar — the index never stored it before. Only cards whose
-     * reference says they are highlight-anchored are looked at, so once they are filled this is
-     * one query that finds nothing. Writes the derived index only.
-     *
-     * @returns {Promise<number>} how many cards were filled
-     */
     async backfillCardAnchors() {
         const rows = await this.query.getCardsMissingHighlightHash();
         if (!rows.length) return 0;
@@ -219,7 +196,6 @@ class Highlights {
         return filled;
     }
 
-    /** Reconciles a document's Highlights rows against its sidecar. */
     async syncFromSidecar(documentId, highlightsData) {
         if (!Array.isArray(highlightsData) || highlightsData.length === 0) return;
         await this.query.syncDocumentHighlights(documentId, highlightsData);

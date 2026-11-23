@@ -38,7 +38,6 @@ const catchError = (fn) => (req, res, next) =>
     next(err);
   });
 
-/** One folder's documents and subfolders. */
 router.get(
   "/list",
   catchError(async (req, res) => {
@@ -47,7 +46,6 @@ router.get(
   }),
 );
 
-/** A document's body and sidecar. */
 router.get(
   "/read",
   catchError((req, res) => {
@@ -59,7 +57,6 @@ router.get(
   }),
 );
 
-/** A document's bytes, for the renderer to decode. */
 router.get(
   "/raw",
   catchError((req, res) => {
@@ -70,7 +67,6 @@ router.get(
   }),
 );
 
-/** Searches names and metadata across the workspace. */
 router.get(
   "/search",
   catchError(async (req, res) => {
@@ -80,7 +76,6 @@ router.get(
   }),
 );
 
-/** Searches document bodies, returning matching snippets. */
 router.get(
   "/search/content",
   catchError(async (req, res) => {
@@ -91,7 +86,6 @@ router.get(
   }),
 );
 
-/** A document's outgoing links and backlinks. */
 router.get(
   "/links",
   catchError(async (req, res) => {
@@ -106,7 +100,6 @@ router.get(
   }),
 );
 
-/** Nodes and edges for the graph view. */
 router.get(
   "/graph",
   catchError(async (req, res) => {
@@ -114,7 +107,6 @@ router.get(
   }),
 );
 
-/** Every tag in the vault. */
 router.get(
   "/tags",
   catchError(async (req, res) => {
@@ -122,10 +114,6 @@ router.get(
   }),
 );
 
-/**
- * Every tag with its reach — folders, documents and decks applying it, and cards
- * carrying it — for the Metadata screen.
- */
 router.get(
   "/tags/overview",
   catchError(async (req, res) => {
@@ -133,11 +121,6 @@ router.get(
   }),
 );
 
-/**
- * Renames a tag everywhere it is applied (`{ from, to }`), or removes it (`{ from }`
- * with no `to`): every sidecar first, then the decks. Admin, as the documents mount's
- * writes are; it rewrites decks too, which are Admin to change.
- */
 router.post(
   "/tags/rename",
   catchError(async (req, res) => {
@@ -152,7 +135,6 @@ router.post(
   }),
 );
 
-/** How many documents and cards carry each tag. */
 router.get(
   "/tags/usage",
   catchError(async (req, res) => {
@@ -160,7 +142,6 @@ router.get(
   }),
 );
 
-/** The effective tags on one document or folder. */
 router.get(
   "/tags/entity",
   catchError(async (req, res) => {
@@ -182,7 +163,6 @@ router.get(
   }),
 );
 
-/** A document's raw `.flashback` sidecar. */
 router.get(
   "/sidecar",
   catchError((req, res) => {
@@ -197,7 +177,6 @@ router.get(
   }),
 );
 
-/** Streams a document and its media as a package. */
 router.get(
   "/export",
   catchError((req, res) => {
@@ -208,7 +187,6 @@ router.get(
   }),
 );
 
-/** Creates a folder and its sidecar. */
 router.post(
   "/folder",
   catchError(async (req, res) => {
@@ -219,7 +197,6 @@ router.post(
   }),
 );
 
-/** Creates a document. */
 router.post(
   "/file",
   catchError(async (req, res) => {
@@ -230,7 +207,6 @@ router.post(
   }),
 );
 
-/** Writes a document's body; text formats only. */
 router.put(
   "/file",
   catchError(async (req, res) => {
@@ -249,7 +225,6 @@ router.put(
   }),
 );
 
-/** Writes a document's sidecar metadata. */
 router.put(
   "/metadata",
   catchError(async (req, res) => {
@@ -267,7 +242,6 @@ router.put(
 
 const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES } });
 
-/** Uploads an image (`file`, multipart, with `path`) as a document's cover. */
 router.post(
   "/cover",
   (req, res, next) => coverUpload.single("file")(req, res, (err) => {
@@ -283,7 +257,6 @@ router.post(
   }),
 );
 
-/** Sets a drawn cover (`{ path, pattern }`) or repositions the image one (`{ path, y }`). */
 router.put(
   "/cover",
   catchError(async (req, res) => {
@@ -295,7 +268,6 @@ router.put(
   }),
 );
 
-/** Removes a document's cover, deleting its image. */
 router.delete(
   "/cover",
   catchError(async (req, res) => {
@@ -306,7 +278,6 @@ router.delete(
   }),
 );
 
-/** Deletes a document or folder and its index rows. */
 router.delete(
   "/",
   catchError(async (req, res) => {
@@ -317,7 +288,6 @@ router.delete(
   }),
 );
 
-/** Moves a document or folder, re-pointing media and inherited tags. */
 router.post(
   "/move",
   catchError(async (req, res) => {
@@ -330,7 +300,6 @@ router.post(
   }),
 );
 
-/** Copies a document or folder, assigning fresh identities to the copy. */
 router.post(
   "/copy",
   catchError(async (req, res) => {
@@ -343,7 +312,6 @@ router.post(
   }),
 );
 
-/** Renames a document or folder in place. */
 router.post(
   "/rename",
   catchError(async (req, res) => {
@@ -356,7 +324,6 @@ router.post(
   }),
 );
 
-/** Imports a file from disk into the workspace. */
 router.post(
   "/import",
   upload.single("file"),
@@ -369,7 +336,6 @@ router.post(
   }),
 );
 
-/** Creates a `.youtube` document from a video URL. */
 router.post(
   "/youtube",
   catchError(async (req, res) => {
@@ -380,7 +346,6 @@ router.post(
   }),
 );
 
-/** Clips a web page into a `.clip` document. */
 router.post(
   "/clip",
   catchError(async (req, res) => {
@@ -391,7 +356,6 @@ router.post(
   }),
 );
 
-/** Re-points a `.youtube` document at a different video. */
 router.put(
   "/youtube",
   catchError(async (req, res) => {
@@ -402,7 +366,6 @@ router.put(
   }),
 );
 
-/** Fetches a video's captions into the sidecar's `source.transcript`. */
 router.post(
   "/youtube/transcript",
   catchError(async (req, res) => {
@@ -413,7 +376,6 @@ router.post(
   }),
 );
 
-/** Re-clips a `.clip` document from its source URL. */
 router.put(
   "/clip",
   catchError(async (req, res) => {
@@ -424,7 +386,6 @@ router.put(
   }),
 );
 
-/** Downloads one of a clip's remote assets into the vault. */
 router.post(
   "/clip/asset",
   catchError(async (req, res) => {
@@ -435,7 +396,6 @@ router.post(
   }),
 );
 
-/** Imports a `.zip` package exported by this app. */
 router.post(
   "/import/zip",
   upload.single("file"),
@@ -495,7 +455,6 @@ router.post(
   }),
 );
 
-/** Inspects an `.apkg` and suggests a field-to-slot mapping, holding the extraction under a session id. */
 router.post(
   "/import/anki/analyze",
   upload.single("file"),
@@ -507,7 +466,6 @@ router.post(
   }),
 );
 
-/** Serves one media file from a held Anki extraction. */
 router.get(
   "/import/anki/media",
   catchError(async (req, res) => {
@@ -522,7 +480,6 @@ router.get(
   }),
 );
 
-/** Applies an analyzed `.apkg` import with the caller's field mapping. */
 router.post(
   "/import/anki",
   upload.single("file"),
@@ -547,7 +504,6 @@ router.post(
   }),
 );
 
-/** Imports an Obsidian vault directory. */
 router.post(
   "/import/obsidian",
   upload.single("file"),
@@ -561,7 +517,6 @@ router.post(
   }),
 );
 
-/** Resolves a document `globalHash` to its path. */
 router.get(
   '/by-hash/:hash',
   catchError(async (req, res) => {
@@ -571,7 +526,6 @@ router.get(
   }),
 );
 
-/** Re-derives a document's `flashback://` links from its body. */
 router.post(
   '/links/sync',
   catchError(async (req, res) => {

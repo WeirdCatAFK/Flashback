@@ -1,18 +1,5 @@
-/** Per-person behavioural record, ATTACHed to the vault DB — not a separate adapter. */
-
-/**
- * Schema name the vault connection attaches this store under.
- * Every statement must be schema-qualified (`progress.CardProgress`). An unqualified
- * CREATE TABLE lands in `main`, and an empty table there shadows the real one silently.
- * No REFERENCES clause — foreign keys cannot cross a schema boundary in SQLite.
- * Keyed by card_hash (globalHash), never by flashcard_id — a Doctor rebuild reassigns row ids.
- */
 export const SCHEMA_NAME = "progress";
 
-/**
- * Tables that must exist only in this store. `validators/database.js` asserts `main` holds
- * none of them.
- */
 export const PROGRESS_TABLES = Object.freeze([
     "CardProgress",
     "ReviewLogs",
@@ -118,14 +105,4 @@ CREATE TABLE IF NOT EXISTS progress.ProgressSchemaVersion (
 );
 `;
 
-/**
- * Repairs recorded against `ProgressSchemaVersion`, applied in order after `SCHEMA`.
- *
- * The counterpart of `accounts.js`'s `REPAIRS`, and separate from both `SchemaVersion` (the
- * vault database's migrations) and `AccountsSchemaVersion`: one version counter must not mean
- * two things. `CREATE TABLE IF NOT EXISTS` can add a table or a column but cannot correct rows
- * that are already wrong, which is what this is for.
- *
- * @type {ReadonlyArray<{version: number, sql: string}>}
- */
 export const REPAIRS = Object.freeze([]);

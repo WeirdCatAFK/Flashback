@@ -1,5 +1,3 @@
-/** Spaced repetition scheduling and grading. Sole caller of fsrs.js. */
-
 import query from '../resources/query.js';
 import db from '../primitives/database.js';
 import { currentScope } from '../../requestContext.js';
@@ -11,7 +9,6 @@ export { gapBand, GAP_BANDS, LONG_TERM_DAYS } from '../../../shared/intervals.js
 
 export const LEARNING_REVIEWS = 3;
 
-/** The level at which a card counts as mastered, for the Flashcards sidebar's summary of its own box histogram. */
 export const MASTERY_LEVEL = 5;
 
 const DEFAULT_ALGORITHM = 'leitner';
@@ -86,12 +83,10 @@ function dueDateOfCard(card, algorithm, easeFactor = 2.5) {
 }
 
 class SRSService {
-    /** Whose schedule this call is about. */
     _scope(explicit) {
         return explicit ?? currentScope();
     }
 
-    /** The scheduler this vault is actually being reviewed with. */
     async detectAlgorithm(scope) {
         const last = await query.getLatestReviewAlgorithm(this._scope(scope));
         if (!last) return DEFAULT_ALGORITHM;
@@ -99,7 +94,6 @@ class SRSService {
         return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
     }
 
-    /** This person's FSRS weight vector, falling back to the defaults. */
     async getWeights(scope) {
         return (await query.getFsrsWeights(this._scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
     }
@@ -127,12 +121,6 @@ class SRSService {
         return next;
     }
 
-    /**
-     * Grades a card, writing the schedule and, for the owner, the sidecar. Returns the
-     * gap before and after the grade in days (`interval.before` is null for a card this
-     * person had never reviewed), for the Trainer's pop — the one number every scheduler
-     * can answer.
-     */
     async submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const timestamp = new Date().toISOString();
         const ordering = opts.ordering ?? {};
@@ -179,13 +167,6 @@ class SRSService {
         })();
     }
 
-    /**
-     * The gap, in days, each FSRS rating would give each card right now — what the
-     * Trainer shows under its grade buttons. Only the server can answer it: the
-     * schedule depends on the caller's fitted weights and each card's latent state.
-     * Nothing is written.
-     * @returns {Promise<Object<string, {again: number, hard: number, good: number, easy: number}>>}
-     */
     async fsrsPreview(hashes, requestRetention = DEFAULT_REQUEST_RETENTION, scopeArg) {
         const scope = this._scope(scopeArg);
         if (!hashes.length) return {};
@@ -199,7 +180,6 @@ class SRSService {
         }));
     }
 
-    /** Reverts the caller's last grade on a card. */
     async undoReview(flashcardHash, algorithm = 'leitner', scopeArg) {
         const scope = this._scope(scopeArg);
         return await db.transaction(async () => {
@@ -241,7 +221,6 @@ class SRSService {
         })();
     }
 
-    /** This person's Leitner box distribution and mastery summary. */
     async getLeitnerStats(scopeArg) {
         const scope = this._scope(scopeArg);
         const boxes = await query.getLeitnerBoxes(scope);
@@ -257,7 +236,6 @@ class SRSService {
         };
     }
 
-    /** Fits FSRS weights to this person's own rated history. */
     async optimizeParameters(scopeArg) {
         const scope = this._scope(scopeArg);
         const histories = await query.getAllReviewHistories(scope);
@@ -268,7 +246,6 @@ class SRSService {
         return result;
     }
 
-    /** This person's fitted weights and what they were fitted from. */
     async getFsrsInfo(scopeArg) {
         const scope = this._scope(scopeArg);
         const stored = await query.getFsrsWeights(scope);
@@ -281,13 +258,6 @@ class SRSService {
         };
     }
 
-    /**
-     * Every card's current gap between reviews, in days, for this person under
-     * `algorithm` — null for a card they have never reviewed — with when they last
-     * reviewed it. The same maths the Statistics view uses, so a card sits in the
-     * same band on both screens.
-     * @returns {Promise<Map<string, { gap: number|null, lastRecall: string|null }>>} keyed by card hash
-     */
     async cardSchedule({ algorithm: requested = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
@@ -299,13 +269,11 @@ class SRSService {
         }]));
     }
 
-    /** `cardSchedule` narrowed to the gap: `Map<hash, days|null>`. */
     async cardGaps(opts = {}) {
         const schedule = await this.cardSchedule(opts);
         return new Map([...schedule].map(([hash, s]) => [hash, s.gap]));
     }
 
-    /** This person's review analytics over the whole vault. */
     async getStatistics({ algorithm: requested = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
@@ -411,7 +379,6 @@ class SRSService {
         };
     }
 
-    /** Everything the card detail view shows about ONE card: its current schedule, its full review ledger, and a retention curve. */
     async getCardInsights(hash, { algorithm: requested = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
@@ -472,7 +439,6 @@ class SRSService {
         };
     }
 
-    /** Samples the card's predicted retention from its last review out past its due date. */
     async _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope) {
         if (!reviewed) return null;
 
@@ -513,7 +479,6 @@ class SRSService {
         };
     }
 
-    /** Translates this person's progress between scheduling algorithms. */
     async migrateProgress(from, to, scopeArg) {
         const scope = this._scope(scopeArg);
         if (from === to) return 0;
@@ -589,7 +554,6 @@ class SRSService {
         return 0;
     }
 
-    /** Which cards are due for this person, from due dates alone; ordering happens elsewhere. */
     async getDue({
         algorithm: requested = null, folder = null, document = null, deck = null, tags = null,
         maxNew = 20, minPriority = 0, readGate = null,

@@ -23,7 +23,6 @@ router.use((req, res, next) => {
     next();
 });
 
-/** Derives the caller's daily summary from their review logs; idempotent. */
 router.post('/summary', catchError(async (req, res) => {
     const date = req.body?.date;
     if (date != null && !DATE_RE.test(date)) {
@@ -33,16 +32,11 @@ router.post('/summary', catchError(async (req, res) => {
     res.json({ ok: true, summary });
 }));
 
-/** Re-derives a range of daily summaries. */
 router.post('/rebuild', catchError(async (req, res) => {
     const count = await diary.rebuildAll();
     res.json({ ok: true, count });
 }));
 
-/**
- * The caller's diary days, newest first. A day's `firstLine` is the start of what
- * someone wrote, so only an assistant with full diary access sees it.
- */
 router.get('/', catchError(async (req, res) => {
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
@@ -53,7 +47,6 @@ router.get('/', catchError(async (req, res) => {
     res.json(days);
 }));
 
-/** One day's derived study summary. */
 router.get('/summary/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
@@ -62,14 +55,12 @@ router.get('/summary/:date', catchError((req, res) => {
     res.json(summary);
 }));
 
-/** One day's written entry. */
 router.get('/entry/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     res.json({ date, content: diary.getEntry(date) ?? '' });
 }));
 
-/** Writes one day's entry. */
 router.put('/entry/:date', catchError(async (req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });

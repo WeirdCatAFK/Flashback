@@ -8,21 +8,14 @@ const router = Router();
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch(next);
 
-/**
- * A card names its category in its sidecar or deck file, so a rename or a clearing delete
- * rewrites those files too (`rewriteCategory` on both orchestrators), not only the row.
- */
 const docs = new Documents();
 
-/** The category with this id, or undefined. */
 const categoryById = async (id) => (await query.getCategories()).find((c) => c.id === id);
 
-/** Every pedagogical category, each with how many cards use it. */
 router.get('/', catchError(async (req, res) => {
     res.json(await query.getCategories());
 }));
 
-/** Creates a category. */
 router.post('/', catchError(async (req, res) => {
     const { name, priority = 0, description = '' } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
@@ -34,10 +27,6 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ id });
 }));
 
-/**
- * Renames, re-describes or re-prioritises a category. A rename rewrites every card that
- * names it; renaming onto another category's name is refused rather than merged.
- */
 router.put('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
     const current = await categoryById(id);
@@ -61,10 +50,6 @@ router.put('/:id', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-/**
- * Deletes a category. Refuses while any card uses it, unless `?clear=1` asks for those
- * cards to lose it first — a choice the caller makes after saying so, never a silent one.
- */
 router.delete('/:id', catchError(async (req, res) => {
     const id = Number(req.params.id);
     const current = await categoryById(id);

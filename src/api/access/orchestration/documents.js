@@ -1,5 +1,3 @@
-/** Main orchestrator. Coordinates filesystem, database and specialized services. */
-
 import path from 'path';
 import fs from 'fs';
 import Files from '../resources/files.js';
@@ -21,7 +19,6 @@ import { ROLES, atLeast } from '../../../shared/roles.js';
 import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, clampCoverY } from '../../../shared/covers.js';
 import { swapTag } from '../../../shared/tagNames.js';
 
-/** Extracts the 11-char video id from any common YouTube URL shape (watch?v=, youtu.be/, /embed/, /shorts/, /live/). */
 export function extractYoutubeId(url) {
     if (!url) return null;
     const patterns = [
@@ -36,7 +33,6 @@ export function extractYoutubeId(url) {
     return null;
 }
 
-/** Chooses one caption track from a playerResponse's `captionTracks[]`, preferring a manually-authored track in the requested language. */
 export function pickCaptionTrack(playerResponse, lang) {
     const tracks =
         playerResponse?.captions?.playerCaptionsTracklistRenderer?.captionTracks;
@@ -47,7 +43,6 @@ export function pickCaptionTrack(playerResponse, lang) {
     return manual(inLang) || inLang[0] || manual(tracks) || tracks[0];
 }
 
-/** Turns a YouTube timedtext json3 payload (object or raw string) into transcript cues `{ start, dur, text }` in seconds. */
 export function parseJson3Transcript(json) {
     let data = json;
     if (typeof data === "string") {
@@ -68,7 +63,6 @@ export function parseJson3Transcript(json) {
     return cues;
 }
 
-/** Turns an arbitrary title into a filesystem-safe base name (no extension). */
 export function slugifyName(title) {
     const cleaned = String(title || "")
         .replace(/[\\/:*?"<>|]/g, " ")
@@ -139,7 +133,6 @@ const CLIP_USER_AGENT = 'Mozilla/5.0 (Flashback webclipper)';
 
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
 
-/** The file name an asset's src is known by — the last path segment, no query or fragment. */
 function assetName(src) {
     const bare = src.split('?')[0].split('#')[0].split('/').pop() || src;
     try { return decodeURIComponent(bare); } catch { return bare; }
@@ -153,12 +146,10 @@ function isSoundLink(href) {
     return PLAYABLE_SOUND_EXT.test(segment);
 }
 
-/** Where an element loads from: an anchor's href, anything else's src. */
 function assetAddress(el) {
     return (el.tagName.toUpperCase() === 'A' ? el.getAttribute('href') : el.getAttribute('src')) || '';
 }
 
-/** Every element in a clip body that carries an asset: pictures and players by `src`, plus links pointing at a playable sound. */
 function clipAssetNodes(cdoc) {
     return Array.from(cdoc.querySelectorAll('img[src], audio[src], source[src], a[href]'))
         .filter((n) => n.tagName.toUpperCase() !== 'A'
@@ -166,7 +157,6 @@ function clipAssetNodes(cdoc) {
             || isSoundLink(n.getAttribute('data-src')));
 }
 
-/** The element in a clip body that `wanted` names, by the same addressing rules `/api/reader/media-file` uses. */
 function resolveClipAsset(cdoc, wanted) {
     const nodes = clipAssetNodes(cdoc);
     const bare = wanted.replace(/^\.?\//, '');
@@ -188,7 +178,6 @@ const MAX_AUDIO_BYTES = 15 * 1024 * 1024;
 
 const clamp01 = (v) => Math.max(0, Math.min(1, Number(v) || 0));
 
-/** Rolls each graph node's raw learning columns up into the two scalars the graph draws with, and drops the intermediate sums from the payload. */
 function graphNodeLearning(node) {
     const {
         learnedSum, flashcardLearned, cardCount,
@@ -223,16 +212,6 @@ export default class Documents {
         this.srs = srsService;
     }
 
-    /**
-     * Refuses a write whose caller was working from a version of the document that is no longer the one on disk.
-     *
-     * @param {string} relativePath
-     * @param {string} [ifMatch] - the etag the caller last read.
-     * @param {object} [opts]
-     * @param {boolean} [opts.isFolder=false]
-     * @param {'body'|'sidecar'} [opts.part='sidecar'] - which half this write replaces.
-     * @throws {Error & {status:409, code:'stale', etag:string|null}}
-     */
     _assertFresh(relativePath, ifMatch, { isFolder = false, part = 'sidecar' } = {}) {
         if (!ifMatch) return;
         const current = this.files.etag(relativePath, isFolder);
@@ -244,13 +223,6 @@ export default class Documents {
         );
     }
 
-    /**
-     * The etag of one card as it stands in its document's sidecar — what a client sends back as `ifMatch` when it patches that card.
-     *
-     * @param {string|null} relativePath - null for a standalone card (it lives in a deck file).
-     * @param {string} flashcardHash
-     * @returns {string|null}
-     */
     cardEtag(relativePath, flashcardHash) {
         if (!relativePath) return null;
         const meta = this.files.getMetadata(relativePath) || {};
@@ -258,13 +230,6 @@ export default class Documents {
         return this.files.entityEtag(cards.find(f => f.globalHash === flashcardHash));
     }
 
-    /**
-     * The patch counterpart of `_assertFresh`: refuses a patch to an entity somebody else has changed since the caller read it.
-     *
-     * @param {object} entity - the card/highlight as it currently stands in the sidecar.
-     * @param {string} [ifMatch] - entity etag the caller read.
-     * @throws {Error & {status:409, code:'stale', etag:string|null}}
-     */
     _assertEntityFresh(entity, ifMatch) {
         if (!ifMatch) return;
         const current = this.files.entityEtag(entity);
@@ -275,7 +240,6 @@ export default class Documents {
         );
     }
 
-    /** One folder's documents and subfolders, with their metadata. */
     async listFolder(relPath) {
         const items = await this.files.listFolder(relPath);
         const folder = await this.query.getFolderByPath(relPath);
@@ -310,7 +274,6 @@ export default class Documents {
         });
     }
 
-    /** Creates a document, its sidecar and its index rows. */
     async createFile(name, relativePath = "") {
         const { globalHash, name: resolvedName } = await this.files.createFile(relativePath, name);
         const fileRelPath = path.join(relativePath, resolvedName);
@@ -338,7 +301,6 @@ export default class Documents {
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
     }
 
-    /** Creates a folder, its sidecar and its index rows. */
     async createFolder(name, relativePath = "") {
         const folderRelPath = path.join(relativePath, name);
         const globalHash = await this.files.createFolder(relativePath, name);
@@ -364,7 +326,6 @@ export default class Documents {
         await sealEmitter.create(path.join(folderRelPath, '.flashback'));
     }
 
-    /** Renames a document or folder, cascading paths in the index. */
     async rename(relativePath, newName, isFolder = false) {
         return await withStructure(() => this._renameLocked(relativePath, newName, isFolder));
     }
@@ -402,7 +363,6 @@ export default class Documents {
         }
     }
 
-    /** Moves a document or folder, carrying its media and re-deriving inherited tags. */
     async move(relativePath, newRelativePath, isFolder = false) {
         return await withStructure(() => this._moveLocked(relativePath, newRelativePath, isFolder));
     }
@@ -468,16 +428,6 @@ export default class Documents {
         }
     }
 
-    /**
-     * Writes a document's body and/or its sidecar.
-     *
-     * @param {string} relativePath
-     * @param {string|null} [content] - body; undefined/null leaves the body alone.
-     * @param {object} [metadata] - the whole sidecar.
-     * @param {object} [opts]
-     * @param {string} [opts.ifMatch] - etag the caller read. Omitted means no check; see `routes/documents.js` for why that stays permitted.
-     * @returns {Promise<{etag: string|null}>} the document's etag after the write.
-     */
     async updateFile(relativePath, content, metadata, { ifMatch } = {}) {
         return await withDocument(relativePath, async () => {
             const part = (content !== undefined && content !== null) ? 'body' : 'sidecar';
@@ -487,7 +437,6 @@ export default class Documents {
         });
     }
 
-    /** The body of updateFile, with the lock and the freshness check already applied. */
     async _updateFileLocked(relativePath, content, metadata) {
         if (metadata) this._preserveCover(metadata, this.files.getMetadata(relativePath));
         await this.files.updateFile(relativePath, content, metadata);
@@ -560,7 +509,6 @@ export default class Documents {
         })();
     }
 
-    /** Re-derives a saved document's `flashback://` links, rewriting the sidecar only when they changed. */
     async syncDocumentLinks(relPath) {
         const links = this._extractLinks(relPath);
         if (links === null) return;
@@ -571,7 +519,6 @@ export default class Documents {
         if (doc) await this._writeLinkConnections(doc, links);
     }
 
-    /** Re-derives link edges in the index only; writes no file and emits no Seal commit. */
     async indexDocumentLinks(relPath) {
         const links = this._extractLinks(relPath);
         if (links === null) return;
@@ -599,7 +546,6 @@ export default class Documents {
         await this.indexDocumentLinks(relPath);
     }
 
-    /** Deletes a document or folder from disk and from the index. */
     async delete(relativePath, isFolder = false) {
         return await withStructure(() => this._deleteLocked(relativePath, isFolder));
     }
@@ -625,7 +571,6 @@ export default class Documents {
         await sealEmitter.delete(sealSidecar, sealExtra);
     }
 
-    /** Copies a document or folder, assigning fresh identities to the copy. */
     async copy(relPath, newRelPath, isFolder = false) {
         return await withStructure(() => this._copyLocked(relPath, newRelPath, isFolder));
     }
@@ -690,16 +635,6 @@ export default class Documents {
         await sealEmitter.create(rootSidecar, [...sidecarPaths.slice(1), ...docPaths, ...mediaPaths]);
     }
 
-    /**
-     * Replaces a document's or folder's whole sidecar.
-     *
-     * @param {string} relativePath
-     * @param {object} metadata
-     * @param {boolean} [isFolder=false]
-     * @param {object} [opts]
-     * @param {string} [opts.ifMatch]
-     * @returns {Promise<{etag: string|null}>}
-     */
     async updateMetadata(relativePath, metadata, isFolder = false, { ifMatch } = {}) {
         return await withDocument(relativePath, async () => {
             this._assertFresh(relativePath, ifMatch, { isFolder, part: 'sidecar' });
@@ -708,12 +643,6 @@ export default class Documents {
         });
     }
 
-    /**
-     * How many of this document's cards a metadata write would delete.
-     *
-     * @param {object|null} onDisk the sidecar as it stands, read once by the caller.
-     * @returns {number} 0 for a folder, a card-less write, or a write that removes nothing.
-     */
     _countCardRemovals(metadata, isFolder, onDisk) {
         if (isFolder || !Array.isArray(metadata?.flashcards)) return 0;
 
@@ -726,7 +655,6 @@ export default class Documents {
         return before.filter((fc) => fc?.globalHash && !incoming.has(fc.globalHash)).length;
     }
 
-    /** Refuses a metadata write that would delete more cards than this caller may. */
     _assertRemovalAllowed(relativePath, removals) {
         if (removals <= 0) return null;
 
@@ -753,7 +681,6 @@ export default class Documents {
         });
     }
 
-    /** Keeps a sidecar's identity fields as the server assigned them. */
     _preserveIdentity(metadata, onDisk) {
         if (!metadata || typeof metadata !== 'object') return;
         if (!currentAccount()) return;
@@ -765,23 +692,12 @@ export default class Documents {
         else delete metadata.createdBy;
     }
 
-    /**
-     * Keeps a document's cover as it is on disk through a whole-object metadata
-     * write. Renderers save highlights by writing back the sidecar they loaded, so a
-     * cover set since then would otherwise be erased by a highlight; the cover routes
-     * are the only way to change it.
-     */
     _preserveCover(metadata, onDisk) {
         if (!metadata || typeof metadata !== 'object') return;
         if (onDisk?.cover) metadata.cover = onDisk.cover;
         else delete metadata.cover;
     }
 
-    /**
-     * Stores an uploaded image as a document's cover, centred, replacing whatever
-     * cover it had. The file goes in the folder's `media/` beside the document's
-     * card media, registered in `Media` like them, under a fresh name each time.
-     */
     async uploadCover(relativePath, buffer, mime) {
         const ext = COVER_TYPES[mime];
         if (!ext) throw Object.assign(new Error(`Unsupported cover type: ${mime}`), { status: 400 });
@@ -806,11 +722,6 @@ export default class Documents {
         });
     }
 
-    /**
-     * Changes a document's cover without a new upload: `{ pattern }` for a drawn
-     * one, `{ y }` (0..1) to reposition the image it has, or null to remove it. An
-     * image that stops being the cover is deleted with it.
-     */
     async setCover(relativePath, change) {
         return await withDocument(relativePath, async () => {
             const meta = this._coverSidecar(relativePath);
@@ -833,7 +744,6 @@ export default class Documents {
         });
     }
 
-    /** A document's sidecar, for a cover change; 404 for a folder or a missing document. */
     _coverSidecar(relativePath) {
         if (!this.files.exists(relativePath) || fs.lstatSync(this.files.safePath(relativePath)).isDirectory()) {
             throw Object.assign(new Error(`Document not found: ${relativePath}`), { status: 404 });
@@ -843,7 +753,6 @@ export default class Documents {
         return meta;
     }
 
-    /** Deletes a cover's image and its Media row, if it had one; returns the paths Seal should drop. */
     async _dropCoverFile(relativePath, cover) {
         if (cover?.kind !== 'image') return [];
         const abs = this.files.mediaPathFor(relativePath, cover.file);
@@ -852,7 +761,6 @@ export default class Documents {
         return [path.relative(this.files.workspaceRoot, abs)];
     }
 
-    /** The body of updateMetadata, with the lock and the freshness check already applied. */
     async _updateMetadataLocked(relativePath, metadata, isFolder = false, { seal = true } = {}) {
         const onDisk = this.files.getMetadata(relativePath, isFolder);
 
@@ -889,14 +797,6 @@ export default class Documents {
         return sidecar;
     }
 
-    /**
-     * Renames a tag in every folder and document sidecar that names it — the tags a file
-     * applies, the inherited ones it excludes, and its cards' own — or removes it when `to`
-     * is null. Holds the structural lock, since the set of files is the whole vault, and
-     * seals the lot as one commit. Decks and the default deck's cards live in `_decks/` and
-     * are rewritten by `Decks.rewriteTag` after this returns; calling it from inside this
-     * lock would wait on itself. Returns how many sidecars changed.
-     */
     async rewriteTag(from, to = null) {
         return await withStructure(async () => {
             const touched = [];
@@ -927,15 +827,6 @@ export default class Documents {
         });
     }
 
-    /**
-     * Renames a category on every document card that names it, or clears it when `to` is
-     * null — the sidecar half of a category rename or delete (`Decks.rewriteCategory` does
-     * the default deck's cards). A sidecar names a card's category rather than pointing at
-     * its row, so renaming the row alone would leave every card on the old name for the next
-     * rebuild to recreate. Rename the row first: the index resolves the new name as each
-     * sidecar is re-read. Same lock and single commit as `rewriteTag`. Returns how many
-     * sidecars changed.
-     */
     async rewriteCategory(from, to = null) {
         return await withStructure(async () => {
             const touched = [];
@@ -958,7 +849,6 @@ export default class Documents {
         });
     }
 
-    /** Imports a file from disk into the workspace, folding its links into the sidecar before sealing. */
     async importFile(name, relativePath, content, metadata) {
         const { name: resolvedName } = await this.files.createFile(relativePath, name);
         const fileRelPath = path.join(relativePath, resolvedName);
@@ -1032,13 +922,6 @@ export default class Documents {
         return { videoId, title, body, source };
     }
 
-    /**
-     * Captures a YouTube URL as a new `.youtube` reference document.
-     *
-     * @param {string} url
-     * @param {string} [relativePath=""] destination folder
-     * @returns {Promise<{path: string, globalHash: string}>}
-     */
     async createYoutube(url, relativePath = "") {
         const { videoId, title, body, source } = await this._buildYoutubeDoc(url);
         const metadata = { ...newFileMetadata(), source };
@@ -1046,12 +929,6 @@ export default class Documents {
         return await this.importFile(name, relativePath, body, metadata);
     }
 
-    /**
-     * Populates an existing (e.g.
-     *
-     * @param {string} relPath existing `.youtube` file
-     * @param {string} url
-     */
     async setYoutubeSource(relPath, url) {
         if (!await this.files.exists(relPath)) throw new Error("File not found");
         const { body, source } = await this._buildYoutubeDoc(url);
@@ -1098,15 +975,6 @@ export default class Documents {
         return { cues, lang: track.languageCode || (lang ?? 'und'), kind: track.kind === 'asr' ? 'asr' : 'manual' };
     }
 
-    /**
-     * Fetches a `.youtube` document's caption transcript from YouTube into the sidecar's `source` block.
-     *
-     * @param {string} relPath existing `.youtube` file
-     * @param {object} [opts]
-     * @param {string} [opts.lang] preferred caption language code (e.g. "en", "es")
-     * @returns {Promise<{path: string, cues: number, lang: string, kind: string}>}
-     * @throws {Error & {status:422}} when the video has no usable captions
-     */
     async fetchYoutubeTranscript(relPath, { lang } = {}) {
         if (!await this.files.exists(relPath)) throw Object.assign(new Error("File not found"), { status: 404 });
         const existing = this.files.getMetadata(relPath) || newFileMetadata();
@@ -1131,16 +999,6 @@ export default class Documents {
         return { path: relPath, cues: cues.length, lang: gotLang, kind };
     }
 
-    /**
-     * Downloads one remote asset into `<mediaFolder>/media/`, registers it in the Media table, and returns its `./media/<name>` reference.
-     *
-     * @param {string} absSrc absolute http(s) URL
-     * @param {object} opts
-     * @param {string} opts.mediaFolder folder the clip lives in
-     * @param {number} opts.maxBytes size ceiling
-     * @param {(contentType: string|null, url: string) => string} opts.extFor
-     * @returns {Promise<{localRef: string, name: string, mediaRel: string, bytes: number, mediaType: string|null}>}
-     */
     async _cacheRemoteAsset(absSrc, { mediaFolder, maxBytes, extFor }) {
         if (!/^https?:/i.test(absSrc)) throw new Error(`Not a downloadable address: ${absSrc}`);
 
@@ -1226,13 +1084,6 @@ export default class Documents {
         return { html: clean, source, title: article.title || 'clip' };
     }
 
-    /**
-     * Fetches a web page and stores a readable `.clip` snapshot.
-     *
-     * @param {string} url
-     * @param {string} [relativePath=""] destination folder
-     * @returns {Promise<{path: string, globalHash: string}>}
-     */
     async createClip(url, relativePath = "") {
         const { html, source, title } = await this._buildClipDoc(url);
         const metadata = { ...newFileMetadata(), source };
@@ -1240,12 +1091,6 @@ export default class Documents {
         return await this.importFile(name, relativePath, html, metadata);
     }
 
-    /**
-     * Populates an existing (e.g.
-     *
-     * @param {string} relPath existing `.clip` file
-     * @param {string} url
-     */
     async setClipSource(relPath, url) {
         if (!await this.files.exists(relPath)) throw new Error("File not found");
         const { html, source } = await this._buildClipDoc(url);
@@ -1255,13 +1100,6 @@ export default class Documents {
         return { path: relPath, globalHash: this.files.getMetadata(relPath)?.globalHash };
     }
 
-    /**
-     * Downloads one of a saved clip's remote assets into the vault and points the clip at the local copy.
-     *
-     * @param {string} relPath the `.clip` document
-     * @param {string} href the asset's src or href as it appears in the body, or its bare file name
-     * @returns {Promise<{path: string, href: string, name: string, kind: 'image'|'audio', bytes: number|null, mediaType: string|null, alreadySaved: boolean}>}
-     */
     async saveClipAsset(relPath, href) {
         if (!/\.clip$/i.test(relPath)) throw new Error("Not a web clip");
         if (!await this.files.exists(relPath)) throw new Error("File not found");
@@ -1329,12 +1167,6 @@ export default class Documents {
         };
     }
 
-    /**
-     * Indexes a document that exists on disk (file + sidecar) but has no derived-layer row.
-     *
-     * @param {string} relPath - document path relative to the workspace root.
-     * @returns {Promise<number>} the document's DB id.
-     */
     async indexDocument(relPath) {
         if (await this.query.getDocumentByPath(relPath)) return await this.reindexDocument(relPath);
 
@@ -1355,12 +1187,6 @@ export default class Documents {
         return docId;
     }
 
-    /**
-     * Refreshes an existing document's index rows from its sidecar, which is canonical.
-     *
-     * @param {string} relPath - document path relative to the workspace root.
-     * @returns {Promise<number>} the document's DB id.
-     */
     async reindexDocument(relPath) {
         const doc = await this.query.getDocumentByPath(relPath);
         if (!doc) return await this.indexDocument(relPath);
@@ -1390,12 +1216,6 @@ export default class Documents {
         return doc.id;
     }
 
-    /**
-     * Indexes a folder that exists on disk (row for every missing ancestor included) and syncs its tags + inheritance from its sidecar.
-     *
-     * @param {string} relPath - folder path relative to the workspace root ('' = root).
-     * @returns {number} the folder's DB id.
-     */
     async indexFolder(relPath) {
         const folderId = await this._ensureFolderPath(relPath);
         const folder = await this.query.getFolderById(folderId);
@@ -1411,12 +1231,6 @@ export default class Documents {
         return folderId;
     }
 
-    /**
-     * Removes a document's or folder tree's index rows for an item already deleted on disk.
-     *
-     * @param {string} relPath - path relative to the workspace root.
-     * @param {boolean} [isFolder=false]
-     */
     async removeFromIndex(relPath, isFolder = false) {
         const absPath = this.files.safePath(relPath);
         await db.transaction(async () => {
@@ -1428,7 +1242,6 @@ export default class Documents {
         })();
     }
 
-    /** Imports a package exported by this app. */
     async importPackage(externalPath, targetRelPath = "") {
         const folderName = path.basename(externalPath);
         const folderRelPath = path.join(targetRelPath, folderName);
@@ -1528,7 +1341,6 @@ export default class Documents {
         await crawl(externalPath, folderRelPath);
     }
 
-    /** Unpacks an uploaded `.zip` and imports what it holds. */
     async processZipPackage(zipFilePath, targetRelPath = "") {
         const tempId = crypto.randomUUID();
         const zipName = path.basename(zipFilePath, '.zip');
@@ -1550,7 +1362,6 @@ export default class Documents {
         }
     }
 
-    /** Packages a document and its media for export. */
     exportPackage(relativePath) {
         const sourcePath = this.files.safePath(relativePath);
         const zip = new AdmZip();
@@ -1560,14 +1371,6 @@ export default class Documents {
         return zipPath;
     }
 
-    /**
-     * Creates a single vanilla flashcard in a document's sidecar and attaches any provided media in one atomic operation.
-     *
-     * @param {string} relativePath - relative path to the target document.
-     * @param {object} cardData - the card object (front/back text, tags, category, location, …). Any client-supplied globalHash is ignored — the API owns it.
-     * @param {Array<{ buffer: Buffer, originalName: string, type: "image"|"sound", position: "front"|"back" }>} [mediaItems=[]]
-     * @returns {object} The persisted card, including its assigned globalHash and media refs.
-     */
     async createFlashcard(relativePath, cardData, mediaItems = []) {
         return await withDocument(relativePath, () =>
             this._createFlashcardLocked(relativePath, cardData, mediaItems));
@@ -1621,23 +1424,6 @@ export default class Documents {
         return savedCard;
     }
 
-    /**
-     * Edits a document-anchored flashcard's content in place.
-     *
-     * @param {string} relativePath - document the card is anchored to.
-     * @param {string} flashcardHash - globalHash of the card to edit.
-     * @param {object} patch - any of { frontText, backText, answerText, name, cardType, category, customHtml, tags }.
-     * @returns {object} the updated card as written to the sidecar.
-     */
-    /**
-     * Patches ONE card inside a document's sidecar.
-     *
-     * @param {string} relativePath
-     * @param {string} flashcardHash
-     * @param {object} [patch]
-     * @param {object} [opts]
-     * @param {string} [opts.ifMatch] - entity etag (see Files.entityEtag) of the card as read.
-     */
     async updateFlashcard(relativePath, flashcardHash, patch = {}, { ifMatch } = {}) {
         return await withDocument(relativePath, () =>
             this._updateFlashcardLocked(relativePath, flashcardHash, patch, ifMatch));
@@ -1693,12 +1479,6 @@ export default class Documents {
         return updated;
     }
 
-    /**
-     * Permanently deletes a document-anchored flashcard, dropping it from the sidecar's `flashcards[]` and letting the derived-layer sync remove the row.
-     *
-     * @param {string} relativePath - document the card is anchored to.
-     * @param {string} flashcardHash - globalHash of the card to delete.
-     */
     async deleteFlashcard(relativePath, flashcardHash) {
         return await withDocument(relativePath, () =>
             this._deleteFlashcardLocked(relativePath, flashcardHash));
@@ -1719,16 +1499,12 @@ export default class Documents {
 
         await db.transaction(async () => {
             await this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
-            // The sync's orphan sweep drops the index row but deliberately leaves behavioural
-            // rows alone — a card vanishing from a sidecar is not a decision to destroy
-            // anyone's history. This IS that decision, so it purges explicitly.
             await this.query.purgeCardBehaviour(flashcardHash);
         })();
 
         await sealEmitter.edit(relativePath + '.flashback');
     }
 
-    /** Attaches an asset to a card and registers it in the Media table. */
     async addMediaToFlashcard(relativePath, flashcardHash, mediaBuffer, mediaName) {
         return await withDocument(relativePath, () =>
             this._addMediaToFlashcardLocked(relativePath, flashcardHash, mediaBuffer, mediaName));
@@ -1751,26 +1527,15 @@ export default class Documents {
         await sealEmitter.edit(relativePath + '.flashback', [mediaRel]);
     }
 
-    /**
-     * Grades a card.
-     *
-     * Writes no file and produces no Seal commit, for anybody. A schedule lives in the progress
-     * store; the sidecar's SRS fields are a frozen snapshot nothing writes any more. Reading is
-     * not editing — and as of this change, neither is studying.
-     */
     async submitReview(relativePath, flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
         const { documentId, scope, interval } = await this.srs.submitReview(
             flashcardHash, outcome, easeFactor, newLevel, algorithm, opts,
         );
 
-        // `presence` is derived from the OWNER's levels and stored on the document, so a
-        // reader's review must not move it. It is the only thing left that the owner's review
-        // does and a reader's does not.
         if (isOwnerScope(scope)) await this.propagatePresence(documentId);
         return { interval };
     }
 
-    /** Reverts the caller's last grade on a card. */
     async undoReview(relativePath, flashcardHash, algorithm = 'leitner') {
         const { document_id, restored, scope } = await this.srs.undoReview(flashcardHash, algorithm);
 
@@ -1854,7 +1619,6 @@ export default class Documents {
         await this.query.syncNodeTags(nodeId, tagNodeIds);
     }
 
-    /** Mirrors a sidecar's flashcards[] into the derived layer. */
     async _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
         const existing = await this.query.getFlashcardsByDocument(documentId, OWNER_SCOPE);
         const existingMap = new Map(existing.map(f => [f.global_hash, f]));
@@ -1865,19 +1629,6 @@ export default class Documents {
             const match = existingMap.get(fcData.globalHash);
 
             if (match) {
-                // SEED ON ABSENCE, NOT MERGE.
-                //
-                // The sidecar's SRS fields are a frozen snapshot — true on the day writing
-                // stopped, drifting ever since. They are read exactly once per card: to seed a
-                // schedule for a card this vault holds no progress row for. That case is real
-                // rather than theoretical, because `workspace/` can arrive on its own volume
-                // with no progress.db beside it, and zeroing a schedule whose numbers are
-                // sitting in the file would be a regression.
-                //
-                // Once a row exists the file is ignored outright. `_writeProgress` fires on any
-                // PROGRESS_KEYS entry merely being DEFINED, so ignoring it means deleting those
-                // keys — not reading them is not enough. What this replaces was a max-merge,
-                // which existed only because two writers owned one number. There is one now.
                 const payload = { ...fcData };
                 if (match.hasProgress) {
                     for (const key of PROGRESS_KEYS) delete payload[key];
@@ -1889,8 +1640,6 @@ export default class Documents {
                     contentId: match.content_id
                 }, OWNER_SCOPE);
 
-                // SM-2 ease has no CardProgress column — it is read back out of the newest
-                // review log — so seeding a schedule from the file has to seed one log too.
                 if (!match.hasProgress && fcData.easeFactor != null) {
                     await this.query.seedEaseFromSidecar(
                         fcData.globalHash, fcData.easeFactor, fcData.level ?? 0,
@@ -1898,12 +1647,6 @@ export default class Documents {
                 }
                 if (Array.isArray(fcData.tags)) await this._syncTags(match.node_id, fcData.tags);
             } else {
-                // Seed-on-absence applies here too, and this branch is the one that matters
-                // most: a Doctor rebuild deletes every card row and re-inserts it, so EVERY
-                // card comes through here with a surviving progress row behind it. Writing the
-                // frozen sidecar's numbers unconditionally would zero every schedule in the
-                // vault on the first rebuild — silently, since a zeroed schedule looks exactly
-                // like a card nobody has studied.
                 const nodeId = await this.query.createNode('Flashcard');
                 const payload = { ...fcData };
                 const seeding = !await this.query.hasProgressForHash(fcData.globalHash, OWNER_SCOPE);
@@ -1933,7 +1676,6 @@ export default class Documents {
         }
     }
 
-    /** The tag set a folder hands down to its children: whatever it inherits on its own incoming edge (minus its own exclusions) plus its direct tags. */
     async _tagsPassedDownByFolder(folderNodeId, folderRelPath) {
         const meta = this.files.getMetadata(folderRelPath, true) || {};
         const excluded = new Set(meta.excludedTags || []);
@@ -1942,7 +1684,6 @@ export default class Documents {
         return [...new Set([...inherited, ...direct])];
     }
 
-    /** Fills a parent→child inheritance edge with the parent's effective tags. */
     async _seedInheritedTags(parentNodeId, childNodeId, tagNames) {
         if (!parentNodeId || !childNodeId) return;
         const hierarchyType = await this.query.getHierarchyTypeId();
@@ -2142,7 +1883,6 @@ export default class Documents {
         return paths;
     }
 
-    /** Recomputes stored presence up the folder tree from a document. */
     async propagatePresence(documentId) {
         await db.transaction(async () => {
             const stats = await this.query.getFlashcardAvgLevel(documentId, OWNER_SCOPE);
@@ -2164,10 +1904,8 @@ export default class Documents {
         })();
     }
 
-    /** Searches names and metadata across the workspace. */
     async search(q) { return await this.query.search(q); }
 
-    /** Searches document bodies, returning matching snippets. */
     async searchContent(q, limit = 20) {
         const needle = String(q ?? '').toLowerCase();
         if (!needle) return [];
@@ -2198,7 +1936,6 @@ export default class Documents {
         return results;
     }
 
-    /** A document's outgoing links and backlinks. */
     async getLinks(relPath) {
         const doc = await this.query.getDocumentByPath(relPath);
         if (!doc) throw new Error(`Document ${relPath} not found`);
@@ -2208,12 +1945,10 @@ export default class Documents {
         return { outgoing, backlinks, pending };
     }
 
-    /** Nodes and edges for the graph view. */
     async getGraphData(scope) {
         const { nodes, edges } = await this.query.getGraphData(scope ?? currentScope());
         return { nodes: nodes.map(graphNodeLearning), edges };
     }
-    /** Whether a path exists in the workspace. */
     async exists(rel, derived, isFolder) {
         if (derived) return isFolder ? await this.query.getFolderByPath(rel) : await this.query.getDocumentByPath(rel);
         return await this.files.exists(rel);

@@ -6,7 +6,6 @@ const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-/** One document's highlights. */
 router.get('/', catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -14,7 +13,6 @@ router.get('/', catchError((req, res) => {
     res.json({ highlights });
 }));
 
-/** Every highlight enriched with the context needed to act on it. */
 router.get('/annotated', catchError(async (req, res) => {
     const relPath = norm(req.query.path) || null;
     const color = req.query.color || null;
@@ -24,7 +22,6 @@ router.get('/annotated', catchError(async (req, res) => {
     res.json({ highlights: all.slice(0, limit), total: all.length });
 }));
 
-/** Creates a highlight and anchors it in the sidecar. */
 router.post('/', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -32,7 +29,6 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ ok: true, highlight });
 }));
 
-/** Updates a highlight's colour, note or anchor. */
 router.put('/:hash', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -40,7 +36,6 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true, highlight });
 }));
 
-/** Deletes a highlight. */
 router.delete('/:hash', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });

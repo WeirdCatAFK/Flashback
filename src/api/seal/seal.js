@@ -1,4 +1,3 @@
-/** Git-backed workspace versioning. SealEventEmitter commits; SealTools navigates history. */
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
@@ -27,12 +26,6 @@ function isSidecar(p) {
     return p.endsWith(SIDECAR_SUFFIX);
 }
 
-/**
- * Diffs a commit's tree against its first parent (or, for a root commit, against nothing) and returns every path added/modified/deleted — sidecars and…
- *
- * @param {string} oid - Commit hash to diff.
- * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
- */
 async function commitDiff(oid) {
     const workspace = dir();
     const added = [];
@@ -97,43 +90,21 @@ function editLabel(paths) {
     return paths[0];
 }
 
-/** Fired by Documents.js after each canonical write operation. */
 export class SealEventEmitter {
     constructor() {
         this._commitQueue = Promise.resolve();
     }
 
-    /**
-     * Runs `task` after every commit already queued, and resolves with its result.
-     *
-     * @param {() => Promise<void>} task
-     * @returns {Promise<void>}
-     */
     _enqueue(task) {
         const run = this._commitQueue.then(task, task);
         this._commitQueue = run.then(() => {}, () => {});
         return run;
     }
 
-    /**
-     * Waits for every queued commit to land.
-     *
-     * It used to flush a 2 s window of coalesced review commits first. Grading a card no
-     * longer writes a file, so there is nothing to coalesce and nothing to flush — draining
-     * the queue is all that is left. Kept under the same name because structural operations
-     * call it to keep commit order chronological.
-     *
-     * @returns {Promise<void>}
-     */
     async flushEdits() {
         await this._commitQueue;
     }
 
-    /**
-     * Brings the emitter to a complete stop against the CURRENT vault, before the active vault changes underneath it.
-     *
-     * @returns {Promise<void>}
-     */
     async quiesce() {
         try {
             await this.flushEdits();
@@ -142,27 +113,12 @@ export class SealEventEmitter {
         }
     }
 
-    /**
-     * Records the creation of a new document and its sidecar.
-     *
-     * @param {string} sidecarRelPath - Relative path to the new .flashback sidecar (used as commit label).
-     * @param {string[]} [extraRelPaths=[]] - Additional paths to stage alongside the sidecar (e.g. the document file itself).
-     * @returns {Promise<void>}
-     */
     async create(sidecarRelPath, extraRelPaths = []) {
         await this.flushEdits();
         await this._enqueue(() =>
             stageAndCommit("create", normPath(sidecarRelPath), extraRelPaths.map(normPath)));
     }
 
-    /**
-     * Records an edit to a document or its sidecar, and commits it.
-     *
-     * @param {string} sidecarRelPath - Relative path to the modified .flashback sidecar (used as commit label).
-     * @param {string[]} [extraRelPaths=[]] - Additional paths to stage (e.g. the document file if its content changed).
-     * @param {string[]} [removedRelPaths=[]] - Paths the edit deleted, removed from the index in the same commit (a deck cover replaced by another).
-     * @returns {Promise<void>}
-     */
     async edit(sidecarRelPath, extraRelPaths = [], removedRelPaths = []) {
         const who = author();
         const paths = [normPath(sidecarRelPath), ...extraRelPaths.map(normPath)];
@@ -179,15 +135,6 @@ export class SealEventEmitter {
         });
     }
 
-    /**
-     * Records a file or folder move.
-     *
-     * @param {string} oldDocRelPath - Document path before the move (used as commit label).
-     * @param {string} newDocRelPath - Document path after the move (used as commit label).
-     * @param {string[]} removedRelPaths - All paths to stage for removal (doc + sidecar, and all children for folders).
-     * @param {string[]} addedRelPaths - All paths to stage for addition (doc + sidecar, and all children for folders).
-     * @returns {Promise<void>}
-     */
     async move(oldDocRelPath, newDocRelPath, removedRelPaths, addedRelPaths) {
         const normRemoved = removedRelPaths.map(normPath);
         const normAdded = addedRelPaths.map(normPath);
@@ -204,13 +151,6 @@ export class SealEventEmitter {
         });
     }
 
-    /**
-     * Records the deletion of a document and its sidecar.
-     *
-     * @param {string} sidecarRelPath - Relative path to the removed .flashback sidecar (used as commit label).
-     * @param {string[]} [extraRelPaths=[]] - Additional paths to stage for removal (e.g. the document file itself).
-     * @returns {Promise<void>}
-     */
     async delete(sidecarRelPath, extraRelPaths = []) {
         const normSidecar = normPath(sidecarRelPath);
         const allRemoved = [...extraRelPaths, sidecarRelPath].map(normPath);
@@ -225,11 +165,6 @@ export class SealEventEmitter {
 }
 
 export class SealTools {
-    /**
-     * Initializes the git repository at workspaceRoot.
-     *
-     * @returns {Promise<void>}
-     */
     async init() {
         const workspace = dir();
         const initialized = await git.resolveRef({ fs, dir: workspace, ref: "HEAD" })
@@ -240,13 +175,6 @@ export class SealTools {
         }
     }
 
-    /**
-     * Returns seal commits in reverse chronological order, one page at a time.
-     *
-     * @param {number} [limit=20] - Maximum number of commits to return.
-     * @param {string|null} [cursor=null] - Oid of the last commit already seen; the page resumes after it.
-     * @returns {Promise<Array<import('isomorphic-git').ReadCommitResult & { stats: { added: number, modified: number, deleted: number, content: number } }>>}
-     */
     async log(limit = 20, cursor = null) {
         const commits = await git.log({
             fs,
@@ -275,38 +203,14 @@ export class SealTools {
         }));
     }
 
-    /**
-     * Returns the full paths changed by a single commit — documents, sidecars and media — categorized as added/modified/deleted against its parent.
-     *
-     * @param {string} oid - Commit hash to inspect.
-     * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
-     */
     async commitFiles(oid) {
         return commitDiff(oid);
     }
 
-    /**
-     * Restores the workspace canonical layer to the state at a given commit.
-     *
-     * Touches no schedule, and could not if it tried: progress lives in `{vault}/progress.db`,
-     * which git does not track, and the sidecar's SRS fields are no longer read. This used to
-     * snapshot the owner's state around the checkout and re-apply it, behind a
-     * `keepSrsProgress` flag — a flag whose `false` branch never worked, because the reindex
-     * after a checkout max-merged the sidecar against the database and so could not regress a
-     * level. Removing it fixed a control that had always been lying.
-     *
-     * @param {string} ref - Commit hash or branch name to restore to.
-     * @returns {Promise<void>}
-     */
     async rollback(ref) {
         await git.checkout({ fs, dir: dir(), ref, force: true });
     }
 
-    /**
-     * Binds all out-of-band workdir changes (documents, sidecars, and media — everything statusMatrix reports, not just .flashback paths) into a single…
-     *
-     * @returns {Promise<string|null>} the new commit oid, or null when there was no drift.
-     */
     async commitDrift() {
         const workspace = dir();
         const matrix = await git.statusMatrix({ fs, dir: workspace });
@@ -326,11 +230,6 @@ export class SealTools {
         return git.commit({ fs, dir: workspace, message: `reconcile: ${label}`, author: author() });
     }
 
-    /**
-     * Detects .flashback sidecars that changed outside of Flashback with no seal commit.
-     *
-     * @returns {Promise<{ added: string[], modified: string[], deleted: string[] }>}
-     */
     async inspect() {
         const matrix = await git.statusMatrix({ fs, dir: dir() });
 

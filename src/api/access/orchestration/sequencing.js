@@ -1,29 +1,3 @@
-/**
- * sequencing.js — the pure ordering engine behind graph-aware interleaving.
- *
- * Imports nothing, touches no database and does no IO, exactly like `fsrs.js`: it is an
- * engine part of `sequencer.js`, not a tier of its own (see ACCESS.md). That is what lets
- * `tests/sequencing.test.js` pin its behaviour without a SQLite binary, and what makes the
- * ordering reproducible from a seed.
- *
- * The goal is interleaving. Reviewing ten cards from one document back to back builds
- * fluency that leans on the shared context to do the retrieving; the knowledge it produces
- * is cue-bound and doesn't survive to a shuffled recall attempt the next day. So graph
- * proximity is used as a SPACING signal, not a grouping one: confusable cards still co-occur
- * within a session — that's where discrimination is learned — but separated by unrelated
- * material.
- *
- * The one exception is weak material. A brand-new or lapsing card gets a short same-cluster
- * run so the learner can extract the pattern before being asked to discriminate under load.
- * That scaffold is per-card and outgrown automatically as strength rises; it is not a mode,
- * a phase, or anything the user schedules.
- *
- * The exported constants are tuning parameters, not settled values. The 3–5 item lag has
- * support as a starting point, not as an optimum; fit them against logged outcomes
- * (ReviewLogs.prev_distance / nearest_sibling_lag) rather than treating them as laws.
- */
-
-// Two cards this close are treated as confusable and get the hard lag constraint.
 export const CONFUSABLE_THRESHOLD = 1;
 export const FAR_DISTANCE = 4;
 export const MIN_LAG = 4;
@@ -34,7 +8,6 @@ export const W_DIST = 1.0;
 export const W_URGENCY = 8.0;
 export const WEAK_LEVEL = 2;
 
-/** Deterministic PRNG so a seed reproduces a sequence exactly (tests pin this). */
 export function mulberry32(seed) {
     let a = seed >>> 0;
     return function next() {
@@ -45,7 +18,6 @@ export function mulberry32(seed) {
     };
 }
 
-/** A copy of the list in random order, using the injected PRNG. */
 export function shuffled(items, rand) {
     const out = [...items];
     for (let i = out.length - 1; i > 0; i--) {
@@ -62,7 +34,6 @@ const intersects = (a, b) => {
     return false;
 };
 
-/** Approximate graph distance between two cards, from their facets. */
 export function distance(hashA, hashB, facets, includeFolderEdge = true) {
     if (hashA === hashB) return 0;
     const a = facets?.get(hashA);
@@ -90,7 +61,6 @@ const isWeak = (card) => card.isNew === true
     || card.level == null
     || Number(card.level) <= WEAK_LEVEL;
 
-/** Share of pairs in this set that read as confusable. Drives the degradation ladder. */
 export function saturation(cards, facets, includeFolderEdge = true) {
     if (cards.length < 2) return 0;
     let confusable = 0;
@@ -105,7 +75,6 @@ export function saturation(cards, facets, includeFolderEdge = true) {
     return confusable / pairs;
 }
 
-/** Groups cards into connected components of the confusable graph. */
 function clusterize(cards, facets, includeFolderEdge) {
     const parent = cards.map((_, i) => i);
     const find = (x) => {
@@ -125,14 +94,12 @@ function clusterize(cards, facets, includeFolderEdge) {
     return new Map(cards.map((c, i) => [c.globalHash, find(i)]));
 }
 
-/** The largest lag a set of clusters can actually sustain. */
 export function feasibleLag(clusterSizes, total) {
     const largest = Math.max(0, ...clusterSizes);
     if (largest <= 1) return MIN_LAG;
     return Math.max(0, Math.floor((total - 1) / (largest - 1)) - 1);
 }
 
-/** Greedy interleave of one tier under a fixed lag. */
 function interleaveTier(cards, facets, { minLag, includeFolderEdge, rand }) {
     const remaining = shuffled(cards, rand);
     const out = [];
@@ -221,14 +188,6 @@ function interleaveTier(cards, facets, { minLag, includeFolderEdge, rand }) {
     return out;
 }
 
-/**
- * Order one session's cards.
- *
- * @param {Array}  cards   session cards ({ globalHash, categoryPriority, level, isNew })
- * @param {Map}    facets  from query.getSessionFacets
- * @param {object} opts    { seed, explain }
- * @returns {Array|{order, relaxation}} ordered cards, or both when `explain` is set
- */
 export function orderCards(cards, facets, { seed = 1, explain = false } = {}) {
     const wrap = (order, relaxation) => (explain ? { order, relaxation } : order);
     if (!Array.isArray(cards) || cards.length === 0) return wrap([], 'none');

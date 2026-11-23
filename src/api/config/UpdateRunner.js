@@ -1,31 +1,3 @@
-/**
- * Runs pending updates against the CANONICAL layer — the `.flashback` sidecars and
- * `_decks/*.json` files that are the vault's source of truth.
- *
- * This is the document-driven counterpart of `MigrationRunner.js`, and the two are
- * deliberately shaped alike: numbered modules, applied in order, recorded once applied.
- * They cannot be the same mechanism, because a migration gets nothing but a database handle
- * inside a transaction, while these do file IO and end in a Seal commit.
- *
- * Where they differ is the version marker, and the difference is the point:
- *
- *   - `SchemaVersion` records the version of the ONE database.
- *   - `CanonicalVersion` records which updates this vault has finished, but the authority is
- *     the `formatVersion` stamped on EVERY canonical file. Each item says what it is, so a
- *     file that arrives from a backup, another machine, or a Seal rollback to a year-old
- *     commit is still self-describing, and the runner can bring it forward on its own.
- *
- * `CanonicalVersion` is therefore an optimisation, not the source of truth: it is what lets
- * startup skip the walk entirely when there is nothing to do. Correctness comes from the
- * per-item stamps plus the rule that **every update must be idempotent per item** — see
- * `updates/UPDATES.md`.
- *
- * Failure is per item. A file that cannot be parsed or that throws is left exactly as found
- * and reported as a warning; the vault-level record is then NOT written, so the next launch
- * tries again. One bad file can never block the rest of a vault, and can never be
- * half-written.
- */
-
 import Files from '../access/resources/files.js';
 import Decks from '../access/orchestration/decks.js';
 import query from '../access/resources/query.js';
@@ -34,11 +6,6 @@ import { UPDATES, LATEST_VERSION, pendingFor } from './updates/registry.js';
 
 export { LATEST_VERSION };
 
-/**
- * Applies every pending update to one canonical file object and stamps it.
- *
- * @returns {{ changed: boolean, applied: number[] }} `changed` covers the stamp too, so an item that needed no transform still gets rewritten once to record where it stands.
- */
 function upgradeItem(meta, kind, updates, target) {
     const from = Number.isInteger(meta.formatVersion) ? meta.formatVersion : 0;
     const applied = [];
@@ -57,15 +24,6 @@ function upgradeItem(meta, kind, updates, target) {
     return { changed, applied };
 }
 
-/**
- * Runs the canonical updates over the whole vault.
- *
- * @param {object}  [options]
- * @param {Array}   [options.updates]  update modules to run (injectable for tests).
- * @param {boolean} [options.force]    walk even when the vault record says there is nothing pending — the repair path for files restored behind the runner's back.
- * @param {boolean} [options.seal]     commit the rewrite (off in tests that have no repo).
- * @returns {Promise<{ pending: number[], walked: boolean, documents: number, folders: number, decks: number, warnings: string[], sealedOid: string|null, derivedRows: number, recorded: boolean }>}
- */
 export default async function runUpdates({ updates = UPDATES, force = false, seal = true } = {}) {
     const target = updates.reduce((max, u) => Math.max(max, u.version), 0);
     const applied = await query.getCanonicalVersions();

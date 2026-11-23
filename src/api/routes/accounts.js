@@ -1,23 +1,3 @@
-/**
- * `/api/accounts` — who may reach this deployment, and as what.
- *
- * The role table in `auth/permissions.js` already decided that reaching this router at all
- * takes Admin (and `POST /pure-token` takes Author). What is left here are the rules a
- * ladder of roles cannot express, because they compare the ACTOR with the TARGET:
- *
- *   1. **An admin may only ever grant Reader.** Admins run the vault; they do not decide who
- *      else runs it. Only the Author widens the circle of people with write access.
- *   2. **An admin may not revoke their own access**, and nobody may revoke the token they are
- *      currently authenticating with. An admin who locks themselves out has no recovery path
- *      — the pure token is the Author's, and the terminal is the Author's too.
- *   3. **The Author cannot be demoted, deactivated or duplicated.** There is exactly one
- *      owner, and the only way to change what proves you are them is to rotate the pure token.
- *
- * A plaintext token appears in exactly two responses — the issue and the rotate — and never
- * again, from anywhere. There is no endpoint that reads one back, because the store does not
- * have one to read.
- */
-
 import { Router } from 'express';
 import {
     listAccounts, getAccount, getAuthorAccount, getToken,
@@ -42,15 +22,11 @@ const catchError = (fn) => (req, res, next) =>
         next(err);
     });
 
-/** The highest role the caller may hand out. */
 function grantCeiling(actor) {
     if (actor?.role === ROLES.AUTHOR) return ROLES.ADMIN;
     return ROLES.READER;
 }
 
-/**
- * @returns {{status: number, error: string}|null} why this grant is refused, or null when it is allowed. The status matters, and 403 is not the answer to every refusal. A role that is not a role is a malformed request — `catchError` above already maps the thrown form of it to 400, and answering 403 here told a client "you lack permission" when the truth was "your payload is wrong". Everything below it IS a permission decision and stays 403.
- */
 function grantRefusal(actor, role) {
     if (!isRole(role)) return { status: 400, error: `Unknown role: ${role}.` };
     if (role === ROLES.AUTHOR) {
@@ -63,15 +39,6 @@ function grantRefusal(actor, role) {
     return null;
 }
 
-/**
- * Whether adding one more active account would exceed `FLASHBACK_MAX_ACCOUNTS`.
- *
- * Only active accounts count, so deactivating one frees its slot; the Author is one of them.
- * The check lives here rather than in `createAccount()` because `ensureLocalAuthor()` calls
- * that at boot and must never be refused.
- *
- * @returns {Promise<{status: number, error: string, code: string, limit: number, count: number}|null>}
- */
 async function accountLimitRefusal() {
     const limit = getMaxAccounts();
     if (limit == null) return null;
@@ -86,15 +53,12 @@ async function accountLimitRefusal() {
     };
 }
 
-/** The response body for a refused slot: everything but the HTTP status. */
 const limitBody = ({ error, code, limit, count }) => ({ error, code, limit, count });
 
-/** Everyone who may reach this install, with their roles, and the active-account cap if any. */
 router.get('/', catchError(async (req, res) => {
     res.json({ accounts: await listAccounts(), you: req.account, limit: getMaxAccounts() });
 }));
 
-/** Creates an account; an admin may grant only Reader. */
 router.post('/', catchError(async (req, res) => {
     const { name, email, role } = req.body ?? {};
     const refusal = grantRefusal(req.account, role);
@@ -106,7 +70,6 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json(await createAccount({ name, email, role }));
 }));
 
-/** Changes an account's role or deactivates it. */
 router.patch('/:id', catchError(async (req, res) => {
     const target = await getAccount(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such account.' });
@@ -139,19 +102,10 @@ router.patch('/:id', catchError(async (req, res) => {
     res.json(await updateAccount(target.id, { role, active }));
 }));
 
-/**
- * Whose schedule a target account's progress lives under: the Author's is filed under the
- * owner sentinel rather than their id (see `requestContext.js`), everyone else's under theirs.
- */
 const scopeFor = (target) => (target.role === ROLES.AUTHOR ? OWNER_SCOPE : target.id);
 
 const publicTarget = (target) => ({ id: target.id, name: target.name, email: target.email, role: target.role });
 
-/**
- * One person's study statistics, in the shape `GET /api/srs/statistics` gives the caller
- * for themselves, completeness included. With `/:id/graph` below, one of the two endpoints
- * that read a schedule not the caller's.
- */
 router.get('/:id/progress', catchError(async (req, res) => {
     const target = await getAccount(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such account.' });
@@ -163,7 +117,6 @@ router.get('/:id/progress', catchError(async (req, res) => {
     res.json({ account: publicTarget(target), scope, statistics });
 }));
 
-/** The knowledge graph with its learned halos computed from one person's schedule. */
 router.get('/:id/graph', catchError(async (req, res) => {
     const target = await getAccount(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such account.' });
@@ -174,13 +127,6 @@ router.get('/:id/graph', catchError(async (req, res) => {
     res.json({ account: publicTarget(target), scope, ...graph });
 }));
 
-/**
- * Someone's Logs, read-only: the days they have a summary or an entry, one day's summary, one
- * day's entry. The Author's alone (the permission table), because the prose is private writing
- * and only the server's owner is told they may read it (the Logs privacy note). An AI assistant
- * never gets these, whatever its diary access: that setting is about the caller's own diary.
- * Writing is always the caller's own, through `/api/diary`.
- */
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 async function logsTarget(req, res) {
@@ -222,7 +168,6 @@ router.get('/:id/logs/entry/:date', catchError(async (req, res) => {
     res.json({ date: req.params.date, content: diary.getEntry(req.params.date, scopeFor(target)) ?? '' });
 }));
 
-/** Issues a token for an account, returning its plaintext once. */
 router.post('/:id/tokens', catchError(async (req, res) => {
     const target = await getAccount(req.params.id);
     if (!target) return res.status(404).json({ error: 'No such account.' });
@@ -241,7 +186,6 @@ router.post('/:id/tokens', catchError(async (req, res) => {
     });
 }));
 
-/** Revokes one token; an admin may not revoke their own. */
 router.delete('/tokens/:tokenId', catchError(async (req, res) => {
     const token = await getToken(req.params.tokenId);
     if (!token) return res.status(404).json({ error: 'No such token.' });
@@ -265,7 +209,6 @@ router.delete('/tokens/:tokenId', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-/** Author only: mints the token that proves ownership, revoking every previous Author token. */
 router.post('/pure-token', catchError(async (req, res) => {
     const author = await getAuthorAccount();
     if (!author) return res.status(409).json({ error: 'This store has no Author yet.' });

@@ -1,5 +1,3 @@
-/** Deck lifecycle. Locks on _decks/<uuid>.json; the lock is not reentrant. */
-
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -20,10 +18,6 @@ const COVERS_DIR = 'covers';
 
 const DAY_MS = 86_400_000;
 
-/**
- * `rows` ordered by `key` (numbers or strings), keeping the incoming order among
- * equal keys — which is what lets a grouping sit on top of a sort.
- */
 function sortStable(rows, key, dir) {
     return rows
         .map((row, i) => ({ row, i, k: key(row) }))
@@ -34,14 +28,12 @@ function sortStable(rows, key, dir) {
         .map((x) => x.row);
 }
 
-/** When a card next comes due, in epoch ms; a card never reviewed sorts last. */
 function dueAt(lastRecall, gap) {
     if (gap == null) return Number.MAX_SAFE_INTEGER;
     const last = lastRecall ? Date.parse(lastRecall) : NaN;
     return (Number.isNaN(last) ? 0 : last) + gap * DAY_MS;
 }
 
-/** Trimmed, de-duplicated, blank-free. The one definition of a clean tag list here. */
 const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
 
 export default class Decks {
@@ -50,18 +42,15 @@ export default class Decks {
         this._ensureDecksDir();
     }
 
-    /** Creates `_decks/` if it is missing. Filesystem only — safe from a constructor. */
     _ensureDecksDir() {
         const dir = this.decksPath;
         if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     }
 
-    /** Where this vault's canonical deck JSON lives. */
     get decksPath() {
         return path.join(getWorkspacePath(), DECKS_DIR);
     }
 
-    /** Per-vault setup: create `_decks/` and make sure the system deck's file exists. */
     async onVaultOpened() {
         this._ensureDecksDir();
         await this._ensureSystemDeckFile();
@@ -95,7 +84,6 @@ export default class Decks {
         return cleanCover(cover);
     }
 
-    /** The image file a deck's cover shows, for serving: `{ absPath, mime }`. */
     async coverImage(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -107,11 +95,6 @@ export default class Decks {
         return { absPath, mime: coverMime(cover.file) };
     }
 
-    /**
-     * Stores an uploaded image as a deck's cover, centred, replacing whatever cover
-     * it had. The file gets a fresh name each time, so nothing downstream can show
-     * the old picture from a cache.
-     */
     async uploadCover(globalHash, buffer, mime) {
         const ext = COVER_TYPES[mime];
         if (!ext) throw new Error(`Unsupported cover type: ${mime}`);
@@ -133,11 +116,6 @@ export default class Decks {
         });
     }
 
-    /**
-     * Changes a deck's cover without a new upload: `{ pattern }` for a drawn one,
-     * `{ y }` (0..1) to reposition the image it has, or null to remove it. An image
-     * that stops being the cover is deleted with it.
-     */
     async setCover(globalHash, change) {
         return await this._withDeckFile(globalHash, async () => {
             const deck = await this.query.getDeckByHash(globalHash);
@@ -163,7 +141,6 @@ export default class Decks {
         });
     }
 
-    /** Deletes a cover's image file, if it had one; returns the paths Seal should drop. */
     _dropCoverFile(cover) {
         if (cover?.kind !== 'image') return [];
         const abs = this._coverAbsPath(cover.file);
@@ -171,7 +148,6 @@ export default class Decks {
         return [this._coverRelPath(cover.file)];
     }
 
-    /** Serializes one deck file's writes against every other writer of that deck. */
     _withDeckFile(globalHash, fn) {
         return withDocument(this._sealRelPath(globalHash), fn);
     }
@@ -217,10 +193,6 @@ export default class Decks {
         if (fs.existsSync(p)) fs.unlinkSync(p);
     }
 
-    /**
-     * A deck's stored colour, read from its canonical file — the index holds none, so
-     * a Doctor rebuild has nothing to lose. Null when the file has none (or is gone).
-     */
     _colorOf(globalHash) {
         try {
             const { color } = this._read(globalHash);
@@ -230,10 +202,6 @@ export default class Decks {
         }
     }
 
-    /**
-     * How a set of cards stands for this person: how many are due now (reviewed and
-     * past their gap), how many are new, and how many are held long-term.
-     */
     _standing(hashes, schedule, now = Date.now()) {
         let due = 0;
         let fresh = 0;
@@ -248,10 +216,6 @@ export default class Decks {
         return { due, fresh, longTerm };
     }
 
-    /**
-     * Every deck with its entry count, its stored `color` (null = none) and how its
-     * cards stand for the caller under `algorithm` (`standing: { due, fresh, longTerm }`).
-     */
     async listDecks({ algorithm = null } = {}) {
         const rows = await this.query.getAllDecks();
         const schedule = await SRS.cardSchedule({ algorithm, scope: currentScope() });
@@ -267,7 +231,6 @@ export default class Decks {
         }));
     }
 
-    /** Creates a deck and its canonical `_decks/<uuid>.json` file, in the first colour no deck shows yet. */
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
         const used = (await this.query.getAllDecks())
@@ -297,10 +260,6 @@ export default class Decks {
         return globalHash;
     }
 
-    /**
-     * One deck: its record, `color`, tags, and entries, each carrying the caller's
-     * `gap` under `algorithm`, with `standing` summed over them as in `listDecks`.
-     */
     async getDeck(globalHash, { algorithm = null } = {}) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -355,12 +314,6 @@ export default class Decks {
         }
     }
 
-    /**
-     * Renames a tag on every deck that applies it and every default-deck card tagged with
-     * it, or removes it when `to` is null — the `_decks/` half of a vault-wide tag rename
-     * (`Documents.rewriteTag` does the sidecars). Each deck goes through its own lock and
-     * commit, as a tag change on one deck does. Returns how many decks and cards changed.
-     */
     async rewriteTag(from, to = null) {
         let changed = 0;
         for (const deck of await this.query.getAllDecks()) {
@@ -383,11 +336,6 @@ export default class Decks {
         return changed;
     }
 
-    /**
-     * Renames a category on every default-deck card that names it, or clears it when `to`
-     * is null — the `_decks/` half of a category rename or delete (`Documents.rewriteCategory`
-     * does the sidecars). Returns how many cards changed.
-     */
     async rewriteCategory(from, to = null) {
         const system = await this.query.getSystemDeck();
         if (!system) return 0;
@@ -401,7 +349,6 @@ export default class Decks {
         return changed;
     }
 
-    /** Replaces a deck's tags, re-flowing them to its member cards. */
     async setTags(globalHash, tags) {
         return await this._withDeckFile(globalHash, () => this._setTagsLocked(globalHash, tags));
     }
@@ -424,12 +371,6 @@ export default class Decks {
         return clean;
     }
 
-    /** Updates a deck's name or description. */
-    /**
-     * Updates a deck's name, description or box colour. `color` is a palette id, or
-     * null to fall back to the colour the deck's hash picks; the default deck is kraft
-     * and refuses one.
-     */
     async updateDeck(globalHash, { name, description, color }) {
         return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description, color }));
     }
@@ -456,7 +397,6 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(globalHash));
     }
 
-    /** Deletes a deck and its file, leaving its cards in place. */
     async deleteDeck(globalHash) {
         return await this._withDeckFile(globalHash, () => this._deleteDeckLocked(globalHash));
     }
@@ -476,7 +416,6 @@ export default class Decks {
         await sealEmitter.delete(this._sealRelPath(globalHash), this._dropCoverFile(cover));
     }
 
-    /** Adds a card to a deck, in the file and the index. */
     async addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
         return await this._withDeckFile(deckHash, () =>
             this._addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }));
@@ -521,7 +460,6 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
-    /** Removes a card from a deck, in the file and the index. */
     async removeEntry(deckHash, cardHash) {
         return await this._withDeckFile(deckHash, () => this._removeEntryLocked(deckHash, cardHash));
     }
@@ -552,11 +490,6 @@ export default class Decks {
         await sealEmitter.edit(this._sealRelPath(deckHash));
     }
 
-    /**
-     * Describes what erasing a deck *and its cards* would destroy, so the caller can say so before doing it.
-     *
-     * @returns {{ total, standalone, documentAnchored, documents: string[], shared: number, otherDecks: string[] }}
-     */
     async getContentsSummary(globalHash) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -601,7 +534,6 @@ export default class Decks {
         };
     }
 
-    /** Card hashes an erase would actually destroy, split by where they live so the caller can route each to the right deletion path. */
     async getPurgeTargets(globalHash, { includeShared = false } = {}) {
         const deck = await this.query.getDeckByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
@@ -623,17 +555,10 @@ export default class Decks {
         return { standalone, anchored, kept };
     }
 
-    /** A card's source document path, or null when it is standalone. */
     async _cardDocumentPath(cardHash) {
         return (await this.query.getFlashcardContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
     }
 
-    /**
-     * Unlinks a card from every deck that holds it — canonical JSON, DeckEntries row, and deck connection alike.
-     *
-     * @param {string} cardHash - globalHash of the card being destroyed.
-     * @returns {Promise<number>} how many decks the card was removed from.
-     */
     async removeCardEverywhere(cardHash) {
         const holders = await this.query.getDecksContainingCard(cardHash);
         for (const deck of holders) {
@@ -642,18 +567,6 @@ export default class Decks {
         return holders.length;
     }
 
-    /**
-     * The card browser: a filtered, sorted, paged view of every card in the vault,
-     * each row carrying `gap` (days between reviews for the caller; null = new).
-     *
-     * A `band` filter, the `gap` and `due` orders and `groupBy` need the scheduler's
-     * maths, which SQL does not have, so those take every matching card in `sortBy`
-     * order, bucket and order them here, and fetch only the page. `groupBy` ('gap' or
-     * 'source') is a stable sort on top of `sortBy`, so each group keeps that order
-     * inside it; `groups` then lists every group's key and size across all pages, so
-     * a header can say how many cards it heads even when the page shows a few.
-     * Returns `{ cards, total, groups? }`.
-     */
     async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
         const scope = currentScope();
         const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
@@ -695,16 +608,10 @@ export default class Decks {
         return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
     }
 
-    /** How many cards match the card browser's current filters. */
     async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
         return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
     }
 
-    /**
-     * The catalogue's sidebar in one read: how many cards each document holds and how
-     * many of them are held long-term, the same for the default deck's standalone
-     * cards, how many cards sit in each gap band, and the health counts.
-     */
     async catalogueSummary({ algorithm = null } = {}) {
         const scope = currentScope();
         const gaps = await SRS.cardGaps({ algorithm, scope });
@@ -753,7 +660,6 @@ export default class Decks {
         };
     }
 
-    /** Creates a card with no document, held by the system deck. */
     async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
@@ -803,7 +709,6 @@ export default class Decks {
         return globalHash;
     }
 
-    /** One card with its content, document path and media refs. */
     async getCard(hash) {
         const card = await this.query.getFlashcardContentByHash(hash, currentScope());
         if (!card) throw new Error(`Card not found: ${hash}`);
@@ -829,7 +734,6 @@ export default class Decks {
         };
     }
 
-    /** Updates a card that lives in a deck file rather than a sidecar. */
     async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
         const systemDeck = await this.query.getSystemDeck();
         const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
@@ -886,7 +790,6 @@ export default class Decks {
         }
     }
 
-    /** Deletes a standalone card and unlinks it from every deck. */
     async deleteStandaloneCard(hash) {
         const systemDeck = await this.query.getSystemDeck();
         if (!systemDeck) return await this._deleteStandaloneCardLocked(hash, null);
@@ -918,11 +821,6 @@ export default class Decks {
         }
     }
 
-    /**
-     * Enumerates and parses every canonical deck file in _decks/.
-     *
-     * @returns {Array<{ globalHash: string, data: object|null }>} data is null for malformed JSON.
-     */
     async listDeckFiles() {
         if (!fs.existsSync(this.decksPath)) return [];
         return await fs.readdirSync(this.decksPath)
@@ -937,12 +835,6 @@ export default class Decks {
             });
     }
 
-    /**
-     * Applies `transform` to every canonical deck file, rewriting the ones it changed and re-syncing their `DeckEntries.inline_card` mirrors.
-     *
-     * @param {(deckFile: object) => boolean} transform mutates the file in place; returns true when it changed something.
-     * @returns {{ filesRewritten: number, corruptFiles: string[], failed: Array<{hash: string, error: string}> }}
-     */
     async mapDeckFiles(transform) {
         const result = { filesRewritten: 0, corruptFiles: [], failed: [] };
 
@@ -976,11 +868,6 @@ export default class Decks {
         return result;
     }
 
-    /**
-     * Compares _decks/*.json files against the Decks/DeckEntries tables.
-     *
-     * @returns {{ fileWithoutDb: string[], dbWithoutFile: string[], corruptFiles: string[], entryMismatches: Array<{ deckHash, missingInDb: string[], missingInFile: string[] }>, danglingEntries: Array<{ deckHash, cardHash }> }}
-     */
     async diagnoseDecks() {
         const files = await this.listDeckFiles();
         const dbDecks = await this.query.getAllDecks();
@@ -1057,11 +944,6 @@ export default class Decks {
         })();
     }
 
-    /**
-     * Applies deck diagnosis: files without DB rows are imported, DB rows without files self-heal via `_readOrRebuild`.
-     *
-     * @returns {{ decksImported: number, deckFilesRebuilt: number, entriesAdded: number, entriesRemoved: number }}
-     */
     async repairFromFiles() {
         const diag = await this.diagnoseDecks();
         const actions = { decksImported: 0, deckFilesRebuilt: 0, entriesAdded: 0, entriesRemoved: 0 };
@@ -1106,11 +988,6 @@ export default class Decks {
         return actions;
     }
 
-    /**
-     * Full _decks/*.json → DB import for the Doctor's rebuild path.
-     *
-     * @returns {{ decks: number, restoredCards: number, warnings: string[] }}
-     */
     async rebuildFromFiles() {
         const warnings = [];
         let decksImported = 0;

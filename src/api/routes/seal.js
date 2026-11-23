@@ -5,7 +5,6 @@ const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 const MAX_LOG_LIMIT = 200;
-/** The workspace's commit history. */
 router.get('/log', catchError(async (req, res) => {
     const requested = parseInt(req.query.limit, 10) || 20;
     const limit = Math.min(Math.max(requested, 1), MAX_LOG_LIMIT);
@@ -14,19 +13,16 @@ router.get('/log', catchError(async (req, res) => {
     res.json(log);
 }));
 
-/** Working-tree drift against the last commit. */
 router.get('/inspect', catchError(async (req, res) => {
     const diff = await sealTools.inspect();
     res.json(diff);
 }));
 
-/** Which files one commit touched. */
 router.get('/commit/:oid/files', catchError(async (req, res) => {
     const files = await sealTools.commitFiles(req.params.oid);
     res.json(files);
 }));
 
-/** Rewinds the workspace to a commit. Schedules are in the progress store and are unaffected. */
 router.post('/rollback', catchError(async (req, res) => {
     const { ref } = req.body;
     if (!ref) return res.status(400).json({ error: 'ref required' });

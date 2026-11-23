@@ -9,7 +9,6 @@ import { APP_VERSION } from '../appVersion.js';
 const router = Router();
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
-/** GET /api/vault — who this server is and what it speaks. */
 router.get('/', catchError(async (req, res) => {
     const config = getConfig() || {};
     const manifest = ensureManifest();
@@ -26,14 +25,10 @@ router.get('/', catchError(async (req, res) => {
         ],
         update: req.app.locals.updateStatus?.() ?? null,
 
-        // Measured, except `limit`, which cannot be: a container's statvfs reports the host's
-        // disk, and a Docker named volume has no quota of its own. See primitives/storage.js.
-        // Cached for a minute, because the handshake runs on every connection.
         storage: getStorageReport(),
     });
 }));
 
-/** GET /api/vault/list — the registered local vaults, and which one is active. */
 router.get('/list', catchError(async (req, res) => {
     const activeId = getActiveVaultId();
     res.json({
@@ -48,7 +43,6 @@ router.get('/list', catchError(async (req, res) => {
     });
 }));
 
-/** POST /api/vault/switch — open a different local vault in this process. */
 router.post('/switch', catchError(async (req, res) => {
     const { id, name, isCustomPath = false, customPath = '' } = req.body ?? {};
     if (!name) return res.status(400).json({ error: 'name required' });
@@ -58,7 +52,6 @@ router.post('/switch', catchError(async (req, res) => {
     res.json({ ok: true, vaultId: result.vault.id, vaultName: name });
 }));
 
-/** POST /api/vault/release — close the active vault's database and stop Seal's timer, without opening another. */
 router.post('/release', catchError(async (req, res) => {
     await releaseVault();
     res.json({ ok: true });

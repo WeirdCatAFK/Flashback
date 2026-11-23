@@ -1,28 +1,6 @@
-// Migration 001 — Pre-beta schema changes
-//
-// Covers all additive changes made during pre-beta development that were not
-// present in the original SchemaSQL.js baseline. Register this migration in
-// MigrationRunner.js before the first beta release so that any database
-// created during development is upgraded automatically.
-//
-// Safe to run against any database state: every operation uses IF NOT EXISTS /
-// existence checks so there is no risk of double-applying.
-
 export const version = 1;
 export const description = 'Pre-beta schema changes: card columns, Highlights, indexes, Deck nodes';
 
-/**
- * Whether a table exists in ANY attached schema, not just `main`.
- *
- * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
- * query reads `main` alone, which stopped being the whole database when the progress store
- * was attached. A table that has moved there is still present — just not in `main`, and a
- * guard that cannot tell "moved" from "absent" answers "still pending" forever.
- *
- * @param {object} db
- * @param {string} name
- * @returns {Promise<boolean>}
- */
 async function tableExists(db, name) {
     return (await db.pragma(`table_info(${name})`)).length > 0;
 }
@@ -37,11 +15,6 @@ export async function up(db) {
         ).run();
     }
 
-    // sm2_reps moved to CardProgress in migration 010 and was dropped from Flashcards.
-    // This migration has no shouldRun() guard, so it re-runs whenever the SchemaVersion row
-    // is absent — which is every rebuilt database, and a rebuilt database is built from the
-    // modern SchemaSQL where the column is gone on purpose. Adding it back would leave a
-    // stale, always-zero column beside the real one in CardProgress.
     const supersededBy010 = await tableExists(db, 'CardProgress');
 
     if (!supersededBy010 && !flashcardCols.includes('sm2_reps')) {
@@ -79,25 +52,21 @@ export async function up(db) {
         await db.exec(ddl);
     }
 
-    // Add 'Deck' node type if missing
     await db.prepare(`
         INSERT INTO NodeTypes (name)
         SELECT 'Deck' WHERE NOT EXISTS (SELECT 1 FROM NodeTypes WHERE name = 'Deck')
     `).run();
 
-    // Add 'deck' connection type if missing
     await db.prepare(`
         INSERT INTO ConnectionTypes (name, is_directed)
         SELECT 'deck', 0 WHERE NOT EXISTS (SELECT 1 FROM ConnectionTypes WHERE name = 'deck')
     `).run();
 
-    // Add node_id column to Decks if missing
     const deckCols = (await db.prepare("PRAGMA table_info('Decks')").all()).map(c => c.name);
     if (!deckCols.includes('node_id')) {
         await db.prepare("ALTER TABLE Decks ADD COLUMN node_id INTEGER REFERENCES Nodes(id)").run();
     }
 
-    // Add delete trigger for deck nodes if missing
     await db.exec(`
         CREATE TRIGGER IF NOT EXISTS delete_deck_node
         AFTER DELETE ON Decks
@@ -106,7 +75,6 @@ export async function up(db) {
         END
     `);
 
-    // Backfill: create a Node row for every existing deck that lacks one
     const deckNodeTypeId = (await db.prepare("SELECT id FROM NodeTypes WHERE name = 'Deck'").get())?.id;
     const deckConnTypeId = (await db.prepare("SELECT id FROM ConnectionTypes WHERE name = 'deck'").get())?.id;
 
@@ -120,7 +88,6 @@ export async function up(db) {
         }
     }
 
-    // Backfill: create deck↔flashcard Connections for existing deck entries
     if (deckConnTypeId) {
         const insertConn = db.prepare(
             "INSERT INTO Connections (origin_id, destiny_id, type_id) VALUES (?, ?, ?)"

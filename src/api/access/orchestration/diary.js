@@ -1,4 +1,3 @@
-/** Per-day study record outside the workspace graph. Own git repo at {vault}/diary/. */
 import git from "isomorphic-git";
 import fs from "fs";
 import path from "path";
@@ -13,7 +12,6 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 function diaryRoot() { return path.join(getVaultPath(), "diary"); }
 
-/** Where one person's diary lives, relative to the repo root. */
 function scopeDir(scope) { return isOwnerScope(scope) ? "" : `accounts/${scope}/`; }
 
 function summariesDir(scope) { return path.join(diaryRoot(), ...scopeDir(scope).split("/").filter(Boolean), "summaries"); }
@@ -29,8 +27,6 @@ function todayLocal() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-/** Two summaries of the same day with the same content, ignoring when each was generated. */
-/** An entry's first line of prose, without its Markdown marks, for a list of entries. */
 export function firstLineOf(text) {
     const line = String(text ?? "").split(/\r?\n/)
         .map((l) => l.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)]\s+)/, "").replace(/[*_`~]/g, "").trim())
@@ -50,7 +46,6 @@ function assertDate(date) {
 }
 
 class Diary {
-    /** Whose diary this is. Resolved once per public entry point, like srs.js. */
     _scope(explicit) {
         return explicit ?? currentScope();
     }
@@ -103,7 +98,6 @@ class Diary {
         return { current, longest };
     }
 
-    /** Derives one day's summary from the review ledger, without writing it. */
     async buildSummary(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -153,13 +147,6 @@ class Diary {
         };
     }
 
-    /**
-     * Re-derives one day's summary from the whole day's review ledger and stores it;
-     * idempotent. The Diary calls it for today every time it is opened, so a day with
-     * several sessions always shows all of them — the stored file is written, and
-     * committed, only when the day actually changed, or opening the Diary would add a
-     * commit every visit.
-     */
     async generateSummary(date = todayLocal(), scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -173,7 +160,6 @@ class Diary {
         return summary;
     }
 
-    /** Re-derives every summary in a date range. */
     async rebuildAll(scopeArg) {
         const scope = this._scope(scopeArg);
         const days = await query.getReviewActivityDays(scope);
@@ -189,7 +175,6 @@ class Diary {
         return count;
     }
 
-    /** One day's stored summary. */
     getSummary(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -202,7 +187,6 @@ class Diary {
         }
     }
 
-    /** One day's written entry. */
     getEntry(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -210,7 +194,6 @@ class Diary {
         return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
     }
 
-    /** Writes one day's entry and commits it to the diary repo. */
     async saveEntry(date, content, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
@@ -226,12 +209,6 @@ class Diary {
         return { created: !existed, empty: text.trim() === "" };
     }
 
-    /**
-     * Every day this person has a summary or an entry for, newest first, with the day's
-     * review count (from its summary, for the Diary's calendar) and its entry's first line
-     * (for the list of what was written that month). Reading them here costs one small
-     * file per day; the route strips `firstLine` for an assistant without full access.
-     */
     list({ from = null, to = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const dates = new Map();

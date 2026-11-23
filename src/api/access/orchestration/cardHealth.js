@@ -1,48 +1,3 @@
-/**
- * cardHealth.js — failure-signature classification.
- *
- * Flashback classifies cards by how they behave under review and flags the ones worth
- * acting on. The problem it exists to solve: two cards can have an identical pass rate
- * and need opposite treatment.
- *
- *   MOUTHFUL — the card is badly built. Too much to hold at once. Action: split it.
- *   PROBE    — the card is hard because it forces the reviewer to confront a wrong
- *              assumption. Failures are the mechanism, not a defect. Action: keep it,
- *              optionally add a companion card naming the misconception.
- *              (Hypercorrection effect; Kapur's productive failure.)
- *
- * Telling them apart requires the DERIVATIVE, NOT THE LEVEL. A probe converges — lapses
- * cluster early, each relearn cycle ends at a longer interval than the last, difficulty
- * plateaus or falls. A bumpy climb. A mouthful oscillates around a floor — every lapse
- * resets to roughly the same short interval, difficulty ratchets up monotonically, and
- * the card never leaves the learning band.
- *
- * Two more detectors ship alongside them and they are NOT extras — they are what stops
- * MOUTHFUL from being wrong. A card reviewed 40 days past due failed because of the
- * delay; a card that always lands in the last third of a 90-card session shows depressed
- * grades regardless of quality. When either fires it SUPPRESSES the mouthful/probe
- * verdict, because it means the trajectory evidence is contaminated. The guard is the
- * diagnosis.
- *
- * DATA CONSTRAINT. ReviewLogs stores the grade, not the typed answer, so error-content
- * analysis (edit distance between successive wrong answers, matching a wrong answer
- * against another card's back) is unavailable. Everything here runs on grades +
- * timestamps + FSRS-derived state + static card structure.
- *
- * STRUCTURE. The expensive, impure work happens once in buildContext(); every detector
- * is a pure function of that context. Adding a detector later is one entry in DETECTORS
- * plus a test — which is the whole extensibility story, and the reason the evidence
- * gathering does not live inside the detectors.
- *
- * Tier 3. Imports `query` (and the pure `fsrs` helpers) only — never `documents`, never
- * `srs`. Read-only toward the canonical layer: flags are derived data, live only in
- * SQLite, and are never written to a `.flashback` sidecar. Sealing a flag would mean a
- * git commit on every failed review.
- *
- * NEVER AUTO-SPLIT, NEVER AUTO-BURY. Every flag ends in a named recommendation the user
- * chooses to act on.
- */
-
 import crypto from 'crypto';
 import query from '../resources/query.js';
 import { currentScope, OWNER_SCOPE } from '../../requestContext.js';
@@ -98,7 +53,6 @@ function slope(ys) {
     return den === 0 ? 0 : num / den;
 }
 
-/** Strips markup from card content so the classifier tokenizes what a reviewer actually reads. */
 export function plainText(html) {
     if (!html) return '';
     return String(html)
@@ -112,14 +66,12 @@ export function plainText(html) {
         .trim();
 }
 
-/** The text a card actually asks the reviewer to produce, given a content row. */
 export function answerBody(row = {}) {
     const type = row.card_type ?? row.cardType;
     if (type === 'type_answer') return row.answerText ?? row.backText ?? null;
     return row.backText ?? null;
 }
 
-/** The load a card's answer puts on the reviewer, as far as it can be measured from static text. */
 export function analyzeStructure({ cardType, backText, customHtml, frontText } = {}) {
     const clozeSource = `${frontText ?? ''}\n${backText ?? ''}`;
     const clozeDeletions = cardType === 'cloze'
@@ -139,7 +91,6 @@ export function analyzeStructure({ cardType, backText, customHtml, frontText } =
     return { tokens, lines: lines.length, listItems, clauses, clozeDeletions, chunks };
 }
 
-/** Classify structure against the vault's own baseline. */
 export function structuralPrior(structure, medianTokens) {
     const base = medianTokens && medianTokens > 0 ? medianTokens : null;
     const lengthRatio = base ? structure.tokens / base : null;
@@ -162,7 +113,6 @@ export function structuralPrior(structure, medianTokens) {
     };
 }
 
-/** The scheduled interval (days) a card was sitting on when a given review arrived, derived from the PREVIOUS log's post-review snapshot. */
 export function levelInterval(level) {
     if (!level || level <= 0) return 0;
     return Math.min(365, Math.pow(2, level - 1));
@@ -175,7 +125,6 @@ function intervalAfterLog(log) {
     return levelInterval(log?.level);
 }
 
-/** Turn a raw ReviewLogs ledger into the per-review records the detectors read. */
 export function buildReviewRecords(logs, { epochAt = null, sessionIndex = null } = {}) {
     const real = logs.filter(l => l.outcome !== null && l.outcome !== undefined);
     const epochMs = epochAt ? Date.parse(epochAt) : null;
@@ -213,7 +162,6 @@ export function buildReviewRecords(logs, { epochAt = null, sessionIndex = null }
     return out;
 }
 
-/** Segment a vault-wide review stream into sessions on inter-review gaps, then index each log id to its normalized position within its session. */
 export function segmentSessions(rows, gapMs = SESSION_GAP_MS) {
     const index = new Map();
     let session = [];
@@ -240,7 +188,6 @@ export function segmentSessions(rows, gapMs = SESSION_GAP_MS) {
     return index;
 }
 
-/** Segment reviews into LAPSE CYCLES and take the peak interval each one reached. */
 export function lapseCycles(reviews) {
     const cycles = [];
     let current = null;
@@ -259,13 +206,10 @@ export function lapseCycles(reviews) {
     return cycles;
 }
 
-/** Does this card's trajectory climb or sit on a floor? */
-/** Drop reviews that arrived so far past their due date that the grade measures the delay rather than the card. */
 export function onSchedule(reviews) {
     return reviews.filter(r => r.overdueRatio == null || r.overdueRatio <= OVERDUE_EXCLUDE_RATIO);
 }
 
-/** Reads a card's interval trajectory as growing, flat or collapsing. */
 export function classifyTrajectory(allReviews) {
     const reviews = onSchedule(allReviews);
     const cycles = lapseCycles(reviews).filter(c => c.reviews > 0);
@@ -297,7 +241,6 @@ export function classifyTrajectory(allReviews) {
     return { shape, peaks, peakSlope, difficultySlope, cycles: peaks.length };
 }
 
-/** True when the card failed more than once inside a single session. */
 export function hasWithinSessionRepeatFailure(reviews) {
     const failuresPerSession = new Map();
     for (const r of reviews) {
@@ -309,7 +252,6 @@ export function hasWithinSessionRepeatFailure(reviews) {
     return false;
 }
 
-/** OVERDUE DRIFT (guard). */
 function overdueDrift(ctx) {
     const failures = ctx.reviews.filter(r => !r.pass && r.overdueRatio != null);
     if (failures.length < 3) return null;
@@ -331,7 +273,6 @@ function overdueDrift(ctx) {
     };
 }
 
-/** SESSION-POSITION FATIGUE (guard). */
 function sessionFatigue(ctx) {
     const positioned = onSchedule(ctx.reviews)
         .filter(r => r.sessionPos != null && r.sessionLen >= FATIGUE_MIN_SESSION_LEN);
@@ -397,7 +338,6 @@ function signatureEvidence(ctx, gate) {
     };
 }
 
-/** MOUTHFUL. */
 function mouthful(ctx) {
     const gate = confidenceFor(ctx);
     const { shape } = ctx.trajectory;
@@ -431,7 +371,6 @@ function mouthful(ctx) {
     };
 }
 
-/** PROBE. */
 function probe(ctx) {
     const gate = confidenceFor(ctx);
     if (!gate.level) return null;
@@ -461,18 +400,15 @@ class CardHealthService {
         this._baselineCache = null;
     }
 
-    /** Drops both caches. */
     onVaultOpened() {
         this._sessionCache.clear();
         this._baselineCache = null;
     }
 
-    /** Whose analysis this is. Resolved once per public entry point, like srs.js. */
     _scope(explicit) {
         return explicit ?? currentScope();
     }
 
-    /** Runs every detector over one card's evidence and returns the flags they raise. */
     runDetectors(ctx) {
         const raised = [];
         for (const detect of DETECTORS) {
@@ -510,7 +446,6 @@ class CardHealthService {
         return medianTokens;
     }
 
-    /** Drops the session and baseline caches on a vault switch. */
     resetCaches() {
         this._sessionCache.clear();
         this._baselineCache = null;
@@ -523,7 +458,6 @@ class CardHealthService {
         ].join('\u0000')).digest('hex').slice(0, 32);
     }
 
-    /** Assemble everything the detectors read about one card. */
     async buildContext(hash, scopeArg) {
         const scope = this._scope(scopeArg);
         const content = await query.getFlashcardContentByHash(hash, scope);
@@ -574,7 +508,6 @@ class CardHealthService {
         };
     }
 
-    /** Classify one card and persist the result. */
     async evaluate(hash, scopeArg) {
         const ctx = await this.buildContext(hash, scopeArg);
         if (!ctx) return [];
@@ -600,7 +533,6 @@ class CardHealthService {
         return await this.getFlags(hash, ctx.scope);
     }
 
-    /** The review hook. */
     async onReview(hash, { outcome = null, rating = null } = {}, scopeArg) {
         const scope = this._scope(scopeArg);
         const failed = rating != null ? rating <= 1 : outcome === 0;
@@ -613,7 +545,6 @@ class CardHealthService {
         return [];
     }
 
-    /** A card's content changed. */
     async onCardEdited(hash) {
         const content = await query.getFlashcardContentByHash(hash, OWNER_SCOPE);
         if (!content) return;
@@ -625,7 +556,6 @@ class CardHealthService {
         });
     }
 
-    /** The user has ruled on this flag. */
     async dismiss(hash, kind, scopeArg) {
         if (!FLAG_KINDS.includes(kind)) throw new Error(`Unknown flag kind: ${kind}`);
         const scope = this._scope(scopeArg);
@@ -650,7 +580,6 @@ class CardHealthService {
         await this._setEpoch(cardId, reason, scope);
     }
 
-    /** The card's live flags, shaped for the UI: a title, the recommended action, and the numbers behind the verdict so the reader can disagree with it. */
     async getFlags(hash, scopeArg) {
         const scope = this._scope(scopeArg);
         const content = await query.getFlashcardContentByHash(hash, scope);

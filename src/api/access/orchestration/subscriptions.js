@@ -1,5 +1,3 @@
-/** Magazine subscriptions. Checks for updates and imports new issues. */
-
 import Documents from './documents.js';
 import AdmZip from 'adm-zip';
 import os from 'os';
@@ -12,7 +10,6 @@ export default class Subscriptions {
         this.documents = new Documents();
     }
 
-    /** Imports and merges a magazine issue into the user's local workspace. */
     async importIssue(magazineId, issueData, targetRelPath) {
         console.log(`Importing issue from ${magazineId} into ${targetRelPath}`);
 

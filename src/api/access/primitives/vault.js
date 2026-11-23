@@ -1,5 +1,3 @@
-/** Vault identity via vault.json. Stable UUID that survives renames and copies. */
-
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -13,11 +11,6 @@ function manifestPath() {
     return path.join(getVaultPath(), MANIFEST_NAME);
 }
 
-/**
- * Reads the active vault's manifest.
- *
- * @returns {{id: string, name: string, createdAt: string, manifestVersion: number}|null} null when the file is missing or unreadable — callers treat that as "not stamped yet" and call ensureManifest().
- */
 export function readManifest() {
     try {
         const parsed = JSON.parse(fs.readFileSync(manifestPath(), "utf-8"));
@@ -27,11 +20,6 @@ export function readManifest() {
     }
 }
 
-/**
- * Stamps the active vault with a manifest if it does not already have one.
- *
- * @returns {{id: string, name: string, createdAt: string, manifestVersion: number}}
- */
 export function ensureManifest() {
     const existing = readManifest();
     if (existing) return existing;
@@ -49,21 +37,10 @@ export function ensureManifest() {
     return manifest;
 }
 
-/**
- * The active vault's stable id, stamping one if the vault has never been stamped.
- *
- * @returns {string}
- */
 export function getVaultId() {
     return ensureManifest().id;
 }
 
-/**
- * Does this directory look like a Flashback vault?
- *
- * @param {string} dir - Absolute path to inspect.
- * @returns {{ok: true, dbFile: string}|{ok: false, reason: string}}
- */
 export function inspectVaultDir(dir) {
     if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
         return { ok: false, reason: "Not a directory." };

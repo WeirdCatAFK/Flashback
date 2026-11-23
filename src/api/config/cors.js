@@ -1,23 +1,4 @@
-// CORS policy.
-//
-// What this defends against: a page on the open web (https://evil.com, an ad frame, a
-// malicious doc) making cross-origin requests to the API listening on the user's own
-// machine. The previous `Access-Control-Allow-Origin: *` allowed exactly that — and since
-// the auth guard also accepts the token as a `?token=` query parameter, any page that ever
-// learned the token had a clean path into the vault.
-//
-// What this does NOT defend against, and is not meant to: non-browser clients. The MCP
-// server (src/mcp/client.js), the test suite and any script use Node `fetch`, which sends
-// no `Origin` header at all. CORS is a browser mechanism enforced by the browser; it has
-// nothing to say about them. Their gate is the API token, checked in api.js.
-//
-// Three cases, in order:
-//   1. No Origin        → pass through, set no ACAO. Not a browser request.
-//   2. Origin allowed   → echo it, with `Vary: Origin` since the value is now conditional.
-//   3. Origin rejected  → set no ACAO and refuse. The browser would block the response
-//                         either way; refusing outright also stops a "simple" cross-origin
-//                         POST (which is not preflighted) from executing unread.
-
+/** A request without an Origin header passes, because no browser sent it. The API token gates it. */
 import { getAllowedOrigins } from '../access/primitives/config.js';
 
 const ALLOWED_HEADERS = [

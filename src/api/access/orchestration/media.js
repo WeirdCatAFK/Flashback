@@ -1,21 +1,3 @@
-/**
- * Media.js — Tier 3 orchestrator for media asset lifecycle.
- *
- * Responsibilities:
- *   - serve(hash)          → resolve a media file for API delivery
- *   - list(folderRelPath)  → enumerate all media files in a folder's media/ dir
- *   - addVanillaMedia(...) → write vanilla media (FS + sidecar + DB + Seal)
- *   - removeMedia(...)     → remove media (FS + sidecar + DB + Seal)
- *   - reconcile(...)       → drop DB entries whose files no longer exist on disk
- *
- * Does NOT handle flashcard-to-media linkage for custom HTML flashcards — that
- * belongs to Documents.addMediaToFlashcard(), which already owns that flow.
- *
- * HTML engine note: custom HTML in customData.html references media via
- * ./media/<name> for sidecar portability. The API serves media by hash at
- * GET /api/media/:hash so the renderer never needs the absolute workspace path.
- */
-
 import Files from '../resources/files.js';
 import query from '../resources/query.js';
 import db from '../primitives/database.js';
@@ -30,13 +12,6 @@ export default class Media {
         this.query = query;
     }
 
-    /**
-     * Resolves a media entry by its SHA-256 hash.
-     *
-     * @param {string} hash
-     * @returns {{ id, hash, name, relative_path, absolute_path }}
-     * @throws if the hash is unknown or the file is missing on disk
-     */
     async serve(hash) {
         const entry = await this.query.getMediaByHash(hash);
         if (!entry) throw new Error(`Media not found: ${hash}`);
@@ -46,14 +21,6 @@ export default class Media {
         return entry;
     }
 
-    /**
-     * Resolves a media asset by its location relative to the owning document.
-     *
-     * @param {string} relDocPath - relative path to the document that owns the media
-     * @param {string} name - media file name (e.g. "front-1a2b3c4d.png")
-     * @returns {string} absolute path to the file on disk
-     * @throws if the file is missing
-     */
     serveByPath(relDocPath, name) {
         const mediaRel = path.join(path.dirname(relDocPath), 'media', path.basename(name));
         const absolutePath = this.files.safePath(mediaRel);
@@ -63,12 +30,6 @@ export default class Media {
         return absolutePath;
     }
 
-    /**
-     * Lists all files inside a folder's media/ subdirectory.
-     *
-     * @param {string} folderRelPath - relative path to the parent folder
-     * @returns {Array<{ name, relativePath, absolutePath, hash|null }>}
-     */
     async list(folderRelPath) {
         const absDir = this.files.safePath(path.join(folderRelPath, 'media'));
         if (!fs.existsSync(absDir)) return [];
@@ -85,16 +46,6 @@ export default class Media {
         });
     }
 
-    /**
-     * Adds a vanilla media asset (image or sound for front/back) to a flashcard.
-     *
-     * @param {string} relDocPath - relative path to the document
-     * @param {string} flashcardHash - globalHash of the target flashcard
-     * @param {Buffer} buffer - raw file data
-     * @param {string} name - filename (e.g. "narration.mp3")
-     * @param {"image"|"sound"} type
-     * @param {"front"|"back"} position
-     */
     async addVanillaMedia(relDocPath, flashcardHash, buffer, name, type, position) {
         const meta = this.files.getMetadata(relDocPath);
         const cardIdx = meta?.flashcards?.findIndex(f => f.globalHash === flashcardHash) ?? -1;
@@ -113,12 +64,6 @@ export default class Media {
         await sealEmitter.edit(relDocPath + '.flashback', [mediaRel]);
     }
 
-    /**
-     * Removes a media file from a document's media/ directory.
-     *
-     * @param {string} relDocPath - relative path to the document that owns the media
-     * @param {string} mediaName - filename to remove (e.g. "diagram.png")
-     */
     async removeMedia(relDocPath, mediaName) {
         const mediaRel = path.join(path.dirname(relDocPath), 'media', mediaName);
         const mediaAbs = this.files.safePath(mediaRel);
@@ -132,12 +77,6 @@ export default class Media {
         await sealEmitter.edit(relDocPath + '.flashback', []);
     }
 
-    /**
-     * Drops DB entries for media files that no longer exist on disk within a folder.
-     *
-     * @param {string} folderRelPath
-     * @returns {Array} orphaned entries that were removed from the DB
-     */
     async reconcile(folderRelPath) {
         const absDir = this.files.safePath(path.join(folderRelPath, 'media'));
         const prefix = absDir + path.sep;

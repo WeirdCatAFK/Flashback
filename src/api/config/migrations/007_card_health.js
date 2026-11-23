@@ -1,49 +1,6 @@
-// Migration 007 — Card health: failure-signature classification
-//
-// Flashback classifies cards by how they behave under review and flags the ones worth
-// acting on. Two cards can have an identical pass rate and need opposite treatment:
-// a "mouthful" is badly built and should be split, a "probe" is hard because it forces
-// the reviewer to confront a wrong assumption and should be kept. Telling them apart
-// needs the derivative (does each relearn cycle end at a longer interval?), not the level.
-//
-// Two tables, both DERIVED — they hold no user intent that isn't recomputable from
-// ReviewLogs plus the card's own content, so they are deliberately absent from the
-// canonical `.flashback` sidecars. Writing a flag canonically would mean a Seal commit
-// on every failed review, and a Vault Doctor rebuild would have to reconcile a judgement
-// rather than a fact.
-//
-//   CardHealth — one row per evaluated card, holding the *analysis watermark*. A flag is
-//   a live judgement, not a permanent scar: once the user addresses a card (edits it, or
-//   reviews it back up to strength) the analysis restarts from that moment, so history
-//   from before the fix is never evidence against the card that replaced it.
-//
-//   CardFlags  — the currently-raised flags. UNIQUE(flashcard_id, kind) because a card
-//   either currently reads as a mouthful or it doesn't; re-raising refreshes the row's
-//   evidence rather than accumulating duplicates. `dismissed_at` keeps a row the user has
-//   already ruled on suppressed instead of deleting it, so it doesn't re-announce itself
-//   on every subsequent failure.
-//
-// Both cascade from Flashcards, so deleting a card takes its health state with it and
-// `wipeDerivedContent` (Vault Doctor rebuild) clears them for free.
-//
-// No backfill. Flags are earned from review behaviour; an existing vault starts with none
-// and raises its first at the next failing review that clears the confidence gates.
-
 export const version = 7;
 export const description = 'Card health: CardHealth watermark + CardFlags failure signatures';
 
-/**
- * Whether a table exists in ANY attached schema, not just `main`.
- *
- * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
- * query reads `main` alone, which stopped being the whole database when the progress store
- * was attached. A table that has moved there is still present — just not in `main`, and a
- * guard that cannot tell "moved" from "absent" answers "still pending" forever.
- *
- * @param {object} db
- * @param {string} name
- * @returns {Promise<boolean>}
- */
 async function tableExists(db, name) {
     return (await db.pragma(`table_info(${name})`)).length > 0;
 }
@@ -53,10 +10,6 @@ export async function shouldRun(db) {
 }
 
 export async function up(db) {
-    // Each table is guarded on its own, and its indexes sit INSIDE that guard. An
-    // unqualified CREATE targets `main` and cannot see a copy in the progress store, so an
-    // ungated one builds an empty shadow; and `CREATE INDEX ... ON CardHealth` with no
-    // `main.CardHealth` fails outright rather than being skipped.
     if (!await tableExists(db, 'CardHealth')) {
         await db.exec(`CREATE TABLE IF NOT EXISTS CardHealth (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,

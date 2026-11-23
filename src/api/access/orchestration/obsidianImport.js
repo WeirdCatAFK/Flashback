@@ -1,5 +1,3 @@
-/** Imports an Obsidian vault ZIP into Flashback. */
-
 import AdmZip from 'adm-zip';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -26,13 +24,6 @@ export default class ObsidianImport {
         this.query = query;
     }
 
-    /**
-     * Imports an Obsidian vault ZIP package into the workspace.
-     *
-     * @param {Buffer} fileBuffer
-     * @param {string} targetRelPath
-     * @returns {Promise<{ ok: boolean, path: string }>}
-     */
     async importVault(fileBuffer, targetRelPath = "") {
         console.log(`Importing Obsidian vault into ${targetRelPath}`);
         const tempId = crypto.randomUUID();

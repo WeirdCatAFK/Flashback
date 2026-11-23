@@ -1,8 +1,3 @@
-// Migration 003 — System deck
-//
-// Adds is_system column to Decks and seeds the "Cards" system deck.
-// Safe to re-run: uses IF NOT EXISTS / OR IGNORE / ALTER TABLE guard.
-
 import { SYSTEM_DECK_HASH } from '../defaults/DefaultData.js';
 
 export const version = 3;

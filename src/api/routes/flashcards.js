@@ -17,13 +17,11 @@ const catchError = (fn) => (req, res, next) =>
         next(err);
     });
 
-/** One card's content. */
 router.get('/:hash', catchError(async (req, res) => {
     const card = await decks.getCard(req.params.hash);
     res.json({ ...card, etag: docs.cardEtag(card.documentPath, req.params.hash) });
 }));
 
-/** Creates a standalone card, which lives in the system deck. */
 router.post('/', catchError(async (req, res) => {
     const { frontText, backText, answerText, name, cardType = 'basic', category, customHtml, tags } = req.body;
     const origin = req.body.origin === 'ai' ? 'ai' : null;
@@ -31,27 +29,23 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-/** One card's schedule, review ledger and retention curve. */
 router.get('/:hash/detail', catchError(async (req, res) => {
     const card = await decks.getCard(req.params.hash);
     const insights = await srs.getCardInsights(req.params.hash, { algorithm: req.query.algorithm || null });
     res.json({ card, ...insights, flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
-/** The caller's card-health flags on one card. */
 router.get('/:hash/flags', catchError(async (req, res) => {
     await decks.getCard(req.params.hash);
     res.json({ flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
-/** Rules on a flag, suppressing it without deleting it. */
 router.post('/:hash/flags/:kind/dismiss', catchError(async (req, res) => {
     const dismissed = await cardHealth.dismiss(req.params.hash, req.params.kind);
     if (!dismissed) return res.status(404).json({ error: 'No such flag on this card' });
     res.json({ ok: true, flags: await cardHealth.getFlags(req.params.hash) });
 }));
 
-/** Updates a card, wherever it lives. */
 router.put('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
     const { frontText, backText, answerText, name, cardType, category, customHtml, tags } = req.body;
@@ -71,7 +65,6 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true, documentPath: card.documentPath, etag: docs.files.entityEtag(updated) });
 }));
 
-/** Deletes a card and unlinks it from every deck. */
 router.delete('/:hash', catchError(async (req, res) => {
     const { hash } = req.params;
     const card = await decks.getCard(hash);

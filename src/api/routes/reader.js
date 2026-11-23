@@ -12,14 +12,12 @@ const catchError = (fn) => (req, res, next) =>
         next(err);
     });
 
-/** A document's pagination unit and total, without extracting anything. */
 router.get('/info', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
     res.json(await reader.info(relPath));
 }));
 
-/** A page of extracted text, addressed by the format's native unit. */
 router.get('/read', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
@@ -70,14 +68,12 @@ router.get('/read', catchError(async (req, res) => {
     res.json(data);
 }));
 
-/** Every image in an EPUB section. */
 router.get('/images', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
     res.json(await reader.images(relPath));
 }));
 
-/** One EPUB image's bytes. */
 router.get('/image', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     const { href } = req.query;
@@ -89,14 +85,12 @@ router.get('/image', catchError(async (req, res) => {
     res.send(buffer);
 }));
 
-/** Every asset a document carries, cached or still on the web. */
 router.get('/media', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
     res.json(await reader.media(relPath));
 }));
 
-/** One cached asset's bytes; refuses anything not yet saved. */
 router.get('/media-file', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     const { href } = req.query;

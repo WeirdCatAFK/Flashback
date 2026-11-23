@@ -1,4 +1,3 @@
-// validators/database.js
 import db from "./../../access/primitives/database.js";
 import SchemaSQL from "../defaults/SchemaSQL.js";
 import {
@@ -26,12 +25,6 @@ const requiredTables = [
   "DeckEntries",
 ];
 
-/**
- * Checks if a table with the given name exists in the database.
- *
- * @param {string} name The name of the table to check.
- * @returns {boolean} True if the table exists, false otherwise.
- */
 async function tableExists(name) {
   const row = await db
     .prepare("SELECT name FROM sqlite_master WHERE type='table' AND name = ?")
@@ -39,7 +32,6 @@ async function tableExists(name) {
   return !!row;
 }
 
-/** Performs the core database schema and default data initialization. */
 async function performRebuild() {
   try {
     const cleanSchema = SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, "");
@@ -74,20 +66,10 @@ async function performRebuild() {
   }
 }
 
-/**
- * Rebuilds the database schema and populates default data in a single transaction.
- *
- * @returns {boolean} True if the database was rebuilt and initialized successfully.
- */
 async function rebuildDatabase() {
   return await db.transaction(async () => await performRebuild())();
 }
 
-/**
- * Validates the database by performing a quick integrity check and checking for the presence of all required tables.
- *
- * @returns {boolean} True if the database is valid or was successfully repaired.
- */
 async function validateDatabase() {
   const handleRebuild = async () => {
     // @ts-ignore — inTransaction is a valid better-sqlite3 property, missing from bundled types

@@ -1,14 +1,6 @@
-// Migration 002 — Inter-document links
-//
-// Adds the DocumentLinks queue table and the "link" ConnectionType.
-// Safe to run on any existing database: uses IF NOT EXISTS / OR IGNORE guards.
-
 export const version = 2;
 export const description = 'Inter-document links: DocumentLinks queue table + link ConnectionType';
 
-// Re-run this migration even if SchemaVersion shows it as applied, as long as
-// its artifacts are missing (e.g. DocumentLinks was manually dropped, or the
-// migration ran on a process that died before the app was restarted properly).
 export async function shouldRun(db) {
     const hasTable = await db.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='DocumentLinks'"

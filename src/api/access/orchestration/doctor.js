@@ -1,34 +1,3 @@
-/**
- * Doctor.js — Tier 3 orchestrator for vault health: keeping the derived SQLite
- * index consistent with the canonical .flashback sidecars.
- *
- * The dual-layer model means the index can drift from the canonical layer
- * (out-of-band edits, Seal rollbacks, crashes, DB corruption). The Doctor
- * closes that loop:
- *
- *   checkIndex()    Read-only whole-vault report. Direct workspace-walk ↔ DB
- *                   comparison — NOT sealTools.inspect(), which diffs against
- *                   git HEAD and is blind right after a rollback (HEAD ==
- *                   workdir while the index is maximally diverged). Git drift
- *                   is included in the report as supplementary context only.
- *   syncIndex()     Applies the diff: disk is truth for CONTENT. Indexes new
- *                   sidecars, reindexes modified ones, removes index rows for
- *                   deleted items, reconciles
- *                   media both directions, repairs decks. By default seals
- *                   remaining out-of-band drift into one `reconcile:` commit.
- *   rebuildIndex()  Nuclear option: wipes all derived content and re-indexes
- *                   the entire canonical layer. Everything behavioural now SURVIVES
- *                   it — review history, card-health verdicts and flags, and fitted
- *                   FSRS weights all live in the progress store
- *                   (`primitives/progress.js`), which the wipe deliberately does not
- *                   name. That is the whole point of the store existing. Level and
- *                   ease still survive via sidecars; standalone-card content survives
- *                   via deck inline_card snapshots but its level resets.
- *
- * Import rules (ACCESS.md): Tier 3 may import documents.js (subscriptions.js /
- * obsidianImport.js precedent), other Tier 3 orchestrators, Tier 2, and Seal.
- */
-
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
@@ -50,11 +19,6 @@ export default class Doctor {
         this.decks = new Decks();
     }
 
-    /**
-     * Read-only whole-vault consistency report.
-     *
-     * @returns {Promise<object>} see shape below; every array holds workspace-relative paths.
-     */
     async checkIndex() {
         await sealEmitter.flushEdits();
 
@@ -166,13 +130,6 @@ export default class Doctor {
         return reasons;
     }
 
-    /**
-     * Applies the check report.
-     *
-     * @param {object} [options]
-     * @param {boolean} [options.sealDrift=true] - bind remaining out-of-band changes (including deletions) into one `reconcile:` commit afterward. Post-rollback there is no drift, so no commit is created.
-     * @returns {Promise<{ actions: object, skipped: object, warnings: string[], sealedOid: string|null, report: object }>}
-     */
     async syncIndex({ sealDrift = true } = {}) {
         const report = await this.checkIndex();
         if (report.db.integrity !== 'ok') {
@@ -267,11 +224,6 @@ export default class Doctor {
         };
     }
 
-    /**
-     * Wipes all derived content and re-indexes the entire canonical layer.
-     *
-     * @returns {Promise<{ summary: object, warnings: string[] }>}
-     */
     async rebuildIndex() {
         await sealEmitter.flushEdits();
         const walk = this.files.walkWorkspace();

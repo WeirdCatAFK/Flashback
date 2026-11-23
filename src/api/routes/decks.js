@@ -29,11 +29,6 @@ const catchError = (fn) => (req, res, next) =>
         next(err);
     });
 
-/**
- * The card browser's source filter: `source=standalone` (the default deck's own
- * cards), or `source=folder|document` with `sourcePath`, compared with forward
- * slashes whatever the platform stored.
- */
 const sourceFrom = (q) => {
     if (q.source === 'standalone') return { kind: 'standalone' };
     if ((q.source === 'folder' || q.source === 'document') && q.sourcePath) {
@@ -44,12 +39,10 @@ const sourceFrom = (q) => {
 
 const algorithmFrom = (q) => (['leitner', 'sm2', 'fsrs'].includes(q.algorithm) ? q.algorithm : null);
 
-/** Every deck with its entry count, colour and how its cards stand for the caller. */
 router.get('/', catchError(async (req, res) => {
     res.json(await decks.listDecks({ algorithm: algorithmFrom(req.query) }));
 }));
 
-/** Creates a deck. */
 router.post('/', catchError(async (req, res) => {
     const { name, description = '' } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
@@ -57,7 +50,6 @@ router.post('/', catchError(async (req, res) => {
     res.status(201).json({ globalHash });
 }));
 
-/** The card browser: a filtered, sorted, paged view of every card in the vault. */
 router.get('/cards', catchError(async (req, res) => {
     const search = req.query.search || null;
     const level = req.query.level !== undefined ? parseInt(req.query.level) : null;
@@ -81,18 +73,15 @@ router.get('/cards', catchError(async (req, res) => {
     res.json({ cards, total, limit, offset, ...(groups ? { groups } : {}) });
 }));
 
-/** The card browser's sidebar: cards per document and per gap band, and health counts. */
 router.get('/cards/summary', catchError(async (req, res) => {
     const algorithm = ['leitner', 'sm2', 'fsrs'].includes(req.query.algorithm) ? req.query.algorithm : null;
     res.json(await decks.catalogueSummary({ algorithm }));
 }));
 
-/** One deck: its metadata, colour, entries and standing. */
 router.get('/:hash', catchError(async (req, res) => {
     res.json(await decks.getDeck(req.params.hash, { algorithm: algorithmFrom(req.query) }));
 }));
 
-/** Updates a deck's name, description or box colour (a palette id, or null for the default). */
 router.put('/:hash', catchError(async (req, res) => {
     const { name, description, color } = req.body;
     if (color !== undefined && color !== null && !isDeckColor(color)) {
@@ -102,13 +91,11 @@ router.put('/:hash', catchError(async (req, res) => {
     res.json({ ok: true });
 }));
 
-/** The deck's cover image, for an <img>. 404 when its cover is a pattern or there is none. */
 router.get('/:hash/cover', catchError(async (req, res) => {
     const { absPath, mime } = await decks.coverImage(req.params.hash);
     res.type(mime).sendFile(absPath);
 }));
 
-/** Uploads an image (`file`, multipart) as the deck's cover. */
 router.post('/:hash/cover', (req, res, next) => coverUpload.single('file')(req, res, (err) => {
     if (err?.code === 'LIMIT_FILE_SIZE') return res.status(413).json({ error: 'Cover image too large' });
     return err ? next(err) : next();
@@ -118,31 +105,26 @@ router.post('/:hash/cover', (req, res, next) => coverUpload.single('file')(req, 
     res.status(201).json({ cover: await decks.uploadCover(req.params.hash, req.file.buffer, req.file.mimetype) });
 }));
 
-/** Sets a drawn cover (`{ pattern }`) or repositions the image one (`{ y }`, 0..1). */
 router.put('/:hash/cover', catchError(async (req, res) => {
     const { pattern, y } = req.body ?? {};
     if (pattern === undefined && y === undefined) return res.status(400).json({ error: 'pattern or y required' });
     res.json({ cover: await decks.setCover(req.params.hash, pattern !== undefined ? { pattern } : { y }) });
 }));
 
-/** Removes the deck's cover, deleting its image. */
 router.delete('/:hash/cover', catchError(async (req, res) => {
     await decks.setCover(req.params.hash, null);
     res.json({ ok: true });
 }));
 
-/** Deletes a deck, leaving its cards in place. */
 router.delete('/:hash', catchError(async (req, res) => {
     await decks.deleteDeck(req.params.hash);
     res.json({ ok: true });
 }));
 
-/** A deck's cards with the caller's schedule joined on. */
 router.get('/:hash/contents', catchError(async (req, res) => {
     res.json(await decks.getContentsSummary(req.params.hash));
 }));
 
-/** Deletes a deck and every card that lives only in it. */
 router.post('/:hash/purge', catchError(async (req, res) => {
     const includeShared = req.body?.includeShared === true;
     const { hash } = req.params;
@@ -161,14 +143,12 @@ router.post('/:hash/purge', catchError(async (req, res) => {
     res.json({ ok: true, deleted: standalone.length + anchored.length, kept });
 }));
 
-/** Replaces a deck's tags, re-flowing them to its cards. */
 router.put('/:hash/tags', catchError(async (req, res) => {
     const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
     const saved = await decks.setTags(req.params.hash, tags);
     res.json({ ok: true, tags: saved });
 }));
 
-/** Adds a card to a deck. */
 router.post('/:hash/entries', catchError(async (req, res) => {
     const { cardHash, documentPath, inlineCard } = req.body;
     if (!cardHash) return res.status(400).json({ error: 'cardHash required' });
@@ -176,7 +156,6 @@ router.post('/:hash/entries', catchError(async (req, res) => {
     res.status(201).json({ ok: true });
 }));
 
-/** Removes a card from a deck. */
 router.delete('/:hash/entries/:cardHash', catchError(async (req, res) => {
     await decks.removeEntry(req.params.hash, req.params.cardHash);
     res.json({ ok: true });

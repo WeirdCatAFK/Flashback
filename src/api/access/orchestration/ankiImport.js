@@ -1,21 +1,3 @@
-/** Imports Anki .apkg packages into Flashback.
- *
- * Anki has no fixed card shape: a notetype declares N named fields, and its
- * templates decide which field renders where. Flashback has five card types with
- * fixed slots. Import is therefore a projection, and it happens in two phases so
- * the user can steer it:
- *
- *   analyze(buffer)  → what notetypes are in here, what fields do they have,
- *                      what would we guess, and what does a real note look like
- *   importApkg(...)  → apply a per-notetype mapping of fields onto card slots
- *
- * Calling `importApkg` without a mapping just uses the guess, so every existing
- * caller keeps working and there is only one code path to reason about.
- *
- * Reading the package itself — the three zip generations, zstd, protobuf — is
- * `ankiPackage.js`'s job, not this module's.
- */
-
 import BetterSQLite from 'better-sqlite3';
 import crypto from 'crypto';
 import fs from 'fs';
@@ -32,7 +14,6 @@ const SESSION_ROOT = path.join(os.tmpdir(), 'flashback_anki_imports');
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const SESSION_MARKER = '.flashback-session.json';
 
-/** Card slots a mapping may target. */
 export const CARD_SLOTS = ['front', 'back', 'answer', 'front_img', 'front_sound', 'back_img', 'back_sound'];
 const MEDIA_SLOTS = { front_img: 'img', front_sound: 'snd', back_img: 'img', back_sound: 'snd' };
 
@@ -115,7 +96,6 @@ export default class AnkiImport {
         this.decksService = new Decks();
     }
 
-    /** Field names a template actually references, in template order. */
     _templateFields(fmt, fieldNames) {
         const out = [];
         for (const match of (fmt || '').matchAll(/\{\{(?:[#/^])?(?:type:|cloze:|hint:)?([^/{}#^]+)\}\}/g)) {
@@ -125,7 +105,6 @@ export default class AnkiImport {
         return out;
     }
 
-    /** Maps an Anki model to one of Flashback's five card types using reliable signals in priority order. */
     _detectCardType(model, qfmt) {
         if (model.type === 1) return 'cloze';
         if (qfmt && /\{\{type:/i.test(qfmt)) return 'type_answer';
@@ -134,12 +113,6 @@ export default class AnkiImport {
         return 'basic';
     }
 
-    /**
-     * Reads the notetype's own templates backwards into a proposed field→slot mapping.
-     *
-     * @param {object} model - normalized model from ankiPackage.readCollection
-     * @param {string[][]} samples - raw field-value rows, used to spot fields that hold nothing but a media reference (an "Audio" field belongs in a sound slot, not concatenated into the answer text as `[sound:x.mp3]`)
-     */
     _suggestMapping(model, samples = []) {
         const fieldNames = (model.flds || []).map(f => f.name);
         const tmpl = (model.tmpls || [])[0] ?? {};
@@ -216,7 +189,6 @@ export default class AnkiImport {
         return { cardType, slots };
     }
 
-    /** Deletes session dirs older than the TTL. Cheap, and runs before each analyze. */
     _sweepSessions() {
         if (!fs.existsSync(SESSION_ROOT)) return;
         const cutoff = Date.now() - SESSION_TTL_MS;
@@ -228,12 +200,6 @@ export default class AnkiImport {
         }
     }
 
-    /**
-     * Inspects a package without importing anything, holding the extraction under a session id for the apply phase.
-     *
-     * @param {Buffer} fileBuffer
-     * @returns {Promise<object>} notetype inventory with suggested mappings and samples
-     */
     async analyze(fileBuffer) {
         this._sweepSessions();
 
@@ -295,7 +261,6 @@ export default class AnkiImport {
         }
     }
 
-    /** Projects one Anki note onto Flashback card content using the notetype's mapping. */
     async _applyMapping(primaryCard, model, mapping, ctx) {
         const noteFields = String(primaryCard.note_fields).split('\x1f');
         const byName = {};
@@ -382,15 +347,6 @@ export default class AnkiImport {
         };
     }
 
-    /**
-     * Imports an Anki .apkg into standalone decks.
-     *
-     * @param {Buffer|null} fileBuffer - raw package bytes; may be null when `sessionId` is given
-     * @param {string} targetRelPath - accepted for signature parity with the other importers and deliberately ignored: Anki notes become standalone cards in decks, which have no location in the workspace tree
-     * @param {object|null} mapping - `{ [notetypeId]: { cardType, slots } }`; the per-notetype suggestion is used for anything not covered
-     * @param {string|null} sessionId - reuse an `analyze()` extraction instead of re-reading
-     * @returns {Promise<{ ok: boolean, path: string, imported: number }>}
-     */
     async importApkg(fileBuffer, targetRelPath = "", mapping = null, sessionId = null) {
         console.log(
             'Importing Anki package into standalone decks' +
@@ -513,11 +469,6 @@ export default class AnkiImport {
         }
     }
 
-    /**
-     * Streams one asset out of a live `analyze()` session, by its original Anki filename, decompressed.
-     *
-     * @returns {{ buffer: Buffer, filename: string }|null} null if the session or asset is gone
-     */
     readSessionMedia(sessionId, name) {
         if (!sessionId || /[\\/]|\.\./.test(sessionId)) return null;
 
@@ -535,7 +486,6 @@ export default class AnkiImport {
         return buffer ? { buffer, filename: mediaMap[key] } : null;
     }
 
-    /** Reads back the package handle `analyze()` recorded for a session, so the apply phase reuses that extraction instead of asking for the file again. */
     _reopenSession(tempRoot) {
         const marker = path.join(tempRoot, SESSION_MARKER);
         if (!fs.existsSync(marker)) {
@@ -544,7 +494,6 @@ export default class AnkiImport {
         return JSON.parse(fs.readFileSync(marker, 'utf-8'));
     }
 
-    /** Copies one media asset out of the package into the workspace, deduping by hash. */
     async _copyMedia(originalName, ctx) {
         const { mediaMap, tempRoot, mediaDirAbs, mediaDirRel } = ctx;
         const decodedName = decodeURIComponent(originalName)

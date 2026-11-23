@@ -1,12 +1,8 @@
-/** Per-endpoint role policy. First match wins; unknown mounts fail closed to author. */
-
 import { ROLES, atLeast } from "../../shared/roles.js";
 
 const { READER, COLLABORATOR, ADMIN, AUTHOR } = ROLES;
 
-/**
- * @type {Record<string, Array<[string, string, string]>>}
- */
+/** The first matching rule wins. A mount without a rule needs the author role. */
 export const PERMISSIONS = {
     documents: [
         ["GET", "*", READER],
@@ -87,12 +83,6 @@ export const PERMISSIONS = {
     ],
 };
 
-/**
- * The form of a request path that the rules below are written against.
- *
- * @param {string} p
- * @returns {string}
- */
 export function normalizePath(p) {
     const s = String(p || "/").toLowerCase();
     return s.length > 1 && s.endsWith("/") ? s.slice(0, -1) : s;
@@ -115,14 +105,6 @@ function pathMatches(pattern, reqPath) {
     return patternParts.every((part, i) => part === "*" || part === pathParts[i]);
 }
 
-/**
- * The minimum role required to make this request.
- *
- * @param {string} mount  the mount name — the key in PERMISSIONS, not the URL.
- * @param {string} method
- * @param {string} reqPath  the path WITHIN the router (Express strips the mount prefix). Normalized here, so a caller passes it through verbatim — see normalizePath.
- * @returns {string} a role. Never null: an unknown mount resolves to AUTHOR.
- */
 export function requiredRole(mount, method, reqPath) {
     const rules = PERMISSIONS[mount];
     if (!rules) return AUTHOR;
@@ -137,13 +119,6 @@ export function requiredRole(mount, method, reqPath) {
     return AUTHOR;
 }
 
-/**
- * Express middleware factory. Rules are [method, pathPattern, minimumRole], first match wins.
- * req.path is the path within the router (Express strips the mount prefix).
- *
- * @param {string} mount
- * @returns {import('express').RequestHandler}
- */
 export function guard(mount) {
     return (req, res, next) => {
         const needed = requiredRole(mount, req.method, req.path);

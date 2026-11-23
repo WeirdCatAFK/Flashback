@@ -1,5 +1,3 @@
-/** Canonical sidecar reader/writer. Writes are atomic (tmp + rename). safePath() prevents traversal. */
-
 import path from "path";
 import fs from "fs";
 import crypto from "crypto";
@@ -17,14 +15,12 @@ const BINARY_EXTENSIONS = new Set([
     ".pdf", ".epub", ".zip", ".apkg", ".docx", ".xlsx", ".pptx", ".odt",
 ]);
 
-/** The formats whose BODY a user can write — the ones with an editable renderer. */
 export const EDITABLE_BODY_EXTENSIONS = new Set([".md", ".markdown", ".txt", ".text"]);
 
 function stampedBy() {
     return currentAuthorString(getAuthorString);
 }
 
-/** True when the file should never be decoded as text. */
 function looksBinary(relPath, sample, encoding) {
     if (BINARY_EXTENSIONS.has(path.extname(relPath).toLowerCase())) return true;
     if (encoding && /^utf-?(16|32)/i.test(encoding)) return false;
@@ -36,12 +32,10 @@ export default class Files {
         this._ensureRoot();
     }
 
-    /** The workspace root of the ACTIVE vault. */
     get workspaceRoot() {
         return getWorkspacePath();
     }
 
-    /** Creates the workspace directory if the active vault has never been opened. */
     _ensureRoot() {
         const root = this.workspaceRoot;
         if (!fs.existsSync(root)) {
@@ -50,13 +44,6 @@ export default class Files {
         return root;
     }
 
-    /**
-     * Safely resolves a path relative to the workspace root.
-     *
-     * @param {string} anyPath - The path to be resolved.
-     * @returns {string} The resolved path.
-     * @throws {Error} If the path is absolute or traverses outside of the workspace.
-     */
     safePath(anyPath) {
         const resolvedPath = path.resolve(this.workspaceRoot, anyPath);
         const relative = path.relative(this.workspaceRoot, resolvedPath);
@@ -71,13 +58,6 @@ export default class Files {
         return resolvedPath;
     }
 
-    /**
-     * Validates the NAME of an asset in a document's `media/` directory.
-     *
-     * @param {string} name
-     * @returns {string} the same name, once it is known to be a single path segment.
-     * @throws {Error} if it is anything else.
-     */
     mediaName(name) {
         const raw = String(name ?? "");
         const bad =
@@ -92,24 +72,11 @@ export default class Files {
         return raw;
     }
 
-    /**
-     * The absolute path of one asset inside a document's own `media/` directory.
-     *
-     * @param {string} anyPath - relative path of the owning document.
-     * @param {string} name - the asset's file name.
-     * @returns {string} absolute path to the asset (which need not exist).
-     */
     mediaPathFor(anyPath, name) {
         const docRel = path.relative(this.workspaceRoot, this.safePath(anyPath));
         return this.safePath(path.join(path.dirname(docRel), "media", this.mediaName(name)));
     }
 
-    /**
-     * Checks if a file or folder exists at the given relative path.
-     *
-     * @param {string} relPath - The relative path to check for existence.
-     * @returns {boolean} True if the file or folder exists, false otherwise.
-     */
     exists(relPath) {
         try {
             return fs.existsSync(this.safePath(relPath));
@@ -118,22 +85,6 @@ export default class Files {
         }
     }
 
-    /**
-     * Computes the path to the metadata file associated with the given relative path.
-     *
-     * @param {string} relPath - The relative path for which to compute the metadata path.
-     * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
-     * @returns {string} The computed metadata path.
-     */
-    /**
-     * Writes a file through a temporary sibling and renames it into place, so a failure
-     * mid-write (a full disk or quota, a crash) leaves the previous file intact instead of a
-     * truncated one. The rename is atomic on every filesystem the workspace may sit on.
-     *
-     * @param {string} absPath - Destination.
-     * @param {string|Buffer} data - Contents.
-     * @param {object|string} [options] - Passed to `fs.writeFileSync`.
-     */
     _atomicWrite(absPath, data, options) {
         const tmp = `${absPath}.tmp-${process.pid}-${Date.now()}`;
         try {
@@ -150,13 +101,6 @@ export default class Files {
         return isFolder ? path.join(resolved, ".flashback") : `${resolved}.flashback`;
     }
 
-    /**
-     * Resolve a copy name for a file to be written in the given directory.
-     *
-     * @param {string} dirPath - The directory in which to write the file.
-     * @param {string} baseName - The base name of the file to be written (without extension).
-     * @returns {string} The resolved copy name.
-     */
     _resolveCopyName(dirPath, baseName) {
         const ext = path.extname(baseName);
         const name = path.basename(baseName, ext);
@@ -240,13 +184,6 @@ _regenerateIdentities(absPath) {
         return items;
     }
 
-    /**
-     * The version of a document, for detecting a write that lost a race.
-     *
-     * @param {string} relPath - workspace-relative path of the document.
-     * @param {boolean} [isFolder=false] - hash a folder's own `.flashback` instead.
-     * @returns {string|null} `"<body>.<sidecar>"`, or null when neither half exists.
-     */
     etag(relPath, isFolder = false) {
         const digest = (buf) => crypto.createHash('sha256').update(buf).digest('hex');
         let body = null;
@@ -264,12 +201,6 @@ _regenerateIdentities(absPath) {
         return `${body ?? '-'}.${sidecar ?? '-'}`;
     }
 
-    /**
-     * The version of ONE entity inside a sidecar — a flashcard, a highlight.
-     *
-     * @param {object|null|undefined} entity
-     * @returns {string|null} hex digest, or null for a missing entity.
-     */
     entityEtag(entity) {
         if (entity == null) return null;
         const stable = (value) => {
@@ -285,13 +216,6 @@ _regenerateIdentities(absPath) {
         return crypto.createHash('sha256').update(JSON.stringify(stable(entity))).digest('hex');
     }
 
-    /**
-     * Reads the metadata associated with the given relative path.
-     *
-     * @param {string} relPath - The relative path for which to read the metadata.
-     * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
-     * @returns {object|null} The read metadata or null if the file does not exist or is malformed.
-     */
     getMetadata(relPath, isFolder = false) {
         try {
             const metadataPath = this._metadataPathFor(relPath, isFolder);
@@ -304,13 +228,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Writes the given metadata to the path associated with the given relative path.
-     *
-     * @param {string} relPath - The relative path for which to write the metadata.
-     * @param {object} metadata - The metadata to write.
-     * @param {boolean} isFolder - Whether the path is interpreted as a folder or a file.
-     */
     writeMetadata(relPath, metadata, isFolder = false) {
         try {
             this._ensureFlashcardHashes(metadata);
@@ -326,12 +243,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Stamps the canonical format version on a sidecar being written for the FIRST time.
-     *
-     * @param {object} metadata - the object about to be written.
-     * @param {string} metadataPath - absolute path of the sidecar.
-     */
     _ensureFormatVersion(metadata, metadataPath) {
         if (!metadata || typeof metadata !== 'object') return;
         if (metadata.formatVersion !== undefined) return;
@@ -339,13 +250,6 @@ _regenerateIdentities(absPath) {
         metadata.formatVersion = LATEST_VERSION;
     }
 
-    /**
-     * Ensures that the given metadata object has a globalHash property.
-     *
-     * @param {object} [metadata] - The metadata object to ensure has a globalHash property.
-     * @param {boolean} [isFolder=false] - Whether the metadata object is associated with a folder or a file.
-     * @returns {object} The ensured metadata object with a globalHash property.
-     */
     _ensureGlobalHash(metadata, isFolder = false) {
         if (!metadata) metadata = isFolder ? newFolderMetadata() : newFileMetadata();
         if (!metadata.globalHash) {
@@ -354,12 +258,6 @@ _regenerateIdentities(absPath) {
         return metadata;
     }
 
-    /**
-     * Ensures every flashcard in the metadata has a globalHash.
-     *
-     * @param {object} [metadata] - The metadata object whose flashcards to ensure.
-     * @returns {object} The same metadata object.
-     */
     _ensureFlashcardHashes(metadata) {
         if (!metadata || !Array.isArray(metadata.flashcards)) return metadata;
         for (const fc of metadata.flashcards) {
@@ -368,14 +266,6 @@ _regenerateIdentities(absPath) {
         return metadata;
     }
 
-    /**
-     * Creates a new file with the given name at the given relative path.
-     *
-     * @param {string} relPath - The relative path to create the file in.
-     * @param {string} name - The name of the file to create.
-     * @returns {string} The globalHash of the created file.
-     * @throws {Error} If the file already exists at the given relative path.
-     */
     createFile(relPath, name) {
         if (name.endsWith('.flashback')) throw new Error('Cannot create .flashback files directly');
         if (!path.extname(name)) name = name + '.md';
@@ -407,14 +297,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Creates a new folder with the given name at the given relative path.
-     *
-     * @param {string} relPath - The relative path to create the folder in.
-     * @param {string} name - The name of the folder to create.
-     * @returns {string} The globalHash of the created folder.
-     * @throws {Error} If the folder already exists at the given relative path.
-     */
     createFolder(relPath, name) {
         const lower = name.trim().toLowerCase();
         if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot create .flashback folders directly');
@@ -445,13 +327,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Ensures a folder has a `.flashback` sidecar, writing default metadata if missing.
-     *
-     * @param {string} relPath - The relative path the folder lives in.
-     * @param {string} name - The folder's own name.
-     * @returns {string} The folder's globalHash (existing or newly assigned).
-     */
     ensureFolderMetadata(relPath, name) {
         const folderRel = path.join(relPath, name);
         const folderPath = this.safePath(folderRel);
@@ -470,15 +345,6 @@ _regenerateIdentities(absPath) {
         return metadata.globalHash;
     }
 
-    /**
-     * Renames a file or folder at the given relative path to the given new name.
-     *
-     * @param {string} relPath - The relative path to the item to rename.
-     * @param {string} newName - The new name for the item.
-     * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
-     * @throws {Error} If the item does not exist at the given relative path.
-     * @throws {Error} If the item already exists at the given relative path with the new name.
-     */
     rename(relPath, newName, isFolder = false) {
         const lower = newName.trim().toLowerCase();
         if (lower === '.flashback' || lower.endsWith('.flashback')) throw new Error('Cannot rename to a .flashback name; it is reserved for Flashback metadata');
@@ -522,15 +388,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Moves a file or folder from the given relative path to the given new relative path.
-     *
-     * @param {string} relPath - The relative path to the item to move.
-     * @param {string} newRelPath - The new relative path to move the item to.
-     * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
-     * @throws {Error} If the item does not exist at the given relative path.
-     * @throws {Error} If the item already exists at the given relative path with the new name.
-     */
     move(relPath, newRelPath, isFolder = false) {
         const oldPath = this.safePath(relPath);
         const newPath = this.safePath(newRelPath);
@@ -557,13 +414,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Deletes a file or folder from the given relative path.
-     *
-     * @param {string} relPath - The relative path to the item to delete.
-     * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
-     * @throws {Error} If the item does not exist at the given relative path.
-     */
     delete(relPath, isFolder = false) {
         const target = this.safePath(relPath);
         if (!this.exists(relPath)) throw new Error("Target does not exist");
@@ -582,16 +432,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Copies a file or folder from the given relative path to the given new relative path.
-     *
-     * @param {string} relPath - The relative path to the item to copy.
-     * @param {string} newRelPath - The new relative path to copy the item to.
-     * @param {boolean} [isFolder=false] - Whether the item is a folder or not.
-     * @throws {Error} If the item does not exist at the given relative path.
-     * @throws {Error} If the item already exists at the given relative path with the new name.
-     * @returns {string} The globalHash of the copied item (different from the original).
-     */
     
     copy(relPath, newRelPath, isFolder = false) {
         const src = this.safePath(relPath);
@@ -656,17 +496,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-/**
- * Updates the content of a file at the given relative path.
- *
- * @param {string} relPath - The relative path to the file to update.
- * @param {string} content - The new content of the file.
- * @param {object} [metadata=null] - The new metadata for the file.
- * @param {string} [encoding="utf-8"] - The encoding to use when writing the file.
- * @throws {Error} If the file does not exist at the given relative path.
- * @throws {Error} If the file holds binary data and the new content is text.
- * @throws {Error} If there is an error while updating the file or its metadata.
- */
     updateFile(relPath, content, metadata, encoding = "utf-8") {
         const filePath = this.safePath(relPath);
 
@@ -707,20 +536,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Adds vanilla data to the file at the given relative path.
-     *
-     * @param {string} anyPath - The relative path to the file to add vanilla data to.
-     * @param {Buffer|string} data - The data to write to the file.
-     * @param {string} name - The name of the file to write.
-     * @param {"sound" | "image"} type - The type of vanilla data to add.
-     * @param {"front" | "back"} position - The position of the vanilla data to add.
-     * @param {number} cardIndex - The index of the flashcard to add vanilla data to.
-     * @param {"binary" | "utf-8"} [encoding="binary"] - The encoding to use when writing the file.
-     * @throws {Error} If the file does not exist at the given relative path.
-     * @throws {Error} If there is an error while adding the vanilla data or its metadata.
-     * @returns {{ mediaPath: string }} The path to the written file.
-     */
     addVanillaData(anyPath, data, name, type, position, cardIndex, encoding = "binary") {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
@@ -758,17 +573,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Adds a custom media file to the given file's flashcard at the given index.
-     *
-     * @param {string} anyPath - The path to the file to add the media to.
-     * @param {Buffer} data - The data of the media file.
-     * @param {string} name - The name of the media file.
-     * @param {number} [cardIndex=null] - The index of the flashcard to add the media to.
-     * @param {string} [encoding="binary"] - The encoding of the data.
-     * @returns {object} An object containing the mediaPath and mediaId.
-     * @throws {Error} If the file does not exist, the media file already exists, or the flashcard at the given index does not exist.
-     */
     addCustomMedia(anyPath, data, name, cardIndex = undefined, encoding = "binary") {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("Parent File does not exist.");
@@ -804,13 +608,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Removes a custom media file from the given file's flashcard at the given index.
-     *
-     * @param {string} anyPath - The path to the file to remove the media from.
-     * @param {string} name - The name of the media file.
-     * @throws {Error} If the file does not exist, the media file does not exist, or the flashcard at the given index does not exist.
-     */
     removeCustomMedia(anyPath, name) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) {
@@ -853,13 +650,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * Reads the contents of the file at the given relative path.
-     *
-     * @param {string} anyPath - The relative path to the file to read.
-     * @returns {{content: string|null, encoding: string, binary: boolean, size: number}}
-     * @throws {Error} If the file does not exist.
-     */
     readFile(anyPath) {
         const filePath = this.safePath(anyPath);
 
@@ -903,26 +693,12 @@ _regenerateIdentities(absPath) {
         }
     }
 
-    /**
-     * The file's raw bytes, undecoded.
-     *
-     * @param {string} anyPath - The relative path to the file.
-     * @returns {Buffer}
-     * @throws {Error} If the file does not exist.
-     */
     readBuffer(anyPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("File does not exist.");
         return fs.readFileSync(filePath);
     }
 
-    /**
-     * Size in bytes and last-modified time of a file, without reading it.
-     *
-     * @param {string} anyPath - The relative path to the file.
-     * @returns {{size: number, mtimeMs: number}}
-     * @throws {Error} If the file does not exist.
-     */
     statFile(anyPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) throw new Error("File does not exist.");
@@ -930,12 +706,6 @@ _regenerateIdentities(absPath) {
         return { size, mtimeMs };
     }
 
-    /**
-     * Whether the file at the given relative path holds binary data (same sniff as readFile, without decoding anything).
-     *
-     * @param {string} anyPath - The relative path to the file.
-     * @returns {boolean}
-     */
     isBinaryFile(anyPath) {
         const filePath = this.safePath(anyPath);
         if (!fs.existsSync(filePath)) return false;
@@ -954,18 +724,6 @@ _regenerateIdentities(absPath) {
         }
     }
 
-/**
- * Lists all files and folders in the given relative path, excluding the .flashback metadata file.
- *
- * @param {string} relPath - The relative path to the folder to list.
- * @throws {Error} If the folder does not exist.
- * @returns {Array<object>} An array of objects containing the file or folder's name, type, and metadata.
- */
-    /**
-     * Read-only recursive walk of the entire workspace canonical layer.
-     *
-     * @returns {{ folders:   Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>, documents: Array<{ relPath: string, meta: object|null, sidecarExists: boolean, sidecarCorrupt: boolean }>, mediaDirs: string[], strayItems: Array<{ relPath: string, kind: 'untracked-file'|'orphan-sidecar' }> }} `meta: null` with `sidecarExists: true` means the sidecar file exists but is malformed JSON (`sidecarCorrupt: true`); with `sidecarExists: false` it's a ghost item that never got a sidecar.
-     */
     walkWorkspace() {
         const folders = [];
         const documents = [];
@@ -1019,7 +777,6 @@ _regenerateIdentities(absPath) {
         return { folders, documents, mediaDirs, strayItems };
     }
 
-    /** One folder's documents and subfolders, with their metadata. */
     listFolder(relPath) {
         const folderPath = this.safePath(relPath);
         if (!this.exists(relPath)) throw new Error("Folder does not exist");

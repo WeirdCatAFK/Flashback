@@ -1,23 +1,3 @@
-/** Pure reader for Anki .apkg packages. No DB, no sidecars, no IO beyond the
- * temp dir it is handed — the Anki-format knowledge lives here so `ankiImport.js`
- * only has to think about mapping notes onto Flashback cards.
- *
- * An .apkg is a ZIP that comes in three generations:
- *
- *   Legacy1 (Anki 2.0)        collection.anki2   + `media` as JSON  {"0":"hola.png"}
- *   Legacy2 (2.1.0–2.1.49)    collection.anki21  + the same JSON map
- *   Latest  (2.1.50+, today)  meta + collection.anki21b + `media` as protobuf,
- *                             with the collection, the media map, and every
- *                             numbered media file individually zstd-compressed.
- *
- * The collection schema forked too. Schema 11 keeps everything in one `col` row
- * as JSON; schema 15+ split it into notetypes/fields/templates/decks tables and
- * moved the interesting parts into protobuf BLOBs in a `config` column.
- *
- * Everything here normalizes onto the *legacy* JSON shape, because that is what
- * the rest of the importer was already written against.
- */
-
 import fs from 'fs';
 import path from 'path';
 import zlib from 'zlib';
@@ -45,7 +25,6 @@ function readVarint(buf, pos) {
     throw new Error('Malformed protobuf: truncated varint');
 }
 
-/** Decodes one protobuf message into `Map<fieldNumber, value[]>`. */
 function decodeMessage(buf) {
     const fields = new Map();
     if (!buf || buf.length === 0) return fields;
@@ -111,7 +90,6 @@ function versionFromCollectionName(name) {
     return VERSION_LEGACY_1;
 }
 
-/** Reads the `media` entry into `{ zipEntryName: originalFilename }`. */
 function readMediaMap(tempRoot) {
     const mediaPath = path.join(tempRoot, 'media');
     if (!fs.existsSync(mediaPath)) return {};
@@ -149,13 +127,6 @@ function readMediaMap(tempRoot) {
     }
 }
 
-/**
- * Extracts a package and locates everything the importer needs.
- *
- * @param {Buffer} buffer - raw .apkg bytes
- * @param {string} tempRoot - directory to extract into (created if absent)
- * @returns {{ version: number, zstd: boolean, collectionPath: string, mediaMap: Record<string,string>, tempRoot: string }}
- */
 export function openPackage(buffer, tempRoot) {
     fs.mkdirSync(tempRoot, { recursive: true });
     new AdmZip(buffer).extractAllTo(tempRoot, true);
@@ -184,11 +155,6 @@ export function openPackage(buffer, tempRoot) {
     return { version, zstd, collectionPath, mediaMap: readMediaMap(tempRoot), tempRoot };
 }
 
-/**
- * Reads a numbered media file out of an extracted package, transparently decompressing it.
- *
- * @returns {Buffer|null} null when the entry is absent
- */
 export function readMediaFile(tempRoot, zipEntryName) {
     const srcPath = path.join(tempRoot, zipEntryName);
     if (!fs.existsSync(srcPath)) return null;
@@ -197,11 +163,6 @@ export function readMediaFile(tempRoot, zipEntryName) {
 
 const humanDeckName = (name) => String(name ?? '').split('\x1f').join('::');
 
-/**
- * Reads decks and notetypes from an open Anki collection, normalizing both schema generations onto one shape.
- *
- * @param {import('better-sqlite3').Database} ankiDb
- */
 export function readCollection(ankiDb) {
     const hasNotetypes = ankiDb.prepare(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='notetypes'"

@@ -1,21 +1,3 @@
-/**
- * fsrs.js
- * Hand-rolled FSRS-6 (Free Spaced Repetition Scheduler) memory model.
- *
- * Pure functions only — no database, no I/O, no side effects. `access/orchestration/srs.js`
- * is the sole caller; it loads a card's stored FSRS state, calls `nextState()`
- * with the active weight vector + desired retention, and persists the result.
- *
- * FSRS models each card with two latent variables:
- *   - stability  (S): days until recall probability decays to ~90%
- *   - difficulty (D): intrinsic hardness, 1 (easy) .. 10 (hard)
- * plus 21 fitted weights w[0..20]. Grades are 1=Again, 2=Hard, 3=Good, 4=Easy.
- *
- * Reference: FSRS-6 spec (open-spaced-repetition). The equations are documented
- * inline next to each helper; tests/fsrs.test.js pins the numeric behaviour.
- */
-
-// Published FSRS-6 default weights (w[0..20]). Used until a vault is optimized.
 export const DEFAULT_WEIGHTS = [
     0.2172, 1.1771, 3.2602, 16.1507, 7.0114, 0.57, 2.0966, 0.0069,
     1.5261, 0.112, 1.0178, 1.849, 0.1133, 0.3127, 2.2934, 0.2191,
@@ -38,14 +20,12 @@ function decayFactor(w) {
     return { decay, factor };
 }
 
-/** Probability of recall after `elapsedDays` given stability `S`. */
 export function retrievability(elapsedDays, stability, weights = DEFAULT_WEIGHTS) {
     const { decay, factor } = decayFactor(weights);
     const t = Math.max(0, elapsedDays);
     return Math.pow(1 + factor * (t / stability), decay);
 }
 
-/** Interval (whole days) that lets stability `S` decay to exactly `requestRetention`. */
 export function intervalFromStability(stability, requestRetention, weights = DEFAULT_WEIGHTS) {
     const { decay, factor } = decayFactor(weights);
     const raw = (stability / factor) * (Math.pow(requestRetention, 1 / decay) - 1);
@@ -94,7 +74,6 @@ function shortTermStability(stability, grade, w) {
     return Math.max(STABILITY_MIN, s);
 }
 
-/** State for a card seen for the very first time. */
 export function initialCard(grade, now, weights = DEFAULT_WEIGHTS, requestRetention = 0.9) {
     const stability = initialStability(grade, weights);
     const difficulty = initialDifficulty(grade, weights);
@@ -111,16 +90,6 @@ export function initialCard(grade, now, weights = DEFAULT_WEIGHTS, requestRetent
     };
 }
 
-/**
- * Advance a card's FSRS state by one review.
- *
- * @param {object} card  { stability, difficulty, state, reps, lapses, last_review } — a never-reviewed card (state NEW / no stability) is routed to initialCard().
- * @param {number} grade 1..4 (Again/Hard/Good/Easy)
- * @param {Date|string|number} now  review timestamp
- * @param {number[]} weights        21-element weight vector
- * @param {number} requestRetention desired retention (0..1)
- * @returns {object} new FSRS record including `due` (ISO) and `interval` (days)
- */
 export function nextState(card, grade, now, weights = DEFAULT_WEIGHTS, requestRetention = 0.9) {
     const w = weights;
     if (!card || card.state === STATE.NEW || card.stability == null || !card.last_review) {
@@ -246,13 +215,6 @@ function numericalGradient(seqs, w) {
     return grad;
 }
 
-/**
- * Fit the 21 weights from a vault's rated review history.
- *
- * @param {Array<{flashcard_id:number, timestamp:string, rating:number}>} histories rows ordered by (flashcard_id, id) — i.e. query.getAllReviewHistories()
- * @param {object} [opts] iterations / learningRate / minReviews / maxReviews overrides
- * @returns {object} { optimized, weights, loss, initialLoss, reviewCount, usableReviews, minReviews, reason? } `weights`/`loss` describe the best vector found; when there is too little data `optimized` is false and defaults are returned unchanged.
- */
 export function optimize(histories, opts = {}) {
     const {
         minReviews = MIN_OPTIMIZE_REVIEWS,

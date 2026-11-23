@@ -1,13 +1,10 @@
-/** Where one person has read to in one document. Keyed by canonical globalHash. */
 import path from "path";
 import query from "../resources/query.js";
 import Files from "../resources/files.js";
 import { currentScope } from "../../requestContext.js";
 
-/** The units a position may be expressed in. Mirrors mcpReader's `unit` exactly. */
 export const UNITS = new Set(["page", "section", "chars", "segment"]);
 
-/** What counts as finished, since dropping the status enum means it has to be derived. */
 export const FINISHED_PCT = 0.95;
 
 const clamp01 = (n) =>
@@ -19,12 +16,10 @@ class ReadProgress {
         this.query = query;
     }
 
-    /** Whose progress this is. Resolved once per public entry point, like srs.js and diary.js. */
     _scope(explicit) {
         return explicit ?? currentScope();
     }
 
-    /** The body half of the document etag — what a `chars` offset was measured against. */
     _bodyEtag(relPath) {
         const tag = this.files.etag(relPath);
         if (!tag) return null;
@@ -32,7 +27,6 @@ class ReadProgress {
         return body === "-" ? null : body;
     }
 
-    /** Derives a fraction when the caller did not send one. */
     _percentOf(unit, position, total) {
         if (!Number.isFinite(total) || total <= 0) return null;
         const at = unit === "page" ? position?.page
@@ -43,7 +37,6 @@ class ReadProgress {
         return clamp01(at / total);
     }
 
-    /** Row → the shape every caller above this layer sees. */
     _shape(row, relPath, { checkStale = true } = {}) {
         const position = JSON.parse(row.pos);
         const furthest = JSON.parse(row.far);
@@ -70,12 +63,10 @@ class ReadProgress {
         };
     }
 
-    /** The identity a position is keyed by: the CANONICAL globalHash, read from the sidecar, with the indexed row only as a fallback. */
     _canonicalHash(relPath, doc) {
         return this.files.getMetadata(relPath)?.globalHash || doc?.global_hash || null;
     }
 
-    /** hash → document, for joining a set of positions against a set of documents. */
     _indexByHash(docs) {
         const index = new Map();
         for (const doc of docs) if (doc.global_hash) index.set(doc.global_hash, doc);
@@ -101,7 +92,6 @@ class ReadProgress {
         return { ...doc, global_hash: hash };
     }
 
-    /** @returns {Promise<object|null>} where the caller has read to, or null if never opened. */
     async get(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
@@ -109,7 +99,6 @@ class ReadProgress {
         return row ? this._shape(row, relPath) : null;
     }
 
-    /** What the caller is partway through, most recently touched first. */
     async listInProgress({ scope: scopeArg, limit = 50, includeFinished = false } = {}) {
         const scope = this._scope(scopeArg);
         const rows = await query.listReadProgress(scope);
@@ -133,7 +122,6 @@ class ReadProgress {
         return out;
     }
 
-    /** Records a position. */
     async set(relPath, { unit, position, percent, total, mode = "auto" } = {}, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
 
@@ -180,18 +168,12 @@ class ReadProgress {
         return await this.get(relPath, { scope });
     }
 
-    /** Forgets the caller's position in one document. */
     async clear(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
         await query.deleteReadProgress(scope, doc.global_hash);
     }
 
-    /**
-     * How far into a document a reader may be shown, expressed in the reader's own addressing.
-     *
-     * @returns {Promise<{maxIndex:number|null, maxOffset:number|null, unit:string, percent:number}>}
-     */
     async readingBound(relPath, { scope: scopeArg, readerInfo } = {}) {
         const scope = this._scope(scopeArg);
         const progress = await this.get(relPath, { scope });
@@ -233,11 +215,6 @@ class ReadProgress {
             : { unit, percent: pct, maxIndex: Math.max(1, Math.ceil(pct * total)), maxOffset: null };
     }
 
-    /**
-     * Where each of a document's flashcards sits inside it, expressed in `unit`.
-     *
-     * @returns {Map<string, number|null>} card globalHash -> position in `unit`
-     */
     _cardPositions(meta, unit) {
         const positions = new Map();
         const cards = meta?.flashcards ?? [];
@@ -281,7 +258,6 @@ class ReadProgress {
         return positions;
     }
 
-    /** The deepest point in a document that any flashcard is anchored to, in `unit`. */
     _deepestCard(meta, unit) {
         let deepest = null;
         for (const at of this._cardPositions(meta, unit).values()) {
@@ -290,7 +266,6 @@ class ReadProgress {
         return deepest;
     }
 
-    /** How much of what the caller has read is not yet carded. */
     async coverage(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const progress = await this.get(relPath, { scope });
@@ -325,7 +300,6 @@ class ReadProgress {
         };
     }
 
-    /** The two lists a study session needs in order to offer only what the caller has read. */
     async studyFilter({ scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const abs = this.files.safePath("");
@@ -359,7 +333,6 @@ class ReadProgress {
         return { documents, excludeCards };
     }
 
-    /** The furthest mark as a scalar in the document's own unit, or null when there isn't one. */
     _boundOf(shape) {
         const direct = shape.unit === "page" ? shape.furthest?.page
             : shape.unit === "chars" ? shape.furthest?.offset
@@ -372,7 +345,6 @@ class ReadProgress {
         return null;
     }
 
-    /** Everything under a folder, aggregated: how many documents are finished, started, or never opened. */
     async rollup(folderRelPath, { scope: scopeArg, rows: preloaded } = {}) {
         const scope = this._scope(scopeArg);
         const abs = this.files.safePath(folderRelPath || "");
@@ -402,7 +374,6 @@ class ReadProgress {
         };
     }
 
-    /** A rollup, labelled with the magazine when the folder is a subscription's target. */
     async folderRollup(folderRelPath, { scope: scopeArg, rows } = {}) {
         const rollup = await this.rollup(folderRelPath, { scope: this._scope(scopeArg), rows });
         const target = path.normalize(folderRelPath || "");
@@ -414,7 +385,6 @@ class ReadProgress {
         return rollup;
     }
 
-    /** Everything the file explorer needs to draw one folder listing, in one call. */
     async listForFolder(folderRelPath, { scope: scopeArg, folders = [] } = {}) {
         const scope = this._scope(scopeArg);
         const rows = await query.listReadProgress(scope);

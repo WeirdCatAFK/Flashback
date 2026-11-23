@@ -1,18 +1,3 @@
-/**
- * sequencer.js — decides the ORDER a session's due cards are presented in.
- *
- * Strictly separate from the scheduler. `srs.js` decides WHICH cards are due today;
- * nothing in this file may influence that. Topology never pulls a card forward or pushes it
- * back across days — mixing selection and sequencing would corrupt the retention estimates,
- * which are already hard to read through new-card noise. This module only arranges what it
- * is handed.
- *
- * Layering: imports `query.js` and the pure `sequencing.js` engine only — never `srs.js`,
- * never `documents.js` — and is composed at the route layer, exactly like `cardHealth.js`
- * (see ACCESS.md). That is what keeps the scheduler ignorant of sequencing in the code and
- * not just in the design doc. All the ordering maths lives in `sequencing.js`, which imports
- * nothing and is tested without a database.
- */
 import { randomUUID } from 'crypto';
 import query from '../resources/query.js';
 import { currentScope } from '../../requestContext.js';
@@ -26,7 +11,6 @@ const normalize = (cards) => cards.map(c => ({
     categoryPriority: priorityOf(c),
 }));
 
-/** Session entry point: order a due set and stamp it with a session id. */
 export async function sequence({ due = [], newCards = [], order = 'interleaved', seed = null } = {}) {
     const cards = normalize([...due, ...newCards]);
     const sessionId = randomUUID();
@@ -66,7 +50,6 @@ export async function sequence({ due = [], newCards = [], order = 'interleaved',
     return { sessionId, order: 'interleaved', relaxation, queue };
 }
 
-/** Ordering telemetry for one review, computed from what was ACTUALLY presented. */
 export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope = null }) {
     if (!sessionId || !cardHash) return { prevDistance: null, nearestSiblingLag: null };
 

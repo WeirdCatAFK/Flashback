@@ -1,41 +1,3 @@
-// Migration 010 — Spaced-repetition progress becomes a property of a PERSON
-//
-// Until now a card's schedule lived on the card: Flashcards.level, sm2_reps, last_recall and
-// the six fsrs_* columns, one set per card and therefore one set for the whole vault. That is
-// exactly right for a single-user desktop app and unusable the moment two people study one
-// vault — they would grade each other's cards.
-//
-// This migration moves those nine columns into CardProgress, one row per (card, person), and
-// stamps an owner onto the four other tables that were implicitly single-user: ReviewLogs,
-// CardHealth, CardFlags and FsrsParameters.
-//
-// THE OWNER SENTINEL
-//
-// The scope column holds an account id from the accounts store, or the literal 'owner'.
-// 'owner' means the vault's Author, and it is deliberately not their account id. Accounts
-// live in {baseDir}/accounts.db — a different file, outside every vault, so that a copied
-// vault carries no access list. Writing the Author's uuid in here would orphan every row of
-// owner progress the moment someone copied the vault folder to another install. The sentinel
-// survives that copy and means "whoever owns these files here", which is the sense the
-// `.flashback` sidecar has always carried.
-//
-// It also keeps this migration pure SQL. Backfilling to a literal needs no account lookup, so
-// nothing about the accounts store has to be open, or even to exist, when the vault database
-// is migrated — and openVault()'s boot order is untouched.
-//
-// THIS MIGRATION IS ONE-WAY.
-//
-// It drops columns that an older build still reads (f.level appears in getDueFlashcards,
-// getStatistics and a dozen other statements), so an older build opening a migrated vault
-// fails loudly. electron-updater only moves users forward, so the release notes carry the
-// downgrade warning. Leaving the columns behind as dead weight was the alternative and is worse: a
-// stale column that still reads turns "this query forgot to scope itself" from a hard error
-// into one person silently studying another person's schedule.
-//
-// No canonical counterpart is needed (contrast migration 008, which required canonical update
-// 001): the sidecar format does not change. The owner's progress is already stored there in
-// exactly these fields, and the owner is precisely whose progress the sidecar holds.
-
 export const version = 10;
 export const description = 'Per-account SRS progress: CardProgress + account scope on logs, health, flags and FSRS weights';
 
@@ -45,34 +7,10 @@ const DOOMED_COLUMNS = [
     'fsrs_state', 'fsrs_reps', 'fsrs_lapses',
 ];
 
-/**
- * Whether a table exists in ANY attached schema, not just `main`.
- *
- * `PRAGMA table_info` resolves through every attached database; a plain `sqlite_master`
- * query reads `main` alone, which stopped being the whole database when the progress store
- * was attached. A table that has moved there is still present — just not in `main`, and a
- * guard that cannot tell "moved" from "absent" answers "still pending" forever.
- *
- * @param {object} db
- * @param {string} name
- * @returns {Promise<boolean>}
- */
 async function tableExists(db, name) {
     return (await db.pragma(`table_info(${name})`)).length > 0;
 }
 
-/**
- * Whether a table is still in `main` specifically.
- *
- * The rewrites below ALTER, DROP and RENAME tables in place, and those verbs resolve an
- * unqualified name to whichever schema actually holds it. Once one of these tables moves to
- * the progress store, an ungated `DROP TABLE CardHealth` would therefore destroy the real
- * one. This asks the narrower question the rewrites depend on: is the pre-move copy here?
- *
- * @param {object} db
- * @param {string} name
- * @returns {Promise<boolean>}
- */
 async function mainHasTable(db, name) {
     return !!await db.prepare(
         "SELECT name FROM main.sqlite_master WHERE type='table' AND name = ?",
@@ -89,17 +27,10 @@ async function hasColumn(db, table, column) {
 
 export async function shouldRun(db) {
     const table = await tableExists(db, 'CardProgress');
-    // Either half being unfinished means the vault is mid-migration: the table can exist
-    // while Flashcards still carries the columns (a crash between the two halves).
     return !table || await hasColumn(db, 'Flashcards', 'level');
 }
 
 export async function up(db) {
-    // Only when the table is absent from EVERY schema. `shouldRun` also fires when
-    // Flashcards still carries `level` — a crash between this migration's two halves — and
-    // that repair has to survive, so this guard wraps the creation rather than the whole
-    // function. Without it an unqualified CREATE would build an empty `main.CardProgress`
-    // that shadows the real one, and every schedule in the vault would read as never-studied.
     if (!await tableExists(db, 'CardProgress')) {
         await db.exec(`CREATE TABLE IF NOT EXISTS CardProgress (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -120,10 +51,6 @@ export async function up(db) {
         await db.exec('CREATE INDEX IF NOT EXISTS idx_cardprogress_last_recall ON CardProgress(last_recall)');
     }
 
-    // Only cards that actually carry state. A card with nothing but defaults is a card
-    // nobody has reviewed, and every read COALESCEs a missing row to exactly those
-    // defaults — so skipping it is lossless, and it keeps the table shaped the way new
-    // cards will shape it (a row appears on first review, not on creation).
     if (await hasColumn(db, 'Flashcards', 'level')) {
         await db.exec(`
             INSERT OR IGNORE INTO CardProgress
@@ -151,25 +78,15 @@ export async function up(db) {
         await db.exec('CREATE INDEX IF NOT EXISTS idx_reviewlogs_account ON ReviewLogs(account_id)');
     }
 
-    // The weights are a fitted model of one person's forgetting curve; sharing them across
-    // accounts would schedule a reader against someone else's memory.
     if (await mainHasTable(db, 'FsrsParameters')) {
         if (!await hasColumn(db, 'FsrsParameters', 'account_id')) {
             await db.exec("ALTER TABLE FsrsParameters ADD COLUMN account_id TEXT NOT NULL DEFAULT 'owner'");
         }
-        // The old setter deleted every row before inserting, so there is at most one — but a
-        // unique index that failed to build would abort the whole migration, so make sure.
         await db.exec(`DELETE FROM FsrsParameters
                        WHERE id NOT IN (SELECT MAX(id) FROM FsrsParameters GROUP BY account_id)`);
         await db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_fsrsparameters_account ON FsrsParameters(account_id)');
     }
 
-    // Both need their UNIQUE constraint widened, and a UNIQUE declared inline in a CREATE
-    // TABLE is backed by an sqlite_autoindex that DROP INDEX cannot touch. Vaults carry one
-    // of two lineages here — migration 007's raw DDL (inline UNIQUE, autoindex) or
-    // SchemaSQL's knex output (a named unique index) — so rebuilding is both the only option
-    // that works for the first and the only one that leaves the two identical afterwards.
-    // Nothing holds a foreign key pointing AT these tables, so dropping them is safe.
     if (await mainHasTable(db, 'CardHealth')) {
         await db.exec(`CREATE TABLE CardHealth_new (
             id                  INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -217,9 +134,6 @@ export async function up(db) {
         await db.exec('CREATE INDEX IF NOT EXISTS idx_cardflags_kind ON CardFlags(kind)');
     }
 
-    // SQLite refuses to drop a column that any index mentions, so the indexes go first.
-    // Read them out of sqlite_master rather than naming them: which ones exist depends on
-    // whether this vault's Flashcards table came from SchemaSQL or from migration 001.
     const indexes = await db.prepare(
         "SELECT name, sql FROM sqlite_master WHERE type='index' AND tbl_name='Flashcards' AND sql IS NOT NULL"
     ).all();

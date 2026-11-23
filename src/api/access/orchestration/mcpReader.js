@@ -1,5 +1,3 @@
-/** Read-only text extraction for PDF/EPUB/clips. Imports files.js only — no DB, no writes. */
-
 import path from "path";
 import { createRequire } from "module";
 import { pathToFileURL } from "url";
@@ -54,7 +52,6 @@ function ensurePdfGlobals() {
                 if (m) [this.a, this.b, this.c, this.d, this.e, this.f] = m[1].split(",").map(Number);
             }
         }
-        /** Multiplies this matrix by another, in place. */
         multiplySelf(o) {
             const a = this.a * o.a + this.c * o.b, b = this.b * o.a + this.d * o.b;
             const c = this.a * o.c + this.c * o.d, d = this.b * o.c + this.d * o.d;
@@ -62,15 +59,10 @@ function ensurePdfGlobals() {
             this.a = a; this.b = b; this.c = c; this.d = d; this.e = e; this.f = f;
             return this;
         }
-        /** Returns the product of this matrix and another. */
         multiply(o) { return new DOMMatrix([this.a, this.b, this.c, this.d, this.e, this.f]).multiplySelf(o); }
-        /** Translates this matrix in place. */
         translateSelf(tx = 0, ty = 0) { this.e += this.a * tx + this.c * ty; this.f += this.b * tx + this.d * ty; return this; }
-        /** Scales this matrix in place. */
         scaleSelf(sx = 1, sy = sx) { this.a *= sx; this.b *= sx; this.c *= sy; this.d *= sy; return this; }
-        /** True when this matrix is the identity. */
         get isIdentity() { return this.a === 1 && this.b === 0 && this.c === 0 && this.d === 1 && this.e === 0 && this.f === 0; }
-        /** Returns the inverse of this matrix. */
         inverse() {
             const det = this.a * this.d - this.b * this.c;
             if (!det) return new DOMMatrix();
@@ -83,7 +75,6 @@ function ensurePdfGlobals() {
     globalThis.DOMMatrix = DOMMatrix;
 }
 
-/** Flattens a DOM subtree to text, preserving block/line breaks. */
 function blockText(el) {
     let out = "";
     for (const node of el.childNodes) {
@@ -98,7 +89,6 @@ function blockText(el) {
     return out;
 }
 
-/** Resolves an image reference against the section that holds it, to the path the zip actually stores it under. */
 function resolveHref(baseHref, src) {
     const clean = String(src ?? "").split("#")[0].split("?")[0].trim();
     if (!clean) return null;
@@ -110,7 +100,6 @@ function resolveHref(baseHref, src) {
     );
 }
 
-/** Every image a section paints, in document order, with the alt text and caption that identify it without looking at it. */
 function sectionImages(doc, sectionHref) {
     const out = [];
     for (const el of doc.querySelectorAll("img, image")) {
@@ -129,10 +118,8 @@ function sectionImages(doc, sectionHref) {
     return out;
 }
 
-/** Node.DOCUMENT_POSITION_FOLLOWING — the argument comes after the receiver. */
 const DOCUMENT_POSITION_FOLLOWING = 4;
 
-/** The heading a clip element sits under: the last h1–h6 that precedes it in document order, or null above the first one. */
 function headingBefore(headings, el) {
     let found = null;
     for (const h of headings) {
@@ -143,7 +130,6 @@ function headingBefore(headings, el) {
     return label ? label.slice(0, 120) : null;
 }
 
-/** Whether a link points at a sound a browser can play, and is therefore a sound the clip carries rather than an ordinary link. */
 const PLAYABLE_SOUND_EXT = /\.(mp3|ogg|oga|wav|m4a|aac|flac|opus|weba)(\?|#|$)/i;
 function isSoundLink(href) {
     if (!href) return false;
@@ -152,7 +138,6 @@ function isSoundLink(href) {
     return PLAYABLE_SOUND_EXT.test(segment);
 }
 
-/** Every picture and sound a saved clip carries, in document order. */
 function clipMedia(doc) {
     const headings = [...doc.querySelectorAll("h1, h2, h3, h4, h5, h6")];
     const out = [];
@@ -193,7 +178,6 @@ function clipMedia(doc) {
     return out;
 }
 
-/** Seconds → "m:ss" (or "h:mm:ss"), matching the YoutubeRenderer's marker labels. */
 function formatTimestamp(sec) {
     const s = Math.max(0, Math.floor(sec || 0));
     const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), ss = s % 60;
@@ -201,7 +185,6 @@ function formatTimestamp(sec) {
     return h > 0 ? `${h}:${pad(m)}:${pad(ss)}` : `${m}:${pad(ss)}`;
 }
 
-/** Groups transcript cues into readable blocks of ~`YT_BLOCK_CHARS`, each labelled with its start timestamp. */
 function groupCues(cues) {
     const blocks = [];
     let cur = null;
@@ -219,7 +202,6 @@ function groupCues(cues) {
     return blocks;
 }
 
-/** Collapses the whitespace soup that flattening markup produces. */
 function tidy(text) {
     return text
         .replace(/\r\n?/g, "\n")
@@ -235,12 +217,10 @@ class McpReader {
         this._cache = new Map();
     }
 
-    /** Drops the extraction cache on a vault switch. */
     onVaultOpened() {
         this._cache.clear();
     }
 
-    /** The document's format id, or null when the extension is not a known one. */
     _formatOf(relPath) {
         return FORMATS[path.extname(relPath).toLowerCase()] ?? null;
     }
@@ -270,7 +250,6 @@ class McpReader {
         }
     }
 
-    /** Extracts a document into `{ format, unit, segments: [{label, text}] }`. */
     async _extract(relPath) {
         if (!await this.files.exists(relPath)) throw fail(`Document ${relPath} not found`, 404);
         const format = this._formatOf(relPath);
@@ -473,7 +452,6 @@ class McpReader {
         return { format: "epub", unit: "section", segments, images: ordered };
     }
 
-    /** What this document is and how much of it there is, without extracting a body the caller may not want. */
     async info(relPath) {
         const doc = await this._extract(relPath);
         const total = doc.unit === "chars" ? doc.segments[0].text.length : doc.segments.length;
@@ -502,7 +480,6 @@ class McpReader {
         };
     }
 
-    /** The images an EPUB declares, in reading order. */
     async images(relPath) {
         const doc = await this._extract(relPath);
         if (!doc.images) {
@@ -514,7 +491,6 @@ class McpReader {
         return { path: relPath, format: doc.format, total: doc.images.length, images: doc.images };
     }
 
-    /** One image's bytes, addressed by an `href` (or bare file name) from images(). */
     async imageBuffer(relPath, href) {
         const { images } = await this.images(relPath);
 
@@ -544,7 +520,6 @@ class McpReader {
         return { buffer: data, mediaType: entry.mediaType, name: entry.name, bytes: data.length };
     }
 
-    /** The media a document carries, whatever kind of document it is: an EPUB's figures or a clip's pictures and sound. */
     async media(relPath) {
         const doc = await this._extract(relPath);
 
@@ -575,7 +550,6 @@ class McpReader {
         );
     }
 
-    /** One asset's bytes, addressed by an `href` (or bare file name) from media(). */
     async mediaBuffer(relPath, href) {
         const doc = await this._extract(relPath);
         if (doc.images) return { ...(await this.imageBuffer(relPath, href)), kind: "image" };
@@ -619,18 +593,6 @@ class McpReader {
         };
     }
 
-    /**
-     * A window of the document's text.
-     *
-     * @param {string} relPath
-     * @param {object} [opts]
-     * @param {number|string} [opts.index=1] 1-based page/section, or an EPUB spine href.
-     * @param {number} [opts.count=1] pages/sections to return (capped at MAX_UNITS).
-     * @param {number} [opts.offset=0] `chars` unit: where to start.
-     * @param {number} [opts.limit=MAX_CHARS] `chars` unit: how much to return.
-     * @param {number} [opts.charOffset=0] continue *inside* a unit larger than MAX_CHARS.
-     * @param {number} [opts.at] segment units with timestamps (YouTube): seconds to jump to.
-     */
     async read(relPath, opts = {}) {
         const doc = await this._extract(relPath);
         return doc.unit === "chars" ? this._readChars(relPath, doc, opts) : this._readUnits(relPath, doc, opts);
