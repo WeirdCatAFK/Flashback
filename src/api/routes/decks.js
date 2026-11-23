@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import multer from 'multer';
-import Decks from '../access/orchestration/decks.js';
+import Decks from '../access/modules/decks.js';
 import { COVER_TYPES, MAX_COVER_BYTES } from '../../shared/covers.js';
-import Documents from '../access/orchestration/documents.js';
-import { FLAG_KINDS } from '../access/orchestration/cardHealth.js';
-import { GAP_BANDS } from '../access/orchestration/srs.js';
+import Documents from '../access/modules/documents.js';
+import { FLAG_KINDS } from '../access/modules/cardHealth.js';
+import { GAP_BANDS } from '../access/modules/srs.js';
 import { isDeckColor } from '../../shared/deckColors.js';
 
 const router = Router();

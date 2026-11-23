@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import path from 'path';
-import Documents from '../access/orchestration/documents.js';
-import SRS from '../access/orchestration/srs.js';
-import cardHealth from '../access/orchestration/cardHealth.js';
-import sequencer from '../access/orchestration/sequencer.js';
-import readProgress from '../access/orchestration/readProgress.js';
-import query from '../access/resources/query.js';
+import Documents from '../access/modules/documents.js';
+import SRS from '../access/modules/srs.js';
+import cardHealth from '../access/modules/cardHealth.js';
+import sequencer from '../access/modules/sequencer.js';
+import readProgress from '../access/modules/readProgress.js';
+import * as statisticsRows from '../access/resources/db/statistics.js';
 import { currentScope } from '../requestContext.js';
 
 const router = Router();
@@ -101,7 +101,7 @@ export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
     const scope = scopeArg ?? currentScope();
     const [rollup, learned] = await Promise.all([
         readProgress.rollup('', { scope }),
-        query.getVaultLearned(scope),
+        statisticsRows.getVaultLearned(scope),
     ]);
 
     const documents = rollup.total ?? 0;

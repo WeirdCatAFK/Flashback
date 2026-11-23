@@ -6,12 +6,14 @@ import fs from 'fs';
 import process from 'process';
 import git from 'isomorphic-git';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/orchestration/documents.js';
-import Decks from '../src/api/access/orchestration/decks.js';
+import Documents from '../src/api/access/modules/documents.js';
+import Decks from '../src/api/access/modules/decks.js';
 import Files from '../src/api/access/resources/files.js';
 import db from '../src/api/access/primitives/database.js';
-import query from '../src/api/access/resources/query.js';
-import diary from '../src/api/access/orchestration/diary.js';
+import * as deckRows from '../src/api/access/resources/db/decks.js';
+import * as documentRows from '../src/api/access/resources/db/documents.js';
+import * as statisticsRows from '../src/api/access/resources/db/statistics.js';
+import diary from '../src/api/access/modules/diary.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getVaultPath, getWorkspacePath } from '../src/api/access/primitives/config.js';
 
@@ -131,7 +133,7 @@ describe('Diary storage layer', () => {
 
         const norm = (p) => (p || '').replace(/\\/g, '/');
         const diaryAbs = norm(diaryRoot());
-        const under = (await query.getAllDocuments()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
+        const under = (await documentRows.getAll()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
         assert.equal(under.length, 0, 'no Documents rows point under diary/');
 
         const results = await docs.search('summary');
@@ -198,15 +200,15 @@ describe('Diary storage layer', () => {
         ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
 
         try {
-            const totals = await query.getDayReviewTotals(DAY, 'owner');
+            const totals = await statisticsRows.getDayReviewTotals(DAY, 'owner');
             assert.equal(totals.reviews, 5, 'the 23:00 review belongs to the day the user was studying');
 
             const utcDay = new Date(localIso(DAY, 23)).toISOString().slice(0, 10);
             if (utcDay !== DAY) {
-                assert.equal((await query.getDayReviewTotals(utcDay, 'owner')).reviews, 0,
+                assert.equal((await statisticsRows.getDayReviewTotals(utcDay, 'owner')).reviews, 0,
                     'and must not leak into the adjacent UTC day');
             }
-            assert.ok((await query.getReviewActivityDays('owner')).includes(DAY));
+            assert.ok((await statisticsRows.getReviewActivityDays('owner')).includes(DAY));
         } finally {
             await db.prepare('DELETE FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND timestamp = ?')
                 .run(fid, localIso(DAY, 23));
@@ -257,19 +259,19 @@ describe('Diary by-deck breakdown', () => {
     after(async () => await cleanup2());
 
     it('omits the system deck, which is a fallback bucket and not a deck the user built', async () => {
-        const rows = await query.getDayByDeck(D, 'owner');
-        const systemDeck = await query.getSystemDeck();
+        const rows = await statisticsRows.getDayByDeck(D, 'owner');
+        const systemDeck = await deckRows.getSystem();
         assert.ok(systemDeck, 'precondition: the vault has a system deck');
         assert.ok(rows.every(r => r.deck !== systemDeck.name),
             `system deck "${systemDeck.name}" must not appear as a by-deck bar`);
     });
 
     it('still lists real decks, and still counts the standalone review in the totals', async () => {
-        const rows = await query.getDayByDeck(D, 'owner');
+        const rows = await statisticsRows.getDayByDeck(D, 'owner');
         const real = rows.find(r => r.deck === 'Real Deck');
         assert.ok(real, 'a user-created deck is still reported');
         assert.equal(real.reviews, 1);
 
-        assert.equal((await query.getDayReviewTotals(D, 'owner')).reviews, 2);
+        assert.equal((await statisticsRows.getDayReviewTotals(D, 'owner')).reviews, 2);
     });
 });

@@ -1,5 +1,7 @@
 import path from "path";
-import query from "../resources/query.js";
+import * as documentRows from '../resources/db/documents.js';
+import * as readProgressRows from '../resources/db/readProgress.js';
+import * as subscriptionRows from '../resources/db/subscriptions.js';
 import Files from "../resources/files.js";
 import { currentScope } from "../../requestContext.js";
 
@@ -13,7 +15,6 @@ const clamp01 = (n) =>
 class ReadProgress {
     constructor() {
         this.files = new Files();
-        this.query = query;
     }
 
     _scope(explicit) {
@@ -74,7 +75,7 @@ class ReadProgress {
     }
 
     async _docByPath(relPath) {
-        const doc = await this.query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         if (!doc) {
             throw Object.assign(new Error(`No document indexed at ${relPath}.`), { status: 404 });
         }
@@ -87,7 +88,7 @@ class ReadProgress {
         }
 
         if (doc.global_hash !== hash) {
-            await this.query.updateDocumentMetadata(doc.id, { globalHash: hash });
+            await documentRows.updateMetadata(doc.id, { globalHash: hash });
         }
         return { ...doc, global_hash: hash };
     }
@@ -95,16 +96,16 @@ class ReadProgress {
     async get(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
-        const row = await query.getReadProgress(scope, doc.global_hash);
+        const row = await readProgressRows.get(scope, doc.global_hash);
         return row ? this._shape(row, relPath) : null;
     }
 
     async listInProgress({ scope: scopeArg, limit = 50, includeFinished = false } = {}) {
         const scope = this._scope(scopeArg);
-        const rows = await query.listReadProgress(scope);
+        const rows = await readProgressRows.list(scope);
         if (rows.length === 0) return [];
 
-        const index = this._indexByHash(await this.query.getAllDocuments());
+        const index = this._indexByHash(await documentRows.getAll());
         const out = [];
         for (const row of rows) {
             if (out.length >= limit) break;
@@ -142,7 +143,7 @@ class ReadProgress {
 
         const doc = await this._docByPath(relPath);
         const pct = clamp01(percent) ?? this._percentOf(unit, position, total);
-        const previous = await query.getReadProgress(scope, doc.global_hash);
+        const previous = await readProgressRows.get(scope, doc.global_hash);
 
         let far = position;
         let farPct = pct;
@@ -155,7 +156,7 @@ class ReadProgress {
             }
         }
 
-        await query.saveReadProgress(scope, doc.global_hash, {
+        await readProgressRows.save(scope, doc.global_hash, {
             unit,
             total: Number.isFinite(total) ? total : (previous?.total ?? null),
             pos: JSON.stringify(position),
@@ -171,7 +172,7 @@ class ReadProgress {
     async clear(relPath, { scope: scopeArg } = {}) {
         const scope = this._scope(scopeArg);
         const doc = await this._docByPath(relPath);
-        await query.deleteReadProgress(scope, doc.global_hash);
+        await readProgressRows.remove(scope, doc.global_hash);
     }
 
     async readingBound(relPath, { scope: scopeArg, readerInfo } = {}) {
@@ -304,8 +305,8 @@ class ReadProgress {
         const scope = this._scope(scopeArg);
         const abs = this.files.safePath("");
         const [docs, rows] = await Promise.all([
-            this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep),
-            query.listReadProgress(scope),
+            documentRows.getInTree(abs.endsWith(path.sep) ? abs : abs + path.sep),
+            readProgressRows.list(scope),
         ]);
         const index = this._indexByHash(docs);
 
@@ -348,9 +349,9 @@ class ReadProgress {
     async rollup(folderRelPath, { scope: scopeArg, rows: preloaded } = {}) {
         const scope = this._scope(scopeArg);
         const abs = this.files.safePath(folderRelPath || "");
-        const docs = await this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);
+        const docs = await documentRows.getInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);
 
-        const rows = preloaded ?? await query.listReadProgress(scope);
+        const rows = preloaded ?? await readProgressRows.list(scope);
         const index = this._indexByHash(docs);
 
         let finished = 0, inProgress = 0, sum = 0;
@@ -377,7 +378,7 @@ class ReadProgress {
     async folderRollup(folderRelPath, { scope: scopeArg, rows } = {}) {
         const rollup = await this.rollup(folderRelPath, { scope: this._scope(scopeArg), rows });
         const target = path.normalize(folderRelPath || "");
-        const subs = await this.query.listSubscriptions();
+        const subs = await subscriptionRows.list();
         const match = subs.find((s) => s.target_path && path.normalize(s.target_path) === target);
         if (match) {
             rollup.subscription = { magazineId: match.magazine_id, issueId: match.issue_id };
@@ -387,10 +388,10 @@ class ReadProgress {
 
     async listForFolder(folderRelPath, { scope: scopeArg, folders = [] } = {}) {
         const scope = this._scope(scopeArg);
-        const rows = await query.listReadProgress(scope);
+        const rows = await readProgressRows.list(scope);
 
         const abs = this.files.safePath(folderRelPath || "");
-        const docs = await this.query.getDocumentsInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);
+        const docs = await documentRows.getInTree(abs.endsWith(path.sep) ? abs : abs + path.sep);
         const index = this._indexByHash(docs);
 
         const documents = {};

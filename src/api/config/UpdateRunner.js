@@ -1,6 +1,6 @@
 import Files from '../access/resources/files.js';
-import Decks from '../access/orchestration/decks.js';
-import query from '../access/resources/query.js';
+import Decks from '../access/modules/decks.js';
+import * as vaultRows from '../access/resources/db/vault.js';
 import { sealTools } from '../seal/seal.js';
 import { UPDATES, LATEST_VERSION, pendingFor } from './updates/registry.js';
 
@@ -26,7 +26,7 @@ function upgradeItem(meta, kind, updates, target) {
 
 export default async function runUpdates({ updates = UPDATES, force = false, seal = true } = {}) {
     const target = updates.reduce((max, u) => Math.max(max, u.version), 0);
-    const applied = await query.getCanonicalVersions();
+    const applied = await vaultRows.getCanonicalVersions();
     const pending = updates.filter(u => !applied.has(u.version)).map(u => u.version).sort((a, b) => a - b);
 
     const result = {
@@ -87,7 +87,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     for (const update of updates) {
         if (typeof update.derived !== 'function') continue;
         try {
-            result.derivedRows += await update.derived(query) ?? 0;
+            result.derivedRows += await update.derived() ?? 0;
         } catch (err) {
             result.warnings.push(`Derived fix-up failed for update ${update.version}: ${err.message}`);
         }
@@ -99,7 +99,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
 
     if (result.warnings.length === 0) {
         for (const update of updates) {
-            if (!applied.has(update.version)) await query.recordCanonicalVersion(update.version, update.description);
+            if (!applied.has(update.version)) await vaultRows.recordCanonicalVersion(update.version, update.description);
         }
         result.recorded = true;
     }

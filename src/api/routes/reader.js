@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
-import reader from '../access/orchestration/mcpReader.js';
-import readProgress from '../access/orchestration/readProgress.js';
+import reader from '../access/modules/mcpReader.js';
+import readProgress from '../access/modules/readProgress.js';
 
 const router = Router();
 const norm = (p) => (p ? path.normalize(p) : p);

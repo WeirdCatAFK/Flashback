@@ -4,11 +4,14 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
-import Documents from "../access/orchestration/documents.js";
-import Decks from "../access/orchestration/decks.js";
+import Documents from "../access/modules/documents.js";
+import Decks from "../access/modules/decks.js";
 import { cleanTagName } from "../../shared/tagNames.js";
 import { EDITABLE_BODY_EXTENSIONS } from "../access/resources/files.js";
 import { MAX_COVER_BYTES } from "../../shared/covers.js";
+import * as documentRows from '../access/resources/db/documents.js';
+import * as folderRows from '../access/resources/db/folders.js';
+import * as tagRows from '../access/resources/db/tags.js';
 
 const router = Router();
 const docs = new Documents();
@@ -110,14 +113,14 @@ router.get(
 router.get(
   "/tags",
   catchError(async (req, res) => {
-    res.json({ tags: await docs.query.getAllTags() });
+    res.json({ tags: await tagRows.getAll() });
   }),
 );
 
 router.get(
   "/tags/overview",
   catchError(async (req, res) => {
-    res.json({ tags: await docs.query.getTagOverview() });
+    res.json({ tags: await tagRows.getOverview() });
   }),
 );
 
@@ -138,7 +141,7 @@ router.post(
 router.get(
   "/tags/usage",
   catchError(async (req, res) => {
-    res.json({ tags: await docs.query.getTagsWithCounts() });
+    res.json({ tags: await tagRows.getWithCounts() });
   }),
 );
 
@@ -150,12 +153,12 @@ router.get(
     const isFolder = req.query.isFolder === "true";
 
     const entity = isFolder
-      ? await docs.query.getFolderByPath(relPath)
-      : await docs.query.getDocumentByPath(relPath);
+      ? await folderRows.getByPath(relPath)
+      : await documentRows.getByPath(relPath);
     if (!entity) return res.status(404).json({ error: "entity not found" });
 
-    const inherited = await docs.query.getInheritedTagNames(entity.node_id);
-    const direct    = await docs.query.getDirectTagNames(entity.node_id);
+    const inherited = await tagRows.getInheritedNames(entity.node_id);
+    const direct    = await tagRows.getDirectNames(entity.node_id);
     const sidecar   = docs.files.getMetadata(relPath, isFolder) || {};
     const excluded  = sidecar.excludedTags || [];
 
@@ -427,7 +430,7 @@ router.post(
       }
 
       if (isAnki) {
-        const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
+        const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
         const importer = new AnkiImport();
         const report = await importer.analyze(req.file.buffer);
         return res.status(200).json({ ...report, needsMapping: true });
@@ -441,7 +444,7 @@ router.post(
       }
 
       if (isObsidian) {
-        const { default: ObsidianImport } = await import("../access/orchestration/obsidianImport.js");
+        const { default: ObsidianImport } = await import("../access/modules/obsidianImport.js");
         const importer = new ObsidianImport();
         const result = await importer.importVault(req.file.buffer, targetPath);
         return res.status(201).json(result);
@@ -460,7 +463,7 @@ router.post(
   upload.single("file"),
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
-    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
     const importer = new AnkiImport();
     res.status(200).json(await importer.analyze(req.file.buffer));
   }),
@@ -472,7 +475,7 @@ router.get(
     const { sessionId, name } = req.query;
     if (!sessionId || !name) return res.status(400).json({ error: "sessionId and name required" });
 
-    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
     const asset = new AnkiImport().readSessionMedia(String(sessionId), String(name));
     if (!asset) return res.status(404).json({ error: "asset not found in import session" });
 
@@ -497,7 +500,7 @@ router.post(
       }
     }
 
-    const { default: AnkiImport } = await import("../access/orchestration/ankiImport.js");
+    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
     const importer = new AnkiImport();
     const result = await importer.importApkg(req.file?.buffer ?? null, targetPath, mapping, sessionId);
     res.status(201).json(result);
@@ -510,7 +513,7 @@ router.post(
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
     const targetPath = norm(req.body.targetPath ?? "");
-    const { default: ObsidianImport } = await import("../access/orchestration/obsidianImport.js");
+    const { default: ObsidianImport } = await import("../access/modules/obsidianImport.js");
     const importer = new ObsidianImport();
     const result = await importer.importVault(req.file.buffer, targetPath);
     res.status(201).json(result);
@@ -520,7 +523,7 @@ router.post(
 router.get(
   '/by-hash/:hash',
   catchError(async (req, res) => {
-    const doc = await docs.query.getDocumentByHash(req.params.hash);
+    const doc = await documentRows.getByHash(req.params.hash);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     res.json({ relativePath: doc.relative_path, name: doc.name });
   }),

@@ -1,13 +1,14 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
-import Documents from '../src/api/access/orchestration/documents.js';
+import Documents from '../src/api/access/modules/documents.js';
 import db from '../src/api/access/primitives/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 import { aggregateMass, haloRadius, HALO_BASE, HALO_MAX } from '../src/ui/views/graphMetrics.js';
+import * as graphRows from '../src/api/access/resources/db/graph.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 
@@ -138,7 +139,7 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('getGraphData includes inheritance edges', async () => {
-        const { edges } = await docs.query.getGraphData('owner');
+        const { edges } = await graphRows.getData('owner');
         const inheritanceEdges = edges.filter(e => e.relation === 'inheritance');
         assert.ok(inheritanceEdges.length > 0, 'getGraphData returns at least one inheritance edge');
     });

@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import query from '../access/resources/query.js';
-import Documents from '../access/orchestration/documents.js';
-import Decks from '../access/orchestration/decks.js';
+import * as categoryRows from '../access/resources/db/categories.js';
+import Documents from '../access/modules/documents.js';
+import Decks from '../access/modules/decks.js';
 
 const router = Router();
 
@@ -10,16 +10,16 @@ const catchError = (fn) => (req, res, next) =>
 
 const docs = new Documents();
 
-const categoryById = async (id) => (await query.getCategories()).find((c) => c.id === id);
+const categoryById = async (id) => (await categoryRows.getAll()).find((c) => c.id === id);
 
 router.get('/', catchError(async (req, res) => {
-    res.json(await query.getCategories());
+    res.json(await categoryRows.getAll());
 }));
 
 router.post('/', catchError(async (req, res) => {
     const { name, priority = 0, description = '' } = req.body;
     if (!name?.trim()) return res.status(400).json({ error: 'name required' });
-    const id = await query.insertCategory({
+    const id = await categoryRows.insert({
         name: name.trim(),
         priority: Number(priority) || 0,
         description: description ?? '',
@@ -35,10 +35,10 @@ router.put('/:id', catchError(async (req, res) => {
     const nextName = name !== undefined ? String(name).trim() : undefined;
     if (nextName === '') return res.status(400).json({ error: 'name must not be empty' });
     const renamed = nextName !== undefined && nextName !== current.name;
-    if (renamed && await query.getCategoryByName(nextName)) {
+    if (renamed && await categoryRows.getByName(nextName)) {
         return res.status(409).json({ error: `A category named "${nextName}" already exists` });
     }
-    await query.updateCategory(id, {
+    await categoryRows.update(id, {
         name: nextName,
         priority: priority !== undefined ? Number(priority) : undefined,
         description,
@@ -62,7 +62,7 @@ router.delete('/:id', catchError(async (req, res) => {
         await docs.rewriteCategory(current.name, null);
         await new Decks().rewriteCategory(current.name, null);
     }
-    await query.deleteCategory(id);
+    await categoryRows.remove(id);
     res.json({ ok: true });
 }));
 

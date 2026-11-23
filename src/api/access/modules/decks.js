@@ -1,7 +1,12 @@
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import query from '../resources/query.js';
+import * as cardProgressRows from '../resources/db/cardProgress.js';
+import * as categoryRows from '../resources/db/categories.js';
+import * as deckRows from '../resources/db/decks.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as nodeRows from '../resources/db/nodes.js';
+import * as tagRows from '../resources/db/tags.js';
 import db from '../primitives/database.js';
 import { getWorkspacePath } from '../primitives/config.js';
 import { sealEmitter } from '../../seal/seal.js';
@@ -38,7 +43,6 @@ const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim
 
 export default class Decks {
     constructor() {
-        this.query = query;
         this._ensureDecksDir();
     }
 
@@ -59,7 +63,7 @@ export default class Decks {
     async _ensureSystemDeckFile() {
         const cols = await db.prepare("PRAGMA table_info(Decks)").all();
         if (!cols.find(c => c.name === 'is_system')) return;
-        const systemDeck = await this.query.getSystemDeck();
+        const systemDeck = await deckRows.getSystem();
         if (!systemDeck) return;
         await this._readOrRebuild(systemDeck.global_hash, systemDeck);
     }
@@ -85,7 +89,7 @@ export default class Decks {
     }
 
     async coverImage(globalHash) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         let cover = null;
         try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
@@ -100,7 +104,7 @@ export default class Decks {
         if (!ext) throw new Error(`Unsupported cover type: ${mime}`);
         if (buffer.length > MAX_COVER_BYTES) throw new Error('Cover image too large');
         return await this._withDeckFile(globalHash, async () => {
-            const deck = await this.query.getDeckByHash(globalHash);
+            const deck = await deckRows.getByHash(globalHash);
             if (!deck) throw new Error(`Deck not found: ${globalHash}`);
             const file = await this._readOrRebuild(globalHash, deck);
             const before = this._cleanCover(file.cover);
@@ -118,7 +122,7 @@ export default class Decks {
 
     async setCover(globalHash, change) {
         return await this._withDeckFile(globalHash, async () => {
-            const deck = await this.query.getDeckByHash(globalHash);
+            const deck = await deckRows.getByHash(globalHash);
             if (!deck) throw new Error(`Deck not found: ${globalHash}`);
             const file = await this._readOrRebuild(globalHash, deck);
             const before = this._cleanCover(file.cover);
@@ -161,7 +165,7 @@ export default class Decks {
             return this._read(globalHash);
         } catch (err) {
             if (err.code !== 'ENOENT') throw err;
-            const entries = (await this.query.getDeckEntries(deckRow.id, currentScope())).map((e) => {
+            const entries = (await deckRows.getEntries(deckRow.id, currentScope())).map((e) => {
                 const entry = { cardHash: e.card_hash, documentPath: e.document_path };
                 if (e.inline_card) {
                     try { entry.card = JSON.parse(e.inline_card); } catch { }
@@ -173,7 +177,7 @@ export default class Decks {
                 globalHash,
                 name: deckRow.name,
                 description: deckRow.description ?? '',
-                tags: deckRow.node_id ? await this.query.getDirectTagNames(deckRow.node_id) : [],
+                tags: deckRow.node_id ? await tagRows.getDirectNames(deckRow.node_id) : [],
                 isSystem: !!deckRow.is_system,
                 created: deckRow.created_at ?? new Date().toISOString(),
                 modified: new Date().toISOString(),
@@ -217,10 +221,10 @@ export default class Decks {
     }
 
     async listDecks({ algorithm = null } = {}) {
-        const rows = await this.query.getAllDecks();
+        const rows = await deckRows.getAll();
         const schedule = await SRS.cardSchedule({ algorithm, scope: currentScope() });
         const byDeck = new Map();
-        for (const { deck_id: id, card_hash: hash } of await this.query.getAllDeckEntryHashes()) {
+        for (const { deck_id: id, card_hash: hash } of await deckRows.getAllEntryHashes()) {
             if (!byDeck.has(id)) byDeck.set(id, []);
             byDeck.get(id).push(hash);
         }
@@ -233,7 +237,7 @@ export default class Decks {
 
     async createDeck(name, description = '') {
         const globalHash = crypto.randomUUID();
-        const used = (await this.query.getAllDecks())
+        const used = (await deckRows.getAll())
             .filter((d) => !d.is_system)
             .map((d) => deckColor({ ...d, color: this._colorOf(d.global_hash) }));
         const color = nextDeckColor(used);
@@ -250,7 +254,7 @@ export default class Decks {
         this._write(globalHash, file);
         try {
             await db.transaction(async () => {
-                await this.query.insertDeck({ globalHash, name, description });
+                await deckRows.insert({ globalHash, name, description });
             })();
         } catch (err) {
             this._remove(globalHash);
@@ -261,13 +265,13 @@ export default class Decks {
     }
 
     async getDeck(globalHash, { algorithm = null } = {}) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         const scope = currentScope();
-        const rows = await this.query.getDeckEntries(deck.id, scope);
+        const rows = await deckRows.getEntries(deck.id, scope);
         const schedule = await SRS.cardSchedule({ algorithm, scope });
         const entries = rows.map((e) => ({ ...e, gap: schedule.get(e.card_hash)?.gap ?? null }));
-        const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
+        const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
         let cover = null;
         try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
         return {
@@ -284,7 +288,7 @@ export default class Decks {
     async _tagIdsForNames(tagNames) {
         const ids = [];
         for (const name of tagNames) {
-            const tag = await this.query.getTagByName(name);
+            const tag = await tagRows.getByName(name);
             if (tag) ids.push(tag.id);
         }
         return ids;
@@ -293,37 +297,37 @@ export default class Decks {
     async _syncNodeTags(nodeId, tagNames) {
         const tagNodeIds = [];
         for (const name of tagNames) {
-            let tag = await this.query.getTagByName(name);
+            let tag = await tagRows.getByName(name);
             if (!tag) {
-                const tNodeId = await this.query.createNode('Tag');
-                await this.query.insertTag(name, tNodeId);
+                const tNodeId = await nodeRows.create('Tag');
+                await tagRows.insert(name, tNodeId);
                 tagNodeIds.push(tNodeId);
             } else {
                 tagNodeIds.push(tag.node_id);
             }
         }
-        await this.query.syncNodeTags(nodeId, tagNodeIds);
+        await tagRows.syncNode(nodeId, tagNodeIds);
     }
 
     async _propagateTagsToCards(deck, tagNames) {
         if (!deck.node_id) return;
         const tagIds = await this._tagIdsForNames(tagNames);
-        for (const e of await this.query.getDeckEntries(deck.id, currentScope())) {
-            const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.card_hash);
-            if (cardNodeId) await this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+        for (const e of await deckRows.getEntries(deck.id, currentScope())) {
+            const cardNodeId = await flashcardRows.getNodeIdByHash(e.card_hash);
+            if (cardNodeId) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
         }
     }
 
     async rewriteTag(from, to = null) {
         let changed = 0;
-        for (const deck of await this.query.getAllDecks()) {
-            const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
+        for (const deck of await deckRows.getAll()) {
+            const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
             const next = swapTag(tags, from, to);
             if (!next) continue;
             await this.setTags(deck.global_hash, next);
             changed++;
         }
-        const system = await this.query.getSystemDeck();
+        const system = await deckRows.getSystem();
         if (system) {
             const file = await this._readOrRebuild(system.global_hash, system);
             for (const entry of file?.entries ?? []) {
@@ -337,7 +341,7 @@ export default class Decks {
     }
 
     async rewriteCategory(from, to = null) {
-        const system = await this.query.getSystemDeck();
+        const system = await deckRows.getSystem();
         if (!system) return 0;
         let changed = 0;
         const file = await this._readOrRebuild(system.global_hash, system);
@@ -354,7 +358,7 @@ export default class Decks {
     }
 
     async _setTagsLocked(globalHash, tags) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         const clean = cleanTagNames(tags);
 
@@ -376,7 +380,7 @@ export default class Decks {
     }
 
     async _updateDeckLocked(globalHash, { name, description, color }) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         if (color !== undefined && deck.is_system) throw new Error('The system deck is always kraft');
 
@@ -389,7 +393,7 @@ export default class Decks {
 
         this._write(globalHash, file);
         await db.transaction(async () => {
-            await this.query.updateDeck(deck.id, {
+            await deckRows.update(deck.id, {
                 name: name ?? deck.name,
                 description: description !== undefined ? description : deck.description,
             });
@@ -402,7 +406,7 @@ export default class Decks {
     }
 
     async _deleteDeckLocked(globalHash) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
         if (deck.is_system) throw new Error('Cannot delete the system deck');
 
@@ -411,7 +415,7 @@ export default class Decks {
         this._remove(globalHash);
         await db.transaction(async () => {
             if (deck.node_id) await this._syncNodeTags(deck.node_id, []);
-            await this.query.deleteDeck(deck.id);
+            await deckRows.remove(deck.id);
         })();
         await sealEmitter.delete(this._sealRelPath(globalHash), this._dropCoverFile(cover));
     }
@@ -422,13 +426,13 @@ export default class Decks {
     }
 
     async _addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }) {
-        const deck = await this.query.getDeckByHash(deckHash);
+        const deck = await deckRows.getByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
-        const existing = await this.query.getDeckEntryByCardHash(deck.id, cardHash);
+        const existing = await deckRows.getEntryByCardHash(deck.id, cardHash);
         if (existing) throw new Error('Card already in deck');
 
-        const position = await this.query.getDeckEntryCount(deck.id);
+        const position = await deckRows.getEntryCount(deck.id);
 
         const file = await this._readOrRebuild(deckHash, deck);
         const entry = { cardHash, documentPath };
@@ -439,16 +443,16 @@ export default class Decks {
         this._write(deckHash, file);
         try {
             await db.transaction(async () => {
-                await this.query.insertDeckEntry({
+                await deckRows.insertEntry({
                     deckId: deck.id, cardHash, documentPath, position,
                     inlineCard: inlineCard ? JSON.stringify(inlineCard) : null,
                 });
                 if (deck.node_id) {
-                    const cardNodeId = await this.query.getFlashcardNodeIdByHash(cardHash);
+                    const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
                     if (cardNodeId) {
-                        await this.query.insertDeckConnection(deck.node_id, cardNodeId);
-                        const tagIds = await this._tagIdsForNames(await this.query.getDirectTagNames(deck.node_id));
-                        if (tagIds.length) await this.query.setDeckConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+                        await deckRows.insertConnection(deck.node_id, cardNodeId);
+                        const tagIds = await this._tagIdsForNames(await tagRows.getDirectNames(deck.node_id));
+                        if (tagIds.length) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
                     }
                 }
             })();
@@ -465,7 +469,7 @@ export default class Decks {
     }
 
     async _removeEntryLocked(deckHash, cardHash) {
-        const deck = await this.query.getDeckByHash(deckHash);
+        const deck = await deckRows.getByHash(deckHash);
         if (!deck) throw new Error(`Deck not found: ${deckHash}`);
 
         const file = await this._readOrRebuild(deckHash, deck);
@@ -477,10 +481,10 @@ export default class Decks {
         try {
             await db.transaction(async () => {
                 if (deck.node_id) {
-                    const cardNodeId = await this.query.getFlashcardNodeIdByHash(cardHash);
-                    if (cardNodeId) await this.query.deleteDeckConnection(deck.node_id, cardNodeId);
+                    const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
+                    if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
                 }
-                await this.query.deleteDeckEntry(deck.id, cardHash);
+                await deckRows.deleteEntry(deck.id, cardHash);
             })();
         } catch (err) {
             file.entries = before;
@@ -491,10 +495,10 @@ export default class Decks {
     }
 
     async getContentsSummary(globalHash) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
-        const entries = await this.query.getDeckEntries(deck.id, currentScope());
+        const entries = await deckRows.getEntries(deck.id, currentScope());
         const documents = new Set();
         const otherDecks = new Set();
         let standalone = 0;
@@ -512,7 +516,7 @@ export default class Decks {
                 standalone++;
             }
 
-            const others = (await this.query.getDecksContainingCard(entry.card_hash))
+            const others = (await deckRows.getContainingCard(entry.card_hash))
                 .filter(d => !d.is_system && d.id !== deck.id);
             if (others.length) {
                 shared++;
@@ -535,15 +539,15 @@ export default class Decks {
     }
 
     async getPurgeTargets(globalHash, { includeShared = false } = {}) {
-        const deck = await this.query.getDeckByHash(globalHash);
+        const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
 
         const standalone = [];
         const anchored = [];
         let kept = 0;
 
-        for (const entry of await this.query.getDeckEntries(deck.id, currentScope())) {
-            const isShared = (await this.query.getDecksContainingCard(entry.card_hash))
+        for (const entry of await deckRows.getEntries(deck.id, currentScope())) {
+            const isShared = (await deckRows.getContainingCard(entry.card_hash))
                 .some(d => !d.is_system && d.id !== deck.id);
             if (isShared && !includeShared) { kept++; continue; }
 
@@ -556,11 +560,11 @@ export default class Decks {
     }
 
     async _cardDocumentPath(cardHash) {
-        return (await this.query.getFlashcardContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
+        return (await flashcardRows.getContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
     }
 
     async removeCardEverywhere(cardHash) {
-        const holders = await this.query.getDecksContainingCard(cardHash);
+        const holders = await deckRows.getContainingCard(cardHash);
         for (const deck of holders) {
             await this.removeEntry(deck.global_hash, cardHash);
         }
@@ -575,12 +579,12 @@ export default class Decks {
         const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));
 
         if (!band && !groupBy && sortBy !== 'gap' && sortBy !== 'due') {
-            const cards = await this.query.getAllFlashcards({ ...filters, sortBy, sortDir, limit, offset }, scope);
-            const total = await this.query.getFlashcardCountFiltered(filters, scope);
+            const cards = await flashcardRows.getAll({ ...filters, sortBy, sortDir, limit, offset }, scope);
+            const total = await flashcardRows.getCountFiltered(filters, scope);
             return { cards: withGap(cards), total };
         }
 
-        let rows = await this.query.getFlashcardHashesFiltered(filters, scope, { sortBy, sortDir });
+        let rows = await flashcardRows.getHashesFiltered(filters, scope, { sortBy, sortDir });
         if (band) rows = rows.filter((r) => gapBand(gapOf(r.global_hash)) === band);
         const dir = sortDir === 'desc' ? -1 : 1;
         if (sortBy === 'gap') rows = sortStable(rows, (r) => gapOf(r.global_hash) ?? -1, dir);
@@ -604,18 +608,18 @@ export default class Decks {
         }
 
         const page = rows.slice(offset, offset + limit).map((r) => r.global_hash);
-        const cards = withGap(await this.query.getFlashcardsByHashes(page, scope));
+        const cards = withGap(await flashcardRows.getByHashes(page, scope));
         return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
     }
 
     async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
-        return await this.query.getFlashcardCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
+        return await flashcardRows.getCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
     }
 
     async catalogueSummary({ algorithm = null } = {}) {
         const scope = currentScope();
         const gaps = await SRS.cardGaps({ algorithm, scope });
-        const paths = await this.query.getFlashcardDocumentPaths();
+        const paths = await flashcardRows.getDocumentPaths();
         const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
         const documents = new Map();
         const standalone = { cards: 0, longTerm: 0 };
@@ -628,7 +632,7 @@ export default class Decks {
             slot.longTerm += long;
             if (docPath) documents.set(docPath, slot);
         }
-        const count = (f) => this.query.getFlashcardCountFiltered(f, scope);
+        const count = (f) => flashcardRows.getCountFiltered(f, scope);
         return {
             total: paths.length,
             standalone,
@@ -661,14 +665,14 @@ export default class Decks {
     }
 
     async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
-        const systemDeck = await this.query.getSystemDeck();
+        const systemDeck = await deckRows.getSystem();
         if (!systemDeck) throw new Error('System deck not initialised — run migrations');
         return await this._withDeckFile(systemDeck.global_hash, () => this._createStandaloneCardLocked(
             systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }));
     }
 
     async _createStandaloneCardLocked(systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }) {
-        if (category && !await this.query.getCategoryByName(category)) {
+        if (category && !await categoryRows.getByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
 
@@ -676,8 +680,8 @@ export default class Decks {
         const snapshot = this._standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags });
 
         await db.transaction(async () => {
-            const nodeId = await this.query.createNode('Flashcard');
-            await this.query.insertFlashcard({
+            const nodeId = await nodeRows.create('Flashcard');
+            await flashcardRows.insert({
                 globalHash, nodeId, documentId: null,
                 vanillaData: snapshot.vanillaData,
                 customData: snapshot.customData,
@@ -685,17 +689,17 @@ export default class Decks {
                 level: 0, sm2Reps: 0, fileIndex: 0,
             }, OWNER_SCOPE);
             if (snapshot.tags) await this._syncNodeTags(nodeId, snapshot.tags);
-            const position = await this.query.getDeckEntryCount(systemDeck.id);
-            await this.query.insertDeckEntry({
+            const position = await deckRows.getEntryCount(systemDeck.id);
+            await deckRows.insertEntry({
                 deckId: systemDeck.id, cardHash: globalHash,
                 documentPath: null, position, inlineCard: JSON.stringify(snapshot),
             });
             if (systemDeck.node_id) {
-                const cardNodeId = await this.query.getFlashcardNodeIdByHash(globalHash);
+                const cardNodeId = await flashcardRows.getNodeIdByHash(globalHash);
                 if (cardNodeId) {
-                    await this.query.insertDeckConnection(systemDeck.node_id, cardNodeId);
-                    const tagIds = await this._tagIdsForNames(await this.query.getDirectTagNames(systemDeck.node_id));
-                    if (tagIds.length) await this.query.setDeckConnectionInheritedTags(systemDeck.node_id, cardNodeId, tagIds);
+                    await deckRows.insertConnection(systemDeck.node_id, cardNodeId);
+                    const tagIds = await this._tagIdsForNames(await tagRows.getDirectNames(systemDeck.node_id));
+                    if (tagIds.length) await deckRows.setConnectionInheritedTags(systemDeck.node_id, cardNodeId, tagIds);
                 }
             }
         })();
@@ -710,7 +714,7 @@ export default class Decks {
     }
 
     async getCard(hash) {
-        const card = await this.query.getFlashcardContentByHash(hash, currentScope());
+        const card = await flashcardRows.getContentByHash(hash, currentScope());
         if (!card) throw new Error(`Card not found: ${hash}`);
         return {
             globalHash: hash,
@@ -724,7 +728,7 @@ export default class Decks {
             customHtml: card.custom_html,
             category: card.category,
             documentPath: card.document_path ?? null,
-            tags: card.node_id ? await this.query.getDirectTagNames(card.node_id) : [],
+            tags: card.node_id ? await tagRows.getDirectNames(card.node_id) : [],
             media: {
                 front_img: card.front_img ?? null,
                 back_img: card.back_img ?? null,
@@ -735,7 +739,7 @@ export default class Decks {
     }
 
     async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
-        const systemDeck = await this.query.getSystemDeck();
+        const systemDeck = await deckRows.getSystem();
         const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
         if (!systemDeck) return await this._updateStandaloneCardLocked(hash, fields, null);
         return await this._withDeckFile(systemDeck.global_hash, () =>
@@ -743,15 +747,15 @@ export default class Decks {
     }
 
     async _updateStandaloneCardLocked(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags }, systemDeck) {
-        const card = await this.query.getFlashcardByHash(hash);
+        const card = await flashcardRows.getByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
             throw new Error('Card is linked to a document — edit from the document instead');
         }
-        if (category && !await this.query.getCategoryByName(category)) {
+        if (category && !await categoryRows.getByName(category)) {
             throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
         }
-        const existing = await this.query.getFlashcardContentByHash(hash, OWNER_SCOPE);
+        const existing = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
         const merged = {
             frontText: frontText !== undefined ? frontText : existing.frontText,
             backText: backText !== undefined ? backText : existing.backText,
@@ -761,7 +765,7 @@ export default class Decks {
             category: category !== undefined ? category : existing.category,
             customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
             origin: existing.origin ?? null,
-            tags: tags !== undefined ? cleanTagNames(tags) : await this.query.getDirectTagNames(existing.node_id),
+            tags: tags !== undefined ? cleanTagNames(tags) : await tagRows.getDirectNames(existing.node_id),
             media: {
                 front_img: existing.front_img || null,
                 back_img: existing.back_img || null,
@@ -771,9 +775,9 @@ export default class Decks {
         };
         const snapshot = this._standaloneSnapshot(merged);
         await db.transaction(async () => {
-            await this.query.updateFlashcardContentByHash(hash, merged);
+            await flashcardRows.updateContentByHash(hash, merged);
             if (tags !== undefined) await this._syncNodeTags(existing.node_id, merged.tags);
-            if (systemDeck) await this.query.updateDeckEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
+            if (systemDeck) await deckRows.updateEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
         })();
 
         if (systemDeck) {
@@ -791,23 +795,23 @@ export default class Decks {
     }
 
     async deleteStandaloneCard(hash) {
-        const systemDeck = await this.query.getSystemDeck();
+        const systemDeck = await deckRows.getSystem();
         if (!systemDeck) return await this._deleteStandaloneCardLocked(hash, null);
         return await this._withDeckFile(systemDeck.global_hash, () =>
             this._deleteStandaloneCardLocked(hash, systemDeck));
     }
 
     async _deleteStandaloneCardLocked(hash, systemDeck) {
-        const card = await this.query.getFlashcardByHash(hash);
+        const card = await flashcardRows.getByHash(hash);
         if (!card) throw new Error(`Card not found: ${hash}`);
         if (card.document_id !== null && card.document_id !== undefined) {
             throw new Error('Card is linked to a document — delete from the document instead');
         }
 
         await db.transaction(async () => {
-            await this.query.deleteFlashcardDeckEntries(hash);
-            await this.query.deleteFlashcard(card.id);
-            await this.query.purgeCardBehaviour(hash);
+            await deckRows.deleteCardEntries(hash);
+            await flashcardRows.remove(card.id);
+            await cardProgressRows.purgeCardBehaviour(hash);
         })();
 
         if (systemDeck) {
@@ -853,12 +857,12 @@ export default class Decks {
             data.modified = new Date().toISOString();
             this._write(globalHash, data);
 
-            const deck = await this.query.getDeckByHash(globalHash);
+            const deck = await deckRows.getByHash(globalHash);
             if (deck) {
                 await db.transaction(async () => {
                     for (const entry of data.entries ?? []) {
                         if (!entry?.card) continue;
-                        await this.query.updateDeckEntryInlineCard(deck.id, entry.cardHash, JSON.stringify(entry.card));
+                        await deckRows.updateEntryInlineCard(deck.id, entry.cardHash, JSON.stringify(entry.card));
                     }
                 })();
             }
@@ -870,7 +874,7 @@ export default class Decks {
 
     async diagnoseDecks() {
         const files = await this.listDeckFiles();
-        const dbDecks = await this.query.getAllDecks();
+        const dbDecks = await deckRows.getAll();
         const fileByHash = new Map(files.map(f => [f.globalHash, f]));
         const dbByHash = new Map(dbDecks.map(d => [d.global_hash, d]));
 
@@ -890,7 +894,7 @@ export default class Decks {
             const f = fileByHash.get(d.global_hash);
             if (f.data === null) continue;
             const fileHashes = new Set((f.data.entries ?? []).map(e => e.cardHash));
-            const dbEntries = await this.query.getDeckEntries(d.id, currentScope());
+            const dbEntries = await deckRows.getEntries(d.id, currentScope());
             const dbHashes = new Set(dbEntries.map(e => e.card_hash));
 
             const missingInDb = [...fileHashes].filter(h => !dbHashes.has(h));
@@ -899,7 +903,7 @@ export default class Decks {
                 entryMismatches.push({ deckHash: d.global_hash, missingInDb, missingInFile });
             }
             for (const e of dbEntries) {
-                if (!await this.query.getFlashcardByHash(e.card_hash)) {
+                if (!await flashcardRows.getByHash(e.card_hash)) {
                     danglingEntries.push({ deckHash: d.global_hash, cardHash: e.card_hash });
                 }
             }
@@ -909,24 +913,24 @@ export default class Decks {
 
     async _importDeckFile(globalHash, data) {
         await db.transaction(async () => {
-            const isSystem = data.isSystem && !await this.query.getSystemDeck() ? 1 : 0;
-            const deckId = await this.query.insertDeck({
+            const isSystem = data.isSystem && !await deckRows.getSystem() ? 1 : 0;
+            const deckId = await deckRows.insert({
                 globalHash,
                 name: data.name ?? 'Recovered deck',
                 description: data.description ?? '',
                 isSystem,
             });
-            const deck = await this.query.getDeckByHash(globalHash);
+            const deck = await deckRows.getByHash(globalHash);
             for (const [i, e] of (data.entries ?? []).entries()) {
-                await this.query.insertDeckEntry({
+                await deckRows.insertEntry({
                     deckId, cardHash: e.cardHash,
                     documentPath: e.documentPath ?? null,
                     position: i,
                     inlineCard: e.card ? JSON.stringify(e.card) : null,
                 });
                 if (deck.node_id) {
-                    const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.cardHash);
-                    if (cardNodeId) await this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                    const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
+                    if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
                 }
             }
             if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
@@ -937,8 +941,8 @@ export default class Decks {
 
     async _propagateAllDeckTags() {
         await db.transaction(async () => {
-            for (const deck of await this.query.getAllDecks()) {
-                const tags = deck.node_id ? await this.query.getDirectTagNames(deck.node_id) : [];
+            for (const deck of await deckRows.getAll()) {
+                const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
                 if (tags.length) await this._propagateTagsToCards(deck, tags);
             }
         })();
@@ -953,33 +957,33 @@ export default class Decks {
             actions.decksImported++;
         }
         for (const hash of diag.dbWithoutFile) {
-            await this._readOrRebuild(hash, await this.query.getDeckByHash(hash));
+            await this._readOrRebuild(hash, await deckRows.getByHash(hash));
             actions.deckFilesRebuilt++;
         }
         for (const mm of diag.entryMismatches) {
-            const deck = await this.query.getDeckByHash(mm.deckHash);
+            const deck = await deckRows.getByHash(mm.deckHash);
             const data = this._read(mm.deckHash);
             await db.transaction(async () => {
                 for (const h of mm.missingInDb) {
                     const entry = (data.entries ?? []).find(e => e.cardHash === h);
-                    await this.query.insertDeckEntry({
+                    await deckRows.insertEntry({
                         deckId: deck.id, cardHash: h,
                         documentPath: entry?.documentPath ?? null,
-                        position: await this.query.getDeckEntryCount(deck.id),
+                        position: await deckRows.getEntryCount(deck.id),
                         inlineCard: entry?.card ? JSON.stringify(entry.card) : null,
                     });
                     if (deck.node_id) {
-                        const cardNodeId = await this.query.getFlashcardNodeIdByHash(h);
-                        if (cardNodeId) await this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                        const cardNodeId = await flashcardRows.getNodeIdByHash(h);
+                        if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
                     }
                     actions.entriesAdded++;
                 }
                 for (const h of mm.missingInFile) {
                     if (deck.node_id) {
-                        const cardNodeId = await this.query.getFlashcardNodeIdByHash(h);
-                        if (cardNodeId) await this.query.deleteDeckConnection(deck.node_id, cardNodeId);
+                        const cardNodeId = await flashcardRows.getNodeIdByHash(h);
+                        if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
                     }
-                    await this.query.deleteDeckEntry(deck.id, h);
+                    await deckRows.deleteEntry(deck.id, h);
                     actions.entriesRemoved++;
                 }
             })();
@@ -1007,11 +1011,11 @@ export default class Decks {
             }
 
             for (const e of f.data.entries ?? []) {
-                if (!e.card || e.documentPath || await this.query.getFlashcardByHash(e.cardHash)) continue;
+                if (!e.card || e.documentPath || await flashcardRows.getByHash(e.cardHash)) continue;
                 try {
                     await db.transaction(async () => {
-                        const nodeId = await this.query.createNode('Flashcard');
-                        await this.query.insertFlashcard({
+                        const nodeId = await nodeRows.create('Flashcard');
+                        await flashcardRows.insert({
                             globalHash: e.cardHash, nodeId, documentId: null,
                             vanillaData: e.card.vanillaData ?? null,
                             customData: e.card.customData ?? null,
@@ -1022,10 +1026,10 @@ export default class Decks {
                             level: 0, sm2Reps: 0, fileIndex: 0,
                         }, OWNER_SCOPE);
                         if (e.card.tags?.length) await this._syncNodeTags(nodeId, e.card.tags);
-                        const deck = await this.query.getDeckByHash(f.globalHash);
+                        const deck = await deckRows.getByHash(f.globalHash);
                         if (deck?.node_id) {
-                            const cardNodeId = await this.query.getFlashcardNodeIdByHash(e.cardHash);
-                            if (cardNodeId) await this.query.insertDeckConnection(deck.node_id, cardNodeId);
+                            const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
+                            if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
                         }
                     })();
                     restoredCards++;
@@ -1035,10 +1039,10 @@ export default class Decks {
             }
         }
 
-        if (!await this.query.getSystemDeck()) {
+        if (!await deckRows.getSystem()) {
             const globalHash = crypto.randomUUID();
-            await this.query.insertDeck({ globalHash, name: 'Cards', description: '', isSystem: 1 });
-            await this._readOrRebuild(globalHash, await this.query.getDeckByHash(globalHash));
+            await deckRows.insert({ globalHash, name: 'Cards', description: '', isSystem: 1 });
+            await this._readOrRebuild(globalHash, await deckRows.getByHash(globalHash));
             warnings.push('System deck file was missing — recreated empty.');
             decksImported++;
         }

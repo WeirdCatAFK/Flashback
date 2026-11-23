@@ -5,11 +5,12 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/orchestration/documents.js';
+import Documents from '../src/api/access/modules/documents.js';
 import db from '../src/api/access/primitives/database.js';
-import query from '../src/api/access/resources/query.js';
-import SRS from '../src/api/access/orchestration/srs.js';
-import * as fsrs from '../src/api/access/orchestration/fsrs.js';
+import * as reviewRows from '../src/api/access/resources/db/reviews.js';
+import * as sessionRows from '../src/api/access/resources/db/sessions.js';
+import SRS from '../src/api/access/modules/srs.js';
+import * as fsrs from '../src/api/access/modules/fsrs.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
@@ -101,7 +102,7 @@ describe('FSRS review loop', () => {
     });
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', async () => {
-        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
+        const res = await sessionRows.getDue({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         const inDue = res.due.some(r => r.global_hash === hash);
         const inNew = res.newCards.some(r => r.global_hash === hash);
         assert.equal(inDue, false, 'freshly reviewed card is not due');
@@ -109,7 +110,7 @@ describe('FSRS review loop', () => {
     });
 
     it('nextDue is a valid SQLite-format datetime, not a raw ISO string (NaN-days bug)', async () => {
-        const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
+        const res = await sessionRows.getDue({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         assert.ok(res.nextDue, 'the future card sets nextDue');
         assert.ok(!res.nextDue.includes('T') && !res.nextDue.includes('Z'), `got ${res.nextDue}`);
         const parsed = new Date(res.nextDue.replace(' ', 'T') + 'Z');
@@ -122,7 +123,7 @@ describe('FSRS review loop', () => {
         const res = await SRS.optimizeParameters();
         assert.equal(res.optimized, false);
         assert.equal(res.reason, 'insufficient-data');
-        assert.equal(await query.getFsrsWeights('owner'), null, 'no FsrsParameters row persisted');
+        assert.equal(await reviewRows.getFsrsWeights('owner'), null, 'no FsrsParameters row persisted');
         assert.equal(info.optimized, false);
     });
 

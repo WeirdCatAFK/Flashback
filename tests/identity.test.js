@@ -32,7 +32,7 @@ const config = await import('../src/api/access/primitives/config.js');
 const { identityError, defaultIdentityFrom } = await import('../src/shared/identity.js');
 const { openVault, switchVault } = await import('../src/api/vaultSession.js');
 const { closeDatabase } = await import('../src/api/access/primitives/database.js');
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
 const { sealTools, sealEmitter } = await import('../src/api/seal/seal.js');
 
 const docs = new Documents();

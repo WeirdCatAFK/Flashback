@@ -1,5 +1,5 @@
 import { randomUUID } from 'crypto';
-import query from '../resources/query.js';
+import * as sessionRows from '../resources/db/sessions.js';
 import { currentScope } from '../../requestContext.js';
 import { orderCards, distance, CONFUSABLE_THRESHOLD } from './sequencing.js';
 
@@ -31,7 +31,7 @@ export async function sequence({ due = [], newCards = [], order = 'interleaved',
 
     let facets;
     try {
-        facets = await query.getSessionFacets(cards.map(hashOf));
+        facets = await sessionRows.getFacets(cards.map(hashOf));
     } catch (err) {
         console.error('session facets unavailable, falling back to shuffle:', err);
         return {
@@ -54,8 +54,8 @@ export async function measureOrdering({ sessionId, cardHash, prevCardHash, scope
     if (!sessionId || !cardHash) return { prevDistance: null, nearestSiblingLag: null };
 
     try {
-        const history = await query.getSessionReviewOrder(sessionId, scope ?? currentScope());
-        const facets = await query.getSessionFacets(
+        const history = await sessionRows.getReviewOrder(sessionId, scope ?? currentScope());
+        const facets = await sessionRows.getFacets(
             [...new Set([...history.map(r => r.globalHash), cardHash, prevCardHash].filter(Boolean))],
         );
 

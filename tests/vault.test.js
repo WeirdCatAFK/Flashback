@@ -21,8 +21,10 @@ const config = await import('../src/api/access/primitives/config.js');
 const { openVault, switchVault, releaseVault, isSwitching } =
     await import('../src/api/vaultSession.js');
 const vault = await import('../src/api/access/primitives/vault.js');
-const { default: query } = await import('../src/api/access/resources/query.js');
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const deckRows = await import('../src/api/access/resources/db/decks.js');
+const nodeRows = await import('../src/api/access/resources/db/nodes.js');
+const vaultRows = await import('../src/api/access/resources/db/vault.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
 const { default: db, closeDatabase } = await import('../src/api/access/primitives/database.js');
 
 after(() => {
@@ -132,10 +134,10 @@ describe('switching vaults', () => {
     });
 
     it('provisions a brand-new vault without a restart', async () => {
-        assert.ok(await query.getSchemaVersion() > 0, 'migrations should have run on the new vault');
+        assert.ok(await vaultRows.getSchemaVersion() > 0, 'migrations should have run on the new vault');
         assert.ok(fs.existsSync(config.getDatabasePath()));
         assert.ok(fs.existsSync(path.join(config.getWorkspacePath(), '_decks')));
-        assert.ok(await query.getSystemDeck(), 'the system deck must exist in the new vault');
+        assert.ok(await deckRows.getSystem(), 'the system deck must exist in the new vault');
     });
 
     it('does not carry the previous vault\'s documents across', async () => {
@@ -189,22 +191,24 @@ describe('switching vaults', () => {
         const dbPath = config.getDatabasePath();
         assert.ok(!fs.existsSync(`${dbPath}-wal`), 'WAL should be checkpointed away on release');
 
-        assert.ok(await query.getSchemaVersion() > 0);
+        assert.ok(await vaultRows.getSchemaVersion() > 0);
     });
 });
 
 describe('vault-scoped caches', () => {
     it('exposes a reset that clears the type-id cache', async () => {
         await switchVault(ALPHA);
-        assert.ok((await query._typeIds()).tagNodeTypeId, 'the cache should populate on first use');
+        const cached = await nodeRows.typeIds();
+        assert.ok(cached.tagNodeTypeId, 'the cache should populate on first use');
+        assert.equal(await nodeRows.typeIds(), cached);
 
-        await query.onVaultOpened();
-        assert.equal(query._typeCache, null);
+        nodeRows.onVaultOpened();
+        assert.notEqual(await nodeRows.typeIds(), cached);
     });
 
     it('re-resolves type ids against the vault that is now open', async () => {
         await switchVault(BETA);
-        const types = await query._typeIds();
+        const types = await nodeRows.typeIds();
         assert.ok(types.tagNodeTypeId);
         assert.equal(
             (await db.prepare('SELECT name FROM NodeTypes WHERE id = ?').get(types.tagNodeTypeId))?.name,

@@ -5,9 +5,10 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/orchestration/documents.js';
-import SRS from '../src/api/access/orchestration/srs.js';
-import query from '../src/api/access/resources/query.js';
+import Documents from '../src/api/access/modules/documents.js';
+import SRS from '../src/api/access/modules/srs.js';
+import * as flashcardRows from '../src/api/access/resources/db/flashcards.js';
+import * as statisticsRows from '../src/api/access/resources/db/statistics.js';
 import db from '../src/api/access/primitives/database.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
@@ -277,14 +278,14 @@ describe('vault learned aggregate', () => {
     after(() => rm2());
 
     it('counts every card in the denominator, including ones never reviewed', async () => {
-        const learned = await query.getVaultLearned('owner');
-        const total = await query.getFlashcardCount();
+        const learned = await statisticsRows.getVaultLearned('owner');
+        const total = await flashcardRows.getCount();
         assert.equal(learned.cards, total,
             'a card with no CardProgress row is unlearned, not absent');
     });
 
     it('scores an unreviewed card 0 rather than dropping it', async () => {
-        const before = await query.getVaultLearned('owner');
+        const before = await statisticsRows.getVaultLearned('owner');
         const extraDoc = path.join(ROOT2, 'fresh.md');
         const fresh = crypto.randomUUID();
         await docs.importFile('fresh.md', ROOT2, Buffer.from('# Fresh'), {
@@ -292,7 +293,7 @@ describe('vault learned aggregate', () => {
             flashcards: [{ globalHash: fresh, vanillaData: { frontText: 'q', backText: 'a' } }],
         });
 
-        const after_ = await query.getVaultLearned('owner');
+        const after_ = await statisticsRows.getVaultLearned('owner');
         assert.equal(after_.cards, before.cards + 1, 'the denominator grew');
         assert.equal(after_.learnedSum, before.learnedSum,
             'and the numerator did not — an unstudied card adds nothing');
@@ -302,9 +303,9 @@ describe('vault learned aggregate', () => {
     });
 
     it('is card-weighted, so one mastered card cannot outvote twenty unstudied ones', async () => {
-        const before = await query.getVaultLearned('owner');
+        const before = await statisticsRows.getVaultLearned('owner');
         await docs.submitReview(path.join(ROOT2, 'one.md'), lone, 1, 2.5, 6, 'leitner');
-        const after_ = await query.getVaultLearned('owner');
+        const after_ = await statisticsRows.getVaultLearned('owner');
 
         assert.ok(after_.learnedSum - before.learnedSum > 0.99,
             'the reviewed card contributes its full weight');
@@ -316,6 +317,6 @@ describe('vault learned aggregate', () => {
     });
 
     it('refuses a missing scope rather than answering for the owner', async () => {
-        await assert.rejects(() => query.getVaultLearned(), /account scope/);
+        await assert.rejects(() => statisticsRows.getVaultLearned(), /account scope/);
     });
 });

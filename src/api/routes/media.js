@@ -1,8 +1,8 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import Media from '../access/orchestration/media.js';
-import Documents from '../access/orchestration/documents.js';
+import Media from '../access/modules/media.js';
+import Documents from '../access/modules/documents.js';
 
 const router = Router();
 const media = new Media();

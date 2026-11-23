@@ -31,7 +31,7 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
 const { ensureManifest } = await import('../src/api/access/primitives/vault.js');

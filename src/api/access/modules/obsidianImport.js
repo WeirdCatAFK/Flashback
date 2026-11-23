@@ -5,7 +5,7 @@ import path from 'path';
 import os from 'os';
 import Documents from './documents.js';
 import Files from '../resources/files.js';
-import query from '../resources/query.js';
+import * as mediaRows from '../resources/db/media.js';
 import db from '../primitives/database.js';
 
 const CLOZE_PATTERN = /\{\{c\d+::([^:}]+)(?:::[^}]*)?\}\}/g;
@@ -21,7 +21,6 @@ export default class ObsidianImport {
     constructor() {
         this.documents = new Documents();
         this.files = new Files();
-        this.query = query;
     }
 
     async importVault(fileBuffer, targetRelPath = "") {
@@ -171,7 +170,7 @@ export default class ObsidianImport {
                                 const fileBuf = fs.readFileSync(destPath);
                                 const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
                                 await db.transaction(async () => {
-                                    await this.query.insertMedia({
+                                    await mediaRows.insert({
                                         hash: fileHash,
                                         name: copiedName,
                                         relativePath: path.join(mediaDirRel, copiedName),
@@ -313,7 +312,7 @@ export default class ObsidianImport {
                                 const fileBuf = fs.readFileSync(destAbs);
                                 const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
                                 await db.transaction(async () => {
-                                    await this.query.insertMedia({
+                                    await mediaRows.insert({
                                         hash: fileHash,
                                         name: entry.name,
                                         relativePath: entryDestRel,

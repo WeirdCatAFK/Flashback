@@ -4,7 +4,11 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import Files from '../resources/files.js';
-import query from '../resources/query.js';
+import * as cardProgressRows from '../resources/db/cardProgress.js';
+import * as deckRows from '../resources/db/decks.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as mediaRows from '../resources/db/media.js';
+import * as reviewRows from '../resources/db/reviews.js';
 import db from '../primitives/database.js';
 import Decks from './decks.js';
 import { openPackage, readCollection, readMediaFile } from './ankiPackage.js';
@@ -92,7 +96,6 @@ function deriveCardName(text, fallback = 'Untitled card') {
 export default class AnkiImport {
     constructor() {
         this.files = new Files();
-        this.query = query;
         this.decksService = new Decks();
     }
 
@@ -412,7 +415,7 @@ export default class AnkiImport {
             let imported = 0;
 
             for (const [deckName, primaryCards] of notesByDeck.entries()) {
-                const allDecks = await this.query.getAllDecks();
+                const allDecks = await deckRows.getAll();
                 const existingDeck = allDecks.find(d => d.name === deckName);
                 const deckHash = existingDeck
                     ? existingDeck.global_hash
@@ -437,7 +440,7 @@ export default class AnkiImport {
                     await this.decksService.addEntry(deckHash, { cardHash: globalHash });
                     imported++;
 
-                    const cardInDb = await this.query.getFlashcardByHash(globalHash);
+                    const cardInDb = await flashcardRows.getByHash(globalHash);
                     if (cardInDb) {
                         const reps = primaryCard.reps || 0;
                         const level = Math.min(5, Math.floor(reps / 3));
@@ -445,8 +448,8 @@ export default class AnkiImport {
                             ? Math.min(3.0, Math.max(1.3, primaryCard.factor / 1000.0))
                             : 2.5;
                         await db.transaction(async () => {
-                            await this.query.setFlashcardSrsState(cardInDb.id, level, reps, OWNER_SCOPE);
-                            await this.query.insertReviewLog({
+                            await cardProgressRows.setSrsState(cardInDb.id, level, reps, OWNER_SCOPE);
+                            await reviewRows.insertLog({
                                 accountId: OWNER_SCOPE,
                                 flashcardId: cardInDb.id,
                                 timestamp: new Date().toISOString(),
@@ -516,7 +519,7 @@ export default class AnkiImport {
 
         const fileHash = crypto.createHash('sha256').update(fileBuf).digest('hex');
 
-        const existing = await this.query.getMediaByHash(fileHash);
+        const existing = await mediaRows.getByHash(fileHash);
         if (existing) return { copiedName: existing.name, fileHash };
 
         const ext = path.extname(decodedName);
@@ -526,7 +529,7 @@ export default class AnkiImport {
 
         fs.writeFileSync(destPath, fileBuf);
         await db.transaction(async () => {
-            await this.query.insertMedia({
+            await mediaRows.insert({
                 hash: fileHash,
                 name: copiedName,
                 relativePath: path.join(mediaDirRel, copiedName),

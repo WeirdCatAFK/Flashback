@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import diary from '../access/orchestration/diary.js';
+import diary from '../access/modules/diary.js';
 import { getMcpDiaryAccess } from '../access/primitives/config.js';
 import { normalizePath } from '../auth/permissions.js';
 

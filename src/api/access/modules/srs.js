@@ -1,4 +1,8 @@
-import query from '../resources/query.js';
+import * as cardProgressRows from '../resources/db/cardProgress.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as reviewRows from '../resources/db/reviews.js';
+import * as sessionRows from '../resources/db/sessions.js';
+import * as statisticsRows from '../resources/db/statistics.js';
 import db from '../primitives/database.js';
 import { currentScope } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
@@ -88,22 +92,22 @@ class SRSService {
     }
 
     async detectAlgorithm(scope) {
-        const last = await query.getLatestReviewAlgorithm(this._scope(scope));
+        const last = await reviewRows.getLatestAlgorithm(this._scope(scope));
         if (!last) return DEFAULT_ALGORITHM;
         if (last.algorithm) return last.algorithm;
         return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
     }
 
     async getWeights(scope) {
-        return (await query.getFsrsWeights(this._scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
+        return (await reviewRows.getFsrsWeights(this._scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
     }
 
     async _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}, scope) {
-        const current = await query.getFlashcardFsrsState(cardId, scope);
+        const current = await cardProgressRows.getFsrsState(cardId, scope);
         const next = fsrs.nextState(current, rating, new Date(timestamp), await this.getWeights(scope), requestRetention);
         next.level = intervalToLeitnerLevel(next.interval);
-        await query.updateFlashcardFsrs(cardId, next, scope);
-        await query.insertReviewLog({
+        await cardProgressRows.updateFsrs(cardId, next, scope);
+        await reviewRows.insertLog({
             flashcardId: cardId,
             accountId: scope,
             timestamp,
@@ -127,9 +131,9 @@ class SRSService {
         const scope = this._scope(opts.scope);
 
         return await db.transaction(async () => {
-            const fc = await query.getFlashcardByHash(flashcardHash);
+            const fc = await flashcardRows.getByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
-            const before = await query.getCardProgress(fc.id, scope);
+            const before = await cardProgressRows.get(fc.id, scope);
 
             if (algorithm === 'fsrs') {
                 const retention = opts.requestRetention ?? DEFAULT_REQUEST_RETENTION;
@@ -146,11 +150,11 @@ class SRSService {
             }
 
             const prevEase = algorithm === 'sm2'
-                ? (await query.getLatestReviewLog(fc.id, scope))?.ease_factor ?? 2.5
+                ? (await reviewRows.getLatestLog(fc.id, scope))?.ease_factor ?? 2.5
                 : null;
 
-            await query.updateFlashcardReview(fc.id, timestamp, newLevel, algorithm, scope);
-            await query.insertReviewLog({
+            await cardProgressRows.updateReview(fc.id, timestamp, newLevel, algorithm, scope);
+            await reviewRows.insertLog({
                 flashcardId: fc.id,
                 accountId: scope,
                 timestamp,
@@ -171,7 +175,7 @@ class SRSService {
         const scope = this._scope(scopeArg);
         if (!hashes.length) return {};
         const weights = await this.getWeights(scope);
-        const states = await query.getFsrsStatesByHash(hashes, scope);
+        const states = await cardProgressRows.getFsrsStatesByHash(hashes, scope);
         const now = new Date();
         const gap = (state, rating) => fsrs.nextState(state ?? null, rating, now, weights, requestRetention).interval;
         return Object.fromEntries(hashes.map((hash) => {
@@ -183,16 +187,16 @@ class SRSService {
     async undoReview(flashcardHash, algorithm = 'leitner', scopeArg) {
         const scope = this._scope(scopeArg);
         return await db.transaction(async () => {
-            const fc = await query.getFlashcardByHash(flashcardHash);
+            const fc = await flashcardRows.getByHash(flashcardHash);
             if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
 
-            const removed = await query.deleteLatestReviewLog(fc.id, scope);
+            const removed = await reviewRows.deleteLatestLog(fc.id, scope);
             if (!removed) return { document_id: fc.document_id, restored: null, scope };
 
-            const prev = await query.getLatestReviewLog(fc.id, scope);
+            const prev = await reviewRows.getLatestLog(fc.id, scope);
 
             if (algorithm === 'fsrs') {
-                const cur = await query.getFlashcardFsrsState(fc.id, scope);
+                const cur = await cardProgressRows.getFsrsState(fc.id, scope);
                 const reps = Math.max(0, (cur?.reps ?? 1) - 1);
                 const restored = prev ? {
                     stability: prev.fsrs_stability,
@@ -204,7 +208,7 @@ class SRSService {
                     level: prev.level ?? 0,
                     lastRecall: prev.timestamp,
                 } : null;
-                await query.updateFlashcardFsrs(fc.id, restored
+                await cardProgressRows.updateFsrs(fc.id, restored
                     ? { ...restored, last_review: restored.lastRecall }
                     : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null },
                     scope);
@@ -216,16 +220,16 @@ class SRSService {
                 easeFactor: prev ? prev.ease_factor : 2.5,
                 lastRecall: prev ? prev.timestamp : null,
             };
-            await query.undoFlashcardReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
+            await cardProgressRows.undoReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
             return { document_id: fc.document_id, restored, scope };
         })();
     }
 
     async getLeitnerStats(scopeArg) {
         const scope = this._scope(scopeArg);
-        const boxes = await query.getLeitnerBoxes(scope);
-        const total = await query.getFlashcardCount();
-        const mastered = await query.getMasteredFlashcardCount(MASTERY_LEVEL, scope);
+        const boxes = await statisticsRows.getLeitnerBoxes(scope);
+        const total = await flashcardRows.getCount();
+        const mastered = await statisticsRows.getMasteredCount(MASTERY_LEVEL, scope);
 
         return {
             boxes,
@@ -238,22 +242,22 @@ class SRSService {
 
     async optimizeParameters(scopeArg) {
         const scope = this._scope(scopeArg);
-        const histories = await query.getAllReviewHistories(scope);
+        const histories = await reviewRows.getAllHistories(scope);
         const result = fsrs.optimize(histories);
         if (result.optimized) {
-            await query.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount, scope);
+            await reviewRows.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount, scope);
         }
         return result;
     }
 
     async getFsrsInfo(scopeArg) {
         const scope = this._scope(scopeArg);
-        const stored = await query.getFsrsWeights(scope);
+        const stored = await reviewRows.getFsrsWeights(scope);
         return {
             optimized: !!stored?.optimizedAt,
             optimizedAt: stored?.optimizedAt ?? null,
             weightReviewCount: stored?.reviewCount ?? null,
-            reviewCount: (await query.getAllReviewHistories(scope)).length,
+            reviewCount: (await reviewRows.getAllHistories(scope)).length,
             minReviews: fsrs.MIN_OPTIMIZE_REVIEWS,
         };
     }
@@ -261,8 +265,8 @@ class SRSService {
     async cardSchedule({ algorithm: requested = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const cards = await query.getAllFlashcardSrsState(scope);
-        const efMap = algorithm === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
+        const cards = await cardProgressRows.getAllSrsState(scope);
+        const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
         return new Map(cards.map((c) => [c.global_hash, {
             gap: isReviewedCard(c, algorithm) ? intervalOfCard(c, algorithm, efMap?.get(c.global_hash) ?? 2.5) : null,
             lastRecall: c.last_recall ?? null,
@@ -281,8 +285,8 @@ class SRSService {
         const MATURE_DAYS = 21;
         const FORECAST_DAYS = 14;
 
-        const cards = await query.getAllFlashcardSrsState(scope);
-        const efMap = algorithm === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
+        const cards = await cardProgressRows.getAllSrsState(scope);
+        const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
 
         const efOf = (c) => efMap?.get(c.global_hash) ?? 2.5;
         const intervalOf = (c) => intervalOfCard(c, algorithm, efOf(c));
@@ -316,16 +320,16 @@ class SRSService {
 
         const since30 = dayStr(-30);
         const since365 = dayStr(-364);
-        const allTotals = await query.getReviewTotals(null, scope);
-        const activity = await query.getReviewActivity(since365, scope);
+        const allTotals = await statisticsRows.getReviewTotals(null, scope);
+        const activity = await statisticsRows.getReviewActivity(since365, scope);
         const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
 
-        const phaseAll = await query.getReviewTotalsByPhase(LEARNING_REVIEWS, null, scope);
-        const phase30 = await query.getReviewTotalsByPhase(LEARNING_REVIEWS, since30, scope);
-        const firstAll = await query.getFirstExposureTotals(null, scope);
-        const first30 = await query.getFirstExposureTotals(since30, scope);
+        const phaseAll = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, null, scope);
+        const phase30 = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, since30, scope);
+        const firstAll = await statisticsRows.getFirstExposureTotals(null, scope);
+        const first30 = await statisticsRows.getFirstExposureTotals(since30, scope);
 
-        const attempts = (await query.getReviewsToFirstRecall(scope)).map(r => r.attempts).sort((a, b) => a - b);
+        const attempts = (await statisticsRows.getReviewsToFirstRecall(scope)).map(r => r.attempts).sort((a, b) => a - b);
         const median = attempts.length === 0 ? null
             : attempts.length % 2
                 ? attempts[(attempts.length - 1) / 2]
@@ -382,13 +386,13 @@ class SRSService {
     async getCardInsights(hash, { algorithm: requested = null, scope: scopeArg = null } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const state = await query.getFlashcardSrsStateByHash(hash, scope);
+        const state = await cardProgressRows.getSrsStateByHash(hash, scope);
         if (!state) throw new Error(`Card not found: ${hash}`);
 
         const easeFactor = state.ease_factor != null && state.ease_factor >= 1.3
             ? state.ease_factor : 2.5;
 
-        const history = (await query.getFlashcardReviewHistory(state.id, scope)).map(r => ({
+        const history = (await reviewRows.getCardHistory(state.id, scope)).map(r => ({
             id: r.id,
             at: r.timestamp,
             algorithm: r.algorithm ?? (r.rating != null ? 'fsrs' : null),
@@ -483,7 +487,7 @@ class SRSService {
         const scope = this._scope(scopeArg);
         if (from === to) return 0;
 
-        const cards = await query.getAllFlashcardSrsState(scope);
+        const cards = await cardProgressRows.getAllSrsState(scope);
         if (cards.length === 0) return 0;
 
         if (from === 'leitner' && to === 'sm2') {
@@ -491,22 +495,22 @@ class SRSService {
                 global_hash: c.global_hash,
                 sm2_reps: leitnerToSm2Reps(c.level ?? 0),
             }));
-            await query.batchSetSm2Reps(translated, scope);
+            await cardProgressRows.batchSetSm2Reps(translated, scope);
             return translated.length;
         }
 
         if (from === 'sm2' && to === 'leitner') {
-            const efMap = await query.getLatestEaseFactors(scope);
+            const efMap = await cardProgressRows.getLatestEaseFactors(scope);
             const translated = cards.map(c => ({
                 global_hash: c.global_hash,
                 level: sm2RepsToLeitnerLevel(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5),
             }));
-            await query.batchSetLeitnerLevel(translated, scope);
+            await cardProgressRows.batchSetLeitnerLevel(translated, scope);
             return translated.length;
         }
 
         if (to === 'fsrs') {
-            const efMap = from === 'sm2' ? await query.getLatestEaseFactors(scope) : null;
+            const efMap = from === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
             const seeded = cards.map(c => {
                 const interval = from === 'sm2'
                     ? sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5)
@@ -525,7 +529,7 @@ class SRSService {
                     lastRecall: c.last_recall ?? null,
                 };
             });
-            await query.batchSetFsrsState(seeded, scope);
+            await cardProgressRows.batchSetFsrsState(seeded, scope);
             return seeded.length;
         }
 
@@ -538,7 +542,7 @@ class SRSService {
                     global_hash: c.global_hash,
                     level: intervalToLeitnerLevel(toInterval(c)),
                 }));
-                await query.batchSetLeitnerLevel(translated, scope);
+                await cardProgressRows.batchSetLeitnerLevel(translated, scope);
                 return translated.length;
             }
             if (to === 'sm2') {
@@ -546,7 +550,7 @@ class SRSService {
                     global_hash: c.global_hash,
                     sm2_reps: intervalToSm2Reps(toInterval(c)),
                 }));
-                await query.batchSetSm2Reps(translated, scope);
+                await cardProgressRows.batchSetSm2Reps(translated, scope);
                 return translated.length;
             }
         }
@@ -562,7 +566,7 @@ class SRSService {
     } = {}) {
         const scope = this._scope(scopeArg);
         const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const result = await query.getDueFlashcards({
+        const result = await sessionRows.getDue({
             algorithm, folder, document, deck, tags, maxNew, minPriority,
             readDocuments: readGate?.documents ?? null,
             readExcludeCards: readGate?.excludeCards ?? null,

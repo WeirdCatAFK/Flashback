@@ -16,7 +16,7 @@ import cardHealth, {
     plainText,
     FLAG_KINDS,
     PRESENTATION,
-} from '../src/api/access/orchestration/cardHealth.js';
+} from '../src/api/access/modules/cardHealth.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 

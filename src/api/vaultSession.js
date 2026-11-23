@@ -4,12 +4,12 @@ import { sealTools, sealEmitter } from "./seal/seal.js";
 import * as config from "./access/primitives/config.js";
 import { closeDatabase } from "./access/primitives/database.js";
 import { ensureManifest } from "./access/primitives/vault.js";
-import query from "./access/resources/query.js";
+import * as nodeRows from './access/resources/db/nodes.js';
 import Files from "./access/resources/files.js";
-import Decks from "./access/orchestration/decks.js";
-import cardHealth from "./access/orchestration/cardHealth.js";
-import mcpReader from "./access/orchestration/mcpReader.js";
-import highlights from "./access/orchestration/highlights.js";
+import Decks from "./access/modules/decks.js";
+import cardHealth from "./access/modules/cardHealth.js";
+import mcpReader from "./access/modules/mcpReader.js";
+import highlights from "./access/modules/highlights.js";
 import storage from "./access/primitives/storage.js";
 
 let switching = false;
@@ -19,7 +19,7 @@ export function isSwitching() {
 }
 
 async function resetVaultScopedCaches() {
-    await query.onVaultOpened();
+    await nodeRows.onVaultOpened();
     await cardHealth.onVaultOpened();
     await mcpReader.onVaultOpened();
     storage.onVaultOpened();

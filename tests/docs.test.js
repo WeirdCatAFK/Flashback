@@ -2,13 +2,17 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import crypto from 'crypto';
-import Documents from '../src/api/access/orchestration/documents.js';
+import Documents from '../src/api/access/modules/documents.js';
 import db from '../src/api/access/primitives/database.js';
 import fs from 'fs';
 import validate from '../src/api/config/validate.js';
 import AdmZip from 'adm-zip';
 import { sealTools, sealEmitter } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
+import * as documentRows from '../src/api/access/resources/db/documents.js';
+import * as flashcardRows from '../src/api/access/resources/db/flashcards.js';
+import * as linkRows from '../src/api/access/resources/db/links.js';
+import * as nodeRows from '../src/api/access/resources/db/nodes.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -839,9 +843,9 @@ describe('Documents Orchestrator Integration Tests', () => {
             const content = `# Source\n\nSee also [target](flashback://${targetHash}).`;
             await docs.updateFile(sourceRelPath, content, null);
 
-            const sourceDoc = await docs.query.getDocumentByPath(sourceRelPath);
-            const targetDoc = await docs.query.getDocumentByHash(targetHash);
-            const linkTypeId = (await docs.query._typeIds()).linkConnTypeId;
+            const sourceDoc = await documentRows.getByPath(sourceRelPath);
+            const targetDoc = await documentRows.getByHash(targetHash);
+            const linkTypeId = (await nodeRows.typeIds()).linkConnTypeId;
 
             const conn = await db.prepare(
                 'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
@@ -862,16 +866,16 @@ describe('Documents Orchestrator Integration Tests', () => {
             const content = `# Source\n\nSee [unknown](flashback://${unknownHash}).`;
             await docs.updateFile(sourceRelPath, content, null);
 
-            const pending = await docs.query.getPendingLinksForTarget(unknownHash);
+            const pending = await linkRows.getPendingForTarget(unknownHash);
             assert.equal(pending.length, 1, 'Unresolved link should land in DocumentLinks queue');
             assert.equal(pending[0].source_hash, sourceHash);
         });
 
         it('removes a link Connection when the link is removed from the file', async () => {
             await docs.updateFile(sourceRelPath, `See [target](flashback://${targetHash}).`, null);
-            const sourceDoc = await docs.query.getDocumentByPath(sourceRelPath);
-            const targetDoc = await docs.query.getDocumentByHash(targetHash);
-            const linkTypeId = (await docs.query._typeIds()).linkConnTypeId;
+            const sourceDoc = await documentRows.getByPath(sourceRelPath);
+            const targetDoc = await documentRows.getByHash(targetHash);
+            const linkTypeId = (await nodeRows.typeIds()).linkConnTypeId;
             const connBefore = await db.prepare(
                 'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
             ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
@@ -962,8 +966,8 @@ describe('Documents Orchestrator Integration Tests', () => {
             );
 
             assert.equal(sidecarCards().length, before, 'the sidecar must be untouched');
-            const inDb = await docs.query.getFlashcardsByDocument(
-                (await docs.query.getDocumentByPath(DOC)).id, 'owner');
+            const inDb = await flashcardRows.getByDocument(
+                (await documentRows.getByPath(DOC)).id, 'owner');
             assert.equal(inDb.length, before, 'the index must be untouched');
         });
 

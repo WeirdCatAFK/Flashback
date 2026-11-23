@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import multer from 'multer';
-import Subscriptions from '../access/orchestration/subscriptions.js';
-import query from '../access/resources/query.js';
+import Subscriptions from '../access/modules/subscriptions.js';
+import * as subscriptionRows from '../access/resources/db/subscriptions.js';
 
 const router = Router();
 const subs = new Subscriptions();
@@ -18,7 +18,7 @@ router.post('/import', upload.single('file'), catchError(async (req, res) => {
 }));
 
 router.get('/:magazineId', catchError(async (req, res) => {
-    const sub = await query.getSubscription(req.params.magazineId);
+    const sub = await subscriptionRows.get(req.params.magazineId);
     if (!sub) return res.status(404).json({ error: 'Subscription not found' });
     res.json(sub);
 }));

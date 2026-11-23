@@ -2,7 +2,14 @@ import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import Files from '../resources/files.js';
-import query from '../resources/query.js';
+import * as categoryRows from '../resources/db/categories.js';
+import * as documentRows from '../resources/db/documents.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as folderRows from '../resources/db/folders.js';
+import * as linkRows from '../resources/db/links.js';
+import * as mediaRows from '../resources/db/media.js';
+import * as tagRows from '../resources/db/tags.js';
+import * as vaultRows from '../resources/db/vault.js';
 import Documents from './documents.js';
 import Decks from './decks.js';
 import { sealEmitter, sealTools } from '../../seal/seal.js';
@@ -14,7 +21,6 @@ const depth = p => norm(p).split('/').length;
 export default class Doctor {
     constructor() {
         this.files = new Files();
-        this.query = query;
         this.documents = new Documents();
         this.decks = new Decks();
     }
@@ -22,10 +28,10 @@ export default class Doctor {
     async checkIndex() {
         await sealEmitter.flushEdits();
 
-        const integrity = await this.query.integrityCheck();
+        const integrity = await vaultRows.integrityCheck();
         const walk = this.files.walkWorkspace();
-        const dbDocs = await this.query.getAllDocuments();
-        const dbFolders = await this.query.getAllFolders();
+        const dbDocs = await documentRows.getAll();
+        const dbFolders = await folderRows.getAll();
 
         const walkFolderByPath = new Map(walk.folders.map(f => [norm(f.relPath), f]));
         const dbFolderPaths = new Set(dbFolders.map(f => norm(f.relative_path)).filter(p => p !== ''));
@@ -77,7 +83,7 @@ export default class Doctor {
             untracked: walk.strayItems,
         };
 
-        const dbMedia = await this.query.getAllMedia();
+        const dbMedia = await mediaRows.getAll();
         const missingOnDisk = dbMedia.filter(m => !fs.existsSync(m.absolute_path)).map(m => m.relative_path);
         const dbMediaAbs = new Set(dbMedia.map(m => norm(m.absolute_path)));
         const unregistered = [];
@@ -101,9 +107,9 @@ export default class Doctor {
             counts: {
                 documents: dbDocs.length,
                 folders: Math.max(0, dbFolders.length - 1),
-                flashcards: await this.query.getFlashcardCount(),
-                standaloneCards: await this.query.getStandaloneCardCount(),
-                pendingLinks: await this.query.getPendingLinkCount(),
+                flashcards: await flashcardRows.getCount(),
+                standaloneCards: await flashcardRows.getStandaloneCount(),
+                pendingLinks: await linkRows.getPendingCount(),
             },
             generatedAt: new Date().toISOString(),
         };
@@ -113,7 +119,7 @@ export default class Doctor {
         const reasons = [];
         if (meta.globalHash && meta.globalHash !== dbDoc.global_hash) reasons.push('hashChanged');
 
-        const dbCards = await this.query.getFlashcardsByDocument(dbDoc.id, OWNER_SCOPE);
+        const dbCards = await flashcardRows.getByDocument(dbDoc.id, OWNER_SCOPE);
         const dbByHash = new Map(dbCards.map(c => [c.global_hash, c]));
         const metaCards = Array.isArray(meta.flashcards) ? meta.flashcards : [];
 
@@ -122,7 +128,7 @@ export default class Doctor {
             reasons.push('cardSetChanged');
         }
 
-        const dbTags = new Set(await this.query.getDirectTagNames(dbDoc.node_id));
+        const dbTags = new Set(await tagRows.getDirectNames(dbDoc.node_id));
         const metaTags = new Set(meta.tags ?? []);
         if (dbTags.size !== metaTags.size || [...metaTags].some(t => !dbTags.has(t))) {
             reasons.push('tagsChanged');
@@ -184,7 +190,7 @@ export default class Doctor {
         }
         for (const relPath of report.documents.orphanedInDb) {
             try {
-                if (await this.query.getDocumentByPath(relPath)) {
+                if (await documentRows.getByPath(relPath)) {
                     await this.documents.removeFromIndex(relPath, false);
                     actions.documentsRemoved++;
                 }
@@ -194,7 +200,7 @@ export default class Doctor {
         }
 
         for (const relPath of report.media.missingOnDisk) {
-            await this.query.deleteMediaByAbsPath(this.files.safePath(relPath));
+            await mediaRows.deleteByAbsPath(this.files.safePath(relPath));
             actions.mediaRowsRemoved++;
         }
         for (const relPath of report.media.unregistered) {
@@ -231,7 +237,7 @@ export default class Doctor {
 
         await this._ensureCategories(walk, warnings);
 
-        await this.query.wipeDerivedContent();
+        await vaultRows.wipeDerivedContent();
 
         await this.documents.indexFolder('');
         let foldersIndexed = 0;
@@ -281,7 +287,7 @@ export default class Doctor {
             summary: {
                 foldersIndexed,
                 documentsIndexed,
-                flashcards: await this.query.getFlashcardCount(),
+                flashcards: await flashcardRows.getCount(),
                 decks: deckResult.decks,
                 standaloneCardsRestored: deckResult.restoredCards,
                 mediaRegistered,
@@ -303,9 +309,9 @@ export default class Doctor {
             }
         }
         for (const name of wanted) {
-            if (!await this.query.getCategoryByName(name)) {
+            if (!await categoryRows.getByName(name)) {
                 try {
-                    await this.query.insertCategory({ name, priority: 1, description: 'Recovered by Vault Doctor' });
+                    await categoryRows.insert({ name, priority: 1, description: 'Recovered by Vault Doctor' });
                 } catch (err) {
                     warnings.push(`Could not recreate category "${name}": ${err.message}`);
                 }
@@ -317,7 +323,7 @@ export default class Doctor {
     async _registerMediaFile(relPath) {
         const abs = this.files.safePath(relPath);
         const hash = crypto.createHash('sha256').update(fs.readFileSync(abs)).digest('hex');
-        await this.query.insertMedia({
+        await mediaRows.insert({
             hash,
             name: path.basename(relPath),
             relativePath: relPath,

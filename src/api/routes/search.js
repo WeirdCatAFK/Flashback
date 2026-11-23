@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import path from 'path';
-import query from '../access/resources/query.js';
+import * as searchRows from '../access/resources/db/search.js';
 import { currentScope } from '../requestContext.js';
 
 const router = Router();
@@ -17,7 +17,7 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'q or at least one filter required' });
     }
 
-    const results = await query.superSearch({
+    const results = await searchRows.superSearch({
         q: q || null,
         tag: tag || null,
         deck: deck || null,

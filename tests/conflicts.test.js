@@ -17,10 +17,11 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
-const { default: highlightsService } = await import('../src/api/access/orchestration/highlights.js');
-const { default: Decks } = await import('../src/api/access/orchestration/decks.js');
-const { default: query } = await import('../src/api/access/resources/query.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
+const { default: highlightsService } = await import('../src/api/access/modules/highlights.js');
+const { default: Decks } = await import('../src/api/access/modules/decks.js');
+const deckRows = await import('../src/api/access/resources/db/decks.js');
+const documentRows = await import('../src/api/access/resources/db/documents.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const { PathLock, isIdle } = await import('../src/api/access/resources/pathLock.js');
 const { sealTools, sealEmitter } = await import('../src/api/seal/seal.js');
@@ -240,7 +241,7 @@ describe('Concurrent writes', () => {
             assert.ok(oldExists !== newExists, 'the document must be at exactly one of the two paths');
 
             const rel = newExists ? movedRel : docRel;
-            const row = await query.getDocumentByPath(rel);
+            const row = await documentRows.getByPath(rel);
             assert.ok(row, `the index must know the document at ${rel}`);
             assert.ok(fs.existsSync(row.absolute_path), 'the indexed path must exist on disk');
             assert.ok(fs.existsSync(docs.files.safePath(rel + '.flashback')),
@@ -283,14 +284,8 @@ describe('Concurrent writes', () => {
             const good = await decks.createStandaloneCard({ frontText: 'survivor', backText: 'b' });
             const bad  = await decks.createStandaloneCard({ frontText: 'doomed',   backText: 'b' });
 
-            const realInsert = query.insertDeckEntry.bind(query);
-            query.insertDeckEntry = async (args) => {
-                if (args.cardHash === bad) {
-                    await tick(1);
-                    throw new Error('simulated DB failure');
-                }
-                return realInsert(args);
-            };
+            await db.exec(`CREATE TEMP TRIGGER fail_doomed_entry BEFORE INSERT ON DeckEntries
+                WHEN NEW.card_hash = '${bad}' BEGIN SELECT RAISE(ABORT, 'simulated DB failure'); END`);
 
             let settled;
             try {
@@ -299,7 +294,7 @@ describe('Concurrent writes', () => {
                     decks.addEntry(deckHash, { cardHash: good }),
                 ]);
             } finally {
-                query.insertDeckEntry = realInsert;
+                await db.exec('DROP TRIGGER IF EXISTS fail_doomed_entry');
             }
 
             assert.equal(settled[0].status, 'rejected', 'the doomed add must still fail');
@@ -311,8 +306,8 @@ describe('Concurrent writes', () => {
             assert.deepEqual(hashes, [good],
                 "the failed add's rollback must not erase the successful add from the deck file");
 
-            const row = await query.getDeckByHash(deckHash);
-            const inDb = (await query.getDeckEntries(row.id, 'owner')).map(e => e.card_hash);
+            const row = await deckRows.getByHash(deckHash);
+            const inDb = (await deckRows.getEntries(row.id, 'owner')).map(e => e.card_hash);
             assert.deepEqual(inDb, [good],
                 'the canonical file and the index must agree about what the deck holds');
         });

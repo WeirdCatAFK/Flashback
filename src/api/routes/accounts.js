@@ -5,9 +5,9 @@ import {
 } from '../access/primitives/accounts.js';
 import { ROLES, isRole, atLeast } from '../../shared/roles.js';
 import { getMaxAccounts } from '../access/primitives/config.js';
-import SRS from '../access/orchestration/srs.js';
-import Documents from '../access/orchestration/documents.js';
-import diary from '../access/orchestration/diary.js';
+import SRS from '../access/modules/srs.js';
+import Documents from '../access/modules/documents.js';
+import diary from '../access/modules/diary.js';
 import { vaultCompleteness } from './srs.js';
 import { OWNER_SCOPE } from '../requestContext.js';
 

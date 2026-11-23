@@ -1,5 +1,8 @@
 import crypto from 'crypto';
-import query from '../resources/query.js';
+import * as cardHealthRows from '../resources/db/cardHealth.js';
+import * as cardProgressRows from '../resources/db/cardProgress.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as reviewRows from '../resources/db/reviews.js';
 import { currentScope, OWNER_SCOPE } from '../../requestContext.js';
 import * as fsrs from './fsrs.js';
 
@@ -425,7 +428,7 @@ class CardHealthService {
         if (cached && now - cached.at < SESSION_CACHE_MS) return cached.index;
 
         const since = new Date(now - SESSION_WINDOW_DAYS * DAY_MS).toISOString();
-        const index = segmentSessions(await query.getRecentReviewSessionRows(since, scope));
+        const index = segmentSessions(await reviewRows.getRecentSessionRows(since, scope));
         this._sessionCache.set(scope, { at: now, index });
         return index;
     }
@@ -435,7 +438,7 @@ class CardHealthService {
         if (this._baselineCache && now - this._baselineCache.at < SESSION_CACHE_MS) {
             return this._baselineCache.medianTokens;
         }
-        const samples = await query.getFlashcardAnswerSamples();
+        const samples = await flashcardRows.getAnswerSamples();
         const counts = samples
             .map(s => analyzeStructure({
                 cardType: s.card_type, backText: answerBody(s), customHtml: s.custom_html,
@@ -460,26 +463,26 @@ class CardHealthService {
 
     async buildContext(hash, scopeArg) {
         const scope = this._scope(scopeArg);
-        const content = await query.getFlashcardContentByHash(hash, scope);
+        const content = await flashcardRows.getContentByHash(hash, scope);
         if (!content) return null;
 
         const fingerprint = this._fingerprint(content);
-        let health = await query.getCardHealth(content.id, scope);
+        let health = await cardHealthRows.get(content.id, scope);
 
         if (health && health.content_fingerprint && health.content_fingerprint !== fingerprint) {
-            await query.deleteCardFlags(content.id, { includeDismissed: true }, scope);
-            await query.upsertCardHealth(content.id, {
+            await cardHealthRows.deleteFlags(content.id, { includeDismissed: true }, scope);
+            await cardHealthRows.upsert(content.id, {
                 epochAt: new Date().toISOString(), epochReason: 'edit', contentFingerprint: fingerprint,
             }, scope);
-            health = await query.getCardHealth(content.id, scope);
+            health = await cardHealthRows.get(content.id, scope);
         } else if (!health) {
-            await query.upsertCardHealth(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint }, scope);
-            health = await query.getCardHealth(content.id, scope);
+            await cardHealthRows.upsert(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint }, scope);
+            health = await cardHealthRows.get(content.id, scope);
         } else if (health.content_fingerprint !== fingerprint) {
-            await query.setCardHealthFingerprint(content.id, fingerprint, scope);
+            await cardHealthRows.setFingerprint(content.id, fingerprint, scope);
         }
 
-        const logs = await query.getFlashcardReviewHistory(content.id, scope);
+        const logs = await reviewRows.getCardHistory(content.id, scope);
         const reviews = buildReviewRecords(logs, {
             epochAt: health?.epoch_at ?? null,
             sessionIndex: await this._sessionIndex(scope),
@@ -504,7 +507,7 @@ class CardHealthService {
             trajectory: classifyTrajectory(reviews),
             repeatFailure: hasWithinSessionRepeatFailure(reviews),
             lastReviewId: reviews.length ? reviews[reviews.length - 1].id : null,
-            level: (await query.getFlashcardSrsStateByHash(hash, scope))?.level ?? 0,
+            level: (await cardProgressRows.getSrsStateByHash(hash, scope))?.level ?? 0,
         };
     }
 
@@ -516,10 +519,10 @@ class CardHealthService {
         const raisedKinds = raised.map(f => f.kind);
 
         const stale = FLAG_KINDS.filter(k => !raisedKinds.includes(k));
-        if (stale.length) await query.deleteCardFlags(ctx.cardId, { kinds: stale }, ctx.scope);
+        if (stale.length) await cardHealthRows.deleteFlags(ctx.cardId, { kinds: stale }, ctx.scope);
 
         for (const flag of raised) {
-            await query.upsertCardFlag({
+            await cardHealthRows.upsertFlag({
                 flashcardId: ctx.cardId,
                 kind: flag.kind,
                 confidence: flag.confidence,
@@ -538,7 +541,7 @@ class CardHealthService {
         const failed = rating != null ? rating <= 1 : outcome === 0;
         if (failed) return await this.evaluate(hash, scope);
 
-        const state = await query.getFlashcardSrsStateByHash(hash, scope);
+        const state = await cardProgressRows.getSrsStateByHash(hash, scope);
         if (!state) return [];
         if ((state.level ?? 0) >= RECOVERY_LEVEL) await this._address(state.id, 'recovered', scope);
 
@@ -546,10 +549,10 @@ class CardHealthService {
     }
 
     async onCardEdited(hash) {
-        const content = await query.getFlashcardContentByHash(hash, OWNER_SCOPE);
+        const content = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
         if (!content) return;
-        await query.deleteAllCardFlags(content.id);
-        await query.resetAllCardHealth(content.id, {
+        await cardHealthRows.deleteAllFlags(content.id);
+        await cardHealthRows.resetAll(content.id, {
             epochAt: new Date().toISOString(),
             epochReason: 'edit',
             contentFingerprint: this._fingerprint(content),
@@ -559,16 +562,16 @@ class CardHealthService {
     async dismiss(hash, kind, scopeArg) {
         if (!FLAG_KINDS.includes(kind)) throw new Error(`Unknown flag kind: ${kind}`);
         const scope = this._scope(scopeArg);
-        const content = await query.getFlashcardContentByHash(hash, scope);
+        const content = await flashcardRows.getContentByHash(hash, scope);
         if (!content) throw new Error(`Card not found: ${hash}`);
-        const changed = await query.dismissCardFlag(content.id, kind, scope);
+        const changed = await cardHealthRows.dismissFlag(content.id, kind, scope);
         if (changed) await this._setEpoch(content.id, 'dismissed', scope);
         return changed > 0;
     }
 
     async _setEpoch(cardId, reason, scope) {
-        const existing = await query.getCardHealth(cardId, scope);
-        await query.upsertCardHealth(cardId, {
+        const existing = await cardHealthRows.get(cardId, scope);
+        await cardHealthRows.upsert(cardId, {
             epochAt: new Date().toISOString(),
             epochReason: reason,
             contentFingerprint: existing?.content_fingerprint ?? null,
@@ -576,15 +579,15 @@ class CardHealthService {
     }
 
     async _address(cardId, reason, scope) {
-        await query.deleteCardFlags(cardId, {}, scope);
+        await cardHealthRows.deleteFlags(cardId, {}, scope);
         await this._setEpoch(cardId, reason, scope);
     }
 
     async getFlags(hash, scopeArg) {
         const scope = this._scope(scopeArg);
-        const content = await query.getFlashcardContentByHash(hash, scope);
+        const content = await flashcardRows.getContentByHash(hash, scope);
         if (!content) return [];
-        return (await query.getCardFlags(content.id, {}, scope)).map(row => {
+        return (await cardHealthRows.getFlags(content.id, {}, scope)).map(row => {
             const evidence = row.evidence_json ? JSON.parse(row.evidence_json) : {};
             return {
                 id: `${row.kind}:${row.card_hash}`,

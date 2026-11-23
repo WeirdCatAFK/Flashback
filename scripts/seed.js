@@ -58,9 +58,11 @@ console.log(`\nUsing data path: ${appDataPath}\n`);
 
 const { default: validate }  = await import('../src/api/config/validate.js');
 const { sealTools }          = await import('../src/api/seal/seal.js');
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
-const { default: Decks }     = await import('../src/api/access/orchestration/decks.js');
-const { default: query }     = await import('../src/api/access/resources/query.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
+const { default: Decks }     = await import('../src/api/access/modules/decks.js');
+const cardProgressRows = await import('../src/api/access/resources/db/cardProgress.js');
+const flashcardRows = await import('../src/api/access/resources/db/flashcards.js');
+const reviewRows = await import('../src/api/access/resources/db/reviews.js');
 
 if (!await validate()) {
     console.error('Validation failed — check your data directory.');
@@ -891,12 +893,12 @@ let reviewsAdded = 0;
 for (const { cards: planCards, targetLevel } of reviewPlan) {
     const sessions = sessionsByLevel[targetLevel];
     for (const fc of planCards) {
-        const dbCard = query.getFlashcardByHash(fc.globalHash);
+        const dbCard = flashcardRows.getByHash(fc.globalHash);
         if (!dbCard) continue;
 
         for (const s of sessions) {
             try {
-                query.insertReviewLog({
+                reviewRows.insertLog({
                     flashcardId: dbCard.id,
                     timestamp:   pastDate(s.daysAgo),
                     outcome:     s.outcome,
@@ -908,7 +910,7 @@ for (const { cards: planCards, targetLevel } of reviewPlan) {
         }
 
         const last = sessions[sessions.length - 1];
-        query.updateFlashcardReview(dbCard.id, pastDate(last.daysAgo), targetLevel);
+        cardProgressRows.updateReview(dbCard.id, pastDate(last.daysAgo), targetLevel);
     }
 }
 

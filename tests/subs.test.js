@@ -5,7 +5,7 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import AdmZip from 'adm-zip';
 import db from '../src/api/access/primitives/database.js';
-import Subscriptions from '../src/api/access/orchestration/subscriptions.js';
+import Subscriptions from '../src/api/access/modules/subscriptions.js';
 import validate from '../src/api/config/validate.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';

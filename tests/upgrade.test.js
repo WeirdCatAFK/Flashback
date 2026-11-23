@@ -27,20 +27,20 @@ writeLegacyConfig();
 
 const config = await import('../src/api/access/primitives/config.js');
 const { openVault } = await import('../src/api/vaultSession.js');
-const { closeDatabase } = await import('../src/api/access/primitives/database.js');
-const { default: query } = await import('../src/api/access/resources/query.js');
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
+const { default: db, closeDatabase } = await import('../src/api/access/primitives/database.js');
+const vaultRows = await import('../src/api/access/resources/db/vault.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
 const { sealTools } = await import('../src/api/seal/seal.js');
 
 const docs = new Documents();
 
 async function snapshot() {
     return {
-        schemaVersion: await query.getSchemaVersion(),
-        canonicalVersion: Math.max(0, ...await query.getCanonicalVersions(), 0),
-        documents: (await await query.db.prepare('SELECT name FROM Documents ORDER BY name').all()).map((r) => r.name),
-        cards: (await query.db.prepare('SELECT COUNT(*) AS n FROM Flashcards').get()).n,
-        categories: (await query.db.prepare('SELECT COUNT(*) AS n FROM PedagogicalCategories').get()).n,
+        schemaVersion: await vaultRows.getSchemaVersion(),
+        canonicalVersion: Math.max(0, ...await vaultRows.getCanonicalVersions(), 0),
+        documents: (await await db.prepare('SELECT name FROM Documents ORDER BY name').all()).map((r) => r.name),
+        cards: (await db.prepare('SELECT COUNT(*) AS n FROM Flashcards').get()).n,
+        categories: (await db.prepare('SELECT COUNT(*) AS n FROM PedagogicalCategories').get()).n,
         commits: (await sealTools.log(200)).map((c) => c.oid),
     };
 }

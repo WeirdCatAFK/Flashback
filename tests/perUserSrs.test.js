@@ -17,12 +17,15 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
-const { default: Doctor } = await import('../src/api/access/orchestration/doctor.js');
-const { default: SRS } = await import('../src/api/access/orchestration/srs.js');
-const { default: diary } = await import('../src/api/access/orchestration/diary.js');
-const { default: cardHealth } = await import('../src/api/access/orchestration/cardHealth.js');
-const { default: query } = await import('../src/api/access/resources/query.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
+const { default: Doctor } = await import('../src/api/access/modules/doctor.js');
+const { default: SRS } = await import('../src/api/access/modules/srs.js');
+const { default: diary } = await import('../src/api/access/modules/diary.js');
+const { default: cardHealth } = await import('../src/api/access/modules/cardHealth.js');
+const cardHealthRows = await import('../src/api/access/resources/db/cardHealth.js');
+const cardProgressRows = await import('../src/api/access/resources/db/cardProgress.js');
+const flashcardRows = await import('../src/api/access/resources/db/flashcards.js');
+const reviewRows = await import('../src/api/access/resources/db/reviews.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
 const { getVaultId, ensureManifest } = await import('../src/api/access/primitives/vault.js');
@@ -40,7 +43,7 @@ const docRel = path.join(WORKSPACE_ROOT, 'shared.md');
 const asAccount = (account, fn) => runWithAccount(account, fn);
 const asAuthor = (author, fn) => runWithAccount(author, fn);
 
-const ownerLevel = async (hash) => (await query.getFlashcardSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
+const ownerLevel = async (hash) => (await cardProgressRows.getSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
 const sidecarCard = (hash) => docs.files.getMetadata(docRel).flashcards.find(c => c.globalHash === hash);
 
 const DOOMED_AFTER_010 = [
@@ -90,14 +93,14 @@ describe('Per-user SRS', () => {
             await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 1));
 
             assert.equal(await ownerLevel(cardA), 4, "the author's own grade");
-            const ritaState = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            const ritaState = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
             assert.equal(ritaState.level, 1, "the reader's own grade, on the same card");
         });
 
         it('gives a card nobody has reviewed the same shape as one with no row', async () => {
             assert.equal(await ownerLevel(cardB), 0);
-            assert.equal(await query.getCardProgress(
-                (await query.getFlashcardByHash(cardB)).id, rita.id,
+            assert.equal(await cardProgressRows.get(
+                (await flashcardRows.getByHash(cardB)).id, rita.id,
             ), null, 'no row for a card this reader has never seen');
         });
 
@@ -138,7 +141,7 @@ describe('Per-user SRS', () => {
         });
 
         it('records the reader\'s schedule in the progress store, not the accounts store', async () => {
-            const state = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            const state = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
             assert.equal(state.level, 2, "the reader's own schedule is current");
 
             const snap = await accounts.getAccountProgress(getVaultId(), rita.id, cardA);
@@ -159,7 +162,7 @@ describe('Per-user SRS', () => {
             await asAuthor(author, () => doctor.rebuildIndex());
 
             assert.equal(await ownerLevel(cardA), 4, "author's schedule back from the sidecar");
-            const ritaState = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            const ritaState = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
             assert.equal(ritaState.level, 2, "reader's schedule re-projected from AccountProgress");
 
             assert.equal((await accounts.listAccountProgress(getVaultId())).length, beforeSnapshots,
@@ -167,7 +170,7 @@ describe('Per-user SRS', () => {
         });
 
         it('re-seeds the reader\'s SM-2 ease, which review logs no longer carry', async () => {
-            const state = await query.getFlashcardSrsStateByHash(cardA, rita.id);
+            const state = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
             assert.equal(state.ease_factor, 2.5);
         });
     });
@@ -175,16 +178,16 @@ describe('Per-user SRS', () => {
 
     describe('everything derived from a review is per-account too', () => {
         it('fits FSRS weights per person, not per vault', async () => {
-            await query.setFsrsWeights(JSON.stringify([0.1, 0.2, 0.3]), 42, rita.id);
+            await reviewRows.setFsrsWeights(JSON.stringify([0.1, 0.2, 0.3]), 42, rita.id);
 
-            assert.deepEqual((await query.getFsrsWeights(rita.id)).weights, [0.1, 0.2, 0.3]);
-            assert.equal(await query.getFsrsWeights(OWNER_SCOPE), null,
+            assert.deepEqual((await reviewRows.getFsrsWeights(rita.id)).weights, [0.1, 0.2, 0.3]);
+            assert.equal(await reviewRows.getFsrsWeights(OWNER_SCOPE), null,
                 "the author is still on the published defaults");
         });
 
         it('raises a health flag against one person\'s evidence only', async () => {
-            const cardId = (await query.getFlashcardByHash(cardA)).id;
-            await query.upsertCardFlag({
+            const cardId = (await flashcardRows.getByHash(cardA)).id;
+            await cardHealthRows.upsertFlag({
                 flashcardId: cardId, kind: 'mouthful', confidence: 'high',
                 score: 0.9, evidence: {}, levelAtDetection: 2, reviewLogId: null,
             }, rita.id);
@@ -194,8 +197,8 @@ describe('Per-user SRS', () => {
         });
 
         it('clears every account\'s flags when the card itself is rewritten', async () => {
-            const cardId = (await query.getFlashcardByHash(cardA)).id;
-            await query.upsertCardFlag({
+            const cardId = (await flashcardRows.getByHash(cardA)).id;
+            await cardHealthRows.upsertFlag({
                 flashcardId: cardId, kind: 'mouthful', confidence: 'high',
                 score: 0.9, evidence: {}, levelAtDetection: 4, reviewLogId: null,
             }, OWNER_SCOPE);
@@ -245,13 +248,13 @@ describe('Per-user SRS', () => {
             const strangerAuthorId = crypto.randomUUID();
             assert.notEqual(strangerAuthorId, author.id);
 
-            const stillMine = await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE);
+            const stillMine = await cardProgressRows.getSrsStateByHash(cardA, OWNER_SCOPE);
             assert.ok(stillMine.level > 0,
                 'owner progress resolves through the sentinel, not through any account id');
             assert.notEqual(sidecarCard(cardA).level ?? 0, stillMine.level,
                 'the frozen file has drifted from the live schedule, as designed');
 
-            const orphaned = await query.getFlashcardSrsStateByHash(cardA, strangerAuthorId);
+            const orphaned = await cardProgressRows.getSrsStateByHash(cardA, strangerAuthorId);
             assert.equal(orphaned.level, 0,
                 'and an unknown account simply reads as never-having-studied');
         });
@@ -326,7 +329,7 @@ describe('Per-user SRS', () => {
         });
 
         it('still records the reader\'s own progress while doing so', async () => {
-            const state = await query.getFlashcardSrsStateByHash(cardB, rita.id);
+            const state = await cardProgressRows.getSrsStateByHash(cardB, rita.id);
             assert.equal(state.level, 5);
         });
 
@@ -337,12 +340,12 @@ describe('Per-user SRS', () => {
             try {
                 await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
                 assert.equal(
-                    (await query.getFlashcardSrsStateByHash(cardA, rita.id)).level, 4,
+                    (await cardProgressRows.getSrsStateByHash(cardA, rita.id)).level, 4,
                     'the reader\'s review does not depend on the sidecar',
                 );
                 await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 6));
                 assert.equal(
-                    (await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE)).level, 6,
+                    (await cardProgressRows.getSrsStateByHash(cardA, OWNER_SCOPE)).level, 6,
                     'and neither does the author\'s',
                 );
             } finally {

@@ -2,7 +2,7 @@ import git from "isomorphic-git";
 import fs from "fs";
 import path from "path";
 import { getVaultPath, get as getConfig } from "../primitives/config.js";
-import query from "../resources/query.js";
+import * as statisticsRows from '../resources/db/statistics.js';
 import { currentScope, isOwnerScope } from "../../requestContext.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
@@ -79,7 +79,7 @@ class Diary {
 
     async _streakAsOf(date, scope) {
         const DAY = 86400000;
-        const days = (await query.getReviewActivityDays(scope)).filter(d => d <= date);
+        const days = (await statisticsRows.getReviewActivityDays(scope)).filter(d => d <= date);
         const daySet = new Set(days);
         const dateMs = Date.parse(`${date}T00:00:00Z`);
         const asStr = (ms) => new Date(ms).toISOString().slice(0, 10);
@@ -101,23 +101,23 @@ class Diary {
     async buildSummary(date, scopeArg) {
         const scope = this._scope(scopeArg);
         assertDate(date);
-        const totals = await query.getDayReviewTotals(date, scope);
+        const totals = await statisticsRows.getDayReviewTotals(date, scope);
         const reviews = totals?.reviews ?? 0;
         if (reviews === 0) return null;
 
         const failed = totals.failed ?? 0;
         const passRate = reviews > 0 ? (reviews - failed) / reviews : null;
 
-        const phase = await query.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date, scope);
+        const phase = await statisticsRows.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date, scope);
         const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
 
-        const byDeck = (await query.getDayByDeck(date, scope)).map(r => ({
+        const byDeck = (await statisticsRows.getDayByDeck(date, scope)).map(r => ({
             deck: r.deck, reviews: r.reviews, failed: r.failed ?? 0,
         }));
-        const byDocument = (await query.getDayByDocument(date, scope)).map(r => ({
+        const byDocument = (await statisticsRows.getDayByDocument(date, scope)).map(r => ({
             path: r.path ? r.path.replace(/\\/g, "/") : r.path, reviews: r.reviews,
         }));
-        const struggledCards = (await query.getDayStruggledCards(date, STRUGGLED_CAP, scope)).map(r => ({
+        const struggledCards = (await statisticsRows.getDayStruggledCards(date, STRUGGLED_CAP, scope)).map(r => ({
             globalHash: r.globalHash,
             front: r.front ?? "(custom card)",
             failCount: r.failCount,
@@ -130,7 +130,7 @@ class Diary {
             totals: {
                 reviews,
                 uniqueCards: totals.uniqueCards ?? 0,
-                newCards: await query.getDayNewCards(date, scope),
+                newCards: await statisticsRows.getDayNewCards(date, scope),
                 failed,
             },
             retention: {
@@ -162,7 +162,7 @@ class Diary {
 
     async rebuildAll(scopeArg) {
         const scope = this._scope(scopeArg);
-        const days = await query.getReviewActivityDays(scope);
+        const days = await statisticsRows.getReviewActivityDays(scope);
         let count = 0;
         for (const day of days) {
             const summary = await this.buildSummary(day, scope);

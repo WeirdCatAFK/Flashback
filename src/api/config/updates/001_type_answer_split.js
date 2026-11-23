@@ -1,3 +1,5 @@
+import * as flashcardRows from '../../access/resources/db/flashcards.js';
+
 export const version = 1;
 export const description = 'type_answer: move the compared answer from backText into answerText';
 
@@ -26,6 +28,6 @@ export function up(meta, kind) {
     return false;
 }
 
-export async function derived(query) {
-    return await query.backfillTypeAnswerAnswerText();
+export async function derived() {
+    return await flashcardRows.backfillTypeAnswerAnswerText();
 }

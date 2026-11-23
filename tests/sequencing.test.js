@@ -9,7 +9,7 @@ import {
     distance,
     feasibleLag,
     orderCards,
-} from '../src/api/access/orchestration/sequencing.js';
+} from '../src/api/access/modules/sequencing.js';
 
 let counter = 0;
 const card = (over = {}) => ({

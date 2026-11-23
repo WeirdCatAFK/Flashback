@@ -5,10 +5,16 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../src/api/config/validate.js';
-import Documents from '../src/api/access/orchestration/documents.js';
-import Decks from '../src/api/access/orchestration/decks.js';
+import Documents from '../src/api/access/modules/documents.js';
+import Decks from '../src/api/access/modules/decks.js';
 import db from '../src/api/access/primitives/database.js';
-import query from '../src/api/access/resources/query.js';
+import * as deckRows from '../src/api/access/resources/db/decks.js';
+import * as documentRows from '../src/api/access/resources/db/documents.js';
+import * as flashcardRows from '../src/api/access/resources/db/flashcards.js';
+import * as folderRows from '../src/api/access/resources/db/folders.js';
+import * as graphRows from '../src/api/access/resources/db/graph.js';
+import * as searchRows from '../src/api/access/resources/db/search.js';
+import * as tagRows from '../src/api/access/resources/db/tags.js';
 import { sealTools } from '../src/api/seal/seal.js';
 import { getWorkspacePath } from '../src/api/access/primitives/config.js';
 
@@ -60,10 +66,10 @@ describe('Tag propagation — correctness', () => {
 
         await docs.updateMetadata(folderPath, { tags: ['biology', 'science'] }, true);
 
-        const docEntity = await query.getDocumentByPath(path.join(subFolderPath, 'cells.md'));
+        const docEntity = await documentRows.getByPath(path.join(subFolderPath, 'cells.md'));
         assert.ok(docEntity, 'Document should exist');
 
-        const docInherited = await query.getInheritedTagNames(docEntity.node_id);
+        const docInherited = await tagRows.getInheritedNames(docEntity.node_id);
         assert.ok(docInherited.includes('biology'), 'Document should inherit "biology"');
         assert.ok(docInherited.includes('science'), 'Document should inherit "science"');
 
@@ -71,14 +77,14 @@ describe('Tag propagation — correctness', () => {
         assert.equal(flashcards.length, 3);
 
         for (const fc of flashcards) {
-            const inherited = await query.getInheritedTagNames(fc.node_id);
+            const inherited = await tagRows.getInheritedNames(fc.node_id);
             assert.ok(inherited.includes('biology'), `FC ${fc.node_id} should inherit "biology"`);
             assert.ok(inherited.includes('science'), `FC ${fc.node_id} should inherit "science"`);
         }
     });
 
     it('superSearch tag: filter finds flashcards via InheritedTags', async () => {
-        const results = await query.superSearch({ tag: 'biology', limit: 50 }, 'owner');
+        const results = await searchRows.superSearch({ tag: 'biology', limit: 50 }, 'owner');
         assert.ok(Array.isArray(results.flashcards));
         assert.ok(results.flashcards.length >= 3,
             `Should find ≥3 flashcards; got ${results.flashcards.length}`);
@@ -86,7 +92,7 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('graph edges include inherited tag edges for flashcards', async () => {
-        const { nodes, edges } = await query.getGraphData('owner');
+        const { nodes, edges } = await graphRows.getData('owner');
 
         const biologyTag = nodes.find(n => n.type === 'Tag' && n.label === 'biology');
         assert.ok(biologyTag, '"biology" tag node should be in graph');
@@ -114,19 +120,19 @@ describe('Tag propagation — correctness', () => {
 
         await docs.updateMetadata(histPath, { tags: ['history'] }, true);
 
-        const docBefore = await query.getDocumentByPath(path.join(blockedPath, 'knights.md'));
+        const docBefore = await documentRows.getByPath(path.join(blockedPath, 'knights.md'));
         const fcsBefore = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docBefore.id);
         for (const fc of fcsBefore) {
-            const tags = await query.getInheritedTagNames(fc.node_id);
+            const tags = await tagRows.getInheritedNames(fc.node_id);
             assert.ok(tags.includes('history'), 'Should have history before exclusion');
         }
 
         await docs.updateMetadata(blockedPath, { tags: [], excludedTags: ['history'] }, true);
 
-        const docAfter = await query.getDocumentByPath(path.join(blockedPath, 'knights.md'));
+        const docAfter = await documentRows.getByPath(path.join(blockedPath, 'knights.md'));
         const fcsAfter = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docAfter.id);
         for (const fc of fcsAfter) {
-            const tags = await query.getInheritedTagNames(fc.node_id);
+            const tags = await tagRows.getInheritedNames(fc.node_id);
             assert.ok(!tags.includes('history'),
                 `FC ${fc.node_id} should NOT have "history" after exclusion`);
         }
@@ -144,12 +150,12 @@ describe('Tag propagation — correctness', () => {
 
         await docs.updateMetadata(path.join(physPath, 'quantum.md'), { tags: ['quantum', 'physics'] }, false);
 
-        const docEntity = await query.getDocumentByPath(path.join(physPath, 'quantum.md'));
+        const docEntity = await documentRows.getByPath(path.join(physPath, 'quantum.md'));
         const flashcards = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
         assert.equal(flashcards.length, 4);
 
         for (const fc of flashcards) {
-            const inherited = await query.getInheritedTagNames(fc.node_id);
+            const inherited = await tagRows.getInheritedNames(fc.node_id);
             assert.ok(inherited.includes('quantum'), `FC ${fc.node_id} should inherit "quantum"`);
             assert.ok(inherited.includes('physics'), `FC ${fc.node_id} should inherit "physics"`);
         }
@@ -172,11 +178,11 @@ describe('Tag propagation — correctness', () => {
             vanillaData: { frontText: 'Q-late', backText: 'A-late' },
         });
 
-        const docEntity = await query.getDocumentByPath(docRel);
+        const docEntity = await documentRows.getByPath(docRel);
         const fc = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ? AND global_hash = ?')
             .get(docEntity.id, saved.globalHash);
         assert.ok(fc, 'card should be registered in the derived layer');
-        assert.ok((await query.getInheritedTagNames(fc.node_id)).includes('chemistry'),
+        assert.ok((await tagRows.getInheritedNames(fc.node_id)).includes('chemistry'),
             'card created after tagging should inherit "chemistry" immediately');
         console.log('  Late-created card inherited "chemistry"');
     });
@@ -196,10 +202,10 @@ describe('Tag propagation — correctness', () => {
             vanillaData: { frontText: 'Q-geo', backText: 'A-geo' },
         });
 
-        const docEntity = await query.getDocumentByPath(docRel);
+        const docEntity = await documentRows.getByPath(docRel);
         const fc = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ? AND global_hash = ?')
             .get(docEntity.id, saved.globalHash);
-        assert.ok((await query.getInheritedTagNames(fc.node_id)).includes('geology'),
+        assert.ok((await tagRows.getInheritedNames(fc.node_id)).includes('geology'),
             'card should inherit the folder tag through its document at creation');
         console.log('  Late-created card inherited folder tag "geology"');
     });
@@ -216,14 +222,14 @@ describe('Tag propagation — correctness', () => {
         });
         const docRel = path.join(folderRel, 'stars.md');
 
-        const docEntity = await query.getDocumentByPath(docRel);
-        assert.ok((await query.getInheritedTagNames(docEntity.node_id)).includes('astronomy'),
+        const docEntity = await documentRows.getByPath(docRel);
+        assert.ok((await tagRows.getInheritedNames(docEntity.node_id)).includes('astronomy'),
             'document imported into a tagged folder should inherit at creation');
 
         const flashcards = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
         assert.equal(flashcards.length, 2);
         for (const fc of flashcards) {
-            assert.ok((await query.getInheritedTagNames(fc.node_id)).includes('astronomy'),
+            assert.ok((await tagRows.getInheritedNames(fc.node_id)).includes('astronomy'),
                 'its sidecar cards should inherit too');
         }
         console.log('  Document + cards imported into tagged folder inherited "astronomy"');
@@ -237,16 +243,16 @@ describe('Tag propagation — correctness', () => {
         await docs.createFolder('Child', parentRel);
         const childRel = path.join(parentRel, 'Child');
 
-        const childFolder = await query.getFolderByPath(childRel);
-        assert.ok((await query.getInheritedTagNames(childFolder.node_id)).includes('literature'),
+        const childFolder = await folderRows.getByPath(childRel);
+        assert.ok((await tagRows.getInheritedNames(childFolder.node_id)).includes('literature'),
             'subfolder created under a tagged folder should inherit at creation');
 
         await docs.importFile('poems.md', childRel, Buffer.from('# Poems'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
         });
-        const grandchild = await query.getDocumentByPath(path.join(childRel, 'poems.md'));
-        assert.ok((await query.getInheritedTagNames(grandchild.node_id)).includes('literature'),
+        const grandchild = await documentRows.getByPath(path.join(childRel, 'poems.md'));
+        assert.ok((await tagRows.getInheritedNames(grandchild.node_id)).includes('literature'),
             'a document under the new subfolder should inherit too');
         console.log('  Subfolder and its contents inherited "literature"');
     });
@@ -264,12 +270,12 @@ describe('Tag propagation — correctness', () => {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
         });
-        const docEntity = await query.getDocumentByPath(path.join(shieldedRel, 'quiet.md'));
-        assert.ok(!(await query.getInheritedTagNames(docEntity.node_id)).includes('blocked-tag'),
+        const docEntity = await documentRows.getByPath(path.join(shieldedRel, 'quiet.md'));
+        assert.ok(!(await tagRows.getInheritedNames(docEntity.node_id)).includes('blocked-tag'),
             'exclusion must apply to documents created after it, not just existing ones');
 
         const [fc] = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
-        assert.ok(!(await query.getInheritedTagNames(fc.node_id)).includes('blocked-tag'),
+        assert.ok(!(await tagRows.getInheritedNames(fc.node_id)).includes('blocked-tag'),
             'and to their cards');
         console.log('  Exclusion held against a newly created document');
     });
@@ -288,19 +294,19 @@ describe('Tag propagation — correctness', () => {
         const fromRel = path.join(sourceRel, 'wanderer.md');
         const toRel = path.join(targetRel, 'wanderer.md');
 
-        const before = await query.getDocumentByPath(fromRel);
-        assert.ok(!(await query.getInheritedTagNames(before.node_id)).includes('archived'),
+        const before = await documentRows.getByPath(fromRel);
+        assert.ok(!(await tagRows.getInheritedNames(before.node_id)).includes('archived'),
             'precondition: not tagged before the move');
 
         await docs.move(fromRel, toRel, false);
 
-        const after = await query.getDocumentByPath(toRel);
-        assert.ok((await query.getInheritedTagNames(after.node_id)).includes('archived'),
+        const after = await documentRows.getByPath(toRel);
+        assert.ok((await tagRows.getInheritedNames(after.node_id)).includes('archived'),
             'moved document should inherit its new parent\'s tags');
         const flashcards = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(after.id);
         assert.equal(flashcards.length, 2);
         for (const fc of flashcards) {
-            assert.ok((await query.getInheritedTagNames(fc.node_id)).includes('archived'),
+            assert.ok((await tagRows.getInheritedNames(fc.node_id)).includes('archived'),
                 'and so should its cards');
         }
         console.log('  Moved document + cards picked up "archived"');
@@ -316,10 +322,10 @@ describe('Tag propagation — correctness', () => {
         const docRel = path.join(orphPath, 'lonely.md');
 
         await docs.updateMetadata(docRel, { tags: ['ephemeral', 'kept'] }, false);
-        assert.ok((await query.getAllTags()).includes('ephemeral'), 'tag should exist after being added');
+        assert.ok((await tagRows.getAll()).includes('ephemeral'), 'tag should exist after being added');
 
         await docs.updateMetadata(docRel, { tags: ['kept'] }, false);
-        const tags = await query.getAllTags();
+        const tags = await tagRows.getAll();
         assert.ok(!tags.includes('ephemeral'), '"ephemeral" should be pruned once unreferenced');
         assert.ok(tags.includes('kept'), '"kept" should remain');
         console.log('  Unreferenced tag pruned from getAllTags');
@@ -338,10 +344,10 @@ describe('Tag propagation — correctness', () => {
         await docs.updateMetadata(bRel, { tags: ['shared'] }, false);
 
         await docs.updateMetadata(aRel, { tags: [] }, false);
-        assert.ok((await query.getAllTags()).includes('shared'), 'shared tag should survive while b references it');
+        assert.ok((await tagRows.getAll()).includes('shared'), 'shared tag should survive while b references it');
 
         await docs.updateMetadata(bRel, { tags: [] }, false);
-        assert.ok(!(await query.getAllTags()).includes('shared'), 'shared tag should be pruned once fully unreferenced');
+        assert.ok(!(await tagRows.getAll()).includes('shared'), 'shared tag should be pruned once fully unreferenced');
         console.log('  Shared tag pruned only after last reference removed');
     });
 });
@@ -355,7 +361,7 @@ describe('Deck tag propagation — correctness', () => {
     let docRel;
 
     const cardsForDoc = async (relPath) => {
-        const doc = await query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         return await db.prepare('SELECT global_hash, node_id FROM Flashcards WHERE document_id = ?').all(doc.id);
     };
 
@@ -388,12 +394,12 @@ describe('Deck tag propagation — correctness', () => {
     it('deck tags flow down to member cards', async () => {
         await decks.setTags(deckHash, ['exam2026']);
 
-        const deck = await query.getDeckByHash(deckHash);
-        assert.deepEqual(await query.getDirectTagNames(deck.node_id), ['exam2026'],
+        const deck = await deckRows.getByHash(deckHash);
+        assert.deepEqual(await tagRows.getDirectNames(deck.node_id), ['exam2026'],
             'deck node should carry the direct tag');
 
         for (const c of cardRows) {
-            assert.ok((await query.getInheritedTagNames(c.node_id)).includes('exam2026'),
+            assert.ok((await tagRows.getInheritedNames(c.node_id)).includes('exam2026'),
                 `card ${c.global_hash} should inherit "exam2026" from its deck`);
         }
         console.log('  Deck tag "exam2026" propagated to 3 member cards');
@@ -403,7 +409,7 @@ describe('Deck tag propagation — correctness', () => {
         await docs.updateMetadata(docRel, { tags: ['sourcedoc'] }, false);
 
         for (const c of cardRows) {
-            const tags = await query.getInheritedTagNames(c.node_id);
+            const tags = await tagRows.getInheritedNames(c.node_id);
             assert.ok(tags.includes('exam2026'), 'deck tag should survive a document-tag change');
             assert.ok(tags.includes('sourcedoc'), 'document tag should coexist with the deck tag');
         }
@@ -412,20 +418,20 @@ describe('Deck tag propagation — correctness', () => {
 
     it('a card added after tagging inherits the deck tags immediately', async () => {
         await decks.addEntry(deckHash, { cardHash: extraCard.global_hash, documentPath: path.join(ROOT, 'late-card.md') });
-        assert.ok((await query.getInheritedTagNames(extraCard.node_id)).includes('exam2026'),
+        assert.ok((await tagRows.getInheritedNames(extraCard.node_id)).includes('exam2026'),
             'late-added card should inherit the deck tag on entry');
         console.log('  Late-added card inherited "exam2026"');
     });
 
     it('superSearch tag: finds cards via deck-inherited tags', async () => {
-        const results = await query.superSearch({ tag: 'exam2026', limit: 50 }, 'owner');
+        const results = await searchRows.superSearch({ tag: 'exam2026', limit: 50 }, 'owner');
         assert.ok(results.flashcards.length >= 4,
             `Should find ≥4 cards tagged via deck; got ${results.flashcards.length}`);
         console.log(`  tag:exam2026 search → ${results.flashcards.length} card(s)`);
     });
 
     it('graph shows card→tag edges for deck-inherited tags', async () => {
-        const { nodes, edges } = await query.getGraphData('owner');
+        const { nodes, edges } = await graphRows.getData('owner');
         const tagNode = nodes.find(n => n.type === 'Tag' && n.label === 'exam2026');
         assert.ok(tagNode, '"exam2026" tag node should be in graph');
         const cardNodeIds = new Set(cardRows.map(c => c.node_id));
@@ -440,7 +446,7 @@ describe('Deck tag propagation — correctness', () => {
         const target = cardRows[0];
         await decks.removeEntry(deckHash, target.global_hash);
 
-        const tags = await query.getInheritedTagNames(target.node_id);
+        const tags = await tagRows.getInheritedNames(target.node_id);
         assert.ok(!tags.includes('exam2026'), 'removed card should lose the deck tag');
         assert.ok(tags.includes('sourcedoc'), 'removed card should keep its document tag');
         console.log('  Removed card lost "exam2026", kept "sourcedoc"');
@@ -450,10 +456,10 @@ describe('Deck tag propagation — correctness', () => {
         await decks.deleteDeck(deckHash);
 
         for (const c of cardRows.slice(1)) {
-            assert.ok(!(await query.getInheritedTagNames(c.node_id)).includes('exam2026'),
+            assert.ok(!(await tagRows.getInheritedNames(c.node_id)).includes('exam2026'),
                 'deleting the deck should clear its inherited tag from cards');
         }
-        assert.ok(!(await query.getAllTags()).includes('exam2026'),
+        assert.ok(!(await tagRows.getAll()).includes('exam2026'),
             '"exam2026" should be pruned once its only deck is gone');
         console.log('  Deck deletion cleared and pruned "exam2026"');
     });
@@ -471,7 +477,7 @@ describe('Standalone card tags — correctness', () => {
     };
 
     const directTags = async (cardHash) =>
-        (await query.getDirectTagNames(await query.getFlashcardNodeIdByHash(cardHash))).sort();
+        (await tagRows.getDirectNames(await flashcardRows.getNodeIdByHash(cardHash))).sort();
 
     before(async () => {
         await sealTools.init();
@@ -483,7 +489,7 @@ describe('Standalone card tags — correctness', () => {
 
     it('creates the tag and links it to the card node', async () => {
         assert.deepEqual(await directTags(hash), ['solo', 'vocab']);
-        const all = await query.getAllTags();
+        const all = await tagRows.getAll();
         assert.ok(all.includes('solo') && all.includes('vocab'), 'tags should exist vault-wide');
     });
 
@@ -492,7 +498,7 @@ describe('Standalone card tags — correctness', () => {
     });
 
     it('finds the card by tag', async () => {
-        const found = await query.superSearch({ tag: 'solo', limit: 10 }, 'owner');
+        const found = await searchRows.superSearch({ tag: 'solo', limit: 10 }, 'owner');
         assert.ok(found.flashcards.some(f => f.global_hash === hash),
             'a standalone card should be findable by its own tag');
     });
@@ -574,7 +580,7 @@ describe('Tag propagation — performance', () => {
 
     it('getGraphData stays under 500ms with ~25k inherited tag edges', async () => {
         const t0 = performance.now();
-        const { nodes, edges } = await query.getGraphData('owner');
+        const { nodes, edges } = await graphRows.getData('owner');
         const ms = performance.now() - t0;
 
         const fcNodes = new Set(nodes.filter(n => n.type === 'Flashcard').map(n => n.id));
@@ -589,7 +595,7 @@ describe('Tag propagation — performance', () => {
 
     it('superSearch tag:alpha stays under 100ms across ~25k inherited tag edges', async () => {
         const t0 = performance.now();
-        const results = await query.superSearch({ tag: 'alpha', limit: 200 }, 'owner');
+        const results = await searchRows.superSearch({ tag: 'alpha', limit: 200 }, 'owner');
         const ms = performance.now() - t0;
 
         console.log(`  superSearch tag:alpha → ${results.flashcards.length} results in ${ms.toFixed(1)}ms`);
@@ -599,7 +605,7 @@ describe('Tag propagation — performance', () => {
 
     it('broad tag search (tag:a matches all 5 tags) stays under 200ms', async () => {
         const t0 = performance.now();
-        const results = await query.superSearch({ tag: 'a', limit: 500 }, 'owner');
+        const results = await searchRows.superSearch({ tag: 'a', limit: 500 }, 'owner');
         const ms = performance.now() - t0;
 
         console.log(`  superSearch tag:a (broad) → ${results.flashcards.length} results in ${ms.toFixed(1)}ms`);

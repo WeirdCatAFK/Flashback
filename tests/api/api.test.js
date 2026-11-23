@@ -7,8 +7,8 @@ import AdmZip from 'adm-zip';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import db from '../../src/api/access/primitives/database.js';
-import cardHealth from '../../src/api/access/orchestration/cardHealth.js';
-import { sequence } from '../../src/api/access/orchestration/sequencer.js';
+import cardHealth from '../../src/api/access/modules/cardHealth.js';
+import { sequence } from '../../src/api/access/modules/sequencer.js';
 import Api from '../../src/api/api.js';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data');

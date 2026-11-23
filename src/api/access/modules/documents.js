@@ -5,7 +5,20 @@ import { withDocument, withStructure } from '../resources/pathLock.js';
 import { safeFetch } from '../resources/safeFetch.js';
 import { getAllowPrivateNetworkFetch, getCardRemovalLimits } from '../primitives/config.js';
 import cardRemovalBudget from '../resources/cardRemovalBudget.js';
-import query, { PROGRESS_KEYS } from '../resources/query.js';
+import { PROGRESS_KEYS } from '../resources/db/sql.js';
+import * as cardProgressRows from '../resources/db/cardProgress.js';
+import * as categoryRows from '../resources/db/categories.js';
+import * as documentRows from '../resources/db/documents.js';
+import * as flashcardRows from '../resources/db/flashcards.js';
+import * as folderRows from '../resources/db/folders.js';
+import * as graphRows from '../resources/db/graph.js';
+import * as highlightRows from '../resources/db/highlights.js';
+import * as linkRows from '../resources/db/links.js';
+import * as mediaRows from '../resources/db/media.js';
+import * as nodeRows from '../resources/db/nodes.js';
+import * as searchRows from '../resources/db/search.js';
+import * as statisticsRows from '../resources/db/statistics.js';
+import * as tagRows from '../resources/db/tags.js';
 import srsService from './srs.js';
 import db from '../primitives/database.js';
 import crypto from 'crypto';
@@ -208,7 +221,6 @@ function graphNodeLearning(node) {
 export default class Documents {
     constructor() {
         this.files = new Files();
-        this.query = query;
         this.srs = srsService;
     }
 
@@ -242,22 +254,22 @@ export default class Documents {
 
     async listFolder(relPath) {
         const items = await this.files.listFolder(relPath);
-        const folder = await this.query.getFolderByPath(relPath);
+        const folder = await folderRows.getByPath(relPath);
 
         let fileCountMap = new Map();
         let folderCountMap = new Map();
 
         if (folder) {
-            const counts = await this.query.getFlashcardCountsByFolder(folder.id);
+            const counts = await flashcardRows.getCountsByFolder(folder.id);
             fileCountMap = new Map(counts.map(r => [r.name, r.count]));
 
             const subfolderNames = [];
             for (const i of items) { if (i.type === 'folder') subfolderNames.push(i.name); }
             if (subfolderNames.length > 0) {
                 const childRelPaths = subfolderNames.map(n => path.join(relPath, n));
-                const childFolders = await this.query.getFoldersByPaths(childRelPaths);
+                const childFolders = await folderRows.getByPaths(childRelPaths);
                 if (childFolders.length > 0) {
-                    const countsByRootId = await this.query.getFlashcardCountsInFolderTrees(childFolders.map(f => f.id));
+                    const countsByRootId = await flashcardRows.getCountsInFolderTrees(childFolders.map(f => f.id));
                     for (const cf of childFolders) {
                         folderCountMap.set(cf.relative_path, countsByRootId.get(cf.id) ?? 0);
                     }
@@ -281,16 +293,16 @@ export default class Documents {
         try {
             const absPath = this.files.safePath(fileRelPath);
             await db.transaction(async () => {
-                const nodeId = await this.query.createNode('Document');
+                const nodeId = await nodeRows.create('Document');
                 const folderId = await this._ensureFolderPath(relativePath);
-                await this.query.insertDocument({
+                await documentRows.insert({
                     folderId, nodeId, globalHash,
                     relativePath: fileRelPath, absolutePath: absPath, name: resolvedName,
                     encoding: 'UTF-8'
                 });
-                const parentFolder = await this.query.getFolderById(folderId);
+                const parentFolder = await folderRows.getById(folderId);
                 if (parentFolder?.node_id) {
-                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await nodeRows.insertInheritance(parentFolder.node_id, nodeId);
                     await this._seedFromParentFolder(parentFolder, nodeId);
                 }
             })();
@@ -308,14 +320,14 @@ export default class Documents {
         try {
             const absPath = this.files.safePath(folderRelPath);
             await db.transaction(async () => {
-                const nodeId = await this.query.createNode('Folder');
+                const nodeId = await nodeRows.create('Folder');
                 const parentId = await this._ensureFolderPath(relativePath);
-                await this.query.insertFolder({
+                await folderRows.insert({
                     nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name
                 });
-                const parentFolder = await this.query.getFolderById(parentId);
+                const parentFolder = await folderRows.getById(parentId);
                 if (parentFolder?.node_id) {
-                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await nodeRows.insertInheritance(parentFolder.node_id, nodeId);
                     await this._seedFromParentFolder(parentFolder, nodeId);
                 }
             })();
@@ -341,11 +353,11 @@ export default class Documents {
         try {
             await db.transaction(async () => {
                 if (isFolder) {
-                    await this.query.renameFolderRecord(newName, newRelPath, newAbsPath, oldAbsPath);
-                    await this.query.cascadeRenameDocumentPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
-                    await this.query.cascadeRenameFolderPaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                    await folderRows.rename(newName, newRelPath, newAbsPath, oldAbsPath);
+                    await documentRows.cascadeRenamePaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
+                    await folderRows.cascadeRenamePaths(relativePath, newRelPath, oldAbsPath, newAbsPath);
                 } else {
-                    await this.query.renameDocumentRecord(newName, newRelPath, newAbsPath, oldAbsPath);
+                    await documentRows.rename(newName, newRelPath, newAbsPath, oldAbsPath);
                 }
             })();
         } catch (err) {
@@ -379,14 +391,14 @@ export default class Documents {
             await db.transaction(async () => {
                 if (!isFolder) {
                     const newFolderId = await this._getParentFolderId(newAbsPath);
-                    await this.query.moveDocumentRecord(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
-                    const moved = await this.query.getDocumentByAbsolutePath(newAbsPath);
+                    await documentRows.move(newFolderId, newRelativePath, newAbsPath, oldAbsPath);
+                    const moved = await documentRows.getByAbsolutePath(newAbsPath);
                     if (moved?.node_id) {
-                        const oldParentNodeId = await this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentFolder = await this.query.getFolderByAbsolutePath(newParentAbsPath);
-                        if (oldParentNodeId) await this.query.deleteInheritance(oldParentNodeId, moved.node_id);
+                        const oldParentNodeId = await folderRows.getNodeIdByAbsPath(oldParentAbsPath);
+                        const newParentFolder = await folderRows.getByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) await nodeRows.deleteInheritance(oldParentNodeId, moved.node_id);
                         if (newParentFolder?.node_id) {
-                            await this.query.insertInheritance(newParentFolder.node_id, moved.node_id);
+                            await nodeRows.insertInheritance(newParentFolder.node_id, moved.node_id);
                             await this._seedFromParentFolder(newParentFolder, moved.node_id);
                         }
                         await this._propagateTagsToFlashcards(
@@ -394,17 +406,17 @@ export default class Documents {
                     }
                 } else {
                     const newParentId = await this._getParentFolderId(newAbsPath);
-                    await this.query.moveFolderRecord(newRelativePath, newAbsPath, oldAbsPath, newParentId);
-                    await this.query.cascadeRenameDocumentPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    await this.query.cascadeRenameFolderPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    await this.query.cascadeMediaPaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
-                    const movedFolder = await this.query.getFolderByAbsolutePath(newAbsPath);
+                    await folderRows.move(newRelativePath, newAbsPath, oldAbsPath, newParentId);
+                    await documentRows.cascadeRenamePaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    await folderRows.cascadeRenamePaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    await mediaRows.cascadePaths(relativePath, newRelativePath, oldAbsPath, newAbsPath);
+                    const movedFolder = await folderRows.getByAbsolutePath(newAbsPath);
                     if (movedFolder?.node_id) {
-                        const oldParentNodeId = await this.query.getNodeIdByFolderAbsPath(oldParentAbsPath);
-                        const newParentFolder = await this.query.getFolderByAbsolutePath(newParentAbsPath);
-                        if (oldParentNodeId) await this.query.deleteInheritance(oldParentNodeId, movedFolder.node_id);
+                        const oldParentNodeId = await folderRows.getNodeIdByAbsPath(oldParentAbsPath);
+                        const newParentFolder = await folderRows.getByAbsolutePath(newParentAbsPath);
+                        if (oldParentNodeId) await nodeRows.deleteInheritance(oldParentNodeId, movedFolder.node_id);
                         if (newParentFolder?.node_id) {
-                            await this.query.insertInheritance(newParentFolder.node_id, movedFolder.node_id);
+                            await nodeRows.insertInheritance(newParentFolder.node_id, movedFolder.node_id);
                             await this._seedFromParentFolder(newParentFolder, movedFolder.node_id);
                         }
                         const movedMeta = this.files.getMetadata(newRelativePath, true) || {};
@@ -442,7 +454,7 @@ export default class Documents {
         await this.files.updateFile(relativePath, content, metadata);
 
         if (metadata) {
-            const doc = await this.query.getDocumentByPath(relativePath);
+            const doc = await documentRows.getByPath(relativePath);
             if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
             await db.transaction(async () => {
@@ -452,7 +464,7 @@ export default class Documents {
 
                 const folderId = doc.folder_id;
                 if (folderId) {
-                    const folder = await this.query.getFolderById(folderId);
+                    const folder = await folderRows.getById(folderId);
                     if (folder) {
                         const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
                         const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
@@ -496,14 +508,14 @@ export default class Documents {
 
     async _writeLinkConnections(doc, links) {
         await db.transaction(async () => {
-            await this.query.deleteDocumentLinkConnections(doc.node_id);
-            await this.query.deleteDocumentLinkQueueBySource(doc.global_hash);
+            await linkRows.deleteConnections(doc.node_id);
+            await linkRows.deleteQueueBySource(doc.global_hash);
             for (const { anchorText, targetHash } of (links ?? [])) {
-                const target = await this.query.getDocumentByHash(targetHash);
+                const target = await documentRows.getByHash(targetHash);
                 if (target) {
-                    await this.query.insertDocumentLinkConnection(doc.node_id, target.node_id);
+                    await linkRows.insertConnection(doc.node_id, target.node_id);
                 } else {
-                    await this.query.upsertDocumentLinkQueue(doc.global_hash, targetHash, anchorText);
+                    await linkRows.upsertQueue(doc.global_hash, targetHash, anchorText);
                 }
             }
         })();
@@ -515,29 +527,29 @@ export default class Documents {
         if (this._writeSidecarLinks(relPath, links)) {
             await sealEmitter.edit(relPath + '.flashback');
         }
-        const doc = await this.query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         if (doc) await this._writeLinkConnections(doc, links);
     }
 
     async indexDocumentLinks(relPath) {
         const links = this._extractLinks(relPath);
         if (links === null) return;
-        const doc = await this.query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         if (doc) await this._writeLinkConnections(doc, links);
     }
 
     async _resolvePendingLinks(globalHash, nodeId, relPath) {
-        const pending = await this.query.getPendingLinksForTarget(globalHash);
+        const pending = await linkRows.getPendingForTarget(globalHash);
         if (pending.length > 0) {
             await db.transaction(async () => {
                 for (const row of pending) {
-                    const sourceDoc = await this.query.getDocumentByHash(row.source_hash);
+                    const sourceDoc = await documentRows.getByHash(row.source_hash);
                     if (sourceDoc) {
-                        await this.query.insertDocumentLinkConnection(sourceDoc.node_id, nodeId);
-                        await this.query.deleteDocumentLinkQueueBySource(row.source_hash);
-                        const remaining = await this.query.getPendingLinksFromSource(row.source_hash);
+                        await linkRows.insertConnection(sourceDoc.node_id, nodeId);
+                        await linkRows.deleteQueueBySource(row.source_hash);
+                        const remaining = await linkRows.getPendingFromSource(row.source_hash);
                         for (const r of remaining) {
-                            await this.query.upsertDocumentLinkQueue(r.source_hash, r.target_hash, r.anchor_text);
+                            await linkRows.upsertQueue(r.source_hash, r.target_hash, r.anchor_text);
                         }
                     }
                 }
@@ -559,9 +571,9 @@ export default class Documents {
 
         await db.transaction(async () => {
             if (isFolder) {
-                await this.query.deleteFolderTree(absPath, path.sep);
+                await folderRows.deleteTree(absPath, path.sep);
             } else {
-                await this.query.deleteDocumentByAbsPath(absPath);
+                await documentRows.deleteByAbsPath(absPath);
             }
         })();
 
@@ -583,9 +595,9 @@ export default class Documents {
                 const sidecar = this.files.getMetadata(item.relativePath, item.type === 'folder');
 
                 if (item.type === 'folder') {
-                    const nodeId = await this.query.createNode('Folder');
+                    const nodeId = await nodeRows.create('Folder');
                     const parentId = await this._getParentFolderId(item.absolutePath);
-                    await this.query.insertFolder({
+                    await folderRows.insert({
                         nodeId,
                         globalHash: item.globalHash,
                         parentId,
@@ -595,9 +607,9 @@ export default class Documents {
                     });
                     if (sidecar?.tags) await this._syncTags(nodeId, sidecar.tags);
                 } else {
-                    const nodeId = await this.query.createNode('Document');
+                    const nodeId = await nodeRows.create('Document');
                     const folderId = await this._getParentFolderId(item.absolutePath);
-                    const info = await this.query.insertDocument({
+                    const info = await documentRows.insert({
                         folderId,
                         nodeId,
                         globalHash: item.globalHash,
@@ -715,7 +727,7 @@ export default class Documents {
             const removed = await this._dropCoverFile(relativePath, before);
             await db.transaction(async () => {
                 const hash = crypto.createHash('sha256').update(buffer).digest('hex');
-                await this.query.insertMedia({ hash, name, relativePath: rel, absolutePath: abs });
+                await mediaRows.insert({ hash, name, relativePath: rel, absolutePath: abs });
             })();
             await sealEmitter.edit(relativePath + '.flashback', [rel], removed);
             return meta.cover;
@@ -757,7 +769,7 @@ export default class Documents {
         if (cover?.kind !== 'image') return [];
         const abs = this.files.mediaPathFor(relativePath, cover.file);
         if (fs.existsSync(abs)) fs.unlinkSync(abs);
-        await db.transaction(async () => { await this.query.deleteMediaByAbsPath(abs); })();
+        await db.transaction(async () => { await mediaRows.deleteByAbsPath(abs); })();
         return [path.relative(this.files.workspaceRoot, abs)];
     }
 
@@ -773,18 +785,18 @@ export default class Documents {
         if (charged) cardRemovalBudget.consume(charged.id, removals);
 
         await db.transaction(async () => {
-            const entity = isFolder ? await this.query.getFolderByPath(relativePath) : await this.query.getDocumentByPath(relativePath);
+            const entity = isFolder ? await folderRows.getByPath(relativePath) : await documentRows.getByPath(relativePath);
             if (!entity) throw new Error(`Entity ${relativePath} not found`);
 
-            if (isFolder) await this.query.updateFolderMetadata(entity.id, metadata);
-            else await this.query.updateDocumentMetadata(entity.id, metadata);
+            if (isFolder) await folderRows.updateMetadata(entity.id, metadata);
+            else await documentRows.updateMetadata(entity.id, metadata);
 
             if (metadata.tags) await this._syncTags(entity.node_id, metadata.tags);
             if (!isFolder && metadata.flashcards) await this._syncDocumentFlashcards(entity.id, metadata.flashcards, entity.node_id);
             if (!isFolder && metadata.highlights) await highlightsService.syncFromSidecar(entity.id, metadata.highlights);
 
             if (!isFolder && metadata.tags !== undefined) {
-                const inherited = await this.query.getInheritedTagNames(entity.node_id);
+                const inherited = await tagRows.getInheritedNames(entity.node_id);
                 const effective = [...new Set([...inherited, ...(metadata.tags || [])])];
                 await this._propagateTagsToFlashcards(entity.id, entity.node_id, effective);
             }
@@ -801,8 +813,8 @@ export default class Documents {
         return await withStructure(async () => {
             const touched = [];
             const entities = [
-                ...(await this.query.getAllFolders()).map((f) => ({ rel: f.relative_path, isFolder: true })),
-                ...(await this.query.getAllDocuments()).map((d) => ({ rel: d.relative_path, isFolder: false })),
+                ...(await folderRows.getAll()).map((f) => ({ rel: f.relative_path, isFolder: true })),
+                ...(await documentRows.getAll()).map((d) => ({ rel: d.relative_path, isFolder: false })),
             ];
             for (const { rel, isFolder } of entities) {
                 if (rel === undefined || rel === null) continue;
@@ -830,7 +842,7 @@ export default class Documents {
     async rewriteCategory(from, to = null) {
         return await withStructure(async () => {
             const touched = [];
-            for (const d of await this.query.getAllDocuments()) {
+            for (const d of await documentRows.getAll()) {
                 const rel = d.relative_path;
                 if (rel === undefined || rel === null) continue;
                 const meta = this.files.getMetadata(rel, false);
@@ -868,7 +880,7 @@ export default class Documents {
         this._writeSidecarLinks(fileRelPath, this._extractLinks(fileRelPath));
         await sealEmitter.create(fileRelPath + '.flashback', [fileRelPath]);
 
-        const imported = await this.query.getDocumentByPath(fileRelPath);
+        const imported = await documentRows.getByPath(fileRelPath);
         if (imported) {
             await this._resolvePendingLinks(imported.global_hash, imported.node_id, fileRelPath);
         }
@@ -879,18 +891,18 @@ export default class Documents {
     async _registerDocumentDerived({ name, fileRelPath, absPath, encoding, metadata }) {
         const parentAbsPath = path.dirname(absPath);
         return await db.transaction(async () => {
-            const nodeId = await this.query.createNode('Document');
+            const nodeId = await nodeRows.create('Document');
             const folderId = await this._getParentFolderId(absPath);
-            const info = await this.query.insertDocument({
+            const info = await documentRows.insert({
                 folderId, nodeId, globalHash: metadata.globalHash,
                 relativePath: fileRelPath, absolutePath: absPath, name,
                 encoding
             });
             const docId = info.lastInsertRowid;
 
-            const parentFolder = await this.query.getFolderByAbsolutePath(parentAbsPath);
+            const parentFolder = await folderRows.getByAbsolutePath(parentAbsPath);
             if (parentFolder?.node_id) {
-                await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                await nodeRows.insertInheritance(parentFolder.node_id, nodeId);
                 await this._seedFromParentFolder(parentFolder, nodeId);
             }
 
@@ -1032,7 +1044,7 @@ export default class Documents {
         fs.mkdirSync(path.dirname(mediaAbs), { recursive: true });
         fs.writeFileSync(mediaAbs, buf);
         await db.transaction(async () => {
-            await this.query.insertMedia({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
+            await mediaRows.insert({ hash, name, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
 
         return {
@@ -1168,7 +1180,7 @@ export default class Documents {
     }
 
     async indexDocument(relPath) {
-        if (await this.query.getDocumentByPath(relPath)) return await this.reindexDocument(relPath);
+        if (await documentRows.getByPath(relPath)) return await this.reindexDocument(relPath);
 
         const metadata = this.files.getMetadata(relPath, false);
         if (!metadata?.globalHash) throw new Error(`No valid sidecar for ${relPath}`);
@@ -1183,12 +1195,12 @@ export default class Documents {
             encoding: metadata.encoding ?? null,
             metadata,
         });
-        await this._resolvePendingLinks(metadata.globalHash, (await this.query.getDocumentByPath(relPath)).node_id, relPath);
+        await this._resolvePendingLinks(metadata.globalHash, (await documentRows.getByPath(relPath)).node_id, relPath);
         return docId;
     }
 
     async reindexDocument(relPath) {
-        const doc = await this.query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         if (!doc) return await this.indexDocument(relPath);
 
         const metadata = this.files.getMetadata(relPath, false);
@@ -1196,14 +1208,14 @@ export default class Documents {
 
         await db.transaction(async () => {
             if (metadata.globalHash && metadata.globalHash !== doc.global_hash) {
-                await this.query.updateDocumentMetadata(doc.id, { globalHash: metadata.globalHash });
+                await documentRows.updateMetadata(doc.id, { globalHash: metadata.globalHash });
             }
             await this._syncTags(doc.node_id, metadata.tags ?? []);
             await this._syncDocumentFlashcards(doc.id, metadata.flashcards ?? [], doc.node_id);
-            await this.query.syncDocumentHighlights(doc.id, metadata.highlights ?? []);
+            await highlightRows.syncDocument(doc.id, metadata.highlights ?? []);
 
             if (doc.folder_id) {
-                const folder = await this.query.getFolderById(doc.folder_id);
+                const folder = await folderRows.getById(doc.folder_id);
                 if (folder) {
                     const folderRelPath = path.relative(this.files.workspaceRoot, folder.absolute_path);
                     const folderMeta = this.files.getMetadata(folderRelPath, true) || {};
@@ -1218,12 +1230,12 @@ export default class Documents {
 
     async indexFolder(relPath) {
         const folderId = await this._ensureFolderPath(relPath);
-        const folder = await this.query.getFolderById(folderId);
+        const folder = await folderRows.getById(folderId);
         const metadata = this.files.getMetadata(relPath, true) || {};
 
         await db.transaction(async () => {
             if (metadata.globalHash && metadata.globalHash !== folder.global_hash) {
-                await this.query.updateFolderMetadata(folder.id, { globalHash: metadata.globalHash });
+                await folderRows.updateMetadata(folder.id, { globalHash: metadata.globalHash });
             }
             if (folder.node_id) await this._syncTags(folder.node_id, metadata.tags ?? []);
             await this._propagateFolderTags(folder.id, folder.node_id, metadata);
@@ -1235,9 +1247,9 @@ export default class Documents {
         const absPath = this.files.safePath(relPath);
         await db.transaction(async () => {
             if (isFolder) {
-                await this.query.deleteFolderTree(absPath, path.sep);
+                await folderRows.deleteTree(absPath, path.sep);
             } else {
-                await this.query.deleteDocumentByAbsPath(absPath);
+                await documentRows.deleteByAbsPath(absPath);
             }
         })();
     }
@@ -1246,14 +1258,14 @@ export default class Documents {
         const folderName = path.basename(externalPath);
         const folderRelPath = path.join(targetRelPath, folderName);
         
-        const nodeId = await this.query.createNode('Folder');
+        const nodeId = await nodeRows.create('Folder');
         const absPath = this.files.safePath(folderRelPath);
         const globalHash = crypto.randomUUID();
         const parentId = await this._getParentFolderId(absPath);
 
         if (!fs.existsSync(absPath)) fs.mkdirSync(absPath, { recursive: true });
 
-        await this.query.insertFolder({
+        await folderRows.insert({
             nodeId, globalHash, parentId, relativePath: folderRelPath, absolutePath: absPath, name: folderName
         });
 
@@ -1293,17 +1305,17 @@ export default class Documents {
                                 fs.copyFileSync(mSrc, mDest);
                                 const mBuf = fs.readFileSync(mDest);
                                 const mHash = crypto.createHash('sha256').update(mBuf).digest('hex');
-                                await this.query.insertMedia({
+                                await mediaRows.insert({
                                     hash: mHash, name: mFile, relativePath: path.join(entryRel, mFile), absolutePath: mDest
                                 });
                             }
                         }
                     } else {
-                        const subNodeId = await this.query.createNode('Folder');
+                        const subNodeId = await nodeRows.create('Folder');
                         const subAbs = this.files.safePath(entryRel);
                         if (!fs.existsSync(subAbs)) fs.mkdirSync(subAbs, { recursive: true });
                         const subParentId = await this._getParentFolderId(subAbs);
-                        await this.query.insertFolder({
+                        await folderRows.insert({
                             nodeId: subNodeId, globalHash: crypto.randomUUID(), parentId: subParentId, relativePath: entryRel, absolutePath: subAbs, name: entry.name
                         });
 
@@ -1377,10 +1389,10 @@ export default class Documents {
     }
 
     async _createFlashcardLocked(relativePath, cardData, mediaItems = []) {
-        const doc = await this.query.getDocumentByPath(relativePath);
+        const doc = await documentRows.getByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
-        if (cardData.category && !await this.query.getCategoryByName(cardData.category)) {
+        if (cardData.category && !await categoryRows.getByName(cardData.category)) {
             throw new Error(`Unknown category: "${cardData.category}". Call GET /api/categories for valid values.`);
         }
 
@@ -1413,7 +1425,7 @@ export default class Documents {
             if (finalMeta.tags) await this._syncTags(doc.node_id, finalMeta.tags);
             await this._syncDocumentFlashcards(doc.id, finalMeta.flashcards, doc.node_id);
             for (const r of registered) {
-                await this.query.insertMedia({
+                await mediaRows.insert({
                     hash: r.hash, name: r.name,
                     relativePath: r.mediaRel, absolutePath: this.files.safePath(r.mediaRel),
                 });
@@ -1430,10 +1442,10 @@ export default class Documents {
     }
 
     async _updateFlashcardLocked(relativePath, flashcardHash, patch = {}, ifMatch = undefined) {
-        const doc = await this.query.getDocumentByPath(relativePath);
+        const doc = await documentRows.getByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
-        if (patch.category && !await this.query.getCategoryByName(patch.category)) {
+        if (patch.category && !await categoryRows.getByName(patch.category)) {
             throw new Error(`Unknown category: "${patch.category}". Call GET /api/categories for valid values.`);
         }
 
@@ -1485,7 +1497,7 @@ export default class Documents {
     }
 
     async _deleteFlashcardLocked(relativePath, flashcardHash) {
-        const doc = await this.query.getDocumentByPath(relativePath);
+        const doc = await documentRows.getByPath(relativePath);
         if (!doc) throw new Error(`Document ${relativePath} not found in DB`);
 
         const meta = this.files.getMetadata(relativePath) || {};
@@ -1499,7 +1511,7 @@ export default class Documents {
 
         await db.transaction(async () => {
             await this._syncDocumentFlashcards(doc.id, meta.flashcards, doc.node_id);
-            await this.query.purgeCardBehaviour(flashcardHash);
+            await cardProgressRows.purgeCardBehaviour(flashcardHash);
         })();
 
         await sealEmitter.edit(relativePath + '.flashback');
@@ -1522,7 +1534,7 @@ export default class Documents {
         const hash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
 
         await db.transaction(async () => {
-            await this.query.insertMedia({ hash, name: mediaName, relativePath: mediaRel, absolutePath: mediaAbs });
+            await mediaRows.insert({ hash, name: mediaName, relativePath: mediaRel, absolutePath: mediaAbs });
         })();
         await sealEmitter.edit(relativePath + '.flashback', [mediaRel]);
     }
@@ -1546,14 +1558,14 @@ export default class Documents {
     }
 
     async _ensureFolderPath(relativePath) {
-        let root = await this.query.getFolderByPath("");
+        let root = await folderRows.getByPath("");
         let parentId;
         let parentAbs = this.files.workspaceRoot;
         if (root) {
             parentId = root.id;
         } else {
-            const nodeId = await this.query.createNode('Folder');
-            const info = await this.query.insertFolder({
+            const nodeId = await nodeRows.create('Folder');
+            const info = await folderRows.insert({
                 nodeId, globalHash: crypto.randomUUID(), parentId: null,
                 relativePath: "", absolutePath: parentAbs, name: path.basename(parentAbs),
             });
@@ -1566,17 +1578,17 @@ export default class Documents {
         for (const seg of segments) {
             const priorRel = builtRel;
             builtRel = builtRel ? path.join(builtRel, seg) : seg;
-            let folder = await this.query.getFolderByPath(builtRel);
+            let folder = await folderRows.getByPath(builtRel);
             if (!folder) {
                 const globalHash = this.files.ensureFolderMetadata(priorRel, seg);
                 const absPath = this.files.safePath(builtRel);
-                const nodeId = await this.query.createNode('Folder');
-                const info = await this.query.insertFolder({
+                const nodeId = await nodeRows.create('Folder');
+                const info = await folderRows.insert({
                     nodeId, globalHash, parentId, relativePath: builtRel, absolutePath: absPath, name: seg,
                 });
-                const parentFolder = await this.query.getFolderByAbsolutePath(parentAbs);
+                const parentFolder = await folderRows.getByAbsolutePath(parentAbs);
                 if (parentFolder?.node_id) {
-                    await this.query.insertInheritance(parentFolder.node_id, nodeId);
+                    await nodeRows.insertInheritance(parentFolder.node_id, nodeId);
                     await this._seedFromParentFolder(parentFolder, nodeId);
                 }
                 folder = { id: info.lastInsertRowid };
@@ -1590,37 +1602,37 @@ export default class Documents {
     async _getParentFolderId(absolutePath) {
         const parentDir = path.dirname(absolutePath);
         if (parentDir === this.files.workspaceRoot) {
-            const root = await this.query.getFolderByPath("");
+            const root = await folderRows.getByPath("");
             if (root) return root.id;
 
-            const nodeId = await this.query.createNode('Folder');
-            const info = await this.query.insertFolder({
+            const nodeId = await nodeRows.create('Folder');
+            const info = await folderRows.insert({
                 nodeId, globalHash: crypto.randomUUID(), parentId: null,
                 relativePath: "", absolutePath: parentDir, name: path.basename(parentDir)
             });
             return info.lastInsertRowid;
         }
-        const folder = await this.query.getFolderByAbsolutePath(parentDir);
+        const folder = await folderRows.getByAbsolutePath(parentDir);
         return folder ? folder.id : null;
     }
 
     async _syncTags(nodeId, tagNames) {
         const tagNodeIds = [];
         for (const name of tagNames) {
-            let tag = await this.query.getTagByName(name);
+            let tag = await tagRows.getByName(name);
             if (!tag) {
-                const tNodeId = await this.query.createNode('Tag');
-                await this.query.insertTag(name, tNodeId);
+                const tNodeId = await nodeRows.create('Tag');
+                await tagRows.insert(name, tNodeId);
                 tagNodeIds.push(tNodeId);
             } else {
                 tagNodeIds.push(tag.node_id);
             }
         }
-        await this.query.syncNodeTags(nodeId, tagNodeIds);
+        await tagRows.syncNode(nodeId, tagNodeIds);
     }
 
     async _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
-        const existing = await this.query.getFlashcardsByDocument(documentId, OWNER_SCOPE);
+        const existing = await flashcardRows.getByDocument(documentId, OWNER_SCOPE);
         const existingMap = new Map(existing.map(f => [f.global_hash, f]));
         const incomingHashes = new Set();
 
@@ -1634,32 +1646,32 @@ export default class Documents {
                     for (const key of PROGRESS_KEYS) delete payload[key];
                 }
 
-                await this.query.updateFlashcard(match.id, {
+                await flashcardRows.update(match.id, {
                     ...payload,
                     fileIndex: index,
                     contentId: match.content_id
                 }, OWNER_SCOPE);
 
                 if (!match.hasProgress && fcData.easeFactor != null) {
-                    await this.query.seedEaseFromSidecar(
+                    await cardProgressRows.seedEaseFromSidecar(
                         fcData.globalHash, fcData.easeFactor, fcData.level ?? 0,
                     );
                 }
                 if (Array.isArray(fcData.tags)) await this._syncTags(match.node_id, fcData.tags);
             } else {
-                const nodeId = await this.query.createNode('Flashcard');
+                const nodeId = await nodeRows.create('Flashcard');
                 const payload = { ...fcData };
-                const seeding = !await this.query.hasProgressForHash(fcData.globalHash, OWNER_SCOPE);
+                const seeding = !await cardProgressRows.hasForHash(fcData.globalHash, OWNER_SCOPE);
                 if (!seeding) {
                     for (const key of PROGRESS_KEYS) delete payload[key];
                 }
 
-                await this.query.insertFlashcard({
+                await flashcardRows.insert({
                     ...payload, nodeId, documentId, fileIndex: index
                 }, OWNER_SCOPE);
 
                 if (seeding && fcData.easeFactor != null) {
-                    await this.query.seedEaseFromSidecar(
+                    await cardProgressRows.seedEaseFromSidecar(
                         fcData.globalHash, fcData.easeFactor, fcData.level ?? 0,
                     );
                 }
@@ -1668,7 +1680,7 @@ export default class Documents {
         }
 
         for (const [hash, fc] of existingMap) {
-            if (!incomingHashes.has(hash)) await this.query.deleteFlashcard(fc.id);
+            if (!incomingHashes.has(hash)) await flashcardRows.remove(fc.id);
         }
 
         if (docNodeId) {
@@ -1679,19 +1691,19 @@ export default class Documents {
     async _tagsPassedDownByFolder(folderNodeId, folderRelPath) {
         const meta = this.files.getMetadata(folderRelPath, true) || {};
         const excluded = new Set(meta.excludedTags || []);
-        const inherited = (await this.query.getInheritedTagNames(folderNodeId)).filter(t => !excluded.has(t));
-        const direct = await this.query.getDirectTagNames(folderNodeId);
+        const inherited = (await tagRows.getInheritedNames(folderNodeId)).filter(t => !excluded.has(t));
+        const direct = await tagRows.getDirectNames(folderNodeId);
         return [...new Set([...inherited, ...direct])];
     }
 
     async _seedInheritedTags(parentNodeId, childNodeId, tagNames) {
         if (!parentNodeId || !childNodeId) return;
-        const hierarchyType = await this.query.getHierarchyTypeId();
-        const conn = await this.query.getOrCreateConnection(parentNodeId, childNodeId, hierarchyType.id);
-        await this.query.clearInheritedTags(conn.id);
+        const hierarchyType = await nodeRows.getHierarchyTypeId();
+        const conn = await nodeRows.getOrCreateConnection(parentNodeId, childNodeId, hierarchyType.id);
+        await tagRows.clearInherited(conn.id);
         for (const tagName of tagNames) {
-            const tag = await this.query.getTagByName(tagName);
-            if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
+            const tag = await tagRows.getByName(tagName);
+            if (tag) await tagRows.insertInherited(conn.id, tag.id);
         }
     }
 
@@ -1705,29 +1717,29 @@ export default class Documents {
     }
 
     async _tagsPassedDownByDocument(docNodeId) {
-        const inherited = await this.query.getInheritedTagNames(docNodeId);
-        const direct = await this.query.getDirectTagNames(docNodeId);
+        const inherited = await tagRows.getInheritedNames(docNodeId);
+        const direct = await tagRows.getDirectNames(docNodeId);
         return [...new Set([...inherited, ...direct])];
     }
 
     async _propagateFolderTags(folderId, parentNodeId, metadata) {
-        const childDocs = await this.query.getChildDocuments(folderId);
-        const childFolders = await this.query.getChildFolders(folderId);
+        const childDocs = await documentRows.getInFolder(folderId);
+        const childFolders = await folderRows.getChildren(folderId);
 
-        const inheritedFromAbove = await this.query.getInheritedTagNames(parentNodeId);
+        const inheritedFromAbove = await tagRows.getInheritedNames(parentNodeId);
         const myDirectTags = new Set(metadata.tags || []);
         const myExclusions = new Set(metadata.excludedTags || []);
         const effectiveInherited = inheritedFromAbove.filter(t => !myExclusions.has(t));
         const effectiveToChildren = [...new Set([...effectiveInherited, ...myDirectTags])];
 
-        const hierarchyType = await this.query.getHierarchyTypeId();
+        const hierarchyType = await nodeRows.getHierarchyTypeId();
 
         const syncInheritance = async (targetNodeId) => {
-            const conn = await this.query.getOrCreateConnection(parentNodeId, targetNodeId, hierarchyType.id);
-            await this.query.clearInheritedTags(conn.id);
+            const conn = await nodeRows.getOrCreateConnection(parentNodeId, targetNodeId, hierarchyType.id);
+            await tagRows.clearInherited(conn.id);
             for (const tagName of effectiveToChildren) {
-                const tag = await this.query.getTagByName(tagName);
-                if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
+                const tag = await tagRows.getByName(tagName);
+                if (tag) await tagRows.insertInherited(conn.id, tag.id);
             }
         };
 
@@ -1744,13 +1756,13 @@ export default class Documents {
     }
 
     async _propagateTagsToFlashcards(docId, docNodeId, tags) {
-        const hierarchyType = await this.query.getHierarchyTypeId();
-        for (const fc of await this.query.getFlashcardNodeIds(docId)) {
-            const conn = await this.query.getOrCreateConnection(docNodeId, fc.node_id, hierarchyType.id);
-            await this.query.clearInheritedTags(conn.id);
+        const hierarchyType = await nodeRows.getHierarchyTypeId();
+        for (const fc of await flashcardRows.getNodeIds(docId)) {
+            const conn = await nodeRows.getOrCreateConnection(docNodeId, fc.node_id, hierarchyType.id);
+            await tagRows.clearInherited(conn.id);
             for (const tagName of tags) {
-                const tag = await this.query.getTagByName(tagName);
-                if (tag) await this.query.insertInheritedTag(conn.id, tag.id);
+                const tag = await tagRows.getByName(tagName);
+                if (tag) await tagRows.insertInherited(conn.id, tag.id);
             }
         }
     }
@@ -1786,7 +1798,7 @@ export default class Documents {
     async _mediaNamesStillNeededIn(folderRel, excludeRelDocPath) {
         const folderAbs = this.files.safePath(folderRel);
         const needed = new Set();
-        for (const doc of await this.query.getDocumentsByAbsPathPrefix(folderAbs + path.sep)) {
+        for (const doc of await documentRows.getByAbsPathPrefix(folderAbs + path.sep)) {
             if (doc.relative_path === excludeRelDocPath) continue;
             if (path.dirname(doc.relative_path) !== folderRel) continue;
             for (const name of this._mediaNamesReferencedBy(doc.relative_path)) needed.add(name);
@@ -1832,7 +1844,7 @@ export default class Documents {
             const destRel = path.join(newFolder, 'media', name);
             fs.rmSync(srcAbs, { force: true });
             removed.push(srcRel);
-            await this.query.updateMediaPath(srcAbs, destRel, this.files.safePath(destRel));
+            await mediaRows.updatePath(srcAbs, destRel, this.files.safePath(destRel));
         }
 
         const srcMediaAbs = this.files.safePath(path.join(oldFolder, 'media'));
@@ -1847,8 +1859,8 @@ export default class Documents {
 
     async _buildMovePaths(oldRelPath, newRelPath, newAbsPath) {
         const prefix = newAbsPath + path.sep;
-        const docs = await this.query.getDocumentsByAbsPathPrefix(prefix);
-        const folders = await this.query.getFoldersByAbsPathPrefix(prefix, newAbsPath);
+        const docs = await documentRows.getByAbsPathPrefix(prefix);
+        const folders = await folderRows.getByAbsPathPrefix(prefix, newAbsPath);
 
         const removed = [path.join(oldRelPath, '.flashback')];
         const added = [path.join(newRelPath, '.flashback')];
@@ -1870,8 +1882,8 @@ export default class Documents {
 
     async _gatherFolderContents(folderRelPath, folderAbsPath) {
         const prefix = folderAbsPath + path.sep;
-        const docs = await this.query.getDocumentsByAbsPathPrefix(prefix);
-        const folders = await this.query.getFoldersByAbsPathPrefix(prefix, folderAbsPath);
+        const docs = await documentRows.getByAbsPathPrefix(prefix);
+        const folders = await folderRows.getByAbsPathPrefix(prefix, folderAbsPath);
 
         const paths = [];
         for (const doc of docs) {
@@ -1885,32 +1897,32 @@ export default class Documents {
 
     async propagatePresence(documentId) {
         await db.transaction(async () => {
-            const stats = await this.query.getFlashcardAvgLevel(documentId, OWNER_SCOPE);
-            await this.query.updateDocumentPresence(documentId, stats.score || 0);
+            const stats = await statisticsRows.getAvgLevel(documentId, OWNER_SCOPE);
+            await documentRows.updatePresence(documentId, stats.score || 0);
 
-            let currentFolderId = (await this.query.getDocumentFolderIdById(documentId))?.folder_id;
+            let currentFolderId = (await documentRows.getFolderIdById(documentId))?.folder_id;
             while (currentFolderId) {
-                const docStats = await this.query.getDocumentPresenceStats(currentFolderId);
-                const childFolders = await this.query.getChildFolderPresences(currentFolderId);
+                const docStats = await documentRows.getPresenceStats(currentFolderId);
+                const childFolders = await folderRows.getChildPresences(currentFolderId);
 
                 const totalCount = (docStats.cnt || 0) + childFolders.length;
                 const totalPresence = (docStats.total || 0) + childFolders.reduce((acc, f) => acc + (f.presence || 0), 0);
                 const avg = totalCount > 0 ? (totalPresence / totalCount) : 0;
 
-                await this.query.updateFolderPresence(currentFolderId, avg);
+                await folderRows.updatePresence(currentFolderId, avg);
 
-                currentFolderId = (await this.query.getFolderParentId(currentFolderId))?.parent_id ?? null;
+                currentFolderId = (await folderRows.getParentId(currentFolderId))?.parent_id ?? null;
             }
         })();
     }
 
-    async search(q) { return await this.query.search(q); }
+    async search(q) { return await searchRows.search(q); }
 
     async searchContent(q, limit = 20) {
         const needle = String(q ?? '').toLowerCase();
         if (!needle) return [];
         const results = [];
-        for (const doc of await this.query.getAllDocuments()) {
+        for (const doc of await documentRows.getAll()) {
             if (results.length >= limit) break;
             const ext = path.extname(doc.relative_path).toLowerCase();
             if (!['.md', '.txt', '.markdown'].includes(ext)) continue;
@@ -1937,20 +1949,20 @@ export default class Documents {
     }
 
     async getLinks(relPath) {
-        const doc = await this.query.getDocumentByPath(relPath);
+        const doc = await documentRows.getByPath(relPath);
         if (!doc) throw new Error(`Document ${relPath} not found`);
-        const { outgoing, backlinks } = await this.query.getDocumentLinkEdges(doc.node_id);
-        const pending = (await this.query.getPendingLinksFromSource(doc.global_hash))
+        const { outgoing, backlinks } = await linkRows.getEdges(doc.node_id);
+        const pending = (await linkRows.getPendingFromSource(doc.global_hash))
             .map((l) => ({ targetHash: l.target_hash, anchorText: l.anchor_text }));
         return { outgoing, backlinks, pending };
     }
 
     async getGraphData(scope) {
-        const { nodes, edges } = await this.query.getGraphData(scope ?? currentScope());
+        const { nodes, edges } = await graphRows.getData(scope ?? currentScope());
         return { nodes: nodes.map(graphNodeLearning), edges };
     }
     async exists(rel, derived, isFolder) {
-        if (derived) return isFolder ? await this.query.getFolderByPath(rel) : await this.query.getDocumentByPath(rel);
+        if (derived) return isFolder ? await folderRows.getByPath(rel) : await documentRows.getByPath(rel);
         return await this.files.exists(rel);
     }
 }

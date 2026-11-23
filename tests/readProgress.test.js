@@ -17,10 +17,12 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/orchestration/documents.js');
-const { default: Doctor } = await import('../src/api/access/orchestration/doctor.js');
-const { default: readProgress, FINISHED_PCT } = await import('../src/api/access/orchestration/readProgress.js');
-const { default: query } = await import('../src/api/access/resources/query.js');
+const { default: Documents } = await import('../src/api/access/modules/documents.js');
+const { default: Doctor } = await import('../src/api/access/modules/doctor.js');
+const { default: readProgress, FINISHED_PCT } = await import('../src/api/access/modules/readProgress.js');
+const documentRows = await import('../src/api/access/resources/db/documents.js');
+const readProgressRows = await import('../src/api/access/resources/db/readProgress.js');
+const subscriptionRows = await import('../src/api/access/resources/db/subscriptions.js');
 const { default: Files } = await import('../src/api/access/resources/files.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
@@ -87,13 +89,13 @@ describe('Read progress', () => {
         });
 
         it('files the author under the owner sentinel, not their account id', async () => {
-            const docHash = (await query.getDocumentByPath(bookRel)).global_hash;
+            const docHash = (await documentRows.getByPath(bookRel)).global_hash;
 
-            const owner = await query.getReadProgress(OWNER_SCOPE, docHash);
+            const owner = await readProgressRows.get(OWNER_SCOPE, docHash);
             assert.ok(owner, 'the author resolves to OWNER_SCOPE');
             assert.equal(JSON.parse(owner.pos).page, 40);
 
-            const byId = await query.getReadProgress(author.id, docHash);
+            const byId = await readProgressRows.get(author.id, docHash);
             assert.equal(byId, null, 'and never to their uuid, which a copied vault would orphan');
         });
     });
@@ -228,7 +230,7 @@ describe('Read progress', () => {
         });
 
         it('labels a folder that is a subscription target', async () => {
-            await query.upsertSubscription({
+            await subscriptionRows.upsert({
                 magazineId: 'nature', issueId: '2026-09', version: 1, targetPath: FOLDER,
             });
             const r = await readProgress.folderRollup(FOLDER);

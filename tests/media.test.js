@@ -16,8 +16,8 @@ if (!await validate()) {
     process.exit(1);
 }
 
-import Documents from '../src/api/access/orchestration/documents.js';
-import Media from '../src/api/access/orchestration/media.js';
+import Documents from '../src/api/access/modules/documents.js';
+import Media from '../src/api/access/modules/media.js';
 import db from '../src/api/access/primitives/database.js';
 
 const docs = new Documents();
