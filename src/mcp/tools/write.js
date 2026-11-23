@@ -6,10 +6,8 @@ import { request, requestBuffer, upload } from '../client.js';
 import { DECK_COLORS } from '../../shared/deckColors.js';
 import { asText, clip as clipText } from './shape.js';
 
-/** The most cards delete_flashcards removes in one call. */
 const MAX_BULK = 500;
 
-/** Cards named by hash, as `{ globalHash, frontText, documentPath, origin }`; unknown hashes come back in `missing`. */
 async function cardsByHash(hashes) {
   const cards = [];
   const missing = [];
@@ -25,7 +23,6 @@ async function cardsByHash(hashes) {
   return { cards, missing };
 }
 
-/** Every card the card browser matches for `filter`, paged through; one past MAX_BULK is enough to refuse. */
 async function cardsByFilter(filter) {
   const cards = [];
   for (let offset = 0; ; offset += 500) {
@@ -37,7 +34,6 @@ async function cardsByFilter(filter) {
   }
 }
 
-/** `[{ path, cards }]`, largest first; path null is the user's document-less cards. */
 function countBySource(cards) {
   const counts = new Map();
   for (const c of cards) {
@@ -47,17 +43,14 @@ function countBySource(cards) {
   return [...counts].map(([path, n]) => ({ path, cards: n })).sort((a, b) => b.cards - a.cards);
 }
 
-/** Wraps a message as an MCP error result. */
 const asError = (err) => ({
   content: [{ type: 'text', text: `Flashback API error${err.status ? ` (${err.status})` : ''}: ${err.message}` }],
   isError: true,
 });
-/** Wraps a thrown error as an MCP tool error result. */
 const asToolError = (text) => ({ content: [{ type: 'text', text }], isError: true });
 
 const CARD_TYPES = ['basic', 'reversible', 'cloze', 'type_answer', 'custom'];
 
-/** Registers every mutating MCP tool on the server. */
 export function registerWriteTools(server) {
   server.registerTool(
     'create_flashcard',

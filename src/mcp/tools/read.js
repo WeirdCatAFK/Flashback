@@ -8,18 +8,12 @@ const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
 
 const BAND_IDS = GAP_BANDS.map((b) => b.id);
 
-/** The bands as the app labels them, for tool descriptions: `new` = never reviewed, `d1` ≤ 1 day, … */
 const BANDS_TEXT = GAP_BANDS.map((b, i) => {
   if (b.max == null) return `"${b.id}" = never reviewed`;
   if (b.max === Infinity) return `"${b.id}" = over ${GAP_BANDS[i - 1].max} days`;
   return `"${b.id}" = up to ${b.max} day${b.max === 1 ? '' : 's'}`;
 }).join(', ');
 
-/**
- * Folds consecutive commits with the same message by the same author into one entry with a
- * `count`, as the Seal History tab folds a reading session's run of highlight and card edits
- * to one document. Anything in between breaks the run, so the order of events survives.
- */
 function foldRuns(entries) {
   const out = [];
   for (const e of entries) {
@@ -34,7 +28,6 @@ function foldRuns(entries) {
   return out.map(({ since, ...e }) => (e.count > 1 ? { ...e, since } : e));
 }
 
-/** A card-browser row with its long fields clipped, for the compact listing. */
 const compactCard = ({ frontText, backText, answerText, custom_html: html, ...row }) => ({
   ...row,
   document_name: undefined,
@@ -44,11 +37,6 @@ const compactCard = ({ frontText, backText, answerText, custom_html: html, ...ro
   ...(html ? { custom_html: clip(html) } : {}),
 });
 
-/**
- * A sidecar with its card and highlight arrays replaced by counts. The arrays are what makes
- * a heavily-carded book's read_document run to hundreds of thousands of characters, and both
- * have their own paged tools.
- */
 function sidecarSummary(meta, relPath) {
   if (!meta || typeof meta !== 'object') return meta;
   const { flashcards, highlights, ...rest } = meta;
@@ -61,7 +49,6 @@ function sidecarSummary(meta, relPath) {
   };
 }
 
-/** The due queue as counts per source document, plus the first `queueLimit` cards clipped. */
 function dueSummary(data, queueLimit) {
   const newHashes = new Set((data.new ?? []).map((c) => c.global_hash));
   const byDoc = new Map();
@@ -108,7 +95,6 @@ const safe = (fn) => async (args) => {
   }
 };
 
-/** Builds a query string, dropping null and undefined values. */
 function qs(params) {
   const parts = [];
   for (const [key, value] of Object.entries(params)) {
@@ -124,7 +110,6 @@ function qs(params) {
 
 const GUIDE_SECTIONS = Object.keys(cardGuide.references);
 
-/** Registers every read-only MCP tool on the server. */
 export function registerReadTools(server) {
   server.registerTool(
     'get_card_guide',
