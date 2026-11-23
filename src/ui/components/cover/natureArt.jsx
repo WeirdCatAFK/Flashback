@@ -1,16 +1,8 @@
-/**
- * The life-and-earth covers: a naturalist's plate, the tree of life, a sunflower's
- * seeds, an old atlas's hemispheres, a scanner's hologram of mountains (terrainScan.jsx)
- * and the northern lights. See CoverArt for how a
- * drawing is made and painted.
- */
-
 import { W, hash, range, HAIR } from './artKit.js';
 import { terrainScan } from './terrainScan.jsx';
 
 const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 
-/** A pointed leaf from `base` along `dir` (a unit vector), as a closed path. */
 function leafPath([bx, by], [dx, dy], length, width) {
   const [nx, ny] = [-dy, dx];
   const at = (u, side) => pt(bx + dx * length * u + nx * width * side, by + dy * length * u + ny * width * side);
@@ -19,10 +11,6 @@ function leafPath([bx, by], [dx, dy], length, width) {
 
 const unit = (a) => [Math.cos(a), Math.sin(a)];
 
-/**
- * A fern frond: its stem a curve from base to tip, with a leaflet either side at every
- * step, leaning toward the tip and shrinking as they near it.
- */
 function frond({ base, ctrl, tip, pinnae, length }) {
   const at = (t) => [0, 1].map((i) => (1 - t) ** 2 * base[i] + 2 * (1 - t) * t * ctrl[i] + t * t * tip[i]);
   const tangent = (t) => {
@@ -42,7 +30,6 @@ const FRONDS = [
   { base: [150, 175], ctrl: [250, 55], tip: [420, 92], pinnae: 20, length: 30, tone: 'is-full' },
 ].map((f) => ({ ...f, ...frond(f) }));
 
-/** A broad leaf with its midrib and side veins cut back out in the ground colour. */
 function broadLeaf(base, angle, length, width) {
   const [dx, dy] = unit(angle);
   const [nx, ny] = [-dy, dx];
@@ -82,11 +69,6 @@ const botanical = (
   </g>
 );
 
-/**
- * The tree of life, in the manner of Darwin's notebook sketch: one root branching left
- * to right, each split at its own distance; most lineages reach the present at the right
- * edge, a few stop short, extinct, with a bar across.
- */
 const TIPS = 24;
 const tipY = (i) => 16 + (i * 118) / (TIPS - 1);
 
@@ -124,10 +106,6 @@ const tree = (
   </g>
 );
 
-/**
- * A sunflower: seeds on the golden-angle spiral (phyllotaxis), cut out of a dark disc,
- * in two rings of petals; two more flowers lean in from the corners.
- */
 function sunflower(cx, cy, scale, seeds) {
   const disc = scale * 2.55 * Math.sqrt(seeds) + 2 * scale;
   const petals = (count, offset, length) => range(count).map((j) => {
@@ -166,20 +144,9 @@ const flowers = (
   </g>
 );
 
-/**
- * A graticule as an old atlas draws the world: two hemispheres side by side, their
- * meridians and parallels drawn in, over a portolan's rhumb lines fanning out from two
- * compass roses.
- */
 const HEMISPHERES = [238, 382];
 const GLOBE_R = 70;
 
-/**
- * Meridians every 15° round half the globe; each ellipse is a meridian and the one
- * opposite it. Its width is the cosine of its longitude, so turning the globe is each
- * ellipse narrowing through a line and widening out the other way (`globe-meridian` in
- * CoverArt.css), half a turn every GLOBE_TURN seconds.
- */
 const MERIDIANS = range(12).map((i) => i * 15);
 const GLOBE_TURN = 20;
 const ROSES = [62, 558];
@@ -238,11 +205,6 @@ const graticule = (
   </g>
 );
 
-/**
- * Aurora borealis: two curtains of light rising from a wavering hem and fading upward
- * (each fine ray stacked in six steps of strength, the rays overlapping so they blur
- * into sheets), stars above, and a ridge of pines below.
- */
 const FADE = [0.5, 0.38, 0.27, 0.18, 0.1, 0.05];
 
 function curtain(base, amp, height, phase, k) {
@@ -287,5 +249,4 @@ const aurora = (
   </g>
 );
 
-/** The life-and-earth covers, by id. */
 export const NATURE_ART = { botanical, tree, sunflower: flowers, graticule, scan: terrainScan, aurora };

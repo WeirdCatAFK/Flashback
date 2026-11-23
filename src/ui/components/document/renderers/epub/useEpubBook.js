@@ -1,19 +1,3 @@
-/**
- * An EPUB's lifecycle through epub.js: fetch the bytes once with auth (every
- * chapter and image is then served from memory), open a continuously scrolling
- * rendition themed from the app's CSS variables, wire it up once per load (so
- * handlers read refs, never state), publish the reading position — the CFI
- * resumes the renderer, the section href addresses /api/reader — resume once both
- * the book and the saved position are ready, and save the sidecar on Ctrl+S.
- *
- * The book flows down the reading measure like a note rather than turning pages,
- * so the document head can scroll away above it. epub.js scrolls its own container
- * (never an ancestor), so the head is mounted inside that container: `headHost` is
- * a node kept directly above the first section, and hidden while the first section
- * is not loaded — the continuous manager prepends earlier sections as you scroll up,
- * and the head belongs above chapter one, not above wherever reading resumed.
- */
-
 import { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from 'react';
 import ePub from 'epubjs';
 import { readFile, updateMetadata, fetchRaw } from '../../../../api/documents';
@@ -25,13 +9,7 @@ import { toShellRect, hrefFromRenderedSrc } from './geometry.js';
 const LOCATIONS_CHARS = 1600;
 const RESIZE_DEBOUNCE = 150;
 
-/**
- * A section is its own document, so pointer movement over the book never reaches
- * the app — and the hidden file tree slides out when the pointer rests near the
- * left edge, which in a book is inside the frame. Each move is passed up as the
- * same move over the frame element, in the app's coordinates (scaled by the
- * interface zoom), where the Documents view's handler sees it like any other.
- */
+/** An EPUB section is its own document, so its pointer moves never reach the app. Pass each one up as a move over the frame. */
 function forwardPointer(doc, e) {
   const frame = doc.defaultView?.frameElement;
   if (!frame) return;

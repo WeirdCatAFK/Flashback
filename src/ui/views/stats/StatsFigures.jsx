@@ -1,10 +1,3 @@
-/**
- * The Statistics report's three figures: the forecast (cards due each day, today in the
- * accent), the gap bands (a quiet bar per band with its count and share; a band opens
- * those cards in Flashcards when `onShowBand` is given), and the heatmap (one column per
- * week, four levels of the accent, a day's count in its tooltip).
- */
-
 import { useMemo } from 'react';
 import { useT } from '../../translations/index';
 import { bandLabel } from '../../utils/gapBands.js';

@@ -1,10 +1,3 @@
-/**
- * TagChipInput — chips plus type-ahead tag entry, the one implementation for
- * every place tags are edited (decks, file explorer, trainer scope).
- *
- *   <TagChipInput tags={tags} onAdd={add} onRemove={remove} allKnownTags={all} />
- */
-
 import { useState, useCallback, useRef } from "react";
 import { useT } from "../../translations/index";
 import "./TagChipInput.css";

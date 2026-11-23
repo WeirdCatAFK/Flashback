@@ -1,11 +1,3 @@
-/**
- * VaultSwitcher — the vault name in the title bar and the menu behind it. The
- * active vault stays on screen because a separation you cannot see at a glance
- * is one you will eventually write into the wrong vault. Local vaults and
- * remote servers are listed together: to the app they are the same thing, a
- * place its data comes from.
- */
-
 import { useCallback, useEffect, useRef, useState } from 'react';
 import Popover from '../base/Popover';
 import { useT } from '../../translations/index';

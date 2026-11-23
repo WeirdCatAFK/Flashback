@@ -1,21 +1,6 @@
-/**
- * What the floating toolbar sits on: a text selection, captured on mouse-up (or
- * handed over by an iframe renderer), or a highlight that was clicked (`picked`,
- * `{ id, rect }`) — found in the DOM for inline marks and PDF boxes, or handed
- * over through `pick` by a renderer that draws in a frame (EPUB). Positioned in
- * shell-layout space; dismissed by a new selection, a scroll, typing, a zoom
- * change or the view going inactive.
- */
-
 import { useState, useEffect, useCallback } from "react";
 import { toLayoutRect, useUiZoomChange } from "../../utils/uiZoom";
 
-/**
- * The highlight a click landed on: an inline mark (Markdown, text, clips), or — for
- * PDF, whose boxes ignore the pointer so text under them stays selectable — a box
- * on the clicked page whose rectangle holds the point. Marks inside the card
- * margin are cards, not passages.
- */
 function highlightAt(e) {
   const target = e.target;
   if (!target?.closest || target.closest(".doc-margin, input, textarea, button")) return null;

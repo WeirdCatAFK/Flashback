@@ -1,15 +1,5 @@
-/**
- * The pattern covers: paper, maps and plain repeats. See CoverArt for how a drawing is
- * made and painted.
- */
-
 import { W, H, hash, range, HAIR } from './artKit.js';
 
-/**
- * Rings: wide arcs rising from the lower right, darker as they widen. When covers move,
- * each ring grows into the next one's place and restarts; the outermost, with no ring to
- * become, fades away as it goes instead of vanishing when the loop restarts.
- */
 const RINGS = 10;
 
 const arcs = (
@@ -25,7 +15,6 @@ const arcs = (
   </g>
 );
 
-/** Ruled paper: notebook lines, a double margin and the binder holes. */
 const ruled = (
   <g className="cover-art__line">
     {range(8).map((i) => (
@@ -37,10 +26,6 @@ const ruled = (
   </g>
 );
 
-/**
- * Graph paper, with a forgetting curve plotted on it: recall falls away after each
- * review and each review lifts it back, a little slower to fall every time.
- */
 const REVIEWS = [[40, 34], [150, 70], [290, 130], [470, 260]];
 const RECALLED = 50;
 
@@ -69,7 +54,6 @@ const graph = (
   </g>
 );
 
-/** One closed contour line: a wobbly ellipse whose wobble grows no faster than it does, so rings never cross. */
 function contour(cx, cy, r, phase) {
   const pts = range(72).map((i) => {
     const a = (i / 72) * Math.PI * 2;
@@ -79,7 +63,6 @@ function contour(cx, cy, r, phase) {
   return `M${pts.join('L')}Z`;
 }
 
-/** Contours: a topographic map of two peaks. */
 const contours = (
   <g>
     <g className="cover-art__line">
@@ -94,7 +77,6 @@ const contours = (
   </g>
 );
 
-/** Halftone: a hex grid of dots growing from a speck on the left to full on the right. */
 const DOTS = range(10).flatMap((row) => range(40).map((col) => {
   const x = col * 16 + (row % 2) * 8;
   const y = row * 16 + 3;
@@ -108,7 +90,6 @@ const halftone = (
   </g>
 );
 
-/** Mosaic: square tiles of every strength, a few missing. */
 const TILES = range(100)
   .map((k) => ({ k, x: (k % 20) * 31 + 1.5, y: Math.floor(k / 20) * 31 - 2 }))
   .filter(({ k }) => hash(k + 11) > 0.12);
@@ -131,7 +112,6 @@ const mosaic = (
   </g>
 );
 
-/** Stripes: diagonal bands, each followed by a pinstripe. */
 const stripes = (
   <g className="cover-art__fill" transform={`rotate(-32 ${W / 2} ${H / 2})`}>
     <g className="cover-slide" style={{ '--slide': '44px', animationDuration: '8s' }}>
@@ -146,5 +126,4 @@ const stripes = (
   </g>
 );
 
-/** The pattern covers, by id. */
 export const PATTERN_ART = { arcs, ruled, graph, contours, halftone, mosaic, stripes };

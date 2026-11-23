@@ -1,31 +1,11 @@
-/**
- * Who this install stamps new work as: the local identity from Electron main
- * (get-identity IPC) and GET /api/identity for a connected server.
- */
-
 import { request } from "./client.js";
 
 const ipc = () => window.flashback ?? null;
 
-/**
- * What the connected server would stamp on new work.
- * @returns {Promise<{name: string, email: string, source: 'vault'|'global'|'default', author: string}>}
- */
 export function getEffectiveIdentity() {
   return request("GET", "/api/identity");
 }
 
-/**
- * What is stored, for the settings form: the global identity and this vault's override, if
- * any. Empty strings rather than nulls, so the form can bind to them directly.
- * `suggested` is what would be used if nothing were set — pure IPC, so it is available to
- * the setup wizard, which runs before the API process exists.
- *
- * @returns {Promise<{user: {name: string, email: string},
- *                    override: {name: string, email: string}|null,
- *                    suggested: {name: string, email: string},
- *                    activeVaultId: string|null}>}
- */
 export async function getStoredIdentity() {
   return (
     (await ipc()?.getIdentity?.()) ?? {
@@ -46,7 +26,6 @@ export async function setIdentity(identity) {
   );
 }
 
-/** Passing null for `identity` clears this vault's override. */
 export async function setVaultIdentity(vaultId, identity) {
   return (
     (await ipc()?.setVaultIdentity?.(vaultId, identity)) ?? {

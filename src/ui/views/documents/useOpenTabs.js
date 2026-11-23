@@ -1,10 +1,3 @@
-/**
- * The editor's tab strip: which documents are open, which one is the preview
- * tab (a single click opens a preview that the next single click replaces; a
- * double click pins it), a highlight another view asked to jump to, and the
- * relocation of every path when a file or folder moves.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { relocatePath } from '../../utils/relocatePath';
 

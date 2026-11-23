@@ -1,13 +1,3 @@
-/**
- * DocumentEditor — the tab bar, the reading strip, the active document's head and
- * renderer in one scroller, the floating selection toolbar, the finder (Ctrl+F) and
- * the card editor, wired together. Renderers are chosen from
- * renderers/registry.js and their capability flags read as data; the state lives
- * in useDocumentEditor.js, useSelectionToolbar.js and useHighlightActions.js.
- * ReadingBar is imported statically so it never lands in a lazy chunk, and sits
- * under the tab bar for every format.
- */
-
 import { useState, useRef, useEffect, useMemo, Suspense } from "react";
 import EditorTabBar from "./EditorTabBar";
 import SelectionToolbar from "../highlight/SelectionToolbar";
@@ -28,7 +18,6 @@ import useSelectionToolbar from "./useSelectionToolbar";
 import useHighlightActions from "./useHighlightActions";
 import "./DocumentEditor.css";
 
-/** How long a jump waits for the smooth scroll before the passage glows, and how long it stays lit. */
 const FLASH_DELAY = 320;
 const FLASH_HOLD = 1200;
 
@@ -128,12 +117,6 @@ export default function DocumentEditor({
     />
   ) : null;
 
-  /**
-   * The card margin. Mounted here in the shared scroller, or — for a renderer that
-   * scrolls itself (`hostsHead`) — by the renderer inside its own scroller, with
-   * its own `measure`.
-   */
-  /** Jump to a passage and let it glow once it has scrolled into view. */
   const jumpAndFlash = (id) => {
     actions.jumpToHighlight(id);
     flashTimers.current.forEach(clearTimeout);
@@ -143,7 +126,6 @@ export default function DocumentEditor({
     ];
   };
 
-  /** Where each inline mark sits on the page, top to bottom, for the finder's order. */
   const domOrder = () => {
     const ids = [];
     rendererRef.current?.querySelectorAll("[data-hl]").forEach((el) => {

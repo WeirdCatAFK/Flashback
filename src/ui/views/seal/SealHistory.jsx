@@ -1,12 +1,3 @@
-/**
- * SealHistory — the log read like the Diary: a ribbon of ticks (one per seal, oldest to
- * current), then the seals grouped by day, one sentence each, each pressed with a stamp
- * whose glyph (not colour) says what happened. Consecutive highlight and card edits to one
- * document fold into a run (history.js). An entry's changed files load on demand; Restore
- * asks inline, right under the entry, saying what goes back and what does not. Restore is
- * `rollbackHistory` only, and hidden rather than disabled.
- */
-
 import { useState, useEffect } from 'react';
 import { getCommitFiles } from '../../api/seal';
 import { useSession } from '../../utils/sessionContext.js';
@@ -15,7 +6,6 @@ import { Rich } from '../../translations/components.jsx';
 import { formatOid, isSidecar, documentPath, LIST_VISIBLE_CAP } from './describe.js';
 import { sealLine, byDay, foldRuns } from './history.js';
 
-/** The ribbon shows the newest seals only: past a few dozen ticks it stops being readable at a glance. */
 const RIBBON_MAX = 60;
 
 const GLYPH = {
@@ -43,7 +33,6 @@ export function Stamp({ kind }) {
   );
 }
 
-/** What a seal did, as one sentence with the thing it touched in the reading weight. */
 function Sentence({ line }) {
   const { t } = useT();
   const name = <b>{line.name}</b>;
@@ -64,7 +53,6 @@ function Sentence({ line }) {
   }
 }
 
-/** The files a seal touched, fetched on first open: a single import can touch hundreds. */
 function ChangedFiles({ oid }) {
   const { t } = useT();
   const [files, setFiles] = useState(null);

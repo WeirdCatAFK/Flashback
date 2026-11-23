@@ -1,7 +1,3 @@
-/**
- * IconFileImage — the tree glyph for an image: a picture with a hill and a sun.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileImage({ size = 15 }) {

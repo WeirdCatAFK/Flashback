@@ -1,12 +1,3 @@
-/**
- * The first-run wizard's state: the step, the form, and submitting it to
- * Electron main, which writes config.json and creates the first vault.
- *
- * In a preview (`--onboarding` over an existing config) main writes nothing, and neither
- * does this: the scheduler choice stays where it was. Either way the welcome tour is
- * cleared to run next, so finishing the wizard hands over to it as a first run does.
- */
-
 import { useState, useEffect } from 'react';
 import { completeSetup, isSetupPreview } from '../../api/desktop';
 import { useT } from '../../translations/index';

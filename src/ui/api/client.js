@@ -1,19 +1,6 @@
-/**
- * The HTTP client every api/*.js module goes through: the base URL and token for
- * the active connection (local API or remote server), request/upload helpers,
- * readiness ping, and the etag staleness check.
- */
-
 let baseUrl = null;
 let apiToken = null;
 
-/**
- * Bumped on every re-init. The app points at either the local API or a remote Flashback
- * Server, and both are just a {url, token} pair — so "switch vault" and "connect to a
- * remote" are the same operation from here, and this counter is how the UI knows the
- * data underneath it belongs to a different vault now. Used as a React key to discard
- * every view's state rather than let the previous vault's documents linger.
- */
 let connectionId = 0;
 
 export function initClient(url, token = null) {
@@ -34,28 +21,18 @@ export function getToken() {
   return apiToken;
 }
 
-/** Builds request headers with the bearer token attached (when configured). */
 function authHeaders(extra = {}) {
   return apiToken
     ? { ...extra, Authorization: `Bearer ${apiToken}` }
     : { ...extra };
 }
 
-/**
- * Appends the token as a query param for browser-initiated loads that can't set
- * headers — PDF/media URLs, <img>/<audio> src. No-op when no token is configured.
- */
 export function appendToken(url) {
   if (!apiToken) return url;
   const sep = url.includes("?") ? "&" : "?";
   return `${url}${sep}token=${encodeURIComponent(apiToken)}`;
 }
 
-/**
- * Lightweight readiness probe. Hits the API root (`GET /` → 200) so the app can
- * gate rendering until the server process is actually listening. Resolves true
- * on any 2xx, false on a network error or non-2xx — never throws.
- */
 export async function pingApi() {
   if (!baseUrl) return false;
   try {
@@ -85,13 +62,6 @@ export async function request(method, path, body = null) {
   return res.json();
 }
 
-/**
- * True when a write was refused because someone else got there first.
- *
- * Not the same as any other 409 the API returns (a name collision, say), which is why it
- * tests the code rather than the status: a stale write is recoverable by re-reading, and
- * nothing else with that status is.
- */
 export function isStale(err) {
   return err?.status === 409 && err?.code === "stale";
 }

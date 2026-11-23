@@ -1,10 +1,3 @@
-/**
- * FileExplorer — the workspace tree in the sidebar: the "+" menu, the root
- * listing of FolderNodes and FileNodes, the context menu, and the dialogs that
- * imports, tags, colours and clipping open. Role-gated controls are hidden, not
- * disabled. State lives in useExplorerTree.js and useImports.js.
- */
-
 import { useState, useRef, useCallback } from "react";
 import { moveItem } from "../../../api/documents";
 import ContextMenu from "../../base/ContextMenu";

@@ -1,23 +1,11 @@
-/**
- * Vault and remote registries: the identity handshake over HTTP, and everything
- * else over Electron IPC — listing, creating, renaming, switching and removing
- * vaults, and the remotes the renderer may point itself at.
- */
-
 import { request } from "./client.js";
 
 const ipc = () => window.flashback ?? null;
 
-/**
- * Identity of whatever the client is pointed at — local API or remote Flashback Server,
- * indistinguishable by design.
- * @returns {Promise<{vaultId, vaultName, appVersion, schemaVersion, canonicalVersion, capabilities}>}
- */
 export function getVaultIdentity() {
   return request("GET", "/api/vault");
 }
 
-/** Remotes as the connected server knows them. Never includes credentials. */
 export function getServerRemotes() {
   return request("GET", "/api/remotes");
 }
@@ -44,7 +32,6 @@ export async function renameVault(id, name) {
   );
 }
 
-/** Unregisters a vault. Never deletes anything on disk. */
 export async function removeVault(id) {
   return (
     (await ipc()?.removeVault?.(id)) ?? {
@@ -63,7 +50,6 @@ export async function switchVault(id) {
   );
 }
 
-/** Opens a directory picker and registers the chosen vault where it stands. */
 export async function openVaultFromDisk() {
   return (
     (await ipc()?.openVaultFromDisk?.()) ?? {
@@ -95,7 +81,6 @@ export async function removeRemote(id) {
   );
 }
 
-/** Handshakes with a remote and returns its identity, without switching to it. */
 export async function testRemote(id) {
   return (
     (await ipc()?.testRemote?.(id)) ?? {
@@ -105,7 +90,6 @@ export async function testRemote(id) {
   );
 }
 
-/** Point the renderer at a remote Flashback Server; the local API keeps running idle. */
 export async function connectRemote(id) {
   return (
     (await ipc()?.connectRemote?.(id)) ?? {
@@ -115,7 +99,6 @@ export async function connectRemote(id) {
   );
 }
 
-/** Point the renderer back at the local vault — the one route off a misconfigured server. */
 export async function connectLocal() {
   return (
     (await ipc()?.connectLocal?.()) ?? {

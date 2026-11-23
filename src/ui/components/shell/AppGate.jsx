@@ -1,22 +1,8 @@
-/**
- * AppGate — holds the shell until the API answers its readiness ping. The
- * renderer opens the instant the window does, but the API is a separate process;
- * rendering the workspace before reads succeed risked writing an empty document
- * back over real files.
- */
-
 import { useEffect, useRef, useState } from 'react';
 import { pingApi } from '../../api/client';
 import { useT } from '../../translations/index';
 import './AppGate.css';
 
-/**
- * Blocks the app until the API process answers. In Electron the renderer mounts
- * the instant the window opens, but the API runs in a separate process that may
- * still be validating/listening — so the first reads would race it and fail.
- * Rendering the workspace before reads succeed risks writing an empty document
- * back over real files (see the empty-workspace data-loss bug), so we gate here.
- */
 const POLL_INTERVAL_MS = 400;
 const SLOW_THRESHOLD_MS = 10000;
 

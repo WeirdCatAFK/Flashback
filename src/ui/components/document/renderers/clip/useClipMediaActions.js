@@ -1,9 +1,3 @@
-/**
- * The hover-to-save affordance over a clip's pictures and sounds: which asset
- * the pointer is on, with a short grace period so the button can be reached,
- * dismissed by scrolling or a zoom change. Tiny images are skipped.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useUiZoomChange } from '../../../../utils/uiZoom';
 import { mediaHitFor } from './media.js';

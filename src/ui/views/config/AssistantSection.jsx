@@ -1,10 +1,3 @@
-/**
- * AssistantSection — connecting an AI assistant over MCP: the config snippet Electron main
- * mints (with this install's token), where it goes, and what the assistant may read from
- * the Diary. The diary setting is written straight through to config.json (`writeField`):
- * it is an authorization boundary the API reads from disk, so it never waits on a Save.
- */
-
 import { useState, useEffect } from 'react';
 import { getMcpConfig } from '../../api/desktop';
 import { useT } from '../../translations/index';
@@ -12,7 +5,6 @@ import { Rich } from '../../translations/components.jsx';
 import ConfigRow from './ConfigRow';
 import { useSearching } from './rowsContext.js';
 
-/** How long "Copied" stays on the button. */
 const COPIED_MS = 1800;
 
 function Snippet() {

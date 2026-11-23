@@ -1,13 +1,3 @@
-/**
- * AppearanceSection — this computer's look: the theme as swatches, the theme editor (its
- * own page, opened from here), the language, the zoom, the file tree's icons, and whether
- * drawn covers move.
- *
- * A swatch draws itself in its theme: it carries `data-theme`, and every theme, built-in
- * or custom, is a `[data-theme]` block of variables, so the swatch shows the theme's real
- * desk, card, accent and ink with no second list of colours to keep in step.
- */
-
 import { useState } from 'react';
 import Stepper from '../../components/base/Stepper';
 import Toggle from '../../components/base/Toggle';
@@ -18,7 +8,6 @@ import { useT } from '../../translations/index';
 import { LanguagePicker } from '../../translations/components.jsx';
 import ConfigRow from './ConfigRow';
 
-/** Zoom moves in tenths, within the range Ctrl + and Ctrl − allow (App.jsx). */
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
 const stepZoom = (z, d) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, parseFloat((z + d).toFixed(1))));

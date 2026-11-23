@@ -1,9 +1,3 @@
-/**
- * useState that survives a reload, backed by localStorage. `sanitize` runs over
- * the stored value only: a bad or hand-edited entry falls back to the default
- * rather than wedging the view.
- */
-
 import { useState, useEffect } from 'react';
 
 export default function usePersisted(key, initial, sanitize) {

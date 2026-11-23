@@ -1,10 +1,3 @@
-/**
- * The file tree's width: dragged (snapping to set widths, so a rough drag lands
- * somewhere sensible — free resizing felt too precise), stepped with the arrow
- * keys, reset with a double-click, and remembered globally in `fb-sidebar-width`
- * — a cosmetic preference that belongs to the person, not the vault.
- */
-
 import { useState, useRef, useCallback } from 'react';
 import { MIN_WIDTH, MAX_WIDTH, DEFAULT_WIDTH, snapWidth, stepWidth, storedWidth } from './treeLayout.js';
 

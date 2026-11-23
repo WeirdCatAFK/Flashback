@@ -1,11 +1,3 @@
-/**
- * PDF highlights: the box-draw mode for scanned pages (a drag captures the app
- * zoom at mousedown, and a zoom change mid-drag aborts it), the hit test that
- * finds the highlight under a text selection, and the highlight command
- * contract. Bboxes are stored in PDF units — see geometry.js. `snapshot`
- * renders a highlight's region (pdfjs.js) for a card made from a box.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { getUiZoom, useUiZoomChange } from '../../../../utils/uiZoom';
 import { generateHighlightId } from '../highlightId.js';

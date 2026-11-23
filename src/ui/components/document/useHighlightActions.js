@@ -1,14 +1,3 @@
-/**
- * What the selection toolbar, the finder and a renderer's figure button do to
- * highlights and cards: paint or recolour (a selection, or a clicked highlight by
- * id), remove (asking first, in place, when
- * cards hang off the highlight — `pendingRemoval.from` says whether the toolbar or
- * the finder asked, so the question appears where it was raised), open the card
- * editor with a draft, and scroll to a highlight another view asked for. One
- * highlight is one save, so a created or recoloured highlight is committed on the
- * spot.
- */
-
 import { useState, useEffect, useRef, useCallback } from "react";
 import { cardsForHighlight, withoutHighlightCards } from "./tabsState.js";
 
@@ -79,7 +68,6 @@ export default function useHighlightActions({
     });
   };
 
-  /** A clicked highlight takes another colour; one recolour is one save. */
   const recolor = (id, color) => {
     const res = highlightRef.current?.recolor?.(id, color);
     clearSelection();
@@ -125,7 +113,6 @@ export default function useHighlightActions({
     if (activeTab) refreshSidecar(activeTab);
   };
 
-  /** A box highlight has no text, so its card starts from a picture of the box instead. */
   const cardFromHighlight = async (highlightId) => {
     const h = highlights.find((x) => x.id === highlightId);
     let image;

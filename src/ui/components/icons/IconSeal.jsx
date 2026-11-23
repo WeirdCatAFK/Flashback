@@ -1,7 +1,3 @@
-/**
- * IconSeal — the Seal tab: a rubber stamp over its impression.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconSeal({ size = 24 }) {

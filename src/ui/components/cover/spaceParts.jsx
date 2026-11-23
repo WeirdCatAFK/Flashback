@@ -1,12 +1,6 @@
-/**
- * The pieces the space covers draw with: shaded boxes and cylinders, a starry sky and a
- * conveyor belt. The shapes' geometry is spaceKit's; these only paint it.
- */
-
 import { hash, HAIR } from './artKit.js';
 import { polyline } from './spaceKit.js';
 
-/** A box in the three shades, its edges cut in the ground colour so boxes read apart. */
 export function box(b, key) {
   return (
     <g key={key}>
@@ -27,7 +21,6 @@ export function cylinder(c, key) {
   );
 }
 
-/** Stars, one in five twinkling when covers move. */
 export function sky(stars) {
   return (
     <g className="cover-art__fill">
@@ -46,7 +39,6 @@ export function sky(stars) {
   );
 }
 
-/** A conveyor belt along the points, the parts on it moving in the belt's direction. */
 export function belt(points, key, pace = '1.2s') {
   const d = polyline(points);
   return (

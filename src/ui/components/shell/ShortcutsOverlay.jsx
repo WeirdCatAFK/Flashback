@@ -1,8 +1,3 @@
-/**
- * ShortcutsOverlay — every keyboard shortcut in one dialog: the fixed ones,
- * then the rebindable actions with whatever keys the user has set.
- */
-
 import Modal from '../base/Modal';
 import { fixedShortcutGroups, keybindingActions, keyParts } from '../../utils/keybindings';
 import useKeybindings from '../../hooks/useKeybindings';

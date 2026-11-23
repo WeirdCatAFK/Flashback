@@ -1,17 +1,3 @@
-/**
- * DeckPurgeDialog — confirms erasing a deck *and its cards*.
- *
- * Distinct from the plain "Delete deck" confirm, which only drops the deck and leaves
- * the cards alone. This one destroys content, so it states exactly what will go:
- *
- *  - standalone vs document-anchored counts, because deleting the latter takes cards
- *    out of the user's notes — a different kind of loss, and worth naming the files
- *  - cards another deck also holds, which survive unless the user opts in
- *
- * It can't use `useConfirm`: that resolves to a bare boolean and has nowhere to carry
- * the shared-cards choice.
- */
-
 import { useEffect, useState } from "react";
 import Modal from "../base/Modal.jsx";
 import { getDeckContents } from "../../api/decks.js";

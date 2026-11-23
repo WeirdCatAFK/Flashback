@@ -1,16 +1,3 @@
-/**
- * ActivityBar — the tab bar down the left edge. One icon per screen, in groups
- * that follow the process (make, study, look back, keep) with a thin rule between
- * them; one accent marker that slides to the open screen instead of jumping; and a
- * tooltip that names the screen, says in a line what it is for, and shows its
- * shortcut. The tooltip waits a moment the first time and then follows the pointer
- * along the bar at once, the way a menu bar behaves; it also appears on keyboard
- * focus. Items arrive already filtered and labelled — App owns which screens exist.
- *
- * Positions are read from `offsetTop`, which is in layout pixels, so the marker and
- * the tooltip need no conversion under the app zoom.
- */
-
 import { Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { keyParts } from "../../utils/keybindings";
 import "./ActivityBar.css";
@@ -18,7 +5,6 @@ import "./ActivityBar.css";
 const TIP_DELAY = 450;
 const TIP_WARM = 500;
 
-/** Offset of `el` from the top of `bar`, summed up the offsetParent chain. */
 function topWithin(el, bar) {
   let y = 0;
   for (let n = el; n && n !== bar; n = n.offsetParent) y += n.offsetTop;

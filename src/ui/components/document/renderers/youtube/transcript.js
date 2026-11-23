@@ -1,27 +1,8 @@
-/**
- * The transcript as a document, as plain functions: captions grouped into paragraphs,
- * each highlight placed on the words it covers, a paragraph cut into plain and marked
- * runs, and which paragraph or line a moment in the video falls in. No React, no DOM.
- *
- * A highlight on a video is a `video_timestamp` entry: a `start` in seconds and a
- * `text`. It is placed in the paragraph its `start` falls in, on the first occurrence
- * of its text from the line it starts on. One with no text of its own (a moment marked
- * from the player before captions existed, stored as "@ m:ss") covers the whole line
- * at its time. One whose text is not in the captions at all is a note someone wrote;
- * it is returned as `loose` and shown as a note between the paragraphs.
- */
-
-/** A paragraph closes after a sentence once it spans this many seconds, and regardless at the next. */
 const SOFT_SPAN = 25;
 const HARD_SPAN = 45;
 
-/** Whether a highlight's text is only the time a moment was marked at, not words of its own. */
 export const isBlankNote = (text) => !text || /^@ \d/.test(String(text).trim());
 
-/**
- * Captions (`{ start, dur, text }`) as paragraphs: `{ start, text, cues }`, where each
- * cue carries its `offset` into the paragraph's text.
- */
 export function groupCues(cues) {
   const paras = [];
   let cur = null;
@@ -42,7 +23,6 @@ export function groupCues(cues) {
   return paras;
 }
 
-/** The index of the paragraph a time falls in (the last to start at or before it), or -1 before the first. */
 export function paraIndexAt(paras, seconds) {
   let found = -1;
   for (let i = 0; i < paras.length; i++) {
@@ -51,24 +31,18 @@ export function paraIndexAt(paras, seconds) {
   return found;
 }
 
-/** The line of a paragraph a time falls in. */
 export function cueAt(para, seconds) {
   let found = para.cues[0];
   for (const c of para.cues) { if (c.start <= seconds) found = c; else break; }
   return found;
 }
 
-/** The time of the line a character offset in a paragraph falls in. */
 export function timeAtOffset(para, offset) {
   let found = para.cues[0];
   for (const c of para.cues) { if (c.offset <= offset) found = c; else break; }
   return found?.start ?? para.start;
 }
 
-/**
- * Where every highlight goes: `ranges` per paragraph index (`{ id, color, from, to }`)
- * and the `loose` ones — notes whose words are not in the captions.
- */
 export function placeHighlights(paras, highlights) {
   const ranges = new Map();
   const loose = [];
@@ -93,7 +67,6 @@ export function placeHighlights(paras, highlights) {
   return { ranges, loose };
 }
 
-/** A paragraph's text as runs, plain or marked by one highlight; overlapping marks yield to the earlier. */
 export function segments(text, ranges = []) {
   const out = [];
   let at = 0;
@@ -107,7 +80,6 @@ export function segments(text, ranges = []) {
   return out;
 }
 
-/** The highlight in a paragraph's ranges that overlaps [from, to), if any. */
 export function rangeOverlapping(ranges, from, to) {
   return (ranges ?? []).find((r) => r.from < to && r.to > from) ?? null;
 }

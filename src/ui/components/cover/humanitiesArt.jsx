@@ -1,17 +1,7 @@
-/**
- * The humanities covers: a Doric colonnade, a line of music, a brass orrery, the
- * pyramids of Giza and the Templo Mayor. See CoverArt for how a drawing is made and
- * painted.
- */
-
 import { W, hash, range, HAIR } from './artKit.js';
 
 const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 
-/**
- * A Doric colonnade: cornice, a frieze of triglyphs, the architrave, then fluted
- * columns under plain capitals, on three steps, with the shadowed wall behind.
- */
 const COLUMNS = range(9).map((i) => 38 + i * 68);
 const TRIGLYPHS = range(20).map((i) => 4 + i * 34);
 
@@ -48,19 +38,12 @@ const colonnade = (
   </g>
 );
 
-/**
- * Sheet music: the opening of Beethoven's "Ode to Joy" in common time, a faint staff
- * above waiting to be written and the next four bars fainter below. A note is a staff
- * position (0 is the bottom line, E) and a length in beats. When covers move, the
- * opening plays: each note lights as it sounds and dims after (`music-note`).
- */
 const ODE_OPENING = [[0, 1], [0, 1], [1, 1], [2, 1], [2, 1], [1, 1], [0, 1], [-1, 1], [-2, 1], [-2, 1], [-1, 1], [0, 1], [0, 1.5], [-1, 0.5], [-1, 2]];
 const ODE_ANSWER = [[0, 1], [0, 1], [1, 1], [2, 1], [2, 1], [1, 1], [0, 1], [-1, 1], [-2, 1], [-2, 1], [-1, 1], [0, 1], [-1, 1.5], [-2, 0.5], [-2, 2]];
 const LINE_GAP = 9;
 const BAR_X = 74;
 const BAR_W = 134;
 
-/** One beat of the melody when it plays, and the whole loop: sixteen beats and a rest. */
 const BEAT = 0.6;
 const PLAY_LOOP = 12;
 
@@ -110,16 +93,6 @@ const music = (
   </g>
 );
 
-/**
- * An orrery: the planets on tilted orbits round the sun, each held on its own brass arm,
- * Saturn with its ring and the Earth with its Moon, the whole on a stand.
- *
- * Each planet is drawn on a flat circle that is then squashed into its tilted orbit
- * (`scale(1 TILT)`): an arm turns about the sun by `--from`, and the planet on its end
- * turns back by as much and is unsquashed, so it stays round and upright. When covers
- * move, the arms turn (cover-orbit and cover-upright in CoverArt.css), each in a period that grows
- * with its orbit to the power 1.5, Kepler's third law, and the Moon circles the Earth.
- */
 const SUN = [310, 84];
 const TILT = 0.3;
 const PLANETS = [[40, 2.6], [62, 4], [86, 4.6], [114, 3.4], [158, 11], [204, 9], [248, 6.5], [290, 6.2]].map(([r, size], i) => ({
@@ -165,20 +138,13 @@ const orrery = (
   </g>
 );
 
-/** Where the land (or the lake) meets the sky in both pyramid covers. */
 const GROUND = 116;
 
-/** The points of a pyramid's outline at height `y`: its left and right faces. */
 function facesAt([x0, x1, apex, top], y) {
   const f = (GROUND - y) / (GROUND - top);
   return [x0 + (apex - x0) * f, x1 + (apex - x1) * f];
 }
 
-/**
- * The pyramids of Giza: Khafre's behind, Khufu's in front, Menkaure's and two queens'
- * pyramids trailing off, each with its lit face and its courses of stone, on the sand
- * under a low sun.
- */
 const GIZA = [[260, 460, 360, 46], [90, 280, 185, 40], [450, 540, 495, 80], [548, 580, 564, 100], [584, 612, 598, 102]];
 
 const giza = (
@@ -206,11 +172,6 @@ const giza = (
   </g>
 );
 
-/**
- * The Templo Mayor of Tenochtitlan: sloped terraces climbed by a double stair to the
- * twin temples of Tlaloc (the striped crest) and Huitzilopochtli (the stepped
- * merlons), on the lake, with the snow-capped volcanoes on the horizon.
- */
 const TEMPLO_TIERS = range(4).map((i) => {
   const w = 300 - i * 40;
   return { x0: 310 - w / 2, x1: 310 + w / 2, yb: GROUND - i * 12, yt: GROUND - (i + 1) * 12 };
@@ -261,5 +222,4 @@ const aztec = (
   </g>
 );
 
-/** The humanities covers, by id. */
 export const HUMANITIES_ART = { colonnade, music, orrery, giza, aztec };

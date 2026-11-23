@@ -1,17 +1,8 @@
-/**
- * ContextMenu — a right-click menu at a point: items, separators, and a danger
- * item that asks once before acting. Dismisses on outside click and Escape.
- */
-
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../translations/index";
 import "./ContextMenu.css";
 
-/**
- * `item.label` arrives already translated from the caller — this component never
- * translates it, which is why it stays a plain value and not a key.
- */
 export default function ContextMenu({ x, y, items, onClose }) {
   const ref = useRef();
   const { t } = useT();

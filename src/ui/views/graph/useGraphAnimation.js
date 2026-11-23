@@ -1,9 +1,3 @@
-/**
- * The on-demand animation loop. react-force-graph has no imperative repaint, so
- * `autoPauseRedraw` is toggled off for a short window whenever something eased
- * (a hover, a selection, a data change) needs frames to settle.
- */
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 export default function useGraphAnimation() {

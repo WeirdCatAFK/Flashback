@@ -1,7 +1,3 @@
-/**
- * IconDocuments — the Documents tab: a page with its corner turned.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconDocuments({ size = 24 }) {

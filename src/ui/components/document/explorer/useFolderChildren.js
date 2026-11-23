@@ -1,9 +1,3 @@
-/**
- * One folder's listing plus the reading progress of everything in it, fetched
- * per level (one request per folder, mirroring listFolder). A folder that was
- * already open when the tree remounts loads itself.
- */
-
 import { useState, useEffect, useRef, useCallback } from "react";
 import { listFolder } from "../../../api/documents";
 import { listProgress } from "../../../api/progress";

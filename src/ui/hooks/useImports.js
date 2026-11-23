@@ -1,16 +1,8 @@
-/**
- * Importing files into the vault: one upload at a time with progress, packages
- * (.zip, .apkg) through the zip/Anki importer — which may come back asking for a
- * field mapping — and the broadcast that tells every view the vault changed.
- * Used by the file explorer and the Decks view.
- */
-
 import { useState, useCallback } from 'react';
 import { importFileWithProgress, importZipWithProgress, applyAnkiMapping } from '../api/documents';
 import { invalidateData } from '../utils/dataBus';
 import { useT } from '../translations/index';
 
-/** Zips and Anki packages go through the package importer, everything else through the file importer. */
 export const isPackage = (fileName) => /\.(zip|apkg)$/i.test(fileName);
 
 export default function useImports() {

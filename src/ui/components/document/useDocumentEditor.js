@@ -1,12 +1,3 @@
-/**
- * The editor's cross-tab state: which tabs are dirty, their unsaved drafts, the
- * active document's sidecar facts (highlights, cards, tags, cover), and the reconciliation
- * that happens during render — a path change resets the per-document state, a
- * relocation remaps it, a closed tab drops it — so the view converges in one pass
- * rather than flashing through an effect. Drafts live here, not in the renderer,
- * which is what lets them survive a rollback remount.
- */
-
 import { useState, useCallback } from "react";
 import { readFile, updateMetadata } from "../../api/documents";
 import { useDataInvalidation } from "../../utils/dataBus";

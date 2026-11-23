@@ -1,8 +1,3 @@
-/**
- * Fetches and builds the graph for the caller, or for another account when an
- * admin is viewing someone else's progress (same shape, different route).
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { getGraph } from '../../api/documents';
 import { getAccountGraph } from '../../api/accounts';

@@ -1,16 +1,3 @@
-/**
- * InlineConfirm — a confirmation that opens in place, beside the thing it is
- * about, instead of a modal. It says what will happen in plain words and offers
- * Cancel plus one or more actions. Cancel takes focus, so a stray Enter is never
- * the destructive choice.
- *
- *   <InlineConfirm title={t('Deactivate M. Okafor?')} message={t('Every token they hold…')}
- *     onCancel={close} actions={[{ label: t('Deactivate'), kind: 'danger', onClick: deactivate }]} />
- *
- * `kind` is 'danger', 'primary' or omitted for a plain action. `tone="neutral"` drops
- * the danger tint, for a choice that loses nothing (switching a scheduler, say).
- */
-
 import { useEffect, useRef } from "react";
 import { useT } from "../../translations/index";
 

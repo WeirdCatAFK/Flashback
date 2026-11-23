@@ -1,10 +1,3 @@
-/**
- * CardDetailModal — one card in full: its faces, its schedule and review
- * history, the card-health verdict with what it rests on, and an Edit button.
- * With `onEdit(hash)` the button hands the card to the caller's editor (the card
- * bench); without it, the card is edited in place here.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import Modal from '../base/Modal';
 import StatTile from '../base/StatTile';
@@ -24,15 +17,6 @@ import './CardDetailModal.css';
 const pct = (r) => (r == null ? '—' : `${Math.round(r * 100)}%`);
 const days = (d) => (d == null ? '—' : d >= 10 ? `${Math.round(d)} d` : `${Math.round(d * 10) / 10} d`);
 
-/**
- * One card-health flag: what the classifier concluded, what it concluded it from, and
- * what the user might do about it.
- *
- * The evidence row is the point. A flag that only asserted "this card is overloaded"
- * would be an oracle; showing the peak intervals it walked and the answer length it
- * compared against lets the reader disagree with it. Nothing here applies a change —
- * the action is a sentence, not a button that splits the card.
- */
 function evidenceBits(f, t, tp) {
   const e = f.evidence ?? {};
   const bits = [];

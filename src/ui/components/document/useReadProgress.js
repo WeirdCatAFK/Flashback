@@ -1,44 +1,15 @@
-/**
- * One document's read progress: the stored record, a debounced report of the
- * live position, the resume prompt, and the manual set-here / finished / clear
- * writes.
- */
-
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getProgress, setProgress, clearProgress } from "../../api/progress";
 
-/**
- * How long a document must be open before it can acquire a reading position.
- *
- * Without this, single-clicking through a folder in preview tabs would stamp a position
- * onto every file touched — which is worst in exactly the case this feature exists for, a
- * freshly imported folder of hundreds of documents. A glance is not reading.
- */
 const MIN_DWELL_MS = 5000;
 
-/**
- * Capture is continuous; writing is not. The renderer reports on every scroll, and this is
- * how long the reports settle before one request goes out. Also flushed on unmount, on a
- * path change, and when the tab is hidden, so closing a document never loses the last move.
- */
 const FLUSH_MS = 3000;
 
-/** Have we actually moved, or is this the same place the document opened at? */
 function samePlace(a, b) {
   if (!a || !b) return false;
   return JSON.stringify(a) === JSON.stringify(b);
 }
 
-/**
- * Reading position for one open document: loads it, hands it to the renderer to resume
- * from, and records where the reader gets to.
- *
- * Lives outside DocumentEditor because it owns real policy — the dwell guard, the write
- * debounce, and the auto-versus-manual distinction — none of which the editor should have
- * to hold while it is also managing tabs, drafts and selections.
- *
- * @param {string|null} path - the active document, or null.
- */
 export function useReadProgress(path) {
   const [initialProgress, setInitialProgress] = useState(undefined);
   const [resumeAt, setResumeAt] = useState(null);

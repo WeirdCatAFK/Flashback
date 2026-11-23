@@ -1,8 +1,3 @@
-/**
- * Translated labels for node types and relations. Switches of literals rather
- * than lookup tables, because the extractor only sees literal t() arguments.
- */
-
 import { useCallback } from 'react';
 import { useT } from '../../translations/index';
 

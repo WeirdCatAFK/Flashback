@@ -1,11 +1,3 @@
-/**
- * The document-highlight registry that lives in each .flashback sidecar, for the
- * TipTap renderers. Two anchoring strategies share one entry shape: Markdown
- * keeps the highlight inline in the body as <mark data-hl> and the registry
- * mirrors it; plain text cannot carry markup, so its entries also store character
- * offsets, re-applied on load and recomputed from live positions on save.
- */
-
 import Highlight from '@tiptap/extension-highlight';
 
 const TEXT_SNAPSHOT_LIMIT = 240;
@@ -24,11 +16,6 @@ function snapshot(text) {
     : trimmed;
 }
 
-/**
- * Shared Highlight mark. Two attribute changes from the upstream default:
- * data-color — emitted via class-tinted CSS variables, no inline style
- * data-hl    — stable per-highlight ID anchoring it to the sidecar entry
- */
 export const ThemedHighlight = Highlight.extend({
   addAttributes() {
     return {
@@ -46,10 +33,6 @@ export const ThemedHighlight = Highlight.extend({
   },
 });
 
-/**
- * Selection-driven highlight commands shared by every editor-backed renderer.
- * Returns the object stored on DocumentEditor's highlightRef.
- */
 export function createHighlightCommands(editor) {
   return {
     toggle: (color) => {
@@ -123,11 +106,6 @@ export function createHighlightCommands(editor) {
   };
 }
 
-/**
- * Merge a freshly-collected map of live marks with the sidecar's prior entries,
- * preserving fields we don't own (cardHashes, refIds, createdAt).
- * current: Map<id, { color, text, ...extra }>   (extra = {start,end} for txt)
- */
 function mergeRegistry(current, existing = []) {
   const now = new Date().toISOString();
   const next = [];
@@ -168,7 +146,6 @@ function mergeRegistry(current, existing = []) {
   return { highlights: next, removed };
 }
 
-/** Walk the editor's DOM and return every <mark data-hl=…> by ID. */
 function collectMarks(editor) {
   const out = new Map();
   const root = editor?.view?.dom;
@@ -190,19 +167,10 @@ export function reconcileHighlights(editor, existing = []) {
   return mergeRegistry(collectMarks(editor), existing);
 }
 
-/**
- * The document body for a .txt file is the editor's text with paragraphs
- * joined by '\n' — this is exactly what gets written to disk, so highlight
- * offsets index into it.
- */
 function plainText(editor) {
   return editor.getText({ blockSeparator: '\n' });
 }
 
-/**
- * Map each text node to its [char offset, ProseMirror position] start, matching
- * the '\n'-joined serialization above.
- */
 function buildTextIndex(doc) {
   const segments = [];
   let charPos = 0;
@@ -227,7 +195,6 @@ function charToPM(segments, offset) {
   return null;
 }
 
-/** Recompute the registry from the live mark positions in a plain-text doc. */
 export function highlightsFromText(editor, existing = []) {
   const current = new Map();
   let charPos = 0;
@@ -260,11 +227,6 @@ export function highlightsFromText(editor, existing = []) {
   return mergeRegistry(current, existing);
 }
 
-/**
- * Re-apply stored highlights to a freshly-loaded plain-text doc. Verifies each
- * against its text snapshot; if the offsets no longer match (file edited
- * elsewhere) it re-anchors by searching for the quote, or drops it if gone.
- */
 export function applyHighlightsToText(editor, highlights = []) {
   if (!highlights.length) return;
   const segments = buildTextIndex(editor.state.doc);
@@ -296,12 +258,6 @@ export function applyHighlightsToText(editor, highlights = []) {
   }
 }
 
-/**
- * Flatten every text node in document order, recording each node's char range
- * and ProseMirror position. Unlike buildTextIndex (flat .txt docs only), this
- * walks nested structure (lists, blockquotes); a positional gap between
- * consecutive text nodes (block boundary, hard break) becomes one '\n'.
- */
 function buildInlineIndex(doc) {
   const parts = [];
   let text = '';
@@ -326,12 +282,6 @@ function inlineCharToPM(parts, offset) {
   return null;
 }
 
-/**
- * Locate `quote` in the rendered text. Quotes captured from the raw markdown
- * source (e.g. by the MCP server) can carry emphasis syntax the rendered text
- * doesn't have, so on a miss retry with those characters stripped from the
- * quote. Returns { start, end } char offsets or null.
- */
 function findQuote(text, quote) {
   let idx = text.indexOf(quote);
   if (idx !== -1) return { start: idx, end: idx + quote.length };
@@ -343,15 +293,6 @@ function findQuote(text, quote) {
   return null;
 }
 
-/**
- * Apply inline marks for registry entries that have none in a freshly-loaded
- * markdown doc — highlights created out-of-band (`POST /api/highlights` writes
- * only the sidecar, as older MCP servers' create_highlight did). Anchors
- * by quote search against the `text` snapshot, mirroring the .txt re-anchor
- * path. Entries that can't be anchored are left untouched here and dropped by
- * the next reconcile, same as a stale .txt highlight. Once the user saves, the
- * applied mark serializes into the body and the highlight becomes native.
- */
 export function applyMissingHighlights(editor, highlights = []) {
   if (!highlights.length) return;
   const markType = editor.schema.marks.highlight;
@@ -387,7 +328,6 @@ export function applyMissingHighlights(editor, highlights = []) {
   }
 }
 
-/** Scroll the editor view to the mark with the given ID. Returns true if found. */
 function scrollToHighlight(editor, id) {
   const el = editor?.view?.dom?.querySelector(`mark[data-hl="${id}"]`);
   if (!el) return false;

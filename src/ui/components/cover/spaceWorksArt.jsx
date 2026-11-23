@@ -1,36 +1,13 @@
-/**
- * The space covers of great structures seen from space: the space elevator's ring
- * station over the Earth, and an orbital shipyard. The isometric builds are in
- * spaceIsoArt. See CoverArt for how a drawing is made and painted; what moves is on the
- * classes CoverArt.css animates (cover-turn, flow-dash, cover-carry, cover-hover,
- * cover-flicker, cover-twinkle).
- */
-
 import { hash, range, HAIR } from './artKit.js';
 import { pt, starfield, ellipseHalves } from './spaceKit.js';
 import { sky } from './spaceParts.jsx';
 
-/**
- * The space elevator from orbit: the Earth's curve below, the tether rising from its
- * anchor straight out of the banner, and round the tether the great ring station — its
- * habitat torus on spokes about a hub, a lighter structural ring beyond it, docking
- * modules on its rim — with a smaller station higher up and climbers riding the tether
- * (still, each rests on a clear stretch of it, `--rest-y`).
- * Rings are drawn in halves round the tether: far half, tether and hubs, near half. When
- * covers move, the ring turns (spokes and window lights) and the climbers rise.
- */
 const RING = { cy: 74, rx: 176, ry: 30 };
 const RING_HALVES = ellipseHalves(RING.rx, RING.ry);
 const TRUSS = ellipseHalves(206, 36);
 const UPPER = { cy: 30, halves: ellipseHalves(44, 7.5) };
 const MODULES = [0.55, 1.2, 1.94, 2.6].map((t) => [RING.rx * Math.cos(t), RING.ry * Math.sin(t)]);
 
-/**
- * A station's hub where the tether passes through it: a drum with a rounded underside,
- * shaded away from the light and banded by two collars, tapering above and below into
- * cones that close on the tether — each a true cone, its ends ellipses and its far side
- * in shade.
- */
 function hub(cy, r, half, cone) {
   const ry = r * 0.25;
   const [top, bottom] = [cy - half, cy + half];
@@ -54,10 +31,6 @@ function hub(cy, r, half, cone) {
   );
 }
 
-/**
- * A climber riding the tether: a small drum like the hubs — curved underside, far side in
- * shade, a lit cap, a collar with a window — gripping the tether through short cones.
- */
 function climber(cy, r, half) {
   const ry = r * 0.28;
   const [top, bottom] = [cy - half, cy + half];
@@ -136,12 +109,6 @@ const elevator = (
   </g>
 );
 
-/**
- * An orbital shipyard: a truss frame round a ship being built. Its bow is finished,
- * panelled and windowed; its stern is still ribs on a keel. Welding sparks flicker
- * where the two meet, robot arms reach in from the frame, drones hover, cargo pods wait,
- * and a planet's limb fills the corner.
- */
 const BAYS = range(10).map((i) => 104 + i * 48);
 const RIBS = range(10).map((i) => 168 + i * 14);
 const SEAM = [[300, 60], [301, 76], [300, 92]];
@@ -205,5 +172,4 @@ const shipyard = (
   </g>
 );
 
-/** The great-structure space covers, by id. */
 export const SPACE_WORKS_ART = { elevator, shipyard };

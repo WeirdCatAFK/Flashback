@@ -1,9 +1,3 @@
-/**
- * The study preferences: scheduler, new cards per day, FSRS retention, and
- * session order — each vault-scoped through prefs.js, because a work vault and a
- * personal vault genuinely want different limits.
- */
-
 import { useState } from 'react';
 import { getPref, setPref, getNumberPref } from './prefs.js';
 
@@ -43,11 +37,6 @@ export default function useSrsPrefs() {
   return { algorithm, applyAlgorithm, maxNew, setMaxNew, retention, setRetention, order, setOrder };
 }
 
-/**
- * Diary opt-in (per vault, default off). When on, the Trainer writes a per-day summary to
- * the diary on session completion. See DATAMODEL.md § Diary.
-
-/** Diary opt-in (per vault, default off): when on, the Trainer writes a per-day summary on session completion. */
 export function useDiaryPref() {
   const [enabled, setEnabledState] = useState(
     () => getPref('fb-diary-enabled') === '1',

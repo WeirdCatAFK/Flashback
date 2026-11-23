@@ -1,25 +1,3 @@
-/**
- * VaultManager — creating, adopting, renaming and connecting to vaults.
- *
- * This used to be a section inside Config, which was the wrong home for it: Config is a
- * vault's own settings, and everything here is ABOUT vaults rather than in one. Switching
- * away from a vault is not something that happens inside it. So it is an overlay that
- * covers the app entirely — the vault you were in goes dark behind it, which is the whole
- * point of the presentation.
- *
- * Two panes, after the shape Obsidian settled on:
- *   left  — every place this app can open: local vaults, then remote servers. Clicking one
- *           opens it. The active one is marked.
- *   right — what this app IS (name and version, the only screen that shows it besides
- *           Config → About), then the three things you can do that aren't "open one of
- *           these": create, adopt from disk, connect to a remote.
- *
- * Per-row actions (rename, remove) reveal on hover and on focus-within rather than hiding
- * behind a ⋮ menu — the app has no popover-menu primitive, and a second nested menu inside
- * a dialog is a focus-trap problem nobody needs. focus-within is what keeps them reachable
- * from the keyboard.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import { useT } from '../../translations/index';
 import Modal from '../base/Modal.jsx';
@@ -33,10 +11,6 @@ import { vaultNameError } from '../../../shared/vaultName.js';
 import logoUrl from '../../assets/flashback.png';
 import './VaultManager.css';
 
-/**
- * The shared validator returns a code so the Electron main process can use it too; the
- * sentences live here, where they can be translated.
- */
 function nameErrorText(code, t) {
   switch (code) {
     case 'required':      return t('Required.');
@@ -48,7 +22,6 @@ function nameErrorText(code, t) {
   }
 }
 
-/** One row in the left rail. Shared by vaults and remotes so both read the same. */
 function Row({ active, disabled, primaryLabel, name, tags, detail, onOpen, children }) {
   return (
     <li className={`vm-row${active ? ' is-active' : ''}`}>

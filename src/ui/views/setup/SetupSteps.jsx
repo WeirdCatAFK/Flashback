@@ -1,12 +1,3 @@
-/**
- * The wizard's four screens: welcome, the vault (name, scheduler, location), who you are,
- * and the review before anything is written. Each validates its own fields with the
- * sentences from validation.js. Who you are starts blank, with the computer account as the
- * placeholder: blank is a valid answer (that account is stamped), while a name filled in
- * for you beside an empty email is not. The scheduler reads as it does in Config → Study (the same
- * control and the same sentences), since that is where it is changed later.
- */
-
 import { useState, useEffect } from 'react';
 import { LOCALE_OPTIONS, useT } from '../../translations/index';
 import { LanguagePicker } from '../../translations/components.jsx';
@@ -16,7 +7,6 @@ import { getStoredIdentity } from '../../api/identity.js';
 import { getUserDataPath, isDesktop } from '../../api/desktop';
 import { nameError, joinPath, identityProblem, bothBlank, SCHEDULERS } from './validation.js';
 
-/** One sentence per scheduler, the same as Config → Study's. */
 function schedulerHint(id, t) {
   switch (id) {
     case 'leitner': return t('Cards move up a box when you remember them and back to the first when you don’t; each box doubles the gap.');
@@ -26,7 +16,6 @@ function schedulerHint(id, t) {
   }
 }
 
-/** Where the vault would land, once Electron has said where its data lives. */
 function useDataPath() {
   const [dataPath, setDataPath] = useState('');
   useEffect(() => {
@@ -35,7 +24,6 @@ function useDataPath() {
   return dataPath;
 }
 
-/** The identity Flashback falls back on (the computer account), or null. */
 function useSuggestedIdentity() {
   const [suggested, setSuggested] = useState(null);
   useEffect(() => {
@@ -48,7 +36,6 @@ function useSuggestedIdentity() {
   return suggested;
 }
 
-/** The steps as a ladder: done, here, still to come. */
 export function StepLadder({ step, labels }) {
   const { t } = useT();
   return (

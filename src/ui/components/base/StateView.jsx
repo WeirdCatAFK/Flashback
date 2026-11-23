@@ -1,14 +1,3 @@
-/**
- * StateView — one consistent treatment for the loading / error / empty states
- * every view needs. Before this, views hand-rolled these (some as unstyled bare
- * <p>, some swallowed errors so a failure looked identical to "empty"). Use these
- * so a failed fetch always reads as a failure, and an empty result invites action.
- *
- *   <LoadingState message="Loading cards…" />
- *   <ErrorState error={err} onRetry={refetch} />
- *   <EmptyState title="No decks yet" message="Create one to get started." action={…} />
- */
-
 import { useT } from "../../translations/index";
 import "./StateView.css";
 
@@ -30,10 +19,6 @@ function StateView({ tone = "neutral", icon, title, message, action }) {
   );
 }
 
-/**
- * Defaults resolve in the body rather than as parameter defaults: t() only exists
- * once the hook has run, and a default resolved at render re-runs on a language switch.
- */
 export function LoadingState({ message }) {
   const { t } = useT();
   return (

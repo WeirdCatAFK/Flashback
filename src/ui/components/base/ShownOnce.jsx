@@ -1,11 +1,3 @@
-/**
- * ShownOnce — a secret that exists only in the response that created it (an access
- * token). Deliberately obtrusive rather than a toast that can be missed: it stays
- * until dismissed, and says plainly that dismissing it loses the value.
- *
- *   <ShownOnce title={t('A new token for M. Okafor.')} value={token} onDone={close} />
- */
-
 import { useState } from "react";
 import { useT } from "../../translations/index";
 

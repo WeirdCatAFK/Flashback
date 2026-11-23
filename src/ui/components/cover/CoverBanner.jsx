@@ -1,15 +1,3 @@
-/**
- * CoverBanner — the banner at the head of a deck's page or a document: an image of
- * your own, or one of the drawings in CoverArt in the owner's colour. Someone who may edit gets
- * "Add cover" when there is none, and on hover Change cover (the drawn ones, or
- * upload an image), Reposition (an image only: drag it, then Save position) and
- * Remove. `source` is how this owner's cover is reached — `{ imageUrl(file),
- * upload(file), set(change), remove() }`, each resolving `{ cover }` like the API
- * — and `onChange(cover)` hands back what the server stored, null when removed.
- *
- *   <CoverBanner cover={deck.cover} tint="var(--color-box-sage)" source={deckSource} editable onChange={setCover} />
- */
-
 import { useRef, useState } from 'react';
 import Popover from '../base/Popover';
 import { useT } from '../../translations/index';

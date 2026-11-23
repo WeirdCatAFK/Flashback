@@ -1,11 +1,3 @@
-/**
- * The hidden file tree's approach: resting the pointer in the empty space left of
- * the text slides the tree out, and leaving it slides it back. A strip beside the
- * text stays inert (see treeLayout.js) so a selection started at a line's edge never
- * opens it, and a pointer held down (a drag, a selection) never does. The tab bar
- * and the reading strip are outside the zone — the tree toggle lives in the first.
- */
-
 import { useEffect, useRef, useState } from 'react';
 import { peekZoneWidth } from './treeLayout.js';
 
@@ -13,11 +5,6 @@ const OPEN_DELAY = 180;
 const CLOSE_DELAY = 260;
 const AFTER_OPEN_DELAY = 120;
 
-/**
- * Whether `target` is inside `el`. A pointer can leave toward an element in the EPUB's
- * section iframe, which belongs to another document — `contains` throws on it, and it
- * is never inside the tree anyway.
- */
 function within(el, target) {
   try {
     return !!el && !!target && el.contains(target);
@@ -67,7 +54,6 @@ export default function useTreePeek({ hidden, treeRef }) {
     onPointerLeave: () => { if (peek) later(false, CLOSE_DELAY); },
   };
 
-  /** A document chosen from the slid-out tree puts it away again. */
   const afterOpen = () => { if (hidden) later(false, AFTER_OPEN_DELAY); };
 
   return { peek, hint, bodyProps, treeProps, afterOpen };

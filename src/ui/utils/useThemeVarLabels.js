@@ -1,10 +1,3 @@
-/**
- * Display names for the theme variables. customThemes.js keeps the structure
- * (which keys exist, which take raw text) with English fallbacks; the text lives
- * here because THEME_VARS is a module constant and a t() in it would freeze the
- * load-time language.
- */
-
 import { useMemo } from 'react';
 import { useT } from '../translations/index';
 

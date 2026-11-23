@@ -1,9 +1,3 @@
-/**
- * One card's review: the flip, the typed answer, the grade (submitted to the
- * server and reported to the session) and the reveal/grade shortcuts. Only
- * `answerText` is graded for a type_answer card — its back is notes.
- */
-
 import { useState, useRef } from 'react';
 import { submitReview } from '../../api/srs';
 import { typeAnswerParts } from '../../components/flashcard/flashcardFields';

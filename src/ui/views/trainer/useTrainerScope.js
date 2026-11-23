@@ -1,19 +1,7 @@
-/**
- * The scope controls above the card: what to study, what to leave out, how many
- * new cards, whether to hold back unread material, and how many due cards one
- * batch takes. Each is a vault-scoped preference. A change that alters which cards
- * are due bumps `version` so the session refetches; the batch size only re-slices
- * the cards already fetched, so it does not.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { getPref, setPref, getBoolPref, getNumberPref } from '../../utils/prefs.js';
 import { initialScope, withExclusion, withoutExclusion, mergeStudySession, sameScope } from './scope';
 
-/**
- * @param {{ studySession: object|null, sessionDone: boolean }} args
- *   `sessionDone` lets a repeated hand-over of the same scope restart a finished session.
- */
 export default function useTrainerScope({ studySession, sessionDone }) {
   const [scope, setScope] = useState(() => initialScope(studySession, getPref('fb-trainer-scope')));
   const [readOnly, setReadOnly] = useState(() => getBoolPref('fb-trainer-read-only', false));

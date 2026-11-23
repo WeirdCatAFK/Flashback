@@ -1,10 +1,3 @@
-/**
- * GraphView — the knowledge graph: a force-directed canvas of documents,
- * folders, cards, tags and decks, lit by how well each is learned. Data, painting
- * and forces live in graphData.js / paint.js / forces.js; this composes them with
- * the controls panel and the selection panel.
- */
-
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import ForceGraph2D from 'react-force-graph-2d';
 import ProgressScopePicker from '../../components/account/ProgressScopePicker';
@@ -32,7 +25,6 @@ const NODE_PAINT_MODE = () => 'replace';
 const DEFAULT_COHESION = 0.6;
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 
-/** Every knob in the controls panel is a preference: localStorage, never config.json. */
 const LS = {
   tags: 'fb-graph-show-tags',
   decks: 'fb-graph-show-decks',

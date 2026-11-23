@@ -1,9 +1,3 @@
-/**
- * The deck list, default deck first, each with its colour and how its cards stand
- * for you — refetched on demand, on any data change, and when the screen comes
- * back into view (a study session elsewhere changes what is due).
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { listDecks } from '../../api/decks';
 import { getPref } from '../../utils/prefs.js';

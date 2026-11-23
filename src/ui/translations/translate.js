@@ -1,28 +1,8 @@
-/**
- * Pure translation lookup — no React, no DOM, no imports.
- *
- *   const { t, tp } = makeTranslators(dict, 'es');
- *
- * Split out of the provider on purpose, the same way sequencing.js is split from
- * sequencer.js: the interesting behaviour here is the fallback ladder, and it should
- * be testable without mounting a component tree. The provider does nothing but bind
- * these to the active locale.
- *
- * `dict` is a parsed pack, or null for English (which has no pack — the source text
- * is the key and therefore its own fallback).
- */
-
-/** 'Level|noun' → 'Level'. Applied only when falling back to the key itself. */
 export function stripContext(key) {
   const bar = key.indexOf('|');
   return bar === -1 ? key : key.slice(0, bar);
 }
 
-/**
- * Replace {name} placeholders. An unmatched placeholder is left visible rather than
- * blanked — a literal "{count}" on screen is a bug report; an empty space is a
- * mystery.
- */
 export function interpolate(str, vars) {
   if (!vars) return str;
   return str.replace(/\{(\w+)\}/g, (whole, name) => (

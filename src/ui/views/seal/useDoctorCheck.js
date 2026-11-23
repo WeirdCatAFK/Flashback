@@ -1,8 +1,3 @@
-/**
- * The Vault Doctor's index check — button-triggered rather than automatic,
- * because it walks every file on disk.
- */
-
 import { useState, useCallback } from 'react';
 import { checkIndex } from '../../api/doctor';
 import { useT } from '../../translations/index';

@@ -1,10 +1,3 @@
-/**
- * A clip's lifecycle: load the sidecar, paint the body imperatively (so the
- * injected <mark>s survive re-renders), re-apply its highlights, serve the
- * highlight command contract, and save the sidecar on Ctrl+S. Saving is
- * sidecar-only — the clip body is written by saveClipAsset, never here.
- */
-
 import { useState, useEffect, useRef } from 'react';
 import { readFile, updateMetadata } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';

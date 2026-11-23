@@ -1,7 +1,3 @@
-/**
- * IconSave — the SVG glyph for the save button.
- */
-
 export default function IconSave({ size = 13 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none"

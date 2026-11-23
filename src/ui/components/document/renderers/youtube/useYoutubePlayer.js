@@ -1,20 +1,7 @@
-/**
- * The embedded player: the iframe, its ready/error state, the messages it sends
- * (ready, error, a mark request, progress, and the clock — where it is and whether it
- * is playing) and the commands sent back (seek, seekQuiet, mark, play, pause).
- * Resumes the saved position once the player is ready, without starting playback.
- * The clock is for display: `time` moves as soon as a seek is asked for, and the embed
- * page reports it twice a second while playing. An embed page from an older server
- * sends no clock and no play state, so it falls back to the five-second progress
- * reports, which it sends only while playing: a report means "playing", and a silence
- * longer than the gap between reports means it stopped.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useT } from '../../../../translations/index';
 import { playerCommand, isPlayerEvent, isEmbedBlocked, progressRecord } from './player.js';
 
-/** How long without a clock (twice a second) or progress report (every 5 s) before playback counts as stopped. */
 const TIME_SILENCE = 1500;
 const PROGRESS_SILENCE = 6500;
 
@@ -82,11 +69,6 @@ export default function useYoutubePlayer({ path, embedSrc, initialProgress, onPr
         onProgressRef.current?.(path, progressRecord(seconds, duration));
       }
     };
-    /**
-     * From a page that reports no play state: a clock or progress report only comes while
-     * playing, and silence past `ms` means it stopped. A page that does report state is
-     * believed instead — it sends one last clock tick as it pauses.
-     */
     const heardPlaying = (ms) => {
       if (statesHeardRef.current) return;
       setPlaying(true);
@@ -122,7 +104,6 @@ export default function useYoutubePlayer({ path, embedSrc, initialProgress, onPr
     playing,
     time,
     duration,
-    /** Jumps there and plays, unless `play` is false. */
     seekTo: (seconds, { play = true } = {}) => { setTime(seconds); postCmd(play ? 'seek' : 'seekQuiet', seconds); },
     togglePlay: () => postCmd(playing ? 'pause' : 'play'),
     markMoment: () => { if (playerReady) postCmd('mark'); },

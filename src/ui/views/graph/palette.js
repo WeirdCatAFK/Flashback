@@ -1,8 +1,3 @@
-/**
- * The graph's colours, read live from the theme's CSS custom properties. Read
- * once per theme change (see useThemeVersion), never per frame.
- */
-
 export function getCSSVar(name) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 }

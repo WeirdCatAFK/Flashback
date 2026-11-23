@@ -1,7 +1,3 @@
-/**
- * IconManage — the Metadata tab: a tag.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconManage({ size = 24 }) {

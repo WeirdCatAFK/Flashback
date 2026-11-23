@@ -1,17 +1,8 @@
-/**
- * SessionSummary — what stands in for the card when there is none: "nothing due"
- * (with the reason) before a session, and after a batch, what happened in plain
- * sentences — cards remembered, the reviews it took, misses, new cards, how many
- * more are due — with Next and Write in your diary. It describes; it never grades
- * the person. The cards worth a look follow, as before.
- */
-
 import { useT } from '../../translations/index';
 import { hasExclusions } from './scope';
 import { formatNextDue } from './cards';
 import { nextBatchSize } from './session';
 
-/** When the next card is due, or the no-schedule line. */
 function NextDueLine({ nextDue, fallback }) {
   const { t, formatRelative } = useT();
   return (

@@ -1,15 +1,3 @@
-/**
- * ReviewStrip — one bar per review of a card, oldest on the left.
- *
- * The curve above it shows where the card stands *now*; this shows how it got
- * there. Bar height is the level the review left the card at, colour is how it
- * went — the same four review tokens the Trainer's buttons use, so a red bar here
- * and an "Again" there are the same colour by construction.
- *
- * Rows a vault rebuild synthesised (no outcome — they exist only to carry an ease
- * factor) are not reviews and are counted out into a footnote rather than drawn.
- */
-
 import { useT } from '../../translations/index';
 
 const RATING_TOKEN = {
@@ -19,10 +7,6 @@ const RATING_TOKEN = {
   4: '--color-review-easy',
 };
 
-/**
- * Labels are built per render rather than frozen in a module constant, so a
- * language switch reaches them. Every key stays a literal for the extractor.
- */
 function ratingLabels(t) {
   return { 1: t('Again'), 2: t('Hard'), 3: t('Good'), 4: t('Easy') };
 }

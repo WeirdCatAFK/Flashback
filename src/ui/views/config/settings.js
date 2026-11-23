@@ -1,20 +1,5 @@
-/**
- * Config's catalogue of settings, pure so it tests under node: every row's section, label,
- * hint and extra search words, and the search over them. A row on screen takes its label and
- * hint from here (ConfigRow.jsx), so what search matches is what the row says; a row may
- * still replace its hint with a live one (the scheduler's describes the choice in hand).
- *
- * The AI assistant rows say "diary" whatever the connection: they gate the local MCP
- * server against the local vault, not a shared server's logs.
- *
- * `ctx` says which rows exist right now: FSRS's two only under FSRS, the desktop-only
- * sections only in the desktop app, the workspace path only for a custom one. Search never
- * offers a row that is not there to show.
- */
-
 import { keybindingActions, fixedShortcutGroups } from '../../utils/keybindings.js';
 
-/** The sections, in the index's order, and whose they are: the vault's prefs or this computer's. */
 export const SECTIONS = [
   { id: 'study', scope: 'vault' },
   { id: 'look', scope: 'computer' },
@@ -25,7 +10,6 @@ export const SECTIONS = [
   { id: 'about', scope: null },
 ];
 
-/** A section's heading, translated where it renders. */
 export function sectionName(id, t) {
   switch (id) {
     case 'study': return t('Study');
@@ -39,11 +23,6 @@ export function sectionName(id, t) {
   }
 }
 
-/**
- * Every row as `{ id, section, label, hint, words }`, `words` the lowercase text search
- * reads. `ctx`: `{ fsrs, desktop, customPath, shared, studyRecord }`, `studyRecord` the Diary's
- * or the shared server's labels (diaryLabels.js).
- */
 export function settingRows(t, ctx = {}) {
   const rows = [];
   const add = (section, id, label, hint = '', extra = '') => rows.push({ id, section, label, hint, words: `${label} ${hint} ${extra}`.toLowerCase() });
@@ -94,14 +73,8 @@ export function settingRows(t, ctx = {}) {
   return rows;
 }
 
-/** The words of a row, split where search compares them. */
 const wordsOf = (text) => text.split(/[^\p{L}\p{N}-]+/u).filter(Boolean);
 
-/**
- * The rows matching `query`: every term typed must start one of a row's words, so "new
- * card" finds "New cards a day" and "rest" finds nothing it should not. Empty for an
- * empty query.
- */
 export function searchSettings(rows, query) {
   const terms = String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean);
   if (!terms.length) return [];
@@ -111,14 +84,12 @@ export function searchSettings(rows, query) {
   });
 }
 
-/** Search hits grouped by section, in the index's order: `[{ section, ids: Set }]`. */
 export function hitsBySection(hits) {
   return SECTIONS
     .map(({ id }) => ({ section: id, ids: new Set(hits.filter((h) => h.section === id).map((h) => h.id)) }))
     .filter((g) => g.ids.size > 0);
 }
 
-/** How many rebindable shortcuts differ from their defaults, given the live key map. */
 export function changedShortcuts(map, t = (s) => s) {
   return keybindingActions(t)
     .flatMap((g) => g.actions)
@@ -126,5 +97,4 @@ export function changedShortcuts(map, t = (s) => s) {
     .length;
 }
 
-/** The stored MCP diary access, including the legacy boolean, as one of `none`, `summaries`, `full`. */
 export const diaryAccessOf = (value) => (value === true || value === 'full' ? 'full' : value === 'summaries' ? 'summaries' : 'none');

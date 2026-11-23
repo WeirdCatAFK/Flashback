@@ -1,12 +1,3 @@
-/**
- * One deck as its page sees it: its record (with each card's gap for you), and
- * every change the page offers — rename, describe, recolour the box, change the
- * cover (DeckCover does the talking to the API; this keeps the record), remove a card,
- * delete (confirmed in place), erase (with the shared-card choice). A deck made a
- * moment ago opens with its name ready to type, and the add-cards layer opens once
- * the name is settled — not together, since both want the keyboard.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { getDeck, updateDeck, deleteDeck, purgeDeck, removeEntry } from '../../api/decks';
 import { getPref } from '../../utils/prefs.js';

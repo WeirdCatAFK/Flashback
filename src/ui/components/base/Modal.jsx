@@ -1,20 +1,3 @@
-/**
- * Modal — the base dialog primitive. Before this, every modal except the search
- * bar hand-rolled its own backdrop and skipped a11y (no Escape, no focus trap, no
- * role="dialog"). Build dialogs on this so they all behave the same:
- *
- *   - rendered in a portal above the app
- *   - role="dialog" + aria-modal, labelled by `title` or `ariaLabel`
- *   - Escape closes, backdrop click closes (unless dismissible={false})
- *   - focus moves in on open and is restored to the trigger on close
- *   - Tab/Shift+Tab are trapped inside the dialog
- *
- *   <Modal title="Rename deck" onClose={close}>…</Modal>
- *
- * `className` lands on the panel, for the rare dialog that owns its own interior layout
- * and has to undo `.modal__body`'s padding (VaultManager).
- */
-
 import { useEffect, useRef, useId } from "react";
 import { createPortal } from "react-dom";
 import { useT } from "../../translations/index";

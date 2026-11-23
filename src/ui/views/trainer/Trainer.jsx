@@ -1,11 +1,3 @@
-/**
- * Trainer — the study session view. One top bar (what to study, the session's
- * settings, and the count with the streak), a full-width progress bar, and the
- * stage: the card on its pile, or the summary when there is no card. Every piece
- * of state comes from useTrainerSession; the screen's name is in the title bar,
- * so the view repeats no heading.
- */
-
 import CardDetailModal from '../../components/flashcard/CardDetailModal';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import Stepper from '../../components/base/Stepper';
@@ -20,7 +12,6 @@ import './Trainer.css';
 
 const ALGO_LABEL = { leitner: 'Leitner', sm2: 'SM-2', fsrs: 'FSRS' };
 
-/** The session's settings, always in view: Per session, New cards, Only what I've read. */
 function SessionSettings({ controls, due }) {
   const { t } = useT();
   const { batchSize, maxNew } = controls;
@@ -59,7 +50,6 @@ function SessionSettings({ controls, due }) {
   );
 }
 
-/** Cards remembered out of the batch, and the streak. */
 function Meter({ passed, total, streak }) {
   const { t } = useT();
   return (

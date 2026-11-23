@@ -1,13 +1,3 @@
-/**
- * Seal — the workspace's history, read as a short report in two tabs. History is the log
- * (SealHistory.jsx); Health is the maintenance: files changed outside Flashback, and the
- * index check, sync and rebuild (SealHealth.jsx). The Health tab carries the outside-change
- * count, so drift is seen without opening it.
- *
- * After a restore the index still describes the files as they were before (HEAD equals the
- * working tree, so drift inspection is blind to it), hence the sync banner above the report.
- */
-
 import { useState, useEffect, useRef } from 'react';
 import { rollback } from '../../api/seal';
 import { syncIndex } from '../../api/doctor';
@@ -21,7 +11,6 @@ import SealHistory from './SealHistory';
 import SealHealth from './SealHealth';
 import './Seal.css';
 
-/** How long an entry the ribbon jumped to stays lit. */
 const FLASH_MS = 1600;
 
 export default function SealView({ isActive = false }) {

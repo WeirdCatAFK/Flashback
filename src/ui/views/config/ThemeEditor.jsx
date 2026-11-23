@@ -1,10 +1,3 @@
-/**
- * ThemeEditor — making a theme, on its own page under Appearance: a name, one row per
- * theme variable (a swatch and its hex, or a text field for shadows, or Dark/Light for the
- * editor scheme), the saved themes to reopen, and import/export as JSON folded away.
- * Going back to Appearance ends a preview. State lives in useThemeEditor.js.
- */
-
 import { THEME_VARS, loadCustomThemes } from '../../utils/customThemes';
 import { useT } from '../../translations/index';
 import useThemeEditor from '../../utils/useThemeEditor';

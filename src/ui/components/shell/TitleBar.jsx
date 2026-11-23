@@ -1,12 +1,3 @@
-/**
- * TitleBar — the frameless-window drag region: "Flashback │ vault ▾ │ screen",
- * with the role badge beside the vault when connected, the Ctrl+K search button
- * (App only), and the window controls. The screen's name lives here so a tool
- * screen need not repeat it as a heading. While the interface is zoomed (Ctrl+plus,
- * Ctrl+minus) the zoom shows beside the window controls, and clicking it resets
- * it, so the scale you are seeing is never a guess. Styles live in App.css.
- */
-
 import { windowMinimize, windowMaximize, windowClose } from '../../api/desktop';
 import { useT } from '../../translations/index';
 import VaultSwitcher from '../vault/VaultSwitcher.jsx';

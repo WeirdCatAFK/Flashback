@@ -1,7 +1,3 @@
-/**
- * IconFilePdf — the tree glyph for a PDF: printed pages, one behind the other.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFilePdf({ size = 15 }) {

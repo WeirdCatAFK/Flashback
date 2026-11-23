@@ -1,18 +1,7 @@
-/**
- * The space covers built in isometric: a factory network, an asteroid refinery, a
- * planetary base and a maglev launch track. One rule holds for all four: everything
- * stands on the same grid (spaceKit's projection, world x down to the right, y down to
- * the left, z up), every part is a real solid — box, slab, cylinder, dome — lit the same
- * way (top light, left face mid, right face full), and parts are drawn far to near by
- * their depth, x + y. What moves is on the classes CoverArt.css animates (belt-items,
- * cover-carry, cover-hover, cover-twinkle, maglev-run, maglev-coil).
- */
-
 import { W, hash, range, HAIR } from './artKit.js';
 import { pt, poly, starfield, isoProjector, isoBox, isoCylinder, isoSlab, isoCircle, isoDome, rock } from './spaceKit.js';
 import { box, cylinder, sky, belt } from './spaceParts.jsx';
 
-/** Parts collected with their depth, drawn far to near. */
 function scene() {
   const parts = [];
   return {
@@ -21,7 +10,6 @@ function scene() {
   };
 }
 
-/** A lattice tower from a square foot to an apex, with its braces. */
 function lattice(P, x, y, foot, top, key) {
   const legs = [[-foot, -foot], [foot, -foot], [foot, foot], [-foot, foot]];
   const levels = [0, 0.3, 0.6].map((f) => legs.map(([dx, dy]) => P(x + dx * (1 - f), y + dy * (1 - f), f * top)));
@@ -35,11 +23,6 @@ function lattice(P, x, y, foot, top, key) {
   );
 }
 
-/**
- * A drill bit boring into the ground at world (x, y): its fluted body from `bottom` up to
- * `top` — stacked flights, each a disc shaded on its far side, round the shaft — ending
- * in a cone whose point is down in the bore.
- */
 function drillBit(P, x, y, bottom, top) {
   const r = 5.5;
   const flights = range(5).map((k) => bottom + 4 + ((top - bottom - 4) * k) / 4);
@@ -59,7 +42,6 @@ function drillBit(P, x, y, bottom, top) {
   );
 }
 
-/** A solar panel tilted up toward +y, from world (x, y), `w` along x. */
 function panel(P, x, y, w, key) {
   const q = [P(x, y, 3), P(x + w, y, 3), P(x + w, y + 9, 10), P(x, y + 9, 10)];
   return (
@@ -72,7 +54,6 @@ function panel(P, x, y, w, key) {
   );
 }
 
-/** The floor's tile grid over the whole banner. */
 function floorGrid(P, tile, reach, opacity) {
   return (
     <g className="cover-art__line">
@@ -89,13 +70,6 @@ function floorGrid(P, tile, reach, opacity) {
   );
 }
 
-/**
- * A factory network: three assembly hubs in a row across the floor. Each hub is fed from
- * behind by a smelter (along x) and a constructor (along y); the first also takes ore from
- * a miner in front, and each hands its output to the next along a belt that runs out
- * along x and turns up y into the next hub's front. The last fills a storage container.
- * Power poles and their cables stand behind; fluid tanks sit between the hubs.
- */
 const FP = isoProjector(310, 92);
 const HUBS = [[-140, 140], [0, 0], [140, -140]];
 const ARM = 64;
@@ -170,13 +144,6 @@ const factory = (
   </g>
 );
 
-/**
- * An asteroid refinery: a chunk of rock floating in space, its top levelled into pads
- * and its broken sides falling away beneath. On it a drilling rig in a lattice derrick, a
- * refinery block with its tanks and radiators, and rows of solar panels; from it a mass
- * driver's rail runs out along -y over the edge, ringed with coils, and flings containers
- * of refined ore up and away. A banded planet and smaller rocks hang behind.
- */
 const RP = isoProjector(220, 92);
 const OUTLINE = range(18).map((i) => {
   const a = (i / 18) * Math.PI * 2;
@@ -279,15 +246,6 @@ const refinery = (
   </g>
 );
 
-/**
- * A planetary base on the planet itself: its surface runs to a gently curved horizon
- * with a thin glow of atmosphere at the limb, a range of far mountains along it and a
- * banded giant rising behind, craters and boulders strewn over the ground. On it, each
- * on its own foundation: geodesic domes joined by corridors, a landing pad with a lander
- * hovering over it, a factory feeding two silos by belt, solar panels, a lattice comms
- * mast with its dish and beacon, and a rover out on the plain. Every foundation sits
- * forward of the horizon, so the whole base stands on the ground.
- */
 const OP = isoProjector(300, 70);
 const WORLD = { cy: 1438, r: 1400 };
 const horizonY = (x) => WORLD.cy - Math.sqrt(WORLD.r ** 2 - (x - 300) ** 2);
@@ -305,7 +263,6 @@ function dome(x, y, r, key) {
   );
 }
 
-/** Craters and boulders strewn over the ground; a boulder beyond the horizon would float in the sky, so none is. */
 const CRATERS = [[-70, 110, 16], [150, 90, 12], [-10, 110, 9], [60, -70, 10], [-100, 120, 7], [170, 20, 8], [20, 140, 14]];
 const BOULDERS = range(24).map((i) => {
   const [x, y] = [-160 + hash(i + 6300) * 340, -40 + hash(i + 6350) * 200];
@@ -411,25 +368,15 @@ const outpost = (
   </g>
 );
 
-/**
- * A maglev launch assist: a guideway run straight up a stepped mountain of terraces on
- * pylons, ringed with coils, from a launch hall at its foot to the summit, and a
- * spaceplane on it. The plane, the guideway and the coils come from one projection, so
- * the plane rides the rail exactly. When covers move, it gathers speed up the guideway
- * (CSS's ease-in) and flies off the summit, and each coil flashes as it passes: its delay
- * is when ease-in brings the plane to it (`easeInReaches`).
- */
 const MP = isoProjector(310, 265);
 const START = -260;
 const END = 260;
 const SLOPE = 0.62;
 const trackZ = (x) => 10 + (x - START) * SLOPE;
 
-/** The launch loop in seconds, and the share of it the run up the guideway takes (as CoverArt.css). */
 const LAUNCH = 10;
 const RUN = 0.62;
 
-/** When, as a share of the run, CSS's ease-in (cubic-bezier(0.42, 0, 1, 1)) reaches a share `s` of the way. */
 function easeInReaches(s) {
   const bezier = (a, b, t) => 3 * a * (1 - t) ** 2 * t + 3 * b * (1 - t) * t * t + t ** 3;
   let lo = 0;
@@ -454,7 +401,6 @@ const scaled = (v, k) => v.map((c) => c * k);
 const PLANE_AT = [START, -4, trackZ(START) + 3];
 const RIDE = [MP(END, 0, trackZ(END)), MP(START, 0, trackZ(START))].reduce((a, b) => [a[0] - b[0], a[1] - b[1]]);
 
-/** A coil round the guideway at world point `c`: a circle in the plane square to the slope, across (y) and UP. */
 function ringAround(c, r) {
   return poly(range(28).map((i) => {
     const t = (i / 28) * Math.PI * 2;
@@ -462,13 +408,8 @@ function ringAround(c, r) {
   }));
 }
 
-/** A point on the spaceplane: `a` along it from the tail, `b` across (0 its right side, 8 its left), `c` up from the belly. */
 const onPlane = (a, b, c) => MP(...PLANE_AT.map((p, i) => p + ALONG[i] * a + (i === 1 ? b : 0) + UP[i] * c));
 
-/**
- * The spaceplane: a fuselage with a pointed nose, delta wings (the far one behind the
- * body), a tail fin and a dark canopy, all laid along the slope of the guideway.
- */
 function spaceplane() {
   const face = (tone, pts, key) => <path key={key} className={`${tone} is-sheet`} d={poly(pts.map((p) => onPlane(...p)))} strokeWidth="0.75" {...HAIR} />;
   return (
@@ -519,5 +460,4 @@ const maglev = (
   </g>
 );
 
-/** The isometric space covers, by id. */
 export const SPACE_ISO_ART = { factory, refinery, outpost, maglev };

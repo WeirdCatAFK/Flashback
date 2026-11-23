@@ -1,22 +1,3 @@
-/**
- * ConfirmDialog — replaces native window.confirm/alert with an in-app dialog that
- * matches the rest of the UI and is accessible (built on <Modal>). It's exposed as
- * a promise-based hook so call sites read almost like the native call they replace:
- *
- *   const confirm = useConfirm();
- *   if (!(await confirm({
- *     title: 'Delete deck?',
- *     message: 'This removes the deck. Cards are not deleted.',
- *     confirmLabel: 'Delete',
- *     tone: 'danger',
- *   }))) return;
- *
- * Mount <ConfirmProvider> once near the app root; useConfirm() works anywhere below.
- *
- * The hook itself lives in `confirmContext.js` — this module exports one component, so
- * Fast Refresh keeps working for every view that imports the hook.
- */
-
 import { useCallback, useRef, useState } from "react";
 import { ConfirmContext } from "./confirmContext.js";
 import Modal from "./Modal";

@@ -1,9 +1,3 @@
-/**
- * The installed version and the notify-first update flow (check, download, install),
- * driven by the update-status IPC stream. Config holds it, so the index can say an update
- * is waiting while About shows the steps. Outside the desktop app it reports nothing.
- */
-
 import { useState, useEffect } from 'react';
 import { getAppVersion, onUpdateStatus, checkForUpdates, downloadUpdate, installUpdate, isDesktop } from '../../api/desktop';
 

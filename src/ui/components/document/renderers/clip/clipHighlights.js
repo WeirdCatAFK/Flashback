@@ -1,12 +1,5 @@
-/**
- * The DOM half of clip highlighting: walking the container's text nodes,
- * reading the live selection as offsets, wrapping and unwrapping <mark>s. The
- * arithmetic is in ranges.js.
- */
-
 import { boundaryOffset, normalizeSpan, spanOps, reanchor } from './ranges.js';
 
-/** Every text node under `root` with its char range in document order. */
 export function textSegments(root) {
   const segs = [];
   let offset = 0;
@@ -20,7 +13,6 @@ export function textSegments(root) {
   return segs;
 }
 
-/** The current selection inside `root` as char offsets plus its text, or null. */
 export function selectionOffsets(root) {
   const sel = window.getSelection();
   if (!sel || sel.isCollapsed || sel.rangeCount === 0) return null;
@@ -34,7 +26,6 @@ export function selectionOffsets(root) {
   return span ? { ...span, text: sel.toString() } : null;
 }
 
-/** Wrap [start, end) in <mark>s carrying the highlight id, one per text node. */
 export function wrapOffsets(root, start, end, id, color) {
   for (const op of spanOps(textSegments(root), start, end)) {
     const range = document.createRange();
@@ -47,7 +38,6 @@ export function wrapOffsets(root, start, end, id, color) {
   }
 }
 
-/** Re-apply one stored highlight to a freshly rendered container; false if its text is gone. */
 export function applyHighlight(root, h) {
   const span = reanchor(root.textContent || '', h);
   if (!span) return false;
@@ -55,7 +45,6 @@ export function applyHighlight(root, h) {
   return true;
 }
 
-/** Remove every <mark> of highlight `id`, merging the text back together. */
 export function unwrap(root, id) {
   root.querySelectorAll(`mark[data-hl="${id}"]`).forEach((m) => {
     const parent = m.parentNode;
@@ -65,7 +54,6 @@ export function unwrap(root, id) {
   });
 }
 
-/** The id of the highlight the selection starts inside, or null. */
 export function highlightIdAtSelection(root) {
   const sel = window.getSelection();
   if (!sel || sel.rangeCount === 0) return null;
@@ -75,7 +63,6 @@ export function highlightIdAtSelection(root) {
   return node.closest?.('mark[data-hl]')?.getAttribute('data-hl') ?? null;
 }
 
-/** Recolour every <mark> of highlight `id`. */
 export function recolor(root, id, color) {
   root.querySelectorAll(`mark[data-hl="${id}"]`).forEach((m) => m.setAttribute('data-color', color));
 }

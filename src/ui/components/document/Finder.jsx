@@ -1,17 +1,3 @@
-/**
- * Finder — a condensed, searchable index of the open document's cards and
- * highlights, over the document rather than beside it (Ctrl+F, or Find in the
- * reading strip). Choosing a row closes it and jumps to the passage; a card opens
- * in the card editor, a highlight takes a new card or is removed — confirmed in
- * the row when cards hang off it. Esc or a click outside closes it.
- *
- * Rows follow reading order (`readingOrder`; `domOrder` reads where Markdown's
- * inline marks sit, once, as the finder opens), so the cards of one passage sit
- * together and in the order the passages come. Hovering or focusing a row links it
- * (`onLink`): the passage glows in the text, its cards lift in the margin, and
- * every row of the same passage lights with it (`linkedId`).
- */
-
 import { useEffect, useRef, useState } from 'react';
 import InlineConfirm from '../base/InlineConfirm';
 import { cardTypeShortLabel } from '../flashcard/flashcardFields';
@@ -184,7 +170,6 @@ export default function Finder({
   );
 }
 
-/** Why a card has no passage to jump to. */
 function highlightIdOfLabel(card, t) {
   return card.vanillaData?.location?.type === 'highlight' ? t('passage removed') : t('no passage');
 }

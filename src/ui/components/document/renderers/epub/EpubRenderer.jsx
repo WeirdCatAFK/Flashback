@@ -1,14 +1,3 @@
-/**
- * EpubRenderer — a book that scrolls continuously down the reading measure, with
- * the document head mounted at its top (`head`, since epub.js owns the scroller —
- * registry `hostsHead`), the text-size control portaled into the reading strip's
- * `toolsTarget`, CFI-anchored highlights and a "make a card" button over a clicked
- * figure. Standalone
- * rather than built on useHighlightableRenderer because the body lives in an
- * iframe epub.js owns. Capabilities are declared in ../registry.js; the
- * lifecycle is useEpubBook.js and the highlights useEpubHighlights.js.
- */
-
 import { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { layoutViewport } from '../../../../utils/uiZoom';

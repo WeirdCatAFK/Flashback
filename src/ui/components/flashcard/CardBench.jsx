@@ -1,14 +1,3 @@
-/**
- * CardBench — the card editor as a floating panel over the screen it was opened
- * from: a head naming the card and where it lives, then FlashcardForm. It rises in
- * when mounted and sinks out before `onClose` runs — on Cancel, Esc, or once
- * `onSubmit` / `onDelete` resolve truthy (a falsy result keeps it open, so a failed
- * save leaves the draft where it was). Every other prop goes to FlashcardForm.
- *
- *   {bench && <CardBench title={t('Edit card')} source={t('from {doc}', { doc })}
- *     initial={…} onSubmit={save} onDelete={remove} onClose={() => setBench(null)} />}
- */
-
 import { useEffect, useId, useRef, useState } from 'react';
 import FlashcardForm from './FlashcardForm';
 import { useT } from '../../translations/index';

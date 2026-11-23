@@ -1,24 +1,7 @@
-/**
- * The space covers of things seen: a wheel station over the Earth, an asteroid field,
- * the Earth rising over the Moon, a ringed planet, a black hole and a space telescope
- * with its deep field. See CoverArt for how a drawing is made and painted; what moves is
- * on the classes CoverArt.css animates (cover-turn, cover-orbit, cover-upright,
- * cover-hover, cover-twinkle, flow-dash).
- *
- * Whatever a ring or a disk passes behind is drawn in halves (spaceKit's ellipseHalves):
- * the far half first, then the body, then the near half over it.
- */
-
 import { W, hash, range, HAIR } from './artKit.js';
 import { pt, poly, starfield, rock, ellipseHalves, isoProjector } from './spaceKit.js';
 import { sky } from './spaceParts.jsx';
 
-/**
- * A wheel station over the Earth: the ring (its windows sliding as it turns) on spokes
- * that turn about a hub, a mast carrying two solar wings, a docking module below, nav
- * lights at the wing tips, and a shuttle coming in. The wheel is a circle squashed into
- * an ellipse, so its spokes turn in the circle and are squashed with it.
- */
 const WHEEL = 105;
 const WHEEL_TILT = 0.2857;
 const TORUS = ellipseHalves(WHEEL, WHEEL * WHEEL_TILT);
@@ -77,10 +60,6 @@ const station = (
   </g>
 );
 
-/**
- * An asteroid field: rocks of every size, each shaded (a darker body with a lit face
- * and a few craters) and, when covers move, tumbling slowly about its own centre.
- */
 const ROCKS = [
   [430, 78, 44], [150, 58, 30], [270, 118, 18], [560, 30, 16], [40, 110, 22], [330, 34, 10], [600, 118, 26],
   [210, 20, 8], [490, 140, 12], [95, 22, 9], [370, 92, 6], [240, 70, 5], [520, 96, 5],
@@ -108,11 +87,6 @@ const asteroids = (
   </g>
 );
 
-/**
- * Earthrise, after the photograph from Apollo 8: the Earth, lit on one side and lost in
- * the dark on the other, over the curve of the Moon's cratered horizon. When covers move
- * it rises and sinks a little behind the horizon.
- */
 const EARTH = { cx: 230, cy: 62, r: 30 };
 const HORIZON = { cy: 3090, r: 3000 };
 const horizonY = (x) => HORIZON.cy - Math.sqrt(HORIZON.r ** 2 - (x - 310) ** 2);
@@ -148,11 +122,6 @@ const earthrise = (
   </g>
 );
 
-/**
- * A ringed planet: bands on its globe, a shadowed limb, rings passing behind it and in
- * front, a gap in them, and three moons on tilted orbits. When covers move, the moons go
- * round (squashed-circle orbits, as the orrery's).
- */
 const RINGS = [[62, 3, 0.35], [70, 6, 0.55], [79, 4, 0.7], [88, 2, 0.4], [96, 7, 0.6], [106, 3, 0.35], [114, 1.5, 0.25]];
 const RING_TILT = 0.22;
 const GLOBE = 38;
@@ -193,21 +162,6 @@ const ringed = (
   </g>
 );
 
-/**
- * A black hole in the manner of the one in Interstellar, everything concentric with its
- * shadow and the whole disk on one ellipse (one tilt, TILT). The shadow sits inside a
- * crisp photon ring and a fainter second one. The far side of the accretion disk, bent
- * over and under the hole by its gravity, glows as a bright arc hugging the shadow's top
- * — fading out through three layers — and a thinner one under it. The disk itself is a
- * glowing ring with a white-hot inner edge that rings the shadow: its far half passes
- * behind the hole and its near half in front. Each ring of it brightens smoothly toward
- * the left, the side turning toward the viewer (Doppler beaming), a soft corona of light
- * surrounds the whole, and stars behind the hole are smeared by it into short arcs. It
- * is the one cover painted on its own deep sky (the is-deep, is-void, is-hot and is-glow
- * paints), so the void is dark and the light is light in every theme. When covers move
- * the disk swirls, its inner rings fastest, the lensed stars wheel slowly round, and the
- * glow breathes.
- */
 const SHADOW = 30;
 const TILT = 0.085;
 const DISK = range(10).map((k) => {
@@ -215,10 +169,8 @@ const DISK = range(10).map((k) => {
   return { rx, ry: rx * TILT, opacity: 0.95 - k * 0.075, width: 2.8 - k * 0.2, pace: `${(0.9 + k * 0.65).toFixed(1)}s` };
 });
 
-/** How bright the disk is at angle `t` round it: most on the left (t = π), turning toward the viewer. */
 const beaming = (t) => 0.62 - 0.38 * Math.cos(t);
 
-/** Twelve arcs of the ring from angle a to b (0 is the right, π/2 the near side), for a brightness that changes smoothly round it. */
 function arcs(rx, ry, a, b, steps = 12) {
   return range(steps).map((i) => {
     const [t0, t1] = [a + ((b - a) * i) / steps, a + ((b - a) * (i + 1)) / steps];
@@ -229,7 +181,6 @@ function arcs(rx, ry, a, b, steps = 12) {
   });
 }
 
-/** The disk's far half (angles π to 2π) or near half (0 to π): its glow in shaded arcs, its swirl as one dash along the half. */
 const diskSide = (side) => {
   const [a, b] = side === 'back' ? [Math.PI, 2 * Math.PI] : [0, Math.PI];
   return DISK.map((ring) => (
@@ -250,14 +201,12 @@ const diskSide = (side) => {
   ));
 };
 
-/** The part of the ring between radii `inner` and `outer`, over the top (`over`) or under the bottom. */
 function arcBand(inner, outer, over) {
   const sweep = over ? 1 : 0;
   const back = over ? 0 : 1;
   return `M${-outer} 0A${outer} ${outer} 0 0 ${sweep} ${outer} 0H${inner}A${inner} ${inner} 0 0 ${back} ${-inner} 0Z`;
 }
 
-/** Half of the disk's glowing band: the ring between two ellipses of the one tilt, far half or near half. */
 function diskBand(inner, outer, half) {
   const [R, Ry, r, ry] = [outer, outer * TILT, inner, inner * TILT];
   return half === 'back'
@@ -276,7 +225,6 @@ const band = (half) => (
   </g>
 );
 
-/** Background stars caught near the hole, each drawn out along a circle round it. */
 const LENSED = range(12).map((i) => {
   const r = 58 + hash(i + 5600) * 60;
   const a = hash(i + 5650) * Math.PI * 2;
@@ -329,13 +277,6 @@ const blackhole = (
   </g>
 );
 
-/**
- * A space telescope after the James Webb, in isometric: the five-layer diamond sunshield
- * lying flat, the eighteen gold hexagons of the primary mirror standing on its tower and
- * tilted back to the sky, the secondary held out in front on its tripod, and the deep
- * field around it — soft galaxies, each a faint halo round a brighter core, and a few
- * near stars with the six-pointed spikes such a mirror gives them.
- */
 const TP = isoProjector(300, 112);
 const SHIELD = [[-100, 100], [-35, -35], [100, -100], [35, 35]];
 const MIRROR_AT = [0, 0, 40];
@@ -346,7 +287,6 @@ const HEX = 9.5;
 const SEGMENTS = range(5).flatMap((q) => range(5).map((r) => [q - 2, r - 2]))
   .filter(([q, r]) => Math.max(Math.abs(q), Math.abs(r), Math.abs(q + r)) <= 2 && (q || r));
 
-/** A point on the mirror's surface, `a` across it and `b` up it, and a little in front of it by `n`. */
 const onMirror = (a, b, n = 0) => TP(...[0, 1, 2].map((i) => MIRROR_AT[i] + a * MIRROR_U[i] + b * MIRROR_V[i] + n * MIRROR_N[i]));
 
 function segment(q, r, size) {
@@ -398,5 +338,4 @@ const telescope = (
   </g>
 );
 
-/** The seen space covers, by id. */
 export const SPACE_SKY_ART = { station, asteroids, earthrise, ringed, blackhole, telescope };

@@ -1,10 +1,3 @@
-/**
- * EditorTabBar — the open documents as tabs: the active one, the preview one
- * (italic, replaced by the next single click), the dirty marker and the save
- * button. `leading` is drawn in the first slot, before the tabs (the file tree's
- * toggle).
- */
-
 import IconSave from "../icons/IconSave";
 import { useT } from "../../translations/index";
 import "./EditorTabBar.css";

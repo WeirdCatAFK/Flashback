@@ -1,10 +1,3 @@
-/**
- * VideoBar — the slim bar under the player that stays at the top of the page once the
- * player has scrolled away: play or pause, where the video is on a thin line with every
- * moment as a tick in its highlight colour, and the time. "Back to now" appears when the
- * passage being said has been scrolled out of view.
- */
-
 import { useT } from '../../../../translations/index';
 import { hlColor } from '../../finderRows.js';
 import { isBlankNote } from './transcript.js';

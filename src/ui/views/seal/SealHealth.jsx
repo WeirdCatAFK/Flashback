@@ -1,13 +1,3 @@
-/**
- * SealHealth — the maintenance behind History: one sentence on how things stand, the
- * files changed outside Flashback since the last seal, and the index. Checking the index
- * walks every file and changes nothing, so it runs on request. Syncing reads the files
- * back in, sealing the outside changes by default: an unsealed deletion would come back on
- * a later restore. Rebuilding throws the index away and reads every sidecar again, behind
- * a typed word, and says what it does not touch: study progress lives in its own store.
- * Sync and rebuild are `rebuildIndex` only.
- */
-
 import { useState } from 'react';
 import { useCan } from '../../utils/sessionContext.js';
 import { invalidateData } from '../../utils/dataBus';
@@ -18,7 +8,6 @@ import { collectDoctorIssues, TONE_CLASS } from './doctor.js';
 import { formatOid, LIST_VISIBLE_CAP } from './describe.js';
 import { driftCount } from './history.js';
 
-/** The word that arms a rebuild. Compared without case. */
 const REBUILD_WORD = 'rebuild';
 
 function Paths({ label, tone, paths }) {
@@ -34,7 +23,6 @@ function Paths({ label, tone, paths }) {
   );
 }
 
-/** What a sync or a rebuild did, as one line. */
 function resultLine(result, t) {
   if (result.kind === 'sync') {
     const a = result.actions ?? {};

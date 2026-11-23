@@ -1,7 +1,3 @@
-/**
- * IconFolderOpen — the tree glyph for an open folder, its back in a lighter tone.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFolderOpen({ size = 15 }) {

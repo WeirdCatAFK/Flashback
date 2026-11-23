@@ -1,13 +1,3 @@
-/**
- * Setup — the first-run wizard shown instead of the app when there is no
- * config.json. Steps are in SetupSteps.jsx; state and the write are in
- * useSetupWizard.js. It renders its own TitleBar because the shell does not exist yet.
- *
- * `npm run dev:onboarding` shows it over an existing config as a preview: the steps are
- * the same, the eyebrow says so, and finishing writes nothing (Electron main's
- * `isSetupPreview`).
- */
-
 import TitleBar from '../../components/shell/TitleBar';
 import { useT } from '../../translations/index';
 import useSetupWizard from './useSetupWizard';

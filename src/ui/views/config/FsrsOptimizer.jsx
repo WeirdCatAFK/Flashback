@@ -1,9 +1,3 @@
-/**
- * FsrsOptimizer — the "Fit to your reviews" row under the FSRS scheduler. Its hint says
- * where things stand: default weights and how many reviews fitting needs, or when it was
- * last fitted; after a fit, what the fit did. Rendered only while FSRS is active.
- */
-
 import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';
 import useFsrsOptimizer from './useFsrsOptimizer';

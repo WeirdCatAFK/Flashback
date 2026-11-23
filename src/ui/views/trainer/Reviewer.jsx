@@ -1,12 +1,3 @@
-/**
- * Reviewer — the live card on its stage: the pile of card backs behind it, the
- * turn-over hint, the quiet grade buttons, and the Undo and View source actions.
- * The card itself carries only its content and, on the answer side, its source.
- * While the session `holding`s after a grade, the next card is mounted but not yet
- * dealt: the pile and the controls stay put and only the card waits, so the pop has
- * the stage to itself. State and grading live in useReviewer.js; this is the markup.
- */
-
 import { useEffect, useState } from 'react';
 import { mediaFileSrc } from '../../api/media';
 import Flashcard from '../../components/flashcard/Flashcard';
@@ -19,7 +10,6 @@ import useReviewer from './useReviewer';
 
 const MAX_PILE = 5;
 
-/** The pile under the live card: one card back per card still to come, capped. */
 function CardPile({ remaining }) {
   const n = Math.min(remaining, MAX_PILE);
   return (
@@ -31,11 +21,6 @@ function CardPile({ remaining }) {
   );
 }
 
-/**
- * The pop over the card after a grade: the grade, and the gap before → after.
- * Coloured text on a soft halo, never a badge; it says what changed, not how well
- * you did. The interval line appears once the server's reply lands.
- */
 export function GradePop({ pop, top }) {
   if (!pop) return null;
   return (
@@ -57,11 +42,6 @@ export function GradePop({ pop, top }) {
 const TICK_DELAY = 120;
 const TICK_MS = 420;
 
-/**
- * The new gap counting from the old one to where it landed ("4 d … 8 d"), so the
- * change is something you watch happen rather than a number that appears. Holds
- * the final label under reduced motion, or when there is no old gap to count from.
- */
 function GapTicker({ from, to, label }) {
   const { t } = useT();
   const still = from == null || to == null || from === to

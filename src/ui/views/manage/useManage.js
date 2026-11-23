@@ -1,10 +1,3 @@
-/**
- * Metadata's data: the categories (each with its card count), the tags with their reach,
- * and how many cards the vault has, loaded together whenever the screen is shown. The
- * mutations reload what they change. A level move redraws at once and writes only the
- * categories whose priority changes (metadata.js); a failed write reloads the truth.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { getCategories, createCategory, updateCategory, deleteCategory } from '../../api/categories';
 import { getTagOverview, renameTag, removeTag } from '../../api/tags';
@@ -29,7 +22,6 @@ export default function useManage(isActive) {
 
   useEffect(() => { if (isActive) reload(); }, [isActive, reload]);
 
-  /** Runs a mutation, reloads, and reports whether it worked; the message stays on screen until the next action. */
   const run = async (fn) => {
     setActionError(null);
     try {

@@ -1,14 +1,3 @@
-/**
- * OnboardingTour — the replayable spotlight walk through the activity bar, gated
- * on localStorage; a scrim with a cutout and a callout per step.
- *
- * A step that points at a screen takes its title from the activity bar's own label
- * (`labels`, App's navLabels), so the tour and the tab it points at never disagree, and
- * the Diary step reads "Logs" on a server as the tab does. The callout says what each
- * screen holds and what you do there, in the same plain register as the screens: no
- * selling. Progress is a thin line across its top and a count, as elsewhere.
- */
-
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import IconDocuments from "../icons/IconDocuments";
@@ -23,7 +12,6 @@ import IconDiary from "../icons/IconDiary";
 import { useT } from "../../translations/index";
 import "./OnboardingTour.css";
 
-/** A small inline mark for the target-less welcome/finish steps. */
 function IconMark({ size = 24 }) {
   return (
     <svg width={size} height={size} viewBox="0 0 52 52" fill="none" aria-hidden="true">
@@ -43,12 +31,6 @@ function IconSearch({ size = 24 }) {
   );
 }
 
-/**
- * A function of `t` rather than a module constant: the prose here is the bulk of
- * the tour, and a constant would be evaluated once at import and keep the old
- * language after a switch. `target`, `view` and `Icon` are structural; a step with a
- * `view` and no `title` is titled by that view's tab.
- */
 const stepsFor = (t) => [
   {
     Icon: IconMark,

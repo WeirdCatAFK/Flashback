@@ -1,20 +1,3 @@
-/**
- * Config — every setting, split into short sections reached from an index on the left,
- * instead of one long scroll. Each index entry sums its section up in a line (the
- * scheduler and the daily limit, the theme and the language, who you are…), so most
- * questions are answered before a section is opened. "Search settings" (Ctrl+F while the
- * screen shows) finds any setting by name, across sections, as the rows themselves.
- *
- * The catalogue of rows and the search are settings.js; a section is a component whose
- * rows (ConfigRow) render only while the search matches them (rowsContext.js), so one
- * component serves its own page and a result list. The local server keeps its Save and
- * restart; everything else applies as it changes, as before. The theme editor is a page
- * of its own under Appearance.
- *
- * Hooks: useConfig (config.json), useSrsPrefs / useDiaryPref (vault-scoped preferences),
- * useIdentity, useAppUpdates.
- */
-
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import useKeybindings from '../../hooks/useKeybindings';
@@ -116,7 +99,6 @@ export default function ConfigView({
     about: desktop ? `${updates.version ? `v${updates.version}` : '—'}${updates.waiting ? ` · ${t('update')}` : ''}` : t('Welcome tour'),
   };
 
-  /** A section's rows; the desktop-only ones say so outside the desktop app, and wait for config.json within it. */
   const body = (id) => {
     const needsConfig = id === 'ai' || id === 'server';
     if (needsConfig && !desktop) return <p className="cf-lede">{t('This is set in the desktop app.')}</p>;

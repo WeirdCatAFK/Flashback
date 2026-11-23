@@ -1,10 +1,3 @@
-/**
- * Decks — boxes you pack to study together. The grid shows every deck as a box in
- * its colour (the default deck, which holds cards made without a document, in
- * kraft); opening one shows its page. Importing an Anki package or Obsidian vault
- * starts here too (the same flow the file explorer uses, from hooks/useImports.js).
- */
-
 import { useState, useEffect, useRef } from 'react';
 import AnkiMappingModal from '../../components/deck/AnkiMappingModal';
 import DeckBox from '../../components/deck/DeckBox';
@@ -19,7 +12,6 @@ import DeckDetail from './DeckDetail';
 import { deckColor, deckStatus, longTermShare, newDeckName } from './deckShelf.js';
 import './Decks.css';
 
-/** One deck in the grid: its box, its name, what is due, and its long-term line. */
 function DeckTile({ deck, onOpen }) {
   const { t, tp } = useT();
   const status = deckStatus(deck.standing, t, tp);

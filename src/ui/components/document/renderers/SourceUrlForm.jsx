@@ -1,17 +1,7 @@
-/**
- * SourceUrlForm — the empty state of a clip or video document: a URL field and
- * the button that fetches it.
- */
-
 import { useState } from 'react';
 import { useT } from '../../../translations/index';
 import './SourceUrlForm.css';
 
-/**
- * Empty-state URL entry shown by the YouTube/clip renderers when a file was
- * created without a source yet (e.g. via "New file"). onSubmit(url) returns a
- * promise; on rejection the message is surfaced inline.
- */
 export default function SourceUrlForm({
   title,
   hint,

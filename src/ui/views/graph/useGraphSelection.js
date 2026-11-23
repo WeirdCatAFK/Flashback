@@ -1,8 +1,3 @@
-/**
- * Hover and selection over the graph: a hover that lingers becomes a selection,
- * leaving a hover-made selection clears it, a click toggles it outright.
- */
-
 import { useState, useRef, useEffect, useCallback } from 'react';
 
 const HOVER_SELECT_DELAY = 700;

@@ -1,24 +1,11 @@
-/**
- * What the space covers share: a starfield, an isometric projection with its boxes, and
- * rocks. No React, no DOM.
- *
- * The isometric projection puts world x running down to the right, y down to the left
- * and z straight up. A box is seen from the front corner: its top, its left face (the
- * one at its far y) and its right face (at its far x), which the covers shade light, mid
- * and full, so every box is lit from the same side.
- */
-
 import { W, hash, range } from './artKit.js';
 
 export const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 
-/** A closed outline through the given points. */
 export const poly = (points) => `M${points.map(([x, y]) => pt(x, y)).join('L')}Z`;
 
-/** An open line through the given points. */
 export const polyline = (points) => `M${points.map(([x, y]) => pt(x, y)).join('L')}`;
 
-/** Stars for a sky: `count` of them between `top` and `bottom`, mostly faint, a few bright. */
 export function starfield(seed, count, top = 0, bottom = 150) {
   return range(count).map((i) => ({
     x: hash(seed + i * 3) * W,
@@ -27,13 +14,11 @@ export function starfield(seed, count, top = 0, bottom = 150) {
   }));
 }
 
-/** A projector from world (x, y, z) to the banner, with world (0, 0, 0) at (ox, oy). */
 export function isoProjector(ox, oy) {
   const c = Math.cos(Math.PI / 6);
   return (x, y, z = 0) => [ox + (x - y) * c, oy + (x + y) * 0.5 - z];
 }
 
-/** The three visible faces of a box from (x, y, z), `w` along x, `d` along y, `h` up. */
 export function isoBox(P, x, y, z, w, d, h) {
   return {
     top: poly([P(x, y, z + h), P(x + w, y, z + h), P(x + w, y + d, z + h), P(x, y + d, z + h)]),
@@ -42,7 +27,6 @@ export function isoBox(P, x, y, z, w, d, h) {
   };
 }
 
-/** An upright cylinder standing at world (x, y): its side and its top, as paths. */
 export function isoCylinder(P, x, y, r, h, z = 0) {
   const [cx, bottom] = P(x, y, z);
   const top = bottom - h;
@@ -55,7 +39,6 @@ export function isoCylinder(P, x, y, r, h, z = 0) {
   };
 }
 
-/** An irregular rock outline round (cx, cy), a little flattened, the same for the same seed. */
 export function rock(cx, cy, r, seed, corners = 11) {
   return range(corners).map((i) => {
     const a = (i / corners) * Math.PI * 2;
@@ -64,7 +47,6 @@ export function rock(cx, cy, r, seed, corners = 11) {
   });
 }
 
-/** The upper and lower halves of an ellipse centred on the origin, for things that pass behind and in front. */
 export function ellipseHalves(rx, ry) {
   return {
     back: `M${pt(-rx, 0)}A${rx.toFixed(1)} ${ry.toFixed(1)} 0 0 1 ${pt(rx, 0)}`,
@@ -72,11 +54,6 @@ export function ellipseHalves(rx, ry) {
   };
 }
 
-/**
- * The visible faces of a box laid along any three edges from corner `o` (world points):
- * `a` its length, `b` its width (the side toward +y is the one seen) and `c` its height.
- * For a box that is not square to the grid, like a plane climbing a ramp.
- */
 export function isoSlab(P, o, a, b, c) {
   const at = (...vs) => P(...[0, 1, 2].map((i) => o[i] + vs.reduce((s, v) => s + v[i], 0)));
   return {
@@ -86,7 +63,6 @@ export function isoSlab(P, o, a, b, c) {
   };
 }
 
-/** A circle of radius `r` round world point `c`, lying in the 'xy' (ground), 'yz' or 'xz' plane. */
 export function isoCircle(P, c, r, plane = 'xy', steps = 28) {
   return poly(range(steps).map((i) => {
     const a = (i / steps) * Math.PI * 2;
@@ -96,12 +72,6 @@ export function isoCircle(P, c, r, plane = 'xy', steps = 28) {
   }));
 }
 
-/**
- * A dome (a half sphere) of radius `r` standing at world (x, y). The projection is a
- * scaled orthographic one (1.22 across), so the sphere's outline is a circle of 1.22r
- * and its foot an ellipse; `outline` is the two together, `rings` the near halves of
- * two parallels, `meridians` the ribs on the side that faces the viewer.
- */
 export function isoDome(P, x, y, r) {
   const [cx, cy] = P(x, y, 0);
   const R = r * 1.2247;

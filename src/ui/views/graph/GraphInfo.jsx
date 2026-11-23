@@ -1,9 +1,3 @@
-/**
- * GraphInfo — the panel for a selected node: its type and name, and its
- * neighbours grouped by type with the relation that reaches them. Documents and
- * flashcards are chips that navigate; the rest are labels.
- */
-
 import { useT } from '../../translations/index';
 import { nodeDisplayName } from './graphData.js';
 

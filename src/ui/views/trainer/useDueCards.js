@@ -1,9 +1,3 @@
-/**
- * Fetches the due queue for a scope and maps it into trainer cards. The reset on a
- * dependency change happens during render, so a stale result is never shown
- * between the change and the effect that refetches.
- */
-
 import { useState, useEffect, useMemo } from 'react';
 import { getDue } from '../../api/srs';
 import { getPref, getNumberPref } from '../../utils/prefs.js';

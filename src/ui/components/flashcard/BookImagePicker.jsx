@@ -1,9 +1,3 @@
-/**
- * BookImagePicker — the figures inside an EPUB, by chapter, for putting one on
- * a card. They live inside the book's zip, so the picker reads them through
- * /api/reader rather than the filesystem.
- */
-
 import { useEffect, useMemo, useState } from 'react';
 import { listBookImages, bookImageSrc } from '../../api/reader';
 import { useT } from '../../translations/index';

@@ -1,45 +1,6 @@
-/**
- * ReadingBar — the strip under the tab bar: where you are in a document, the
- * furthest mark as a track across the full width, the resume prompt, the
- * set-here / finished / clear actions, Go to start, and Find.
- */
-
 import { useState } from "react";
 import { useT } from "../../translations/index";
 
-/**
- * The reading strip, pinned under the tab bar for every format: where you are, how
- * you got there, the manual controls, and Find.
- *
- * It exists because automatic capture alone is not enough — a position recorded by
- * scrolling can be wrong (you skimmed ahead, you read the paper copy, you want to start
- * over), and without a way to say so the mark can only ever move forward. That is the
- * whole reason `manual` mode exists in the API, and this is its only entry point in the
- * app; without it, correcting a position would require an AI assistant.
- *
- * `tracks` is the renderer's `tracksProgress`, read from the registry because this renders
- * outside the Suspense boundary, before the renderer's chunk has arrived. A format that
- * records no position still gets the strip, with Find alone: finding cards and highlights
- * is for every document.
- *
- * It used to come in two variants, one of them dropped into the PDF, EPUB and YouTube
- * toolbars so two bars would not stack. The head now scrolls away above every format, so
- * the reading controls sit in one place for all of them, under the tabs.
- *
- * @param {object|null} progress - the caller's current record, or null if never opened.
- * @param {boolean} tracks - whether this format records a reading position.
- * @param {boolean} resumed - whether this open jumped to a saved position.
- * @param {() => void} onGoToStart
- * @param {() => void} onDismissResume
- * @param {(body: object) => Promise<void>} onSetHere - marks the live position.
- * @param {(body: object) => Promise<void>} onMarkFinished
- * @param {() => Promise<void>} onClear
- * @param {() => object|null} readPosition - the renderer's live position, via progressRef.
- * @param {() => void} onFind - opens or closes the finder.
- * @param {boolean} findOpen
- * @param {(el: HTMLElement|null) => void} [toolsRef] - receives the slot a renderer's own
- *   tools (PDF zoom, EPUB text size) are portaled into, so they share this one bar.
- */
 export default function ReadingBar({
   progress,
   tracks = true,

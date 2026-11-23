@@ -1,9 +1,3 @@
-/**
- * SearchModal — the Ctrl+K palette: one input over everything in the vault,
- * with `tag:` / `deck:` / `doc:` / `in:` prefixes, results grouped by kind, and
- * arrow-key navigation. A top-placed Modal; state lives in useSearch.js.
- */
-
 import { useEffect, useRef } from 'react';
 import Modal from '../base/Modal';
 import IconFolder from '../icons/IconFolder';
@@ -15,7 +9,6 @@ import { resultLines } from './search.js';
 import useSearch from './useSearch';
 import './SearchModal.css';
 
-/** Group heading for a result type — a switch of literals so the extractor sees each. */
 const typeLabel = (type, t) => {
   switch (type) {
     case 'folder': return t('Folders');

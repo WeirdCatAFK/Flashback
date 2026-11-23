@@ -1,21 +1,3 @@
-/**
- * Shared flashcard-field logic used by both the creator (FlashcardForm) and the
- * editor (FlashcardEditor). The two components keep their own layout and their own
- * persistence (the creator delegates via onSubmit; the editor calls the API itself),
- * but the type list, validation, preview shape, and card-core derivation
- * are identical and were duplicated — a divergence here would silently corrupt cards,
- * so it lives in one place.
- *
- * `fields` is the flat bag of per-type values a form holds:
- *   { front, back, clozeText, question, expectedAnswer, notes, customHtml }
- */
-
-/**
- * The card-type picker's labels. A function of `t` rather than a module constant:
- * a constant is evaluated once at import and would keep the old language after a
- * switch, and every key here has to stay a literal for the extractor to see it.
- * `key` is the stored card_type value and is never translated.
- */
 export function cardTypes(t) {
   return [
     { key: 'basic',       label: t('Basic'),       desc: t('Front and back') },
@@ -26,20 +8,10 @@ export function cardTypes(t) {
   ];
 }
 
-/**
- * Display name for a stored card_type, read back out of the picker's own labels so a
- * badge in a list and the type chooser can never disagree. Falls back to the raw key
- * (de-underscored) for a type this build doesn't know about.
- */
 export function cardTypeLabel(key, t) {
   return cardTypes(t).find(c => c.key === key)?.label ?? String(key).replace('_', ' ');
 }
 
-/**
- * The compact badge form, for dense lists where the full picker label is too long
- * ("Type" rather than "Type Answer"). Separate keys from cardTypes() on purpose:
- * a translator needs to shorten each one for the target language independently.
- */
 export function cardTypeShortLabel(key, t) {
   switch (key) {
     case 'basic':       return t('Basic');
@@ -55,20 +27,6 @@ export function hasClozeBlank(text) {
   return /\{\{[^}]+\}\}/.test(text ?? '');
 }
 
-/**
- * Splits a type_answer card's vanillaData into the value that gets compared and the notes
- * that merely get shown.
- *
- * `answerText` is the compared value and `backText` is free prose revealed after checking —
- * a mnemonic, a why. Cards written before that split kept the answer in `backText` and have
- * no `answerText` at all, so it is the fallback. The vault normally migrates them on first
- * launch (canonical update 001 — see src/api/config/updates/UPDATES.md), but a Seal rollback
- * can restore a pre-split sidecar at any time, so every reader goes through here rather than
- * assuming.
- *
- * @param {object} vd a card's vanillaData
- * @returns {{ answer: string, notes: string }}
- */
 export function typeAnswerParts(vd = {}) {
   const hasAnswer = (vd?.answerText ?? '') !== '';
   return {
@@ -77,7 +35,6 @@ export function typeAnswerParts(vd = {}) {
   };
 }
 
-/** Whether the current field values are enough to save the given card type. */
 export function isCardValid(cardType, f) {
   switch (cardType) {
     case 'basic':
@@ -89,7 +46,6 @@ export function isCardValid(cardType, f) {
   }
 }
 
-/** Whether nothing has been written yet for this card type. */
 export function isCardBlank(cardType, f) {
   switch (cardType) {
     case 'basic':
@@ -101,11 +57,6 @@ export function isCardBlank(cardType, f) {
   }
 }
 
-/**
- * A worked example of each type, in the same field bag, for the editor's preview to
- * show (faded, marked "Example") until anything has been written. A function of `t`
- * so the example reads in the interface language.
- */
 export function exampleFields(cardType, t) {
   const empty = { front: '', back: '', clozeText: '', question: '', expectedAnswer: '', notes: '', customHtml: '' };
   switch (cardType) {
@@ -122,11 +73,6 @@ export function exampleFields(cardType, t) {
   }
 }
 
-/**
- * The shape the live <Flashcard> preview renders. `media` holds ready-to-load URLs,
- * not stored references: object URLs for files being uploaded, /api/media URLs for
- * media the card already has.
- */
 export function previewCardFor(cardType, f, media = {}) {
   if (cardType === 'custom')      return { cardType: 'custom', customData: { html: f.customHtml } };
   if (cardType === 'cloze')       return { cardType: 'cloze',       vanillaData: { frontText: f.clozeText, backText: f.clozeText,      media } };
@@ -134,11 +80,6 @@ export function previewCardFor(cardType, f, media = {}) {
   return { cardType, direction: 'forward', vanillaData: { frontText: f.front, backText: f.back, media } };
 }
 
-/**
- * The card identity + text derived from the fields, independent of media/base fields:
- * { name, cardType, html, frontText, backText } — plus `answerText` for type_answer.
- * Callers layer their own base fields, media, and location on top.
- */
 export function deriveCardCore(cardType, f) {
   if (cardType === 'custom') {
     return { name: 'Custom card', cardType: 'custom', html: f.customHtml, frontText: '', backText: '' };
@@ -160,7 +101,6 @@ export function deriveCardCore(cardType, f) {
   return { name: f.front.trim(), cardType, html: '', frontText: f.front.trim(), backText: f.back.trim() };
 }
 
-/** The one-line answer a list row shows under the front: the graded text, never the notes. */
 export function cardAnswerLine(card) {
   return (card.card_type === 'type_answer' ? typeAnswerParts(card).answer : card.backText) || '';
 }

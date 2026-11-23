@@ -1,7 +1,3 @@
-/**
- * IconDiary — the Diary tab: an open book.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconDiary({ size = 24 }) {

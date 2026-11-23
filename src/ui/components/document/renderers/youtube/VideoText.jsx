@@ -1,17 +1,3 @@
-/**
- * VideoText — the text under the player, which is the document: the transcript read as
- * paragraphs when the video has captions, and your notes when it has none. Each
- * paragraph or note hangs its time in the gutter to its left (click it to play from
- * there), the one at the current time carries the accent, and highlights are `<mark
- * data-hl>` like in any other document, so the card margin, Find, the selection toolbar
- * and a click on a highlight all work on it unchanged. A paragraph's `<p data-para>`
- * holds nothing but its text, which is how a selection is read back as offsets.
- *
- * A note being written is a field inside its highlight: Enter keeps it, Esc leaves it
- * as the time it was marked at. Notes typed before captions were fetched, whose words
- * are not in the transcript, stay as notes between the paragraphs.
- */
-
 import { useEffect, useRef } from 'react';
 import { useT } from '../../../../translations/index';
 import { segments, isBlankNote } from './transcript.js';

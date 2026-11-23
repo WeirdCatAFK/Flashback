@@ -1,8 +1,3 @@
-/**
- * The rendered size of an element, kept current through a ResizeObserver.
- * Starts from a placeholder so a canvas has a size on its first frame.
- */
-
 import { useState, useEffect } from 'react';
 
 export default function useContainerSize(ref, initial = { width: 800, height: 600 }) {

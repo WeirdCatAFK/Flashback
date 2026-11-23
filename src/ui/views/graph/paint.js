@@ -1,23 +1,13 @@
-/**
- * Canvas painters for the force graph: the node dot with its selection and
- * hover glows, the learned halos painted in one pass beneath everything, and the
- * link colour cache. Per-node animation state (alpha, scale, entrance time)
- * lives in the `anim` object the caller owns, never in module scope.
- */
-
 import { haloRadius } from '../graphMetrics.js';
 import { learnedOf, massOf, nodeId } from './graphData.js';
 
 export const NODE_R = 7;
-/** Nodes below this barely register visually and are not worth an arc per frame. */
 export const LEARNED_FLOOR = 0.03;
-/** Above this the illumination pass costs more than it is worth. */
 export const HALO_NODE_BUDGET = 3000;
 const ENTRANCE_MS = 700;
 
 export const lerp = (a, b, t) => a + (b - a) * t;
 
-/** Relative luminance of a CSS colour string, used to pick a blend mode. */
 export function luminance(color) {
   let r, g, b;
   const hex = color?.trim().replace('#', '');
@@ -33,7 +23,6 @@ export function luminance(color) {
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 
-/** `color` (hex or rgb[a]) with its alpha replaced. */
 export function withAlpha(color, alpha) {
   const c = color.replace(/\s/g, '');
   if (c.startsWith('#')) {
@@ -45,18 +34,14 @@ export function withAlpha(color, alpha) {
   return c;
 }
 
-/** Additive light on a dark ground, multiply on a light one. */
 export const blendModeFor = (bg) => (luminance(bg) < 0.5 ? 'lighter' : 'multiply');
 
-/** Labels only appear zoomed in on a big graph — text is the most expensive paint. */
 export const labelMinScaleFor = (nodeCount) => (nodeCount > 2000 ? 2.0 : nodeCount > 800 ? 1.3 : 0.8);
 
-/** Links rest in one neutral that thins out as the graph gets denser. */
 export const restAlphaFor = (linkCount) => Math.max(0.07, Math.min(0.30, 6 / Math.sqrt(Math.max(linkCount, 1))));
 
 export const linkWidthFor = (linkCount) => (linkCount > 1200 ? 0.7 : 1.1);
 
-/** The three colours each relation can take: resting, focused, dimmed. */
 export function linkColorsFor(colors, restAlpha) {
   const out = {};
   for (const [relation, base] of Object.entries(colors.links)) {
@@ -78,13 +63,8 @@ export function linkColor(link, linkColors, focusedIds) {
 
 export const linkDash = (link) => (link.relation === 'disconnection' ? [2, 3] : null);
 
-/** A fresh per-node animation store. */
 export const newAnimState = () => ({ alpha: {}, scale: {}, enter: {} });
 
-/**
- * One node: eased dimming, hover scale, entrance fade, selection glow, dot and label.
- * @param {{ colors, focusedIds, selectedId, hoveredId, labelMinScale, anim }} state
- */
 export function paintNode(node, ctx, globalScale, state) {
   if (!isFinite(node.x) || !isFinite(node.y)) return;
   const { colors, focusedIds, selectedId, hoveredId, labelMinScale, anim } = state;
@@ -151,12 +131,6 @@ export function paintNode(node, ctx, globalScale, state) {
   ctx.globalAlpha = 1;
 }
 
-/**
- * The learned halos, painted in one blended pass so adjacent learned nodes read
- * as one lit region. Size comes from mass, opacity from the learned rate; bloom
- * adds a wider soft glow around well-learned nodes.
- * @param {{ nodes, colors, blendMode, bloom, anim }} state
- */
 export function paintHalos(ctx, { nodes, colors, blendMode, bloom, anim }) {
   if (!nodes || nodes.length > HALO_NODE_BUDGET) return;
   ctx.save();

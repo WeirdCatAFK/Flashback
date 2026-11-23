@@ -1,8 +1,3 @@
-/**
- * The search palette's state: the debounced query, its results, the keyboard
- * cursor over the flat list, and navigating to the chosen result.
- */
-
 import { useState, useRef, useCallback, useMemo } from 'react';
 import { superSearch } from '../../api/search';
 import { parseQuery, isEmptyPrefix, flattenResults, groupResults, navigationFor } from './search.js';

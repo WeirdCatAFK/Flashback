@@ -1,13 +1,3 @@
-/**
- * DeckBox — a deck drawn as a box of cards: up to four card tops peeking out of a
- * sleeve in the deck's colour, with the count printed large on the sleeve. The
- * default deck is kraft. `size="lg"` is the deck page's, `size="sm"` the document
- * margin's; the grid uses the default. `edge` tints the card tops' edge — the margin
- * colours them by the highlight's swatch, never by card type.
- *
- *   <DeckBox color="sage" count={42} />
- */
-
 import './DeckBox.css';
 
 export default function DeckBox({ color = 'kraft', count = 0, size = 'md', edge = null, className = '' }) {

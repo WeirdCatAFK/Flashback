@@ -1,12 +1,3 @@
-/**
- * ConfigRow — one setting on one line: what it is on the left (its label, and a quieter
- * hint under it), the control on the right, a hairline between rows. The label and hint
- * come from the catalogue (settings.js) by `id`; `hint` replaces the catalogue's with a
- * live one. `stack` puts a wide control (the theme swatches, the MCP snippet) under its
- * label; `restart` flags a setting that applies after a restart. A row the current
- * search did not match renders nothing.
- */
-
 import { useT } from '../../translations/index';
 import { useRows } from './rowsContext.js';
 

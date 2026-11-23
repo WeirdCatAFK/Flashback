@@ -1,8 +1,3 @@
-/**
- * The colours a new custom theme starts from (the dark workbench palette) and
- * the name of the transient preview theme the editor injects.
- */
-
 export const DARK_DEFAULTS = {
   "--color-bg-base":        "#1C1917",
   "--color-bg-sidebar":     "#171412",

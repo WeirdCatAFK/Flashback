@@ -1,4 +1,3 @@
-/** Seconds as m:ss, or h:mm:ss past an hour. */
 export function formatTime(seconds) {
   const s = Math.max(0, Math.floor(seconds || 0));
   const h = Math.floor(s / 3600);

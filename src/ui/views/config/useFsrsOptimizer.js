@@ -1,8 +1,3 @@
-/**
- * The FSRS optimizer: how many graded reviews exist, when the weights were last
- * fitted, and running the fit on demand with its before/after loss.
- */
-
 import { useState, useEffect } from 'react';
 import { optimizeFsrs, getFsrsInfo } from '../../api/srs';
 import { useT } from '../../translations/index';

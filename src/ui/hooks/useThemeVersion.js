@@ -1,8 +1,3 @@
-/**
- * A counter that bumps whenever `data-theme` changes on <html>, for code that
- * reads colours out of CSS custom properties — a dependency React cannot see.
- */
-
 import { useState, useEffect } from 'react';
 
 export default function useThemeVersion() {

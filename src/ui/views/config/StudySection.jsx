@@ -1,14 +1,3 @@
-/**
- * StudySection — how this vault is studied: the scheduler (three side by side, each
- * described in the row's hint), FSRS's retention and fitting while FSRS is on, the order
- * cards come in, new cards a day, and the Diary. All vault-scoped preferences
- * (useSrsPrefs.js), applied as they change.
- *
- * Changing the scheduler asks first, right under the row: carrying progress over maps
- * each card's gap to the new scheduler (`migrateProgress`), starting fresh treats every
- * card as new.
- */
-
 import { useState } from 'react';
 import SegmentedControl from '../../components/base/SegmentedControl';
 import Stepper from '../../components/base/Stepper';
@@ -20,10 +9,8 @@ import { Rich } from '../../translations/components.jsx';
 import ConfigRow from './ConfigRow';
 import FsrsOptimizer from './FsrsOptimizer';
 
-/** Display name for a scheduler id. */
 const ALGO_LABEL = { leitner: 'Leitner', sm2: 'SM-2', fsrs: 'FSRS' };
 
-/** New cards a day moves in fives, within what the Trainer accepts. */
 const NEW_STEP = 5;
 const NEW_MAX = 200;
 

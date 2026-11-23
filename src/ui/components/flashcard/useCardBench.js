@@ -1,14 +1,3 @@
-/**
- * The card editor's state for a screen that lists cards: open a card by hash (its
- * full record is fetched first), open a new one — which has no document, so it goes
- * to Cards, the default deck — save, delete, close. `benchProps` is ready to spread
- * into <CardBench> (with `benchKey` as its key), or null when the editor is shut.
- * Saving and deleting announce the change on the data bus, so every open list
- * refreshes — unless `announce` is false, for a screen that would rather refresh
- * just what it shows through `onChanged` (an open document, which a vault-wide
- * announcement would remount and scroll back to the top).
- */
-
 import { useState } from 'react';
 import { getCardDetail, updateCard, createStandaloneCard, deleteCard } from '../../api/decks';
 import { mediaFileSrc } from '../../api/media';
@@ -17,7 +6,6 @@ import { invalidateData } from '../../utils/dataBus';
 import { useT } from '../../translations/index';
 import { docTitle } from './cardLineText.js';
 
-/** A saved card's fields as the API's update and create routes take them. */
 function cardBody(card) {
   return {
     name: card.name || null,

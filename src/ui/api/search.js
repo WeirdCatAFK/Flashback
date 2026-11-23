@@ -1,7 +1,3 @@
-/**
- * Search API (/api/search): the vault-wide palette query.
- */
-
 import { request } from "./client.js";
 
 export function superSearch({

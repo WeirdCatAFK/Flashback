@@ -1,8 +1,3 @@
-/**
- * Inline renaming of a tree node: the draft, the commit (with the reserved-name
- * check and the extension rule for files), and the Enter/Escape keys.
- */
-
 import { useState } from 'react';
 import { renameItem } from '../../../api/documents';
 import { useT } from '../../../translations/index';

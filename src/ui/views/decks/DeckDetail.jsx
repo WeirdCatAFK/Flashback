@@ -1,11 +1,3 @@
-/**
- * DeckDetail — one deck's page: its cover, its box, description, how its cards stand, the
- * study / add / rename / delete / erase actions, its colour and tags, then its
- * cards dealt out as catalogue rows. Adding cards is a layer over the page that
- * searches every card; a card opens in the card editor. State and changes live in
- * useDeckDetail.js.
- */
-
 import { useState } from 'react';
 import CardBench from '../../components/flashcard/CardBench';
 import CardLine from '../../components/flashcard/CardLine';
@@ -22,10 +14,8 @@ import useDeckDetail from './useDeckDetail';
 import { AddCardsPanel, DeckTags } from './DeckPanels';
 import { deckColor, colorOptions, colorName, longTermShare } from './deckShelf.js';
 
-/** How many rows deal in one after another; the rest arrive with the last. */
 const DEAL_LIMIT = 12;
 
-/** A text field that commits on Enter or blur and gives up on Escape. */
 function InPlaceField({ multiline = false, initial, label, placeholder, className, onDone }) {
   const [value, setValue] = useState(initial);
   const Tag = multiline ? 'textarea' : 'input';

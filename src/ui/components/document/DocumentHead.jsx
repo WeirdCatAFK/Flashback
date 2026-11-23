@@ -1,14 +1,3 @@
-/**
- * DocumentHead — what sits above every document, scrolling away with it: the cover
- * across the full width (or "Add cover"), then, on the reading measure, the folder
- * path, the title and the tags. Inherited tags are dashed and come from the folders
- * above; the document's own tags can be removed, and "+ tag" adds one in place. The
- * title is the file's name, or a clip's or video's own title (`title`) when it has one. A
- * change saves at once — there is no Save for a tag. The measure element carries
- * `data-measure`, which is what the hidden file tree measures its slide-out zone
- * against.
- */
-
 import { useEffect, useState } from 'react';
 import CoverBanner from '../cover/CoverBanner';
 import { getEntityTags, getTags, documentCoverUrl, uploadDocumentCover, setDocumentCover, removeDocumentCover } from '../../api/documents';
@@ -16,7 +5,6 @@ import { docStem } from './explorer/rowFacts.js';
 import { useT } from '../../translations/index';
 import './DocumentHead.css';
 
-/** "+ tag", turned into a field while a tag is typed; Enter or blur adds it. */
 function TagAdder({ known, onAdd }) {
   const { t } = useT();
   const [adding, setAdding] = useState(false);

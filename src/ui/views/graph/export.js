@@ -1,15 +1,6 @@
-/**
- * Graph exports: PNG from the canvas, JSON of the visible graph, and a standalone
- * interactive HTML page. The page runs outside the app, so it carries its own
- * already-translated strings and restates the halo maths with the constants
- * interpolated from graphMetrics — the numbers cannot drift even though the
- * function bodies are duplicated.
- */
-
 import { HALO_BASE, HALO_K, HALO_MAX } from '../graphMetrics.js';
 import { learnedOf, massOf, nodeId } from './graphData.js';
 
-/** The local calendar day — an evening export carries the date the user sees. */
 export function datestamp(d = new Date()) {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -28,7 +19,6 @@ export const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
 ));
 
-/** The visible graph as a plain, id-keyed JSON document. */
 export function exportJson(visibleData, exportedAt = new Date().toISOString()) {
   return {
     exportedAt,
@@ -38,7 +28,6 @@ export function exportJson(visibleData, exportedAt = new Date().toISOString()) {
   };
 }
 
-/** The nodes and links the standalone page needs, and nothing else. */
 export function exportShape(visibleData) {
   return {
     nodes: visibleData.nodes.map((n) => ({ id: n.id, type: n.type, name: n.name, presence: n.presence || 0, learned: learnedOf(n), mass: massOf(n) })),
@@ -46,10 +35,6 @@ export function exportShape(visibleData) {
   };
 }
 
-/**
- * The standalone page. `text` holds the already-translated strings; nothing in
- * here may call t() itself, since the page runs outside the provider.
- */
 export function generateGraphHtml(nodes, links, colorMap, text) {
   const data = JSON.stringify({ nodes, links }).replace(/<\/script>/gi, '<\\/script>');
   const cols = JSON.stringify(colorMap);

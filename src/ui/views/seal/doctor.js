@@ -1,8 +1,3 @@
-/**
- * The Vault Doctor report as rows: which paths are missing from, stale in, or
- * unknown to the index, and the tone each group takes. Pure; takes `t`.
- */
-
 export function collectDoctorIssues(report, t) {
     const groups = [];
     const add = (label, tone, paths) => { if (paths && paths.length) groups.push({ label, tone, paths }); };
@@ -35,7 +30,6 @@ export function collectDoctorIssues(report, t) {
     return groups;
 }
 
-/** The class a group's label takes for its tone (Seal.css): added, modified, deleted or a warning. */
 export const TONE_CLASS = {
     added: 'is-added',
     modified: 'is-modified',

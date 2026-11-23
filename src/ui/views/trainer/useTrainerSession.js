@@ -1,11 +1,3 @@
-/**
- * Everything a study session is, minus the markup: the scope controls, the due
- * queue for that scope, the batch taken from it, the queue reducers applied to
- * grades and undos, the streak, the grade pop (whose interval arrives with the
- * server's reply), the flags collected along the way, and the undo shortcut.
- * Trainer.jsx renders what this returns.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { undoReview } from '../../api/srs';
 import { generateSummary as generateDiarySummary } from '../../api/diary';
@@ -21,11 +13,6 @@ import { batchOf, batchTally, popFor } from './session';
 
 const POP_MS = 1100;
 
-/**
- * How long the stage stays empty after a grade, so the pop has its moment before
- * the next card comes in. The card has already flown out by then (Flashcard's
- * flyOut runs before the grade is recorded); the next one enters as the pop fades.
- */
 const HOLD_MS = 600;
 
 export default function useTrainerSession({ isActive, studySession, onOpenSource }) {
@@ -98,11 +85,6 @@ export default function useTrainerSession({ isActive, studySession, onOpenSource
 
   const popId = pop?.id ?? null;
 
-  /**
-   * The day's diary summary is recorded when a session ends — but only once the
-   * session's last review has been saved: the grade advances the queue before its
-   * request lands, and a summary derived a moment too early would miss that card.
-   */
   const pendingRef = useRef(0);
   const summaryDueRef = useRef(false);
   const summariseIfDue = () => {
@@ -127,7 +109,6 @@ export default function useTrainerSession({ isActive, studySession, onOpenSource
     return () => clearTimeout(timer);
   }, [holding, popId]);
 
-  /** The pop sits over the middle of the card that was just graded. */
   const measurePopTop = () => {
     if (!stageRef.current || !arenaRef.current) return null;
     const a = arenaRef.current.getBoundingClientRect();

@@ -1,18 +1,3 @@
-/**
- * YoutubeRenderer — a video you read along with. Under the document head: a source line
- * (channel, length, Open on YouTube), the player, a slim bar that stays in view once the
- * player scrolls away (VideoBar), and the text (VideoText) — the transcript when the video
- * has captions, your notes when it has none. The text is the document: it takes
- * highlights, margin cards and Find like any other.
- *
- * Mark moment (M, and a button in the reading strip's tools slot) highlights the line
- * being said, or opens a note at that time when there are no captions. Scrolled past
- * while it plays, the player floats small in a corner you choose (useFloatingPlayer).
- * The player is proxied through the API's embed page and driven over postMessage
- * (useYoutubePlayer.js); the document, its moments and transcript live in
- * useYoutubeDocument.js. Capabilities are declared in ../registry.js.
- */
-
 import { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { setYoutubeSource } from '../../../../api/documents';
@@ -29,7 +14,6 @@ import VideoText from './VideoText';
 import './YoutubeRenderer.css';
 import '../Renderer.css';
 
-/** How long a new moment's tick stands out on the bar. */
 const FRESH_MS = 900;
 
 export default function YoutubeRenderer({
@@ -78,7 +62,6 @@ export default function YoutubeRenderer({
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  /** Whether the passage at the current time is out of view, for "Back to now". */
   useEffect(() => {
     const root = textRootRef.current;
     const sc = root?.closest('.doc-editor-renderer');

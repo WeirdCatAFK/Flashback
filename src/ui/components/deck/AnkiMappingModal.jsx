@@ -1,19 +1,3 @@
-/**
- * AnkiMappingModal — the field mapper shown between picking an .apkg and importing it.
- *
- * An Anki notetype declares arbitrary named fields and lets its templates decide
- * where each one renders; Flashback has five card types with fixed slots. That
- * projection used to happen invisibly. Here the user sees each notetype's real
- * fields with a sample note and drags them onto the card slots they should fill.
- *
- * The server has already done the reading (`POST /import/anki/analyze`) and holds
- * the extracted package under `report.sessionId`, so this component only edits a
- * mapping object and hands it back.
- *
- * Drag and drop is native HTML5 (`draggable` + `dataTransfer`), the same approach
- * FileExplorer uses — no DnD library.
- */
-
 import { useMemo, useState } from "react";
 import Modal from "../base/Modal.jsx";
 import Flashcard from "../flashcard/Flashcard.jsx";
@@ -33,11 +17,6 @@ function cardTypeOptions(t) {
   ];
 }
 
-/**
- * Which slots a card type actually has, and what to call them for that type.
- * Mirrors FlashcardForm's per-type fields so the mapper cannot offer a slot the
- * card would then ignore.
- */
 function slotsByType(t) {
   return {
     basic: [
@@ -72,11 +51,6 @@ function slotsByType(t) {
   };
 }
 
-/**
- * Media slots say *when* they fire, because that is the actual decision: front
- * media appears with the question, back media with the revealed answer. For audio
- * that is the difference between a listening prompt and a pronunciation reward.
- */
 function mediaSlots(t) {
   return [
     {
@@ -106,7 +80,6 @@ function mediaSlots(t) {
   ];
 }
 
-/** type_answer has no media in FlashcardForm, and custom stores raw HTML. */
 const typeHasMedia = (cardType) =>
   cardType === "basic" || cardType === "reversible" || cardType === "cloze";
 
@@ -131,13 +104,6 @@ const emptySlots = () => ({
 
 const DRAG_MIME = "application/x-flashback-anki-field";
 
-/**
- * Strips tags and collapses whitespace so a sample value fits on a chip.
- *
- * Media is named rather than stripped: a field holding only `<img src="x.png">`
- * would otherwise render as an empty chip, making an image field look like a
- * field with nothing in it.
- */
 function plainSample(value) {
   return String(value ?? "")
     .replace(/<img[^>]*src=["']([^"']+)["'][^>]*>/gi, "🖼 $1")
@@ -152,11 +118,6 @@ function plainSample(value) {
     .trim();
 }
 
-/**
- * Anki keeps media inside the field HTML, so a field value has to be split into
- * "text" and "the assets it names". Mirrors the rules ankiImport._applyMapping
- * uses on the server — keep the two in step or the preview stops telling the truth.
- */
 const MEDIA_PATTERNS = [
   { kind: "img", re: /<img[^>]+src=["']([^"']+)["'][^>]*>/gi },
   { kind: "snd", re: /\[sound:([^\]]+)\]/gi },
@@ -177,13 +138,6 @@ function extractMediaRefs(text) {
   return { imgs, snds };
 }
 
-/**
- * Text a field contributes to a *text* slot, as the server will store it.
- *
- * Unlike plainSample this drops media references rather than naming them: the
- * server lifts them out into the media slots, so leaving "🖼 x.png" in here would
- * show text on the preview that the imported card will not have.
- */
 function previewText(value) {
   let out = String(value ?? "");
   for (const { re } of MEDIA_PATTERNS) out = out.replace(re, " ");

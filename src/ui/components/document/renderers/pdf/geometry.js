@@ -1,12 +1,3 @@
-/**
- * PDF viewer geometry: zoom steps, and the conversion between viewport space
- * (what getBoundingClientRect and mouse events report) and PDF units (how a
- * bbox is stored so it survives a zoom change). `scale` is layout px per PDF
- * unit and the app zoom multiplies layout px into viewport px on top of that,
- * so both factors come out on the way in; rendering `bbox * scale` inside the
- * layout-sized page needs no correction.
- */
-
 export const SCALE_MIN = 0.5;
 export const SCALE_MAX = 3.0;
 export const SCALE_STEP = 0.25;
@@ -21,26 +12,18 @@ export const clampScale = (s) => round2(Math.min(SCALE_MAX, Math.max(SCALE_MIN, 
 export const zoomedOut = (s) => Math.max(SCALE_MIN, round2(s - SCALE_STEP));
 export const zoomedIn = (s) => Math.min(SCALE_MAX, round2(s + SCALE_STEP));
 
-/**
- * The scale after a Ctrl+wheel or a trackpad pinch (which Chromium reports as one)
- * of `deltaY`. Left unrounded so a pinch's many tiny steps add up instead of each
- * rounding back to where it started.
- */
+/** Chromium reports a trackpad pinch as Ctrl+wheel. The scale stays unrounded so that small pinch steps add up. */
 export const wheelScale = (s, deltaY) => Math.min(SCALE_MAX, Math.max(SCALE_MIN, s * Math.exp(-deltaY * WHEEL_RATE)));
 
-/** A typed zoom percentage ("137", "137%") as a scale within range, or null when it is not one. */
 export function scaleFromPercent(text) {
   const n = parseFloat(String(text).replace('%', ''));
   return Number.isFinite(n) && n > 0 ? clampScale(n / 100) : null;
 }
 
-/** The scale at which a page of `nativeWidth` fills `containerWidth`. */
 export const fitScale = (containerWidth, nativeWidth) => clampScale((containerWidth - FIT_MARGIN) / nativeWidth);
 
-/** The divisor from viewport px to PDF units. */
 export const viewportToPdf = (scale, uiZoom) => scale * uiZoom;
 
-/** A viewport-space rect inside `pageRect`, as a PDF-unit bbox. */
 export function bboxFromViewport(rect, pageRect, divisor) {
   return {
     x: (rect.left - pageRect.left) / divisor,
@@ -50,7 +33,6 @@ export function bboxFromViewport(rect, pageRect, divisor) {
   };
 }
 
-/** The rect a drag from `start` to `end` describes, or null if it is too small to mean anything. */
 export function dragRect(start, end) {
   const width = Math.abs(end.x - start.x);
   const height = Math.abs(end.y - start.y);
@@ -58,7 +40,6 @@ export function dragRect(start, end) {
   return { left: Math.min(start.x, end.x), top: Math.min(start.y, end.y), width, height };
 }
 
-/** The centre of a viewport rect in PDF units relative to `pageRect`. */
 export function centerInPdf(rect, pageRect, divisor) {
   return {
     x: ((rect.left + rect.right) / 2 - pageRect.left) / divisor,
@@ -66,7 +47,6 @@ export function centerInPdf(rect, pageRect, divisor) {
   };
 }
 
-/** The id of the highlight on `page` whose bbox contains the point, or null. */
 export function highlightAt(highlights, page, { x, y }) {
   return highlights.find((h) =>
     h.page === page && h.bbox &&
@@ -75,7 +55,6 @@ export function highlightAt(highlights, page, { x, y }) {
   )?.id ?? null;
 }
 
-/** The first page whose bottom edge is below `top`, given `[{ page, bottom }]` in order. */
 export function pageAtTop(pageBottoms, top) {
   for (const { page, bottom } of pageBottoms) {
     if (bottom > top) return page;

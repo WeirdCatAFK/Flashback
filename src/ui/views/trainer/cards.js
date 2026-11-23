@@ -1,14 +1,5 @@
-/**
- * The card shape the trainer renders, built from the API's flat row, plus the
- * formatting helpers the summary uses.
- */
-
 import { toDate } from '../../translations/format.js';
 
-/**
- * An API row as a trainer card. A reversible card draws its direction here, once,
- * so it holds for the whole session.
- */
 export function mapApiCard(raw, isNew = false, random = Math.random) {
   const cardType = raw.card_type ?? 'basic';
   return {
@@ -38,10 +29,6 @@ export function mapApiCard(raw, isNew = false, random = Math.random) {
   };
 }
 
-/**
- * When the next card comes back, in the active language. `maxUnit: 'day'` keeps a
- * 40-day interval as "in 40 days" rather than "next month": the number is the point.
- */
 export function formatNextDue(sqliteStr, formatRelative, t) {
   if (!sqliteStr) return null;
   const next = toDate(sqliteStr);
@@ -50,11 +37,6 @@ export function formatNextDue(sqliteStr, formatRelative, t) {
   return formatRelative(next, { maxUnit: 'day' });
 }
 
-/**
- * The source a card cites: its document's name without the folder or extension
- * ("Memory (1885)"). Null for a card with no document — it lives in the default
- * deck and has nothing to quote.
- */
 export function sourceTitle(documentPath) {
   if (!documentPath) return null;
   const leaf = documentPath.split(/[\\/]/).pop();
@@ -62,7 +44,6 @@ export function sourceTitle(documentPath) {
   return dot > 0 ? leaf.slice(0, dot) : leaf;
 }
 
-/** The card as the Flashcard component wants it: a missing side reads as its fallback. */
 export function displayCardFor(card) {
   const isTypeAnswer = (card.cardType ?? 'basic') === 'type_answer';
   const media = card.vanillaData?.media;

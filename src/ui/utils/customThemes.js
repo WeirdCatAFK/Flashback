@@ -1,9 +1,3 @@
-/**
- * User-defined themes: the list of theme variables the editor exposes, their
- * persistence in localStorage, injecting a saved theme as a [data-theme] rule,
- * and reading the resolved colours of the active theme.
- */
-
 const STORAGE_KEY = "fb-custom-themes";
 const STYLE_ID = "fb-custom-theme-styles";
 
@@ -102,11 +96,6 @@ const withDerived = (colors) => ({
   ...colors,
 });
 
-/**
- * One theme as a `[data-theme]` rule, derived colours included: what a saved theme
- * injects and what the editor's preview injects, so a preview shows exactly what
- * saving will.
- */
 export function themeRule(name, colors) {
   return `[data-theme="${CSS.escape(name)}"] {\n` +
     Object.entries(withDerived(colors)).map(([k, v]) => `  ${k}: ${v};`).join("\n") +
@@ -123,7 +112,6 @@ export function injectCustomThemeCSS(themes) {
   el.textContent = themes.map((t) => themeRule(t.name, t.colors)).join("\n\n");
 }
 
-/** Converts any CSS color string to #rrggbb for use with <input type="color"> */
 function toHex(color) {
   if (!color) return "#000000";
   if (/^#[0-9a-fA-F]{6}$/.test(color)) return color.toLowerCase();

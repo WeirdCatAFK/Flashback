@@ -1,7 +1,3 @@
-/**
- * IconFile — the tree glyph for any other file: a page, its turned corner in a lighter tone.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFile({ size = 15 }) {

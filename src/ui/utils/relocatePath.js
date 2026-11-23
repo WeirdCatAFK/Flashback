@@ -1,7 +1,3 @@
-/**
- * Rewriting a document path after the file or a folder above it moved.
- */
-
 export function relocatePath(path, oldPrefix, newPrefix) {
   if (!path) return path;
   const norm = (s) => s.replace(/\\/g, '/');

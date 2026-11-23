@@ -1,10 +1,3 @@
-/**
- * MarkdownRenderer — the TipTap editor for .md files: markdown in and out,
- * inline <mark> highlights, and flashback:// links that never become an href
- * (Chromium hands unregistered protocols to the OS before JS runs). Built on
- * useHighlightableRenderer.
- */
-
 import { useCallback, useEffect, useRef } from 'react';
 import { EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
@@ -21,19 +14,6 @@ import { useScrollProgress } from '../useScrollProgress';
 import { useT } from '../../../../translations/index';
 import './MarkdownRenderer.css';
 
-/**
- * tiptap-markdown registers a minimal Link$1 mark (no parseHTML/addAttributes) at
- * priority 100. @tiptap/extension-link defaults to priority 1000, which sorts it
- * first — Object.fromEntries then lets Link$1 overwrite it, losing <a> parsing.
- * Setting priority 50 ensures our extension sorts last and wins the schema slot,
- * while tiptap-markdown's serializer still finds the markdown spec via its internal
- * name-based lookup (markdownExtensions.find(e => e.name === 'link')).
- *
- * renderHTML override: flashback:// links MUST NOT appear in href — Chromium
- * passes any unregistered protocol to the OS shell (shell.openExternal) before
- * JavaScript event handlers fire, so preventDefault() is useless. Storing the
- * hash in data-flashback-hash and omitting href entirely prevents this.
- */
 const MarkdownLink = Link.extend({
   priority: 50,
   renderHTML({ HTMLAttributes }) {
@@ -53,12 +33,6 @@ const MarkdownLink = Link.extend({
   },
 });
 
-/**
- * What this renderer customizes; everything else (load/save/dirty/draft/
- * highlight wiring) is the shared hook. Highlights anchor inline in the body as
- * <mark data-hl>, so there's no separate apply step on load — setContent parses
- * the marks straight out of the markdown.
- */
 const EXTENSIONS = [
   StarterKit,
   Typography,
@@ -72,12 +46,6 @@ const EXTENSIONS = [
 ];
 
 const serialize = (editor) => editor.storage.markdown.getMarkdown();
-/**
- * setContent parses inline <mark data-hl> highlights straight out of the body;
- * applyMissingHighlights then re-anchors any sidecar entry with no inline mark
- * (created out-of-band, e.g. by the MCP server) by quote search, so it renders
- * and survives the save-time reconcile instead of being silently dropped.
- */
 const loadContent = (editor, markdown, meta) => {
   editor.commands.setContent(markdown ?? '', false);
   applyMissingHighlights(editor, meta?.highlights ?? []);

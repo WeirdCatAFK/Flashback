@@ -1,7 +1,3 @@
-/**
- * IconFileTxt — the tree glyph for plain text: three lines of text, no page.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileTxt({ size = 15 }) {

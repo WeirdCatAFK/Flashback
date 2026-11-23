@@ -1,11 +1,3 @@
-/**
- * The Flashcards catalogue's state: the view (search, source, band, health, type,
- * order, grouping), the debounced search it drives with "show more" paging, the
- * sidebar summary, and opening a card's document. Everything reloads when the
- * screen comes back into view, since a study session elsewhere moves cards between
- * bands. The card editor's state is useCardBench's.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { searchCards, getCatalogueSummary } from '../../api/decks';
 import { readFile } from '../../api/documents';
@@ -76,7 +68,6 @@ export default function useCardBrowser({ isActive, onOpenSource }) {
     return next;
   });
 
-  /** Opens the card's document at the passage it was made from, when it has one. */
   const openSource = async (row) => {
     if (!row.document_path) return;
     let highlightId = null;

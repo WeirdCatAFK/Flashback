@@ -1,14 +1,3 @@
-/**
- * DiaryPage — one day, read like a dated journal entry: the date, one sentence summing
- * the day up in the Statistics voice, then your reflection, written in place (Markdown,
- * Ctrl+S saves, Esc cancels), and last the numbers as "the day in detail" — by deck, by
- * document, and what you missed more than once. On a shared server the privacy note
- * sits above the writing, where it is true.
- *
- * `reader` names the person whose Logs the Author is reading: the page then speaks of them
- * and offers no writing, since the entry is theirs.
- */
-
 import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
@@ -17,7 +6,6 @@ import { LoadingState, ErrorState } from '../../components/base/StateView';
 import { useT } from '../../translations/index';
 import { pct } from './dates.js';
 
-/** A figure in a sentence: bold mono, read in place. */
 const F = ({ children }) => <b className="dy-fig-n">{children}</b>;
 
 const docTitle = (path) => String(path ?? '').split('/').pop().replace(/\.[^.]+$/, '');

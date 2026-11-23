@@ -1,11 +1,3 @@
-/**
- * FlashcardForm — the one card editor: type, faces, answer text for type_answer,
- * category, tags, and media from files, a book's figures, a clip's assets or a PDF box highlight, beside
- * a live preview that shows a worked example until anything is written. Edit mode is
- * text-only; media is preserved server-side. `onDelete` adds a Delete that confirms
- * in place. CardBench is the floating shell it opens in; the card details host it bare.
- */
-
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import InlineConfirm from '../base/InlineConfirm';
 import Flashcard from './Flashcard';
@@ -19,10 +11,6 @@ import { cardTypes, hasClozeBlank, isCardValid, isCardBlank, exampleFields, prev
 import { useT } from '../../translations/index';
 import './FlashcardForm.css';
 
-/**
- * A function of `t`, not a constant: a constant freezes its labels at import and
- * would survive a language switch untranslated. `key` is a storage slot, never a label.
- */
 function mediaSlots(t) {
   return [
     { key: 'front_img',   label: t('Front image'), accept: 'image/*' },

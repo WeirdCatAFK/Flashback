@@ -1,7 +1,3 @@
-/**
- * IconGraph — the Graph tab: three nodes and the links between them.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconGraph({ size = 24 }) {

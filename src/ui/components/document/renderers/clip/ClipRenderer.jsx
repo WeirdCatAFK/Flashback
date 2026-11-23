@@ -1,9 +1,3 @@
-/**
- * ClipRenderer — a captured web page: its source line, the readable body with
- * highlights, and the hover-to-save button over pictures and sounds. Capabilities
- * are declared in ../registry.js; the lifecycle lives in useClipDocument.js.
- */
-
 import { useState, useRef } from 'react';
 import { setClipSource } from '../../../../api/documents';
 import SourceUrlForm from '../SourceUrlForm';

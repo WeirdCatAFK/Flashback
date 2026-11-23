@@ -1,11 +1,3 @@
-/**
- * Flashcards — the catalogue: every card you own, wherever it lives, to find, check
- * and fix. The sources are drawn like the file tree (documents, then the default
- * deck), with the gap between reviews and card health beneath; the search is the
- * screen. A card opens in its details; editing starts from there, in the card
- * editor. State lives in useCardBrowser.js; the vocabulary in catalogue.js.
- */
-
 import { useEffect, useRef, useState } from 'react';
 import CardBench from '../../components/flashcard/CardBench';
 import CardDetailModal from '../../components/flashcard/CardDetailModal';
@@ -27,17 +19,14 @@ import useCardBench from '../../components/flashcard/useCardBench';
 import useCardBrowser from './useCardBrowser';
 import './Flashcards.css';
 
-/** A card count: a small card outline and the number. */
 function Count({ n }) {
   return <span className="fc-count"><i aria-hidden="true" />{n}</span>;
 }
 
-/** The thin line under a row: long-term share for a source, library share for a band. */
 function Line({ value }) {
   return <span className="fc-line-bar" aria-hidden="true"><i style={{ width: `${Math.round(value * 100)}%` }} /></span>;
 }
 
-/** One row of the sources tree. */
 function SourceRow({ depth = 0, icon, name, cards, line, selected, expanded, onToggle, onChoose, title }) {
   return (
     <div
@@ -155,7 +144,6 @@ export default function FlashcardsView({ isActive = true, onOpenSource, request 
   const [detailHash, setDetailHash] = useState(null);
   const searchRef = useRef(null);
 
-  /** Another screen asked for some cards (a band from Statistics, a tag or category from Metadata): start from that alone. */
   useEffect(() => {
     if (!request) return;
     b.update({ ...NO_NARROWING, ...request });

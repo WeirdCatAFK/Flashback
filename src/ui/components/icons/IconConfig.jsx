@@ -1,7 +1,3 @@
-/**
- * IconConfig — the Config button: three sliders.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconConfig({ size = 24 }) {

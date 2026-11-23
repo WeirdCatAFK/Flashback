@@ -1,13 +1,3 @@
-/**
- * PdfPage — one page: a canvas rendered lazily when it scrolls near the
- * viewport, the highlight boxes over it, and pdf.js's text layer for selection.
- * The `--total-scale-factor` / `--scale-round-*` variables are what pdfjs-dist
- * v6's TextLayer reads to size its spans. A zoom resizes the page at once but
- * redraws the canvas and text layer only once it has settled (`drawn`): a pinch
- * changes the scale every frame, and redrawing on each one clears the canvas to
- * blank, so mid-gesture the previous drawing is stretched to the new size instead.
- */
-
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { TextLayer } from 'pdfjs-dist';
 

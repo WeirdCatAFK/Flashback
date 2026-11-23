@@ -1,9 +1,3 @@
-/**
- * The tree's root: the top-level listing and its progress, the remount counter
- * that refreshes every open subtree after a rollback or an import, and inline
- * creation at the root.
- */
-
 import { useState, useEffect, useCallback } from "react";
 import { listFolder, createFile, createFolder } from "../../../api/documents";
 import { listProgress } from "../../../api/progress";

@@ -1,20 +1,8 @@
-/**
- * The mathematics covers: a construction, a spiral, a fractal, a pendulum's trace and a
- * solid. See CoverArt for how a drawing is made and painted.
- */
-
 import { W, H, range, HAIR } from './artKit.js';
 import StellaOctangula from './StellaOctangula.jsx';
 
 const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 
-/**
- * Euclid's construction, Elements I.1: on a given line, two circles each through the
- * other's centre, and the equilateral triangle standing where they meet. Two smaller
- * copies, fainter, as if worked again in the margins. When covers move, the main one
- * is constructed over and over: circle A, circle B, then the triangle up to the point
- * where they meet (the euclid-* classes in CoverArt.css).
- */
 const EUCLID = [[275, 70, true], [44, 36, false], [540, 36, false]].map(([ax, r, main]) => ({
   ax,
   bx: ax + r,
@@ -44,11 +32,6 @@ const euclid = (
   </g>
 );
 
-/**
- * The golden spiral: a golden rectangle cut into ever smaller squares, each turn of the
- * cut a quarter turn on, with a quarter circle drawn through every square. When covers
- * move, each spiral draws itself inward, out of step with the others.
- */
 function goldenSpiral(x, y, w, h, n) {
   const squares = [];
   let d = `M${pt(x, y + h)}`;
@@ -78,7 +61,6 @@ function goldenSpiral(x, y, w, h, n) {
   return { squares, d };
 }
 
-/** One spiral in the middle, whole; a smaller one either side, the right one mirrored. */
 const GOLDEN = goldenSpiral(180.5, -5, 258.9, 160, 12);
 const GOLDEN_SIDE = goldenSpiral(14, 25, 161.8, 100, 10);
 
@@ -101,7 +83,6 @@ const golden = (
   </g>
 );
 
-/** The Sierpiński triangle: every triangle split into four, the middle one left out. */
 function sierpinski(x, y, s, up, depth, out) {
   const rise = ((up ? -1 : 1) * s * Math.sqrt(3)) / 2;
   if (depth === 0) {
@@ -115,7 +96,6 @@ function sierpinski(x, y, s, up, depth, out) {
   return out;
 }
 
-/** Side of the big triangles: tall enough to stand from the bottom edge nearly to the top. */
 const SIDE = 157;
 const TOP = 143 - (SIDE * Math.sqrt(3)) / 2;
 
@@ -126,10 +106,6 @@ const triangles = (
   </g>
 );
 
-/**
- * A harmonograph's trace: two pendulums a hair out of tune, swinging down to rest. When
- * covers move, the pen draws it again, slowly.
- */
 function harmonograph() {
   const pts = [];
   for (let t = 0; t < 140; t += 0.05) {
@@ -147,7 +123,6 @@ const pendulum = (
   </g>
 );
 
-/** The mathematics covers, by id. */
 export const MATH_ART = {
   euclid,
   golden,

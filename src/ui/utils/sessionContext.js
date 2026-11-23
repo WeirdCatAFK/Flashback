@@ -1,20 +1,8 @@
-/** Session context and hooks. Split from session.jsx so the provider is its sole component export (react-refresh). */
-
 import { createContext, useContext } from 'react';
 import { can as roleCan } from '../../shared/roles.js';
 
-/** @type {import('react').Context<null | object>} */
 export const SessionContext = createContext(null);
 
-/**
- * Who you are on the connected vault, and what that lets you do.
- *
- * @returns {{account: object|null, identity: object|null, role: string|null,
- *            can: (capability: string) => boolean, loading: boolean, error: string|null}}
- *
- * Usable outside a provider — Setup renders before one exists — where it reports no role and
- * therefore no capabilities, which is the correct answer for "not connected to anything yet".
- */
 export function useSession() {
     return useContext(SessionContext) ?? {
         account: null, identity: null, role: null,
@@ -22,18 +10,10 @@ export function useSession() {
     };
 }
 
-/**
- * Just the predicate, for the common case.
- *
- *   const canEdit = useCan('editCards');
- *
- * @param {string} capability a key of CAPABILITIES in `shared/roles.js`
- */
 export function useCan(capability) {
     return useSession().can(capability);
 }
 
-/** Shared by the provider so the fallback above and the real value agree in shape. */
 export function buildSessionValue(state) {
     const role = state.account?.role ?? null;
     return {

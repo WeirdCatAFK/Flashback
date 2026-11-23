@@ -1,12 +1,3 @@
-/**
- * Documents — the file tree beside the document editor. The tree is docked (and
- * resizable, snapping to set widths) or hidden; hidden, it slides out when the
- * pointer rests left of the text. Whether it is shown is App's state, because the
- * Documents icon in the activity bar toggles it too. Tabs, preview tabs and the
- * jump-to-highlight hand-over live in useOpenTabs.js; the width in
- * useSidebarResize.js; the slide-out in useTreePeek.js.
- */
-
 import { useRef } from 'react';
 import FileExplorer from '../../components/document/explorer/FileExplorer';
 import DocumentEditor from '../../components/document/DocumentEditor';
@@ -16,7 +7,6 @@ import useTreePeek from './useTreePeek';
 import useOpenTabs from './useOpenTabs';
 import './Documents.css';
 
-/** The tab bar's first slot: shows or hides the file tree. */
 function TreeToggle({ docked, onToggle }) {
   const { t } = useT();
   const label = docked ? t('Hide the file tree') : t('Show the file tree');

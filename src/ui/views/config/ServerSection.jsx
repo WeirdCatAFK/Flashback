@@ -1,10 +1,3 @@
-/**
- * ServerSection — the local API this app and an AI assistant talk to (config.json, through
- * useConfig.js). The one section with a Save: its fields change what the server listens
- * on, so they wait to be saved and apply after a restart. A bar at the foot says what is
- * pending, and after a save offers the restart.
- */
-
 import { restartApp } from '../../api/desktop';
 import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';

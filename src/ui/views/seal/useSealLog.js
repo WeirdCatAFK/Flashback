@@ -1,31 +1,10 @@
-/**
- * The seal log, cursor-paged. Views stay mounted after their first visit, so the
- * page is refetched each time the tab becomes active — to the depth the reader
- * had reached, clamped to the server's own cap (routes/seal.js MAX_LOG_LIMIT):
- * every commit in a page costs a tree diff.
- */
-
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getLog } from '../../api/seal';
 import { useT } from '../../translations/index';
 
 const PAGE_SIZE = 25;
-/**
- * Matches the server's own cap (routes/seal.js MAX_LOG_LIMIT) — every commit in a page
- * costs a tree diff, so a restore-depth reload is clamped to the same ceiling.
- */
 const MAX_PAGE = 200;
 
-/**
- * Views in this app stay mounted after their first visit (see App.jsx's view-slot
- * keep-alive) — an effect with no isActive dependency would only ever fetch once,
- * then go stale on every later tab switch. Refetch each time the tab becomes active,
- * matching the convention already used by GraphView/Trainer's isActive-driven hooks.
- *
- * History is paged rather than capped: a session that produces a lot of metadata commits
- * (highlighting a PDF, say) used to push everything else past a hard 20-entry limit with
- * no way to reach it. Pages are cursor-based, so "load older" walks back arbitrarily far.
- */
 export default function useSealLog(isActive) {
     const { t } = useT();
     const [log, setLog] = useState([]);

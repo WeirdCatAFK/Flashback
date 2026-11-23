@@ -1,9 +1,3 @@
-/**
- * The built-in theme ids, in the order Config lists them. Every dark theme comes
- * twice: its own id is the Focus variant (the card a step darker than the desk)
- * and `<id>-lamp` the Lamp variant (the card a step lighter).
- */
-
 export const THEMES = [
   "light-workbench",
   "dark-workbench",
@@ -16,10 +10,6 @@ export const THEMES = [
   "focus-blue-lamp",
 ];
 
-/**
- * A built-in theme's display name, or the id itself for a custom theme (whose
- * id is the name its author typed). Takes `t` so a language switch re-renders it.
- */
 export function themeLabel(t, id) {
   switch (id) {
     case "light-workbench": return t("Light workbench");

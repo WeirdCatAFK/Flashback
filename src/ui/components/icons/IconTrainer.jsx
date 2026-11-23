@@ -1,7 +1,3 @@
-/**
- * IconTrainer — the Trainer tab: a play mark.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconTrainer({ size = 24 }) {

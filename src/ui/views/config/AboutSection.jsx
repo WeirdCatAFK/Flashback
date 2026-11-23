@@ -1,9 +1,3 @@
-/**
- * AboutSection — the installed version, updates (check, then Update now, then Restart
- * and install, each step saying where it stands), and the welcome tour. The update state
- * is useAppUpdates.js, held by Config.
- */
-
 import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';
 

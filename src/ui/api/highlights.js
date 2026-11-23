@@ -1,7 +1,3 @@
-/**
- * Highlights API (/api/highlights).
- */
-
 import { request } from "./client.js";
 
 export const getHighlights = (path) =>

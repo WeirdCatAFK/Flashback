@@ -1,8 +1,3 @@
-/**
- * The statistics for the caller, or for another account when an admin is
- * viewing someone else's progress, reloaded each time the tab becomes active.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { getStatistics } from '../../api/srs';
 import { getAccountProgress } from '../../api/accounts';

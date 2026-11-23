@@ -1,17 +1,3 @@
-/**
- * Stats — a short report, not a dashboard: one column read top to bottom, each section
- * answering one question in the order it is asked. Where am I (the headline "N%
- * complete", with the Read and Known lines)? What's coming (the forecast)? Is it staying
- * (retention, and how new cards land)? Where are the cards (the gap bands Flashcards
- * uses; a band opens those cards there)? Your reviews (the heatmap and the streak).
- * Figures sit inside sentences in bold mono, where they are read in context, and each
- * chart carries a numbered caption.
- *
- * It shows the caller's progress, or whoever an admin chose in the scope picker; the
- * bands only open Flashcards for your own, since Flashcards is always about yours.
- * Data comes from useStats.js; the figures are in StatsFigures.jsx.
- */
-
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import ProgressScopePicker from '../../components/account/ProgressScopePicker';
 import { useT } from '../../translations/index';
@@ -21,7 +7,6 @@ import useStats from './useStats';
 import { Forecast, Bands, Heatmap } from './StatsFigures';
 import './Stats.css';
 
-/** A figure in a sentence: bold mono, read in place. */
 const F = ({ children }) => <b className="sx-fig-n">{children}</b>;
 
 function Head({ stats, viewingName, onBackToMine }) {

@@ -1,7 +1,3 @@
-/**
- * PlaceholderRenderer — what a format the app cannot render yet shows.
- */
-
 import { useT } from "../../../translations/index";
 import "./Renderer.css";
 

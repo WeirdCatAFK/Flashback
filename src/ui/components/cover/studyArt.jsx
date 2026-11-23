@@ -1,11 +1,5 @@
-/**
- * The study-desk covers: the things on a learner's desk, drawn. See CoverArt for how a
- * drawing is made and painted.
- */
-
 import { W, hash, range, TONES, HAIR } from './artKit.js';
 
-/** Scattered cards: two loose rows of cards, each at its own small angle. */
 const cards = (
   <g className="cover-art__fill">
     {range(18).map((k) => {
@@ -21,7 +15,6 @@ const cards = (
   </g>
 );
 
-/** A pile of notes: far more sheets than fit, dropped on top of each other; some are written on. */
 const NOTES = range(64).map((k) => ({
   x: -24 + hash(k) * 624,
   y: -24 + hash(k + 500) * 150,
@@ -48,7 +41,6 @@ const notes = (
   </g>
 );
 
-/** Card stack: index cards piled in stacks of different heights, seen edge-on. */
 const stack = (
   <g>
     {[8, 12, 6, 10, 13].flatMap((n, s) => range(n).map((i) => {
@@ -61,7 +53,6 @@ const stack = (
   </g>
 );
 
-/** Leitner boxes: five card boxes, each holding more cards than the one before. */
 const leitner = (
   <g>
     {[2, 4, 7, 10, 14].map((n, b) => {
@@ -80,7 +71,6 @@ const leitner = (
   </g>
 );
 
-/** Bookshelf: spines of every width and height on one shelf, some with bands. */
 const SHELF = 106;
 const SPINES = [];
 for (let x = 8, k = 0; ; k++) {
@@ -108,14 +98,12 @@ const shelf = (
   </g>
 );
 
-/** Constellation: stars on a jittered grid, each joined to its nearest neighbours. */
 const STARS = range(30).map((k) => ({
   x: (k % 10) * 62 + 10 + hash(k) * 42,
   y: Math.floor(k / 10) * 50 + 10 + hash(k + 60) * 30,
   r: 1.6 + hash(k + 120) ** 2 * 3.4,
 }));
 
-/** Each star's nearest neighbour, and its second nearest when that one is close, once per pair. */
 function nearestLinks(points) {
   const seen = new Set();
   const links = [];
@@ -152,5 +140,4 @@ const stars = (
   </g>
 );
 
-/** The study-desk covers, by id. */
 export const STUDY_ART = { cards, notes, stack, leitner, shelf, stars };

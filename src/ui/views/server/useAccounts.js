@@ -1,13 +1,3 @@
-/**
- * The server's people: the account list with who you are and the seat limit,
- * and `run`, which wraps every mutation so the list is refreshed and an error
- * lands in one place. `run` resolves to the mutation's result, or `undefined`
- * when it failed.
- *
- * `enabled` is false for anyone below Admin: the server refuses them the list, so it is not
- * asked for.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { listAccounts } from '../../api/accounts';
 

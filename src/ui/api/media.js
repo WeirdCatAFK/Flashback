@@ -1,21 +1,7 @@
-/**
- * Media API (/api/media): streamable URLs for a card's or a document's assets,
- * and creating a card with its media in one request.
- */
-
 import { upload, getBaseUrl, appendToken } from "./client.js";
 
 const MEDIA_SLOTS = ["front_img", "back_img", "front_sound", "back_sound"];
 
-/**
- * Resolves a vanilla card media reference (e.g. "./media/front-1a2b.png", as
- * stored in vanillaData.media) to a streamable URL via GET /api/media/file.
- * Pass as <Flashcard resolveMedia> together with the card's document path.
- *
- * @param {string} docPath - relative path to the card's source document.
- * @param {string} ref - the stored media reference.
- * @returns {string|null}
- */
 export const mediaFileSrc = (docPath, ref) => {
   if (!ref) return null;
   if (/^[a-f0-9]{64}$/i.test(ref)) {
@@ -29,22 +15,11 @@ export const mediaFileSrc = (docPath, ref) => {
   );
 };
 
-/** Streamable URL for an asset saved beside a document, by its file name. */
 export const mediaFileUrl = (docPath, name) =>
   appendToken(
     `${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(docPath)}&name=${encodeURIComponent(name)}`,
   );
 
-/**
- * Create a vanilla flashcard and attach its media in a single request — the
- * server assigns the globalHash and patches vanillaData.media, so the caller
- * never has to sequence create → read-back-hash → upload.
- *
- * @param {string} docPath - relative path to the parent document.
- * @param {object} card - the card object (front/back text, tags, category, …).
- * @param {{ front_img?: File, back_img?: File, front_sound?: File, back_sound?: File }} [mediaFiles]
- * @returns {Promise<{ ok: boolean, card: object }>}
- */
 export const createVanillaCard = (docPath, card, mediaFiles = {}) => {
   const fd = new FormData();
   fd.append("docPath", docPath);

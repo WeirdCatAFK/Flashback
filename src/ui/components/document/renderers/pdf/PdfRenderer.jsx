@@ -1,14 +1,3 @@
-/**
- * PdfRenderer — a PDF as a scroll of lazily rendered pages, text-selection
- * highlights and a box-draw mode for scanned pages. Its tools (zoom, Fit width,
- * Box highlight) are portaled into the reading strip's `toolsTarget`, so the
- * document has one bar above it rather than a strip and a toolbar. The zoom
- * percentage is a field: type any value in range and Enter (or leave it) applies
- * it, Esc puts back the current one. Capabilities
- * are declared in ../registry.js; the lifecycle is usePdfDocument.js and the
- * highlight logic usePdfHighlights.js.
- */
-
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useT } from '../../../../translations/index';
@@ -43,7 +32,6 @@ const BoxIcon = () => (
   </svg>
 );
 
-/** The zoom percentage as a field; `draft` is what is typed until it is applied or dropped. */
 function ZoomField({ scale, onZoom, label }) {
   const [draft, setDraft] = useState(null);
   const apply = () => {

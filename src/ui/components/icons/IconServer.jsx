@@ -1,7 +1,3 @@
-/**
- * IconServer — the Server Management tab: two server units.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconServer({ size = 24 }) {

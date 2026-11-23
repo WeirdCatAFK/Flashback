@@ -1,9 +1,3 @@
-/**
- * FolderNode — one folder row and, when open, its children. A drop target for
- * files (import) and tree items (move); a right-click hands the explorer what the
- * menu needs, including how to start an inline create inside it.
- */
-
 import { useState, useEffect, useRef } from "react";
 import {
   createFile,

@@ -1,26 +1,10 @@
-/**
- * The small player: once the video is scrolled out of view while it plays, the player
- * floats in a corner of the document area so you can keep watching while you read or
- * write. It stays out when you pause (pausing to write a note must not take it away),
- * and goes back when the video is in view again, on Back to the video, or when closed,
- * which keeps it in place until the video has been in view once more.
- *
- * The iframe is never moved in the page, since moving an iframe reloads it: its box
- * only becomes `position: fixed` at the corner while the slot around it keeps the
- * space, so the text does not jump. It is dragged by its bar (the video itself takes
- * the pointer inside its frame) and settles into the nearest corner, remembered as
- * `fb-video-corner`. Positions are layout pixels, since the shell is zoomed.
- */
-
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { getPref, setPref } from '../../../../utils/prefs.js';
 import { toLayoutRect, getUiZoom, useUiZoomChange } from '../../../../utils/uiZoom';
 import { cornerPosition, nearestCorner, storedCorner } from './floatCorner.js';
 
-/** How far a press must move before it is a drag, and how long the settle into a corner runs. */
 const DRAG_THRESHOLD = 5;
 const SETTLE_MS = 240;
-/** The video counts as out of view once less than this much of it is left at the top. */
 const AWAY_MARGIN = 48;
 
 export default function useFloatingPlayer({ slotRef, frameRef, playing, enabled = true }) {
@@ -73,13 +57,6 @@ export default function useFloatingPlayer({ slotRef, frameRef, playing, enabled 
   const close = () => { closedRef.current = true; place(); };
   const back = () => slotRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' });
 
-  /**
-   * A drag is followed on the window, not on the bar: the video is its own document, and a
-   * pointer that crosses into it is no longer reported to this one. So the moment the bar is
-   * pressed the video stops taking the pointer (`is-pressing`, set on the element directly
-   * rather than waiting for a render), and moves and the release are read from the window
-   * until the press ends.
-   */
   const handleProps = {
     onPointerDown: (e) => {
       const f = frameRef.current;

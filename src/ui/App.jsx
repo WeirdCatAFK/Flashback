@@ -1,10 +1,3 @@
-/**
- * App — the shell: title bar, activity bar and the keep-alive view slots, plus
- * the app-level state that crosses views (theme, zoom, the study hand-over to
- * the Trainer, whose progress Stats and Graph show, the search palette, dialogs
- * and the tour). Views are lazy per folder under views/.
- */
-
 import {
   lazy,
   Suspense,
@@ -74,12 +67,6 @@ const StatsView = lazy(() => import("./views/stats/Stats"));
 const DiaryView = lazy(() => import("./views/diary/Diary"));
 const ServerView = lazy(() => import("./views/server/Server"));
 
-/**
- * The screens in the order of the process: make (read, write cards, pack decks),
- * study, look back (how memory is holding, the day's record, the map of what you
- * know), keep (history, metadata, and on a remote who may reach it). ActivityBar
- * draws a rule wherever `group` changes.
- */
 const NAV_ITEMS = [
   { id: "documents", Icon: IconDocuments, group: "make" },
   { id: "flashcards", Icon: IconFlashcards, group: "make" },
@@ -95,21 +82,6 @@ const NAV_ITEMS = [
 const CONFIG_ITEM = { id: "config", Icon: IconConfig, group: "config" };
 const NAV_ACTIONS = [...NAV_ITEMS, CONFIG_ITEM].map((n) => `nav.${n.id}`);
 
-/**
- * Labels live in a function of t, not in NAV_ITEMS. Two reasons, and both are the
- * standard shape for any module-level string table in this app:
- *
- *   1. A t() call at module scope evaluates once at import, so the nav would keep
- *      the old language after a switch.
- *   2. Holding the English in the constant and calling t(item.label) at render
- *      fixes that, but passes a variable — and scripts/translations-extract.js only reads
- *      string literals, so those keys would never reach a translator.
- *
- * Called during render, every key a literal: both problems gone.
- *
- * Takes `shared` for the same reason `diaryLabels()` does: the study record is a private
- * diary on a local vault and a shared log on a server, and the tab has to say which.
- */
 function navLabels(t, shared) {
   return {
     documents: t("Documents"),
@@ -126,7 +98,6 @@ function navLabels(t, shared) {
   };
 }
 
-/** What each screen is for, in a line — the second row of the tab bar's tooltip. */
 function navPurposes(t, shared) {
   return {
     documents: t("Read and highlight your sources"),
@@ -148,7 +119,6 @@ export default function App() {
   const [activeView, setActiveView] = useState("documents");
   const [docTreeHidden, setDocTreeHidden] = usePersisted("fb-doc-tree-hidden", false);
 
-  /** The activity bar: choosing the screen you are already on toggles its sidebar, as the Documents file tree does. */
   const selectView = useCallback((id) => {
     if (id === "documents" && activeViewRef.current === "documents") setDocTreeHidden((h) => !h);
     else setActiveView(id);
@@ -252,7 +222,6 @@ export default function App() {
 
   const [pendingSource, setPendingSource] = useState(null);
   const [pendingDeck, setPendingDeck] = useState(null);
-  /** Cards another screen asked Flashcards to show — a gap band, a tag, a category. */
   const [catalogueRequest, setCatalogueRequest] = useState(null);
   const handleShowCards = useCallback((filter) => {
     setCatalogueRequest({ ...filter });

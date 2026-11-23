@@ -1,13 +1,6 @@
-/**
- * The search palette's grammar and result shaping: the `tag:` / `deck:` / `doc:`
- * / `in:` prefixes, the flat and grouped views of a result set, and where each
- * result navigates to. Pure.
- */
-
 const PREFIX_RE = /^(tag|deck|doc|in):(.*)$/i;
 const TYPES = [['folder', 'folders'], ['document', 'documents'], ['flashcard', 'flashcards'], ['tag', 'tags'], ['deck', 'decks']];
 
-/** A raw query as search parameters plus the prefix it used, if any. */
 export function parseQuery(raw) {
   const m = raw.match(PREFIX_RE);
   if (!m) return { q: raw, tag: null, deck: null, document: null, folder: null, prefix: null, value: null };
@@ -24,17 +17,14 @@ export function parseQuery(raw) {
   };
 }
 
-/** Whether a parsed query is a prefix with nothing after it yet. */
 export const isEmptyPrefix = (parsed) => parsed.prefix !== null && !parsed.value?.trim();
 
-/** Plain-text preview of a card side, tags stripped, capped. */
 export function snippet(text, maxLen = 80) {
   if (!text) return '';
   const s = text.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
   return s.length > maxLen ? s.slice(0, maxLen) + '…' : s;
 }
 
-/** Every result in display order, each stamped with its type. */
 export function flattenResults(results) {
   if (!results) return [];
   const out = [];
@@ -42,7 +32,6 @@ export function flattenResults(results) {
   return out;
 }
 
-/** Results grouped by type with each group's offset into the flat list, or null for a prefix search. */
 export function groupResults(results) {
   if (!results || (results.flashcards && !results.folders)) return null;
   const groups = [];
@@ -57,7 +46,6 @@ export function groupResults(results) {
   return groups;
 }
 
-/** The primary and secondary line a result row shows. */
 export function resultLines(item) {
   switch (item.type) {
     case 'folder':
@@ -67,7 +55,6 @@ export function resultLines(item) {
   }
 }
 
-/** The navigation request a result opens. */
 export function navigationFor(item) {
   switch (item.type) {
     case 'folder': return { type: 'folder', payload: { path: item.path } };

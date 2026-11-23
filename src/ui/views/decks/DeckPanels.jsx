@@ -1,7 +1,3 @@
-/**
- * The deck page's smaller panels: the add-cards layer and a deck's tag row.
- */
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { addEntry, searchCards, setDeckTags } from '../../api/decks';
 import { frontLine, docTitle } from '../../components/flashcard/cardLineText.js';
@@ -13,11 +9,6 @@ import { useT } from '../../translations/index';
 const SEARCH_DEBOUNCE = 250;
 const SEARCH_LIMIT = 50;
 
-/**
- * Adding cards: a layer over the deck page that searches every card in your
- * library. A row says whether the card is already in this deck; choosing one that
- * is not adds it. Escape or the Esc key closes it.
- */
 export function AddCardsPanel({ deckHash, deckName, existingHashes, onAdded, onClose }) {
   const { t } = useT();
   const [query, setQuery] = useState('');

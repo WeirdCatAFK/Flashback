@@ -1,12 +1,3 @@
-/**
- * PdfBoxPicker — the box highlights drawn on a PDF, by page, for putting one on a
- * card: the PDF counterpart of a book's figures or a clip's images. A box has no
- * file behind it, so each tile is its region rendered from the page (pdfjs.js),
- * and picking one hands over that rendering as the File. It opens the PDF itself
- * rather than borrowing the viewer's, and is loaded lazily so pdf.js stays out of
- * the card editor until a PDF's card asks for it.
- */
-
 import { useEffect, useMemo, useState } from 'react';
 import { readFile, rawDocumentUrl } from '../../api/documents';
 import { getDocument, renderRegion, isBoxHighlight } from '../document/renderers/pdf/pdfjs.js';

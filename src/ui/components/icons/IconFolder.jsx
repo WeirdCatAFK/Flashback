@@ -1,7 +1,3 @@
-/**
- * IconFolder — the tree glyph for a closed folder.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFolder({ size = 15 }) {

@@ -1,15 +1,3 @@
-/**
- * The diary's data: the dates that have a summary or an entry, and the selected
- * day's summary and reflection. Every time the tab is shown, today is re-derived
- * from the whole day's review log (a rebuild limited to one day), so a second
- * session shows up whether or not the Trainer recorded it; other days are read as
- * stored. A rebuild re-derives every summary.
- *
- * With `account` (the Author reading someone's Logs), everything is read through
- * `/api/accounts/:id/logs` and nothing is derived or written: today is read as
- * stored like any other day, since deriving it would write into their history.
- */
-
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { listDiary, getSummary, getEntry, rebuildSummaries, generateSummary } from '../../api/diary';
 import { getAccountLogs, getAccountLogSummary, getAccountLogEntry } from '../../api/accounts';
@@ -17,7 +5,6 @@ import { todayIso, withToday } from './dates.js';
 
 const summaryStateFor = (err) => (err?.status === 404 ? 'none' : 'error');
 
-/** The three reads, for the caller's own diary or for `accountId`'s Logs. */
 const readersFor = (accountId) => (accountId
   ? {
       list: () => getAccountLogs(accountId),

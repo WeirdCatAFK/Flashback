@@ -1,9 +1,3 @@
-/**
- * FileNode — one document row: icon, name without its extension (or the rename
- * box), card count, and a thin line under it for how far it has been read.
- * Draggable; a right-click hands the explorer what the menu needs.
- */
-
 import { useEffect, useRef } from "react";
 import { deleteItem } from "../../../api/documents";
 import getFileIcon from "../../icons/fileIconMap";

@@ -1,14 +1,5 @@
-/**
- * The tree's context menu as data: role-gated groups for a file, a folder or
- * the root, each ending in a separator, then trimmed. Labels arrive translated.
- */
-
 import { dropDanglingSeparators } from "./names.js";
 
-/**
- * @param {object} ctx  what was right-clicked: `{ isRoot, isFolder, filePath, folderPath, folderColor, … }`
- * @param {object} h    handlers `{ study, editTags, setColor, importTo, newFile, newFolder, clip, rename, remove }`
- */
 export function contextMenuItems(ctx, can, t, h) {
   const file = !ctx.isFolder && !ctx.isRoot && ctx.filePath;
   return dropDanglingSeparators([

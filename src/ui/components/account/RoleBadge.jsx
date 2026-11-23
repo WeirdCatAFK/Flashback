@@ -1,19 +1,3 @@
-/**
- * RoleBadge — your role on the vault in the title bar, beside its name.
- *
- * It sits here for the same reason the vault name does. `TitleBar` already argues that the
- * active vault must be visible at all times because it is *the part that changes*; on a shared
- * server your role is the other part that changes, and it is the answer to the question the UI
- * would otherwise provoke silently — "why is there no New Document button?". Without it, a
- * Reader's app just looks broken.
- *
- * **Shown only on a remote.** On a local vault there is one account, it is the Author, and a
- * badge reading "Author" next to your own vault name is noise that teaches nobody anything.
- *
- * It is a label, not a control. Nothing to click: what a role means, and who could change it,
- * belongs in the Server view where there is room to say it.
- */
-
 import { useT } from "../../translations/index";
 import { useSession } from "../../utils/sessionContext.js";
 import { roleLabel } from "../../utils/roleLabels.js";

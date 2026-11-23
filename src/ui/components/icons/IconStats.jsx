@@ -1,7 +1,3 @@
-/**
- * IconStats — the Statistics tab: three rising bars.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconStats({ size = 24 }) {

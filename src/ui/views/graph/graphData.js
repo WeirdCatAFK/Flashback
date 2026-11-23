@@ -1,34 +1,19 @@
-/**
- * The graph as data: the API payload turned into nodes and links, the visibility
- * filters, and the neighbourhood of a selected node. Pure, so the ordering and
- * aggregation rules are testable without a canvas.
- */
-
 import { aggregateMass } from '../graphMetrics.js';
 
 const NAME_MAX = 52;
 
-/** A link endpoint's id, whether d3 has already replaced it with the node object. */
 export const nodeId = (val) => (typeof val === 'object' && val !== null ? val.id : val);
 
-/** How committed to memory a node is, 0..1 — a rate; drives halo opacity. */
 export const learnedOf = (n) => n.learned || 0;
 
-/** How much knowledge a node stands for, in mastered-card-equivalents; drives halo size. */
 export const massOf = (n) => n.mass || 0;
 
-/** A flashcard shows its front, truncated; everything else its label. */
 export function nodeDisplayName(n) {
   return (n.type === 'Flashcard' && n.flashcardFront)
     ? n.flashcardFront.slice(0, NAME_MAX) + (n.flashcardFront.length > NAME_MAX ? '…' : '')
     : (n.label ?? n.name ?? String(n.id));
 }
 
-/**
- * Nodes and links from the API payload. Links to a node that is not in the
- * payload are dropped (react-force-graph crashes on them), disconnections cancel
- * the edge they sever, and mass is aggregated over the surviving links.
- */
 export function buildGraphData({ nodes = [], edges = [] }) {
   const nodeIdSet = new Set(nodes.map((n) => n.id));
   const pairKey = (a, b) => `${Math.min(a, b)}-${Math.max(a, b)}`;
@@ -67,7 +52,6 @@ export function buildGraphData({ nodes = [], edges = [] }) {
   return { nodes: named, links, originIds, defaultDeckIds };
 }
 
-/** The subset of the graph the panel's toggles leave visible. */
 export function applyVisibility(graphData, { showTags, showDecks, showLinks, showOrigin, showDefaultDeck }) {
   let { nodes, links } = graphData;
   const { originIds, defaultDeckIds } = graphData;
@@ -86,7 +70,6 @@ export function applyVisibility(graphData, { showTags, showDecks, showLinks, sho
   return { nodes, links };
 }
 
-/** The selected node and everything one link away. */
 export function focusedIdsFor(selected, visibleData) {
   if (!selected || !visibleData) return null;
   const ids = new Set([selected.id]);
@@ -102,11 +85,6 @@ export function focusedIdsFor(selected, visibleData) {
 const RELATION_PRIORITY = { deck: 5, tag: 4, reference: 3, inheritance: 2, connection: 1 };
 const TYPE_ORDER = ['Folder', 'Document', 'Flashcard', 'Tag', 'Deck'];
 
-/**
- * The selected node's neighbours grouped by type, each carrying the strongest
- * relation that reaches it and the direction it was reached in.
- * @returns {{ type: string, nodes: object[] }[]}
- */
 export function neighborGroupsFor(selected, visibleData) {
   if (!selected || !visibleData) return [];
   const best = new Map();

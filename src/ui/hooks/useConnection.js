@@ -1,20 +1,8 @@
-/**
- * Which place the renderer is pointed at — the local vault or a remote server —
- * read from Electron main and re-initialising the API client on every change.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import { initClient, getConnectionId } from '../api/client.js';
 
 const FALLBACK = { kind: 'local', id: null, label: null, url: 'http://localhost:50500', token: null };
 
-/**
- * Reads the active connection from the Electron host and re-points the API client
- * whenever it changes.
- *
- * @returns {{connection: object|null, connectionId: number, ready: boolean,
- *            useLocal: () => Promise<void>, useRemote: (id: string) => Promise<object>}}
- */
 export default function useConnection() {
     const [connection, setConnection] = useState(null);
     const [connectionId, setConnectionId] = useState(() => getConnectionId());

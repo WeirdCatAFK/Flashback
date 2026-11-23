@@ -1,8 +1,3 @@
-/**
- * Loose pages: what changed in the workspace outside Flashback, refetched each
- * time the tab becomes active.
- */
-
 import { useState, useEffect, useCallback } from 'react';
 import { inspectDrift } from '../../api/seal';
 import { useT } from '../../translations/index';

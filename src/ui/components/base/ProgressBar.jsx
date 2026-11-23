@@ -1,9 +1,3 @@
-/**
- * ProgressBar — a fraction painted as a bar. `value` is 0..1; `tone` picks the
- * fill colour; `thick` doubles the height for standalone bars (a dialog's upload,
- * the trainer's session) versus inline ones (a file's reading position).
- */
-
 export default function ProgressBar({
   value,
   tone = "accent",

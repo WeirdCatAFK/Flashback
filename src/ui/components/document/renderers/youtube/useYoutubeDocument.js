@@ -1,16 +1,3 @@
-/**
- * A `.youtube` document: the video record and its sidecar, its moments (each a
- * `video_timestamp` highlight, saved as soon as it is made), the fetched transcript as
- * paragraphs, and the highlight command contract.
- *
- * The text under the player is the transcript when there is one and the notes otherwise,
- * and highlights work on it as on any document: a selection in the transcript becomes a
- * moment at the time of its first line; a moment marked from the player covers the line
- * being said then; without captions it is a note at that time, opened for writing
- * (`composing`). The DOM side — which paragraph a selection is in — reads the
- * `[data-para]` elements under `textRootRef`, whose text is exactly the paragraph's.
- */
-
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { readFile, updateMetadata, fetchYoutubeTranscript } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';
@@ -18,10 +5,8 @@ import { parseVideoMeta, transcriptFrom, newMarker, withMarker } from './player.
 import { groupCues, placeHighlights, paraIndexAt, cueAt, timeAtOffset, rangeOverlapping } from './transcript.js';
 import { formatTime } from './time.js';
 
-/** A note marked this close to another is the same moment. */
 const SAME_MOMENT = 2;
 
-/** The character offset of (node, offset) within `el`'s text. */
 function textOffset(el, node, offset) {
   const r = document.createRange();
   r.selectNodeContents(el);
@@ -29,7 +14,6 @@ function textOffset(el, node, offset) {
   return r.toString().length;
 }
 
-/** The live selection as `{ index, from, to }` within one paragraph of the transcript, or null. */
 function selectionInTranscript(root) {
   const sel = window.getSelection();
   if (!root || !sel || sel.isCollapsed || !sel.rangeCount) return null;
@@ -124,11 +108,6 @@ export default function useYoutubeDocument({ path, reloadTick, saveRef, highligh
     return () => { if (saveRef) saveRef.current = null; };
   });
 
-  /**
-   * Marks the moment at `seconds`. With captions, the line being said then is highlighted
-   * (or the highlight already on it is returned); without them, a note at that time opens
-   * for writing, or the one already there. Returns the moment's id.
-   */
   const addMomentAt = useCallback((seconds) => {
     const ps = parasRef.current;
     if (ps.length) {
@@ -151,7 +130,6 @@ export default function useYoutubeDocument({ path, reloadTick, saveRef, highligh
     return marker.id;
   }, []);
 
-  /** A note's words; left empty, it stays the time it was marked at. */
   const setNoteText = useCallback((id, text) => {
     setComposing(null);
     const h = highlightsRef.current.find((x) => x.id === id);
@@ -191,7 +169,6 @@ export default function useYoutubeDocument({ path, reloadTick, saveRef, highligh
   useEffect(() => {
     if (!highlightRef) return undefined;
     const now = () => new Date().toISOString();
-    /** The highlight a transcript selection covers, or a new one for it. */
     const fromSelection = (color, recolorExisting) => {
       const hit = selectionInTranscript(textRootRef?.current);
       if (!hit) return null;

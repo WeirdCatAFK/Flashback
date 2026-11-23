@@ -1,12 +1,3 @@
-/**
- * Flashcard — the card itself: front and back faces with media, the flip, the
- * swipe grade, the typed-answer check, and the fly-out animation the Trainer
- * drives through its ref. `source`, when given, is cited at the foot of the answer
- * side — never the question side, where it could give the answer away. `verdict`
- * (`{ typed, correct }`) is what a type_answer card says on its answer side about
- * what was typed; comparing is the caller's business, not the card's.
- */
-
 import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
@@ -32,17 +23,8 @@ function parseCloze(text = '') {
   return parts;
 }
 
-/**
- * Renders inline-only (no <p>/<pre> wrappers) so it stays valid nested inside a <span> —
- * used for cloze fragments, which must flow inline alongside the blank/answer spans.
- */
 const INLINE_MARKDOWN_COMPONENTS = { p: 'span' };
 
-/**
- * Anki's default MathJax config (and its older tex plugin) mark math with
- * \(...\)/\[...\] or [$]...[/$]/[$$]...[/$$] rather than the $/$$ that
- * remark-math looks for.
- */
 const MATH_DELIMITER = /\\\(|\\\[|\[\$\]|\[\$\$\]/;
 
 function normalizeMathDelimiters(text) {
@@ -53,11 +35,6 @@ function normalizeMathDelimiters(text) {
     .replace(/\\\(([\s\S]+?)\\\)/g, (_, expr) => `$${expr}$`);
 }
 
-/**
- * remark-math treats any $...$ pair as math, so it's only enabled for cards that
- * actually use one of Anki's math delimiters — otherwise a stray "$5 and $10"
- * in unrelated card text would get misread as an equation.
- */
 function CardMarkdown({ children, inline = false }) {
   if (!children) return null;
   const hasMath = MATH_DELIMITER.test(children);
@@ -83,7 +60,6 @@ function AudioIcon() {
   );
 }
 
-/** The citation at the foot of an answer face. */
 function SourceLine({ source }) {
   if (!source) return null;
   return <div className="flashcard-source" title={source}>{source}</div>;
@@ -130,11 +106,6 @@ function CardFace({ side, text, img, sound, resolve, audioRef, badge, source }) 
   );
 }
 
-/**
- * Cloze faces carry media like any other face. They used to render text only, which
- * silently discarded the front_img/front_sound the Anki importer has always written
- * for cloze notes — an audio-prompted cloze is an ordinary language-deck card.
- */
 function ClozeFace({ side, parts, img, sound, resolve = (r) => r, audioRef, source }) {
   const { t } = useT();
   const imgSrc = img ? resolve(img) : null;

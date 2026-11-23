@@ -1,22 +1,3 @@
-/**
- * Metadata — the vocabulary a vault classifies its cards with, read as a short report in
- * two tabs.
- *
- * Categories sit on priority levels, several to a level: when the Trainer studies by
- * priority, level 1 comes first. A category is dragged onto another level (or onto "new
- * level" above or below the rest), or moved with Raise and Lower (Alt+↑/↓ on a focused
- * row); the levels renumber with no gaps (metadata.js). Deleting one says what happens to
- * its cards before it happens: they stay, without a category.
- *
- * Tags are rows with their reach (where they are applied, and how many cards carry them),
- * renamed or removed everywhere at once. They are applied on files, folders and decks, not
- * here.
- *
- * Clicking a row opens its cards in Flashcards (`onShowCards`). Editing is gated by
- * `manageCategories` and `manageTags`; a reader sees the same report without the actions.
- * Data and mutations are in useManage.js.
- */
-
 import { useState } from 'react';
 import { LoadingState, ErrorState } from '../../components/base/StateView';
 import { useT } from '../../translations/index';
@@ -26,7 +7,6 @@ import { tiersOf, shiftTarget, reachOf, shownTags, uncategorized } from './metad
 import useManage from './useManage';
 import './Manage.css';
 
-/** Six dots: the handle a category is dragged by. */
 const Grip = () => (
   <svg viewBox="0 0 10 14" aria-hidden="true">
     <g fill="currentColor">
@@ -37,13 +17,11 @@ const Grip = () => (
   </svg>
 );
 
-/** Keys shared by every inline form: Enter commits, Escape backs out. */
 const formKeys = (onSubmit, onCancel) => (e) => {
   if (e.key === 'Enter') { e.preventDefault(); onSubmit(); }
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
 };
 
-/** Stops a row action's click from also opening the row's cards. */
 const only = (fn) => (e) => { e.stopPropagation(); fn(); };
 
 function CategoryForm({ initial, adding, onSave, onCancel }) {

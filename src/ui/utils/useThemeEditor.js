@@ -1,10 +1,3 @@
-/**
- * The custom-theme editor's state: the draft (name, colours, which saved theme
- * it edits) persisted to localStorage so it survives leaving the tab, live
- * preview through an injected `[data-theme="__fb_preview__"]` rule, import /
- * export as JSON, and save / delete through customThemes.js.
- */
-
 import { useState } from 'react';
 import { THEMES } from './themes.js';
 import { useT } from '../translations/index';
@@ -14,10 +7,8 @@ import { DARK_DEFAULTS, PREVIEW_THEME } from '../views/config/themeDefaults.js';
 const KEYS = { name: 'fb-editor-name', colors: 'fb-editor-colors:v1', editing: 'fb-editor-editing' };
 const PREVIEW_STYLE_ID = 'fb-preview-style';
 
-/** The preview rule for `colors`, as CSS text: a saved theme's rule under the preview's name. */
 export const previewRule = (colors) => themeRule(PREVIEW_THEME, colors);
 
-/** Validate an imported theme JSON; returns the theme or throws with a translated reason. */
 export function parseThemeImport(text, t) {
   const parsed = JSON.parse(text);
   if (typeof parsed.name !== 'string' || !parsed.name.trim()) throw new Error(t('Missing or invalid "name" field.'));
@@ -74,7 +65,6 @@ export default function useThemeEditor({ onSaved, onThemeChange, currentTheme })
     if (previewing) applyPreview(next);
   };
 
-  /** Leaving the editor's page ends a preview, so the app is never left in an unsaved theme. */
   const leave = () => { if (previewing) stopPreview(); };
 
   const loadExisting = (themeName) => {

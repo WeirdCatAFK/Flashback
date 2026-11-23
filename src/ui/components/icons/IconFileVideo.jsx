@@ -1,7 +1,3 @@
-/**
- * IconFileVideo — the tree glyph for a video or YouTube link: a screen with a play mark.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileVideo({ size = 15 }) {

@@ -1,9 +1,3 @@
-/**
- * The drawn covers' names and the order the Change cover menu offers them in, by
- * section. The drawings themselves are CoverArt's; the ids are shared/covers.js's.
- */
-
-/** The Change cover menu's sections, in order. */
 export const COVER_GROUPS = [
   { id: 'study', patterns: ['cards', 'notes', 'stack', 'leitner', 'shelf', 'stars'] },
   { id: 'mathematics', patterns: ['euclid', 'golden', 'sierpinski', 'harmonograph', 'stella'] },
@@ -14,7 +8,6 @@ export const COVER_GROUPS = [
   { id: 'paper', patterns: ['ruled', 'graph', 'contours', 'halftone', 'mosaic', 'stripes', 'arcs'] },
 ];
 
-/** A menu section's heading. */
 export function coverGroupLabel(id, t) {
   const labels = {
     study: t('Study desk'),
@@ -28,7 +21,6 @@ export function coverGroupLabel(id, t) {
   return labels[id] ?? id;
 }
 
-/** A drawn cover's name. */
 export function coverPatternLabel(id, t) {
   const labels = {
     cards: t('Scattered cards'),

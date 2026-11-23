@@ -1,17 +1,7 @@
-/**
- * The physical-science covers: the periodic table, DNA, light through two slits, a
- * crystal and an atom. See CoverArt for how a drawing is made and painted.
- */
-
 import { W, hash, range, HAIR } from './artKit.js';
 
 const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 
-/**
- * The periodic table's first five periods, by the columns each fills: the gap over the
- * transition metals is what makes it recognisable. Tiles are shaded by block (s, d, p,
- * and the noble gases), each with a cut where the number and the symbol would be.
- */
 const FULL_PERIOD = range(18).map((i) => i + 1);
 const PERIODS = [[1, 18], [1, 2, 13, 14, 15, 16, 17, 18], [1, 2, 13, 14, 15, 16, 17, 18], FULL_PERIOD, FULL_PERIOD];
 const CELL = 19.5;
@@ -40,10 +30,6 @@ const periodic = (
   </g>
 );
 
-/**
- * The double helix: two backbones a half-turn apart, crossing every half wavelength —
- * each crossing swaps which strand is in front — with the base pairs as rungs between.
- */
 const LAMBDA = 150;
 const strandY = (x, strand) => 75 + 32 * Math.sin((2 * Math.PI * x) / LAMBDA + strand * Math.PI);
 
@@ -81,12 +67,6 @@ const helix = (
   </g>
 );
 
-/**
- * Wave interference: Young's two slits just below the banner, each sending out its own
- * ripples; where the rings cross they draw the fringes. When covers move, every ring
- * grows by one wavelength and starts again (the wave-ring class in CoverArt.css), so the
- * waves travel outward through fringes that stay where they are.
- */
 const WAVELENGTH = 15;
 
 const waves = (
@@ -107,11 +87,6 @@ const waves = (
   </g>
 );
 
-/**
- * A crystal lattice: a honeycomb of atoms and bonds, like graphite's sheets. Here and
- * there a ring is shaded with its aromatic circle drawn in, and a heavier atom sits in
- * the lattice.
- */
 const BOND = 18;
 const HEXES = range(8).flatMap((row) => range(21).map((col) => ({
   k: row * 21 + col,
@@ -156,11 +131,6 @@ const lattice = (
   </g>
 );
 
-/**
- * An atom, in the classic picture: a nucleus of protons and neutrons packed on a
- * sunflower spiral, three electron orbits crossing around it with their electrons, and
- * the energy levels as faint rings behind.
- */
 const NUCLEUS = range(19).map((i) => ({
   x: 310 + 4.4 * Math.sqrt(i) * Math.cos(i * 2.39996),
   y: 75 + 4.4 * Math.sqrt(i) * Math.sin(i * 2.39996),
@@ -169,10 +139,6 @@ const NUCLEUS = range(19).map((i) => ({
 const ORBITS = [0, 32, -32];
 const FLATTEN = 38 / 150;
 
-/**
- * Each orbit's electrons, drawn like the orrery's planets: turned about the nucleus on a
- * circle squashed into the orbit, then turned back and unsquashed so they stay round.
- */
 const ELECTRON_ORBITS = ORBITS.map((deg, o) => ({
   deg,
   period: `${9 + o * 3}s`,
@@ -209,5 +175,4 @@ const atom = (
   </g>
 );
 
-/** The physical-science covers, by id. */
 export const SCIENCE_ART = { periodic, helix, waves, lattice, atom };

@@ -1,15 +1,9 @@
-/**
- * The small pieces every tree row shares: the inline create box, the rename
- * input, the chevron, the card count and the read line.
- */
-
 import { useState, useRef } from "react";
 import IconFolder from "../../icons/IconFolder";
 import IconFile from "../../icons/IconFile";
 import { useT } from "../../../translations/index";
 import { sanitizeName, reservedNameError, newItemName } from "./names.js";
 
-/** The editable name of a node mid-rename. */
 export function RenameInput({ inputProps }) {
   const { t } = useT();
   return (
@@ -22,7 +16,6 @@ export function RenameInput({ inputProps }) {
   );
 }
 
-/** A new file or folder being named in place; Enter or blur commits, Escape cancels. */
 export function InlineCreate({ type, onConfirm, onCancel }) {
   const { t } = useT();
   const [name, setName] = useState(
@@ -75,10 +68,6 @@ export function InlineCreate({ type, onConfirm, onCancel }) {
   );
 }
 
-/**
- * The thin line under a row's name: how far it has been read. Drawn only for
- * something opened — see readFacts. The words go in the row's tooltip.
- */
 export function ReadLine({ facts }) {
   if (facts.value == null) return null;
   return (
@@ -88,7 +77,6 @@ export function ReadLine({ facts }) {
   );
 }
 
-/** A card count: a small card outline and the number. Nothing for none. */
 export function CardCount({ n }) {
   const { tp } = useT();
   if (!n) return null;
@@ -100,7 +88,6 @@ export function CardCount({ n }) {
   );
 }
 
-/** The folder chevron, drawn; it turns when the folder opens. */
 export function Chevron({ onClick }) {
   return (
     <span className="fe-chevron" onClick={onClick} aria-hidden="true">

@@ -1,9 +1,3 @@
-/**
- * The explorer's dialogs: a folder's colour swatch, a folder's tags (direct,
- * inherited, excluded), and capturing a web page or a YouTube video into a
- * folder. All three are Modal dialogs.
- */
-
 import { useState, useEffect } from "react";
 import {
   getEntityTags,
@@ -217,7 +211,6 @@ export function FolderTagsModal({ path, onClose }) {
   );
 }
 
-/** Captures a web article (.clip) or a YouTube reference (.youtube); the kind auto-detects from the host. */
 export function ClipUrlModal({ targetPath, onClose, onCreated }) {
   const { t } = useT();
   const [url, setUrl] = useState("");

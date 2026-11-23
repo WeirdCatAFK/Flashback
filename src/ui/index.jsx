@@ -1,9 +1,3 @@
-/**
- * The renderer entry: first-run detection, API client initialisation for the
- * active connection, the providers (translations, confirm), and the App or the
- * Setup wizard.
- */
-
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { initClient } from "./api/client.js";
@@ -29,10 +23,6 @@ applyTreeIcons();
 applyCoverMotion();
 const root = createRoot(document.getElementById("root"));
 
-/**
- * Forward uncaught renderer errors into the main-process log file so front-end
- * crashes aren't lost in packaged builds (no-op in the browser-only dev fallback).
- */
 if (window.flashback?.logRendererError) {
   window.addEventListener("error", (event) => {
     window.flashback.logRendererError(

@@ -1,8 +1,3 @@
-/**
- * Documents API (/api/documents): the file tree, reading and writing documents
- * and sidecars, moves and renames, imports, clips and YouTube references.
- */
-
 import {
   request,
   upload,
@@ -33,12 +28,6 @@ export const readFile = (path) =>
   request("GET", `/api/documents/read?path=${encodeURIComponent(path)}`);
 export const createFile = (name, parentPath) =>
   request("POST", "/api/documents/file", { name, parentPath });
-/**
- * `ifMatch` is the `etag` the caller got from readFile/getSidecar. Send it and a write that
- * lost a race is refused with a 409 the caller can recognise (client.js isStale) instead of
- * silently overwriting whoever got there first; omit it and the write is unchecked, which is
- * what every caller did before conflicts were tracked at all.
- */
 export const updateFile = (path, content, metadata, { ifMatch } = {}) =>
   request("PUT", "/api/documents/file", { path, content, metadata, ifMatch });
 export const updateMetadata = (
@@ -53,15 +42,9 @@ export const updateMetadata = (
     isFolder,
     ifMatch,
   });
-/**
- * A document's cover (see shared/covers.js). The image lives in the folder's
- * `media/`, so its URL is the ordinary media one; the file name changes on every
- * upload, which keeps a cached picture from outliving its replacement.
- */
 export const documentCoverUrl = (path, file) =>
   appendToken(`${getBaseUrl()}/api/media/file?docPath=${encodeURIComponent(path)}&name=${encodeURIComponent(file)}`);
 
-/** Uploads an image file as a document's cover. Resolves `{ cover }`. */
 export const uploadDocumentCover = (path, file) => {
   const form = new FormData();
   form.append("path", path);
@@ -69,11 +52,9 @@ export const uploadDocumentCover = (path, file) => {
   return upload("/api/documents/cover", form);
 };
 
-/** `{ pattern }` for a drawn cover, `{ y }` (0..1) to reposition the image. Resolves `{ cover }`. */
 export const setDocumentCover = (path, change) =>
   request("PUT", "/api/documents/cover", { path, ...change });
 
-/** Removes a document's cover. */
 export const removeDocumentCover = (path) =>
   request("DELETE", "/api/documents/cover", { path });
 
@@ -89,12 +70,6 @@ export const importFileWithProgress = (formData, onProgress) =>
 export const importZipWithProgress = (formData, onProgress) =>
   uploadWithProgress("/api/documents/import/zip", formData, onProgress);
 
-/**
- * Streamable URL for one asset still inside an analyze() session, so the mapping
- * modal can show images and play sounds before the import happens. Loaded by
- * <img>/<audio>, which can't send an Authorization header — the token rides along
- * as a query param, same as the other media URLs.
- */
 export const ankiSessionMediaSrc = (sessionId, name) =>
   sessionId && name
     ? appendToken(
@@ -113,18 +88,11 @@ export const applyAnkiMapping = (sessionId, mapping, targetPath = "") => {
 export const getDocumentByHash = (hash) =>
   request("GET", `/api/documents/by-hash/${encodeURIComponent(hash)}`);
 
-/** Tokenised URL for a document's raw bytes, for a viewer that fetches the file itself (pdf.js). */
 export const rawDocumentUrl = (path) =>
   appendToken(
     `${getBaseUrl()}/api/documents/raw?path=${encodeURIComponent(path)}`,
   );
 
-/**
- * Fetch a document's raw bytes with auth. Unlike PDF (which hands pdf.js a
- * tokenised URL for a single request), epub.js unzips from an ArrayBuffer and
- * serves every chapter/image from memory — so we pull the whole file once here
- * with the bearer header and never expose sub-resource requests to auth.
- */
 export async function fetchRaw(path) {
   const token = getToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -150,12 +118,5 @@ export const setClipSource = (path, url) =>
 export const fetchYoutubeTranscript = (path, lang) =>
   request("POST", "/api/documents/youtube/transcript", { path, lang });
 
-/**
- * Download one of a clip's remote pictures or sounds into the vault and point the
- * clip at the local copy. Clipping saves no media, so this is what makes an asset
- * local — and it runs when one is put on a card. Resolves to { href, name, kind, … }
- * with `href` the new `./media/<name>`; an href that is already local comes straight
- * back with `alreadySaved: true`, so callers never have to check first.
- */
 export const saveClipAsset = (path, href) =>
   request("POST", "/api/documents/clip/asset", { path, href });

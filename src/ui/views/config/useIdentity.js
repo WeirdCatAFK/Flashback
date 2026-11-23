@@ -1,10 +1,3 @@
-/**
- * Who this install stamps work as: the stored identity and this vault's override (Electron
- * main, over IPC), what the connected server would actually stamp (`/api/identity`), and
- * saving either. Refetched when the connection changes. Config holds it, so the index can
- * name who you are and the You section can edit it.
- */
-
 import { useCallback, useEffect, useState } from 'react';
 import { getEffectiveIdentity, getStoredIdentity, setIdentity, setVaultIdentity } from '../../api/identity.js';
 import { useT } from '../../translations/index';
@@ -47,7 +40,6 @@ export default function useIdentity(connection) {
     }
   };
 
-  /** Turning the override on starts it from your identity; turning it off clears it at once. */
   const toggleOverride = (on) => {
     setError(null);
     setNotice(null);

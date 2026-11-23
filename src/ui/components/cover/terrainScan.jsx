@@ -1,20 +1,3 @@
-/**
- * Terrain scan — a survey scanner's hologram of a mountain range: the land as a
- * wireframe mesh seen in perspective, the scanner on the near ground, and the places it
- * has flagged bracketed. The land has a spire, a long jagged ridge, a crater, a mesa and
- * a gentle swell, so each reads differently in the mesh.
- *
- * When covers move, the scanner pings: a ring of light spreads over the ground, each
- * strand of the mesh flares as the ring reaches it and dims back, and the flagged places
- * blink and hold. The mesh is cut into short segments sorted by their distance from the
- * scanner into bands, one path per band, so the sweep is a few dozen CSS animations with
- * staggered delays and no script (the scan-* classes in CoverArt.css, whose ping length
- * PING and SWEEP must match).
- *
- * The land is laid out on a unit square, `u` across and `v` from far (0) to near (1);
- * distances on it stretch `u` by ASPECT so shapes come out round on a wide banner.
- */
-
 import { W, range, HAIR } from './artKit.js';
 
 const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
@@ -22,14 +5,12 @@ const pt = (x, y) => `${x.toFixed(1)} ${y.toFixed(1)}`;
 const ASPECT = 2.2;
 const SCANNER = [0.5, 0.86];
 
-/** Seconds from one ping to the next, and the share of it the ring takes to cross the land. */
 const PING = 8;
 const SWEEP = 0.7;
 const BANDS = 36;
 
 const groundDistance = (u, v, cu, cv) => Math.hypot((u - cu) * ASPECT, v - cv);
 
-/** How high the land stands at (u, v), about 0 to 1. */
 function height(u, v) {
   const spire = 0.95 * Math.exp(-((groundDistance(u, v, 0.2, 0.45) / 0.13) ** 2));
   const [ax, ay, bx, by] = [0.45, 0.22, 0.82, 0.4];
@@ -42,7 +23,6 @@ function height(u, v) {
   return spire + ridge + crater + mesa + swell;
 }
 
-/** Nearer ground spreads wider; every row is wider than the banner, so the mesh has no edge. */
 const spread = (v) => 1.05 + 0.45 * v;
 const groundY = (v) => 40 + v * 85;
 
@@ -53,7 +33,6 @@ function project(u, v, lift = height(u, v)) {
 
 const FAR = Math.max(...[[0, 0], [1, 0], [0, 1], [1, 1]].map(([u, v]) => groundDistance(u, v, ...SCANNER)));
 
-/** The mesh as short segments, each filed into a band by how far its middle is from the scanner. */
 function meshBands() {
   const bands = range(BANDS).map(() => []);
   const add = (u0, v0, u1, v1) => {
@@ -69,13 +48,11 @@ function meshBands() {
   return bands.map((b) => b.join(''));
 }
 
-/** When the ring reaches something `d` from the scanner, as a (negative) delay into the ping. */
 const reachedAt = (d) => `${(((d / FAR) * SWEEP - 1) * PING).toFixed(2)}s`;
 
 const BAND_PATHS = meshBands();
 const [SX, SY] = [W / 2 + (SCANNER[0] - 0.5) * W * spread(SCANNER[1]), groundY(SCANNER[1])];
 
-/** The places the scanner has flagged: the spire's summit, the ridge, the crater's rim, the mesa. */
 const FLAGS = [[0.2, 0.45], [0.63, 0.31], [0.7, 0.55], [0.36, 0.72]].map(([u, v]) => {
   const [x, y] = project(u, v);
   return { x, y, ground: groundY(v), delay: reachedAt(groundDistance(u, v, ...SCANNER)) };

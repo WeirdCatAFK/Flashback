@@ -1,7 +1,3 @@
-/**
- * IconFileEpub — the tree glyph for an EPUB: a closed book above its page edge.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileEpub({ size = 15 }) {

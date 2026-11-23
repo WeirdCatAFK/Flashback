@@ -1,7 +1,3 @@
-/**
- * IconDecks — the Decks tab: a card box with a thumb notch, a card standing in it.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconDecks({ size = 24 }) {

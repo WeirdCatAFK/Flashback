@@ -1,14 +1,3 @@
-/**
- * A PDF's lifecycle: load the file through pdf.js and the sidecar together,
- * hold the pages and highlights, track and report the page in view, resume the
- * saved position once both are ready, and save the sidecar on Ctrl+S. Nothing
- * the renderer owns scrolls, so the scroller is looked up (findScroller) and
- * re-bound when the scale changes — a short PDF only acquires one when zoomed.
- * Ctrl+wheel and a trackpad pinch zoom around the cursor: the wheel handler notes
- * where the cursor sits in the scroller, and once the new scale is laid out the
- * scroller is moved so the same point of the page is back under it.
- */
-
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { readFile, updateMetadata, rawDocumentUrl } from '../../../../api/documents';
 import { useT } from '../../../../translations/index';

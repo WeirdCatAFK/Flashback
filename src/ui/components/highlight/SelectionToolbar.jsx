@@ -1,18 +1,8 @@
-/**
- * SelectionToolbar — the floating toolbar over a text selection: highlight
- * colours, make a card, and remove — with its confirmation in place. Portaled to body and positioned from a
- * shell-layout rect (utils/uiZoom.js).
- */
-
 import { createPortal } from 'react-dom';
 import { useT } from '../../translations/index';
 import { useSession } from '../../utils/sessionContext.js';
 import './SelectionToolbar.css';
 
-/**
- * A function of `t` rather than a module constant, so a language switch re-renders
- * the labels; `key` and `cssVar` are stable identifiers and are never translated.
- */
 const highlightColors = (t) => [
   { key: 'amber', cssVar: '--color-hl-1', label: t('Highlight 1') },
   { key: 'green', cssVar: '--color-hl-2', label: t('Highlight 2') },
@@ -20,15 +10,6 @@ const highlightColors = (t) => [
   { key: 'pink',  cssVar: '--color-hl-4', label: t('Highlight 4') },
 ];
 
-/**
- * Floating toolbar over a text selection or an existing highlight: the colour
- * swatches (paint, or recolour), Card (highlight in the default colour, then open
- * the card editor anchored to it), and Remove on a highlight. Removing a highlight
- * that cards hang off asks first, in the toolbar itself — keep the cards, delete
- * them with it, or cancel — rather than in a dialog over the document. Over a
- * clicked highlight, `currentColor` marks its swatch as the one it has.
- * Renderers that can't persist highlights only get Card.
- */
 export default function SelectionToolbar({ rect, currentColor = null, onMakeCard, onHighlight, onUnhighlight, removal = null, onResolveRemoval, onCancelRemoval, onClear }) {
   const { t, tp } = useT();
   const { can } = useSession();

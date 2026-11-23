@@ -1,9 +1,3 @@
-/**
- * IconFileHtml — the tree glyph for a web clip or HTML page: a globe. The meridian
- * and the equator are cut out of the disc with a mask, whose id is per instance so
- * two globes on one page never share one.
- */
-
 import { useId } from "react";
 import Glyph from "./Glyph";
 

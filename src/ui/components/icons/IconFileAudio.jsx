@@ -1,7 +1,3 @@
-/**
- * IconFileAudio — the tree glyph for audio: a pair of notes.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileAudio({ size = 15 }) {

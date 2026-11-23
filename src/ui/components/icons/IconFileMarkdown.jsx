@@ -1,7 +1,3 @@
-/**
- * IconFileMarkdown — the tree glyph for a Markdown note: a page with its corner turned.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFileMarkdown({ size = 15 }) {

@@ -1,7 +1,3 @@
-/**
- * IconFlashcards — the Flashcards tab: two cards, the one behind in a lighter tone.
- */
-
 import Glyph from "./Glyph";
 
 export default function IconFlashcards({ size = 24 }) {

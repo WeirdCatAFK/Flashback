@@ -1,29 +1,3 @@
-/**
- * MarginCards — the document's cards in the margin, each level with its passage:
- * a tick for a highlight with no card, the card itself for one, and for several a
- * kraft box (up to four card tops peeking out, coloured by the highlight's swatch,
- * and the count) that the cards are pulled out of and put back into. Cards are
- * read-only here — clicking one turns it over, Edit opens the card editor — since
- * writing cards inside the document frame is hard in PDF and EPUB and belongs in
- * the editor. Hovering a card lights its passage, and hovering a passage lights
- * its cards.
- *
- * It finds passages by `[data-hl]` inside the scroller, which Markdown, text, clips
- * and PDF all draw; positions are measured in the scroller's content space and the
- * items are stacked imperatively (marginLayout.js) so they follow edits, zoom and
- * lazily rendered pages without re-rendering React on every scroll. The column sits
- * just right of the text — the renderer marks its column with `data-column` — so
- * text and cards stay together, centred as one, however wide the window is. It is
- * shown only when the document area is wide enough; `onShownChange` tells the
- * editor, which then makes room on the right. `outsideLinked` is a passage
- * another surface is pointing at (a Find row, a jump): it glows and its cards
- * lift as if hovered here.
- *
- * A renderer whose text is in frames (EPUB) passes `measure`, which returns the
- * same two facts — each highlight's top and the text's right edge — from inside
- * its frames, and mounts the column inside its own scrolling container.
- */
-
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import DeckBox from '../../deck/DeckBox';
 import { cardTypeShortLabel, typeAnswerParts } from '../../flashcard/flashcardFields';
@@ -32,7 +6,6 @@ import { marginItems, stackTops, marginFits, marginFront, marginLeft } from './m
 import { useT } from '../../../translations/index';
 import './MarginCards.css';
 
-/** Where passages and the text column are, read from the DOM: `[data-hl]` and `[data-column]`. */
 function domMeasure(sc, box, z) {
   const anchors = new Map();
   sc.querySelectorAll('[data-hl]').forEach((el) => {
@@ -53,7 +26,6 @@ function domMeasure(sc, box, z) {
 
 const reduceMotion = () => window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
 
-/** A card's face in the margin: the front, and when turned over, what it asks for. */
 function MarginCard({ card, hlId, canEdit, onEdit, cardRef, style, className = '' }) {
   const { t } = useT();
   const [open, setOpen] = useState(false);
@@ -94,7 +66,6 @@ function MarginCard({ card, hlId, canEdit, onEdit, cardRef, style, className = '
   );
 }
 
-/** A passage with several cards: the kraft box, and the cards when taken out. */
 function MarginBox({ item, canEdit, onEdit, onToggled }) {
   const { tp } = useT();
   const [open, setOpen] = useState(false);

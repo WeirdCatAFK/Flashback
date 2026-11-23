@@ -1,17 +1,3 @@
-/**
- * ScopeBar — what a session covers, folded into one quiet button in the Trainer's
- * top bar. The button sums the scope up in a line ("Memory · 2 left out") with a
- * count of the rules applied; it opens a panel shaped like a form: Study, one
- * labelled row per kind (folder, document, deck, tags) showing the choice or
- * "Any", then Leave out, the same rows with their picks as pills, and a foot with
- * the card count and Clear filters. Each row's control opens the same browsable
- * picker the app always had (a list inside a Popover); tags use TagChipInput.
- *
- * The panel is not itself a Popover: its pickers open Popovers of their own, and a
- * Popover dismisses on any outside click — including a click inside a nested one.
- * The panel dismisses on outside mousedown too, but ignores clicks in `.popover`.
- */
-
 import { useState, useEffect, useRef } from 'react';
 import { scopeRuleCount, scopeSummary } from './scope';
 import { getTags, listFolder } from '../../api/documents';
@@ -22,7 +8,6 @@ import { useT } from '../../translations/index';
 
 const EMPTY_TAGS = [];
 
-/** A picker button and the popover it opens; `load` runs each time it opens. */
 function PickerButton({ label, load, children, className = 'btn btn--sm' }) {
   const [open, setOpen] = useState(false);
   const btnRef = useRef(null);
@@ -40,11 +25,6 @@ function PickerButton({ label, load, children, className = 'btn btn--sm' }) {
   );
 }
 
-/**
- * Browsable path picker. Folders are always listed because you walk through them
- * to reach a document; `kind` decides what is pickable. `applyLabel` is passed in
- * so the exclude row can open the same picker to say "everything except this".
- */
 function PathPicker({ kind = 'folder', label, applyLabel, onPick, className }) {
   const { t } = useT();
   const [browsePath, setBrowsePath] = useState('');
@@ -107,7 +87,6 @@ function PathPicker({ kind = 'folder', label, applyLabel, onPick, className }) {
   );
 }
 
-/** Flat deck list picker. */
 function DeckPicker({ label, onPick, className }) {
   const { t } = useT();
   const [decks, setDecks] = useState([]);
@@ -137,7 +116,6 @@ function DeckPicker({ label, onPick, className }) {
   );
 }
 
-/** Flat tag list picker — exclusions are chosen once, so they take the dropdown shape. */
 function TagPicker({ label, chosen = EMPTY_TAGS, onPick, className }) {
   const { t } = useT();
   const [tags, setTags] = useState([]);
@@ -165,7 +143,6 @@ function TagPicker({ label, chosen = EMPTY_TAGS, onPick, className }) {
   );
 }
 
-/** The positive tag filter: a chip input over every tag in the vault. */
 function TagFilter({ selected = EMPTY_TAGS, onApply }) {
   const { t } = useT();
   const [allTags, setAllTags] = useState([]);
@@ -192,7 +169,6 @@ function TagFilter({ selected = EMPTY_TAGS, onApply }) {
 const leaf = (path) => path.split(/[\\/]/).pop();
 const SELECT = 'scope-select';
 
-/** One labelled line of the panel: the label on the left, the control on the right. */
 function Row({ label, children }) {
   return (
     <div className="scope-row">
@@ -202,7 +178,6 @@ function Row({ label, children }) {
   );
 }
 
-/** A chosen value that can be cleared: the picker still opens from its name. */
 function Chosen({ children, onClear }) {
   const { t } = useT();
   return (
@@ -213,7 +188,6 @@ function Chosen({ children, onClear }) {
   );
 }
 
-/** A left-out value, as a pill under its row. */
 function Pill({ children, onRemove }) {
   const { t } = useT();
   return (
@@ -224,7 +198,6 @@ function Pill({ children, onRemove }) {
   );
 }
 
-/** What is in: one row per kind, each showing the choice or "Any". */
 function StudySection({ controls }) {
   const { t } = useT();
   const { scope } = controls;
@@ -253,7 +226,6 @@ function StudySection({ controls }) {
   );
 }
 
-/** What is out: one row per kind, its picks as pills, and a picker to add one more. */
 function LeaveOutSection({ controls }) {
   const { t } = useT();
   const { exclude } = controls.scope;

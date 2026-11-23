@@ -1,8 +1,3 @@
-/**
- * StatTile — one number with its label and an optional hint underneath. The
- * Stats view and the card detail modal used to each draw their own.
- */
-
 export default function StatTile({
   value,
   label,

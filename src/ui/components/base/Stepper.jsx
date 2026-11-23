@@ -1,14 +1,3 @@
-/**
- * Stepper — a value with − and + beside it, for a number people nudge rather than
- * type (new cards a day, a session's size). The value keeps a fixed width so the
- * controls around it never shift as it changes. What a step does is the caller's
- * business: `onDecrease`/`onIncrease` may jump (to "All", say), and clicking the
- * value can reset it through `onValueClick`.
- *
- *   <Stepper label={t('New cards')} display={maxNew} onDecrease={less} onIncrease={more}
- *     canDecrease={maxNew > 0} canIncrease={maxNew < 200} />
- */
-
 export default function Stepper({
   display,
   label,

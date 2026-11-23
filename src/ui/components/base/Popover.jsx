@@ -1,12 +1,3 @@
-/**
- * Popover — the one anchored, portaled overlay. Dropdown menus, pickers and
- * suggestion lists render their content inside it and stop owning position math
- * and dismissal. Portaled to document.body and positioned in shell-layout space
- * (see utils/uiZoom.js), so it scales with the app zoom like SelectionToolbar.
- *
- *   <Popover anchorRef={btnRef} open={open} onClose={close} align="end">…</Popover>
- */
-
 import { useLayoutEffect, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {

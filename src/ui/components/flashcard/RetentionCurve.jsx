@@ -1,7 +1,3 @@
-/**
- * RetentionCurve — a card's forgetting curve as an inline SVG.
- */
-
 import { ramp } from '../../utils/chartRamp';
 import { useT } from '../../translations/index';
 

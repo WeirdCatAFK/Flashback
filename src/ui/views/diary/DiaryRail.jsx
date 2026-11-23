@@ -1,18 +1,7 @@
-/**
- * DiaryRail — the Diary's rail: a real month calendar (previous and next month, a year
- * picker, Back to today) where amber is how many reviews you did that day, on the
- * Statistics heatmap's four levels, and a short underline marks a day you wrote on;
- * then what was written that month, each with its first line; and, at the foot, the
- * occasional Rebuild summaries from history — absent while reading someone else's Logs,
- * which are theirs to rebuild.
- */
-
 import { useMemo } from 'react';
 import { useT } from '../../translations/index';
 import { monthCells, monthRange, stepMonth, writtenIn } from './calendar.js';
 
-/** Monday to Sunday, as the locale writes a weekday's initial (1 Jan 2024 was a Monday). */
-/** Six weeks: every month takes the same height, so nothing below the calendar moves as you step through them. */
 const GRID_CELLS = 42;
 
 const WEEK = ['2024-01-01', '2024-01-02', '2024-01-03', '2024-01-04', '2024-01-05', '2024-01-06', '2024-01-07'];

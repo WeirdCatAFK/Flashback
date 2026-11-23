@@ -1,10 +1,3 @@
-/**
- * The server config (config.json) as Electron main reads it, and the form the
- * Config view edits: dirty tracking, saving, and whether a saved change needs a
- * restart (port, host, log format). Outside Electron it reports an error rather
- * than an empty form.
- */
-
 import { useState, useEffect } from 'react';
 import { getConfig, setConfig as writeConfig, isDesktop } from '../../api/desktop';
 
@@ -47,7 +40,6 @@ export default function useConfig() {
     if (preSave && RESTART_FIELDS.some((k) => form[k] !== preSave[k])) setRestartPending(true);
   };
 
-  /** Write one field straight through, for settings that apply without a Save. */
   const writeField = async (key, value) => {
     if (!form) return;
     const next = { ...form, [key]: value };

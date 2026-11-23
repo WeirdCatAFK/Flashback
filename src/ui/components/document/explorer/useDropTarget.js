@@ -1,8 +1,3 @@
-/**
- * A folder (or the root) as a drop target: the hover highlight, and the split
- * between external files (import) and a dragged tree item (move).
- */
-
 import { useState } from "react";
 import { readTransfer } from "./dragDrop.js";
 

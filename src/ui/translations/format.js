@@ -1,26 +1,3 @@
-/**
- * Locale-aware date/number formatting. Reached through useT():
- *
- *   const { formatDate, formatRelative, formatNumber } = useT();
- *
- * Everything here is built on Intl, which means the relative ladder ("2 days ago",
- * "tomorrow", "in 3 hours") is produced by the platform in the active language.
- * That is the point: the ladders this replaces spelled those words in English in
- * our own source, so they could not be translated without a key per rung.
- *
- * Deliberately free of any dependency on ./index.jsx — no t() is needed here, so
- * there is no import cycle between the provider and its own formatters.
- *
- * Replaced the old utils/relativeTime.js (past-only, English, hardcoded
- * toLocaleDateString) and the future-facing ladder inlined in Trainer.jsx; that
- * module is gone now that its last callers went through here.
- */
-
-/**
- * Largest-first: [unit, seconds per unit, minimum magnitude to use that unit].
- * The first row whose minimum the gap reaches wins, so 'second' (minimum 0) is
- * always the terminating case.
- */
 const LADDER = [
   ['year',   31_536_000, 29_030_400],
   ['month',   2_592_000,  2_246_400],
@@ -30,11 +7,6 @@ const LADDER = [
   ['second',          1,          0],
 ];
 
-/**
- * Accepts a Date, epoch ms, an ISO string, or SQLite's "YYYY-MM-DD HH:MM:SS" (which
- * is UTC but carries no zone marker — parsing it raw makes it local and silently
- * shifts every timestamp). Returns null when the value can't be read as a date.
- */
 export function toDate(value) {
   if (value == null || value === '') return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;
@@ -70,7 +42,6 @@ export function makeFormatters(locale) {
     return d ? dateTime.format(d) : '';
   };
 
-  /** The time of day alone, as the locale writes it (14:02, 2:02 PM). */
   const formatTime = (value) => {
     const d = toDate(value);
     return d ? time.format(d) : '';

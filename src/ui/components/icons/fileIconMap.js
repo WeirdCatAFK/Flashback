@@ -1,7 +1,3 @@
-/**
- * Which file icon a document gets, by extension.
- */
-
 import IconFile      from './IconFile';
 import IconFileMarkdown from './IconFileMarkdown';
 import IconFilePdf    from './IconFilePdf';

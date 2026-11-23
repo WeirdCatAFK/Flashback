@@ -1,37 +1,9 @@
-/**
- * The lifecycle every TipTap-based renderer shares: load the file and its
- * sidecar, reconcile highlights with the body, track dirty and draft state,
- * detect a stale etag and save on Ctrl+S, and serve the highlight command
- * contract.
- */
-
 import { useEffect, useRef, useState } from 'react';
 import { useEditor } from '@tiptap/react';
 import { readFile, updateFile } from '../../../api/documents';
 import { isStale } from '../../../api/client';
 import { createHighlightCommands } from './highlights';
 
-/**
- * Shared lifecycle for every editor-backed renderer that participates in the
- * document-highlight system. It owns everything that is identical across
- * renderers — dirty/draft tracking, the empty-state save guard, the save
- * pipeline (re-read sidecar → reconcile highlights → write), highlight-command
- * wiring, and Ctrl+S — and delegates the three things that actually differ to
- * the caller:
- *
- * serialize(editor)            → the document body string written to disk
- * loadContent(editor, body, meta) → put body (and any anchored highlights)
- * into the editor; called inside the
- * loading guard so it never marks dirty
- * reconcile(editor, existing)  → recompute the highlights[] registry from the
- * live editor, returning { highlights }
- *
- * A new renderer (PDF, code, …) only writes those three functions plus its own
- * `extensions`/markup; all the plumbing below is reused unchanged.
- *
- * Returns { editor, loading } — the caller renders its own <EditorContent> so
- * each renderer keeps full control of its wrapper markup and CSS.
- */
 export function useHighlightableRenderer({
   path,
   extensions,

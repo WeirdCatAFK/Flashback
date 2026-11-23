@@ -1,12 +1,3 @@
-/**
- * CardLine — one card as a catalogue row: the front (two lines at most), then its
- * source, type, when it comes due and any health flag in small mono. `actions` show
- * on hover or focus, at the row's right. Used by Flashcards and Decks.
- *
- * `card` is a card-browser row: `frontText`, `name`, `card_type`, `document_path`
- * (null = the default deck), `gap`, `last_recall`, `flags`.
- */
-
 import IconDecks from '../icons/IconDecks';
 import getFileIcon from '../icons/fileIconMap';
 import { cardTypeLabel } from './flashcardFields';

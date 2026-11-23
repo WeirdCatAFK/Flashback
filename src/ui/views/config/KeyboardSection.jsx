@@ -1,11 +1,3 @@
-/**
- * KeyboardSection — every rebindable action (keybindings.js) as a row with its keys:
- * Change records the next key pressed (Escape cancels), Reset appears once a binding
- * differs from its default. Then the shortcuts that cannot be changed, under "Always", so
- * the whole keyboard is in one place. A group's heading shows only while one of its rows
- * does, so a search for "undo" is not a list of empty headings.
- */
-
 import { useEffect, useState } from 'react';
 import { keybindingActions, fixedShortcutGroups, saveKeybinding, resetKeybinding, resetAllKeybindings, eventKeyName, formatKeyLabel, MODIFIER_KEYS } from '../../utils/keybindings';
 import useKeybindings from '../../hooks/useKeybindings';

@@ -1,17 +1,6 @@
-/**
- * Global keybindings: a registry of bindable actions with defaults, user
- * overrides in localStorage, and a change event so every consumer stays in sync.
- * Features register their actions here; nothing hardcodes keys at the call site.
- */
-
 const STORAGE_KEY = "fb-keybindings";
 export const KB_EVENT = "fb-keybindings-change";
 
-/**
- * Fixed (non-rebindable) shortcuts. Informational only — used by ShortcutsOverlay
- * to build the cheatsheet. Each `keys` entry is an array of key-part strings
- * rendered as [Ctrl]+[K] etc.
- */
 export function fixedShortcutGroups(t) {
   return [
     {
@@ -31,10 +20,6 @@ export function fixedShortcutGroups(t) {
   ];
 }
 
-/**
- * The registry. Add a group here and any feature can bind against it; the Config
- * editor renders straight from this list.
- */
 export function keybindingActions(t) {
   return [
     {
@@ -80,11 +65,6 @@ export function keybindingActions(t) {
   ];
 }
 
-/**
- * Defaults are structural, so they are read back out of the same registry with an
- * identity translator — the labels it returns are discarded. One source of truth
- * for ids and default keys, with no second list to keep in step.
- */
 const DEFAULTS = Object.fromEntries(
   keybindingActions((s) => s).flatMap((g) =>
     g.actions.map((a) => [a.id, a.default]),
@@ -99,7 +79,6 @@ function readStored() {
   }
 }
 
-/** The resolved map: defaults with any user overrides applied. */
 export function loadKeybindings() {
   return { ...DEFAULTS, ...readStored() };
 }
@@ -110,50 +89,33 @@ function commit(stored) {
   window.dispatchEvent(new Event(KB_EVENT));
 }
 
-/** Override an action's keys (an array of normalised key names). */
 export function saveKeybinding(actionId, keys) {
   const stored = readStored();
   stored[actionId] = keys;
   commit(stored);
 }
 
-/** Drop the override for one action (revert to its default). */
 export function resetKeybinding(actionId) {
   const stored = readStored();
   delete stored[actionId];
   commit(stored);
 }
 
-/** Clear every override. */
 export function resetAllKeybindings() {
   commit({});
 }
 
-/** Keys that only modify another; recording waits past them for the real key. */
 export const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "AltGraph"];
 
-/**
- * Canonical name for a key event, used both when recording a binding and when
- * matching one at runtime, so the two always agree. Space → 'Space', single
- * characters are upper-cased ('1', 'A'), everything else uses e.key ('Enter',
- * 'ArrowLeft', …). Ctrl (or Cmd) and Alt prefix the name ('Ctrl+1'); Shift does
- * not, because it is already in the character it produces. A plain '1' binding
- * therefore never fires on Ctrl+1.
- */
 export function eventKeyName(e) {
   const base = e.key === " " || e.code === "Space" ? "Space" : e.key.length === 1 ? e.key.toUpperCase() : e.key;
   return `${e.ctrlKey || e.metaKey ? "Ctrl+" : ""}${e.altKey ? "Alt+" : ""}${base}`;
 }
 
-/** The action a key name is bound to among `ids`, or null. */
 export function actionForKey(map, ids, name) {
   return ids.find((id) => (map[id] ?? []).includes(name)) ?? null;
 }
 
-/**
- * Short, display-friendly label for a stored key name — keeps long names like
- * 'ArrowUp' from overflowing keycaps.
- */
 const KEY_LABELS = {
   ArrowUp: "↑",
   ArrowDown: "↓",
@@ -169,7 +131,6 @@ export function formatKeyLabel(name) {
   return keyParts(name).join("+");
 }
 
-/** A key name split into display parts: 'Ctrl+ArrowUp' → ['Ctrl', '↑']. */
 export function keyParts(name) {
   const parts = name.length > 1 && name.includes("+") ? name.split("+").filter(Boolean) : [name];
   if (name.endsWith("++")) parts.push("+");

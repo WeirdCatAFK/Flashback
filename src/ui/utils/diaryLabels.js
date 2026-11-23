@@ -1,14 +1,7 @@
-/** The UI says "Logs" on a remote vault for privacy; routes and directories keep "diary". */
-
-/** Is the vault we are pointed at one other people can also study in? */
 export function isSharedVault(connection) {
     return connection?.kind === 'remote';
 }
 
-/**
- * @param {(s: string, v?: object) => string} t
- * @param {boolean} shared — true on a remote server (see isSharedVault)
- */
 export function diaryLabels(t, shared) {
     return shared
         ? {

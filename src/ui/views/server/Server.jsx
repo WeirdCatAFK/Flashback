@@ -1,24 +1,3 @@
-/**
- * Server Management — the tab a remote Flashback Server gets, set as a report page like
- * Metadata and Seal: the facts about the server, who you are there, and for an admin the
- * people and their tokens.
- *
- * One sentence leads: who you're signed in as, your role, and for an admin how many seats
- * are in use; a release waiting on the server is one accented line under it, since upgrading
- * a server isn't a click. Your role is a ladder (the steps you hold filled, yours marked),
- * with "What each role can do" opening all four.
- *
- * People are quiet rows, like tags in Metadata; Progress, Logs (the Author only), New
- * token, Revoke and Deactivate appear on hover, and every confirmation happens inside the row. A deactivated person can
- * be reactivated while a seat is free. Adding someone is an inline row that hands you their
- * first token at once. A token is shown once, in a panel that stays until it is dismissed
- * (the store keeps only a hash, so the panel is the only copy there will ever be). Readers
- * don't see People at all: there is nothing in it they can act on.
- *
- * Which rows offer which actions mirrors the API's rules (routes/accounts.js): an admin
- * manages Readers only, the Author everyone but themselves, and nobody their own row.
- */
-
 import { useState, useEffect } from 'react';
 import { getVaultIdentity } from '../../api/vaults';
 import { createAccount, updateAccount, issueToken, revokeToken, rotatePureToken } from '../../api/accounts';
@@ -31,16 +10,11 @@ import { ROLES, ROLE_ORDER } from '../../../shared/roles.js';
 import { useT } from '../../translations/index';
 import { Rich } from '../../translations/components.jsx';
 
-/** Enter commits and Escape backs out, for the inline add row. */
 const formKeys = (onSubmit, onCancel) => (e) => {
   if (e.key === 'Enter') { e.preventDefault(); onSubmit(); }
   if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); onCancel(); }
 };
 
-/**
- * A token, shown once. Deliberately obtrusive rather than a toast that can be missed, and it
- * says plainly that closing it loses the token.
- */
 function TokenReveal({ title, token, onDismiss }) {
   const { t } = useT();
   const [copied, setCopied] = useState(false);
@@ -59,7 +33,6 @@ function TokenReveal({ title, token, onDismiss }) {
   );
 }
 
-/** Your place on the ladder, lowest to highest: the steps you hold are filled, yours is marked. */
 function RoleLadder({ role }) {
   const { t } = useT();
   const labels = roleLabels(t);
@@ -111,7 +84,6 @@ function YouHere({ info, connection }) {
   );
 }
 
-/** A confirmation that takes the row's place, in the app's own words. */
 function RowConfirm({ title, detail, goLabel, onKeep, onGo }) {
   const { t } = useT();
   return (
@@ -336,7 +308,6 @@ function People({ people, onViewProgress, onViewLogs }) {
   );
 }
 
-/** The token that proves ownership. The Author's alone, and last, because rotating it is drastic. */
 function PureToken({ busy, onRotate }) {
   const { t } = useT();
   const [confirming, setConfirming] = useState(false);

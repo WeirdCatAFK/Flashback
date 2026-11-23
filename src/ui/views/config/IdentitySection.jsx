@@ -1,24 +1,9 @@
-/**
- * IdentitySection — who this install stamps work as, the You section of Config.
- *
- * The same idea as `git config user.name` / `user.email`: a name and an address you assert
- * about yourself. It goes into every new sidecar's `createdBy` and onto every Seal commit,
- * which were once both stamped with the *vault name*, so renaming a vault changed the
- * apparent author of all future work, and two vaults belonging to one person looked like
- * two people.
- *
- * It is NOT a login. Nothing validates it and nothing gates on it; a server authenticates
- * with access tokens and treats anything asserted here as a claim. The section says so out
- * loud, because a name-and-email form looks like a sign-up. State is in useIdentity.js.
- */
-
 import Toggle from '../../components/base/Toggle';
 import { identityError } from '../../../shared/identity.js';
 import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';
 import { useSearching } from './rowsContext.js';
 
-/** The shared validator returns a code so Electron main can use it too; the sentences live here, where they are translated. */
 function problemText(problem, t) {
   if (!problem) return null;
   switch (problem.code) {

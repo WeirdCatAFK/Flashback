@@ -1,14 +1,8 @@
-/**
- * GraphControls — the collapsible panel over the graph: legend, the visibility
- * switches, illumination, cohesion, and Refresh / Export (a Popover menu).
- */
-
 import { useState, useRef } from 'react';
 import Popover from '../../components/base/Popover';
 import Toggle from '../../components/base/Toggle';
 import { useT } from '../../translations/index';
 
-/** A swatch (dot or line) in a legend or switch row. */
 function Swatch({ kind = 'dot', color, dim = false }) {
   return <span className={kind === 'line' ? 'graph-controls-line' : 'graph-controls-dot'} style={{ background: color, opacity: dim ? 0.3 : 1 }} />;
 }

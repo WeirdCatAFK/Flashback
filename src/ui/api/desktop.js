@@ -1,14 +1,5 @@
-/**
- * The Electron main process as an API: what `window.flashback` (preload.cjs)
- * exposes, wrapped so views never touch the bridge directly and a `dev:web`
- * session without Electron gets a clear error rather than an undefined call.
- * Identity and vault registries have their own modules (identity.js, vaults.js);
- * this covers config, the window, updates and the MCP snippet.
- */
-
 const bridge = () => window.flashback ?? null;
 
-/** Whether the renderer is running inside the desktop app. */
 export const isDesktop = () => !!window.flashback;
 
 const missing = () =>
@@ -30,19 +21,15 @@ export const getUserDataPath = () => call("getUserDataPath");
 export const checkForUpdates = () => call("checkForUpdates");
 export const downloadUpdate = () => call("downloadUpdate");
 export const installUpdate = () => bridge()?.installUpdate?.();
-/** Subscribe to the update-status stream; returns the unsubscribe, or undefined outside Electron. */
 export const onUpdateStatus = (handler) => bridge()?.onUpdateStatus?.(handler);
 
 export const windowMinimize = () => bridge()?.windowMinimize?.();
 export const windowMaximize = () => bridge()?.windowMaximize?.();
 export const windowClose = () => bridge()?.windowClose?.();
 
-/** First run: write config.json and create the first vault; the API is spawned after. */
 export const completeSetup = (config) => call("completeSetup", config);
 
-/** Whether the wizard is a preview over an existing config (`--onboarding`); false outside Electron. */
 export const isSetupPreview = async () => !!(await bridge()?.isSetupPreview?.());
 
-/** Subscribe to `flashback://` links the OS handed to main; returns the unsubscribe, or undefined outside Electron. */
 export const onFlashbackNavigate = (handler) =>
   bridge()?.onFlashbackNavigate?.(handler);

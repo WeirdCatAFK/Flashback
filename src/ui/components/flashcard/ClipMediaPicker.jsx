@@ -1,16 +1,9 @@
-/**
- * ClipMediaPicker — a clip's pictures or sounds, by the heading they sit under,
- * for putting one on a card. An asset still on the web is shown from its own
- * host and saved into the vault only when it is used; the note under it says so.
- */
-
 import { useEffect, useMemo, useState } from 'react';
 import { listDocumentMedia, documentMediaSrc } from '../../api/reader';
 import { useT } from '../../translations/index';
 import { PickerShell, PickerNote, ImageTile, SectionFilter } from './MediaPickerParts';
 import './ClipMediaPicker.css';
 
-/** The vault copy when there is one, the original site otherwise. */
 const previewSrc = (m, clipPath) => (m.cached ? documentMediaSrc(clipPath, m.href) : m.href);
 
 function AudioRow({ m, clipPath, onPick }) {
