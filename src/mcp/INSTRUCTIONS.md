@@ -1,88 +1,26 @@
-Flashback is a local spaced-repetition knowledge vault. A few things aren't obvious from
-individual tool schemas alone:
+Flashback is a local spaced-repetition knowledge vault. The tool schemas do not show these facts.
 
-- THE ONE RULE FOR MAKING CARDS: every card you create comes from a highlight the USER made.
-  create_flashcard requires a document `path` and the `highlightHash` of one of the user's
-  highlights there, and there is no tool to highlight for them. This keeps AI cards on what the
-  user chose as worth remembering and under their supervision; it exists so cards are never
-  mass-produced from a document. Read freely for CONTEXT — the whole document, the passage around
-  a highlight — but card only what a highlight marks. When asked to card something no highlight
-  covers, say which passage the user should highlight in the app and card it once they have;
-  never look for a way around the rule. One highlight may become several cards.
-- Cards are either DOCUMENT-ANCHORED (they live in that document's sidecar) or STANDALONE
-  (the user's own document-less cards, in the system deck). update_flashcard and
-  delete_flashcard work on both and resolve the card's home automatically; passing
-  `documentPath` (from search_flashback/list_cards `document_path`) just skips the lookup.
-- Documents wiki-link to each other with `[anchor text](flashback://<document globalHash>)`
-  in Markdown — hashes come from search results or a folder listing's metadata. Use this
-  syntax when writing notes that should reference other notes; get_links shows a document's
-  outgoing links and backlinks.
-- Cards have a `cardType`: basic, reversible, cloze, type_answer, or custom. Non-custom types
-  store their content in `vanillaData` (frontText/backText/media); "type_answer" adds
-  `answerText`, the value compared to what the user types, which frees its backText to hold
-  post-review notes like a mnemonic. "custom" stores raw HTML in
-  `customData.html` instead and ignores vanillaData. This is a real storage split, not just an
-  API convenience. Call list_categories before setting `category` on a card — an unrecognized
-  name is rejected with an error.
-- One reading rule for type_answer, because both shapes exist: a card written before
-  `answerText` has it null/absent and still keeps its graded answer in `backText`. So the
-  compared value is `answerText` when present, `backText` otherwise — and a card is only
-  carrying notes when `answerText` is present. Read a null `answerText` as "this card is in
-  the old shape", never as "this card has no answer". If you split one yourself with
-  update_flashcard, move the text: send the answer as `answerText` AND send the new
-  `backText` in the same call, or the old answer stays behind and reads as notes.
-- How well a card is held is its GAP: the days between its reviews under the user's scheduler
-  (`gap` in list_cards, null = never reviewed). The app groups cards into bands by it — new,
-  up to 1 day, a week, 3 weeks, 2 months, longer — and a gap of 21+ days counts as held
-  long-term; decks, sources and the Statistics report are all summed up that way. Speak in those
-  terms. `level` is the scheduler's raw strength (0 = new, higher = better known); it means
-  different things under Leitner, SM-2 and FSRS, so it is no longer what the app shows.
-  get_card_overview is the one-call picture: cards per band, per source document, and flagged.
-  Reviewing is the user's job: there is deliberately no tool to submit review grades.
-- Decks link to cards by hash; cards aren't copied into a deck (delete_deck keeps the cards,
-  delete_flashcard destroys one). One deck always has `is_system: 1` — it's the automatic home
-  for the user's cards with no source document, and you don't need to call add_to_deck on it.
-  Deck tags (update_deck) propagate to every member card.
-- Answers are SMALL by default, because a vault's raw payloads run to hundreds of thousands of
-  characters: list_folder gives names and counts, read_document counts a sidecar's cards and
-  highlights instead of listing them, get_due_cards gives counts per source, list_cards clips
-  card text. Each tool names the opt-in for the rest (sidecar: "full", queueLimit, verbose).
-  search_flashback caps every group and says so in `truncated`; list_cards pages exhaustively.
-- Cleaning up many cards is delete_flashcards: a dry run first (count, sources, sample), shown
-  to the user, then the same selection with confirm and the previewed count. Never loop
-  delete_flashcard over a large set.
-- Sidecar changes (cards, tags, highlights) are versioned by Seal, the built-in git layer.
-  Document BODY text is not — update_document overwrites irreversibly, so read_document first.
-- Every card records its provenance in `origin`: cards created through these tools are marked
-  'ai' automatically, imported ones 'import'; handmade cards have no origin (nor do cards imported
-  before imports were marked, so treat a null origin as "made by the user or imported"). The workflow: the user highlights passages
-  while reading, you turn them into flashcards. list_highlights (with `uncardedOnly`) shows which
-  highlights still lack a card, with the highlighted text and its surrounding context; pass the
-  highlight's `documentPath` and `id` to create_flashcard. Before drafting, study the vault's existing
-  cards and MATCH THEIR STYLE (length, tone, phrasing, cloze conventions) — prefer handmade
-  cards as examples (list_cards with origin 'human'), falling back to AI-made ones only when
-  the vault has no handmade cards.
-- Two kinds of document carry pictures that are reachable even though their prose arrives as plain
-  text, and each has the same three tools: list (metadata), view (look at one), attach (put it on
-  a card). An EPUB's figures: list_book_images / view_book_image / attach_book_image — those live
-  inside the book's zip and have no path on disk, so attach_media cannot reach them. A saved web
-  clip's downloaded pictures and short audio: list_clip_media / view_clip_image / attach_clip_media
-  — a clip's assets ARE real files, so attach_media works on them too once you have their `path`.
-  Check list_clip_media for sound on language, music and medical pages: a pronunciation recording
-  makes a far better card front than a written description of one. Nothing can play audio to you,
-  so view_clip_image refuses a sound and you go by its caption and heading instead. Those two view
-  tools are the only place bytes flow to you, and only because a picture IS its bytes; there is
-  deliberately no equivalent for PDF pages or document bodies.
-- Writing a good card is a craft with real rules, and get_card_guide is where they are written
-  down: decomposition, card-type selection, the house conventions this vault already follows,
-  and the failure modes that make a card lapse for years. Read it before drafting cards or
-  diagnosing ones that keep failing — not after.
-- Before creating content, list_categories, list_decks, and list_tags are cheap ways to see
-  what already exists rather than guessing or duplicating. Categories sit on priority levels
-  (several per level, level 1 studied first); tags come with their reach, and rename_tag merges
-  near-duplicates vault-wide.
-- The diary tools (diary_list/diary_get_summary/diary_get_entry) read a personal, per-day study
-  record kept outside the vault. They are OFF by default: unless the user has enabled diary access
-  for AI assistants in Flashback's settings, every diary call returns a 403. Don't retry on that
-  error — tell the user how to enable it if they want you to use it. Entries are private prose;
-  treat anything you do read as confidential.
+- Make a card only from a highlight that the user made. create_flashcard takes a document `path` and the `highlightHash` of a user highlight in it. No tool can make a highlight. This rule keeps AI cards on what the user chose to remember, under the user's supervision.
+- Read the whole document for context, but card only what a highlight marks. One highlight can become several cards. If the user asks for a card that no highlight covers, name the passage to highlight in the app. Card it after the user highlights it. Never look for a way around this rule.
+- A card is document-anchored or standalone. An anchored card lives in its document's sidecar. A standalone card has no document and lives in the system deck. update_flashcard and delete_flashcard find the card's home themselves. Pass `documentPath`, from the `document_path` of search_flashback or list_cards, to skip that lookup.
+- Documents link to each other in Markdown with `[anchor text](flashback://<document globalHash>)`. Search results and folder listings give the hashes. Use this syntax when a note refers to another note. get_links shows the outgoing links and the backlinks of a document.
+- A card has a `cardType`: basic, reversible, cloze, type_answer or custom. Non-custom types keep their content in `vanillaData`, with frontText, backText and media. A custom card keeps raw HTML in `customData.html` and ignores vanillaData. Call list_categories before you set `category` on a card. The API rejects an unknown category name.
+- A type_answer card compares the typed value with `answerText`. Its backText then holds notes, such as a mnemonic. A card written before `answerText` existed has no `answerText` and keeps its graded answer in `backText`. So the graded value is `answerText` when present, and `backText` otherwise.
+- A null `answerText` means the old shape, not a card without an answer. To convert one with update_flashcard, send the answer as `answerText` and the new `backText` in the same call. Otherwise the old answer stays and reads as notes.
+- The gap of a card shows how well the user holds it. The gap is the number of days between its reviews (`gap` in list_cards, null for never reviewed). The app groups cards into bands: new, up to 1 day, a week, 3 weeks, 2 months and longer. A gap of 21 days or more counts as held long-term. Decks, sources and the Statistics report all use these bands, so speak in these terms.
+- `level` is the raw strength of the scheduler. It means different things under Leitner, SM-2 and FSRS, and the app does not show it. get_card_overview gives cards per band, per source document and flagged, in one call.
+- Reviewing is the user's job. No tool submits review grades.
+- A deck links to cards by hash and never copies them. delete_deck keeps the cards. delete_flashcard destroys one card. The deck with `is_system: 1` holds every card without a source document. Do not call add_to_deck for it. Deck tags from update_deck pass to every member card.
+- Answers are small by default, because a vault's raw data can run to hundreds of thousands of characters. list_folder gives names and counts. read_document counts the cards and highlights of a sidecar. get_due_cards gives counts per source. list_cards clips card text.
+- Each tool names its option for the full data, such as sidecar "full", queueLimit or verbose. search_flashback caps every group and reports it in `truncated`. list_cards pages through every card.
+- To delete many cards, use delete_flashcards. Run a dry run first and show its count, sources and sample to the user. Then send the same selection with confirm and the previewed count. Never loop delete_flashcard over a large set.
+- Seal, the built-in git layer, versions sidecar changes to cards, tags and highlights. It does not version document body text. update_document overwrites the body for good, so call read_document first.
+- Every card records where it came from in `origin`. Cards from these tools get 'ai'. Imported cards get 'import'. Handmade cards have no origin. Cards from older imports also have none, so a null origin means "made by the user or imported".
+- The user highlights passages while reading, and you turn them into cards. list_highlights with `uncardedOnly` shows the highlights without a card, with their text and context. Pass the highlight's `documentPath` and `id` to create_flashcard. Before you draft, study the vault's cards and match their length, tone, phrasing and cloze habits. Take handmade cards as examples (list_cards with origin 'human'). Use AI-made cards only when the vault has no handmade cards.
+- Two kinds of document hold pictures that you can reach, although their prose arrives as plain text. Each kind has three tools: list for metadata, view to look at one, and attach to put one on a card.
+- EPUB figures use list_book_images, view_book_image and attach_book_image. The figures live inside the book's zip and have no path on disk, so attach_media cannot reach them.
+- Web clip pictures and short audio use list_clip_media, view_clip_image and attach_clip_media. Clip assets are real files, so attach_media also works once you have their `path`. Look in list_clip_media for sound on language, music and medical pages. A pronunciation recording makes a better card front than a written description. No tool can play audio to you, so view_clip_image refuses a sound. Use its caption and heading instead.
+- The two view tools are the only tools that send you file bytes, because a picture is its bytes. No such tool exists for PDF pages or document bodies.
+- get_card_guide holds the rules for good cards. It covers decomposition, card type choice, the conventions of this vault, and the mistakes that make cards fail. Read it before you draft cards or diagnose cards that keep failing.
+- Before you create content, call list_categories, list_decks and list_tags to see what exists. They cost little. Each priority level holds several categories, and the app studies level 1 first. Tags come with their reach. rename_tag merges near-duplicate tags across the vault.
+- The diary tools (diary_list, diary_get_summary and diary_get_entry) read a personal daily study record that lives outside the vault. They are off by default. Unless the user turned on diary access for AI assistants in Flashback's settings, every diary call returns 403. Do not retry after that error. Tell the user how to turn it on if they want you to use it. Entries are private notes, so treat what you read as confidential.

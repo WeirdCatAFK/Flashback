@@ -22,7 +22,7 @@ Manage your own long term memorization and learning workspace with flashback
 <p align="center">
   <img src="./docs/screenshots/trainer.png" width="90%" alt="Spaced-repetition trainer" />
 </p>
-<p align="center"><em>Review due cards on a real index card; each grade button says when it brings the card back.</em></p>
+<p align="center"><em>Review due cards on a real index card. Each grade button says when it brings the card back.</em></p>
 
 <p align="center">
   <img src="./docs/screenshots/card-types.jpg" width="90%" alt="The five card types in the trainer: basic, reversible, cloze, type answer, and custom HTML" />
@@ -59,8 +59,6 @@ Manage your own long term memorization and learning workspace with flashback
 </p>
 <p align="center"><em>Prefer light? Light workbench is there too, alongside four dark themes in Focus and Lamp variants.</em></p>
 
----
-
 ## Features
 
 ### Document workspace
@@ -71,8 +69,8 @@ Manage your own long term memorization and learning workspace with flashback
 - Read Markdown, plain text, PDFs, EPUBs, web clips, and
   YouTube videos (with a clickable, highlightable transcript). Edit Markdown and
   text with a rich editor.
-- Each document opens with a head showing its path, tags, and an optional cover:
-  upload an image or pick one of 46 drawn covers, many of them animated.
+- Each document opens with a head showing its path, tags, and an optional cover.
+  Upload an image or pick one of 46 drawn covers, many of them animated.
 - A reading strip tracks how far you've read, and Find (`Ctrl+F`) lists the
   document's highlights and cards in reading order.
 - Wiki-style `flashback://` links between documents that survive renames and moves.
@@ -80,23 +78,23 @@ Manage your own long term memorization and learning workspace with flashback
 
 ### Flashcards
 
-- Five card types — basic, reversible, cloze, type-answer, and
-  custom HTML — each with its own study behavior.
+- Five card types, each with its own study behavior: basic, reversible, cloze,
+  type-answer, and custom HTML.
 - Cards can be anchored to a highlight in a source document, or stand alone.
   Anchored cards sit in the margin beside their passage.
 - One card editor everywhere, with a live preview beside the fields.
-- Content renders with Markdown and automatic LaTeX math; optional image and
-  audio on both faces.
+- Content renders with Markdown and automatic LaTeX math. Both faces take an
+  optional image and audio.
 - The Flashcards catalogue groups cards by source document and by the gap
-  between reviews (new, 1 day, up to a week, … longer), with health filters for
+  between reviews, from new to longer than two months. Health filters show
   flagged and overloaded cards.
 
 ### Spaced repetition
 
 - Three scheduling algorithms: Leitner, SM-2, and FSRS-6 (with
   vault-specific parameter optimization).
-- Scope a study session by folder, deck, tag, or category priority; split long
-  queues into batches; cap new cards per day; or study only what you've read.
-- Every grade button shows when it brings the card back, and after grading you see
-  how the gap changed ("4 d → 8 d").
+- Scope a study session by folder, deck, tag, or category priority. Split long
+  queues into batches, cap new cards per day, or study only what you've read.
+- Every grade button shows when it brings the card back. After grading, you see
+  how the gap changed, for example from 4 days to 8 days.
 - Trainer study session optimization by interleaving subjects relative to the graph

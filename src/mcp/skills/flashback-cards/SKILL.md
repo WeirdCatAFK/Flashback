@@ -1,188 +1,212 @@
 ---
 name: flashback-cards
-description: Author, diagnose, and repair flashcards in the Flashback vault (spaced repetition + knowledge graph app) so they survive long-interval review — decomposing material into atomic, precisely-cued prompts and creating them through the Flashback MCP tools. Use this whenever the user asks to make, add, generate, fix, rewrite, or review flashcards, cards, prompts, or a deck in Flashback, or asks to turn a document, book, chapter, article, video, or topic into study material, even if they only say "make me some cards on X" or "card this chapter." Also use when the user says cards feel too hard, keep lapsing, are "a mouthful," or when they want to know whether a deck is well built. New cards are made only from the user's own highlights.
+description: Write, diagnose and repair flashcards in the Flashback vault so that they survive long review intervals. Use it when the user asks to make, add, fix, rewrite or review cards or a deck in Flashback. Use it when the user asks to turn a document, book, chapter, article, video or topic into study material. Use it when cards feel too hard, keep lapsing or feel like "a mouthful", or when the user asks whether a deck is well built. New cards come only from the user's own highlights.
 ---
 
 # Authoring Flashback cards
 
-One of the modern challenges of high specialization careers and skill learning it's that most of the knowledge made arround these challenges it's on a language different that the one of your brain, making skill aquisition as hard as it can get, althought there is no correct way of organizing data, most complex non man-made data structures can be represented by graphs, so is our brain, Flashback focusses on the way our brain works to make an specialized data structure that can be easily read by your brain, and my brain, this study method is not new, but I can assure you transforming classic ways to transfer knowledge onto something optimized for learning is time consumming, so on efforts to make this a leaser struggle flashback is my solution to the world, to people who struggle grasping concepts to the people who want to optimize learning and absorbing information. Flashback is a tool to optimize knowledge so it can be read and memorized, you can plan the connections between concepts and plan ahead how you want to understand a topic, but as much as I'd like to say that taking the effort to make a Brain graph will make you more skilled at your job, I worry that this is not what you are searching for, remembering all the recipes from the book will not make you a chef, but it may open your eyes to make you more eager on the kitchen. As a disclaimer, I'd like to add that **Knowledge and memorization** are essential tools to develop a skill, and even if you don't think you need to memorize things, any software engineer will appreciate the discussion of making the data structure more efficient for data retrieval (wink, wink, your brain), so don't be frailed and take responsability on how you design your brain
+## Why Flashback cards look like this
 
-I'd like to think that most brains work similar to a graph, and they self optimize all the time (How cool is that!) ask any programmer, or psycology student about neurons and they will tell you amazing things that they can make, heck even right now all that you know is contained on a graph of your brain. The language of the brain is one we can't speak really, but it can make us speak, so taking time to optimize things has an ultimate advantage. Here it's a 3 layer neuron structure just to show how complex your brain can wire your thoughts
+Most knowledge for a specialized career or skill arrives in a language that differs from the language of the brain. That gap makes skill acquisition slow. The brain stores what it knows as a graph, and it reorganizes that graph all the time. Flashback stores knowledge as a graph too. A person can plan the connections between concepts and learn them in a form that the brain reads well.
+
+Memorization alone does not make a skill. Knowing every recipe in a book does not make a chef. But knowledge and memory are tools that every skill needs, and a well-designed card makes retrieval from the brain faster. Each user is responsible for how they design that graph.
 
 ## The governing constraint
 
-A card is a recurring task you are handing to a person for the next several years. Card design is task design. The cost of a badly formulated card is not one bad review it is a card that lapses indefinitely, drags the scheduler, and eventually makes the user resent the deck.
+A card is a recurring task that you give a person for the next several years. Card design is task design. A badly written card does not cost one bad review. It lapses again and again, drags the scheduler, and makes the user resent the deck.
 
-Everything below follows from one rule:
+Everything below follows from one rule.
 
-**One card, one retrieval.** If answering correctly requires recalling two things that can be forgotten independently, it is two cards.
+One card, one retrieval. If a correct answer needs two things that the user can forget separately, write two cards.
 
-"One retrieval" means one *chunk*, not one token. A chunk can be several words long — tail -n 10 file.txt is retrieved as a single motion by anyone who knows tail. What breaks a card is composing chunks the user does not yet hold together, behind a single binary grade.
+One retrieval means one chunk, not one token. A chunk can be several words long. Anyone who knows `tail` retrieves `tail -n 10 file.txt` as a single motion. A card breaks when it joins chunks that the user does not yet hold together, behind a single pass or fail grade.
 
-Two reasons this matters more in Flashback than in a generic SRS:
+This rule matters more in Flashback than in a generic spaced repetition app, for two reasons.
 
-1. **Memory mechanics.** Simple items rest on a single connection that review refreshes uniformly. Complex items get partially activated, in an order that shifts with context, so no review strengthens the whole thing evenly. This is Wozniak's minimum information principle, and it is the most load-bearing idea in card design.
-2. **Signal quality.** Grading is binary. A card carrying five facts is graded as one, so the ReviewLog cannot record which fact failed, and the scheduler reschedules all five on the strength of the weakest. Since Flashback's longer-term ambition is to use retention data as a quality signal, bundled cards do not merely study badly — they corrupt the measurement.
+1. Memory. A simple item rests on one connection that each review refreshes. A complex item activates in parts, in an order that changes with context, so no review strengthens the whole item. This is Wozniak's minimum information principle.
+2. Signal. Grading is pass or fail. A card with five facts gets one grade, so the review log cannot record which fact failed. The scheduler then schedules all five facts by the weakest one. Flashback plans to use retention data as a quality signal, so bundled cards also corrupt that measurement.
 
-## Step 0 — read the vault before writing anything
+## Step 0: read the vault before you write
 
-In this order, every time:
+Do these steps in this order, every time.
 
-1. list_categories — valid category names. An unrecognized value is rejected, not silently dropped.
-2. list_cards with origin: "human" — the handmade cards are the style specifications. Match their length, phrasing, and cue conventions rather than inventing a house style.
-3. list_decks — locate the target deck. Note whether a new one is needed.
-4. list_cards with sortBy: "lapses" — cards the user keeps failing. A high-lapse card is nearly always a formulation problem, not a memory problem. Offer to rewrite them; this is often more valuable than adding new cards.
-5. If carding a document: list_highlights with uncardedOnly: true, then read the body around them. The user's highlights are their declaration of what matters, and **they are the only material you card**: create_flashcard requires the highlightHash of one of them, and nothing here can make a highlight. Read as widely as you need for context — the paragraph before a highlight often decides what the card should ask — but a passage the user did not highlight is not a target. When they ask for cards on something unhighlighted ("card this chapter", "make me some cards on X"), say which passages you would card and ask them to highlight those in the app; then card the highlights. This keeps every AI card on something the user chose and under their eye, and it is why cards are never mass-produced from a document. This is to not envourage the user to make more cards that they can take, effort is based on creating quality cards, not covering quickly, even for a day recommend creating a maximum of 20 cards, if the user insists more can be done, but alert them about generating more that they can manage, we rather not cram.
-   **Reading the body.** read_document returns content for Markdown, plain text, and .clip/.youtube stubs, plus the sidecar (existing cards, tags, highlights) for everything. For a PDF, EPUB, image, audio, or video it returns content: null — this is **not** a dead end. Call read_document_text with the same path: it extracts and paginates server-side, addressed by format. PDFs by page number, EPUBs by spine section number or href, YouTube transcripts by segment (or at = seconds to jump to a moment). Start with path alone, then follow next until hasMore is false, and nextCharOffset when a unit comes back truncated. Each response carries a label like "p. 37" or a timestamp — cite it when a card comes from a specific place.
-   **Its pictures and sound.** Text extraction returns prose only, so a document's media comes from its own tools: list_book_images for an EPUB, list_clip_media for a saved web clip (which also holds any short audio the page had). Both list metadata — alt text, caption, the section or heading it sits under — so you can usually tell which figure is which without looking; view_book_image/view_clip_image when you can't. Put one on a card with attach_book_image/attach_clip_media. This is worth a call on any illustrated source: see *adding non-redundant cues* below for why a real diagram beats a description of one, and note that a pronunciation recording is the only honest front for a pronunciation card.
-   Two real limits: scanned PDFs have no text layer and return nothing, and search_content only covers .md/.txt bodies, so a miss there is not evidence the vault lacks a topic — check highlights and existing cards on the media documents too.
+1. Call list_categories to get the valid category names. The API rejects an unknown name.
+2. Call list_cards with origin "human". The handmade cards define the style. Match their length, phrasing and cue conventions. Do not invent a house style.
+3. Call list_decks to find the target deck. Note whether the user needs a new deck.
+4. Call list_cards with sortBy "lapses" to find the cards that the user keeps failing. A card with many lapses almost always has a wording problem, not a memory problem. Offer to rewrite these cards. A rewrite often helps more than new cards.
+5. To card a document, call list_highlights with uncardedOnly true, then read the body around each highlight.
+
+### Highlights are the only material
+
+The user's highlights say what matters, and they are the only material that you card. create_flashcard takes the highlightHash of one of them, and no tool can make a highlight. Read as much as you need for context. The paragraph before a highlight often decides what the card asks. A passage without a highlight is not a target.
+
+When the user asks for cards on something without a highlight, such as "card this chapter", name the passages that you would card. Ask the user to highlight them in the app, and then card the highlights. This keeps every AI card on something that the user chose and checks.
+
+Effort goes into quality cards, not into fast coverage. Suggest at most 20 new cards for one day. If the user insists, make more, but warn them about making more cards than they can review. Cramming does not help.
+
+### Reading the body
+
+read_document returns the content of Markdown, plain text, `.clip` and `.youtube` files, and the sidecar of every file. The sidecar holds the existing cards, tags and highlights. For a PDF, EPUB, image, audio or video file, read_document returns null content. In that case, call read_document_text with the same path. It extracts and pages the text on the server, by format:
+
+- A PDF by page number.
+- An EPUB by section number or href.
+- A YouTube transcript by segment, or by `at` in seconds to jump to a moment.
+
+Start with the path alone. Then follow `next` until `hasMore` is false. Follow `nextCharOffset` when a unit comes back cut short. Each response has a label, such as "p. 37" or a timestamp. Cite it when a card comes from a specific place.
+
+### Pictures and sound
+
+Text extraction returns prose only. A document's media comes from its own tools.
+
+Use list_book_images for an EPUB. Use list_clip_media for a saved web clip, which also holds any short audio from the page. Both tools list the alt text, the caption and the section or heading of each item. That metadata usually tells you which figure is which. Use view_book_image or view_clip_image when it does not.
+
+Put a picture or a sound on a card with attach_book_image or attach_clip_media. Do this for any illustrated source. A real diagram beats a description of one, as the section on activator cues shows. A pronunciation recording is the only honest front for a pronunciation card.
+
+### Two limits
+
+- A scanned PDF has no text layer, so it returns nothing.
+- search_content searches only `.md` and `.txt` bodies. A miss there does not prove that the vault lacks a topic. Look at the highlights and the cards on the media documents too.
 
 ## The house style
 
-Read from the handmade cards, and worth preserving:
+The handmade cards show this style. Keep it.
 
-* **Fronts are terse task descriptions, can be prose questions.** Initialize a git repository, or What is the command you would use to create a new repository in the current directory? Each card needs a specific context to be a task or a question. See which does the user do best.
-* **Concrete literals go in parentheses at the end of the front.** Git command to stage a file (readme.md) → git add readme.md. This is an elegant convention: it pins the exact expected answer without inflating the sentence the user has to parse.
-* **type_answer answers are the bare artifact.** No trailing prose, no explanation, no parenthetical in answerText — it is compared literally, so anything extra is a way to fail a card the user knew. Explanation that belongs *with* this card goes in backText, which is shown after checking and never compared (a mnemonic, a why); explanation that stands on its own belongs on a separate basic card.
-* **Symbol cards are irreducible pairs.** あ → a. Nothing to decompose further. This is the target shape; the further a card is from it, the more justification it needs.
-* **Context indicators.** Cards can coallesce into the same questions in different contexts ej: Get directory contents → [bash] ls or → [PowerShell]Get-ChildItem. Same question different answers, preferably start these questions with brackets indicating the context to make a quick lookup for the user which doesn't grab their attention. [bash] Get directory contents → ls, [Powershell] Get directory contents → Get-ChildItem. Not all cards require a context indicator, but some like instruction sets or vague questions need one to prevent confusion
+- A front is a short task description or a question. "Initialize a git repository" and "What command creates a new repository in the current directory?" both work. Each card needs a specific context. Find out which form works best for the user.
+- A concrete value goes in parentheses at the end of the front. "Git command to stage a file (readme.md)" has the answer `git add readme.md`. The parentheses pin the exact answer without a longer sentence.
+- A type_answer answer is the bare artifact. Put no prose, explanation or parentheses in answerText. The app compares it character by character, so anything extra can fail a card that the user knew. An explanation for this card goes in backText, which the app shows after the check and never compares. An explanation that stands alone belongs on its own basic card.
+- A symbol card is a pair that you cannot split further, such as あ and "a". This is the target shape. The further a card is from it, the more reason it needs.
+- A context marker separates the same question in different contexts. "Get directory contents" has the answer `ls` in bash and `Get-ChildItem` in PowerShell. Start such a front with the context in brackets: "[bash] Get directory contents" and "[PowerShell] Get directory contents". The marker lets the user see the context without effort. Only cards that would be ambiguous, such as instruction sets or vague questions, need a marker.
 
-## Choosing targets, then writing prompts
+## Choose targets, then write prompts
 
-These are two separate jobs. Do them in order and do not merge them, merging is how you end up writing a prompt for whatever sentence you happen to be looking at.
+These are two separate jobs. Do them in order. Keep them apart. When you mix them, you write a prompt for whatever sentence you happen to read.
 
-**First, choose targets.** Read the material and mark the specific pieces worth being able to recall. Not everything is a target: things the user already knows, things trivially inferable from what they know, and things they will never need cold are all correctly skipped. The user's highlights are the target list a highlight may hold several targets, but nothing outside the highlights is one.
+First, choose targets. Read the material and mark the pieces worth recalling. Skip what the user already knows, what follows trivially from it, and what the user never needs to recall cold. The highlights are the target list. A highlight can hold several targets, but nothing outside the highlights is a target.
 
-**Then, write one or more prompts per target.** How depends on the kind of knowledge — factual, procedural, or conceptual. See references/knowledge-types.md for worked patterns for each, including closed vs. open lists and the conceptual lenses (attributes, similarities/differences, parts/wholes, causes/effects, significance).
+Then write one or more prompts for each target. The method depends on the kind of knowledge: factual, procedural or conceptual. The `knowledge-types` reference section gives example patterns for each kind. It covers closed and open lists and the conceptual lenses: attributes, similarities and differences, parts and wholes, causes and effects, and significance.
 
-For sets larger than roughly ten cards, show the user the target list before drafting the cards. Targets are cheap to correct; cards are not. You might want to walk with the user on defining a mental model of what are we trying to keep or with what purpose in order to make content the user can actually use. ej: a bunch of cards listing individual git commands could use some clarifying questions on the mental models of git (branches, working tree, staging area, merges, etc) clarifying these pieces of context relative to the cards you are producing might yield better results.
+For a set of more than about ten cards, show the user the target list before you draft. A target list is cheap to correct. Cards are not. Talk with the user about the mental model that the cards serve and about their purpose. For example, cards on single git commands improve when the user first settles the model of branches, the working tree, the staging area and merges.
 
-## Card type selection
+## Card types
 
-| Type            | Use for                                                                                                                                                                                                           |
-| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `type_answer` | Production of a short exact artifact the user must type from memory: a command, an operator, a keyword, a kana, a signature fragment.`answerText` is graded; `backText` is optional notes revealed afterwards |
-| `basic`       | Anything graded by judgment: explanations, distinctions, "why", tradeoffs, heuristics                                                                                                                             |
-| `cloze`       | A target embedded in a structure where seeing the structure is itself part of the knowledge — a slot in a statement, an item in a closed list. Blanks in`{{double braces}}`                                    |
-| `reversible`  | Irreducible symmetric pairs only (term ↔ symbol, word ↔ translation). Skip it when one direction is far easier than the other                                                                                   |
-| `custom`      | Raw HTML, for layout that carries meaning — tables, positioned diagrams                                                                                                                                          |
+| Type | Use it for |
+| --- | --- |
+| `type_answer` | A short, exact artifact that the user types from memory, such as a command, an operator, a keyword, a kana or a signature fragment. The app grades `answerText`. `backText` holds optional notes that the app shows afterwards. |
+| `basic` | Anything that the user grades by judgment, such as an explanation, a distinction, a reason, a tradeoff or a rule of thumb. |
+| `cloze` | A target inside a structure, where the structure is part of the knowledge. Examples are a slot in a statement or an item in a closed list. Mark each blank with `{{double braces}}`. |
+| `reversible` | A pair that you cannot split, such as a term and its symbol, or a word and its translation. Skip it when one direction is much easier than the other. |
+| `custom` | Raw HTML, for a layout that carries meaning, such as a table or a positioned diagram. |
 
-Default to type_answer for production and basic for understanding. Cloze is fast to write and mnemonically strong, but it is the format most vulnerable to pattern matching: with a long or distinctive sentence, the user learns the shape of the sentence rather than the knowledge. Keep cloze sentences short and generic.
+Use type_answer by default to produce an answer, and basic to explain one. A cloze card is fast to write and easy to remember, but the user can pass it by pattern matching. With a long or distinctive sentence, the user learns the shape of the sentence instead of the knowledge. Keep cloze sentences short and generic.
 
-## Five properties, checked before saving
+## Five properties to check before you save
 
-* **Focused** — one detail. Excess detail dulls attention and produces incomplete retrievals.
-* **Precise** — unambiguous about what is being asked for. Vague questions produce vague answers.
-* **Consistent** — the same answer every time. Otherwise related-but-unrecalled knowledge is actively inhibited (retrieval-induced forgetting).
-* **Tractable** — answerable nearly always. If it is not, break it down or add a cue.
-* **Effortful** — the answer must actually be retrieved, not inferred from the question.
+- Focused: the card asks for one detail. Extra detail dulls attention and gives incomplete answers.
+- Precise: the card says exactly what it asks for. A vague question gets a vague answer.
+- Consistent: the card has the same answer every time. Otherwise it suppresses related knowledge that the user does not recall.
+- Tractable: the user can answer it almost every time. If not, split it or add a cue.
+- Effortful: the user must retrieve the answer, not infer it from the question.
 
-Then two litmus tests:
+Then apply two tests.
 
-**False positive: could the answer be produced without knowing the thing?** Long questions with distinctive wording get memorized as shapes. Cues that narrow to one possible answer give it away.
+False positive: can the user give the answer without the knowledge? The user memorizes long questions with distinctive wording as shapes. A cue that leaves only one possible answer gives the answer away.
 
-**False negative: could the user know the thing and still be marked wrong?** This is the one that kills syntax cards, and it has a reliable tell:
+False negative: can the user know the answer and still fail? This test catches most broken syntax cards, and it has a clear sign. You add a hint, such as "using a range test", so that only your intended answer fits. That hint shows that the front asks for a task outcome while the target is a specific construct. Name the construct in the front instead. The section on several constructs below shows how.
 
-> If you find yourself appending a hint so that only your intended answer fits — "…using a range test", "…using a set membership test" — the front is asking for a *task outcome* when the target is a *specific construct*. Name the construct in the front instead of hinting at it. See "When several constructs satisfy the same task" below.
+## Syntax, command and code cards
 
-## Syntax, command, and code cards
-
-This is where cards most often fail, so it gets explicit rules.
+Cards fail most often here, so this section gives explicit rules.
 
 ### The answer is one chunk, not one token
 
-Production cards exist to build motor memory for things the user will actually type. That means the answer should be **a whole invocation they would really run** not a decomposed fragment. tail -n 10 file.txt and Get-ChildItem -Recurse -Filter *.txt are correct answer shapes. Reducing them to -n or -Recurse destroys exactly what the card is for.
+A production card builds motor memory for something that the user types. So the answer is a whole command that the user would really run, not a fragment. `tail -n 10 file.txt` and `Get-ChildItem -Recurse -Filter *.txt` are correct answers. Cutting them down to `-n` or `-Recurse` destroys what the card is for.
 
-The unit is one *chunk*: a piece the user can already hold as a single thought. A chunk may be several tokens. rm -r build is one chunk — command, its idiomatic flag, its argument, retrieved together. What is not acceptable is a *composition of independent chunks* behind one grade.
+The unit is one chunk, a piece that the user holds as a single thought. A chunk can have several tokens. `rm -r build` is one chunk: the command, its usual flag and its argument, retrieved together. A card must not join independent chunks behind one grade.
 
-The size of a chunk is a property of the learner, not the material. As fluency grows, what was three chunks becomes one, and cards should grow with it. So this is a ladder, not a fixed rule: write production cards at the largest size the user can currently retrieve in one motion.
+The size of a chunk depends on the learner, not on the material. As the user gains fluency, three chunks become one, and the cards grow with them. Write each production card at the largest size that the user can retrieve in one motion now.
 
 ### Front length is the real constraint
 
-Compare two real cards from the vault. Both have multi-token answers; only one works.
+These two real cards from a vault both have answers with several tokens. Only one works.
 
-> **Works** (level 4) — Front: [Bash] Show the last 10 lines of file.txt → Back: tail -n 10 file.txt
-> **Stalled** (level 0) — Front: [SQL] Return all columns, matching each orders row to customers where orders.customer_id equals customers.id, keeping only rows that match in both tables → Back: SELECT * FROM orders INNER JOIN customers ON orders.customer_id = customers.id;
+- It works, at level 4. The front is "[Bash] Show the last 10 lines of file.txt". The back is `tail -n 10 file.txt`.
+- It stalls, at level 0. The front is "[SQL] Return all columns, matching each orders row to customers where orders.customer_id equals customers.id, keeping only rows that match in both tables". The back is `SELECT * FROM orders INNER JOIN customers ON orders.customer_id = customers.id;`.
 
-The answers are comparable. The fronts are not: eight words versus twenty-six. A long front is a specification the user must decode before retrieval even starts, and decoding competes with recall. **Keep fronts to roughly a dozen words, phrased as a task, with concrete values supplied compactly.** There are exceptions of course but is a general rule of thumb
+The answers are similar. The fronts are not: 8 words against 26. The user must decode a long front before retrieval starts, and the decoding competes with recall. Keep a front to about a dozen words, phrased as a task, with concrete values in a compact form. Some cards need more, but this is the general rule.
 
-### When several constructs satisfy the same task, name the construct
+### When several constructs fit the task, name the construct
 
-Shell tasks usually have one idiomatic answer, so a plain task description is unambiguous. Expressive languages are different: "rows where total is between 50 and 100" is satisfied by BETWEEN and by >= AND <= equally. This is a property of the language, not a defect in the card — and the fix is to put the construct in the front rather than bolting on a disambiguating hint.
+A shell task usually has one idiomatic answer, so a plain task description is clear. Expressive languages differ. Both `BETWEEN` and `>= AND <=` select "rows where total is between 50 and 100". This is a property of the language, not a fault of the card. Put the construct in the front instead of adding a hint.
 
-Use the vault's existing convention: construct plus a compact parameter list.
+Follow the vault's convention: the construct and a compact list of parameters.
 
-| Front                                                                                    | Back                                                                                |
-| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| `[SQL] BETWEEN filter on orders.total (50, 100)`                                       | `SELECT * FROM orders WHERE total BETWEEN 50 AND 100;`                            |
+| Front | Back |
+| --- | --- |
+| `[SQL] BETWEEN filter on orders.total (50, 100)` | `SELECT * FROM orders WHERE total BETWEEN 50 AND 100;` |
 | `[SQL] INNER JOIN orders to customers (orders.customer_id, customers.id), all columns` | `SELECT * FROM orders INNER JOIN customers ON orders.customer_id = customers.id;` |
 
-Whole statements preserved, motor memory intact, fronts cut by two thirds, ambiguity gone.
+The cards keep whole statements and motor memory. The fronts are a third as long, and the ambiguity is gone.
 
-### When a whole statement really is too big, scaffold — don't replace
+### When a whole statement is too big, add support cards
 
-If the user keeps lapsing on a full-statement card, the sub-chunks underneath it are not yet mature. Add smaller cards for the weak pieces **alongside** the full one, and let the full one climb as its parts strengthen. Deleting it and keeping only fragments trains recognition instead of production, which is the opposite of the goal.
+If the user keeps failing a card with a full statement, the parts of the statement are not yet mature. Add small cards for the weak parts beside the full card. The full card climbs as its parts grow stronger. Do not replace the full card with fragments. Fragments train recognition instead of production.
 
 ### Strip characters that carry no knowledge
 
-Trailing semicolons, optional aliases, cosmetic whitespace, arbitrary casing: each is a way to fail a card the user actually knew. Keep the answer to the canonical minimum. Confirm how type_answer grades — if the comparison is exact, this is not cosmetic advice, it is the difference between a usable deck and an infuriating one.
+Trailing semicolons, optional aliases, extra spaces and arbitrary letter case are all ways to fail a card that the user knew. Keep the answer to its canonical minimum. type_answer compares the typed value exactly, so this rule decides whether a deck is usable.
 
-### Fix the schema across a deck
+### Use one schema across a deck
 
-When syntax cards need table and column names, use the same ones on every card in the deck. Otherwise the user is recalling arbitrary identifiers alongside the actual knowledge, and each card carries a private vocabulary.
+When syntax cards need table and column names, use the same names on every card in the deck. Otherwise the user recalls arbitrary names beside the real knowledge, and each card carries its own vocabulary.
 
-## Multiple activator cues
+## Several activator cues
 
-Flashcards mimic something important in our brains—a pair of neurons. Flashcards have two sides of information: the front and the back. Each side represents a concept, similar to how neurons encapsulate information. By using flashcards, this phenomenon can be trained into our brains because proper exposure to them strengthens connections in a way that mirrors how our brain graph functions.
+A flashcard copies a pair of neurons. Its two sides hold two pieces of information, the front and the back, as two neurons hold two concepts. Correct exposure to the card strengthens the connection between them, as the brain strengthens a connection in its graph.
 
 ```mermaid
 graph TD
-  A((Activator Neuron)) -->|Connects to| B((Response Neuron))
-  C((Front content)) -->|Connects to| D((Back content))
+  A((Activator neuron)) -->|connects to| B((Response neuron))
+  C((Front content)) -->|connects to| D((Back content))
   Concept --> Definition
 ```
 
-While explaining to my friends how to create the right paths for building connections, an epiphany struck me: the best way to design flashcards is to incorporate multiple activator and response neurons. Here's an example:
-
-Let's suppose we want to learn French, and we create a simple card to remember the translation of the word "dog."
+The best cards have several activator and response neurons. Take a French learner who makes a card for the word "dog".
 
 ```mermaid
 graph TD
   Dog --> Chien
 ```
 
-This simple flashcard is useful, of course, but it only helps you remember that "Dog" means "Chien." This presents a learning problem because you're not connecting the word "Chien" to the concept of a dog. So, with a bit more effort, we can create a flashcard with multiple activator neurons. First, let's bridge the gap between the word "Dog" and the *concept* of a dog. We can address this by adding a picture of a dog:
+This card connects the word "dog" to the word "chien". It does not connect "chien" to the concept of a dog. A picture of a dog adds that connection.
 
 ```mermaid
 graph TD
-  Dog --> Chien["Chien<br/>🐕"]
+  Dog --> Chien["Chien<br/>(dog picture)"]
 ```
 
-Now, our neuron mapping looks like this:
+The neuron map now looks like this.
 
 ```mermaid
 graph TD
-  Dog((Dog)) --> Picture(("Dog picture<br/>🐕"))
-  Dog --> Chien((The_french_word_chien))
+  Dog((Dog)) --> Picture(("Dog picture"))
+  Dog --> Chien((The French word chien))
 ```
 
-We've created a multi-connection flashcard by simply adding the picture of a dog. Now, when recalling the word "Dog," we'll also remember that in French, dogs are called "Chiens." But wait—actually, not all dogs. French is a gendered language. This doesn't mean what you might think; it refers to the grammatical classification of words into groups that affect pronunciation where the identificators of gender are on different phonetical classification for ease of recognition
-
-To capture this, we need to modify our flashcard to remember that a masculine dog is "chien," and a feminine dog is "chienne." Let's create new flashcards:
+One picture made a card with several connections. Now the word "dog" also recalls that French calls a dog "chien". But French has grammatical gender, which groups words into classes that change their form. A male dog is "chien" and a female dog is "chienne". A first attempt puts both on one card.
 
 ```mermaid
 graph TD
-  Dog --> Chien["Chien<br/>🐕 ♂️"]
-  Dog --> Chienne["Chienne<br/>🐕 ♀️"]
+  Dog --> Chien["Chien<br/>(dog picture, male)"]
+  Dog --> Chienne["Chienne<br/>(dog picture, female)"]
 ```
 
-Now we have a flashcard containing both concepts. However, this isn't entirely efficient. When the activator neuron for "Dog" is triggered, you'll relate it to both "chien" and "chienne," which could blur the distinction between them. Here's how this neuron mapping looks:
+This card holds both concepts, but it is not efficient. The word "dog" now activates both "chien" and "chienne", which blurs the difference. The neuron map shows why.
 
 ```mermaid
 graph TD
-  Dog((Dog)) --> Picture(("Dog<br/>🐕"))
-  Dog --> Male(("Male<br/>♂️"))
-  Dog --> Female(("Female<br/>♀️"))
+  Dog((Dog)) --> Picture(("Dog picture"))
+  Dog --> Male(("Male"))
+  Dog --> Female(("Female"))
   Dog --> Chien((Chien))
   Dog --> Chienne((Chienne))
   Picture --> Chien
@@ -191,21 +215,21 @@ graph TD
   Female --> Chienne
 ```
 
-If you're a programmer, you might notice an issue: this is poorly optimized graph, this looks more like a decision tree, when accessing the node Dog we have to evaluate all choices to select which one is the one we are refering to. So with a little bit of reestructuring we can design our flashcards better:
+A programmer sees the problem. This graph acts as a decision tree. To use the node "dog", the brain must test every branch to find the right word. Two cards fix it.
 
 ```mermaid
 graph TD
-  Dog_Male["Dog<br/>♂️"] --> Picture_Chien["Chien<br/>🐕"]
-  Dog_Female["Dog<br/>♀️"] --> Picture_Chienne["Chienne<br/>🐕"]
+  Dog_Male["Dog<br/>(male)"] --> Picture_Chien["Chien<br/>(dog picture)"]
+  Dog_Female["Dog<br/>(female)"] --> Picture_Chienne["Chienne<br/>(dog picture)"]
 ```
 
-This is a multi-neuron entry flashcard, which essentially means two flashcards for two different concepts. Now, let's examine the neuron mapping:
+These are two cards with several activators each, one card for each concept. The neuron map is now this.
 
 ```mermaid
 graph TD
-  Dog(("Dog<br/>🐕"))
-  Male(("Male<br/>♂️"))
-  Female(("Female<br/>♀️"))
+  Dog(("Dog"))
+  Male(("Male"))
+  Female(("Female"))
   Chienne((Chienne))
   Chien((Chien))
   Male --> Chien
@@ -214,45 +238,42 @@ graph TD
   Dog --> Chien
 ```
 
-It may look simpler, but this graph is easier to traverse. What's remarkable is that the front of the flashcard can be any activator neuron, and there are no unnecessary connections. When you are exposed to the word "Dog," both "Chien" and "Chienne" neurons will activate. However, if you're exposed to the concept of a female dog, both the "Female" and "Dog" neurons will fire, with "Chienne" being activated more strongly than "Chien," and vice versa. So try to make your flashcards with as many activator neurons as you can, since these will help you optimize your own mind for faster clarity of concepts.
+This graph is easier to traverse. Any activator neuron can be the front, and the graph has no extra connections. The word "dog" activates both "chien" and "chienne". The concept of a female dog fires the "female" and "dog" neurons, so "chienne" activates more strongly than "chien". Give each card as many activator neurons as you can.
 
-## Category mapping
+## Categories
 
-Priority drives review order — vocabulary before models before production — so categories are pedagogically load-bearing, not labels.
+The priority of a category sets the review order: vocabulary first, then models, then production. So a category carries teaching weight. It is more than a label.
 
-| Category                                | Priority | Use for                                                                                  |
-| --------------------------------------- | -------- | ---------------------------------------------------------------------------------------- |
-| Definition, Symbol, Syntax, Terminology | 0        | Irreducible vocabulary: what a term means, a glyph's reading, a construct's surface form |
-| Concept, Example                        | 1        | Why something works, distinctions, tradeoffs; instances of usage                         |
-| Command, Exercise                       | 2        | A shell/tool invocation for a task; multi-step application                               |
+| Category | Priority | Use it for |
+| --- | --- | --- |
+| Definition, Symbol, Syntax, Terminology | 0 | Vocabulary that you cannot split: the meaning of a term, the reading of a glyph, the written form of a construct |
+| Concept, Example | 1 | Why something works, distinctions and tradeoffs, and examples of use |
+| Command, Exercise | 2 | A shell or tool command for a task, and an application with several steps |
 
-Syntax vs. Command: Syntax is a language construct's written form; Command is a tool invocation. Concept vs. Definition: Definition is what a word means, Concept is how or why something behaves.
+Syntax is the written form of a language construct. Command is a tool invocation. Definition is what a word means. Concept is how or why something behaves.
 
-If nothing fits, ask before calling create_category. Categories cannot be deleted, only renamed.
-
-These might change a lot between vaults, since on a vault the prioriy and name are use configurable. So look out for the actual config
+The user can change the names and priorities of the categories, so they differ between vaults. Read the vault's own list with list_categories. If no category fits, ask the user before you call create_category. Nobody can delete a category, only rename it.
 
 ## Volume
 
-Write more cards than feels natural. The instinct to economize is strong and wrong: the quantity of knowledge is fixed by the material, so coarse cards do not reduce what must be learned — they only make it harder to review. An easy card costs roughly 10–30 seconds across an entire first year.
+Write more cards than feels natural. The urge to save cards is strong and wrong. The material fixes the amount of knowledge, so coarse cards do not reduce what the user must learn. They only make it harder to review. An easy card costs about 10 to 30 seconds over its whole first year.
 
-The counterweight is not coarseness but selection. Do not card what the user already knows, and do not card completionistically. A card that no longer serves anything should be deleted, not endured.
+The balance comes from selection, not from coarse cards. Do not card what the user already knows. Do not card everything for the sake of completeness. Delete a card that no longer serves a purpose.
 
-## Mechanics and known gotchas
+## Mechanics and known problems
 
-* Cards created through the MCP server are permanently marked origin: "ai". This is how the user audits provenance — do not work around it.
-* Putting a card in a named deck is a **separate add_to_deck call** after create_flashcard. This is easy to forget and leaves the intended deck empty.
-* backText and answerText store HTML entities literally — > is saved as those four characters, not >. Write the literal character, then read back and fix with update_flashcard if needed. On answerText this is not cosmetic: the stored string is what the typed input is compared against.
-* **Old type_answer cards look answer-less and are not.** A card written before answerText existed reports it as null and still keeps its graded answer in backText. Read null as "old shape", not "empty card", and never overwrite backText on one without first moving its contents into answerText in the same update_flashcard call — otherwise you have deleted the answer and kept nothing.
-* Every card is anchored to its source: path plus highlightHash (both required) ties it to the highlighted passage it came from, which is what makes the vault a graph rather than a pile of cards. There is no document-less or highlight-less card from here.
-* update_flashcard takes the globalHash returned by create_flashcard, plus documentPath for document-anchored cards.
-* 
+- The MCP server marks every card that it creates with origin "ai", and nothing can change that mark. The user audits where cards came from with it. Do not work around it.
+- To put a card in a named deck, call add_to_deck after create_flashcard. If you forget this call, the deck stays empty.
+- backText and answerText store HTML entities as plain text. If you write `&gt;`, the card stores those four characters, not `>`. Write the literal character. Then read the card back and fix it with update_flashcard if needed. In answerText this matters, because the app compares the typed value with the stored string.
+- An old type_answer card looks as if it has no answer, but it has one. A card written before answerText existed reports null for it and keeps its graded answer in backText. Read null as the old shape, not as an empty card. Never overwrite backText on such a card unless you move its text into answerText in the same update_flashcard call. Otherwise you delete the answer.
+- Every card has an anchor in its source. The path and the highlightHash, which create_flashcard both needs, tie the card to its highlighted passage. That anchor makes the vault a graph instead of a pile of cards. From these tools, you cannot make a card without a document or a highlight.
+- update_flashcard takes the globalHash that create_flashcard returned, plus documentPath for an anchored card.
 
 ## Workflow
 
-1. Read the vault (Step 0).
-2. Choose targets from the user's uncarded highlights. For sets over ~10, show the list before drafting. If what they asked for is not highlighted, stop here and ask them to highlight it.
-3. Draft the cards, applying the five properties and both litmus tests to each.
-4. Create them, each with its highlight's path and highlightHash, then add_to_deck when a named deck is wanted — do not skip this.
-5. Read a sample back to verify rendering, especially anything with symbols or escapes.
-6. Report what was made, and flag anything deliberately omitted and why.
+1. Read the vault, as Step 0 says.
+2. Choose targets from the user's highlights without cards. For a set of more than about 10 cards, show the list before you draft. If the user asked for something without a highlight, stop and ask the user to highlight it.
+3. Draft the cards. Check each card against the five properties and both tests.
+4. Create each card with its highlight's path and highlightHash. Then call add_to_deck when the user wants a named deck. Do not skip this step.
+5. Read a sample back to check how it renders, mainly cards with symbols or escape characters.
+6. Report what you made. Name anything that you left out on purpose, and say why.
