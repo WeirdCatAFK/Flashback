@@ -1,11 +1,3 @@
-// Card-removal budget — the volume limit on flashcard deletions through a metadata write.
-//
-// Pure: no vault, no SQLite, no Electron. Runs standalone with
-// `node --test tests/cardRemovalBudget.test.js` even on a tree that has never been built,
-// like tests/sequencing.test.js and tests/safeFetch.test.js.
-//
-// Every case injects `now` rather than sleeping. A rolling window tested with real time is
-// a test that is either slow or flaky, and usually both.
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { check, consume, reset } from '../src/api/access/resources/cardRemovalBudget.js';
@@ -26,8 +18,6 @@ describe('card removal budget', () => {
     });
 
     it('refuses a single request larger than the per-request cap, on an untouched budget', () => {
-        // The case that matters: "delete this document's 200 cards in one call" must fail
-        // even with the whole hourly allowance available, or the cap buys nothing.
         const v = check('acct-a', 200, LIMITS, T0);
         assert.equal(v.allowed, false);
         assert.equal(v.reason, 'per_request');
@@ -35,7 +25,6 @@ describe('card removal budget', () => {
     });
 
     it('names per_request rather than per_hour when both are exceeded', () => {
-        // "Wait an hour" is a misleading answer to a request that is too big at any hour.
         consume('acct-a', 18, T0);
         const v = check('acct-a', 50, LIMITS, T0);
         assert.equal(v.allowed, false);
@@ -73,7 +62,6 @@ describe('card removal budget', () => {
         consume('acct-a', 20, T0);
         assert.equal(check('acct-a', 1, LIMITS, T0 + HOUR - 1000).allowed, false);
 
-        // One millisecond past the window and the whole batch has aged out.
         const after = check('acct-a', 10, LIMITS, T0 + HOUR + 1);
         assert.equal(after.allowed, true);
         assert.equal(after.used, 0);
@@ -84,7 +72,6 @@ describe('card removal budget', () => {
         consume('acct-a', 10, T0);
         consume('acct-a', 10, T0 + (HOUR / 2));
 
-        // Just past the first batch's expiry: the second is still counted.
         const v = check('acct-a', 1, LIMITS, T0 + HOUR + 1);
         assert.equal(v.used, 10);
         assert.equal(v.remaining, 10);
@@ -99,8 +86,6 @@ describe('card removal budget', () => {
     });
 
     it('keeps accounts independent', () => {
-        // A busy collaborator must not spend anyone else's allowance — the budget is per
-        // person, exactly like the schedules and fitted weights it sits beside.
         consume('acct-a', 20, T0);
         assert.equal(check('acct-a', 1, LIMITS, T0).allowed, false);
         assert.equal(check('acct-b', 10, LIMITS, T0).allowed, true);
@@ -113,8 +98,6 @@ describe('card removal budget', () => {
     });
 
     it('treats a zero per-hour limit as closed rather than unlimited', () => {
-        // Fails shut. A limit of zero is a deliberate lockdown, and reading it as
-        // "no limit configured" would invert the operator's intent.
         const v = check('acct-a', 1, { perHour: 0, perRequest: 10 }, T0);
         assert.equal(v.allowed, false);
         assert.equal(v.reason, 'per_hour');

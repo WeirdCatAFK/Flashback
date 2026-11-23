@@ -1,9 +1,3 @@
-// MCP tool integration tests — exercises the MCP server's tool handlers against
-// a real HTTP API (port 0) backed by a real SQLite DB, exactly the way the MCP
-// process talks to the app. Tool handlers are captured with a stub `server`
-// object, so no stdio transport is involved.
-// Run after `npm run tests` has built better-sqlite3 for system Node, or via the
-// full suite. Standalone: node --test tests/mcp.test.js
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -28,22 +22,18 @@ const ROOT = 'McpTestWorkspace';
 const docRel = `${ROOT}/notes.md`;
 const DOC_TEXT = 'The mitochondria is the powerhouse of the cell. Photosynthesis creates glucose from light.';
 
-// Capture every tool handler; mcp/client.js reads FLASHBACK_API_URL lazily, so
-// registering before the API is up is fine.
 const tools = new Map();
 const stub = { registerTool: (name, _def, handler) => tools.set(name, handler) };
 registerReadTools(stub);
 registerWriteTools(stub);
 
-// NOTE: this bypasses the MCP SDK's zod layer, so schema defaults are NOT
-// applied — tests must pass every field they rely on explicitly.
 const call = async (name, args = {}) => {
     const handler = tools.get(name);
     assert.ok(handler, `tool ${name} is registered`);
     const res = await handler(args);
     const text = res.content[0].text;
     let data = null;
-    try { data = JSON.parse(text); } catch { /* error strings aren't JSON */ }
+    try { data = JSON.parse(text); } catch {  }
     return { isError: !!res.isError, text, data };
 };
 
@@ -53,8 +43,6 @@ const cardRow = async (hash) => await db.prepare(`
     WHERE f.global_hash = ?
 `).get(hash);
 
-// Highlights are the user's: the MCP has no tool to make one, so the tests make them
-// the way the app does, through the API. Returns the highlight's id.
 const userHighlight = async (relPath, snippet, extra = {}) => {
     const body = fs.readFileSync(path.join(getWorkspacePath(), relPath), 'utf8');
     const start = body.indexOf(snippet);
@@ -65,26 +53,21 @@ const userHighlight = async (relPath, snippet, extra = {}) => {
     return highlight.id;
 };
 
-// A standalone card, made the way the app makes one — the MCP cannot.
 const userStandaloneCard = async (fields) => (await request('POST', '/api/flashcards', fields)).globalHash;
 
-// Delete through the orchestrator so the DB rows go too. Removing the folder with
-// fs alone leaves orphaned Documents rows behind, and the NEXT run of this file then
-// collides on Documents.global_hash — a rerun has to start from the same clean slate
-// as a first run. fs.rmSync is the fallback for anything not in the index.
 const rmWorkspace = async () => {
-    try { await new Documents().delete(ROOT, true); } catch { /* not indexed */ }
+    try { await new Documents().delete(ROOT, true); } catch {  }
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
 describe('MCP tools', () => {
     let api;
-    let anchoredHash;   // document-anchored card under test
+    let anchoredHash;
     let highlightHash;
-    let docHighlight;   // the user's highlight most tests hang their cards off
+    let docHighlight;
 
     before(async () => {
         if (!await validate()) throw new Error('Validation failed');
@@ -104,7 +87,6 @@ describe('MCP tools', () => {
 
     it('registers the full tool set', () => {
         const expected = [
-            // read
             'get_card_guide',
             'search_flashback', 'list_folder', 'read_document', 'read_document_text', 'get_due_cards',
             'list_book_images', 'view_book_image',
@@ -113,7 +95,6 @@ describe('MCP tools', () => {
             'get_statistics', 'list_cards', 'get_card_overview', 'get_card_health', 'search_content', 'get_links', 'get_recent_changes',
             'list_highlights', 'diary_list', 'diary_get_summary', 'diary_get_entry',
             'get_read_progress', 'list_reading', 'reading_rollup', 'reading_coverage',
-            // write
             'create_flashcard', 'update_flashcard', 'delete_flashcard', 'delete_flashcards',
             'create_document', 'update_document', 'create_folder', 'update_tags',
             'fetch_youtube_transcript',
@@ -137,7 +118,6 @@ describe('MCP tools', () => {
             assert.equal(res.data, null, 'Markdown, not a JSON payload');
             assert.match(res.text, /^# Authoring Flashback cards/);
             assert.match(res.text, /One card, one retrieval/);
-            // Progressive disclosure only works if the model is told the sections exist.
             assert.match(res.text, /## Reference sections/);
             assert.match(res.text, /`knowledge-types`/);
         });
@@ -155,9 +135,6 @@ describe('MCP tools', () => {
             assert.match(res.text, /knowledge-types/);
         });
 
-        // The guide tells the model which tools to call. If a tool is ever renamed or
-        // dropped, the guide silently starts teaching a dead API — so pin it here rather
-        // than discovering it when an assistant follows the instructions and fails.
         it('every MCP tool the guide names is actually registered', async () => {
             const guide = await call('get_card_guide');
             const refs = await call('get_card_guide', { section: 'knowledge-types' });
@@ -262,7 +239,6 @@ describe('MCP tools', () => {
         assert.equal(row.priority, 3);
         assert.equal(typeof row.cards, 'number', 'carries its card count');
 
-        // `level` is the 1-based rank among the distinct priorities, the number the Metadata screen shows.
         const priorities = [...new Set(listed.data.map((c) => c.priority))].sort((a, b) => a - b);
         for (const c of listed.data) assert.equal(c.level, priorities.indexOf(c.priority) + 1, `${c.name} level`);
     });
@@ -323,9 +299,6 @@ describe('MCP tools', () => {
         assert.match(res.text, /Unknown category/);
     });
 
-    // The tool no longer resolves the card itself (it used to fetch the sidecar and
-    // splice the card in the client, which raced every other write to that file) —
-    // the API resolves the hash to its home, so an unknown hash is its 404.
     it('update_flashcard errors clearly when the card does not exist', async () => {
         const res = await call('update_flashcard', {
             globalHash: 'no-such-card-hash', documentPath: docRel, frontText: 'x',
@@ -356,7 +329,6 @@ describe('MCP tools', () => {
     });
 
     it('list_highlights surfaces text, context, and card linkage; MCP cards are marked origin ai', async () => {
-        // Relies on the highlight + anchored card created in the previous test.
         const res = await call('list_highlights', { path: docRel });
         assert.equal(res.isError, false, res.text);
         const hl = res.data.highlights.find((h) => h.id === highlightHash);
@@ -370,14 +342,12 @@ describe('MCP tools', () => {
         assert.equal(uncarded.isError, false, uncarded.text);
         assert.ok(!uncarded.data.highlights.some((h) => h.id === highlightHash), 'uncardedOnly excludes carded highlights');
 
-        // Provenance: the anchored card is origin 'ai' in the sidecar (canonical) and the DB row.
         const read = await call('read_document', { path: docRel, sidecar: 'full' });
         const aiCard = read.data.metadata.flashcards.find((f) => f.vanillaData?.location?.id === highlightHash);
         assert.equal(aiCard.origin, 'ai');
         const row = await db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(aiCard.globalHash);
         assert.equal(row.origin, 'ai');
 
-        // list_cards can slice by provenance so handmade cards can serve as style examples.
         const ai = await call('list_cards', { origin: 'ai', limit: 200 });
         assert.equal(ai.isError, false, ai.text);
         assert.ok(ai.data.cards.some((c) => c.global_hash === aiCard.globalHash));
@@ -735,7 +705,6 @@ describe('MCP tools', () => {
         assert.ok(hit, 'notes.md matched by body text');
         assert.ok(hit.matches >= 1);
         assert.match(hit.snippets[0], /energy currency/);
-        // name-index search does NOT see body text — that's the whole point of the tool
         const indexed = await call('search_flashback', { query: 'energy currency' });
         assert.equal(indexed.data.documents.length, 0);
     });
@@ -774,7 +743,6 @@ describe('MCP tools', () => {
     });
 
     it('get_recent_changes folds a run of identical commits into one counted entry', async () => {
-        // Seal may land two quick writes in one commit, so the run's exact length is not fixed.
         for (const note of ['one', 'two', 'three']) {
             await userHighlight(docRel, 'powerhouse', { color: 'green', note });
         }
@@ -827,16 +795,12 @@ describe('MCP tools', () => {
         }
     });
 
-    // A PDF/EPUB/media document has no readable body. Decoding one used to hand the
-    // assistant megabytes of mojibake; these pin the tools that touch a body, and the
-    // route from "you can't read this" to the tool that can.
     describe('binary documents', () => {
         const scanRel = `${ROOT}/scan.pdf`;
         const bookRel = `${ROOT}/book.pdf`;
         const epubRel = `${ROOT}/book.epub`;
         const ytRel = `${ROOT}/talk.youtube`;
         const bareRel = `${ROOT}/bare.youtube`;
-        // No text layer and unparseable — stands in for a scanned document.
         const scanBytes = Buffer.concat([
             Buffer.from('%PDF-1.4\n'),
             Buffer.from([0x00, 0x01, 0x02, 0x00]),
@@ -865,8 +829,6 @@ describe('MCP tools', () => {
                 { href: 'images/fig1.png' },
                 { href: 'images/fig2.png' },
             ]), {});
-            // Each cue's text exceeds the transcript block cap, so cue == block and the
-            // block starts (0:00, 1:30) are deterministic for `at` addressing.
             const ytFiller = 'detail '.repeat(80);
             await d.importFile('talk.youtube', ROOT, Buffer.from(JSON.stringify({
                 url: 'https://youtu.be/xyz', videoId: 'xyz', title: 'Cells Talk',
@@ -884,9 +846,6 @@ describe('MCP tools', () => {
                 url: 'https://youtu.be/bare', videoId: 'bare', title: 'No Captions',
             })), {});
 
-            // A clip that has been read for a while: a picture and a sound already saved
-            // into the vault (a card was built from each), and one picture still loading
-            // from the site it was clipped from, as every asset starts out.
             await d.importFile('article.clip', ROOT, Buffer.from(
                 '<h1>Birdsong</h1><p>Prose about calls.</p>'
                 + '<figure><img src="./media/clip-aaaaaaaaaaaa.png" alt="A wren"/>'
@@ -902,7 +861,6 @@ describe('MCP tools', () => {
 
         it('read_document returns metadata and guidance instead of decoded bytes', async () => {
             const read = await call('read_document', { path: scanRel });
-            // Not a tool error: the sidecar is still perfectly useful.
             assert.equal(read.isError, false, read.text);
             assert.match(read.text, /binary document/i);
             assert.match(read.text, /list_highlights/, 'points at where the readable substance is');
@@ -930,8 +888,6 @@ describe('MCP tools', () => {
             assert.equal(p2.data.hasMore, false);
         });
 
-        // Read progress. The headline case is the `upTo` bound: an assistant asked to make
-        // cards "for everything I have read" must be unable to reach a page past the mark.
         describe('read progress', () => {
             it('reports nothing before the document has been opened', async () => {
                 const res = await call('get_read_progress', { path: bookRel });
@@ -1005,9 +961,6 @@ describe('MCP tools', () => {
             });
         });
 
-        // A figure is content read_document_text structurally cannot return, and the
-        // only bytes this server hands a model. These pin all three halves: choosing
-        // an image by its metadata, seeing one, and getting one onto a card.
         describe('EPUB images', () => {
             const illRel = `${ROOT}/illustrated.epub`;
 
@@ -1037,14 +990,11 @@ describe('MCP tools', () => {
             });
 
             it('view_book_image returns a real image block, not text', async () => {
-                // call() unwraps content[0].text, which an image block does not have —
-                // go through the handler so the block itself can be inspected.
                 const res = await tools.get('view_book_image')({ path: illRel, href: 'images/fig1.png' });
                 assert.ok(!res.isError, JSON.stringify(res));
                 const block = res.content[0];
                 assert.equal(block.type, 'image');
                 assert.equal(block.mimeType, 'image/png');
-                // buildEpub tints by position, so this is provably the FIRST figure.
                 assert.deepEqual(Buffer.from(block.data, 'base64'), buildPng(1));
             });
 
@@ -1066,15 +1016,12 @@ describe('MCP tools', () => {
                     });
                     assert.equal(res.isError, false, res.text);
                     assert.equal(res.data.type, 'image');
-                    // The book's name plus a short unique suffix, not the bare name.
                     assert.match(res.data.name, /^fig1-[0-9a-f]{8}\.png$/);
 
                     const read = await call('read_document', { path: docRel, sidecar: 'full' });
                     const saved = read.data.metadata.flashcards.find((f) => f.globalHash === card.data.globalHash);
                     assert.ok(saved.vanillaData.media?.front_img, 'the sidecar references it');
 
-                    // The bytes are copied into the CARD's document, not linked back into
-                    // the book — so the card survives the book being deleted.
                     const copied = path.join(
                         getWorkspacePath(), path.dirname(docRel), 'media',
                         path.basename(saved.vanillaData.media.front_img),
@@ -1090,10 +1037,6 @@ describe('MCP tools', () => {
             });
 
             it('attach_book_image puts one figure on several cards in the same document', async () => {
-                // A document's media/ dir is shared by all its cards and
-                // files.addVanillaData refuses to overwrite, so a fixed book name like
-                // "fig1.png" made the second card fail. One diagram feeding several
-                // cards is ordinary use, not an edge case.
                 const cards = [];
                 for (const n of [1, 2]) {
                     const c = await call('create_flashcard', {
@@ -1136,9 +1079,6 @@ describe('MCP tools', () => {
             });
         });
 
-        // The clip half of the same three-tool split. Its one real difference from a
-        // book: these assets are files on disk, so a listing has to say so, and sound
-        // exists at all — which view_clip_image must refuse rather than fumble.
         describe('clip media', () => {
             const clipRel = `${ROOT}/article.clip`;
 
@@ -1188,11 +1128,6 @@ describe('MCP tools', () => {
             });
 
             it('view_clip_image goes and gets an asset still on the web, and says why when it cannot', async () => {
-                // Capturing a clip downloads no media, so most of what list_clip_media
-                // reports is still on the original site. Looking at one saves it into
-                // the vault first — it is no longer a refusal. Here the host does not
-                // exist, so what comes back is that failure rather than the old
-                // "nothing here will fetch it".
                 const res = await call('view_clip_image', { path: clipRel, href: 'https://example.test/remote.png' });
                 assert.equal(res.isError, true);
                 assert.match(res.text, /could not reach|refused/i, res.text);
@@ -1227,8 +1162,6 @@ describe('MCP tools', () => {
             });
 
             it('attach_clip_media routes a sound to the sound slot, not the picture slot', async () => {
-                // The slot follows the bytes rather than a caller-supplied flag: an mp3 in
-                // an image slot would fail silently at review time instead of here.
                 const card = await call('create_flashcard', {
                     path: docRel, highlightHash: docHighlight, cardType: 'basic', frontText: 'Name this call', backText: 'Wren',
                 });
@@ -1251,10 +1184,6 @@ describe('MCP tools', () => {
             });
 
             it('attach_clip_media fetches an asset still on the web on its way to the card', async () => {
-                // Same change of contract as view_clip_image: an asset that is not in
-                // the vault yet is saved into the clip rather than refused. The host in
-                // this fixture does not resolve, so the failure that surfaces is the
-                // download's, not a policy.
                 const res = await call('attach_clip_media', {
                     clipPath: clipRel, href: 'https://example.test/remote.png',
                     documentPath: docRel, flashcardHash: 'whatever', position: 'front',
@@ -1264,8 +1193,6 @@ describe('MCP tools', () => {
             });
 
             it('attach_clip_media still refuses an address that is not in the clip', async () => {
-                // The check that keeps this from being a downloader for any URL on the
-                // internet, writing into the vault under the user's own token.
                 const res = await call('attach_clip_media', {
                     clipPath: clipRel, href: 'https://elsewhere.test/anything.png',
                     documentPath: docRel, flashcardHash: 'whatever', position: 'front',
@@ -1320,10 +1247,6 @@ describe('MCP tools', () => {
         });
     });
 
-    // list_cards reports *that* a card is flagged; get_card_health reports why, so an
-    // assistant can disagree with the verdict instead of acting on a bare kind string.
-    // The classifier itself is exercised in tests/cardHealth.test.js and over HTTP in
-    // tests/api/api.test.js — here we only prove the tool reaches it and shapes the reply.
     it('get_card_health returns no flags for a healthy card', async () => {
         const created = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'health probe Q', backText: 'A' });
         assert.equal(created.isError, false, created.text);
@@ -1348,22 +1271,16 @@ describe('MCP tools', () => {
         if (res.data.cards.length) assert.ok('lapses' in res.data.cards[0]);
     });
 
-    // The MCP client tags requests as `mcp`, so the API's diary privacy gate applies:
-    // every diary tool is refused with a 403 unless the user enables AI diary access
-    // in config.json (Config → AI Assistant). The gate reads the flag fresh from disk.
     it('diary tools are refused until the user enables AI diary access', async () => {
         const cfgPath = path.join(process.cwd(), 'data', 'config.json');
         const original = fs.existsSync(cfgPath) ? fs.readFileSync(cfgPath, 'utf-8') : null;
         const base = original ? JSON.parse(original) : {};
 
-        // Disabled (default): a clean, non-crashing error mentioning it's disabled.
         fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: false }, null, 2));
         const denied = await call('diary_list', {});
         assert.equal(denied.isError, true);
         assert.match(denied.text, /disabled/i);
 
-        // Summaries-only: the day list and summaries are readable, but the personal
-        // written entry is refused with a 403.
         fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: 'summaries' }, null, 2));
         const summariesList = await call('diary_list', {});
         assert.equal(summariesList.isError, false, summariesList.text);
@@ -1373,7 +1290,6 @@ describe('MCP tools', () => {
         assert.equal(blockedEntry.isError, true);
         assert.match(blockedEntry.text, /403/);
 
-        // Enabled (full): reads go through, including the written entry.
         fs.writeFileSync(cfgPath, JSON.stringify({ ...base, mcpDiaryAccess: true }, null, 2));
         try {
             const list = await call('diary_list', {});
@@ -1385,7 +1301,7 @@ describe('MCP tools', () => {
             assert.equal(entry.data.content, '');
 
             const missing = await call('diary_get_summary', { date: '2022-02-02' });
-            assert.equal(missing.isError, true); // no summary that day → clean 404 error
+            assert.equal(missing.isError, true);
             assert.match(missing.text, /404/);
         } finally {
             if (original !== null) fs.writeFileSync(cfgPath, original);

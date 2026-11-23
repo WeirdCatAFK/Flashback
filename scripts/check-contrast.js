@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * Theme contrast regression check.
- *
- * Parses the real token blocks out of src/ui/index.css and asserts every
- * text/background pair the UI actually renders. The pairs below are not a
- * generic accessibility sweep — each one mirrors a specific rule in the CSS,
- * noted alongside it, so a failure points at the declaration that broke.
- *
- * Run: node scripts/check-contrast.js       (exits non-zero on any failure)
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -41,7 +31,6 @@ const contrast = (a, b) => {
   return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
 };
 
-/** Approximates CSS `color-mix(in srgb, a p%, b)`. */
 const mix = (a, b, p) => a.map((c, i) => c * (p / 100) + b[i] * (1 - p / 100));
 
 function parseThemes(css) {
@@ -51,7 +40,7 @@ function parseThemes(css) {
   let block;
   while ((block = blockRe.exec(css))) {
     const name = block[2];
-    if (!name) continue; // the theme-invariant :root scale block
+    if (!name) continue;
     const vars = {};
     const varRe = /(--color-[\w-]+):\s*([^;]+);/g;
     let v;
@@ -78,7 +67,6 @@ function oklab([r, g, b]) {
   ];
 }
 
-// Machado et al. CVD simulation matrices (severity 1.0), applied in linear sRGB.
 const CVD = {
   protan: [
     [0.152286, 1.052583, -0.204868],
@@ -111,7 +99,6 @@ function simulate(rgb, kind) {
   return [0, 1, 2].map((i) => g(M[i][0] * r0 + M[i][1] * g0 + M[i][2] * b0));
 }
 
-/** Perceptual distance in OKLab x100; `kind` null = normal vision. */
 function deltaE(a, b, kind) {
   const [x, y] = [
     oklab(kind ? simulate(a, kind) : a),
@@ -120,7 +107,6 @@ function deltaE(a, b, kind) {
   return 100 * Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]);
 }
 
-/** Resolves a token to rgb, following `var(--x)` indirection. */
 function resolve(vars, token, depth = 0) {
   const raw = vars[token];
   if (!raw || depth > 5) return null;
@@ -129,7 +115,6 @@ function resolve(vars, token, depth = 0) {
   return /^#[0-9a-fA-F]{3,8}$/.test(raw) ? hex2rgb(raw) : null;
 }
 
-// [foreground, background, minRatio, what renders this pair]
 
 const TEXT_PAIRS = [
   ["--color-fg-primary", "--color-bg-base", 4.5, "body text on the window"],
@@ -156,8 +141,6 @@ const TEXT_PAIRS = [
     3,
     "inactive icons on the activity bar",
   ],
-  // The third text level labels and counts beside something that says more; it is
-  // never the only carrier of a fact, so it holds the 3:1 non-text floor.
   ["--color-fg-tertiary", "--color-bg-base", 3, "dimmed labels on the window"],
   ["--color-fg-primary", "--color-bg-desk", 4.5, "the reading strip and the Trainer"],
   ["--color-fg-secondary", "--color-bg-desk", 4.5, "strip actions and Trainer settings"],
@@ -212,7 +195,6 @@ function checkTheme(name, vars, report) {
     if (c < min) fail(`${c.toFixed(2)} < ${min} — ${what} (${fgT} on ${bgT})`);
   }
 
-  // Grade swatches play three roles; all three have to hold at once.
   const surface = get("--color-bg-surface");
   const onReview = get("--color-on-review");
   for (const g of GRADES) {
@@ -236,7 +218,6 @@ function checkTheme(name, vars, report) {
       fail(`${onTint.toFixed(2)} < 4.5 — "${g}" verdict text on its 8% tint`);
   }
 
-  // Highlights are painted behind document text.
   const fg = get("--color-fg-primary");
   for (let i = 1; i <= 4; i++) {
     const hl = get(`--color-hl-${i}`);
@@ -249,8 +230,6 @@ function checkTheme(name, vars, report) {
       fail(`${c.toFixed(2)} < 4.5 — document text on highlight ${i}`);
   }
 
-  // Graph nodes are bare dots on the canvas: each must be visible against it,
-  // and every PAIR must be separable or you cannot read the graph at a glance.
   const canvas = get("--color-bg-base");
   const GRAPH = ["document", "folder", "flashcard", "tag", "deck"];
   const nodes = GRAPH.map((n) => [n, get(`--color-graph-${n}`)]);
@@ -280,7 +259,6 @@ function checkTheme(name, vars, report) {
         );
     }
   }
-  // The link relations that aren't node colours still have to show on the canvas.
   for (const t of ["link", "disconnect", "inherit"]) {
     const c = get(`--color-graph-${t}`);
     if (!c) {
@@ -291,8 +269,6 @@ function checkTheme(name, vars, report) {
     if (ct < 3)
       fail(`${ct.toFixed(2)} < 3 — graph "${t}" link against the canvas`);
   }
-  // Resting links carry no identity, so they only need to read as structure —
-  // visible, but quieter than any node so they never compete with one.
   const edge = get("--color-graph-edge");
   if (!edge) fail("missing --color-graph-edge");
   else {
@@ -311,7 +287,6 @@ function checkTheme(name, vars, report) {
     }
   }
 
-  // A hover state nobody can see is not a hover state.
   const hover = get("--color-bg-hover");
   const base = get("--color-bg-base");
   if (hover && base && surface) {
@@ -325,7 +300,6 @@ function checkTheme(name, vars, report) {
   }
 }
 
-// ── run ─────────────────────────────────────────────────────────────────────
 
 const themes = parseThemes(fs.readFileSync(CSS, "utf8"));
 const names = Object.keys(themes);

@@ -1,7 +1,3 @@
-/**
- * Knowledge-graph data and export helpers — the pure modules under src/ui/views/graph.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildGraphData, applyVisibility, focusedIdsFor, neighborGroupsFor, nodeDisplayName } from '../src/ui/views/graph/graphData.js';

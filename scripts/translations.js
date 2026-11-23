@@ -1,26 +1,4 @@
 #!/usr/bin/env node
-/**
- * Translation workbench.
- *
- *   node scripts/translations.js            # extract, then serve the editor
- *   node scripts/translations.js --check    # report only; exits non-zero if incomplete
- *   node scripts/translations.js --open     # serve and open a browser
- *
- * The English source text is the key, so scripts/translations-extract.js scanning src/ui is
- * the authoritative key list. This tool diffs that list against each pack in
- * src/ui/translations/languages/ and sorts the result into three buckets:
- *
- *   missing — in the source, absent from the pack
- *   stale   — in the pack, gone from the source (English was reworded, or deleted)
- *   done    — both
- *
- * The stale bucket is the point. Natural keys are cheap precisely because there is
- * no en.json to maintain, and the cost of that is that editing an English string
- * orphans its translations. Surfacing them as a worklist turns a silent regression
- * into a chore, which is a trade worth making.
- *
- * Dev-only: nothing here ships in the app bundle.
- */
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -34,10 +12,9 @@ const root       = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const UI_DIR     = path.join(root, 'src/ui');
 const LOCALES    = path.join(root, 'src/ui/translations/languages');
 const EDITOR     = path.join(root, 'scripts/translations-editor.html');
-const EXCLUDE    = ['translations/'];       // the module that defines t() calls no keys
+const EXCLUDE    = ['translations/'];
 const BASE_PORT  = 51330;
 
-// ── Data ──────────────────────────────────────────────────────────────────────
 
 const scan = () => extractTree(UI_DIR, { exclude: EXCLUDE });
 
@@ -54,11 +31,8 @@ function loadPacks() {
 }
 
 function savePack(code, name, entries) {
-  // Keys are written in source order, so a diff of the pack reads like a diff of
-  // the UI rather than an alphabetical reshuffle.
   const ordered = {};
   for (const key of scan().keys.keys()) if (key in entries) ordered[key] = entries[key];
-  // Anything left is stale but deliberately kept — preserve it rather than drop it.
   for (const [key, value] of Object.entries(entries)) if (!(key in ordered)) ordered[key] = value;
 
   const body = { _meta: { code, name }, ...ordered };
@@ -66,7 +40,6 @@ function savePack(code, name, entries) {
   fs.writeFileSync(path.join(LOCALES, `${code}.json`), `${JSON.stringify(body, null, 2)}\n`, 'utf8');
 }
 
-/** Sort a pack's state against the extracted key list. */
 function analyze(keys, pack) {
   const missing = [], done = [];
   for (const key of keys.keys()) (key in pack.entries ? done : missing).push(key);
@@ -74,7 +47,6 @@ function analyze(keys, pack) {
   return { missing, done, stale };
 }
 
-// ── --check ───────────────────────────────────────────────────────────────────
 
 function check() {
   const { keys, violations } = scan();
@@ -118,7 +90,6 @@ function check() {
   }
 }
 
-// ── Editor server ─────────────────────────────────────────────────────────────
 
 const json = (res, code, body) => {
   const payload = JSON.stringify(body);
@@ -190,7 +161,6 @@ function serve(open) {
     const url = `http://127.0.0.1:${port}`;
     console.log(`\n  Translation workbench — ${keys.size} strings\n  ${url}\n\n  Ctrl+C to stop.\n`);
     if (open) {
-      // `start` is a cmd builtin, hence the shell; harmless no-op elsewhere.
       const cmd = process.platform === 'win32' ? ['cmd', ['/c', 'start', '', url]]
         : process.platform === 'darwin' ? ['open', [url]]
           : ['xdg-open', [url]];
@@ -199,7 +169,6 @@ function serve(open) {
   });
 }
 
-// ── Entry ─────────────────────────────────────────────────────────────────────
 
 const args = process.argv.slice(2);
 if (args.includes('--check')) check();

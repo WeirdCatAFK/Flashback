@@ -1,26 +1,3 @@
-/**
- * The renderer's capability map against the API's permission table.
- *
- * `src/shared/roles.js` names what the UI asks before drawing a control ("may this person
- * create documents?"). `src/api/auth/permissions.js` decides what the server actually allows,
- * matched per method and path. Those are two statements of the same policy, and nothing but
- * this file stops them drifting apart.
- *
- * Drift is worse than it sounds because it fails in both directions and neither is loud:
- *
- *   - too permissive → the UI offers a button that answers 403 when pressed;
- *   - too strict     → a control is hidden from someone who was allowed to use it, and they
- *                      have no way to discover that, because nothing appears at all.
- *
- * So every capability records the requests it stands for, and this runs each one through the
- * API's real `requiredRole()` — not a copy of it — and asserts the answers agree.
- *
- * Pure: no database, no HTTP, no filesystem. Like `tests/sequencing.test.js`, it runs without
- * a compiled better-sqlite3.
- *
- * Run: node --test tests/capabilities.test.js
- */
-
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -44,9 +21,6 @@ describe('UI capabilities match the API permission table', () => {
         });
 
         it('only names mounts the API actually serves', () => {
-            // A capability pointing at a mount that does not exist would silently resolve to
-            // AUTHOR through the table's fail-closed default, and the agreement check below
-            // would pass while asserting nothing.
             for (const [name, entry] of Object.entries(CAPABILITIES)) {
                 for (const [mount] of entry.guards) {
                     assert.ok(mount in PERMISSIONS,
@@ -56,7 +30,6 @@ describe('UI capabilities match the API permission table', () => {
         });
     });
 
-    // --- The actual anti-drift assertion ------------------------------------
 
     describe('each capability agrees with the guard', () => {
         for (const [name, entry] of Object.entries(CAPABILITIES)) {
@@ -72,12 +45,9 @@ describe('UI capabilities match the API permission table', () => {
         }
     });
 
-    // --- The property that makes the map usable at all ----------------------
 
     describe('can() and the guard reach the same verdict', () => {
         it('agrees for every role against every capability', () => {
-            // The UI calls can(); the server calls atLeast(role, requiredRole(...)). If those
-            // ever disagree, every control gated by the capability is wrong for that role.
             for (const role of ROLE_ORDER) {
                 for (const [name, entry] of Object.entries(CAPABILITIES)) {
                     const uiSaysYes = can(role, name);
@@ -101,7 +71,6 @@ describe('UI capabilities match the API permission table', () => {
         });
     });
 
-    // --- Coverage: the roles that exist must each be reachable --------------
 
     describe('the map covers the whole ladder', () => {
         it('has at least one capability at every role', () => {

@@ -1,9 +1,3 @@
-/**
- * The Documents screen's pure logic: the file tree's widths and slide-out zone,
- * what a tree row says about a document or folder, and what the finder lists.
- * No DOM, no React.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {

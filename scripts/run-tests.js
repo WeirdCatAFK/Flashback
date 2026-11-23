@@ -1,7 +1,3 @@
-/** Swaps the Electron-compiled better-sqlite3 for a system-Node build, runs every test, then restores.
- * Read the exit code, not the tail — piping through tail/grep replaces the status with the pipe's.
- * Tests write to ./data despite USER_DATA_PATH; rm -rf data before trusting a surprising failure. */
-
 import { execSync, spawnSync } from "child_process";
 import fs from "fs";
 import path from "path";
@@ -69,10 +65,8 @@ function restore() {
     fs.rmSync(releaseDir, { recursive: true, force: true });
 }
 
-// Hide Electron binary
 if (fs.existsSync(debugDir)) fs.renameSync(debugDir, electronDir);
 
-// Build for system Node
 console.log("Building better-sqlite3 for system Node...");
 try {
   execSync("npm rebuild better-sqlite3", { stdio: "inherit", cwd: root });
@@ -81,7 +75,6 @@ try {
   process.exit(1);
 }
 
-// Run tests
 let failed = false;
 for (const testFile of tests) {
   const fullPath = path.join(root, testFile);
@@ -94,7 +87,6 @@ for (const testFile of tests) {
   if (result.status !== 0) failed = true;
 }
 
-// Restore Electron binary
 console.log("\nRestoring Electron build...");
 restore();
 

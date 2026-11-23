@@ -17,18 +17,13 @@ if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
-// Initialize the Orchestrator
 const docs = new Documents();
 const TEST_ROOT = "TestWorkspace";
 
-/**
- * Helper to generate a random hash
- */
 const genHash = () => crypto.randomUUID();
 
 describe('Documents Orchestrator Integration Tests', () => {
 
-    // --- CLEANUP BEFORE & AFTER ---
     const cleanup = () => {
         try {
             const absPath = path.join(getWorkspacePath(), TEST_ROOT);
@@ -52,7 +47,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         }
     });
 
-    // --- 1. FILE SYSTEM STRUCTURE ---
     describe('File System & Hierarchy', () => {
 
         it('should create nested folders correctly', async () => {
@@ -60,11 +54,9 @@ describe('Documents Orchestrator Integration Tests', () => {
             await docs.createFolder('Math', TEST_ROOT);
             await docs.createFolder('Algebra', path.join(TEST_ROOT, 'Math'));
 
-            // Verify in DB
             const existsDB = await docs.exists(folderPath, true, true);
             assert.ok(existsDB, 'Folder should exist in DB');
 
-            // Verify in FS
             const existsFS = await docs.exists(folderPath, false, true);
             assert.ok(existsFS, 'Folder should exist in FileSystem');
         });
@@ -94,38 +86,31 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should move a folder and cascade path updates to children', async () => {
-            // Setup: Move 'Algebra' to 'TestWorkspace' root
             const oldPath = path.join(TEST_ROOT, 'Math', 'Algebra');
             const newPath = path.join(TEST_ROOT, 'Algebra');
 
             await docs.move(oldPath, newPath, true);
 
-            // Verify Folder Move
             assert.ok(await docs.exists(newPath, true, true), 'Folder should exist at new location');
 
-            // Verify Child File Moved (LinEq.md)
             const childPath = path.join(newPath, 'LinEq.md');
             assert.ok(await docs.exists(childPath, true, false), 'Child file path should be updated in DB');
         });
     });
 
-    // --- 2. METADATA & TAG PROPAGATION ---
     describe('Metadata & Tag Inheritance', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         const folderPath = path.join(TEST_ROOT, 'Algebra');
 
         it('should sync tags and propagate from folder to document', async () => {
-            // 1. Add tag to Folder
             const folderMeta = { tags: ['Math', 'Hard'] };
             await docs.updateMetadata(folderPath, folderMeta, true);
 
-            // 2. Add tag to Document
             const docMeta = { tags: ['Equations'], globalHash: genHash() };
             await docs.updateMetadata(docPath, docMeta, false);
 
             const docNode = await db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(docPath);
 
-            // Get all tags connected to doc (direct + inherited)
             const tags = (await await db.prepare(`
                 SELECT t.name FROM Tags t
                 JOIN Connections c ON c.destiny_id = t.node_id
@@ -143,7 +128,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 3. FLASHCARDS & SYNC ---
     describe('Flashcard Synchronization', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         const fcHash1 = genHash();
@@ -172,7 +156,6 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             await docs.updateFile(docPath, content, metadata);
 
-            // Verify in DB
             const count = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards').get()).c;
             assert.ok(count >= 2, 'Should have at least 2 flashcards in DB');
 
@@ -181,7 +164,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should update existing flashcards and delete removed ones', async () => {
-            // Update: Keep fcHash1 (modify it), Remove fcHash2, Add fcHash3
             const fcHash3 = genHash();
             const metadata = {
                 globalHash: genHash(),
@@ -189,7 +171,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 flashcards: [
                     {
                         globalHash: fcHash1,
-                        level: 1, // Changed level
+                        level: 1,
                         lastRecall: new Date().toISOString(),
                         vanillaData: { frontText: "Q1 Modified", backText: "A1" }
                     },
@@ -204,9 +186,6 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             await docs.updateFile(docPath, "# Test Content", metadata);
 
-            // The card already had a schedule, so the level in the incoming sidecar is
-            // ignored — a file cannot move a schedule any more, in either direction. Its
-            // CONTENT is still adopted, which is what the next assertion checks.
             const fc1 = await db.prepare(`
                 SELECT p.level FROM CardProgress p
                 JOIN Flashcards f ON f.global_hash = p.card_hash
@@ -214,17 +193,14 @@ describe('Documents Orchestrator Integration Tests', () => {
             `).get(fcHash1);
             assert.equal(fc1.level, 0, 'the sidecar cannot raise an existing schedule');
 
-            // Verify fcHash2 deleted
             const fc2 = await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash2);
             assert.strictEqual(fc2, undefined, 'Flashcard 2 should be deleted');
 
-            // Verify fcHash3 created
             const fc3 = await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(fcHash3);
             assert.ok(fc3, 'Flashcard 3 should be created');
         });
     });
 
-    // --- 3b. FLASHCARD TYPE PERSISTENCE ---
     describe('Flashcard Type Persistence', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'TypedCards.md');
 
@@ -278,9 +254,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(content.frontText.includes('moon'), 'Content frontText should be updated');
         });
 
-        // A type_answer card compares only its answerText, so the notes in backText must
-        // reach the derived layer as their own column — collapsing them would put the
-        // mnemonic back into what the reviewer has to type.
         it('should store a type_answer card\'s answer and notes separately', async () => {
             const hash = genHash();
             await docs.updateFile(docPath, '# Kana', {
@@ -297,8 +270,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.equal(content.backText, 'Looks like a kayak.');
         });
 
-        // A card written before the split has no answerText at all. Nothing may invent one:
-        // its absence is what tells every reader the answer is still in backText.
         it('should leave a pre-split type_answer card without an answerText', async () => {
             const hash = genHash();
             await docs.updateFile(docPath, '# Kana legacy', {
@@ -315,10 +286,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.equal(content.backText, 'ki', 'the answer stays where the card put it');
         });
 
-        // Forward compatibility, from the other direction: a sidecar written by a build that
-        // has never heard of `answerText` must survive an edit made by this one. If the
-        // orchestrator invented an empty answerText here, the card would stop reading as
-        // pre-split and its answer — still sitting in backText — would become unreachable.
         it('should not invent an answerText when editing a pre-split card', async () => {
             const hash = genHash();
             await docs.updateFile(docPath, '# Kana legacy edit', {
@@ -339,8 +306,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.equal(content.backText, 'ke');
         });
 
-        // Editing through the orchestrator keeps the two fields independent: a card whose
-        // notes change must still be graded against the same answer.
         it('should update a type_answer card\'s notes without touching its answer', async () => {
             const hash = genHash();
             await docs.updateFile(docPath, '# Kana edit', {
@@ -362,7 +327,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 4. SRS & PRESENCE ---
     describe('SRS & Presence', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         let fcHash;
@@ -408,8 +372,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('should return valid Leitner box statistics', async () => {
             const stats = await docs.srs.getLeitnerStats();
 
-            // `total`, not `totalCards`: this is what GET /api/srs/stats has always sent, and
-            // the orchestrator used to disagree with its own route on the name.
             assert.ok(typeof stats.total === 'number', 'total should be a number');
             assert.ok(stats.total > 0, 'Should have at least one card from prior tests');
             assert.ok(typeof stats.mastered === 'number', 'mastered should be a number');
@@ -421,10 +383,9 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 5. SEARCH & GRAPH ---
     describe('Search & Graph', () => {
         it('should find the flashcard by text', async () => {
-            const results = await docs.search('Q1 Modified'); // Text set in previous test
+            const results = await docs.search('Q1 Modified');
             assert.ok(results.length > 0, 'Should return search results');
             assert.equal(results[0].type, 'flashcard');
         });
@@ -478,7 +439,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 6. PACKAGE IMPORT (EXTERNAL COURSES) ---
     describe('Package Import', () => {
         const pkgName = "DummyCourse";
         const externalPath = path.join(process.cwd(), pkgName);
@@ -540,8 +500,6 @@ describe('Documents Orchestrator Integration Tests', () => {
                 WHERE f.document_id = ?
             `).get(docEntry.id);
             assert.ok(flashcard, "Flashcard should be imported");
-            // A sanitized import leaves no progress row at all, which reads identically to
-            // level 0 everywhere in the app — hence the COALESCE rather than an is-null check.
             assert.equal(flashcard.level, 0, "Flashcard level should be reset to 0");
             assert.notEqual(flashcard.global_hash, "original-card-hash", "Flashcard hash should be regenerated");
 
@@ -550,15 +508,12 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             const mediaRel = path.join(importedRootRel, "media", "cell_diagram.png");
             
-            // Check file system
             assert.ok(await docs.files.exists(mediaRel), "Media file should be copied to workspace");
-            // Check DB registry
             const mediaEntry = await db.prepare('SELECT * FROM Media WHERE relative_path = ?').get(mediaRel);
             assert.ok(mediaEntry, "Media file should be registered in the Media table");
         });
     });
 
-    // --- 7. ZIP PACKAGE IMPORT ---
     describe('Zip Package Processing', () => {
         const zipName = "CourseArchive.zip";
         const zipPath = path.join(process.cwd(), zipName);
@@ -607,14 +562,11 @@ describe('Documents Orchestrator Integration Tests', () => {
                 WHERE f.document_id = ?
             `).get(fileExists.id);
             assert.ok(dbCard, "Flashcard from zip should be imported");
-            // No progress row at all is the same statement as level 0 — a sanitized import
-            // must leave the card looking untouched either way.
             assert.equal(dbCard.level, 0, "Flashcard level should be reset to 0");
             assert.notEqual(dbCard.global_hash, "old-card-hash", "Flashcard hash should be regenerated");
         });
     });
 
-    // --- 7b. SEARCH (EXTENDED) ---
     describe('Search — extended', () => {
         it('should find a document by name', async () => {
             const results = await docs.search('LinEq');
@@ -638,7 +590,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 8. PACKAGE EXPORT ---
     describe('Package Export', () => {
         const exportFolder = "ExportTest";
 
@@ -683,10 +634,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 9. DELETION & CASCADE ---
-    // A sidecar is written through a temporary sibling and a rename, so a full disk or quota
-    // (the ENOSPC a hosted vault hits at its ZFS cap) leaves the PREVIOUS sidecar on disk —
-    // never a truncated one, which the next read would report as corrupt.
     describe('Atomic sidecar writes', () => {
         const docRel = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         const sidecarOf = (rel) => `${path.join(getWorkspacePath(), rel)}.flashback`;
@@ -748,7 +695,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should cascade-delete documents and flashcards when a folder is deleted', async () => {
-            // Re-create the file so we have something to cascade-delete
             await docs.createFile(fileName, subFolderPath);
             await docs.updateFile(filePath, '# Delete me', {
                 globalHash: crypto.randomUUID(),
@@ -778,7 +724,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // --- 10. FILE UTILITIES ---
     describe('File Utilities', () => {
         const existingDoc = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
 
@@ -790,9 +735,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(result.size > 0, 'size is reported');
         });
 
-        // Decoding a PDF/image through iconv yields mojibake nobody can use — the
-        // renderers take those bytes from /api/documents/raw instead. readFile says
-        // so rather than pretending the file is text.
         it('should flag a binary file instead of decoding it, and refuse a text overwrite', async () => {
             const binRel = path.join(TEST_ROOT, 'Algebra', 'scan.pdf');
             const bytes = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from([0x00, 0x01]), Buffer.alloc(512, 0xa7)]);
@@ -839,18 +781,15 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(Array.isArray(result), 'copy() should return an array of created items');
             assert.equal(result[0].globalHash, destMeta.globalHash, 'Returned item globalHash should match the new sidecar');
 
-            // Cleanup — filesystem only; Files.copy() is a primitive, DB is not involved
             await docs.files.delete(destPath, false);
         });
     });
 
-    // --- 11. DOCUMENTS.COPY() ---
     describe('Copy Operations', () => {
         const srcPath = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
         const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy_Orchestrated.md');
 
         before(async () => {
-            // Defensive cleanup in case a previous interrupted run left the file
             try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch {}
         });
 
@@ -864,27 +803,22 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             await docs.copy(srcPath, destPath, false);
 
-            // Filesystem
             assert.ok(await docs.files.exists(destPath), 'Copy should exist on filesystem');
             assert.ok(await docs.files.exists(srcPath), 'Original should still exist');
 
-            // DB record
             const destDoc = await docs.exists(destPath, true, false);
             assert.ok(destDoc, 'Copy should be registered in the DB');
             assert.notEqual(destDoc.global_hash, srcMeta.globalHash, 'Copy must have a distinct globalHash in DB');
 
-            // Flashcards carried over
             const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(destDoc.id)).c;
             assert.ok(fcCount > 0, 'Copied flashcards should be inserted into the DB');
 
-            // Seal commit — compare HEAD OID so depth limit doesn't affect the check
             const afterLog = await sealTools.log(1);
             assert.notEqual(afterLog[0]?.oid, beforeHead, 'Documents.copy() should produce a new Seal commit');
             assert.ok(afterLog[0].commit.message.startsWith('create:'), 'Seal commit for a copy should be a create');
         });
     });
 
-    // --- 12. DOCUMENT LINKS ---
     describe('Document Links', () => {
         const linksRoot = path.join(TEST_ROOT, 'LinksTest');
         let sourceHash, targetHash, sourceRelPath, targetRelPath;
@@ -934,7 +868,6 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('removes a link Connection when the link is removed from the file', async () => {
-            // Re-establish the known link
             await docs.updateFile(sourceRelPath, `See [target](flashback://${targetHash}).`, null);
             const sourceDoc = await docs.query.getDocumentByPath(sourceRelPath);
             const targetDoc = await docs.query.getDocumentByHash(targetHash);
@@ -944,7 +877,6 @@ describe('Documents Orchestrator Integration Tests', () => {
             ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
             assert.ok(connBefore, 'Connection should exist before removal');
 
-            // Now save without the link
             await docs.updateFile(sourceRelPath, '# No links here.', null);
             const connAfter = await db.prepare(
                 'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
@@ -961,23 +893,15 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(linkEdge, 'getGraphData() should include at least one link-type edge');
         });
 
-        // Regression: importFile sealed the sidecar with a non-debounced create
-        // commit, then syncDocumentLinks rewrote the sidecar's links array afterward
-        // without sealing — so every imported document that contained a flashback://
-        // link showed up as permanent out-of-band drift (hit hard by bulk imports:
-        // Obsidian, subscriptions, the seed script). The links write must now happen
-        // before the seal; once edits are flushed, inspect() must report it clean.
         it('leaves no out-of-band drift after importing a linked document', async () => {
             await docs.importFile('linktarget.md', linksRoot, '# Target', {});
             const tHash = docs.files.getMetadata(path.join(linksRoot, 'linktarget.md')).globalHash;
             await docs.importFile('linksource.md', linksRoot, `See [t](flashback://${tHash}).`, {});
             await sealEmitter.flushEdits();
 
-            // The parsed link must have been folded into the sealed sidecar...
             const sidecar = docs.files.getMetadata(path.join(linksRoot, 'linksource.md'));
             assert.equal(sidecar.links?.[0]?.targetHash, tHash, 'imported sidecar should record the link');
 
-            // ...so once edits are flushed, the sidecar is NOT reported as drift.
             const drift = await sealTools.inspect();
             const dirty = [...drift.added, ...drift.modified, ...drift.deleted];
             assert.ok(
@@ -987,19 +911,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
     });
 
-    // ── Metadata writes cannot be used to clear a document ────────────────────
-    //
-    // PUT /api/documents/metadata is a COLLABORATOR route, because highlights, tags and
-    // cards all live in the sidecar and annotating IS a metadata write. But the write
-    // replaces the whole object and _syncDocumentFlashcards deletes every card missing
-    // from what arrives, so `{"flashcards": []}` erased a document's entire card set —
-    // canonical file and index together — from a role meant to annotate, not reshape.
-    //
-    // Removing a card stays allowed; the volume is bounded. Acted out through
-    // runWithAccount, which is exactly what auth/authenticate.js does per request.
     describe('Card removal budget', () => {
-        // path.join, not a template literal: relative paths are stored with the platform
-        // separator, so a forward-slash spelling misses every DB lookup on Windows.
         const BUDGET_ROOT = path.join(TEST_ROOT, 'BudgetTest');
         const DOC = path.join(BUDGET_ROOT, 'deck.md');
         const collaborator = { id: 'collab-budget-test', name: 'Sam', role: 'collaborator' };
@@ -1049,8 +961,6 @@ describe('Documents Orchestrator Integration Tests', () => {
                 },
             );
 
-            // The refusal has to land BEFORE writeMetadata: a sidecar overwritten and then
-            // "rolled back" is a sidecar that is gone.
             assert.equal(sidecarCards().length, before, 'the sidecar must be untouched');
             const inDb = await docs.query.getFlashcardsByDocument(
                 (await docs.query.getDocumentByPath(DOC)).id, 'owner');
@@ -1059,7 +969,6 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('exhausts the hourly allowance across several small writes', async () => {
             budget.reset();
-            // Default is 20/hour, 10/request. Four batches of five spends it exactly.
             for (let i = 0; i < 4; i++) {
                 await runWithAccount(collaborator, () =>
                     docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(5) }));
@@ -1093,9 +1002,6 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             const after = docs.files.getMetadata(DOC);
             assert.equal(after.globalHash, real.globalHash, 'globalHash is immutable once assigned');
-            // This fixture's sidecar carries no createdBy, which is the case a conditional
-            // "only overwrite what is already there" quietly let through. Absent is the
-            // honest answer; the client's claim is not.
             assert.equal(after.createdBy, real.createdBy, 'createdBy mirrors disk, absent included');
             assert.notEqual(after.createdBy, 'somebody else');
             assert.deepEqual(after.tags, ['annotated'], 'the legitimate part of the write still lands');

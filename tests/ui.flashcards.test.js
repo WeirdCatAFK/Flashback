@@ -1,9 +1,3 @@
-/**
- * The Flashcards catalogue's and the Decks screen's pure logic: the source tree,
- * the request a view makes, when a card comes due, where group headers fall in a
- * page, and a deck's colour and caption. No DOM, no React.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import {

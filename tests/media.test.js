@@ -62,7 +62,6 @@ describe('Media & Binary Operations', () => {
     });
 
     after(() => {
-        // DB and data teardown deferred to the move/copy suite's after()
     });
 
     it('should attach an image file to a flashcard (Manual/Low-level)', async () => {
@@ -143,12 +142,6 @@ describe('Media & Binary Operations', () => {
         assert.equal(fs.existsSync(failPath), false, "File should not be written on logic error");
     });
 
-    // A media NAME is a plain file name, never a path. It is joined onto the document's own
-    // media/ directory AND written into the sidecar as `./media/<name>`, so a name carrying a
-    // separator either escapes the vault or leaves the file and its reference out of step.
-    // Both write paths and the delete path used to build that path themselves, each slightly
-    // differently — the delete one with path.resolve, which abandons its base entirely for an
-    // absolute name while the check above it used path.join, which does not.
     it('refuses a media name that is a path rather than a file name', async () => {
         const docName = "TraversalGuard.md";
         const fcHash = "traversal-card-1";
@@ -166,7 +159,7 @@ describe('Media & Binary Operations', () => {
             '../traversal-escape.txt',
             path.join('..', '..', '..', 'traversal-escape.txt'),
             'nested/name.png',
-            'nested\\name.png',   // a Windows separator, on any platform: vaults are portable
+            'nested\\name.png',
             '..',
             '',
         ];
@@ -192,10 +185,6 @@ describe('Media & Binary Operations', () => {
         const relPath = path.join(TEST_ROOT, docName);
         await docs.createFile(docName, TEST_ROOT);
 
-        // A real file outside the workspace, of the kind path.resolve(dir, "media", name)
-        // used to unlink: the guard above it computed a DIFFERENT path with path.join, which
-        // flattens an absolute segment instead of jumping to it — so the check passed and
-        // the delete landed somewhere else entirely.
         const bystander = path.join(path.dirname(getWorkspacePath()), 'delete-guard-bystander.txt');
         fs.writeFileSync(bystander, 'do not delete me');
         try {
@@ -271,16 +260,13 @@ describe('Media & Binary Operations', () => {
             [{ buffer: imgBuffer, originalName: "front.png", type: "image", position: "front" }]
         );
 
-        // Returned card carries an API-assigned hash and the media reference.
         assert.ok(card.globalHash, "Created card should have an API-assigned globalHash");
         assert.match(card.vanillaData.media.front_img, /^\.\/media\/front-[0-9a-f]{8}\.png$/, "front_img should reference the generated media name");
 
-        // Media file is on disk under the generated name.
         const mediaName = card.vanillaData.media.front_img.replace('./media/', '');
         const mediaPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.ok(fs.existsSync(mediaPath), "Generated media file should exist on disk");
 
-        // Derived layer: media + flashcard rows registered.
         const mediaEntry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
         assert.ok(mediaEntry, "Media table should have an entry for the attached file");
         const fcRow = await db.prepare('SELECT * FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
@@ -288,11 +274,9 @@ describe('Media & Binary Operations', () => {
     });
 
     it('should remove a custom media file and clean up all sidecar references', async () => {
-        // Reuse the orchestrated doc from test 2; diagram.png was added as customData there
         const relPath = path.join(TEST_ROOT, "OrchestratedMedia.md");
         const mediaName = "diagram.png";
 
-        // Verify precondition: file and sidecar reference both exist
         const metaBefore = docs.files.getMetadata(relPath);
         const cardBefore = metaBefore.flashcards[0];
         assert.ok(cardBefore.customData?.media?.diagram, "Precondition: sidecar should reference diagram before removal");
@@ -317,7 +301,6 @@ describe('Media Orchestrator', () => {
     });
 
     after(() => {
-        // DB and data teardown deferred to the move/copy suite's after()
     });
 
     it('should add vanilla media: write file, update sidecar, register in DB, and fire a Seal commit', async () => {
@@ -337,21 +320,17 @@ describe('Media Orchestrator', () => {
 
         await media.addVanillaMedia(relPath, fcHash, audioBuffer, audioName, "sound", "front");
 
-        // File on disk
         const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.ok(fs.existsSync(audioPath), "Audio file should be written to disk");
 
-        // Sidecar updated
         const meta = docs.files.getMetadata(relPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_sound, `./media/${audioName}`, "Sidecar front_sound should be set");
 
-        // DB entry
         const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
         assert.ok(entry, "Media table should have an entry");
         assert.equal(entry.hash, expectedHash, "DB hash should match SHA256 of the buffer");
         assert.ok(entry.absolute_path.endsWith(audioName), "DB absolute_path should reference the file");
 
-        // Seal commit
         await sealEmitter.flushEdits();
         const afterLog = await sealTools.log(1);
         assert.notEqual(afterLog[0]?.oid, beforeHead, "addVanillaMedia should produce a new Seal commit");
@@ -359,7 +338,6 @@ describe('Media Orchestrator', () => {
     });
 
     it('should serve a registered media file by hash', async () => {
-        // Use the audio file registered in the previous test
         const audioBuffer = Buffer.from("orchestrated-audio-data");
         const hash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
 
@@ -370,8 +348,6 @@ describe('Media Orchestrator', () => {
     });
 
     it('should throw from serve() when the hash is unknown', async () => {
-        // assert.rejects, not assert.throws: serve() reads the database, which is async now,
-        // so the failure arrives as a rejected promise rather than a synchronous throw.
         await assert.rejects(
             async () => await media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
             /Media not found/
@@ -401,19 +377,15 @@ describe('Media Orchestrator', () => {
 
         await media.removeMedia(relPath, audioName);
 
-        // File gone
         const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.equal(fs.existsSync(audioPath), false, "Media file should be deleted from disk");
 
-        // Sidecar cleaned
         const meta = docs.files.getMetadata(relPath);
         assert.ok(!meta.flashcards[0].vanillaData?.media?.front_sound, "Sidecar front_sound reference should be removed");
 
-        // DB entry gone
         const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
         assert.equal(entry, undefined, "DB entry should be deleted");
 
-        // Seal commit
         await sealEmitter.flushEdits();
         const afterLog = await sealTools.log(1);
         assert.notEqual(afterLog[0]?.oid, beforeHead, "removeMedia should produce a new Seal commit");
@@ -421,13 +393,11 @@ describe('Media Orchestrator', () => {
     });
 
     it('should reconcile: remove DB entries for missing files, leave existing ones intact', async () => {
-        // Register a phantom entry directly in the DB (file never written to disk)
         const phantomHash = "deadbeef".repeat(8);
         const phantomAbs = path.join(getWorkspacePath(),ORCH_ROOT, 'media', 'ghost.png');
         await db.prepare('INSERT INTO Media (hash, name, relative_path, absolute_path) VALUES (?, ?, ?, ?)')
             .run(phantomHash, 'ghost.png', path.join(ORCH_ROOT, 'media', 'ghost.png'), phantomAbs);
 
-        // Add a real file to the DB so we can confirm it survives reconciliation
         const realBuffer = Buffer.from("real-media-data");
         const realName = "real-for-reconcile.png";
         const realRelPath = path.join(ORCH_ROOT, "VanillaOrchestrated.md");
@@ -446,9 +416,6 @@ describe('Media Orchestrator', () => {
     });
 });
 
-// Media is stored per-folder at `<dirname(doc)>/media/<name>` and referenced by
-// cards as the folder-relative `./media/<name>`. Moving a document to another
-// folder therefore re-points every one of its refs unless the media travels too.
 describe('Media follows its document across a move or copy', () => {
     const MOVE_ROOT = "MediaMoveWorkspace";
     const SRC = path.join(MOVE_ROOT, "src");
@@ -457,7 +424,6 @@ describe('Media follows its document across a move or copy', () => {
     const absMedia = (folderRel, name) =>
         path.join(getWorkspacePath(), folderRel, 'media', name);
 
-    // Creates a document in `folderRel` with one vanilla card holding `name` as its front image.
     const makeCardWithImage = async (folderRel, docName, cardHash, name, buffer) => {
         const relPath = path.join(folderRel, docName);
         await docs.createFile(docName, folderRel);
@@ -505,7 +471,6 @@ describe('Media follows its document across a move or copy', () => {
             "carried media must keep its bytes"
         );
 
-        // The ref itself is folder-relative and unchanged, so it now resolves again.
         const meta = docs.files.getMetadata(destPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
     });
@@ -527,7 +492,6 @@ describe('Media follows its document across a move or copy', () => {
         const buffer = Buffer.from("shared-figure-bytes");
         const movingPath = await makeCardWithImage(SRC, "Mover.md", "move-shared-1", name, buffer);
 
-        // A second document in the same folder pointing at the very same file.
         const stayingPath = path.join(SRC, "Stayer.md");
         await docs.createFile("Stayer.md", SRC);
         await docs.updateFile(stayingPath, '# stays', {
@@ -549,8 +513,6 @@ describe('Media follows its document across a move or copy', () => {
         );
     });
 
-    // Copy has the same folder-relative ref problem as move, minus the cleanup half:
-    // the original keeps its media, so the destination needs its own copy.
     it('copies the media alongside a document copied into another folder', async () => {
         const name = "copyable.png";
         const buffer = Buffer.from("copyable-bytes");
@@ -578,17 +540,14 @@ describe('Media follows its document across a move or copy', () => {
             fs.existsSync(absMedia(SRC, name)),
             "a copy must never remove media from the source folder"
         );
-        // The original document still resolves its own ref.
         const meta = docs.files.getMetadata(relPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
     });
 
     it('copies media for a document duplicated under an auto-renamed name', async () => {
-        // Copying onto an existing name makes Files.copy pick a free one; the media
-        // still has to land in the folder the copy actually ended up in.
         const name = "collide.png";
         const relPath = await makeCardWithImage(SRC, "Collide.md", "copy-3", name, Buffer.from("collide-bytes"));
-        await docs.createFile("Collide.md", DEST);   // occupy the destination name
+        await docs.createFile("Collide.md", DEST);
 
         await docs.copy(relPath, path.join(DEST, "Collide.md"));
 
@@ -618,8 +577,6 @@ describe('Media follows its document across a move or copy', () => {
         );
     });
 
-    // A folder carries its own media/ dir along on disk, so the files stay resolvable.
-    // The derived index is what goes stale, which breaks hash-served media.
     it('re-points the Media table when the owning folder itself moves', async () => {
         const name = "in-folder.png";
         const buffer = Buffer.from("in-folder-bytes");

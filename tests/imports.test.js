@@ -15,9 +15,6 @@ import zlib from 'node:zlib';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_imports');
 
-// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
-// crashed run leaves it behind and the next run then imports into a vault that already has
-// the documents it is about to assert on.
 fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
 
 if (!await validate()) {
@@ -25,7 +22,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-/** Build a minimal legacy-format Anki SQLite DB in memory, write to disk, and return the path. */
 function buildAnkiDb(filePath, { decks, models, notes, cards }) {
     const ankiDb = new BetterSQLite(filePath);
     ankiDb.exec(`
@@ -52,7 +48,6 @@ function buildAnkiDb(filePath, { decks, models, notes, cards }) {
     ankiDb.close();
 }
 
-/** Pack a DB file (and optional media) into an in-memory .apkg ZIP buffer. */
 function buildApkg(dbPath, dbName = 'collection.anki21', extraFiles = {}) {
     const zip = new AdmZip();
     zip.addLocalFile(dbPath, '', dbName);
@@ -60,13 +55,6 @@ function buildApkg(dbPath, dbName = 'collection.anki21', extraFiles = {}) {
     return zip.toBuffer();
 }
 
-/* ------------------------------------------------------------------ *
- * Modern (Anki 2.1.50+) package fixtures
- *
- * The default export format since April 2022: schema 15+ tables instead of the
- * `col` JSON blob, notetype/template/field settings as protobuf in a `config`
- * BLOB, and zstd over the collection, the media map, and every media file.
- * ------------------------------------------------------------------ */
 
 function pbVarint(value) {
     const bytes = [];
@@ -84,8 +72,6 @@ const pbUint = (fieldNo, value) => Buffer.concat([pbTag(fieldNo, 0), pbVarint(va
 const pbBytes = (fieldNo, buf) => Buffer.concat([pbTag(fieldNo, 2), pbVarint(buf.length), buf]);
 const pbString = (fieldNo, str) => pbBytes(fieldNo, Buffer.from(str, 'utf-8'));
 
-// proto3 omits fields at their default value on the wire, so the fixtures do too —
-// that is what makes `kind` absent for a normal notetype in a real export.
 const notetypeConfig = ({ kind = 0, sortf = 0, css = '' }) => Buffer.concat([
     kind ? pbUint(1, kind) : Buffer.alloc(0),
     sortf ? pbUint(2, sortf) : Buffer.alloc(0),
@@ -98,7 +84,6 @@ const templateConfig = (qfmt, afmt) => Buffer.concat([
 const fieldConfig = (description = '') =>
     (description ? pbString(5, description) : Buffer.alloc(0));
 
-/** Build a schema-18-shaped Anki collection with protobuf config blobs. */
 function buildModernAnkiDb(filePath, { decks, notetypes, notes, cards }) {
     const ankiDb = new BetterSQLite(filePath);
     ankiDb.exec(`
@@ -135,7 +120,6 @@ function buildModernAnkiDb(filePath, { decks, notetypes, notes, cards }) {
     const deckStmt = ankiDb.prepare(
         'INSERT INTO decks (id, name, mtime_secs, usn, common, kind) VALUES (?, ?, 0, 0, ?, ?)'
     );
-    // Schema 15+ joins nested deck components with \x1f, not "::".
     for (const d of decks) deckStmt.run(d.id, d.name, Buffer.alloc(0), Buffer.alloc(0));
 
     const ntStmt = ankiDb.prepare(
@@ -158,14 +142,9 @@ function buildModernAnkiDb(filePath, { decks, notetypes, notes, cards }) {
     ankiDb.close();
 }
 
-/**
- * Pack a modern .apkg: `meta` declaring version 3, a zstd collection, a zstd
- * protobuf media map, and zstd media files.
- * @param {Array<{name: string, data: Buffer}>} media
- */
 function buildModernApkg(dbPath, media = []) {
     const zip = new AdmZip();
-    zip.addFile('meta', pbUint(1, 3)); // PackageMetadata.version = VERSION_LATEST
+    zip.addFile('meta', pbUint(1, 3));
     zip.addFile('collection.anki21b', zlib.zstdCompressSync(fs.readFileSync(dbPath)));
 
     const entries = media.map(m => pbBytes(1, Buffer.concat([
@@ -230,7 +209,7 @@ describe('Importers Integration Tests', () => {
         const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1, 'One card per note');
         assert.equal(entries[0].card_type, 'basic');
-        assert.equal(entries[0].level, 1); // reps=5 → floor(5/3)=1
+        assert.equal(entries[0].level, 1);
         const origin = await importer.query.db.prepare('SELECT origin FROM Flashcards WHERE global_hash = ?').get(entries[0].card_hash);
         assert.equal(origin.origin, 'import', 'an imported card says so, apart from handmade ones');
 
@@ -260,7 +239,6 @@ describe('Importers Integration Tests', () => {
                 },
             },
             notes: [{ id: 3001, guid: 'guid3', mid: 700, flds: 'Capital of France?\x1fParis' }],
-            // Anki emits two cards for one Basic+Reversed note
             cards: [
                 { id: 4001, nid: 3001, did: 200, ord: 0, reps: 3 },
                 { id: 4002, nid: 3001, did: 200, ord: 1, reps: 1 },
@@ -316,15 +294,10 @@ describe('Importers Integration Tests', () => {
         assert.equal(entries.length, 1);
         assert.equal(entries[0].card_type, 'type_answer');
         assert.equal(entries[0].frontText, 'Capital of Germany?');
-        // The {{type:}} field is what Anki grades, so it becomes the compared answer
-        // rather than the back text — which is now free for notes this notetype has none of.
         assert.equal(entries[0].answerText, 'Berlin');
         assert.ok(!entries[0].backText, 'nothing else on the answer side, so no notes');
     });
 
-    // Decks in the Tofugu mould keep their mnemonic in a field of its own. Joining it into
-    // the compared answer makes the card impossible to get right; dropping it loses the
-    // reason the deck was worth importing. It belongs in the notes.
     it('should map a type_answer notetype\'s extra answer-side field to notes, not the answer', async () => {
         const dbPath = path.join(process.cwd(), `temp_anki_typenotes_${Date.now()}.db`);
 
@@ -374,7 +347,6 @@ describe('Importers Integration Tests', () => {
                 },
             },
             notes: [{ id: 7001, guid: 'guid7', mid: 900, flds: 'The {{c1::mitochondria}} is the {{c2::powerhouse}} of the cell.\x1f' }],
-            // Anki generates one card per cloze deletion (c1 and c2 → 2 cards)
             cards: [
                 { id: 8001, nid: 7001, did: 400, ord: 0, reps: 4 },
                 { id: 8002, nid: 7001, did: 400, ord: 1, reps: 2 },
@@ -394,17 +366,11 @@ describe('Importers Integration Tests', () => {
         const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1, 'One Flashback cloze card per note, not per cloze deletion');
         assert.equal(entries[0].card_type, 'cloze');
-        // Anki syntax stripped to Flashback cloze syntax
         assert.ok(entries[0].frontText.includes('{{mitochondria}}'));
         assert.ok(entries[0].frontText.includes('{{powerhouse}}'));
     });
 
     it('should extract real cloze content when the qfmt template wraps {{cloze:Text}} in extra markup', async () => {
-        // Reproduces third-party Anki add-ons (e.g. code-highlighter plugins) that inject
-        // <link>/<script> tags around the cloze placeholder in every card template.
-        // Regression: the field-substitution regex used to treat "cloze:Text" as a literal
-        // field name (only "type:" was special-cased), so {{cloze:Text}} resolved to '' and
-        // the real cloze markup was silently dropped, leaving only the injected HTML noise.
         const dbPath = path.join(process.cwd(), `temp_anki_cloze_wrapped_${Date.now()}.db`);
 
         buildAnkiDb(dbPath, {
@@ -442,13 +408,10 @@ describe('Importers Integration Tests', () => {
     });
 
     it('should import a modern zstd+protobuf package, with media and nested deck names', async () => {
-        // The format Anki exports by default since 2.1.50. Before ankiPackage.js this
-        // threw outright: the collection is a zstd frame, not a SQLite file.
         const dbPath = path.join(process.cwd(), `temp_anki_modern_${Date.now()}.db`);
         const png = Buffer.from('modern_png_payload_unique');
 
         buildModernAnkiDb(dbPath, {
-            // \x1f is how schema 15+ stores "Japanese::Vocabulary"
             decks: [{ id: 500, name: 'Japanese\x1fVocabulary' }],
             notetypes: [{
                 id: 1000, name: 'Japanese Recognition', kind: 0,
@@ -466,7 +429,6 @@ describe('Importers Integration Tests', () => {
         const result = await importer.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
-        // "::" separator restored from \x1f, then sanitised the same way legacy names are
         const deck = await importer.query.db.prepare('SELECT * FROM Decks WHERE name = ?').get('Japanese_Vocabulary');
         assert.ok(deck, 'Nested deck name should round-trip through the \\x1f separator');
 
@@ -482,9 +444,6 @@ describe('Importers Integration Tests', () => {
     });
 
     it('should read cloze kind and {{type:}} out of the protobuf template config', async () => {
-        // Both signals live only in a protobuf BLOB in the modern schema — `notetypes`
-        // has no `kind` column and `templates` no `qfmt` column. Without decoding them
-        // every modern notetype degrades to a positional basic card.
         const dbPath = path.join(process.cwd(), `temp_anki_modern_types_${Date.now()}.db`);
 
         buildModernAnkiDb(dbPath, {
@@ -532,8 +491,6 @@ describe('Importers Integration Tests', () => {
     });
 
     it('should dedupe one asset across a legacy and a zstd package to a single Media row', async () => {
-        // Pins the ordering inside _copyMedia: decompress first, then hash. Hashing the
-        // stored bytes would make the same file look like two different assets.
         const payload = Buffer.from(`shared_asset_${Date.now()}`);
         const importer = new AnkiImport();
 
@@ -619,16 +576,12 @@ describe('Importers Integration Tests', () => {
         assert.equal(nt.suggested.cardType, 'basic');
         assert.deepEqual(nt.suggested.slots.front, ['Expression']);
         assert.deepEqual(nt.suggested.slots.back, ['Meaning']);
-        // A field holding nothing but [sound:] belongs in the audio slot, not appended
-        // to the question text as a literal "[sound:taberu.mp3]".
         assert.deepEqual(nt.suggested.slots.front_sound, ['Audio']);
-        // Referenced by no template → left unassigned for the user to place or drop.
         assert.ok(
             !Object.values(nt.suggested.slots).some(names => names.includes('Notes')),
             'Unreferenced fields stay unassigned'
         );
 
-        // The session survives analyze so the apply phase needs no second upload.
         const applied = await importer.importApkg(null, '', {
             1200: { cardType: 'basic', slots: { front: ['Expression'], back: ['Meaning', 'Notes'], front_sound: ['Audio'] } },
         }, report.sessionId);
@@ -639,15 +592,10 @@ describe('Importers Integration Tests', () => {
         const entries = await importer.query.getDeckEntries(deck.id, 'owner');
         assert.equal(entries.length, 1);
         assert.equal(entries[0].frontText, '食べる');
-        // Two fields into one slot concatenate in the order they were mapped.
         assert.equal(entries[0].backText, 'to eat\n\nichidan verb');
     });
 
     it('should serve session media decompressed so the mapper can preview it', async () => {
-        // The mapping UI has to show images and play sounds *before* importing —
-        // that is how the user decides whether a sound belongs with the question or
-        // the answer. Bytes must come back identical to the originals, out of a zstd
-        // package, without anything being written to the vault.
         const dbPath = path.join(process.cwd(), `temp_anki_sessmedia_${Date.now()}.db`);
         const mp3 = Buffer.from(`audio-payload-${Date.now()}`);
         const png = Buffer.from(`image-payload-${Date.now()}`);
@@ -681,11 +629,9 @@ describe('Importers Integration Tests', () => {
         assert.deepEqual(image.buffer, png);
 
         assert.equal(importer.readSessionMedia(report.sessionId, 'nope.mp3'), null);
-        // Path traversal in the session id must not reach outside the session root.
         assert.equal(importer.readSessionMedia('../../etc', 'neko.mp3'), null);
         assert.equal(importer.readSessionMedia('does-not-exist', 'neko.mp3'), null);
 
-        // Previewing must not have imported anything.
         assert.equal(
             (await importer.query.db.prepare('SELECT COUNT(*) AS n FROM Media WHERE hash = ?')
                 .get(crypto.createHash('sha256').update(mp3).digest('hex'))).n,
@@ -693,7 +639,6 @@ describe('Importers Integration Tests', () => {
             'analyze + preview must not write to the vault'
         );
 
-        // The session is still usable for the real import afterwards.
         const applied = await importer.importApkg(null, '', null, report.sessionId);
         assert.ok(applied.ok);
         assert.equal(applied.imported, 1);
@@ -728,7 +673,6 @@ describe('Importers Integration Tests', () => {
                     front: ['Term'],
                     back: ['Definition', 'Example'],
                     back_img: ['Picture'],
-                    // "Junk" is in no slot at all → dropped
                 },
             },
         });

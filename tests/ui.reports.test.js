@@ -1,9 +1,3 @@
-/**
- * The report screens' pure logic: Statistics (the heatmap's weeks, the gap-band rows),
- * the Diary's month calendar, Metadata's priority levels and tag list, the tag-name rule a
- * vault-wide rename applies, and Server Management's role rules. No DOM, no React.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { HEAT_WEEKS, dayKey, heatDays, bandRows, forecastTotal, heatLevel } from '../src/ui/views/stats/report.js';

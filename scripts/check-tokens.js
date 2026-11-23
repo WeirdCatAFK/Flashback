@@ -1,22 +1,4 @@
 #!/usr/bin/env node
-/**
- * Size-token guard for src/ui CSS.
- *
- * Every stylesheet except index.css must express sizes, durations, easings,
- * colours and stacking through the tokens declared in index.css. This walks each
- * declaration and reports:
- *
- *   px        a px literal outside the hairline/offset properties ui-token-rules
- *             allows (border, outline, transform, background-*, …) and not 0
- *   duration  a ms/s literal in a transition (animations >= 400ms may stay literal)
- *   easing    a cubic-bezier() literal
- *   color     a hex / rgb() / hsl() literal
- *   z-index   a z-index that is not var(--z-*)
- *   undefined var(--x) where --x is declared neither in index.css, nor in the
- *             same file, nor set from JS at runtime
- *
- * Exit 1 on any finding. Run: node scripts/check-tokens.js  (npm run check:tokens)
- */
 
 import path from "node:path";
 import postcss from "postcss";

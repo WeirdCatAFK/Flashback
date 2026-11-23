@@ -18,7 +18,6 @@ if (!await validate()) {
 const docs = new Documents();
 const TEST_ROOT = 'ClipTests';
 
-// 1×1 transparent PNG
 const PNG_BYTES = Buffer.from(
     'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
     'base64',
@@ -28,19 +27,10 @@ const MP3_BYTES = Buffer.from('ID3fake mp3 payload');
 
 const ARTICLE_URL = 'https://example.test/great-article';
 const IMG_URL = 'https://example.test/img/photo.png';
-// A picture whose host always refuses — saving it must fail cleanly and leave the
-// clip exactly as readable as it was.
 const REFUSED_IMG_URL = 'https://example.test/img/refused.png';
-// Sound that saves, an alternative encoding of the same recording that must be
-// dropped when it does, and one too large to be worth pulling into the vault.
 const SND_URL = 'https://example.test/audio/call.mp3';
 const SND_ALT_URL = 'https://example.test/audio/call.ogg';
 const HUGE_SND_URL = 'https://example.test/audio/episode.mp3';
-// A sound published the way most of the web publishes sound: a link to the file, with
-// no <audio> element anywhere. Wikipedia renders every player like this, which is why
-// a page of chords or pronunciations used to look soundless. Beside it sit the two
-// links that must NOT be mistaken for it — the file's description page (whose URL
-// still ends in a media extension) and an ordinary article link.
 const LINKED_SND_URL = 'https://example.test/audio/chord.mp3';
 const FILE_PAGE_URL = 'https://example.test/wiki/File:chord.mid';
 const PROSE_LINK_URL = 'https://example.test/wiki/Chord';
@@ -68,12 +58,8 @@ const ARTICLE_HTML = `<!doctype html><html><head>
   </article>
 </body></html>`;
 
-// Every URL the stub is asked for, in order. Clipping's cost is now a claim the
-// tests make — one request, not forty — so the log is part of the fixture.
 const FETCH_LOG = [];
 
-// Deterministic offline fetch stub covering the article page, its assets, and the
-// YouTube oEmbed endpoint.
 const realFetch = global.fetch;
 function installFetchStub() {
     global.fetch = async (url) => {
@@ -99,12 +85,8 @@ function installFetchStub() {
         if (u === IMG_URL) return bytesResponse(PNG_BYTES, 'image/png');
         if (u === SND_URL || u === SND_ALT_URL) return bytesResponse(MP3_BYTES, 'audio/mpeg');
         if (u === LINKED_SND_URL) return bytesResponse(Buffer.concat([MP3_BYTES, Buffer.from('chord')]), 'audio/mpeg');
-        // The description page a "ⓘ" link points at. It answers with HTML, which is
-        // the last line of defence if such a link is ever mistaken for a recording.
         if (u === FILE_PAGE_URL) return bytesResponse(Buffer.from('<html>a page about a file</html>'), 'text/html; charset=utf-8');
         if (u === HUGE_SND_URL) {
-            // A podcast episode: declares its size and is never buffered. `arrayBuffer`
-            // throws so the test fails loudly if the pre-check is ever removed.
             return {
                 ok: true, status: 200,
                 headers: {
@@ -129,7 +111,7 @@ function bytesResponse(buf, contentType) {
 
 describe('Custom formats: webclip + youtube', () => {
     before(async () => {
-        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch { /* ok */ }
+        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch {  }
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
         installFetchStub();
@@ -208,9 +190,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('costs exactly one request — the page, and nothing else', () => {
-            // The whole point of the change. Downloading a page's assets up front was
-            // both slow and the traffic pattern asset hosts throttle; the article's
-            // pictures and sound now load from their own host as it is read.
             assert.deepEqual(FETCH_LOG, [ARTICLE_URL], 'no asset was requested while clipping');
         });
 
@@ -220,8 +199,6 @@ describe('Custom formats: webclip + youtube', () => {
             assert.ok(content.includes(SND_URL), 'and so does the sound');
             assert.ok(!content.includes('./media/'), 'nothing was rewritten to a local ref');
             assert.ok(/<audio/i.test(content), 'the audio element survives sanitization');
-            // The regression that pins: sanitize-html silently dropping <audio> is what
-            // made a clipped pronunciation vanish before it was allow-listed.
             assert.ok(content.includes(SND_ALT_URL), 'both encodings are offered until one is saved');
         });
 
@@ -231,9 +208,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('finds sound published as a link, and only the links that are sound', async () => {
-            // What the card form's picker offers. A page's sound is very often a link
-            // rather than a player, so a clip that only counted <audio> reported this
-            // article as having one sound when it has two.
             const { media } = await reader.media(relPath);
             const hrefs = media.filter((m) => m.kind === 'audio').map((m) => m.href);
 
@@ -248,12 +222,6 @@ describe('Custom formats: webclip + youtube', () => {
 
     });
 
-    // A clip is named after the page title, so clipping the same article twice would
-    // collide. These share one capture in a folder of its own and assert about it.
-    //
-    // The gesture behind all of this: hovering a picture or a sound in the reader and
-    // putting it on a card. That is the moment an asset is worth a request, and this
-    // is the call it makes.
     describe('saveClipAsset', () => {
         const SAVE_ROOT = `${TEST_ROOT}/saved`;
         const mediaDir = () => docs.files.safePath(path.join(SAVE_ROOT, 'media'));
@@ -274,9 +242,6 @@ describe('Custom formats: webclip + youtube', () => {
             assert.equal(saved.alreadySaved, false);
             assert.match(saved.href, /^\.\/media\/clip-[0-9a-f]{12}\.png$/, 'content-addressed name');
             assert.ok(onDisk().includes(saved.name), 'its bytes are really in the vault');
-            // Spelled with the leading space on purpose: `data-src="…"` ends in
-            // `src="…"`, so a bare substring check would pass on the provenance
-            // attribute alone and prove nothing about what the body loads.
             assert.ok(body().includes(` src="${saved.href}"`), 'the body loads it locally');
             assert.ok(!body().includes(` src="${IMG_URL}"`), 'and no longer from the web');
             assert.ok(body().includes(` data-src="${IMG_URL}"`), 'but remembers where it came from');
@@ -290,8 +255,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('is a no-op the second time, without touching the network', async () => {
-            // What lets every caller — the card form, the MCP tools — call this without
-            // first working out whether the asset is already local.
             const href = body().match(/\.\/media\/clip-[0-9a-f]+\.png/)[0];
             const before = FETCH_LOG.length;
             const again = await docs.saveClipAsset(clipPath, href);
@@ -302,9 +265,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('still answers to the web address it was saved from', async () => {
-            // A reader that has not reloaded still holds the original URL, so building a
-            // second card from a picture already saved must not read as "not part of
-            // this clip". The body keeps that address on the element it rewrote.
             const before = FETCH_LOG.length;
             const again = await docs.saveClipAsset(clipPath, IMG_URL);
 
@@ -314,9 +274,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('saves a sound and drops the alternative encodings', async () => {
-            // A page offering the same recording as mp3 + ogg costs one file, and the
-            // other <source> goes: left in place it lets the browser prefer the one
-            // that still needs the network.
             const saved = await docs.saveClipAsset(clipPath, SND_URL);
 
             assert.equal(saved.kind, 'audio');
@@ -326,16 +283,11 @@ describe('Custom formats: webclip + youtube', () => {
             assert.ok(!onDisk().some((n) => n.endsWith('.ogg')), 'and was never downloaded');
         });
 
-        // The bug this pins: a page can be full of sound and contain no <audio> element
-        // at all. Wikipedia renders every player as `<a href="…mp3">Play</a>`, so a page
-        // of chords or pronunciations looked, to everything here, like text with links.
         it('saves a sound published as a link, and leaves a real player behind', async () => {
             const saved = await docs.saveClipAsset(clipPath, LINKED_SND_URL);
 
             assert.equal(saved.kind, 'audio', 'a link to a sound is a sound');
             assert.ok(onDisk().includes(saved.name), 'its bytes are in the vault');
-            // The anchor is gone and an <audio> stands in its place: the page could
-            // only point at the recording, the clip can play it.
             assert.ok(!body().includes(`href="${LINKED_SND_URL}"`), 'the play link is gone');
             assert.match(body(), /<audio[^>]+ src="\.\/media\/clip-[0-9a-f]+\.mp3"/,
                 'replaced by a player pointing at a local copy');
@@ -345,9 +297,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('does not mistake a file description page for the recording', async () => {
-            // Beside every player link sits a "ⓘ" link to the file's page, whose URL
-            // also ends in a media extension. Treating that as a sound would put a web
-            // page in a card's audio slot.
             await assert.rejects(
                 async () => await docs.saveClipAsset(clipPath, FILE_PAGE_URL),
                 /not part of this clip/i,
@@ -363,8 +312,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('refuses an oversized sound without ever buffering it', async () => {
-            // The stub throws if that response's body is read, so a clean rejection
-            // here is what proves the Content-Length pre-check ran first.
             await assert.rejects(async () => await docs.saveClipAsset(clipPath, HUGE_SND_URL), /larger than/i);
             assert.ok(body().includes(HUGE_SND_URL), 'a 90 MB episode still plays from its own server');
             assert.ok(!onDisk().some((n) => n.includes('episode')), 'nothing was written for it');
@@ -376,8 +323,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('refuses an address that is not part of this clip', async () => {
-            // Without this check the endpoint is a downloader for any URL on the
-            // internet, writing into the vault under the user's own token.
             await assert.rejects(
                 async () => await docs.saveClipAsset(clipPath, 'https://elsewhere.test/anything.png'),
                 /not part of this clip/i,
@@ -386,8 +331,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('seals each save as an edit', async () => {
-            // Edits are debounced (a review session must not produce one commit per
-            // card), so a save that has just happened is still pending.
             await sealEmitter.flushEdits();
             const commits = await sealTools.log();
             assert.ok(
@@ -397,10 +340,6 @@ describe('Custom formats: webclip + youtube', () => {
         });
 
         it('flips the asset from remote to cached for every reader of the clip', async () => {
-            // The other half of the feature: what has been saved is what the card
-            // form's picker and the MCP tools can serve bytes for. What has not been
-            // saved is still listed — it is on the page, and choosing it is what
-            // brings it in.
             const { media } = await reader.media(clipPath);
             const saved = media.filter((m) => m.cached);
             const remote = media.filter((m) => !m.cached);

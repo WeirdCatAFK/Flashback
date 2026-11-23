@@ -1,25 +1,8 @@
 #!/usr/bin/env node
-// scripts/release.js — cut an updater-compatible release.
-//
-//   npm run release            # patch bump (0.1.0 -> 0.1.1)
-//   npm run release -- minor   # minor bump (0.1.0 -> 0.2.0)
-//   npm run release -- major   # major bump
-//   npm run release -- 1.4.2   # explicit version
-//   npm run release -- --dry-run [kind]   # run the checks, print the plan, change nothing
-//
-// Steps: verify a clean tree, bump package.json, commit, create an annotated
-// `vX.Y.Z` tag, and push both. Pushing the tag triggers .github/workflows/release.yml,
-// which builds the installers + update metadata (latest.yml / latest-linux.yml) and
-// uploads them to a DRAFT GitHub Release. Review the draft, then click Publish —
-// electron-updater ignores drafts and prereleases.
-//
-// `--dry-run` exists because of the ordering problem this script has always had: the tag
-// is what triggers the build, so the build's verdict arrives AFTER the tag is public. The
-// Prerelease workflow (.github/workflows/prerelease.yml) closes that by running everything
-// release.yml runs — installers, server image, zips, the suite — on an untagged commit,
-// and it calls THIS script with --dry-run for the version math and the tag guard. One
-// implementation, so CI cannot compute a different next version than the developer does.
-
+/**
+ * Usage: npm run release -- [patch | minor | major | <version>] [--dry-run]
+ * The default is patch. --dry-run prints the plan and changes nothing.
+ */
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -32,7 +15,7 @@ const run = (cmd) => execSync(cmd, { cwd: root, stdio: 'pipe' }).toString().trim
 const runLoud = (cmd) => execSync(cmd, { cwd: root, stdio: 'inherit' });
 
 function bump(version, kind) {
-  if (/^\d+\.\d+\.\d+$/.test(kind)) return kind; // explicit version
+  if (/^\d+\.\d+\.\d+$/.test(kind)) return kind;
   const [major, minor, patch] = version.split('.').map(Number);
   if (kind === 'major') return `${major + 1}.0.0`;
   if (kind === 'minor') return `${major}.${minor + 1}.0`;
@@ -40,9 +23,6 @@ function bump(version, kind) {
   throw new Error(`Unknown bump "${kind}" (use major|minor|patch or an explicit x.y.z)`);
 }
 
-// Flags are filtered out so the bump kind stays positional, exactly as it was: the first
-// non-flag argument, or "patch". `npm run release -- --dry-run minor` and
-// `npm run release -- minor` therefore agree on what "minor" means.
 const args = process.argv.slice(2);
 const dryRun = args.includes('--dry-run');
 const kind = args.find((a) => !a.startsWith('-')) || 'patch';
@@ -58,39 +38,20 @@ try {
 }
 const tag = `v${next}`;
 
-// The checks, collected rather than thrown one at a time. A dry run is asking "is this
-// releasable", and answering with only the first of two problems means two round trips
-// through a workflow that builds three installers.
 const problems = [];
 
-// Refuse to release from a dirty tree — the tag must point at a known-good commit.
 if (run('git status --porcelain')) {
   problems.push('Working tree is not clean. Commit or stash your changes first.');
 }
 
 const allTags = run('git tag').split('\n');
 
-// Guard against re-releasing an existing version.
 if (allTags.includes(tag)) {
   problems.push(`Tag ${tag} already exists.`);
 }
 
-// Guard against releasing BACKWARDS, which the check above cannot see: it only asks whether
-// this exact tag exists, so a package.json that has fallen behind the highest tag produces a
-// brand-new tag for an OLD version and passes.
-//
-// That is not hypothetical here. v0.4.3 is a tag on a commit that contains nothing but its
-// own version bump, and that commit never landed on main — so main's package.json still says
-// 0.4.1 while v0.4.3 is published. A default `npm run release` from that state computes
-// 0.4.2, finds no such tag, and cuts a release older than the one already out. Nothing
-// downstream catches it either: release.yml compares the tag to package.json, and those two
-// agree perfectly.
-//
-// It matters because electron-updater keys everything off the version in latest.yml. A
-// release below the current one is invisible to everybody already on the newer build, and
-// leaves the Releases page out of order.
 const semver = (v) => v.replace(/^v/, '').split('.').map(Number);
-const newer = (a, b) => {                       // a > b
+const newer = (a, b) => {
   const [x, y, z] = semver(a), [p, q, r] = semver(b);
   return x !== p ? x > p : y !== q ? y > q : z > r;
 };
@@ -112,8 +73,6 @@ if (dryRun) {
   console.log(`  next    : ${next}${next === pkg.version ? '  (unchanged — would tag HEAD)' : ''}`);
   console.log(`  tag     : ${tag}`);
 
-  // Advisory, never fatal. The GitHub Release draft body is the release notes;
-  // this just reminds you to write it before publishing.
   console.log(`\n  Write the release body in the GitHub Release draft before publishing.`);
 
   if (problems.length) {
@@ -122,8 +81,6 @@ if (dryRun) {
     process.exit(1);
   }
 
-  // Hand the computed version to the rest of the workflow, so the summary can name the
-  // exact command to run next rather than making someone re-derive it.
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, `version=${next}\ntag=${tag}\n`);
   }
@@ -137,8 +94,6 @@ if (problems.length) {
   process.exit(1);
 }
 
-// If the requested version already matches package.json (e.g. the very first
-// release at the current version), there's nothing to bump — just tag HEAD.
 if (next === pkg.version) {
   console.log(`→ version already ${next}; tagging current commit`);
 } else {

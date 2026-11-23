@@ -1,5 +1,3 @@
-// FSRS-6 math tests — the correctness backstop for the hand-rolled scheduler.
-// Pure functions, no database. Run: node --test tests/fsrs.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
@@ -36,10 +34,7 @@ describe('retrievability', () => {
         for (const S of [5, 20, 100]) {
             for (const r of [0.8, 0.9, 0.95]) {
                 const I = intervalFromStability(S, r);
-                // Skip cases clamped to the 1-day floor: when the ideal interval
-                // is sub-day the round-trip can't hold at day granularity.
                 if (I <= 1) continue;
-                // interval is rounded to whole days, so allow a small tolerance
                 assert.ok(
                     approx(retrievability(I, S), r, 0.03),
                     `S=${S} r=${r}: R(${I},${S})=${retrievability(I, S)}`,
@@ -150,7 +145,6 @@ describe('subsequent reviews', () => {
 
 describe('per-vault optimizer', () => {
     const DAY = 86400000;
-    // Deterministic PRNG so the synthetic history (and thus the fit) is reproducible.
     const mulberry32 = (seed) => () => {
         seed |= 0; seed = (seed + 0x6D2B79F5) | 0;
         let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -158,12 +152,9 @@ describe('per-vault optimizer', () => {
         return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
 
-    // Simulate review logs from a *known* weight vector: outcomes are drawn from
-    // that model's retrievability, so DEFAULT_WEIGHTS is a genuine mismatch the
-    // optimizer can improve on.
     const makeHistory = (trueW, { cards = 60, reviews = 12, seed = 1234 } = {}) => {
         const rng = mulberry32(seed);
-        const gaps = [0, 1, 2, 4, 7, 10, 14, 9, 21, 15, 30, 20, 25]; // days before review i
+        const gaps = [0, 1, 2, 4, 7, 10, 14, 9, 21, 15, 30, 20, 25];
         const base = Date.UTC(2025, 0, 1);
         const rows = [];
         for (let c = 0; c < cards; c++) {
@@ -185,7 +176,7 @@ describe('per-vault optimizer', () => {
     };
 
     it('keeps default weights when there is too little data', () => {
-        const rows = makeHistory(DEFAULT_WEIGHTS, { cards: 5, reviews: 6 }); // 30 < 400
+        const rows = makeHistory(DEFAULT_WEIGHTS, { cards: 5, reviews: 6 });
         const res = optimize(rows);
         assert.equal(res.optimized, false);
         assert.equal(res.reason, 'insufficient-data');
@@ -195,9 +186,9 @@ describe('per-vault optimizer', () => {
 
     it('lowers the loss when the data comes from mismatched weights', () => {
         const trueW = DEFAULT_WEIGHTS.slice();
-        trueW[20] = 0.5;   // decay (default 0.2)
-        trueW[8] = 2.5;    // recall-stability scale
-        trueW[10] = 1.2;   // retrievability term
+        trueW[20] = 0.5;
+        trueW[8] = 2.5;
+        trueW[10] = 1.2;
         const rows = makeHistory(trueW, { cards: 60, reviews: 12 });
 
         const res = optimize(rows);
@@ -227,7 +218,7 @@ describe('same-day (short-term) reviews', () => {
             state: STATE.LEARNING,
             reps: 1,
             lapses: 0,
-            last_review: new Date(Date.now() - 3600 * 1000), // 1h ago
+            last_review: new Date(Date.now() - 3600 * 1000),
         };
         const good = nextState(card, 3, new Date());
         assert.equal(good.state, STATE.LEARNING);

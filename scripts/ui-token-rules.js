@@ -1,12 +1,3 @@
-/**
- * Shared vocabulary for the size-token migration (ui-tokens.js) and its guard
- * (check-tokens.js). One table, two consumers, so the guard cannot disagree with
- * the migration about what a literal is allowed to be.
- *
- * Snapping rule: nearest step on the ladder; a tie rounds DOWN, so the UI keeps
- * the density it has today rather than drifting looser.
- */
-
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -83,7 +74,6 @@ export const LADDERS = {
   ],
 };
 
-/** Nearest ladder step; ties round down. */
 export function snap(ladder, n) {
   let best = ladder[0];
   for (const step of ladder) {
@@ -94,7 +84,6 @@ export function snap(ladder, n) {
   return best;
 }
 
-/** Which ladder a property's px literals belong to. */
 export function familyOf(prop) {
   const p = prop.toLowerCase();
   if (p === "font-size") return "text";
@@ -119,10 +108,6 @@ export function familyOf(prop) {
   return null;
 }
 
-/**
- * Properties in which a small px literal is a hairline or a motion offset, not a
- * size on the scale, and stays literal.
- */
 export function literalAllowed(prop, value) {
   const p = prop.toLowerCase().replace(/^-(webkit|moz|ms)-/, "");
   if (/^(border|outline)/.test(p)) return true;
@@ -159,7 +144,6 @@ export const EASINGS = [
   [/(?<![\w-])ease-out(?![\w-])/g, "var(--ease-out)"],
 ];
 
-/** Custom properties set from JS at runtime, never declared in a stylesheet. */
 export const RUNTIME_VARS = new Set([
   "--ui-zoom",
   "--i",
@@ -184,7 +168,6 @@ export const RUNTIME_VARS = new Set([
   "--sleeve",
 ]);
 
-/** Every `--name` declared anywhere in index.css. */
 export function declaredTokens() {
   const css = fs.readFileSync(INDEX_CSS, "utf8");
   const out = new Set();
@@ -192,7 +175,6 @@ export function declaredTokens() {
   return out;
 }
 
-/** Recursively list .css files under src/ui except index.css. */
 export function cssFiles(dir = UI_DIR, out = []) {
   for (const e of fs
     .readdirSync(dir, { withFileTypes: true })

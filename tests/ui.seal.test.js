@@ -1,8 +1,3 @@
-/**
- * Seal view describers — how a raw commit label becomes what the user touched.
- * Pure modules under src/ui/views/seal; identity `t`.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseCommitMessage, describeTarget, describeCommit, formatOid, formatCommitTime, isSidecar, documentPath } from '../src/ui/views/seal/describe.js';
@@ -95,7 +90,6 @@ describe('collectDoctorIssues', () => {
   });
 });
 
-/** A commit as the log returns it; `at` is a local Date, `stats` defaults to one modified sidecar. */
 const commit = (oid, message, at, { email = 'me@x', stats = { added: 0, modified: 1, deleted: 0, content: 0 } } = {}) => ({
   oid,
   commit: { message, author: { name: email.split('@')[0], email, timestamp: Math.floor(at.getTime() / 1000) } },

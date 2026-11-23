@@ -1,15 +1,3 @@
-/**
- * Local user identity — who work is stamped as.
- *
- * Two things used to record the *vault name* where they meant to record a person: a new
- * sidecar's `createdBy` and every Seal commit's author. Both now read a git-style identity
- * with a per-vault override, and these tests pin the three things that can go wrong with
- * that: the precedence rule, the format of the string that reaches disk, and — the one
- * that would be expensive — that no existing file is rewritten by any of it.
- *
- * Run: node --test tests/identity.test.js
- */
-
 import { describe, it, before, after, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -33,13 +21,11 @@ const BASE_CONFIG = {
     vaults: [ALPHA, BETA],
 };
 
-/** Rewrites config.json and drops the module cache, the way an IPC write + reload would. */
 function writeConfig(extra = {}) {
     fs.writeFileSync(CONFIG_PATH, JSON.stringify({ ...BASE_CONFIG, ...extra }, null, 2));
     config.reload();
 }
 
-// Written before the imports below, because config.js resolves its paths at module load.
 fs.writeFileSync(CONFIG_PATH, JSON.stringify(BASE_CONFIG, null, 2));
 
 const config = await import('../src/api/access/primitives/config.js');
@@ -53,7 +39,7 @@ const docs = new Documents();
 
 after(() => {
     closeDatabase();
-    try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
+    try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
 });
 
 describe('identity resolution', () => {
@@ -63,7 +49,6 @@ describe('identity resolution', () => {
         const id = config.getIdentity();
         assert.equal(id.source, 'default');
         assert.ok(id.name, 'a default identity always has a name');
-        // The .local domain is what marks it a placeholder rather than a reachable address.
         assert.match(id.email, /@flashback\.local$/);
         assert.ok(id.email.startsWith(
             os.userInfo().username.replace(/[\s@<>]/g, '').toLowerCase() || 'flashback',
@@ -100,8 +85,6 @@ describe('identity resolution', () => {
     });
 
     it('treats a half-filled identity as not set, rather than half-applying it', () => {
-        // A name with no address cannot produce an author line at all, so falling through
-        // is the only sane reading — the alternative is `Daniel <>`.
         writeConfig({ user: { name: 'Daniel', email: '   ' } });
         assert.equal(config.getIdentity().source, 'default');
 
@@ -136,8 +119,6 @@ describe('identity validation', () => {
     });
 
     it('rejects the characters that would break a git author line', () => {
-        // `Name <email>` is assembled by concatenation, so an angle bracket in either half
-        // produces a malformed commit object rather than a malformed-looking name.
         assert.equal(identityError({ name: 'Dan <x>', email: 'a@b.co' }).code, 'invalid-chars');
         assert.equal(identityError({ name: 'Dan\nx', email: 'a@b.co' }).code, 'invalid-chars');
         assert.equal(identityError({ name: 'Dan', email: 'a b@c.co' }).code, 'invalid-chars');
@@ -156,9 +137,6 @@ describe('identity validation', () => {
 });
 
 describe('the derived default', () => {
-    // Shared between the API's resolver and the setup wizard's pre-fill, so what the wizard
-    // offers is the same string that would be stamped if the step were skipped. It is only
-    // useful if it always produces something an author line can hold.
     it('turns an OS account name into a usable identity', () => {
         assert.deepEqual(defaultIdentityFrom('Daniel'),
             { name: 'Daniel', email: 'daniel@flashback.local' });
@@ -186,7 +164,6 @@ describe('what reaches disk', () => {
         writeConfig({ user: { name: 'Daniel', email: 'daniel@example.com' } });
         assert.ok(await openVault());
 
-        // A file written BEFORE any of this, carrying the old vault-name stamp.
         await docs.createFile('legacy.md', '');
         legacySidecarPath = path.join(config.getWorkspacePath(), 'legacy.md.flashback');
         const legacy = JSON.parse(fs.readFileSync(legacySidecarPath, 'utf-8'));
@@ -208,11 +185,6 @@ describe('what reaches disk', () => {
     });
 
     it('never rewrites an existing createdBy — the no-migration claim', async () => {
-        // Every write site is `createdBy || …`, so provenance is set once at creation and a
-        // file that predates identity goes on saying what it said. Scoped to the provenance
-        // fields rather than the whole file on purpose: an edit legitimately rewrites other
-        // parts of the sidecar (`encoding` is re-detected), and asserting bytes here would
-        // fail for reasons that have nothing to do with authorship.
         await docs.updateFile('legacy.md', '# edited');
 
         const after = JSON.parse(fs.readFileSync(legacySidecarPath, 'utf-8'));
@@ -244,7 +216,6 @@ describe('what reaches disk', () => {
 
         const switched = await switchVault(BETA);
         assert.ok(switched.ok, switched.error);
-        // reload() dropping the config cache is the only mechanism making this per-vault.
         assert.equal(config.getAuthorString(), 'D. Pineda <d@acme.test>');
 
         await docs.createFile('in-beta.md', '');

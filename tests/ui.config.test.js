@@ -1,9 +1,3 @@
-/**
- * Config's catalogue and search (src/ui/views/config/settings.js): which rows exist in
- * which situation, how search matches them, and the summaries the index derives. No DOM,
- * no React; identity `t`.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { SECTIONS, sectionName, settingRows, searchSettings, hitsBySection, changedShortcuts, diaryAccessOf } from '../src/ui/views/config/settings.js';

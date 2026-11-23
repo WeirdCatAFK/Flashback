@@ -1,26 +1,3 @@
-/**
- * Per-user spaced repetition: two people studying one vault must not grade each other's cards.
- *
- * The properties being pinned here are the ones that make the split real rather than nominal:
- *
- *   1. **Divergence.** The same card carries a different schedule for each person, and one
- *      person's reviews never move another's due list.
- *   2. **One canonical home.** Every schedule lives in `progress.CardProgress`, the owner under
- *      the 'owner' sentinel. A reader's review still writes no file and seals nothing — a reader
- *      studying is not a reader editing — but nobody's schedule is mirrored into accounts.db any
- *      more, so there is no second copy to drift.
- *   3. **Durability.** A Vault Doctor rebuild wipes the derived database and does not touch the
- *      progress store, so every schedule survives it without being restored from anywhere.
- *   4. **The owner sentinel survives a vault copy.** This is the reason 'owner' is a literal
- *      and not the Author's account id: point the same vault at a fresh install whose accounts
- *      store has never heard of it, and the owner's progress is still theirs.
- *
- * Scope is normally resolved from the request context, so these tests enter one explicitly with
- * `runWithAccount` — the same thing `auth/authenticate.js` does per request.
- *
- * Run: node --test tests/perUserSrs.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -34,8 +11,6 @@ process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
 
-// Imports are hoisted above the assignment above unless they are dynamic, and every one of
-// these resolves its paths from USER_DATA_PATH at import time.
 const { default: validate } = await import('../src/api/config/validate.js');
 if (!await validate()) {
     console.error('Validation failed.');
@@ -62,9 +37,7 @@ const doctor = new Doctor();
 const WORKSPACE_ROOT = 'PerUser';
 const docRel = path.join(WORKSPACE_ROOT, 'shared.md');
 
-/** Runs `fn` as an ordinary (non-owner) account, the way the auth middleware would. */
 const asAccount = (account, fn) => runWithAccount(account, fn);
-/** Runs `fn` as the Author — resolves to OWNER_SCOPE because of the role, not the id. */
 const asAuthor = (author, fn) => runWithAccount(author, fn);
 
 const ownerLevel = async (hash) => (await query.getFlashcardSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
@@ -107,10 +80,9 @@ describe('Per-user SRS', () => {
         db.close();
         accounts.closeAccounts();
         await new Promise(r => setTimeout(r, 50));
-        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* windows file locks */ }
+        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
     });
 
-    // --- 1. Divergence -----------------------------------------------------------
 
     describe('two people, one card', () => {
         it('keeps each person on their own schedule', async () => {
@@ -123,8 +95,6 @@ describe('Per-user SRS', () => {
         });
 
         it('gives a card nobody has reviewed the same shape as one with no row', async () => {
-            // A missing CardProgress row and a zeroed one must be indistinguishable, because
-            // that equivalence is what lets a review create the row lazily.
             assert.equal(await ownerLevel(cardB), 0);
             assert.equal(await query.getCardProgress(
                 (await query.getFlashcardByHash(cardB)).id, rita.id,
@@ -132,7 +102,6 @@ describe('Per-user SRS', () => {
         });
 
         it('does not let one person\'s review move another\'s due list', async () => {
-            // cardB is new to both. The reader studies it; the author must still be offered it.
             await asAccount(rita, () => docs.submitReview(docRel, cardB, 1, 2.5, 3));
 
             const isNew = (result, hash) => result.new.some(c => c.global_hash === hash);
@@ -144,7 +113,6 @@ describe('Per-user SRS', () => {
         });
 
         it('counts only your own reviews in your own statistics', async () => {
-            // Two reviews by the reader so far (cardA, then cardB); one by the author.
             const mine = await asAccount(rita, () => SRS.getStatistics({ algorithm: 'leitner' }));
             const theirs = await asAuthor(author, () => SRS.getStatistics({ algorithm: 'leitner' }));
             assert.equal(mine.totals.reviews, 2);
@@ -152,18 +120,9 @@ describe('Per-user SRS', () => {
         });
     });
 
-    // --- 2. One canonical home ----------------------------------------------------
 
-    // There used to be two: the author's schedule in the sidecar, everyone else's in
-    // accounts.db. Every review therefore wrote two stores over two connections, and the
-    // second write happened inside the first one's transaction without being part of it.
-    // Both now live in `progress.CardProgress`, the author under the 'owner' sentinel.
     describe('where each person\'s progress is canonical', () => {
         it('leaves the author\'s sidecar frozen — nobody writes progress to a file now', async () => {
-            // cardA was created at level 0 and the author has since graded it to 4. The file
-            // still says 0: its SRS fields are a snapshot of the day writing stopped, kept so a
-            // downgrade still finds what it expects and so a vault arriving without a progress
-            // store has something to seed from. They are not live state.
             assert.equal(sidecarCard(cardA).level ?? 0, 0, 'the file did not move');
             assert.equal(await ownerLevel(cardA), 4, 'the schedule did');
         });
@@ -187,14 +146,11 @@ describe('Per-user SRS', () => {
         });
 
         it('keeps no accounts-store copy of anybody\'s progress', async () => {
-            // accounts.db is now identity and access only. It holds no schedules at all —
-            // not the author's, and no longer any reader's either.
             const all = await accounts.listAccountProgress(getVaultId());
             assert.deepEqual(all, []);
         });
     });
 
-    // --- 3. Durability across a rebuild ------------------------------------------
 
     describe('a Vault Doctor rebuild', () => {
         it('restores everyone, because the progress store is not what a rebuild wipes', async () => {
@@ -211,15 +167,11 @@ describe('Per-user SRS', () => {
         });
 
         it('re-seeds the reader\'s SM-2 ease, which review logs no longer carry', async () => {
-            // Ease lives in the latest ReviewLogs row, and a rebuild destroys review logs for
-            // everybody. Without the synthetic row a reader's SM-2 schedule would silently
-            // snap back to the 2.5 default.
             const state = await query.getFlashcardSrsStateByHash(cardA, rita.id);
             assert.equal(state.ease_factor, 2.5);
         });
     });
 
-    // --- 4. Per-account derived analysis -----------------------------------------
 
     describe('everything derived from a review is per-account too', () => {
         it('fits FSRS weights per person, not per vault', async () => {
@@ -242,8 +194,6 @@ describe('Per-user SRS', () => {
         });
 
         it('clears every account\'s flags when the card itself is rewritten', async () => {
-            // An edit is the one thing that is not per-person: the flags describe text that no
-            // longer exists, so nobody should go on being warned about it.
             const cardId = (await query.getFlashcardByHash(cardA)).id;
             await query.upsertCardFlag({
                 flashcardId: cardId, kind: 'mouthful', confidence: 'high',
@@ -257,8 +207,6 @@ describe('Per-user SRS', () => {
         });
 
         it('files a reader\'s diary under their own account, leaving the owner\'s in place', async () => {
-            // The rebuild above wiped ReviewLogs, and a summary is derived from them — so give
-            // each person a review to summarise.
             await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 5));
             await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 3));
 
@@ -281,7 +229,6 @@ describe('Per-user SRS', () => {
         });
     });
 
-    // --- 5. The sentinel ---------------------------------------------------------
 
     describe('the owner sentinel', () => {
         it('is a literal, never the Author\'s account id', async () => {
@@ -295,20 +242,12 @@ describe('Per-user SRS', () => {
         });
 
         it('survives the vault being opened by an install that has never seen these accounts', async () => {
-            // Simulating a copied vault: the vault database is the same file, but the accounts
-            // store belongs to a different install and knows nothing about this Author. If the
-            // owner's rows were keyed by uuid they would all be orphans now.
             const strangerAuthorId = crypto.randomUUID();
             assert.notEqual(strangerAuthorId, author.id);
 
-            // Read the level rather than hardcoding one: earlier sections have moved it, and
-            // what is being asserted here is which KEY finds it, not what it says.
             const stillMine = await query.getFlashcardSrsStateByHash(cardA, OWNER_SCOPE);
             assert.ok(stillMine.level > 0,
                 'owner progress resolves through the sentinel, not through any account id');
-            // The sidecar is NOT expected to agree any more: it froze at creation while the
-            // schedule moved on. What travels with a copied vault is progress.db, a sibling of
-            // workspace/ that Seal does not version — not the numbers in the file.
             assert.notEqual(sidecarCard(cardA).level ?? 0, stillMine.level,
                 'the frozen file has drifted from the live schedule, as designed');
 
@@ -319,12 +258,6 @@ describe('Per-user SRS', () => {
     });
 
     describe('the columns migration 010 dropped', () => {
-        // Regression. Migration 004's guard asked Flashcards whether it still had
-        // fsrs_stability; once 010 had dropped it the answer was no forever, so 004 reported
-        // itself pending on every boot and put all six columns back — empty, unread, and
-        // precisely the stale-column trap 010 exists to remove. Migration 001 had the same
-        // shape for sm2_reps on any rebuilt database. The failure was invisible to a test that
-        // migrates once, which is why this one migrates twice.
         const DOOMED = [
             'level', 'sm2_reps', 'last_recall',
             'fsrs_stability', 'fsrs_difficulty', 'fsrs_due',
@@ -350,15 +283,6 @@ describe('Per-user SRS', () => {
     });
 
     describe('the index behind the account filter', () => {
-        // Regression, found on a real vault. Migration 010 indexed ReviewLogs.account_id on
-        // its own. Every row of a one-person vault matches it, so it narrows nothing — but
-        // SQLite sees an equality match on an indexed column, takes it, and abandons the join
-        // order it would otherwise pick. getDayByDeck went from 24ms to 500ms, a day's diary
-        // summary from 120ms to 4s, and "rebuild from history" from ~2s to minutes.
-        //
-        // Asserted as a schema shape rather than a duration: a timing test on this would be
-        // flaky, and the shape is the actual rule — account_id must never be the whole of an
-        // index on a table this size.
         const indexColumns = async (table) => {
             const out = {};
             for (const idx of await db.pragma(`index_list(${table})`)) {
@@ -383,28 +307,14 @@ describe('Per-user SRS', () => {
         });
     });
 
-    // --- 5. What a reader's review does NOT touch ---------------------------------
 
     describe('a reader\'s review leaves the owner\'s document alone', () => {
-        // `presence` is a STORED, sidecar-mirrored number about the document — the owner's
-        // claim about how well this material is known, not a per-viewer score. So a reader's
-        // grade must not move it, and `documents.submitReview` returns before
-        // propagatePresence for exactly that reason.
-        //
-        // Worth being exact about what this does and does not catch. It passed BEFORE
-        // propagatePresence was skipped for readers too, because that call recomputed an
-        // owner-scoped average the reader had not moved and wrote back the value it had
-        // just read. So this pins the invariant; it does not guard the saving. The saving —
-        // a second store-wide transaction plus ~3 queries per folder level on the hottest
-        // path a multi-user vault has — is guarded by `scripts/bench-reviews.js`, which is
-        // where a regression in it would actually show up.
         const snapshot = async () => ({
             documents: await db.prepare('SELECT id, presence FROM Documents ORDER BY id').all(),
             folders: await db.prepare('SELECT id, presence FROM Folders ORDER BY id').all(),
         });
 
         it('does not move Documents.presence or any ancestor folder', async () => {
-            // Give presence a non-trivial value to move away from first.
             await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 5));
             const before = await snapshot();
 
@@ -416,16 +326,11 @@ describe('Per-user SRS', () => {
         });
 
         it('still records the reader\'s own progress while doing so', async () => {
-            // The guard above must not have been achieved by skipping the review itself.
             const state = await query.getFlashcardSrsStateByHash(cardB, rita.id);
             assert.equal(state.level, 5);
         });
 
         it('does not read the sidecar on ANYONE\'s path', async () => {
-            // This used to assert an asymmetry: a reader's review ignored the sidecar, the
-            // owner's needed it and threw without it. The owner's no longer needs it either —
-            // grading writes no file for anybody — so the property is now the stronger one.
-            // Proven by removing the file and grading as both.
             const abs = docs.files.safePath(docRel) + '.flashback';
             const saved = fs.readFileSync(abs);
             fs.rmSync(abs);
@@ -447,22 +352,6 @@ describe('Per-user SRS', () => {
     });
 
     describe('migration guards after a table moves schema', () => {
-        // Regression, written before the move that needs it. Every existence guard in
-        // migrations/ was authored when `main` was the whole database, and asks
-        // `SELECT name FROM sqlite_master ...` — which reads `main` alone. Attaching the
-        // progress store made that question the wrong one: a table that has moved there is
-        // present, just not in `main`, and a guard that cannot tell "moved" from "absent"
-        // answers "still pending" on every launch.
-        //
-        // What that costs is silent. An unqualified CREATE TABLE targets `main` and its
-        // IF NOT EXISTS cannot see the attached copy, so the migration rebuilds the table
-        // empty — and an empty table in `main` SHADOWS the attached one for every
-        // unqualified read. No error, no constraint violation; every schedule in the vault
-        // simply reads as never-studied. Migration 004 would separately put back the six
-        // fsrs_* columns 010 dropped, with 011 (its cleaner) dormant for the same reason.
-        //
-        // Runs the migration runner twice for the reason the block above does: a resurrection
-        // lands on the launch AFTER the one that migrates.
         const MOVABLE = ['CardProgress', 'FsrsParameters', 'CardHealth', 'CardFlags', 'ReadProgress'];
 
         it('leaves a moved table in the progress store and rebuilds nothing in main', async () => {
@@ -484,13 +373,8 @@ describe('Per-user SRS', () => {
             const scratch = adapter.db;
 
             try {
-                // The same pass validators/database.js performs on a fresh vault.
                 await scratch.exec(SchemaSQL.replace(/BEGIN TRANSACTION;|COMMIT;/g, ''));
 
-                // Stand where Stages 4-5 leave the vault: these live in `progress` only.
-                // ReviewLogs is deliberately NOT dropped here — migration 013 moves it at the
-                // end of the same pass, after 009 has indexed it, and doing it up front would
-                // test a sequence that never happens.
                 for (const table of MOVABLE) {
                     await scratch.exec(`DROP TABLE IF EXISTS main.${table}`);
                 }
@@ -511,8 +395,6 @@ describe('Per-user SRS', () => {
                 assert.deepEqual(inMain, [],
                     'a migration rebuilt a moved table in main, which shadows the real one silently');
 
-                // The shadow check proper: this is the read that returns a wrong answer
-                // rather than an error, so assert the value and not just the schema.
                 const seen = await scratch.prepare(
                     "SELECT level FROM CardProgress WHERE card_hash = 'moved'",
                 ).get();
@@ -529,7 +411,7 @@ describe('Per-user SRS', () => {
                     'migration 010 put back the sole-account index migration 012 exists to remove');
             } finally {
                 adapter.closeDatabase();
-                try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
+                try { fs.rmSync(dir, { recursive: true, force: true }); } catch {  }
             }
         });
     });

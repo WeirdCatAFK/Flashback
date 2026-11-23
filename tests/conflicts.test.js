@@ -1,29 +1,3 @@
-/**
- * Concurrent writes to one vault: nobody's work disappears without being told.
- *
- * Three mechanisms, tested for the properties they exist to provide rather than for their
- * implementation:
- *
- *   1. **The lock** (`access/resources/pathLock.js`). A canonical write touches the filesystem
- *      before it opens its database transaction, so the database's own exclusive lock covers
- *      only half of it. Writes to one document serialize; writes to different documents do
- *      not; a move takes the whole tree, because the paths it invalidates are not knowable
- *      from the move alone.
- *   2. **The etag** (`Files.etag`). A whole-object write carries the version its author read,
- *      and is refused if the document has moved on. Omitting the version keeps the old
- *      behaviour, which is what every caller written before this does.
- *   3. **Patches merge.** A card or highlight patch names its target, so two people editing
- *      different cards of one document both succeed. Only the same entity conflicts.
- *   4. **Deck files take the same lock.** They are canonical too, and `addEntry`/`removeEntry`
- *      write them optimistically before their transaction and roll back from a snapshot
- *      afterwards — so a failing request can erase a concurrent successful one.
- *
- * And one property that is about history rather than safety: grading cards still produces one
- * commit per session, while editing content produces one per edit, immediately.
- *
- * Run: node --test tests/conflicts.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -58,7 +32,6 @@ const FOLDER = 'Conflicts';
 const docRel = path.join(FOLDER, 'shared.md');
 
 const tick = (ms = 1) => new Promise(r => setTimeout(r, ms));
-// log() pages at 20 by default; these tests count commits, so they ask for a depth no run reaches.
 const LOG_DEPTH = 500;
 const commitCount = async () => (await sealTools.log(LOG_DEPTH)).length;
 const sidecar = (rel = docRel) => docs.files.getMetadata(rel) ?? {};
@@ -90,10 +63,9 @@ describe('Concurrent writes', () => {
         await sealEmitter.quiesce();
         db.close();
         await tick(50);
-        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* windows file locks */ }
+        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
     });
 
-    // --- 1. The lock itself, with no filesystem in the way -------------------------
 
     describe('the lock', () => {
         it('serializes writes to one document and lets different documents run at once', async () => {
@@ -124,8 +96,6 @@ describe('Concurrent writes', () => {
             await tick(1);
             const move = lock.withStructure(async () => { order.push('move'); });
             await tick(1);
-            // Queued AFTER the move, so it must not overtake it — otherwise a steady stream
-            // of edits could postpone a move forever.
             const later = lock.withDocument('y.md', async () => { order.push('later-edit'); });
 
             await Promise.all([running, move, later]);
@@ -142,7 +112,6 @@ describe('Concurrent writes', () => {
         });
     });
 
-    // --- 2. Whole-object writes carry a version ------------------------------------
 
     describe('a write that lost the race', () => {
         it('is refused, and changes nothing', async () => {
@@ -172,16 +141,11 @@ describe('Concurrent writes', () => {
         });
 
         it('is not checked at all when the caller sends no version', async () => {
-            // The MCP server, the test suite and every script predate this and send nothing.
             await docs.updateFile(docRel, '# Shared\n\nunversioned writer\n', sidecar());
             assert.match(fs.readFileSync(docs.files.safePath(docRel), 'utf-8'), /unversioned writer/);
         });
 
         it('does not fail an editor because somebody added a card', async () => {
-            // The half that matters is the one being replaced. An editor owns the body and
-            // merges the sidecar from a fresh read, so a card added through the Inspector
-            // while it was open must not turn its save into a conflict — that would make a
-            // shared document unusable while changing nothing about safety.
             const loaded = docs.files.etag(docRel);
             await docs.updateFlashcard(docRel, cardB, { frontText: 'added-by-someone-else' });
             assert.notEqual(docs.files.etag(docRel), loaded, 'the sidecar half moved');
@@ -209,7 +173,6 @@ describe('Concurrent writes', () => {
         });
     });
 
-    // --- 3. Patches merge --------------------------------------------------------
 
     describe('two people patching one document', () => {
         it('both land when they touch different cards', async () => {
@@ -237,7 +200,6 @@ describe('Concurrent writes', () => {
             );
             assert.equal(cardIn(cardA).vanillaData.frontText, 'Qa-first');
 
-            // A patch to the OTHER card is unaffected by any of that.
             await docs.updateFlashcard(docRel, cardB, { frontText: 'Qb-later' });
             assert.equal(cardIn(cardB).vanillaData.frontText, 'Qb-later');
         });
@@ -254,7 +216,6 @@ describe('Concurrent writes', () => {
         });
     });
 
-    // --- 4. Structural operations do not interleave --------------------------------
 
     describe('a move racing an edit', () => {
         it('holds the whole tree while it runs, and the edit waits for it', async () => {
@@ -264,15 +225,11 @@ describe('Concurrent writes', () => {
 
             const moving = docs.move(docRel, movedRel, false)
                 .then(() => finished.push('move'), () => finished.push('move'));
-            // The move is mid-flight here: it has been entered but not awaited. If it were
-            // not taking the tree exclusively, this would be observable as an idle lock.
             assert.equal(isIdle(), false, 'a move in flight must be holding the tree');
 
             const editing = docs.updateFile(docRel, '# Shared\n\nedited while moving\n', meta)
                 .then(() => finished.push('edit'), () => finished.push('edit'));
 
-            // The edit may legitimately fail — issued against a path the move is retiring —
-            // but it must not run DURING the move, and the move must not be half-applied.
             await Promise.allSettled([moving, editing]);
             assert.equal(finished[0], 'move', 'an edit must not complete while a move is in flight');
             assert.ok(isIdle(), 'both operations must have released the tree');
@@ -289,12 +246,10 @@ describe('Concurrent writes', () => {
             assert.ok(fs.existsSync(docs.files.safePath(rel + '.flashback')),
                 'the sidecar must have travelled with the document');
 
-            // Put it back so later assertions can keep using docRel.
             if (newExists) await docs.move(movedRel, docRel, false);
         });
     });
 
-    // --- 5. What lands in the history ----------------------------------------------
 
     describe('the Seal history', () => {
         it('records a content edit immediately, without waiting for a timer', async () => {
@@ -313,15 +268,11 @@ describe('Concurrent writes', () => {
             }
             await sealEmitter.flushEdits();
 
-            // This used to assert one coalesced commit per session, which was the reason
-            // `sealEmitter.review()`'s debounce existed. A schedule is not in the workspace any
-            // more, so grading writes nothing and there is nothing to coalesce.
             assert.equal(await commitCount(), before,
                 'studying is not editing — a session is zero commits, not one');
         });
     });
 
-    // --- 6. Deck files are canonical too -------------------------------------------
 
     describe('deck files', () => {
         it("keeps a failed add from erasing a concurrent successful one", async () => {
@@ -332,9 +283,6 @@ describe('Concurrent writes', () => {
             const good = await decks.createStandaloneCard({ frontText: 'survivor', backText: 'b' });
             const bad  = await decks.createStandaloneCard({ frontText: 'doomed',   backText: 'b' });
 
-            // addEntry writes the deck file BEFORE its transaction and, on failure, rewrites
-            // it from the snapshot it took beforehand. Fail one add inside its transaction,
-            // after a yield, so the other add lands in the window the rollback is blind to.
             const realInsert = query.insertDeckEntry.bind(query);
             query.insertDeckEntry = async (args) => {
                 if (args.cardHash === bad) {

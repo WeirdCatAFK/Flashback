@@ -1,7 +1,3 @@
-// mcpReader tests — server-side text extraction for documents the app renders but
-// cannot decode as text (PDF, EPUB, web clips), plus char-window reads of text files.
-// The PDF/EPUB fixtures are synthesized by tests/fixtures.js.
-// Standalone: node --test tests/mcpReader.test.js
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -26,28 +22,22 @@ const docs = new Documents();
 const ROOT = 'ReaderTestWorkspace';
 const rel = (name) => `${ROOT}/${name}`;
 
-// Delete through the orchestrator so the DB rows go with the files — an fs-only
-// cleanup leaves orphaned Documents rows that break the NEXT run of this file.
 const rmWorkspace = async () => {
-    try { await docs.delete(ROOT, true); } catch { /* not indexed */ }
+    try { await docs.delete(ROOT, true); } catch {  }
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
 describe('mcpReader', () => {
     const MD_BODY = `# Notes\n\n${'lorem ipsum dolor sit amet. '.repeat(60)}`;
-    // Every sentence is unique, so a windowed read can be checked for exact
-    // reassembly — periodic filler would make any overlap check meaningless.
     const LONG = Array.from(
         { length: Math.ceil((MAX_CHARS * 1.5) / 40) },
         (_, i) => `Sentence ${i} of the long chapter body.`,
     ).join(' ');
 
-    // Each cue's text is > YT_BLOCK_CHARS (500) so it becomes its own transcript
-    // block — deterministic block starts (0:00, 0:30, 1:30, 2:30) to check `at`.
-    const filler = 'detail '.repeat(80);   // ~560 chars
+    const filler = 'detail '.repeat(80);
     const TALK_CUES = [
         { start: 0, dur: 30, text: `ALPHA ${filler}` },
         { start: 30, dur: 30, text: `BRAVO ${filler}` },
@@ -72,35 +62,27 @@ describe('mcpReader', () => {
             { href: 'ch3.xhtml', title: 'Long Chapter', body: `<p>${LONG}</p>` },
         ]), { globalHash: crypto.randomUUID() });
 
-        // A second book, illustrated, so the text assertions above keep their fixture.
-        // Spine order is ch1 → plate → ch2, which is the order images must come back in.
         await docs.importFile('illustrated.epub', ROOT, buildEpub([
             {
                 href: 'ch1.xhtml', title: 'Cells',
                 body: '<p>The cell is the unit of life.</p>'
                     + '<figure><img src="images/fig1.png" alt="A mitochondrion"/>'
                     + '<figcaption>Figure 1. The powerhouse.</figcaption></figure>'
-                    // Painted but never declared in the manifest: not ours to serve.
                     + '<img src="images/ghost.png" alt="Undeclared"/>',
             },
             {
-                // Image-only page: no prose at all, which is exactly what a plate is.
                 href: 'plate.xhtml', title: 'Plate I',
                 body: '<img src="images/plate.png"/>',
             },
             {
                 href: 'ch2.xhtml', title: 'Light',
-                // Percent-encoded, as a file name with a space is stored in the wild.
                 body: '<p>Photosynthesis makes glucose.</p><img src="images/fig%202.png" alt="A chloroplast"/>',
             },
         ], [
             { href: 'images/fig1.png' },
             { href: 'images/fig 2.png' },
             { href: 'images/plate.png' },
-            // Declared as the cover and referenced by no section — the manifest-only case.
             { href: 'cover.png', cover: true },
-            // Same bare name as images/fig1.png in a different directory, which real
-            // books do: makes "fig1.png" an ambiguous way to ask for one of them.
             { href: 'plates/fig1.png' },
         ]), { globalHash: crypto.randomUUID() });
 
@@ -108,10 +90,6 @@ describe('mcpReader', () => {
         await docs.importFile('page.clip', ROOT, Buffer.from(
             '<div><h1>Clipped</h1><p>Some <b>bold</b> prose.</p><script>evil()</script></div>'), { globalHash: crypto.randomUUID() });
 
-        // An illustrated, noisy clip that has been read for a while: two pictures and a
-        // sound already saved into the vault under different headings, one picture still
-        // loading from the site it was clipped from (as every asset starts out), and an
-        // <audio> whose src sits on a <source> child rather than the element.
         await docs.importFile('article.clip', ROOT, Buffer.from(
             '<h1>Birdsong</h1>'
             + '<p>Opening prose about calls and songs.</p>'
@@ -123,17 +101,11 @@ describe('mcpReader', () => {
             + '<img src="./media/clip-bbbbbbbbbbbb.png" alt="A finch"/>'
             + '<img src="https://example.test/too-big.png" alt="Never downloaded"/>'
             + '<audio controls><source src="./media/clip-dddddddddddd.ogg" type="audio/ogg"></audio>'
-            // A sound the page publishes as a LINK, with no player of its own — how
-            // Wikipedia renders every one of its sounds. Beside it, the two links that
-            // must not be mistaken for it: the file's description page (whose URL also
-            // ends in a media extension) and an ordinary article link.
             + '<p>Hear it <a href="https://example.test/audio/nightingale.mp3" title="Play audio">Play</a>'
             + '<sup><a href="https://example.test/wiki/File:nightingale.mid">i</a></sup>'
             + ' or read <a href="https://example.test/wiki/Nightingale">the article</a>.</p>',
         ), { globalHash: crypto.randomUUID() });
 
-        // The cached bytes those refs point at. The clipper writes these itself; here
-        // they are placed directly so the reader can be tested without the network.
         const mediaDir = docs.files.safePath(path.join(ROOT, 'media'));
         fs.mkdirSync(mediaDir, { recursive: true });
         fs.writeFileSync(path.join(mediaDir, 'clip-aaaaaaaaaaaa.png'), buildPng(1));
@@ -163,7 +135,7 @@ describe('mcpReader', () => {
             assert.equal(info.total, 3);
             assert.equal(info.extractable, true);
 
-            const p1 = await reader.read(rel('book.pdf'));   // defaults to page 1
+            const p1 = await reader.read(rel('book.pdf'));
             assert.equal(p1.index, 1);
             assert.equal(p1.label, 'p. 1');
             assert.match(p1.text, /mitochondria/);
@@ -222,7 +194,6 @@ describe('mcpReader', () => {
         });
 
         it('cuts a section larger than the response cap and resumes inside it', async () => {
-            // Responses carry a "[label]\n" header; the body is what reassembles.
             const body = (res) => res.text.slice(res.text.indexOf('\n') + 1);
 
             const first = await reader.read(rel('book.epub'), { index: 3 });
@@ -236,7 +207,6 @@ describe('mcpReader', () => {
             assert.equal(second.truncated, false, 'the remainder fits');
             assert.equal(second.hasMore, false, 'and it was the last section');
 
-            // The two windows are contiguous and lossless: no gap, no repeat.
             assert.equal(body(first) + body(second), LONG);
         });
     });
@@ -248,10 +218,9 @@ describe('mcpReader', () => {
             const { total, images } = await list();
             assert.equal(total, 5);
             assert.deepEqual(images.map((i) => i.href), [
-                'OEBPS/images/fig1.png',    // ch1
-                'OEBPS/images/plate.png',   // the plate page, second in the spine
-                'OEBPS/images/fig 2.png',   // ch2, reached through a percent-encoded src
-                // Referenced by no section, so these come last, in manifest order.
+                'OEBPS/images/fig1.png',
+                'OEBPS/images/plate.png',
+                'OEBPS/images/fig 2.png',
                 'OEBPS/cover.png',
                 'OEBPS/plates/fig1.png',
             ]);
@@ -271,8 +240,6 @@ describe('mcpReader', () => {
 
         it('numbers an image by the section it can be read from, not its spine slot', async () => {
             const { images } = await list();
-            // ch2 is third in the spine but only the second section with prose, and
-            // sectionIndex has to be the number read() accepts.
             const fig2 = images.find((i) => i.name === 'fig 2.png');
             assert.equal(fig2.sectionIndex, 2);
             const res = await reader.read(rel('illustrated.epub'), { index: fig2.sectionIndex });
@@ -304,16 +271,13 @@ describe('mcpReader', () => {
 
         it('reads one image\'s bytes, however it is spelled', async () => {
             const book = rel('illustrated.epub');
-            // buildEpub tints its images by position, so tint 1 is provably the first.
             const full = await reader.imageBuffer(book, 'OEBPS/images/fig1.png');
             assert.equal(full.mediaType, 'image/png');
             assert.equal(full.name, 'fig1.png');
             assert.deepEqual(full.buffer, buildPng(1), 'the actual entry, byte for byte');
 
-            // The section-relative src an author writes in the markup...
             const relative = await reader.imageBuffer(book, 'images/fig1.png');
             assert.deepEqual(relative.buffer, buildPng(1));
-            // ...and the bare name, when only one image has it.
             const bare = await reader.imageBuffer(book, 'fig 2.png');
             assert.deepEqual(bare.buffer, buildPng(2));
         });
@@ -328,8 +292,6 @@ describe('mcpReader', () => {
         });
 
         it('refuses an href the manifest does not declare', async () => {
-            // The allow-list is the security boundary: without it this reads any entry
-            // in the archive, and `..` walks out of it.
             for (const href of ['OEBPS/images/ghost.png', '../../../etc/passwd', 'META-INF/container.xml']) {
                 await assert.rejects(
                     async () => await reader.imageBuffer(rel('illustrated.epub'), href),
@@ -379,9 +341,6 @@ describe('mcpReader', () => {
         });
 
         it('counts a link to a sound as sound, and other links as nothing', async () => {
-            // Most of the web publishes sound as a link rather than a player, so a list
-            // built only from <audio> misses it entirely — a page of pronunciations
-            // reads as having no sound on it at all.
             const { media } = await reader.media(rel('article.clip'));
 
             const linked = findByName(media, 'nightingale.mp3');
@@ -407,8 +366,6 @@ describe('mcpReader', () => {
             assert.equal(cached.path, path.join(ROOT, 'media', 'clip-aaaaaaaaaaaa.png'));
             assert.equal(cached.bytes, buildPng(1).length, 'size read from the file on disk');
 
-            // The point of reporting it at all: a picture visible on the page that the
-            // clipper could not download is explained, not silently missing.
             const remote = findByName(media, 'too-big.png');
             assert.equal(remote.cached, false);
             assert.equal(remote.path, null);
@@ -419,7 +376,6 @@ describe('mcpReader', () => {
         it('counts a clip\'s media by kind in info()', async () => {
             const info = await reader.info(rel('article.clip'));
             assert.deepEqual(info.media, { total: 6, images: 3, audio: 3 });
-            // A clip with nothing in it reports an empty tally rather than undefined.
             assert.deepEqual((await reader.info(rel('page.clip'))).media, { total: 0, images: 0, audio: 0 });
         });
 
@@ -436,8 +392,6 @@ describe('mcpReader', () => {
         });
 
         it('refuses an asset still out on the web, rather than fetching it', async () => {
-            // This module does no network IO on a caller's behalf, whatever the caller
-            // wants; saving one is documents.saveClipAsset, which is a write and says so.
             await assert.rejects(
                 async () => await reader.mediaBuffer(rel('article.clip'), 'https://example.test/too-big.png'),
                 (e) => e.status === 400 && /not in the vault/.test(e.message),
@@ -445,8 +399,6 @@ describe('mcpReader', () => {
         });
 
         it('refuses an href the clip does not reference', async () => {
-            // The allow-list is the security boundary here exactly as it is for a book:
-            // without it, a clip becomes a way to read any file in the vault.
             for (const href of ['./media/secret.png', '../../notes.md', '../../../etc/passwd']) {
                 await assert.rejects(
                     async () => await reader.mediaBuffer(rel('article.clip'), href),
@@ -457,7 +409,6 @@ describe('mcpReader', () => {
         });
 
         it('still serves a book through the general media surface', async () => {
-            // media()/mediaBuffer() must not have quietly become clip-only.
             const { media } = await reader.media(rel('illustrated.epub'));
             assert.ok(media.length > 0);
             assert.ok(media.every((m) => m.kind === 'image'), 'a book carries pictures only');
@@ -527,7 +478,7 @@ describe('mcpReader', () => {
         });
 
         it('reads a block by index with its timestamp label', async () => {
-            const b1 = await reader.read(rel('talk.youtube'));   // defaults to block 1
+            const b1 = await reader.read(rel('talk.youtube'));
             assert.equal(b1.index, 1);
             assert.equal(b1.label, '0:00');
             assert.match(b1.text, /ALPHA/);
@@ -554,8 +505,8 @@ describe('mcpReader', () => {
             const cues = parseJson3Transcript({
                 events: [
                     { tStartMs: 0, dDurationMs: 1500, segs: [{ utf8: 'Hello' }, { utf8: ' world' }] },
-                    { tStartMs: 1500, dDurationMs: 500, segs: [{ utf8: '\n' }] },  // formatting → dropped
-                    { tStartMs: 2000, dDurationMs: 1000 },                          // no segs → dropped
+                    { tStartMs: 1500, dDurationMs: 500, segs: [{ utf8: '\n' }] },
+                    { tStartMs: 2000, dDurationMs: 1000 },
                     { tStartMs: 3000, dDurationMs: 1000, segs: [{ utf8: 'again' }] },
                 ],
             });
@@ -576,7 +527,7 @@ describe('mcpReader', () => {
         it('prefers a manual track in the requested language', () => {
             const player = { captions: { playerCaptionsTracklistRenderer: { captionTracks: [
                 { baseUrl: 'a', languageCode: 'en', kind: 'asr' },
-                { baseUrl: 'b', languageCode: 'en' },        // manual en
+                { baseUrl: 'b', languageCode: 'en' },
                 { baseUrl: 'c', languageCode: 'es' },
             ] } } };
             assert.equal(pickCaptionTrack(player, 'en').baseUrl, 'b');
@@ -617,7 +568,6 @@ describe('mcpReader', () => {
             await reader.read(target);
             assert.equal(reader._cache.size, size, 'a second read adds no new cache entry');
 
-            // Rewrite through the real update path: mtime+size change invalidates.
             await docs.updateFile(target, 'second version, longer than the first', null);
             const after = await reader.read(target);
             assert.equal(after.text, 'second version, longer than the first', 'stale text is never served');

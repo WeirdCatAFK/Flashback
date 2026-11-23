@@ -1,7 +1,3 @@
-// Stats aggregation tests — exercises SRS.getStatistics() through the access layer
-// against a real SQLite DB. Uses delta assertions (before/after) so it is robust
-// to any data other test files leave in the shared dev vault.
-// Standalone: node --test tests/stats.test.js
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -30,13 +26,10 @@ const rmWorkspace = () => {
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
 const scheduledTotal = (s) => s.overdue + s.forecast.reduce((a, f) => a + f.due, 0);
-// Activity days are the user's LOCAL calendar days (SQLite date(…, 'localtime')),
-// so the fixture's "today" has to be the local one too — toISOString() would look up
-// tomorrow's bucket for a run started in the evening west of Greenwich.
 const todayLocal = () => {
     const d = new Date();
     const pad = (n) => String(n).padStart(2, '0');
@@ -78,25 +71,19 @@ describe('SRS statistics', () => {
     it('counts new cards and a review, and schedules the reviewed card', async () => {
         const before = await SRS.getStatistics({ algorithm: 'leitner' });
 
-        // Two freshly-imported cards are unreviewed ⇒ both "new".
         assert.ok(before.maturity.new >= 2, 'both new cards counted');
 
-        // Review one card (Leitner: outcome/easeFactor/newLevel computed client-side).
         await docs.submitReview(docRel, hashA, 1, 2.5, 1, 'leitner');
         const after = await SRS.getStatistics({ algorithm: 'leitner' });
 
         assert.equal(after.totals.cards - before.totals.cards, 0, 'no cards added by a review');
         assert.equal(after.totals.reviews - before.totals.reviews, 1, 'one more review logged');
 
-        // The reviewed card leaves "new" and becomes "young" (level 1 ⇒ 1-day interval).
         assert.equal(after.maturity.new - before.maturity.new, -1);
         assert.equal(after.maturity.young - before.maturity.young, 1);
 
-        // It is now scheduled (either upcoming in the forecast or overdue).
         assert.equal(scheduledTotal(after) - scheduledTotal(before), 1);
 
-        // A card's first review is acquisition, not retention: it counts toward the
-        // learning bucket and leaves the retention sample untouched.
         assert.equal(after.acquisition.reviews - before.acquisition.reviews, 1);
         assert.equal(after.totals.retentionReviews - before.totals.retentionReviews, 0);
         assert.equal(after.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
@@ -110,8 +97,6 @@ describe('SRS statistics', () => {
         const before = await SRS.getStatistics({ algorithm: 'leitner' });
         const n = before.acquisition.learningReviews;
 
-        // hashA already has 1 review from the previous test. Take it to exactly n,
-        // then one past it: only that last review is a retention-phase review.
         for (let i = 1; i < n; i++) {
             await docs.submitReview(docRel, hashA, 1, 2.5, i + 1, 'leitner');
         }
@@ -131,12 +116,9 @@ describe('SRS statistics', () => {
 
     it('measures acquisition cost as attempts to the first correct recall', async () => {
         const before = await SRS.getStatistics({ algorithm: 'leitner' });
-        // Sum of attempts across cards — the exact quantity a delta can be read off,
-        // unlike the vault-wide average/median.
         const attemptSum = (s) => (s.acquisition.reviewsToRecall.avg ?? 0) * s.acquisition.reviewsToRecall.cards;
         const firstCorrect = (s) => (s.acquisition.firstExposureAll ?? 0) * s.acquisition.firstExposureCards;
 
-        // hashB: fail, fail, pass ⇒ learned on the 3rd attempt.
         await docs.submitReview(docRel, hashB, 0, 2.4, 1, 'leitner');
         await docs.submitReview(docRel, hashB, 0, 2.3, 1, 'leitner');
 
@@ -155,10 +137,6 @@ describe('SRS statistics', () => {
     });
 });
 
-// ── Which scheduler is this vault on? ─────────────────────────────────────────
-// Regression: the active algorithm is a localStorage preference, so a caller with no
-// browser (the MCP server) sent none — and the server answered 'leitner' and echoed it
-// back in `algorithm` as though it knew. Users on FSRS were told they use Leitner.
 
 describe('SRS algorithm detection', () => {
     const ROOT2 = 'AlgoDetectWorkspace';
@@ -170,7 +148,7 @@ describe('SRS algorithm detection', () => {
         try {
             const abs = path.join(getWorkspacePath(), ROOT2);
             if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        } catch { /* ignore */ }
+        } catch {  }
     };
 
     before(async () => {
@@ -209,7 +187,6 @@ describe('SRS algorithm detection', () => {
         assert.equal(inferred.algorithm, 'fsrs',
             'an MCP client reading `algorithm` back must not be told "leitner"');
 
-        // An explicit request still wins — the caller that does know overrides.
         assert.equal((await SRS.getStatistics({ algorithm: 'sm2' })).algorithm, 'sm2');
     });
 
@@ -220,10 +197,6 @@ describe('SRS algorithm detection', () => {
     });
 });
 
-// ── One card's own history ────────────────────────────────────────────────────
-// A vault rebuild re-seeds one synthetic ReviewLog per card (outcome NULL) purely to
-// carry its ease factor. Those rows are not reviews: the card detail view has to show
-// them without letting them into the card's retention.
 
 describe('Card insights', () => {
     const ROOT3 = 'CardInsightsWorkspace';
@@ -234,7 +207,7 @@ describe('Card insights', () => {
         try {
             const abs = path.join(getWorkspacePath(), ROOT3);
             if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        } catch { /* ignore */ }
+        } catch {  }
     };
 
     before(async () => {
@@ -255,10 +228,6 @@ describe('Card insights', () => {
         await docs.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
         await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
 
-        // Written directly rather than through a helper: nothing in the app produces these
-        // any more (the Doctor's re-seed is gone), but migration 015 can still leave one
-        // behind for a reader whose logs predate the progress store, so the classification
-        // below is still live code and still worth pinning.
         await db.prepare(`
             INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
             VALUES (?, 'owner', datetime('now'), NULL, 2.5, 1)
@@ -276,16 +245,10 @@ describe('Card insights', () => {
     });
 
     it('throws for an unknown card', async () => {
-        // assert.rejects, not assert.throws: getCardInsights reads the database, which is
-        // async now, so the failure arrives as a rejected promise rather than a synchronous
-        // throw. assert.throws would see a promise returned normally and report nothing.
         await assert.rejects(async () => await SRS.getCardInsights('no-such-card'), /not found/);
     });
 });
 
-// The `known` half of vault completeness. Composed into GET /api/srs/statistics at the route
-// layer (readProgress and srs may not import each other), so the composition is asserted in
-// tests/api/api.test.js; the arithmetic that can actually be wrong lives here.
 describe('vault learned aggregate', () => {
     const ROOT2 = 'VaultLearnedTest';
     const big = Array.from({ length: 20 }, () => crypto.randomUUID());
@@ -295,14 +258,12 @@ describe('vault learned aggregate', () => {
         try {
             const abs = path.join(getWorkspacePath(), ROOT2);
             if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        } catch { /* ignore */ }
+        } catch {  }
     };
 
     before(async () => {
         rm2();
         await docs.createFolder(ROOT2);
-        // Twenty untouched cards in one document, one card in another. If the score averaged
-        // per-document averages, mastering the lone card would read as ~50% of the vault.
         await docs.importFile('many.md', ROOT2, Buffer.from('# Many'), {
             globalHash: crypto.randomUUID(),
             flashcards: big.map(h => ({ globalHash: h, vanillaData: { frontText: 'q', backText: 'a' } })),
@@ -345,7 +306,6 @@ describe('vault learned aggregate', () => {
         await docs.submitReview(path.join(ROOT2, 'one.md'), lone, 1, 2.5, 6, 'leitner');
         const after_ = await query.getVaultLearned('owner');
 
-        // Level 6 is where CARD_LEARNED_SQL saturates at 1.0.
         assert.ok(after_.learnedSum - before.learnedSum > 0.99,
             'the reviewed card contributes its full weight');
         assert.equal(after_.cards, before.cards, 'and the denominator is unchanged');

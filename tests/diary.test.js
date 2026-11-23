@@ -1,7 +1,3 @@
-// Diary storage-layer tests — summary derivation/idempotency, invisibility to the
-// workspace graph/search, entry roundtrip + lazy creation, and own-git-repo commits.
-// Standalone: node --test tests/diary.test.js (after better-sqlite3 is built for
-// system Node, i.e. run `npm run tests` once first).
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -29,8 +25,6 @@ if (!await validate()) {
 const docs = new Documents();
 const decks = new Decks();
 const files = new Files();
-// Fixture folder name deliberately avoids the substrings 'diary'/'summary' so the
-// exclusion assertions below test the real invariant, not the fixture's own name.
 const ROOT = 'StudyLogTestWs';
 const DAY = '2026-06-01';
 const NEXT = '2026-06-02';
@@ -42,22 +36,17 @@ const cleanup = async () => {
     try {
         const abs = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
     try {
         if (fs.existsSync(diaryRoot())) fs.rmSync(diaryRoot(), { recursive: true, force: true });
-    } catch { /* ignore */ }
-    // Drop the review logs this suite inserts so counts stay deterministic across runs.
+    } catch {  }
     try {
         await db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') IN (?, ?)").run(DAY, NEXT);
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
 const fcId = async (hash) => (await db.prepare('SELECT id FROM Flashcards WHERE global_hash = ?').get(hash)).id;
 
-// Timestamps are stored as UTC ISO strings but bucketed by LOCAL calendar day, so a
-// fixture that wants a review "on DAY at 10:00" has to say so in local wall-clock
-// terms and let the Date convert. Hardcoding `${DAY}T10:00:00.000Z` would land on the
-// wrong day — and pass or fail depending on the machine's timezone.
 const localIso = (dayIso, hh) => {
     const [y, m, d] = dayIso.split('-').map(Number);
     return new Date(y, m - 1, d, hh, 0, 0, 0).toISOString();
@@ -78,7 +67,6 @@ describe('Diary storage layer', () => {
                 globalHash: h, level: 0, vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
             })),
         });
-        // Day DAY: card0 pass, card1 pass, card2 fail twice → 4 reviews, 2 failed, 3 unique.
         await insertLog(await fcId(hashes[0]), 1, DAY, '10');
         await insertLog(await fcId(hashes[1]), 1, DAY, '11');
         await insertLog(await fcId(hashes[2]), 0, DAY, '12');
@@ -98,8 +86,6 @@ describe('Diary storage layer', () => {
         assert.equal(s.totals.failed, 2);
         assert.equal(s.retention.passRate, 0.5);
 
-        // Every review here is one of its card's first three ⇒ all acquisition, so
-        // the day contributes nothing to the review-phase pass rate.
         assert.equal(s.retention.learningCount, 4);
         assert.equal(s.retention.learningPassRate, 0.5);
         assert.equal(s.retention.reviewCount, 0);
@@ -136,23 +122,18 @@ describe('Diary storage layer', () => {
     });
 
     it('lives outside the workspace and never appears in the graph, index, or search', async () => {
-        // 1. diary/ is a sibling of workspace/, not inside it.
         const rel = path.relative(getWorkspacePath(), diaryRoot());
         assert.ok(rel.startsWith('..'), 'diary root is outside the workspace root');
 
-        // 2. The canonical file walker never sees it.
         const walk = files.walkWorkspace();
         const walked = [...walk.folders, ...walk.documents].map(e => e.relPath);
         assert.ok(walked.every(p => !p.toLowerCase().includes('diary')), 'walkWorkspace excludes diary');
 
-        // 3. No indexed document lives under the diary directory — so the knowledge
-        //    graph (built from Documents/Folders) can never reach a diary file.
         const norm = (p) => (p || '').replace(/\\/g, '/');
         const diaryAbs = norm(diaryRoot());
         const under = (await query.getAllDocuments()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
         assert.equal(under.length, 0, 'no Documents rows point under diary/');
 
-        // 4. Global search never returns a hit anchored under the diary directory.
         const results = await docs.search('summary');
         assert.ok(results.every(r => !norm(r.relative_path).startsWith(diaryAbs)));
     });
@@ -182,15 +163,9 @@ describe('Diary storage layer', () => {
         const list = await diary.list();
         const day = list.find(d => d.date === DAY);
         assert.ok(day && day.hasSummary && day.hasEntry);
-        // Descending order.
         for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date);
     });
 
-    // Regression: a second session on the same day never reached the page. The Diary
-    // read the stored summary once, and the file was only rewritten when the Trainer
-    // recorded a session — so the day kept showing its first session until a full
-    // rebuild. Opening the Diary now re-derives the whole day; this pins that the
-    // re-derivation is cumulative and that an unchanged day adds no commit.
     it('re-derives the whole day across sessions, and commits only when it changed', async () => {
         const commits = async () => (await git.log({ fs, dir: diaryRoot() })).length;
         const first = await diary.generateSummary(DAY);
@@ -216,13 +191,8 @@ describe('Diary storage layer', () => {
         }
     });
 
-    // Regression: the day key came from date(timestamp) — the UTC calendar day. West
-    // of Greenwich an evening session was filed under tomorrow, so the diary opened on
-    // a date the user had not yet lived and today's page looked empty.
     it('buckets a late-evening review into the LOCAL day, not the UTC one', async () => {
         const fid = await fcId(hashes[0]);
-        // 23:00 local on DAY. In any timezone behind UTC this instant is already the
-        // next UTC day, which is exactly the case that used to be misfiled.
         await db.prepare(
             'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
         ).run(fid, localIso(DAY, 23), 1, 2.5, 0);
@@ -244,7 +214,6 @@ describe('Diary storage layer', () => {
     });
 });
 
-// ── By-deck breakdown ─────────────────────────────────────────────────────────
 
 describe('Diary by-deck breakdown', () => {
     const ROOT2 = 'DiaryDeckTestWs';
@@ -257,10 +226,10 @@ describe('Diary by-deck breakdown', () => {
         try {
             const abs = path.join(getWorkspacePath(), ROOT2);
             if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        } catch { /* ignore */ }
+        } catch {  }
         try {
             await db.prepare("DELETE FROM ReviewLogs WHERE date(timestamp, 'localtime') = ?").run(D);
-        } catch { /* ignore */ }
+        } catch {  }
     };
 
     before(async () => {
@@ -274,12 +243,10 @@ describe('Diary by-deck breakdown', () => {
             flashcards: [{ globalHash: docCardHash, level: 0, vanillaData: { frontText: 'Qd', backText: 'Ad' } }],
         });
 
-        // A card with no source document lands in the system deck on its own.
         standaloneHash = await decks.createStandaloneCard({
             frontText: 'Q-standalone', backText: 'A-standalone', cardType: 'basic',
         });
 
-        // A real, user-built deck holding the document-anchored card.
         deckHash = await decks.createDeck('Real Deck');
         await decks.addEntry(deckHash, { cardHash: docCardHash, documentPath: path.join(ROOT2, 'cards.md') });
 
@@ -303,7 +270,6 @@ describe('Diary by-deck breakdown', () => {
         assert.ok(real, 'a user-created deck is still reported');
         assert.equal(real.reviews, 1);
 
-        // The excluded reviews are hidden from the breakdown, not from the day.
         assert.equal((await query.getDayReviewTotals(D, 'owner')).reviews, 2);
     });
 });

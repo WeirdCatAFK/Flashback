@@ -1,14 +1,3 @@
-// Card-health classifier tests — the correctness backstop for failure-signature
-// detection.
-//
-// Every assertion here runs against a synthesized review history, never the database:
-// the detectors are pure functions of a prepared context, which is the whole reason
-// buildContext() does the impure work separately. (Importing the module still opens the
-// shared dev connection, because access/primitives/database.js connects eagerly — but nothing below
-// reads or writes it.) Persistence and lifecycle are covered at the HTTP layer in
-// tests/api/api.test.js instead.
-//
-// Run: node --test tests/cardHealth.test.js
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -35,9 +24,6 @@ const DAY = 86400000;
 const T0 = Date.parse('2026-01-01T09:00:00.000Z');
 const at = (days, minutes = 0) => new Date(T0 + days * DAY + minutes * 60000).toISOString();
 
-// --- History builders ---------------------------------------------------------
-// A log row as ReviewLogs stores it. `stability` present ⇒ the card was graded under
-// FSRS (which is also how the classifier decides whether a difficulty signal exists).
 
 let nextId = 1;
 const log = ({ day, minute = 0, pass, level = 1, stability = null, difficulty = null }) => ({
@@ -54,26 +40,14 @@ const log = ({ day, minute = 0, pass, level = 1, stability = null, difficulty = 
     fsrs_state: null,
 });
 
-// Build a ladder of lapse cycles: each entry is the peak interval that cycle climbs to.
-// Emits fail → pass → pass … so the peak interval entering each cycle's last pass is
-// `peak`.
-//
-// `spacing` inserts idle days between cycles. It defaults to 0 because reviews here
-// arrive ON schedule — padding the calendar to clear the maturation gate would instead
-// make every review overdue, and `overdue_drift` would (correctly) suppress the verdict
-// under test. Calendar span has to come from the intervals themselves, which is why the
-// oscillating fixtures below sit on a 3-day floor rather than a 1-day one.
 function ladder(peaks, { fsrs = true, difficultyStart = 5, difficultyStep = 0, spacing = 0 } = {}) {
     const logs = [];
     let day = 0;
     let difficulty = difficultyStart;
     for (const peak of peaks) {
-        // The lapse itself: resets to a 1-day interval.
         logs.push(log({ day, pass: false, level: 1, stability: fsrs ? 1 : null, difficulty: fsrs ? difficulty : null }));
         day += 1;
         difficulty += difficultyStep;
-        // Climb: 1 → … → peak. Each pass is scheduled at the previous stability, so the
-        // interval ENTERING the final pass is `peak`.
         let s = 1;
         while (s < peak) {
             const next = Math.min(peak, s * 3);
@@ -86,7 +60,6 @@ function ladder(peaks, { fsrs = true, difficultyStart = 5, difficultyStep = 0, s
             day += next;
             s = next;
         }
-        // One more pass so the peak interval is actually observed as an `intervalIn`.
         logs.push(log({
             day, pass: true, level: Math.round(Math.log2(s) + 1),
             stability: fsrs ? s : null, difficulty: fsrs ? difficulty : null,
@@ -98,8 +71,6 @@ function ladder(peaks, { fsrs = true, difficultyStart = 5, difficultyStep = 0, s
 
 const records = (logs, opts) => buildReviewRecords(logs, opts);
 
-// A context shaped exactly as buildContext() produces one, but assembled by hand — the
-// detectors are pure, so this is all they need.
 function ctxFrom(logs, { prior = 'neutral', tokens = 12, medianTokens = 12, level = 1, sessionIndex = null } = {}) {
     const reviews = records(logs, { sessionIndex });
     const structure = {
@@ -122,7 +93,6 @@ function ctxFrom(logs, { prior = 'neutral', tokens = 12, medianTokens = 12, leve
 
 const kinds = (flags) => flags.map(f => f.kind).sort();
 
-// ------------------------------------------------------------------------------
 
 describe('plainText / analyzeStructure', () => {
     it('measures prose, not markup', () => {
@@ -147,9 +117,6 @@ describe('plainText / analyzeStructure', () => {
     });
 });
 
-// A type_answer card's load is what it asks you to produce, not what it tells you
-// afterwards. Measuring the notes would let a one-word answer with a paragraph of
-// mnemonic read as a mouthful — advice to split a card that is already minimal.
 describe('answerBody — what counts as the answer', () => {
     it('takes a type_answer card\'s compared value, not its notes', () => {
         const card = {
@@ -173,9 +140,8 @@ describe('answerBody — what counts as the answer', () => {
 describe('structuralPrior', () => {
     it('is relative to the vault, not an absolute character count', () => {
         const long = analyzeStructure({ backText: 'one two three four five six seven eight' });
-        // Same card, two different vaults.
-        assert.equal(structuralPrior(long, 4).prior, 'overloaded');   // terse vault
-        assert.equal(structuralPrior(long, 30).prior, 'compact');     // verbose vault
+        assert.equal(structuralPrior(long, 4).prior, 'overloaded');
+        assert.equal(structuralPrior(long, 30).prior, 'compact');
     });
 
     it('flags many chunks as overloaded even when short', () => {
@@ -205,7 +171,7 @@ describe('buildReviewRecords', () => {
 
     it('derives the interval entering each review from the previous log', () => {
         const logs = [
-            log({ day: 0, pass: true, level: 3 }),    // level 3 ⇒ a 4-day interval
+            log({ day: 0, pass: true, level: 3 }),
             log({ day: 8, pass: false, level: 1 }),
         ];
         const r = records(logs)[1];
@@ -233,7 +199,7 @@ describe('segmentSessions', () => {
         const rows = [
             { id: 1, timestamp: at(0, 0) },
             { id: 2, timestamp: at(0, 10) },
-            { id: 3, timestamp: at(0, 55) },   // 45 min later — new session
+            { id: 3, timestamp: at(0, 55) },
             { id: 4, timestamp: at(0, 60) },
         ];
         const idx = segmentSessions(rows);
@@ -308,8 +274,6 @@ describe('detectors — the core discrimination', () => {
     });
 
     it('THE CASE THIS EXISTS FOR: the same oscillating history with a compact answer is a probe', () => {
-        // Identical failure history, identical pass rate. Only the card's structure
-        // differs — and the advice inverts.
         const history = ladder([3, 3, 2, 3], { difficultyStep: 0.5 });
         const asMouthful = cardHealth.runDetectors(ctxFrom(history, { prior: 'overloaded', tokens: 60 }));
         const asProbe = cardHealth.runDetectors(ctxFrom(history, { prior: 'compact', tokens: 3 }));
@@ -337,7 +301,6 @@ describe('confidence gates', () => {
     });
 
     it('says nothing when four lapses land inside one bad week', () => {
-        // Four cycles, but all within a few days — no maturation window.
         const logs = [0, 1, 2, 3].flatMap(d => [
             log({ day: d, pass: false, level: 1, stability: 1, difficulty: 5 }),
             log({ day: d, minute: 30, pass: true, level: 1, stability: 1, difficulty: 5 }),
@@ -367,12 +330,11 @@ describe('confidence gates', () => {
 
 describe('guards suppress the signatures', () => {
     it('diagnoses overdue drift and withdraws the mouthful verdict', () => {
-        // Every failure arrives at 5x its scheduled interval.
         const logs = [];
         let day = 0;
         for (let i = 0; i < 5; i++) {
-            logs.push(log({ day, pass: true, level: 3 }));      // schedules 4 days
-            day += 20;                                          // ...reviewed 20 days later
+            logs.push(log({ day, pass: true, level: 3 }));
+            day += 20;
             logs.push(log({ day, pass: false, level: 1 }));
             day += 1;
         }
@@ -382,7 +344,6 @@ describe('guards suppress the signatures', () => {
     });
 
     it('diagnoses session fatigue and withdraws the mouthful verdict', () => {
-        // 30-card sessions; this card fails at the end and passes near the start.
         const rows = [];
         const mine = [];
         let id = 1000;
@@ -390,7 +351,6 @@ describe('guards suppress the signatures', () => {
             for (let i = 0; i < 30; i++) {
                 const row = { id: id++, timestamp: at(s * 3, i) };
                 rows.push(row);
-                // Position 2/29 ≈ early (pass), 28/29 ≈ late (fail).
                 if (i === 2 || i === 28) {
                     mine.push({
                         ...log({ day: s * 3, minute: i, pass: i === 2, level: i === 2 ? 3 : 1 }),
@@ -413,14 +373,10 @@ describe('guards suppress the signatures', () => {
     });
 
     it('excludes badly-overdue reviews from the trajectory even when the guard stays silent', () => {
-        // A converging card with ONE review that arrived absurdly late. Too few late
-        // failures to trip overdue_drift, but enough to flatten the peak series if it
-        // were counted — which would turn a probe into a mouthful.
         const clean = ladder([2, 6, 18, 45], { difficultyStep: -0.3 });
         const lastDay = (Date.parse(clean.at(-1).timestamp) - T0) / DAY;
         const polluted = [
             ...clean,
-            // ~200 days after a ~45-day schedule: ratio well past the exclusion threshold.
             log({ day: lastDay + 200, pass: false, level: 1, stability: 1, difficulty: 4 }),
         ];
 
@@ -429,7 +385,6 @@ describe('guards suppress the signatures', () => {
         assert.ok(late.overdueRatio > 3, `expected a badly-late review, got ${late.overdueRatio}`);
         assert.equal(onSchedule(withLate).length, withLate.length - 1, 'the late review is dropped');
 
-        // The verdict is unchanged by the outlier.
         assert.equal(classifyTrajectory(withLate).shape, 'converging');
         assert.deepEqual(kinds(cardHealth.runDetectors(ctxFrom(polluted, { prior: 'neutral' }))), ['probe']);
     });
@@ -494,7 +449,6 @@ describe('epoch — addressing a card restarts the analysis', () => {
         const before = cardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded', tokens: 60 }));
         assert.deepEqual(kinds(before), ['mouthful']);
 
-        // The user edits the card: everything before now stops being evidence.
         const lastDay = (Date.parse(logs.at(-1).timestamp) - T0) / DAY;
         const after = buildReviewRecords(logs, { epochAt: at(lastDay + 0.001) });
         assert.equal(after.length, 0);
@@ -509,8 +463,6 @@ describe('epoch — addressing a card restarts the analysis', () => {
 
 describe('flag presentation', () => {
     it('every flag kind ships a title, an explanation and a named action', () => {
-        // A detector that lands in DETECTORS without copy would surface to the user as a
-        // bare kind string, so this is a real coupling worth pinning.
         for (const kind of FLAG_KINDS) {
             const p = PRESENTATION[kind];
             assert.ok(p, `${kind} has no presentation entry`);
@@ -522,7 +474,6 @@ describe('flag presentation', () => {
     });
 
     it('recommends, never applies — no action is destructive or automatic', () => {
-        // The feature's one hard rule: never auto-split, never auto-bury.
         const verbs = Object.values(PRESENTATION).map(p => p.action.toLowerCase());
         assert.ok(verbs.every(v => !/^(splitting|automatically|buried)/.test(v)));
         assert.match(PRESENTATION.mouthful.action, /^Split it/);

@@ -1,8 +1,3 @@
-/**
- * The shell's pure keyboard logic: key names with modifiers, their display parts,
- * and the Navigation group's defaults. No DOM, no React.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { eventKeyName, keyParts, formatKeyLabel, actionForKey, keybindingActions, MODIFIER_KEYS } from '../src/ui/utils/keybindings.js';

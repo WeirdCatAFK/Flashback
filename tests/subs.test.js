@@ -26,7 +26,6 @@ describe('Subscriptions Integration Tests', () => {
 
     const cleanup = async () => {
         try {
-            // Clear Database Tables
             const dropAll = db.transaction(async () => {
                 const tables = await db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%';").all();
                 for (const table of tables) {
@@ -38,12 +37,10 @@ describe('Subscriptions Integration Tests', () => {
             dropAll();
             await db.pragma('foreign_keys = ON');
 
-            // Re-initialize DB
             if (!await validate()) {
                 throw new Error("Validation failed during cleanup");
             }
 
-            // Clear Workspace Folder
             const absRoot = path.join(getWorkspacePath(), TEST_ROOT);
             if (fsSync.existsSync(absRoot)) {
                 await fs.rm(absRoot, { recursive: true, force: true });
@@ -144,7 +141,6 @@ describe('Subscriptions Integration Tests', () => {
 
     it('should merge an updated issue and preserve user progress', async () => {
         await cleanup();
-        // 1. Import initial issue
         const initialContent = [{
             path: "Doc1.md",
             content: "# Document 1 Original",
@@ -160,14 +156,12 @@ describe('Subscriptions Integration Tests', () => {
         const doc = await db.prepare('SELECT id FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         const fcInitial = await db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(doc.id);
 
-        // 2. Simulate user progress
         await db.prepare(`
             INSERT INTO CardProgress (card_hash, account_id, level)
             SELECT global_hash, 'owner', 5 FROM Flashcards WHERE id = ?
             ON CONFLICT(account_id, card_hash) DO UPDATE SET level = excluded.level
         `).run(fcInitial.id);
 
-        // 3. Import updated issue
         const updatedContent = [{
             path: "Doc1.md",
             content: "# Document 1 Updated",
@@ -180,7 +174,6 @@ describe('Subscriptions Integration Tests', () => {
         const updatedZip = createIssueZip("issue-3", "v1.1.0", updatedContent);
         await subscriptions.importIssue("issue-3", updatedZip, TEST_ROOT);
 
-        // 4. Assertions
         const fc = await db.prepare(`
             SELECT fc.*, COALESCE(p.level, 0) AS level
             FROM Flashcards f
@@ -197,7 +190,6 @@ describe('Subscriptions Integration Tests', () => {
 
     it('should add new content from a new issue', async () => {
         await cleanup();
-        // 1. Import initial issue
         const initialContent = [{
             path: "Doc1.md",
             content: "# Document 1 Original",
@@ -210,7 +202,6 @@ describe('Subscriptions Integration Tests', () => {
         const initialZip = createIssueZip("issue-2", "v1.0.0", initialContent);
         await subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
 
-        // 2. Import new issue with additional content
         const newContent = [
         {
             path: "Doc1.md",
@@ -240,7 +231,6 @@ describe('Subscriptions Integration Tests', () => {
 
     it('should remove content that is not in the new issue', async () => {
         await cleanup();
-        // 1. Import initial issue with two documents
         const initialContent = [
             {
                 path: "Doc1.md",
@@ -264,7 +254,6 @@ describe('Subscriptions Integration Tests', () => {
         const initialZip = createIssueZip("issue-4", "v1.0.0", initialContent);
         await subscriptions.importIssue("issue-4", initialZip, TEST_ROOT);
 
-        // 2. Import new issue with only one document
         const newContent = [{
             path: "Doc2.md",
             content: "# Document 2",

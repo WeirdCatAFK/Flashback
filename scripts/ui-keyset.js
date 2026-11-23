@@ -1,14 +1,4 @@
 #!/usr/bin/env node
-/**
- * Translation key-set invariant for the src/ui revision.
- *
- * `translations:check` is red at baseline (untranslated keys), so the useful
- * invariant during a refactor is narrower: the SET of extracted keys must not
- * change, and no t()/tp() call may lose its literal argument.
- *
- *   node scripts/ui-keyset.js --snapshot <file>   write the sorted key list
- *   node scripts/ui-keyset.js --check <file>      exit 1 on any added/removed key or violation
- */
 
 import fs from "node:fs";
 import path from "node:path";

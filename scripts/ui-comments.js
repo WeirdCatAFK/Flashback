@@ -1,34 +1,4 @@
 #!/usr/bin/env node
-/**
- * Comment normalization for src/ui — the mechanical half of the pass.
- *
- * Parses each file with acorn (+ acorn-jsx) so strings, regexes and template
- * literals are never mistaken for comments, then classifies every comment:
- *
- *   header     the comment at offset 0             → kept (hand-trimmed later)
- *   directive  eslint-* / @ts-* / global / prettier → kept; a trailing
- *              `eslint-disable-line` becomes `eslint-disable-next-line` above
- *   jsdoc      a JSDoc block immediately above a top-level statement → kept
- *   doc-line   // line(s) immediately above a top-level statement → rewritten
- *              as a JSDoc block (hand-trimmed later)
- *   jsx        a JSX comment container                → removed
- *   body       inside any function                 → removed
- *   trailing   code precedes it on the line         → removed
- *   banner     ── / --- / === section dividers      → removed
- *   loose      any other top-level comment          → removed
- *
- * Every removal is proven code-neutral: the file is re-parsed after the edit and
- * the two ASTs (positions stripped, JSX whitespace normalized) must be deep-equal
- * or the file is left untouched and the run fails.
- *
- * Usage:
- *   node scripts/ui-comments.js --inventory [--out file.md] <paths...>
- *   node scripts/ui-comments.js --apply <paths...>
- *   node scripts/ui-comments.js --verify <paths...>     (HEAD vs working tree)
- *   node scripts/ui-comments.js --residue <paths...>    (top-level comments left)
- *
- * A path may be a file or a directory (walked for .js/.jsx).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -42,7 +12,6 @@ const DIRECTIVE_RE =
   /^\s*(eslint|@ts-|global\b|globals\b|exported\b|prettier-ignore|istanbul)/;
 const BANNER_RE = /[─═—]{3,}|^\s*[-=]{3,}\s*$|^\s*[-=]{3,}\s.*[-=]{3,}\s*$/;
 
-// ── parsing ─────────────────────────────────────────────────────────────────
 
 function parse(source) {
   const comments = [];
@@ -57,7 +26,6 @@ function parse(source) {
   return { ast, comments };
 }
 
-/** Generic child iteration over an acorn node. */
 function* children(node) {
   for (const key of Object.keys(node)) {
     if (key === "loc" || key === "range" || key === "start" || key === "end")
@@ -77,7 +45,6 @@ const FN_TYPES = new Set([
   "ArrowFunctionExpression",
 ]);
 
-/** Collect function ranges (with a display name) and empty JSX expression containers. */
 function collect(ast) {
   const fns = [];
   const jsxEmpty = [];
@@ -120,7 +87,6 @@ function collect(ast) {
   return { fns, jsxEmpty, topLevel };
 }
 
-// ── classification ──────────────────────────────────────────────────────────
 
 function lineStartOf(src, pos) {
   const i = src.lastIndexOf("\n", pos - 1);
@@ -146,7 +112,6 @@ function classify(source, { comments }, info) {
     return null;
   };
 
-  // group consecutive `//` lines into one unit
   const units = [];
   for (const c of comments) {
     const prev = units[units.length - 1];
@@ -218,7 +183,6 @@ function classify(source, { comments }, info) {
   return out;
 }
 
-// ── rewriting ───────────────────────────────────────────────────────────────
 
 function indentOf(src, pos) {
   const ls = lineStartOf(src, pos);
@@ -301,7 +265,6 @@ function rewrite(source, units, info) {
   return out.replace(/\n{3,}/g, "\n\n");
 }
 
-// ── verification ────────────────────────────────────────────────────────────
 
 const POS_KEYS = new Set(["start", "end", "loc", "range"]);
 
@@ -335,7 +298,6 @@ function astEqual(a, b) {
   return JSON.stringify(normalize(a)) === JSON.stringify(normalize(b));
 }
 
-// ── driver ──────────────────────────────────────────────────────────────────
 
 function walk(p, out = []) {
   const st = fs.statSync(p);

@@ -1,27 +1,3 @@
-/**
- * Read progress: where each person has read to, and how far through a folder they are.
- *
- * The properties pinned here are the ones that make the feature real rather than nominal:
- *
- *   1. **Privacy.** Two people reading one document hold independent positions, and the
- *      Author's resolve to the OWNER_SCOPE sentinel rather than to their account id.
- *   2. **Reading is not editing.** Recording a position writes no sidecar and produces no Seal
- *      commit — for the owner too, which is where this departs from per-user SRS.
- *   3. **The furthest mark.** `auto` advances it and never regresses it; `manual` may move it
- *      backwards, because an explicit correction has to be obeyable.
- *   4. **Identity, not location.** Positions are keyed by globalHash, so they survive a rename
- *      and do not follow a copy (which regenerates identities).
- *   5. **Durability.** A Doctor rebuild wipes the derived database; read progress is not
- *      derived and must come through untouched.
- *   6. **Rollups.** Unread documents stay in the denominator, an unknown denominator never
- *      counts as finished, and two people get different rollups over one folder.
- *
- * Scope is normally resolved from the request context, so these tests enter one explicitly
- * with `runWithAccount` — the same thing `auth/authenticate.js` does per request.
- *
- * Run: node --test tests/readProgress.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -35,8 +11,6 @@ process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
 
-// Imports are hoisted above the assignment above unless they are dynamic, and every one of
-// these resolves its paths from USER_DATA_PATH at import time.
 const { default: validate } = await import('../src/api/config/validate.js');
 if (!await validate()) {
     console.error('Validation failed.');
@@ -80,7 +54,6 @@ describe('Read progress', () => {
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
         await docs.createFolder(FOLDER);
 
-        // Four documents, so a rollup has something to average over.
         for (const name of ['book.md', 'second.md', 'third.md', 'fourth.md']) {
             await docs.importFile(name, FOLDER, Buffer.from(`# ${name}`), {
                 globalHash: crypto.randomUUID(),
@@ -92,10 +65,9 @@ describe('Read progress', () => {
         db.close();
         accounts.closeAccounts();
         await new Promise(r => setTimeout(r, 50));
-        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* windows file locks */ }
+        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
     });
 
-    // --- 1. Privacy --------------------------------------------------------------
 
     describe('two people, one document', () => {
         it('reads as null before anyone opens it', async () => {
@@ -115,9 +87,6 @@ describe('Read progress', () => {
         });
 
         it('files the author under the owner sentinel, not their account id', async () => {
-            // Reading positions live in the progress store now, not accounts.db. The
-            // sentinel rule is unchanged: the Author files under 'owner', never under their
-            // own uuid, because an account id does not survive a copied vault.
             const docHash = (await query.getDocumentByPath(bookRel)).global_hash;
 
             const owner = await query.getReadProgress(OWNER_SCOPE, docHash);
@@ -129,7 +98,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 2. Reading is not editing -----------------------------------------------
 
     describe('what a position costs the vault', () => {
         it('writes no sidecar and seals nothing — for the owner too', async () => {
@@ -148,7 +116,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 3. The furthest mark ------------------------------------------------------
 
     describe('the furthest mark', () => {
         it('advances when you move forward', async () => {
@@ -193,7 +160,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 4. Identity, not location -------------------------------------------------
 
     describe('identity', () => {
         it('survives a rename, because it is keyed by globalHash', async () => {
@@ -216,7 +182,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 5. Durability -------------------------------------------------------------
 
     describe('a Doctor rebuild', () => {
         it('leaves read progress intact, because none of it is derived', async () => {
@@ -230,7 +195,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 6. Rollups ----------------------------------------------------------------
 
     describe('folder rollup', () => {
         it('keeps unread documents in the denominator', async () => {
@@ -276,7 +240,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 6b. Coverage ---------------------------------------------------------------
 
     describe('read but not carded', () => {
         it('counts everything read as a gap when there are no cards at all', async () => {
@@ -328,13 +291,8 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 6c. The anchor the app actually writes ---------------------------------------
 
     describe('highlight-anchored cards', () => {
-        // Every card the UI or the MCP server creates from a selection carries
-        // `location: {type:'highlight', id}` and no `data` — the geometry lives on the
-        // highlight. Resolving only the legacy `{type:'pdf_location', data:{...}}` form meant
-        // coverage reported "cannot tell" for every document carded the way the app cards them.
         const withHighlight = async (name, highlight, cardHash = null) => {
             const rel = path.join(FOLDER, name);
             const hid = `h_${name}`;
@@ -387,8 +345,6 @@ describe('Read progress', () => {
         });
 
         it('resolves through location.id, not through the cardHashes mirror', async () => {
-            // The old resolver's second loop was gated on `highlights[].cardHashes`, an
-            // optional mirror every renderer initialises to [] and no card path ever writes.
             const rel = await withHighlight('hl-mirror.md', { type: 'pdf_bbox', page: 12 });
             await readProgress.set(rel, { unit: 'page', position: { page: 30 }, total: 60 });
             const stored = files.getMetadata(rel);
@@ -398,7 +354,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 6d. Studying only what you have read ----------------------------------------
 
     describe('studyFilter', () => {
         const SF = 'StudyFilterTest';
@@ -408,7 +363,6 @@ describe('Read progress', () => {
         before(async () => {
             await docs.createFolder(SF);
 
-            // One document, two cards: one behind the mark, one well past it.
             behind = crypto.randomUUID();
             ahead = crypto.randomUUID();
             await docs.importFile('textbook.md', SF, Buffer.from('# Textbook'), {
@@ -496,7 +450,6 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 7. Listing ----------------------------------------------------------------
 
     describe('what am I in the middle of', () => {
         it('lists started documents and excludes finished ones', async () => {
@@ -513,13 +466,7 @@ describe('Read progress', () => {
         });
     });
 
-    // --- 8. One scale per document -------------------------------------------------
 
-    // Regression. EPUB percentages were arriving on two scales: epub.js reports nothing usable
-    // until its locations index finishes building, and the server used to fill the gap with
-    // `section / total` — a spine-item ratio, unweighted by text. A book 22% through its prose
-    // recorded 48%, and because `auto` may only ever advance the furthest mark, that inflated
-    // number then rejected every honest report behind it.
     describe('a section has no server-derivable percentage', () => {
         const epubRel = () => path.join(FOLDER, 'third.md');
 
@@ -563,13 +510,11 @@ describe('Read progress', () => {
 
         it('does not let a real mark be overtaken by a spine ratio', async () => {
             const rel = epubRel();
-            // Where the reader actually is: a fifth of the way through the text.
             await readProgress.set(rel, {
                 unit: 'section',
                 position: { cfi: 'a', href: 'ch05.xhtml', section: 11 },
                 total: 21, percent: 0.2237, mode: 'manual',
             });
-            // The report that used to arrive during the locations build, carrying no percent.
             const after = await readProgress.set(rel, {
                 unit: 'section',
                 position: { cfi: 'b', href: 'ch06.xhtml', section: 12 },
@@ -582,9 +527,6 @@ describe('Read progress', () => {
     });
 
 
-    // The one-time repair that clears the two mixed-scale percentages already on disk. Tested
-    // as SQL against a throwaway database rather than through the real store, because the
-    // repair runs at open and the store under test has already been opened.
     describe('the one-time repair of already-written percentages', () => {
         it('nulls section percentages, keeps their locators, and leaves other units alone', async () => {
             const { default: Database } = await import('better-sqlite3');

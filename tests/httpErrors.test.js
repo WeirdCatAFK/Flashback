@@ -1,13 +1,3 @@
-/**
- * The central error mapping — pure, so no vault, no SQLite, no server.
- *
- * What is pinned: a full disk answers a status a client can act on (507 `storage_full`)
- * rather than a bare 500 with a Node errno in the message, and the two existing families
- * (body-parser's 413, the thrown 4xx objects with `code`/`etag`) still come out unchanged.
- *
- * Run: node --test tests/httpErrors.test.js
- */
-
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { statusForError } from '../src/api/httpErrors.js';

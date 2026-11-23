@@ -7,9 +7,6 @@ import crypto from 'crypto';
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_doctor');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
-// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
-// crashed run leaves it behind — and a stale index reads back as out-of-band drift, which is
-// precisely what these tests assert the absence of.
 fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
 
 const { default: validate } = await import('../src/api/config/validate.js');
@@ -39,7 +36,7 @@ const writeSidecar = (relPath, data) => fs.writeFileSync(abs(relPath + '.flashba
 describe('Vault Doctor', () => {
 
     before(async () => {
-        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch { /* clean slate */ }
+        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch {  }
         await sealTools.init();
         await docs.createFolder(TEST_ROOT);
     });
@@ -54,7 +51,6 @@ describe('Vault Doctor', () => {
         }
     });
 
-    // --- 1. CLEAN VAULT ---
     describe('checkIndex on a clean vault', () => {
         it('reports integrity ok and no issues', async () => {
             const report = await doctor.checkIndex();
@@ -70,14 +66,11 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 2. ADDED OUT-OF-BAND ---
     describe('out-of-band added document', () => {
         const rel = path.join(TEST_ROOT, 'OobFolder', 'Added.md');
         const cardHash = crypto.randomUUID();
 
         before(() => {
-            // A document + sidecar dropped onto disk with no Flashback involvement,
-            // inside a plain directory that has no sidecar either (ghost dir).
             fs.mkdirSync(abs(TEST_ROOT, 'OobFolder'), { recursive: true });
             fs.writeFileSync(abs(rel), '# Added out of band');
             writeSidecar(rel, {
@@ -120,7 +113,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 3. MODIFIED OUT-OF-BAND (the sidecar is frozen) ---
     describe('out-of-band modified document', () => {
         const rel = path.join(TEST_ROOT, 'Modified.md');
         const keepHash = crypto.randomUUID();
@@ -138,10 +130,9 @@ describe('Vault Doctor', () => {
             });
             await sealEmitter.flushEdits();
 
-            // Out-of-band: raise one level, lower another, add a card.
             const sidecar = readSidecar(rel);
-            sidecar.flashcards[0].level = 4;   // raised — should be adopted
-            sidecar.flashcards[1].level = 1;   // lowered — must NOT regress the DB
+            sidecar.flashcards[0].level = 4;
+            sidecar.flashcards[1].level = 1;
             sidecar.flashcards.push({ globalHash: newHash, level: 0, vanillaData: { frontText: 'new', backText: 'c' } });
             writeSidecar(rel, sidecar);
         });
@@ -151,9 +142,6 @@ describe('Vault Doctor', () => {
             const entry = report.documents.modified.find(m => m.relPath.includes('Modified.md'));
             assert.ok(entry, 'document flagged as modified');
             assert.ok(entry.reasons.includes('cardSetChanged'));
-            // `levelAhead` is gone. It compared the sidecar's SRS fields against the live
-            // schedule, and those now diverge by design — the file is a frozen snapshot — so
-            // the reason would have fired forever and no syncIndex could ever clear it.
             assert.ok(!entry.reasons.includes('levelAhead'));
         });
 
@@ -165,19 +153,13 @@ describe('Vault Doctor', () => {
             const byHash = new Map((await query.getFlashcardsByDocument(doc.id, 'owner')).map(c => [c.global_hash, c]));
             assert.equal(byHash.size, 3, 'new card was added');
 
-            // Both of these had a schedule already, so the out-of-band edits to their SRS
-            // fields are ignored outright — raised and lowered alike. The old max-merge adopted
-            // the raised one; it existed because two writers owned one number, and only one
-            // does now. The file cannot move a schedule in either direction.
             assert.equal(byHash.get(keepHash).level, 1, 'a raised level in the file is ignored');
             assert.equal(byHash.get(regressHash).level, 5, 'and a lowered one cannot regress it');
 
-            // The genuinely new card has no schedule anywhere, so the file IS its only source.
             assert.equal(byHash.get(newHash).level ?? 0, 0, 'the new card is seeded from the file');
         });
     });
 
-    // --- 4/5. DELETED OUT-OF-BAND ---
     describe('out-of-band deletions', () => {
         const fileRel = path.join(TEST_ROOT, 'Doomed.md');
         const folderRel = path.join(TEST_ROOT, 'DoomedFolder');
@@ -192,7 +174,6 @@ describe('Vault Doctor', () => {
             });
             await sealEmitter.flushEdits();
 
-            // Delete both out-of-band (raw fs, no Flashback involvement).
             fs.unlinkSync(abs(fileRel));
             fs.unlinkSync(abs(fileRel + '.flashback'));
             fs.rmSync(abs(folderRel), { recursive: true, force: true });
@@ -222,7 +203,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 6. POST-ROLLBACK (the inspect() blind spot) ---
     describe('post-rollback reconciliation', () => {
         const rel = path.join(TEST_ROOT, 'Rollback.md');
         const v1Hash = crypto.randomUUID();
@@ -271,7 +251,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 7. MEDIA, BOTH DIRECTIONS ---
     describe('media reconciliation', () => {
         const mediaDirRel = path.join(TEST_ROOT, 'media');
         const fileRel = path.join(mediaDirRel, 'loose.png');
@@ -304,7 +283,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 8. DECKS ---
     describe('deck reconciliation', () => {
         it('reimports a deck whose DB row vanished (file wins)', async () => {
             const hash = await decks.createDeck('LostRow', 'db row will vanish');
@@ -337,7 +315,6 @@ describe('Vault Doctor', () => {
             const deckHash = await decks.createDeck('Mismatch', '');
             await decks.addEntry(deckHash, { cardHash });
 
-            // Out-of-band: remove the entry from the file only.
             const filePath = path.join(workspace, '_decks', `${deckHash}.json`);
             const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
             data.entries = [];
@@ -353,7 +330,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 9. HASH CONFLICT ---
     describe('globalHash conflicts', () => {
         const sharedHash = crypto.randomUUID();
         const relA = path.join(TEST_ROOT, 'ConflictA.md');
@@ -384,7 +360,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 10. CORRUPT SIDECAR ---
     describe('corrupt sidecars', () => {
         const rel = path.join(TEST_ROOT, 'Corrupt.md');
 
@@ -409,7 +384,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 11. IDEMPOTENCE ---
     describe('syncIndex idempotence', () => {
         it('a second run performs zero actions and seals nothing', async () => {
             await doctor.syncIndex();
@@ -424,15 +398,11 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // --- 12. FULL REBUILD ---
     describe('rebuildIndex', () => {
         const folderRel = path.join(TEST_ROOT, 'RebuildZone');
         const docARel = path.join(folderRel, 'TargetDoc.md');
         const docBRel = path.join(folderRel, 'LinkSource.md');
         const cardHash = crypto.randomUUID();
-        // A type_answer card keeps the value it grades in `answerText` and post-review notes
-        // in `backText`. A rebuild re-derives every card from the canonical files, so it is
-        // where that split either survives or is silently collapsed back together.
         const typedHash = crypto.randomUUID();
         let targetHash;
         let standaloneHash;
@@ -443,9 +413,6 @@ describe('Vault Doctor', () => {
         before(async () => {
             await sealEmitter.flushEdits();
 
-            // Folder with a tag (inheritance), a doc with a leveled+eased card,
-            // a second doc linking to the first, a highlight, a custom category,
-            // a user deck, and a standalone card.
             await query.insertCategory({ name: 'doctor-test-cat', priority: 2, description: 'test' });
 
             await docs.createFolder('RebuildZone', TEST_ROOT);
@@ -466,15 +433,10 @@ describe('Vault Doctor', () => {
                 }],
                 highlights: [{ id: crypto.randomUUID(), type: 'text_offset', start: 0, end: 5, color: 'amber', note: '' }],
             });
-            // createFile mints the sidecar's globalHash independently of any caller
-            // input, and rebuildIndex re-indexes documents from their sidecars — so
-            // the link must reference TargetDoc's sidecar hash to resolve post-rebuild.
             targetHash = readSidecar(docARel).globalHash;
             await docs.importFile('LinkSource.md', folderRel, `See [target](flashback://${targetHash})`, {});
 
             standaloneHash = await decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
-            // The standalone equivalent: its only canonical home is the deck file's inline
-            // snapshot, so this is the harder half of the same question.
             typedStandaloneHash = await decks.createStandaloneCard({
                 frontText: 'standalone-typed-q', answerText: 'standalone-typed-answer',
                 backText: 'standalone-typed-notes', cardType: 'type_answer',
@@ -485,7 +447,7 @@ describe('Vault Doctor', () => {
             fs.mkdirSync(abs(folderRel, 'media'), { recursive: true });
             fs.writeFileSync(abs(folderRel, 'media', 'art.png'), Buffer.from('art-bytes'));
             await sealEmitter.flushEdits();
-            await doctor.syncIndex(); // register media, settle everything
+            await doctor.syncIndex();
 
             snapshot = {
                 documents: (await query.getAllDocuments()).length,
@@ -493,7 +455,6 @@ describe('Vault Doctor', () => {
                 decks: (await query.getAllDecks()).length,
             };
 
-            // Simulate a recovered-from-corruption DB: category rows lost too.
             const cat = await query.getCategoryByName('doctor-test-cat');
             await query.wipeDerivedContent();
             await query.deleteCategory(cat.id);
@@ -533,8 +494,6 @@ describe('Vault Doctor', () => {
             assert.ok((await query.getDirectTagNames(doc.node_id)).includes('direct-tag'));
             assert.ok((await query.getInheritedTagNames(doc.node_id)).includes('inherited-tag'));
 
-            // The folder pass that ends a rebuild used to hand each document's cards the
-            // folder's tags alone, so a card lost its own document's tags in the index.
             const card = await db.prepare('SELECT node_id FROM Flashcards WHERE global_hash = ?').get(cardHash);
             const carried = await query.getInheritedTagNames(card.node_id);
             assert.ok(carried.includes('direct-tag'), 'the card carries its document’s tag');
@@ -555,11 +514,6 @@ describe('Vault Doctor', () => {
             const mediaHash = crypto.createHash('sha256').update(Buffer.from('art-bytes')).digest('hex');
             assert.ok(await query.getMediaByHash(mediaHash), 'media re-registered');
 
-            // SM-2 ease is read out of the newest review log. A card that was really
-            // reviewed keeps its ease across a rebuild because those logs are durable. This
-            // card never was — its 2.7 exists only as a sidecar field — so it comes back the
-            // other way: the rebuild finds no progress row, seeds the schedule from the frozen
-            // sidecar, and seeds one synthetic log to carry the ease with it.
             const eases = await query.getLatestEaseFactors('owner');
             assert.equal(eases.get(cardHash), 2.7, 'ease seeded from the sidecar on absence');
         });
@@ -580,9 +534,6 @@ describe('Vault Doctor', () => {
             assert.equal((await query.getDeckEntries(deck.id, 'owner')).length, 1, 'user deck entries restored');
         });
 
-        // The rebuild is the one operation that throws the derived layer away entirely, so if
-        // a type_answer card's graded answer and its notes are ever going to collapse back
-        // into one field, it happens here.
         it('keeps a type_answer card\'s answer and notes apart through the rebuild', async () => {
             const anchored = await query.getFlashcardContentByHash(typedHash, 'owner');
             assert.ok(anchored, 'anchored type_answer card restored');
@@ -607,12 +558,6 @@ describe('Vault Doctor', () => {
         });
     });
 
-    // The reason the progress store exists. Before it, a rebuild threw away every
-    // account's review history — the Doctor's own header promised the loss — which meant
-    // the "derived" database was never actually disposable. progress.ReviewLogs carries no
-    // foreign key into the index and wipeDerivedContent deliberately does not name it, so
-    // a log row needs no card row to survive alongside it. If someone re-adds
-    // `DELETE FROM ReviewLogs` to that wipe, this is what should fail.
     describe('the progress store survives a rebuild', () => {
         const HASH = 'doctor-survives-rebuild';
 

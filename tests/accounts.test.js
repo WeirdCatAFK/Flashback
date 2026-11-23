@@ -1,24 +1,3 @@
-/**
- * The accounts store, the permission table, and the rules that sit between them.
- *
- * Three things are being pinned here, and they fail in different ways:
- *
- *   1. **The store.** Ordinary CRUD, plus the two properties that are security-relevant: a
- *      plaintext token is never recoverable, and a revoked token stops resolving.
- *   2. **The permission table.** Pure resolution — no HTTP, no database. The important test
- *      is not that any particular rule is right (rules are a product decision and will
- *      change) but that the table FAILS CLOSED: an unlisted mount, an unknown role and a
- *      missing account must all be refused rather than waved through.
- *   3. **The coverage assertion.** Every router mounted in `api.js` has an entry. Without it
- *      the failure mode of adding a route is silence — it would resolve to author-only and
- *      look broken to admins, or worse, someone would "fix" that with a catch-all.
- *
- * The store lives at `{USER_DATA_PATH}/accounts.db`, so this file points USER_DATA_PATH at a
- * scratch directory of its own before importing anything. It never touches a vault.
- *
- * Run: node --test tests/accounts.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -44,16 +23,9 @@ const { requiredRole, PERMISSIONS } = await import('../src/api/auth/permissions.
 
 after(() => {
     accounts.closeAccounts();
-    try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
+    try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
 });
 
-/**
- * Empties the store between describe blocks.
- *
- * Closes the handle and deletes the file rather than issuing DELETEs, so each block starts
- * against a store that has genuinely never been opened — which is the state `ensureLocalAuthor`
- * has to handle. The adapter re-opens lazily on the next query and recreates the schema.
- */
 function reset() {
     accounts.closeAccounts();
     for (const suffix of ['', '-wal', '-shm']) {
@@ -69,8 +41,6 @@ describe('roles', () => {
     });
 
     it('refuses anything that is not a role', () => {
-        // The guard compares req.account?.role against a rule. A corrupt row, a null account
-        // or a role from a future version must never satisfy a requirement.
         assert.equal(atLeast(undefined, ROLES.READER), false);
         assert.equal(atLeast('superuser', ROLES.READER), false);
         assert.equal(atLeast(ROLES.AUTHOR, 'superuser'), false);
@@ -92,8 +62,6 @@ describe('accounts store', () => {
     });
 
     it("adopts this install's apiToken as the Author's token", async () => {
-        // This is the whole reason a desktop install notices nothing: the renderer and the
-        // MCP server keep presenting the token they already hold.
         const author = await accounts.ensureLocalAuthor('desktop-token-abc');
         const resolved = await accounts.resolveToken('desktop-token-abc');
         assert.equal(resolved?.account.id, author.id);
@@ -111,7 +79,6 @@ describe('accounts store', () => {
         const raw = fs.readFileSync(path.join(ROOT, 'accounts.db'));
         assert.ok(!raw.includes(Buffer.from(token)), 'the plaintext must not be in the file');
 
-        // And the read path never returns one either.
         const listed = (await accounts.listAccounts())[0].tokens;
         for (const t of listed) {
             assert.ok(!('token' in t) && !('hash' in t) && !('token_hash' in t));
@@ -128,7 +95,6 @@ describe('accounts store', () => {
         assert.equal(await accounts.resolveToken(a.token), null);
         assert.equal((await accounts.resolveToken(b.token))?.account.id, author.id);
 
-        // Idempotent: a second revoke reports success without moving the timestamp.
         const before = (await accounts.getToken(a.id)).revokedAt;
         assert.equal(await accounts.revokeToken(a.id), true);
         assert.equal((await accounts.getToken(a.id)).revokedAt, before);
@@ -192,8 +158,6 @@ describe('pure token rotation', () => {
     });
 
     it('re-adopts the local apiToken after a rotation revoked it', async () => {
-        // A desktop install would otherwise be bricked by a rotation: config.json still holds
-        // the old token, Electron owns that field, and the API cannot rewrite it.
         await accounts.ensureLocalAuthor('desktop-token-xyz');
         assert.ok(await accounts.resolveToken('desktop-token-xyz'));
 
@@ -216,8 +180,6 @@ describe('permission table', () => {
     });
 
     it('lets a collaborator annotate but not create', () => {
-        // A collaborator's whole job is annotation, and every annotation — highlight, tag,
-        // card — is a sidecar write. Without PUT /metadata they could do nothing at all.
         assert.equal(requiredRole('documents', 'PUT', '/metadata'), ROLES.COLLABORATOR);
         assert.equal(requiredRole('highlights', 'POST', '/'), ROLES.COLLABORATOR);
         assert.equal(requiredRole('documents', 'PUT', '/file'), ROLES.ADMIN);
@@ -241,15 +203,12 @@ describe('permission table', () => {
     });
 
     it('opens the vault handshake but nothing else on that router', () => {
-        // A client has to be able to ask what it just connected to.
         assert.equal(requiredRole('vault', 'GET', '/'), ROLES.READER);
         assert.equal(requiredRole('vault', 'POST', '/switch'), ROLES.AUTHOR);
         assert.equal(requiredRole('vault', 'GET', '/list'), ROLES.AUTHOR);
     });
 
     it('fails closed on a mount nobody declared', () => {
-        // This is the property that matters most. A router added to api.js and forgotten
-        // here must become unreachable, not universally reachable.
         assert.equal(requiredRole('a-router-that-does-not-exist', 'GET', '/'), ROLES.AUTHOR);
         assert.equal(requiredRole(undefined, 'GET', '/'), ROLES.AUTHOR);
     });
@@ -270,13 +229,6 @@ describe('permission table', () => {
         }
     });
 
-    // Express routes case-insensitively and non-strictly by default, and setting
-    // `case sensitive routing` on the app does NOT reach the routers in routes/ — each is
-    // constructed with its own empty options object. So `/Pure-Token` and `/pure-token/`
-    // both arrive at the pure-token handler, and the guard has to recognise them as that
-    // route. It did not: they missed the AUTHOR rule, fell through to the accounts
-    // catch-all (ADMIN), and any admin could rotate the Author's token — which revokes
-    // every existing Author token on the way out.
     it('resolves a rule regardless of path case or a trailing slash', () => {
         for (const p of ['/pure-token', '/Pure-Token', '/PURE-TOKEN', '/pure-token/']) {
             assert.equal(requiredRole('accounts', 'POST', p), ROLES.AUTHOR, p);
@@ -284,26 +236,12 @@ describe('permission table', () => {
         for (const p of ['/rollback', '/Rollback', '/rollback/']) {
             assert.equal(requiredRole('seal', 'POST', p), ROLES.AUTHOR, p);
         }
-        // A rule with a mid-pattern star has to survive it too.
         assert.equal(
             requiredRole('flashcards', 'POST', '/ABC123/Flags/Mouthful/Dismiss'),
             ROLES.READER,
         );
     });
 
-    // The invariant that would have caught the above before it shipped, rather than the
-    // three spellings that happened to be tried.
-    //
-    // Within a mount, rules are read most-specific first and the last one is a catch-all.
-    // If a specific rule demands MORE than a rule below it, then any request that fails to
-    // match the specific rule — for whatever reason, a spelling nobody predicted included —
-    // lands on something weaker. Every other mount in the table is ordered the safe way
-    // round (its specific rules LOWER the requirement), which is exactly why `pure-token`
-    // was the only escalation and not one of a dozen.
-    //
-    // If a future rule genuinely needs this shape, it must not rely on the matcher alone:
-    // enforce it in the handler, where the actor and the target can be compared — the way
-    // routes/accounts.js already does for the rules a ladder cannot express.
     it('never lets a specific rule require more than a later one in the same mount', () => {
         const rank = Object.fromEntries(
             [ROLES.READER, ROLES.COLLABORATOR, ROLES.ADMIN, ROLES.AUTHOR].map((r, i) => [r, i]),

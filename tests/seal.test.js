@@ -22,9 +22,6 @@ const docs = new Documents();
 const TEST_ROOT = 'SealTests';
 const workspace = getWorkspacePath();
 
-// sealTools.log() defaults to a depth of 20 — a page for the Seal view, not a count. These
-// tests count commits, and the suite now produces more than twenty of them, so they ask for a
-// depth no run will reach rather than silently comparing two saturated numbers.
 const LOG_DEPTH = 500;
 
 describe('Seal Integration Tests', () => {
@@ -45,7 +42,6 @@ describe('Seal Integration Tests', () => {
         }
     });
 
-    // --- 1. EVENT EMITTER COMMITS ---
     describe('Event Emitter Commits', () => {
         const fileName = 'Notes.md';
         const filePath = path.join(TEST_ROOT, fileName);
@@ -101,7 +97,6 @@ describe('Seal Integration Tests', () => {
         });
     });
 
-    // --- 2. LOG ---
     describe('Log', () => {
         it('returns commits in reverse chronological order', async () => {
             const commits = await sealTools.log(LOG_DEPTH);
@@ -121,7 +116,7 @@ describe('Seal Integration Tests', () => {
 
         it('pages backwards with a cursor without repeating the boundary commit', async () => {
             const straight = await sealTools.log(6);
-            if (straight.length < 4) return; // not enough history in this run
+            if (straight.length < 4) return;
 
             const firstPage = await sealTools.log(2);
             const secondPage = await sealTools.log(2, firstPage[firstPage.length - 1].oid);
@@ -160,10 +155,6 @@ describe('Seal Integration Tests', () => {
             const contentCommit = (await sealTools.log(1))[0];
             assert.ok(contentCommit.stats.content > 0, 'Writing the document body should count as content');
 
-            // A metadata-only write touches the sidecar and not the body — the shape every
-            // highlight/card/tag change takes, and what the UI labels "metadata". This used to
-            // be demonstrated with a review; grading no longer writes a file at all, so a tag
-            // change stands in for it.
             await docs.updateMetadata(rel, {
                 globalHash: crypto.randomUUID(),
                 tags: ['metadata-only'],
@@ -189,7 +180,6 @@ describe('Seal Integration Tests', () => {
         });
     });
 
-    // --- 3. ROLLBACK ---
     describe('Rollback', () => {
         const rollbackFile = 'RollbackTest.md';
         const rollbackPath = path.join(TEST_ROOT, rollbackFile);
@@ -199,7 +189,6 @@ describe('Seal Integration Tests', () => {
 
         before(async () => {
             await docs.createFile(rollbackFile, TEST_ROOT);
-            // v1 — this will be the snapshot target; flush so the commit lands before we capture the ref
             await docs.updateFile(rollbackPath, '# v1', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v1 question', backText: 'v1 answer' } }]
@@ -207,7 +196,6 @@ describe('Seal Integration Tests', () => {
             await sealEmitter.flushEdits();
             snapshotRef = (await sealTools.log(LOG_DEPTH))[0].oid;
 
-            // v2 + review to advance SRS; flush so all edits are committed before the rollback test runs
             await docs.updateFile(rollbackPath, '# v2', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v2 question', backText: 'v2 answer' } }]
@@ -228,12 +216,6 @@ describe('Seal Integration Tests', () => {
         });
 
         it('leaves the schedule alone, because a rollback cannot reach it', async () => {
-            // There is nothing to preserve any more, and nothing that could threaten it.
-            // Schedules live in {vault}/progress.db, which git does not track, and the sidecar
-            // is no longer read for progress — so a checkout cannot move a level in either
-            // direction. This replaces a `keepSrsProgress=true` test; the flag is gone, and its
-            // `false` branch never worked, because the reindex after a checkout max-merged the
-            // sidecar against the database and so could not regress a level.
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
                 JOIN Flashcards f ON f.global_hash = p.card_hash
@@ -248,7 +230,6 @@ describe('Seal Integration Tests', () => {
         });
     });
 
-    // --- 4. INSPECT ---
     describe('Inspect', () => {
         it('returns empty result when workspace matches HEAD', async () => {
             const result = await sealTools.inspect();
@@ -289,9 +270,6 @@ describe('Seal Integration Tests', () => {
         });
     });
 
-    // --- 5. DECKS PARTICIPATE IN SEAL (Backlog #38) ---
-    // Runs last so its commits don't perturb the Rollback/Inspect sections above,
-    // which are sensitive to workspace/HEAD state.
     describe('Deck writes are versioned', () => {
         const decks = new Decks();
 
@@ -314,11 +292,6 @@ describe('Seal Integration Tests', () => {
             assert.ok(commits[0].commit.message.includes('_decks/'), 'Commit should reference a deck JSON path');
         });
 
-        // Was "batches into a single edit commit", back when edit() was debounced. Authoring
-        // five cards is five content changes, and each is now its own commit — you can roll
-        // back to after the third one, which the batched history could not express. Grading a
-        // card produces no commit at all now: a schedule is not in the workspace, so there is
-        // nothing to coalesce — `sealEmitter.review()` and its debounce are gone entirely.
         it('authoring five cards produces five edit commits, one per card', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
             for (let i = 0; i < 5; i++) {

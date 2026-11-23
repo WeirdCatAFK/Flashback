@@ -1,8 +1,3 @@
-/**
- * Trainer session maths — the pure modules under src/ui/views/trainer.
- * No React, no DOM, no vault: runs under plain `node --test`.
- */
-
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 import { REQUEUE_LAG, insertIndexFor, requeueFailed, startSession, applyResult, undoResult, sessionFigures } from '../src/ui/views/trainer/queue.js';

@@ -1,20 +1,4 @@
 #!/usr/bin/env node
-/**
- * Visual regression aid for the src/ui revision.
- *
- * Launches Vite + Electron with a remote-debugging port, drives the activity bar
- * over the Chrome DevTools Protocol, and captures every nav view in each theme.
- * `--diff` compares two capture folders pixel-by-pixel (decoded in a canvas inside
- * the running page — Node has no image decoder) and writes a red-highlighted
- * `<view>.diff.png` beside a percentage per view.
- *
- * Usage:
- *   node scripts/ui-screenshots.js --out <dir> [--themes light-workbench,dark-cherry] [--views documents,trainer]
- *   node scripts/ui-screenshots.js --diff <baseDir> <newDir>
- *
- * Needs nothing running; it starts and stops the app itself. Only navigates and
- * sets `data-theme` — it never writes to the vault. Node >= 22 (global WebSocket).
- */
 
 import fs from "node:fs";
 import path from "node:path";
@@ -44,7 +28,6 @@ const opt = (name) => {
 };
 const has = (name) => argv.includes(name);
 
-// ── CDP client ──────────────────────────────────────────────────────────────
 
 class Cdp {
   constructor(ws) {
@@ -110,7 +93,6 @@ async function findPage(retries = 60) {
   throw new Error("app page not found on the debugging port");
 }
 
-// ── launch / teardown ───────────────────────────────────────────────────────
 
 function launch() {
   const shell = process.platform === "win32";
@@ -137,7 +119,6 @@ function kill(proc) {
   else process.kill(-proc.pid, "SIGTERM");
 }
 
-/** npx re-spawns its target, so the tree under our pid is not the whole story: also kill whatever holds the ports. */
 function killByPort(...ports) {
   if (process.platform !== "win32") return;
   const out = spawnSync("netstat", ["-ano"], { encoding: "utf8" }).stdout || "";
@@ -155,7 +136,6 @@ function teardown(procs) {
   killByPort(PORT, 51234);
 }
 
-// ── capture ─────────────────────────────────────────────────────────────────
 
 async function capture(outDir, themes, views) {
   fs.mkdirSync(outDir, { recursive: true });
@@ -208,7 +188,6 @@ async function capture(outDir, themes, views) {
   }
 }
 
-// ── diff ────────────────────────────────────────────────────────────────────
 
 const DIFF_FN = `
 async (a, b) => {

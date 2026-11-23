@@ -1,25 +1,3 @@
-/**
- * Upgrading an existing install into the vault-registry build.
- *
- * The vault changer added a manifest file, four config.json fields and a rebindable
- * database handle — but NO schema migration and NO canonical update. That claim is only
- * worth as much as a test of it, because the failure it guards against is the expensive
- * kind: a user launches the new build over a vault they have been studying in for months
- * and finds it rebuilt, re-walked, or empty.
- *
- * So this file does not test the new features. It asserts that an install which predates
- * all of them opens untouched: same schema version, same canonical version, same
- * documents, same cards, same Seal history.
- *
- * The pre-upgrade state is reconstructed rather than mocked — a real vault is built, then
- * everything this feature adds to disk is stripped back off it (vault.json deleted,
- * config.json rewritten to its old flat shape). What remains is byte-for-byte what an
- * older build leaves behind, since the older build wrote every other file with the same
- * code that is still here.
- *
- * Run: node --test tests/upgrade.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -31,8 +9,6 @@ process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
 
-// config.json exactly as an install predating this work has it: the flat fields and
-// nothing else. No vaults[], no activeVaultId, no remotes[], no allowedOrigins.
 const LEGACY_CONFIG = {
     port: 50500,
     logFormat: 'dev',
@@ -58,7 +34,6 @@ const { sealTools } = await import('../src/api/seal/seal.js');
 
 const docs = new Documents();
 
-/** State that must be identical either side of the upgrade. */
 async function snapshot() {
     return {
         schemaVersion: await query.getSchemaVersion(),
@@ -75,7 +50,6 @@ describe('upgrading an install that predates the vault registry', () => {
     let sidecarBefore;
 
     before(async () => {
-        // 1. Build a vault the way the previous build would have: open it, use it.
         assert.ok(await openVault(), 'the legacy config should open a vault');
 
         await docs.createFile('kept.md', '');
@@ -86,24 +60,20 @@ describe('upgrading an install that predates the vault registry', () => {
             path.join(config.getWorkspacePath(), 'kept.md.flashback'), 'utf-8',
         );
 
-        // 2. Strip everything this feature added to disk, leaving the pre-upgrade state.
         closeDatabase();
         fs.rmSync(path.join(config.getVaultPath(), 'vault.json'), { force: true });
         writeLegacyConfig();
         config.reload();
 
-        // 3. First launch of the new build over that install.
         assert.ok(await openVault(), 'the new build must open a pre-upgrade vault');
     });
 
     after(() => {
         closeDatabase();
-        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* Windows handle lag */ }
+        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
     });
 
     it('runs no schema migration', async () => {
-        // A new migration would have bumped this. The point of the assertion is not the
-        // number 9 but that the number did not MOVE — no user's database is rewritten.
         const now = await snapshot();
         assert.equal(now.schemaVersion, before_.schemaVersion);
     });
@@ -112,8 +82,6 @@ describe('upgrading an install that predates the vault registry', () => {
         const now = await snapshot();
         assert.equal(now.canonicalVersion, before_.canonicalVersion);
 
-        // UpdateRunner walking would rewrite every sidecar and seal the result. Comparing
-        // the file's bytes catches a rewrite even if it happened to preserve the version.
         const sidecarAfter = fs.readFileSync(
             path.join(config.getWorkspacePath(), 'kept.md.flashback'), 'utf-8',
         );
@@ -121,8 +89,6 @@ describe('upgrading an install that predates the vault registry', () => {
     });
 
     it('keeps the vault\'s data rather than rebuilding the database', async () => {
-        // The nightmare case: validation decides the schema is wrong, rebuilds it, and the
-        // user's documents are gone. Documents surviving is what proves it did not.
         const now = await snapshot();
         assert.deepEqual(now.documents, before_.documents);
         assert.deepEqual(now.documents, ['also-kept.md', 'kept.md']);
@@ -144,22 +110,15 @@ describe('upgrading an install that predates the vault registry', () => {
         assert.ok(manifest.id);
         assert.equal(manifest.name, 'dreams');
 
-        // Untracked by git, so it neither shows up in the user's Seal history nor gets
-        // rolled back with it.
         assert.ok(!fs.existsSync(path.join(config.getWorkspacePath(), 'vault.json')));
     });
 
     it('leaves config.json\'s existing fields exactly as they were', () => {
-        // The API process must not write the registry — that is Electron main's field to
-        // own — and must never disturb the flat fields an older build reads.
         const onDisk = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf-8'));
         assert.deepEqual(onDisk, LEGACY_CONFIG);
     });
 
     it('synthesizes a registry from the flat fields instead of requiring one', () => {
-        // Every new config reader has to answer sensibly for a config.json that has none
-        // of the new fields, because that is what every existing install looks like until
-        // Electron main writes the registry.
         const vaults = config.getVaults();
         assert.equal(vaults.length, 1);
         assert.equal(vaults[0].name, 'dreams');
@@ -171,8 +130,6 @@ describe('upgrading an install that predates the vault registry', () => {
     });
 
     it('still resolves every vault path the old way', () => {
-        // The flat fields remain the projection that actually resolves paths, so a config
-        // with no registry addresses the same folders it always did.
         assert.equal(config.get().vaultName, 'dreams');
         assert.equal(config.getVaultPath(), path.join(ROOT, 'dreams'));
         assert.equal(config.getWorkspacePath(), path.join(ROOT, 'dreams', 'workspace'));

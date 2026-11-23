@@ -20,11 +20,6 @@ if (!await validate()) {
 const docs = new Documents();
 const TEST_ROOT = "PerfTestWorkspace";
 
-// Each test runs a small calibration import first, then a larger import.
-// The assertion is proportional: the larger import must stay within OVERHEAD_FACTOR×
-// of what pure linear scaling would predict. This way the threshold adapts to the
-// machine's actual speed (fast SSD, slow network drive, OneDrive, whatever) and
-// only fails on genuine algorithmic regressions.
 const OVERHEAD_FACTOR = 5;
 
 const makeCards = (n) => Array.from({ length: n }, (_, i) => ({
@@ -62,7 +57,6 @@ describe('Performance: Import Throughput', () => {
         const SMALL_MB = 5;
         const LARGE_MB = 100;
 
-        // Calibration — establishes this machine's current ms/MB under real code paths
         const t0 = performance.now();
         await docs.importFile('cal_size.bin', TEST_ROOT, Buffer.allocUnsafe(SMALL_MB * 1024 * 1024), {
             globalHash: crypto.randomUUID(),
@@ -70,7 +64,6 @@ describe('Performance: Import Throughput', () => {
         });
         const baseMs = performance.now() - t0;
 
-        // Main import
         const beforeHead = (await sealTools.log(1))[0]?.oid;
         const t1 = performance.now();
         await docs.importFile('large_size.bin', TEST_ROOT, Buffer.allocUnsafe(LARGE_MB * 1024 * 1024), {
@@ -86,7 +79,6 @@ describe('Performance: Import Throughput', () => {
             `ratio ${(largeMs / baseMs / (LARGE_MB / SMALL_MB)).toFixed(2)}× (max ${OVERHEAD_FACTOR}×)`
         );
 
-        // largeMs should be at most OVERHEAD_FACTOR× what linear scaling from baseline predicts
         const maxAllowed = baseMs * (LARGE_MB / SMALL_MB) * OVERHEAD_FACTOR;
         assert.ok(
             largeMs <= maxAllowed,
@@ -94,11 +86,9 @@ describe('Performance: Import Throughput', () => {
             `${(largeMs / baseMs / (LARGE_MB / SMALL_MB)).toFixed(1)}× overhead (max ${OVERHEAD_FACTOR}×)`
         );
 
-        // Seal commit produced
         const afterHead = (await sealTools.log(1))[0]?.oid;
         assert.notEqual(afterHead, beforeHead, 'importFile should produce a Seal commit');
 
-        // All cards persisted
         const doc = await docs.exists(path.join(TEST_ROOT, 'large_size.bin'), true, false);
         assert.ok(doc, 'Document should be in DB');
         const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;
@@ -108,9 +98,8 @@ describe('Performance: Import Throughput', () => {
     it('card-count scaling: 500-card import should stay proportional to 10-card baseline', async () => {
         const SMALL_CARDS = 10;
         const LARGE_CARDS = 500;
-        const FILE_SIZE = 100 * 1024; // 100 KB — file size is constant; only card count varies
+        const FILE_SIZE = 100 * 1024;
 
-        // Calibration
         const t0 = performance.now();
         await docs.importFile('cal_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
             globalHash: crypto.randomUUID(),
@@ -118,7 +107,6 @@ describe('Performance: Import Throughput', () => {
         });
         const baseMs = performance.now() - t0;
 
-        // Main import
         const t1 = performance.now();
         await docs.importFile('large_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
             globalHash: crypto.randomUUID(),
@@ -139,7 +127,6 @@ describe('Performance: Import Throughput', () => {
             `${(largeMs / baseMs / (LARGE_CARDS / SMALL_CARDS)).toFixed(1)}× overhead (max ${OVERHEAD_FACTOR}×)`
         );
 
-        // All cards persisted
         const doc = await docs.exists(path.join(TEST_ROOT, 'large_cards.md'), true, false);
         assert.ok(doc, 'Document should be in DB');
         const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;

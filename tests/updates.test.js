@@ -1,19 +1,3 @@
-/**
- * Canonical updates — the versioned migration system for the `.flashback` sidecars and
- * `_decks/*.json` files (src/api/config/UpdateRunner.js + config/updates/).
- *
- * Two halves, deliberately:
- *
- *   1. The MECHANISM, driven with synthetic updates injected into the runner. This is what
- *      every future update inherits, so it is tested independently of the one update that
- *      happens to exist today: ordering, per-item versioning, the stamp, the vault-level
- *      fast path, and the failure behaviour that decides whether a bad file can damage a
- *      vault or block one.
- *   2. Update 001 itself, run through the real registry against a legacy vault.
- *
- * Run: node --test tests/updates.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -22,9 +6,6 @@ import crypto from 'crypto';
 
 process.env.USER_DATA_PATH = path.join(process.cwd(), 'data_test_updates');
 
-// A clean slate, before validate() creates the vault. Teardown removes this directory, but a
-// crashed run leaves it behind — including a CanonicalVersion row and already-stamped
-// sidecars, which would make the pending-work assertions pass for the wrong reason.
 fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
 
 const { default: validate } = await import('../src/api/config/validate.js');
@@ -55,10 +36,8 @@ const readFolderSidecar = (relPath) => JSON.parse(fs.readFileSync(abs(relPath, '
 const deckFilePath = (hash) => abs('_decks', `${hash}.json`);
 const readDeckFile = (hash) => JSON.parse(fs.readFileSync(deckFilePath(hash), 'utf-8'));
 
-// Forces the vault back to "nothing has ever run" so a test can drive a pass from scratch.
 const forgetVaultVersions = async () => await db.prepare('DELETE FROM CanonicalVersion').run();
 
-// Rewrites a sidecar the way a build that predates versioning would have left it.
 const deVersion = (relPath) => {
     const meta = readSidecar(relPath);
     delete meta.formatVersion;
@@ -66,8 +45,6 @@ const deVersion = (relPath) => {
     return meta;
 };
 
-// A type_answer card as an older Flashback wrote it: the answer sits in backText and there
-// is no answerText key at all.
 const legacyCard = (globalHash, question, answer) => ({
     globalHash,
     name: question,
@@ -99,18 +76,12 @@ describe('Canonical updates', () => {
         }
     });
 
-    // ── 1. THE MECHANISM ──────────────────────────────────────────────────────
-    //
-    // Synthetic updates: each one tags the file it touched so the assertions can see
-    // exactly which ran, in what order, and against which items.
 
     describe('the runner (driven with synthetic updates)', () => {
         const ROOT = 'MechanismTests';
         const docRel = path.join(ROOT, 'Note.md');
         const seen = [];
 
-        // Two updates whose versions straddle a file's stamp, so "apply only what this item
-        // still needs" is observable rather than inferred.
         const mkUpdate = (version) => ({
             version,
             description: `synthetic ${version}`,
@@ -123,7 +94,7 @@ describe('Canonical updates', () => {
         const updates = [mkUpdate(1), mkUpdate(2)];
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch { /* clean slate */ }
+            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
             await docs.createFolder(ROOT);
             await docs.createFile('Note.md', ROOT);
             await forgetVaultVersions();
@@ -135,7 +106,7 @@ describe('Canonical updates', () => {
         });
 
         it('applies pending updates in ascending order, to documents, folders and decks', async () => {
-            deVersion(docRel);                       // pretend this file predates versioning
+            deVersion(docRel);
             seen.length = 0;
 
             const r = await runUpdates({ updates, seal: false });
@@ -156,9 +127,6 @@ describe('Canonical updates', () => {
         });
 
         it('applies only what an item still needs, judged per item', async () => {
-            // One file left behind at version 1 while the vault has moved to 2. This is the
-            // case a vault-level marker cannot express: a Seal rollback, a restored backup,
-            // a file synced in from another machine.
             const meta = readSidecar(docRel);
             meta.formatVersion = 1;
             meta.trail = [1];
@@ -243,16 +211,14 @@ describe('Canonical updates', () => {
         });
     });
 
-    // ── 2. THE COST OF THE WALK ───────────────────────────────────────────────
 
     describe('walk cost', () => {
         const ROOT = 'ScaleTest';
         const COUNT = 300;
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch { /* clean slate */ }
+            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
             await docs.createFolder(ROOT);
-            // Written straight to disk: this measures the runner, not document creation.
             for (let i = 0; i < COUNT; i++) {
                 const rel = path.join(ROOT, `note-${i}.md`);
                 fs.writeFileSync(abs(rel), `# Note ${i}`);
@@ -274,14 +240,9 @@ describe('Canonical updates', () => {
 
             assert.ok(r.documents >= COUNT, `all ${COUNT} sidecars were stamped`);
             console.log(`    walked + stamped ${r.documents} sidecars in ${elapsed}ms`);
-            // Loose on purpose — this is a regression tripwire for something pathological
-            // (an O(n²) walk, a per-file DB round trip), not a benchmark.
             assert.ok(elapsed < 15000, `walk took ${elapsed}ms`);
         });
 
-        // The number behind the design: what a walk costs when it finds nothing to do.
-        // This is the cost of *reading* every sidecar, which is what the fast path avoids
-        // and what a `force` re-check would actually pay.
         it('re-reads every sidecar quickly when nothing needs writing', async () => {
             const noop = [{ version: 1, description: 'noop', up: () => false }];
 
@@ -305,13 +266,12 @@ describe('Canonical updates', () => {
         });
 
         after(async () => {
-            try { await docs.delete(ROOT, true); } catch { /* best effort */ }
+            try { await docs.delete(ROOT, true); } catch {  }
             fs.rmSync(abs(ROOT), { recursive: true, force: true });
             await forgetVaultVersions();
         });
     });
 
-    // ── 3. UPDATE 001, THROUGH THE REAL REGISTRY ──────────────────────────────
 
     describe('001 — type_answer split', () => {
         const ROOT = 'TypeAnswerUpdate';
@@ -322,11 +282,9 @@ describe('Canonical updates', () => {
         let result;
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch { /* clean slate */ }
+            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
             await docs.createFolder(ROOT);
 
-            // A document-anchored legacy card, written straight into the sidecar and then
-            // indexed — the state an older version left behind.
             await docs.createFile('Kana.md', ROOT);
             const meta = docs.files.getMetadata(docRel) || {};
             meta.flashcards = [legacyCard(docCardHash, 'か', 'ka')];
@@ -334,8 +292,6 @@ describe('Canonical updates', () => {
             fs.writeFileSync(abs(docRel + '.flashback'), JSON.stringify(meta, null, 2));
             await docs.reindexDocument(docRel);
 
-            // A standalone legacy card: created normally, then pushed back into the
-            // pre-split shape in its deck file, its inline snapshot and its derived row.
             standaloneHash = await decks.createStandaloneCard({
                 frontText: 'き', backText: 'ki', cardType: 'type_answer', name: 'き',
             });

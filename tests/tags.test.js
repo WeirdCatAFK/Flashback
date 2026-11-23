@@ -32,10 +32,9 @@ const rmWorkspace = (name) => {
     try {
         const absPath = path.join(getWorkspacePath(), name);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
-// ── Correctness ───────────────────────────────────────────────────────────────
 
 describe('Tag propagation — correctness', () => {
     const ROOT = 'TagTestWorkspace';
@@ -113,7 +112,6 @@ describe('Tag propagation — correctness', () => {
             flashcards: makeCards(2),
         });
 
-        // Tag History — propagates to knights.md flashcards
         await docs.updateMetadata(histPath, { tags: ['history'] }, true);
 
         const docBefore = await query.getDocumentByPath(path.join(blockedPath, 'knights.md'));
@@ -123,7 +121,6 @@ describe('Tag propagation — correctness', () => {
             assert.ok(tags.includes('history'), 'Should have history before exclusion');
         }
 
-        // Block 'history' on the Blocked folder
         await docs.updateMetadata(blockedPath, { tags: [], excludedTags: ['history'] }, true);
 
         const docAfter = await query.getDocumentByPath(path.join(blockedPath, 'knights.md'));
@@ -159,12 +156,6 @@ describe('Tag propagation — correctness', () => {
         console.log('  Document-level tags propagated to all 4 flashcards');
     });
 
-    // ── Propagation at CREATION time ─────────────────────────────────────────
-    // Regression: propagation only ever ran from updateMetadata, i.e. when a tag was
-    // written. Anything created afterwards under an already-tagged parent got an
-    // inheritance edge with no tags on it, and stayed untagged until someone happened
-    // to re-save the parent. These cover the create-then-tag order the old tests all
-    // used, reversed.
 
     it('a flashcard created after its document was tagged inherits at creation', async () => {
         await docs.createFolder('LateCards', ROOT);
@@ -175,7 +166,6 @@ describe('Tag propagation — correctness', () => {
         });
         const docRel = path.join(base, 'late.md');
 
-        // Tag FIRST, add the card SECOND.
         await docs.updateMetadata(docRel, { tags: ['chemistry'] }, false);
         const saved = await docs.createFlashcard(docRel, {
             cardType: 'basic',
@@ -218,7 +208,6 @@ describe('Tag propagation — correctness', () => {
         await docs.createFolder('PreTagged', ROOT);
         const folderRel = path.join(ROOT, 'PreTagged');
 
-        // Tag the empty folder FIRST.
         await docs.updateMetadata(folderRel, { tags: ['astronomy'] }, true);
 
         await docs.importFile('stars.md', folderRel, Buffer.from('# Stars'), {
@@ -252,7 +241,6 @@ describe('Tag propagation — correctness', () => {
         assert.ok((await query.getInheritedTagNames(childFolder.node_id)).includes('literature'),
             'subfolder created under a tagged folder should inherit at creation');
 
-        // And the tag must keep flowing to what's created inside the new subfolder.
         await docs.importFile('poems.md', childRel, Buffer.from('# Poems'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
@@ -272,7 +260,6 @@ describe('Tag propagation — correctness', () => {
         const shieldedRel = path.join(parentRel, 'Shielded');
         await docs.updateMetadata(shieldedRel, { tags: [], excludedTags: ['blocked-tag'] }, true);
 
-        // Created AFTER the exclusion was set — must not pick the tag up.
         await docs.importFile('quiet.md', shieldedRel, Buffer.from('# Quiet'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
@@ -331,7 +318,6 @@ describe('Tag propagation — correctness', () => {
         await docs.updateMetadata(docRel, { tags: ['ephemeral', 'kept'] }, false);
         assert.ok((await query.getAllTags()).includes('ephemeral'), 'tag should exist after being added');
 
-        // Remove only "ephemeral"; nothing else references it, so it must be gone.
         await docs.updateMetadata(docRel, { tags: ['kept'] }, false);
         const tags = await query.getAllTags();
         assert.ok(!tags.includes('ephemeral'), '"ephemeral" should be pruned once unreferenced');
@@ -351,27 +337,23 @@ describe('Tag propagation — correctness', () => {
         await docs.updateMetadata(aRel, { tags: ['shared'] }, false);
         await docs.updateMetadata(bRel, { tags: ['shared'] }, false);
 
-        // Remove from a — b still references it, so it must stay.
         await docs.updateMetadata(aRel, { tags: [] }, false);
         assert.ok((await query.getAllTags()).includes('shared'), 'shared tag should survive while b references it');
 
-        // Remove from b — now orphaned, should vanish.
         await docs.updateMetadata(bRel, { tags: [] }, false);
         assert.ok(!(await query.getAllTags()).includes('shared'), 'shared tag should be pruned once fully unreferenced');
         console.log('  Shared tag pruned only after last reference removed');
     });
 });
 
-// ── Deck tag propagation ────────────────────────────────────────────────────────
 
 describe('Deck tag propagation — correctness', () => {
     const ROOT = 'DeckTagWorkspace';
     let deckHash;
-    let cardRows = [];          // cards seeded into a document and added to the deck
-    let extraCard;              // a card added to the deck AFTER tags were set
+    let cardRows = [];
+    let extraCard;
     let docRel;
 
-    // Reads the current global_hash + node_id for every flashcard under a document.
     const cardsForDoc = async (relPath) => {
         const doc = await query.getDocumentByPath(relPath);
         return await db.prepare('SELECT global_hash, node_id FROM Flashcards WHERE document_id = ?').all(doc.id);
@@ -389,7 +371,6 @@ describe('Deck tag propagation — correctness', () => {
         docRel = path.join(ROOT, 'deck-cards.md');
         cardRows = await cardsForDoc(docRel);
 
-        // A separate card we'll add to the deck only after tagging it.
         await docs.importFile('late-card.md', ROOT, Buffer.from('# Late'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
@@ -481,9 +462,6 @@ describe('Deck tag propagation — correctness', () => {
 describe('Standalone card tags — correctness', () => {
     let hash;
 
-    // A standalone card has no sidecar: its canonical home is the system deck's
-    // `_decks/<uuid>.json` entry snapshot, so that is where its tags have to land
-    // for a Doctor rebuild to be able to bring them back.
     const snapshotFor = async (cardHash) => {
         for (const f of await decks.listDeckFiles()) {
             const entry = (f.data?.entries ?? []).find(e => e.cardHash === cardHash);
@@ -546,10 +524,8 @@ describe('Standalone card tags — correctness', () => {
 });
 
 
-// ── Performance ───────────────────────────────────────────────────────────────
 
 describe('Tag propagation — performance', () => {
-    // Scale: 5 folders × 20 docs × 50 cards × 5 tags = 25,000 InheritedTags entries
     const FOLDERS   = 5;
     const DOCS_PER  = 20;
     const CARDS_PER = 50;

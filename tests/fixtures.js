@@ -1,15 +1,5 @@
-// Shared binary fixtures for tests that need a real PDF or EPUB (mcpReader's
-// extraction, and the MCP tools that read through it). Synthesized rather than
-// checked in: a few hundred bytes of readable source beats an opaque blob, and the
-// repo keeps no fixture directory.
 import AdmZip from 'adm-zip';
 
-/**
- * A valid, uncompressed, multi-page PDF with one Helvetica text stream per page and
- * a correct xref table — small, but parsed by pdfjs exactly like a real book.
- * @param {string[][]} pages - lines of text per page.
- * @returns {Buffer}
- */
 export function buildPdf(pages) {
     const fontNum = 2 + pages.length * 2 + 1;
     const bodies = [];
@@ -42,14 +32,6 @@ export function buildPdf(pages) {
     return Buffer.from(pdf, 'latin1');
 }
 
-/**
- * The smallest thing a decoder will accept as a PNG: a 1×1 image, with a real
- * signature, IHDR, IDAT and IEND. `tint` changes the pixel byte (and with it the
- * checksums), so two fixtures differ in content while staying the same length — which
- * is what lets a test assert it got *this* image back rather than some other one.
- * @param {number} [tint=0]
- * @returns {Buffer}
- */
 export function buildPng(tint = 0) {
     const crcTable = Array.from({ length: 256 }, (_, n) => {
         let c = n;
@@ -69,12 +51,10 @@ export function buildPng(tint = 0) {
     };
 
     const ihdr = Buffer.alloc(13);
-    ihdr.writeUInt32BE(1, 0);   // width
-    ihdr.writeUInt32BE(1, 4);   // height
-    ihdr[8] = 8;                // 8-bit
-    ihdr[9] = 2;                // truecolour
-    // One scanline: a filter byte then RGB. zlib-stored (uncompressed) so no deflate
-    // is needed here — a fixture should be readable, not clever.
+    ihdr.writeUInt32BE(1, 0);
+    ihdr.writeUInt32BE(1, 4);
+    ihdr[8] = 8;
+    ihdr[9] = 2;
     const raw = Buffer.from([0, tint & 0xff, 0, 0]);
     const adler = (b) => {
         let a = 1, s = 0;
@@ -93,20 +73,6 @@ export function buildPng(tint = 0) {
     ]);
 }
 
-/**
- * An EPUB with the full container.xml → OPF → spine chain mcpReader walks.
- *
- * `images` is optional and backward-compatible: without it this builds exactly the
- * text-only book the extraction tests have always used. With it, each entry becomes
- * a manifest item AND a real zip entry, so image listing and byte reads can both be
- * exercised. Chapter bodies reference them with ordinary relative `<img src>`, since
- * that is what the resolver has to cope with.
- *
- * @param {{href: string, title: string, body: string}[]} chapters - body is XHTML.
- * @param {{href: string, data?: Buffer, mediaType?: string, cover?: boolean}[]} [images]
- *   `href` is relative to OEBPS/, matching how chapters reference it.
- * @returns {Buffer}
- */
 export function buildEpub(chapters, images = []) {
     const zip = new AdmZip();
     zip.addFile('mimetype', Buffer.from('application/epub+zip'));

@@ -1,7 +1,3 @@
-// FSRS integration tests — exercises the review loop through the access layer
-// (migration → submit → due → undo) against a real SQLite DB.
-// Run after `npm run tests` has built better-sqlite3 for system Node, or via the
-// full suite. Standalone: node --test tests/fsrs.api.test.js
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -32,7 +28,7 @@ const rmWorkspace = () => {
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
-    } catch { /* ignore */ }
+    } catch {  }
 };
 
 describe('FSRS review loop', () => {
@@ -51,8 +47,6 @@ describe('FSRS review loop', () => {
 
     after(() => rmWorkspace());
 
-    // The card's schedule moved to CardProgress in migration 010: it belongs to a person,
-    // not to the card. These tests are the owner's, so they read the owner's row.
     const cardRow = async () => await db.prepare(`
         SELECT f.id, f.global_hash, p.level, p.sm2_reps, p.last_recall,
                p.fsrs_stability, p.fsrs_difficulty, p.fsrs_due,
@@ -86,8 +80,6 @@ describe('FSRS review loop', () => {
         assert.ok(c.fsrs_due, 'due set');
         assert.equal(c.fsrs_state, 2, 'state = review');
         assert.equal(c.fsrs_reps, 1);
-        // The app-wide `level` scalar must track FSRS strength so level-based UI
-        // (LevelDot, box histogram, mastery counts) works under FSRS.
         assert.ok(c.level >= 1, 'level derived from the FSRS interval');
 
         const log = await db.prepare(
@@ -100,9 +92,6 @@ describe('FSRS review loop', () => {
     });
 
     it('leaves the sidecar alone — it no longer mirrors the FSRS state', () => {
-        // The sidecar's SRS fields froze when grading stopped writing them. They are kept so a
-        // downgrade still finds what it expects, and so a vault arriving without a progress
-        // store has something to seed from — not as a mirror of anything live.
         const meta = docs.files.getMetadata(docRel);
         const card = meta.flashcards.find(f => f.globalHash === hash);
         assert.ok(!card.fsrsStability, 'no FSRS state was written to the file');
@@ -112,7 +101,6 @@ describe('FSRS review loop', () => {
     });
 
     it('getDue keys due-ness off fsrs_due, not the interval formula', async () => {
-        // Card was just reviewed with a multi-day interval, so it is neither due nor new.
         const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         const inDue = res.due.some(r => r.global_hash === hash);
         const inNew = res.newCards.some(r => r.global_hash === hash);
@@ -123,7 +111,6 @@ describe('FSRS review loop', () => {
     it('nextDue is a valid SQLite-format datetime, not a raw ISO string (NaN-days bug)', async () => {
         const res = await query.getDueFlashcards({ algorithm: 'fsrs', maxNew: 20 }, 'owner');
         assert.ok(res.nextDue, 'the future card sets nextDue');
-        // Must be "YYYY-MM-DD HH:MM:SS" (no T/Z) so the frontend can parse it.
         assert.ok(!res.nextDue.includes('T') && !res.nextDue.includes('Z'), `got ${res.nextDue}`);
         const parsed = new Date(res.nextDue.replace(' ', 'T') + 'Z');
         assert.ok(!Number.isNaN(parsed.getTime()), 'nextDue parses to a real date');
@@ -135,16 +122,11 @@ describe('FSRS review loop', () => {
         const res = await SRS.optimizeParameters();
         assert.equal(res.optimized, false);
         assert.equal(res.reason, 'insufficient-data');
-        // Nothing was written, so the vault is still on default (unfitted) weights.
         assert.equal(await query.getFsrsWeights('owner'), null, 'no FsrsParameters row persisted');
         assert.equal(info.optimized, false);
     });
 
     it('the card curve is the same model that scheduled the card', async () => {
-        // The claim the card detail view makes about an FSRS card is that its curve
-        // is not an illustration: it's retrievability() on the card's own stability
-        // with the vault's weights. So the curve must cross the request retention
-        // exactly where FSRS put the due date.
         const insights = await SRS.getCardInsights(hash, { algorithm: 'fsrs' });
         assert.equal(insights.curve.model, 'fsrs');
         assert.equal(insights.curve.stabilityDays, (await cardRow()).fsrs_stability);

@@ -1,24 +1,3 @@
-/**
- * Flashback Server — the headless build.
- *
- * The server is the same `src/api` the desktop app runs, with three switches thrown. This
- * file pins the switches, because each one is a thing that is either on or catastrophic:
- *
- *   1. **Configuration comes from the environment, and reaches the file.** `cors.js` and
- *      every path resolver read through `config.get()`, so an override that stayed in
- *      memory would be invisible to them. The merge must also be non-destructive — a
- *      hand-edited `config.json` on a mounted volume is a supported way to configure this.
- *   2. **`requireAuth` refuses anonymous callers.** On loopback, treating an anonymous
- *      caller as the Author is a convenience; on a network it is an open door.
- *   3. **`singleVault` unmounts the switch routes.** A switch closes the database and
- *      re-points every path resolver — under every connected user at once.
- *
- * Plus the shutdown path, which is the difference between a container restart that is
- * uneventful and one that loses the last few minutes of everybody's work.
- *
- * Run: node --test tests/server.test.js
- */
-
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
@@ -31,8 +10,6 @@ process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
 
-// Every env var this suite manipulates is cleared first, so a developer who happens to have
-// one exported does not silently change what is being asserted.
 const SERVER_ENV = [
     'FLASHBACK_PORT', 'FLASHBACK_HOST', 'FLASHBACK_VAULT_NAME',
     'FLASHBACK_ALLOWED_ORIGINS', 'FLASHBACK_LOG_FORMAT', 'FLASHBACK_AUTHOR_TOKEN',
@@ -41,16 +18,8 @@ const SERVER_ENV = [
 ];
 for (const key of SERVER_ENV) delete process.env[key];
 
-// Dynamic, and in this order, for the reason src/server/main.js documents at length:
-// importing api.js instantiates seven routers, each of which builds a Documents (and so a
-// Files, which creates the workspace directory) from whatever config.json says at import
-// time. serverConfig has to be able to run before that happens.
 const { applyServerConfig } = await import('../src/server/serverConfig.js');
-// Already in the module cache — serverConfig.js imports it — so this adds no side effect.
-// Needed because applyServerConfig() ends on a config.get(), which repopulates the module
-// cache: a test that hand-edits config.json on disk has to drop that cache to be seen.
 const serverTestConfig = await import('../src/api/access/primitives/config.js');
-// Pure and importable before anything opens a vault — no config, no database, no network.
 const { compareVersions, updateCheckEnabled, startUpdateCheck } = await import('../src/server/updateCheck.js');
 
 const VAULT = 'servedvault';
@@ -82,7 +51,6 @@ describe('Flashback Server', () => {
     before(async () => {
         assert.ok(await openVault({ onFatal: (m) => { throw new Error(m); } }), 'vault opened');
 
-        // The bootstrap src/server/main.js performs: adopt an injected token, or mint one.
         await accounts.ensureLocalAuthor(null);
         const author = await accounts.getAuthorAccount();
         ({ token: authorToken } = await accounts.issueToken(author.id, 'test bootstrap'));
@@ -93,23 +61,19 @@ describe('Flashback Server', () => {
     });
 
     after(async () => {
-        try { await api?.stop(); } catch { /* already stopped by the shutdown test */ }
-        try { db.close(); } catch { /* ditto */ }
+        try { await api?.stop(); } catch {  }
+        try { db.close(); } catch {  }
         accounts.closeAccounts();
         await new Promise((r) => setTimeout(r, 60));
-        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch { /* windows locks */ }
+        try { fs.rmSync(ROOT, { recursive: true, force: true }); } catch {  }
         for (const key of SERVER_ENV) delete process.env[key];
     });
 
     const auth = (extra = {}) => ({ Authorization: `Bearer ${authorToken}`, ...extra });
 
-    // ── 1. Configuration from the environment ─────────────────────────────────
 
     describe('server configuration', () => {
         it('writes the environment into config.json, not just into memory', () => {
-            // Read the FILE, not the cache. cors.js and the path resolvers go through
-            // config.get(), so an override that never landed on disk would be invisible to
-            // them the moment anything called reload().
             const onDisk = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf-8'));
             assert.equal(onDisk.host, '127.0.0.1');
             assert.equal(onDisk.vaultName, VAULT);
@@ -122,8 +86,6 @@ describe('Flashback Server', () => {
         });
 
         it('leaves settings alone when their variable is unset', () => {
-            // Non-destructive is the contract: a mounted volume with a hand-edited
-            // config.json must survive a restart that passes only some of the variables.
             const before = JSON.parse(fs.readFileSync(path.join(ROOT, 'config.json'), 'utf-8'));
             delete process.env.FLASHBACK_ALLOWED_ORIGINS;
             delete process.env.FLASHBACK_VAULT_NAME;
@@ -151,25 +113,17 @@ describe('Flashback Server', () => {
         });
 
         it('refuses a vault name that is not a single path component', () => {
-            // getVaultPath() joins this straight onto the volume root, so a separator nests
-            // the vault a level down and `..` puts it outside the volume — and neither
-            // fails at boot. It surfaces later as an empty vault where the real one was,
-            // which is why this has to be caught at the point the name is handed over.
             const saved = process.env.FLASHBACK_VAULT_NAME;
             const rejected = [
-                'shared/v2',        // separator: nests below the volume root
-                'shared\\v2',       // the Windows one, for a zip deployment
-                '..',               // climbs out of the volume
+                'shared/v2',
+                'shared\\v2',
+                '..',
                 '../elsewhere',
-                'config.json',      // collides with the install's own files, which sit
-                'accounts.db',      // beside the vault directories rather than inside one
+                'config.json',
+                'accounts.db',
                 'logs',
-                'trailing.',        // Windows strips it, so the folder made is not the one asked for
+                'trailing.',
             ];
-            // Note what is NOT here: the empty string. env() treats whitespace-only as
-            // unset on purpose — docker-compose.yml writes `${FLASHBACK_AUTHOR_TOKEN:-}`
-            // and friends, so an unset compose variable arrives as "". That has to keep
-            // meaning "leave config.json alone", not "refuse to boot".
             try {
                 for (const name of rejected) {
                     process.env.FLASHBACK_VAULT_NAME = name;
@@ -186,9 +140,6 @@ describe('Flashback Server', () => {
         });
 
         it('leaves an already-configured vault name alone even if it breaks the rules', () => {
-            // The merge is non-destructive by contract, and a vault that has been serving
-            // fine must not become a boot failure because the rules got stricter. The guard
-            // is about a name being handed over NOW, not about auditing the volume.
             const saved = process.env.FLASHBACK_VAULT_NAME;
             const configPath = path.join(ROOT, 'config.json');
             const before = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
@@ -207,9 +158,6 @@ describe('Flashback Server', () => {
         });
 
         it('refuses half an identity rather than silently deriving one', () => {
-            // A name with no email looks configured and behaves as though it were not:
-            // getIdentity() only accepts a pair, so it would fall back to the OS account —
-            // which in a container is `node`, stamped into a git history that outlives it.
             const saved = process.env.FLASHBACK_USER_NAME;
             process.env.FLASHBACK_USER_NAME = 'Study Group';
             try {
@@ -239,11 +187,6 @@ describe('Flashback Server', () => {
         });
 
         it('creates no vault other than the one it was told to serve', () => {
-            // Regression: importing api.js builds seven routers, each of which constructs a
-            // Documents — and Files' constructor creates the workspace directory from
-            // whatever config.json says AT IMPORT TIME. A static import in the server entry
-            // point therefore left an empty `{volume}/dreams/workspace` beside the real
-            // vault. It is harmless until someone has to guess which directory is their data.
             const dirs = fs.readdirSync(ROOT, { withFileTypes: true })
                 .filter((e) => e.isDirectory())
                 .map((e) => e.name);
@@ -251,21 +194,9 @@ describe('Flashback Server', () => {
         });
     });
 
-    // ── 2. Authentication is not optional ─────────────────────────────────────
 
 
-    // The whole database separation exists so a deployment can give each mount ONE answer to
-    // "can I lose this?" — the workspace is authorial and irreplaceable, the index is
-    // rebuildable and disposable. The overrides are what express that, and they are opt-in
-    // precisely because an existing deployment has its workspace INSIDE the data volume:
-    // pointing the server at an empty root would create a second, empty vault and orphan the
-    // real one, silently.
     describe('splitting the vault across mounts', () => {
-        // Unsetting the variables is NOT enough to undo these. applyServerConfig() is
-        // non-destructive on purpose — that is the contract a mounted volume with a
-        // hand-edited config.json depends on — so a persisted override survives its variable
-        // going away. Leaving one behind moves the workspace for every later test in this
-        // file, which surfaces as "Folder does not exist" a long way from the cause.
         const restore = () => {
             delete process.env.FLASHBACK_WORKSPACE_PATH;
             delete process.env.FLASHBACK_INDEX_PATH;
@@ -292,16 +223,10 @@ describe('Flashback Server', () => {
             try {
                 applyServerConfig();
 
-                // The workspace override names the directory ITSELF — no `workspace/` is
-                // appended — because the mount IS the canonical layer.
                 assert.equal(getWorkspacePath(), path.join(ROOT, 'canonical-mount'));
 
-                // The index override names a DIRECTORY; the filename still tracks the vault
-                // name, so renaming a vault on disk still lines up.
                 assert.equal(getDatabasePath(), path.join(ROOT, 'cache-mount', `${VAULT}.db`));
 
-                // Everything else stays where it was. progress.db in particular is a sibling
-                // of the workspace by design, not a child, and does not follow it out.
                 assert.equal(getProgressDatabasePath(), path.join(ROOT, VAULT, 'progress.db'));
             } finally {
                 restore();
@@ -309,8 +234,6 @@ describe('Flashback Server', () => {
         });
 
         it('refuses a relative path rather than resolving it against the cwd', () => {
-            // A container's working directory is an implementation detail of the image, so a
-            // relative override would fail as a mystery empty vault rather than as an error.
             const saved = process.env.FLASHBACK_WORKSPACE_PATH;
             process.env.FLASHBACK_WORKSPACE_PATH = './canonical';
             try {
@@ -323,8 +246,6 @@ describe('Flashback Server', () => {
         });
 
         it('leaves the overrides alone when their variables are unset', () => {
-            // Same non-destructive contract as every other setting: a hand-edited config.json
-            // on a mounted volume must survive a restart that passes only some variables.
             process.env.FLASHBACK_INDEX_PATH = path.join(ROOT, 'cache-mount');
             try {
                 applyServerConfig();
@@ -339,11 +260,6 @@ describe('Flashback Server', () => {
     });
 
 
-    // A container's statvfs reports the HOST's disk, and a Docker named volume has no quota of
-    // its own, so the ceiling has to be declared. Only the usage is measured. Reporting only:
-    // nothing here refuses a write, so there is no failure mode to test — just that the
-    // numbers are honest, the limit round-trips, and the breakdown matches the layout the
-    // volume split is built around.
     describe('storage report', () => {
         const restoreLimit = () => {
             delete process.env.FLASHBACK_STORAGE_LIMIT;
@@ -390,8 +306,6 @@ describe('Flashback Server', () => {
             assert.ok(storage.used > 0, 'a vault that has been written to occupies something');
             assert.ok(typeof storage.measuredAt === 'string');
 
-            // The breakdown is by durability class — the same classes the volume split
-            // separates — so it tells you which mount to grow.
             for (const key of ['canonical', 'progress', 'index', 'accounts', 'diary']) {
                 assert.ok(Number.isInteger(storage.breakdown[key]) && storage.breakdown[key] >= 0, key);
             }
@@ -416,10 +330,6 @@ describe('Flashback Server', () => {
         });
     });
 
-    // A hosted plan sells "N accounts"; this is what keeps the promise. Only ACTIVE accounts
-    // count and the Author is one of them, so deactivating someone frees their slot and
-    // re-activating takes one. Enforced at the route, never in the store, because the store's
-    // createAccount() is also what provisions the Author at boot.
     describe('account cap', () => {
         const restoreCap = () => {
             delete process.env.FLASHBACK_MAX_ACCOUNTS;
@@ -516,8 +426,6 @@ describe('Flashback Server', () => {
         });
 
         it('refuses to start at all when nobody can authenticate', async () => {
-            // The inverse of the bootstrap: a served deployment with no usable token is an
-            // unreachable deployment, and failing to boot says so immediately.
             const revoked = [];
             for (const account of await accounts.listAccounts()) {
                 for (const token of account.tokens ?? []) {
@@ -529,14 +437,12 @@ describe('Flashback Server', () => {
                 const doomed = new Api({ ...applied.config, port: 0, apiToken: null });
                 await assert.rejects(() => doomed.start(), /requireAuth/);
             } finally {
-                // Re-issue rather than un-revoke: revocation is deliberately one-way.
                 const author = await accounts.getAuthorAccount();
                 ({ token: authorToken } = await accounts.issueToken(author.id, 'test re-bootstrap'));
             }
         });
     });
 
-    // ── 3. One vault per server ───────────────────────────────────────────────
 
     describe('singleVault', () => {
         it('still answers the identity handshake a remote depends on', async () => {
@@ -548,11 +454,6 @@ describe('Flashback Server', () => {
             assert.equal(typeof body.schemaVersion, 'number');
         });
 
-        // Probing `/switch` with NO name is deliberate: the handler rejects that with 400
-        // before it touches anything, so "is this route mounted?" can be asked without
-        // actually switching a vault out from under the rest of the suite. Unmounted → 404,
-        // mounted → 400. (`/release` has no such dry run — it releases on any request — so
-        // it is only ever probed on the server build, where it is absent.)
         const probeSwitch = (url) => fetch(url, {
             method: 'POST',
             headers: auth({ 'Content-Type': 'application/json' }),
@@ -560,8 +461,6 @@ describe('Flashback Server', () => {
         });
 
         it('reports the switch routes as absent, not as forbidden', async () => {
-            // 404 rather than 403 on purpose: a client probing capabilities should see a
-            // server that CANNOT switch, not one that would if you had a better role.
             assert.equal((await probeSwitch(`${baseUrl}/api/vault/switch`)).status, 404);
 
             const released = await fetch(`${baseUrl}/api/vault/release`, {
@@ -583,11 +482,7 @@ describe('Flashback Server', () => {
         });
     });
 
-    // ── 4. Knowing there is a newer release ───────────────────────────────
 
-    // A server that cannot be told about a release is a server nobody upgrades. The check
-    // itself talks to github.com and is not exercised here — what is pinned is the ordering
-    // rule it depends on, and the promise that a deployment can switch it off.
     describe('update check', () => {
         it('orders versions the way a release ladder means them', () => {
             assert.equal(compareVersions('0.4.1', '0.5.0'), -1);
@@ -603,8 +498,6 @@ describe('Flashback Server', () => {
         });
 
         it('has no opinion about a version it cannot parse', () => {
-            // A malformed tag is not evidence of an update, and telling somebody to upgrade
-            // to nothing is worse than saying nothing.
             assert.equal(compareVersions('0.4.1', 'nightly'), 0);
             assert.equal(compareVersions(undefined, '0.5.0'), 0);
         });
@@ -624,8 +517,6 @@ describe('Flashback Server', () => {
         });
 
         it('reports null on the handshake until a check has answered', async () => {
-            // The Api under test was built without an updateStatus getter, which is also the
-            // desktop build's shape. `null` has to be a legal answer, not a missing field.
             const res = await fetch(`${baseUrl}/api/vault`, { headers: auth() });
             const body = await res.json();
             assert.ok('update' in body, 'the field must always be present for a client to branch on');
@@ -633,13 +524,11 @@ describe('Flashback Server', () => {
         });
     });
 
-    // ── 5. Shutting down without losing anything ──────────────────────────────
 
     describe('graceful shutdown', () => {
         it('checkpoints the WAL so the volume is consistent for the next container', async () => {
             const walPath = `${getDatabasePath()}-wal`;
 
-            // Give the WAL something to lose.
             await db.exec('CREATE TABLE IF NOT EXISTS ShutdownProbe (id INTEGER PRIMARY KEY)');
             for (let i = 0; i < 200; i++) {
                 await db.prepare('INSERT INTO ShutdownProbe (id) VALUES (?)').run(i);
@@ -647,8 +536,6 @@ describe('Flashback Server', () => {
             assert.ok(fs.existsSync(walPath) && fs.statSync(walPath).size > 0,
                 'precondition: uncommitted pages are sitting in the WAL');
 
-            // The sequence from src/server/main.js's shutdown(): stop accepting, flush
-            // Seal, then close — which truncates the WAL.
             await api.stop();
             api = null;
             await sealEmitter.quiesce();

@@ -1,18 +1,4 @@
 #!/usr/bin/env node
-/**
- * Size-token migration for src/ui CSS.
- *
- * Walks every declaration in every stylesheet except index.css and replaces px
- * literals, durations, easings, black scrims/shadows and stale var() fallbacks
- * with the tokens from ui-token-rules.js. Anything it cannot decide mechanically
- * (z-index, colours, layout widths off the ladder, multi-layer shadows, line
- * heights) is left alone and listed by --report for hand mapping.
- *
- * Usage:
- *   node scripts/ui-tokens.js --report          what would change, what is left
- *   node scripts/ui-tokens.js --apply           rewrite in place (EOL preserved)
- *   node scripts/ui-tokens.js --apply <files>   same, restricted to these files
- */
 
 import path from "node:path";
 import postcss from "postcss";

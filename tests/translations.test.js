@@ -1,11 +1,3 @@
-/**
- * Translations — lookup and locale formatting.
- *
- * Both modules under test are pure (no React, no DOM, no SQLite), so this suite
- * runs standalone under `node --test` with no rebuild and no vault, in the same
- * spirit as tests/sequencing.test.js.
- */
-
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -22,7 +14,6 @@ const ES = {
   'Collapsed {n} items': 'Colapsado: {n}',
 };
 
-// ── Fallback to English ───────────────────────────────────────────────────────
 
 test('English has no pack and falls back to the key itself', () => {
   const { t } = makeTranslators(null, 'en');
@@ -41,7 +32,6 @@ test('a partially translated pack mixes translated and English strings', () => {
   assert.equal(t('Untouched string'), 'Untouched string');
 });
 
-// ── Context suffix ────────────────────────────────────────────────────────────
 
 test('the |context suffix is never shown to the user', () => {
   assert.equal(stripContext('Level|noun'), 'Level');
@@ -54,7 +44,6 @@ test('the |context suffix is never shown to the user', () => {
   assert.equal(es.t('Level|noun'), 'Nivel', 'the pack keys on the full string');
 });
 
-// ── Interpolation ─────────────────────────────────────────────────────────────
 
 test('interpolation fills named placeholders in either language', () => {
   assert.equal(interpolate('Hi {who}', { who: 'Dani' }), 'Hi Dani');
@@ -71,7 +60,6 @@ test('a zero or false value interpolates rather than being skipped', () => {
   assert.equal(interpolate('{v} set', { v: false }), 'false set');
 });
 
-// ── Plurals ───────────────────────────────────────────────────────────────────
 
 test('English plurals work with no pack loaded at all', () => {
   const { tp } = makeTranslators(null, 'en');
@@ -114,11 +102,8 @@ test('t() on a plural entry prefers other instead of rendering an object', () =>
   assert.equal(t('Import {n} cards', { n: 3 }), 'Importar 3 tarjetas');
 });
 
-// ── toDate ────────────────────────────────────────────────────────────────────
 
 test("SQLite's zoneless timestamps are read as UTC, not local", () => {
-  // Parsing "2026-08-08 14:30:00" raw makes it local time and silently shifts
-  // every review timestamp by the machine's offset.
   assert.equal(toDate('2026-08-08 14:30:00').toISOString(), '2026-08-08T14:30:00.000Z');
   assert.equal(toDate('2026-08-08T14:30:00Z').toISOString(), '2026-08-08T14:30:00.000Z');
 });
@@ -132,7 +117,6 @@ test('toDate accepts Date and epoch ms, and rejects junk without throwing', () =
   }
 });
 
-// ── Formatters ────────────────────────────────────────────────────────────────
 
 test('relative time is rendered in the active language', () => {
   const day = 86_400_000;
@@ -147,8 +131,6 @@ test('relative time is rendered in the active language', () => {
 test('maxUnit keeps SRS intervals precise instead of idiomatic', () => {
   const day = 86_400_000;
   const en = makeFormatters('en');
-  // Without the clamp this reads "next month", which is useless when the user is
-  // asking exactly how far out a card is scheduled.
   assert.equal(en.formatRelative(Date.now() + 40 * day, { maxUnit: 'day' }), 'in 40 days');
   assert.equal(en.formatRelative(Date.now() + 40 * day), 'next month');
 });
@@ -165,8 +147,6 @@ test('numbers follow locale conventions, including the odd ones', () => {
   assert.equal(en.formatNumber(1234.5), '1,234.5');
   assert.equal(en.formatNumber(1234567.5), '1,234,567.5');
 
-  // Spanish swaps the separators — and per CLDR omits grouping entirely for
-  // four-digit integers, so 1234 is "1234,5" but 12345 is "12.345,5".
   assert.equal(es.formatNumber(1234.5), '1234,5');
   assert.equal(es.formatNumber(1234567.5), '1.234.567,5');
 
@@ -175,8 +155,6 @@ test('numbers follow locale conventions, including the odd ones', () => {
 });
 
 test('formatDay reads a bare ISO day as UTC so the date never slips', () => {
-  // Anchored to UTC explicitly — otherwise a user west of Greenwich sees the
-  // previous day for every diary entry.
   assert.match(makeFormatters('en').formatDay('2026-08-08'), /August 8, 2026/);
   assert.match(makeFormatters('es').formatDay('2026-08-08'), /8 de agosto de 2026/);
 });
@@ -189,7 +167,6 @@ test('formatters return empty string for unreadable input', () => {
   assert.equal(f.formatDay(''), '');
 });
 
-// ── Key extraction ────────────────────────────────────────────────────────────
 
 const keysOf = (src) => extractFromSource(src).hits.map((h) => h.key);
 
@@ -225,20 +202,16 @@ test('reports the line each key appears on', () => {
 });
 
 test('hits come back in source order, not grouped by call type', () => {
-  // tp is matched in its own pass; without an explicit sort the plural key would
-  // jump ahead of the plain one and the editor would list them out of order.
   const src = `t('alpha');\ntp('one {n}', 'many {n}', n);\nt('omega');`;
   assert.deepEqual(keysOf(src), ['alpha', 'many {n}', 'omega']);
 });
 
-// ── Extraction: what must NOT be picked up ────────────────────────────────────
 
 test('whole-line comments do not inject phantom keys', () => {
   assert.deepEqual(keysOf(`// t('commented out')\n * t('in a block')\nt('real')`), ['real']);
 });
 
 test('a flashback:// URL inside a string is not mistaken for a comment', () => {
-  // The reason inline comments are left alone: this codebase is full of these.
   assert.deepEqual(keysOf(`t('See [note](flashback://abc123)')`), ['See [note](flashback://abc123)']);
 });
 
@@ -247,13 +220,10 @@ test('method calls and identifiers ending in t are ignored', () => {
 });
 
 test('the real UI tree yields no false positives before migration', () => {
-  // Guards the scanner against firing on ordinary code — if this ever trips, the
-  // patterns have grown too greedy.
   assert.equal(extractFromSource(`allThemes.map((t) => t.name)`).violations.length, 0);
   assert.equal(extractFromSource(`catch (t) { report(t); }`).violations.length, 0);
 });
 
-// ── Extraction: violations ────────────────────────────────────────────────────
 
 test('a non-literal key is a violation, not a silent skip', () => {
   const { hits, violations } = extractFromSource(`t(item.label)`, 'App.jsx');
@@ -265,7 +235,6 @@ test('a non-literal key is a violation, not a silent skip', () => {
 });
 
 test('tp with a literal first argument but a variable second is still caught', () => {
-  // The failure mode that looks fine at a glance — it opens with a valid quote.
   const { hits, violations } = extractFromSource(`tp('one card', plural, n)`);
   assert.equal(hits.length, 0);
   assert.equal(violations.length, 1);

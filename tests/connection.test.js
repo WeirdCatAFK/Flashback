@@ -1,15 +1,3 @@
-/**
- * Where the renderer is pointed, and — the reason this file exists — how it gets back.
- *
- * The bug: connect to a Flashback Server, have it be misconfigured or unreachable, and the
- * app could not return to a local vault. Clicking one switched the local API's database and
- * then reported the remote again, so nothing re-pointed. Restarting the app was the only way
- * out, because the flag lived in memory in the main process.
- *
- * Pure — no Electron, no SQLite, no HTTP. `createConnectionState` takes its three
- * dependencies as arguments precisely so this can run under plain `node --test`.
- */
-
 import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { createConnectionState } from '../src/electron/connection.js';
@@ -18,7 +6,6 @@ import { unusableUrlReason } from '../src/shared/remoteUrl.js';
 const LOCAL_A = { id: 'vault-a', name: 'Personal' };
 const LOCAL_B = { id: 'vault-b', name: 'Work' };
 
-/** A fake install: two local vaults and one registered remote. */
 function makeHost() {
     const config = {
         vaults: [LOCAL_A, LOCAL_B],
@@ -34,7 +21,6 @@ function makeHost() {
     return {
         config,
         remotes,
-        /** Stands in for the API having switched its open vault. */
         setActiveVault(id) {
             config.activeVaultId = id;
             config.vaultName = [LOCAL_A, LOCAL_B].find((v) => v.id === id)?.name ?? null;
@@ -67,16 +53,10 @@ describe('active connection', () => {
         assert.equal(c.token, 'remote-token');
     });
 
-    // ── The bug ──────────────────────────────────────────────────────────────
-    //
-    // This is the whole milestone in one test: after the API has switched to another local
-    // vault, the connection MUST be local. It reported the remote, so the renderer kept
-    // talking to a server the user was trying to leave.
     it('returns to local after the API switches vault while on a remote', () => {
         host.state.useRemote('remote-1');
         assert.equal(host.state.current().kind, 'remote', 'precondition: on the remote');
 
-        // What the switch-vault handler does: the API confirms, then we go local.
         host.setActiveVault(LOCAL_B.id);
         host.state.useLocalVault();
 
@@ -89,8 +69,6 @@ describe('active connection', () => {
     });
 
     it('returns to local even when the remote is still perfectly reachable', () => {
-        // Reachability is irrelevant: leaving is a decision, not a failure. The old code
-        // only ever left a remote that had been deleted from the registry.
         host.state.useRemote('remote-1');
         host.state.useLocalVault();
         assert.equal(host.state.current().kind, 'local');
@@ -104,9 +82,6 @@ describe('active connection', () => {
     });
 
     it('a misconfigured remote still resolves, so the way back must be deliberate', () => {
-        // `connectionForRemote` reads the registry and never the network — an unreachable
-        // server looks exactly like a healthy one from here. Nothing will time out and send
-        // the user home, which is why useLocalVault() has to be reachable from the UI.
         host.state.useRemote('remote-1');
         assert.equal(host.state.current().kind, 'remote', 'no reachability check happens here');
         assert.equal(host.state.current().url, 'https://study.example.com');
@@ -124,15 +99,11 @@ describe('active connection', () => {
     });
 
     it('reports the vault the API moved to, without being told', () => {
-        // The connection reads config.json every time rather than caching, so a switch made
-        // anywhere is reflected on the next broadcast.
         host.setActiveVault(LOCAL_B.id);
         assert.equal(host.state.current().id, LOCAL_B.id);
     });
 });
 
-// A remote URL has to be reachable by the RENDERER, and the handshake that vets it runs in
-// the main process. Two HTTP stacks, and they disagree about exactly one thing.
 describe('remote URL usability', () => {
     it('refuses the IPv4 unspecified address', () => {
         const why = unusableUrlReason('http://0.0.0.0:50501');

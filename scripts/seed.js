@@ -1,17 +1,4 @@
 #!/usr/bin/env node
-/**
- * Seed script — populates Flashback with a rich demo workspace.
- *
- * Demonstrates: nested folders, tag inheritance + excluded tags, all 5
- * flashcard types, all 6 pedagogical categories, text/bbox highlights,
- * 4 decks, and review history at Leitner levels 1–5.
- *
- * Usage:
- *   npm run seed        # seeds %APPDATA%\flashback (real Electron data)
- *   node scripts/seed.js
- *
- * WARNING: close the Electron app before running this script.
- */
 
 import fs from 'fs';
 import path from 'path';
@@ -59,9 +46,6 @@ try {
     process.exit(1);
 }
 
-// ---------------------------------------------------------------------------
-// Dynamic imports (binary swap must complete first)
-// ---------------------------------------------------------------------------
 
 const { default: crypto } = await import('crypto');
 
@@ -87,9 +71,6 @@ await sealTools.init();
 const docs  = new Documents();
 const decks = new Decks();
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 function uuid() { return crypto.randomUUID(); }
 
@@ -121,9 +102,6 @@ function card(front, back, opts = {}) {
 
 const cloze  = (f, b, o = {}) => card(f, b, { ...o, cardType: 'cloze' });
 const flip   = (f, b, o = {}) => card(f, b, { ...o, cardType: 'reversible' });
-// type_answer grades `answerText` alone, so the second argument is the answer and the
-// back text is left for optional post-review notes (`o.notes`) — a mnemonic or a why the
-// reviewer sees after checking, which is never compared.
 const typed  = (f, a, o = {}) => {
     const c = card(f, o.notes ?? '', { ...o, cardType: 'type_answer' });
     c.vanillaData.answerText = a;
@@ -179,8 +157,6 @@ async function mkFile(name, folder, content, metadata) {
 }
 
 async function setFolderTags(folderPath, tags, excludedTags = []) {
-    // path.normalize converts forward slashes to backslashes on Windows,
-    // matching the storage format used by createFolder (which calls path.join).
     const normPath = path.normalize(folderPath);
     const existing = docs.files.getMetadata(normPath, true) || {};
     await docs.updateMetadata(normPath, { ...existing, tags, excludedTags }, true);
@@ -207,9 +183,6 @@ function populateDeck(deckHash, entries) {
     return n;
 }
 
-// ---------------------------------------------------------------------------
-// ── STEP 1: Folder hierarchy ─────────────────────────────────────────────────
-// ---------------------------------------------------------------------------
 
 console.log('\n── Creating folder hierarchy ────────────────────────────');
 
@@ -227,11 +200,7 @@ await mkFolder('Humanities');
 await mkFolder('History',    'Humanities');
 await mkFolder('Philosophy', 'Humanities');
 
-// ---------------------------------------------------------------------------
-// ── STEP 2: Files ────────────────────────────────────────────────────────────
-// ---------------------------------------------------------------------------
 
-// ── Science / Biology / Cell Biology ────────────────────────────────────────
 console.log('\n── Science / Biology ────────────────────────────────────');
 
 const cellBioCards = [
@@ -285,7 +254,6 @@ Fluid mosaic model: phospholipid bilayer with embedded proteins and cholesterol.
     ],
 });
 
-// ── Genetics ─────────────────────────────────────────────────────────────────
 
 const geneticsCards = [
     card('What is a gene?', 'A DNA segment encoding a functional product (protein or RNA); unit of heredity', { category: 'Definition', reviewCount: 4 }),
@@ -345,7 +313,6 @@ Alleles of unlinked genes assort independently (applies to genes on different ch
     ],
 });
 
-// ── Microbiology — STEM tag excluded ─────────────────────────────────────────
 console.log('\n── Science / Biology / Microbiology (STEM excluded) ─────');
 
 const bacteriaCards = [
@@ -383,7 +350,6 @@ Acquired via mutation or horizontal gene transfer:
     flashcards: bacteriaCards,
 });
 
-// ── Physics ───────────────────────────────────────────────────────────────────
 console.log('\n── Science / Physics ────────────────────────────────────');
 
 const mechCards = [
@@ -478,7 +444,6 @@ The wavefunction Ψ encodes all measurable information. |Ψ|² = probability den
     ],
 });
 
-// ── Computer Science ──────────────────────────────────────────────────────────
 console.log('\n── Computer Science / Algorithms ────────────────────────');
 
 const dsCards = [
@@ -567,7 +532,6 @@ await mkFile('Sorting Algorithms.md', 'Computer Science/Algorithms', `# Sorting 
     flashcards: sortCards,
 });
 
-// ── Networking ────────────────────────────────────────────────────────────────
 console.log('\n── Computer Science / Networking ────────────────────────');
 
 const netCards = [
@@ -614,7 +578,6 @@ Fundamentals of computer networking and the Internet.
     flashcards: netCards,
 });
 
-// ── Mathematics ───────────────────────────────────────────────────────────────
 console.log('\n── Mathematics ──────────────────────────────────────────');
 
 const calcCards = [
@@ -703,7 +666,6 @@ Find λ from characteristic polynomial: **det(A − λI) = 0**
     flashcards: laCards,
 });
 
-// ── Humanities ────────────────────────────────────────────────────────────────
 console.log('\n── Humanities ───────────────────────────────────────────');
 
 const wwiiCards = [
@@ -817,33 +779,23 @@ Classical definition of knowledge: a belief that is (1) true, (2) believed, (3) 
     flashcards: epistCards,
 });
 
-// ---------------------------------------------------------------------------
-// ── STEP 3: Folder tags — bottom-up so parent propagation reads correct sidecars
-// ---------------------------------------------------------------------------
 
 console.log('\n── Applying folder tags (bottom-up for correct propagation) ──');
 
-// Science branch — Microbiology excludes STEM
 await setFolderTags('Science/Biology/Microbiology', ['Microbiology'], ['STEM']);
 await setFolderTags('Science/Biology',              ['Biology']);
 await setFolderTags('Science/Physics',              ['Physics']);
-await setFolderTags('Science',                      ['Science', 'STEM']);   // triggers full Science propagation
+await setFolderTags('Science',                      ['Science', 'STEM']);
 
-// CS branch
 await setFolderTags('Computer Science/Algorithms', ['Algorithms']);
 await setFolderTags('Computer Science',            ['CS', 'STEM', 'Programming']);
 
-// Math
 await setFolderTags('Mathematics', ['Math', 'STEM']);
 
-// Humanities branch — Philosophy excludes Humanities
 await setFolderTags('Humanities/Philosophy', ['Philosophy'], ['Humanities']);
 await setFolderTags('Humanities/History',    ['History']);
-await setFolderTags('Humanities',            ['Humanities']);               // triggers full Humanities propagation
+await setFolderTags('Humanities',            ['Humanities']);
 
-// ---------------------------------------------------------------------------
-// ── STEP 4: Decks ────────────────────────────────────────────────────────────
-// ---------------------------------------------------------------------------
 
 console.log('\n── Creating decks and populating entries ────────────────');
 
@@ -864,7 +816,6 @@ const deckDaily = mkDeck(
     'Curated high-priority mix across all subjects for a focused 15-minute session.'
 );
 
-// Science Fundamentals: top cards from bio + genetics + mechanics
 let n = populateDeck(deckScience, [
     ...cellBioCards.slice(0, 3).map(c => ({ c, docPath: 'Science/Biology/Cell Biology.md' })),
     ...geneticsCards.slice(0, 3).map(c => ({ c, docPath: 'Science/Biology/Genetics.md' })),
@@ -872,7 +823,6 @@ let n = populateDeck(deckScience, [
 ]);
 console.log(`  "Science Fundamentals"  — ${n} entries`);
 
-// CS Interview Prep: DS + sorting + networking
 n = populateDeck(deckCS, [
     ...dsCards.slice(0, 4).map(c => ({ c, docPath: 'Computer Science/Algorithms/Data Structures.md' })),
     ...sortCards.slice(0, 3).map(c => ({ c, docPath: 'Computer Science/Algorithms/Sorting Algorithms.md' })),
@@ -880,14 +830,12 @@ n = populateDeck(deckCS, [
 ]);
 console.log(`  "CS Interview Prep"     — ${n} entries`);
 
-// Math Core: calculus + LA
 n = populateDeck(deckMath, [
     ...calcCards.slice(0, 5).map(c => ({ c, docPath: 'Mathematics/Calculus.md' })),
     ...laCards.slice(0, 3).map(c => ({ c, docPath: 'Mathematics/Linear Algebra.md' })),
 ]);
 console.log(`  "Math Core"             — ${n} entries`);
 
-// Daily Review: 2 top cards from each subject area
 n = populateDeck(deckDaily, [
     ...cellBioCards.slice(0, 2).map(c => ({ c, docPath: 'Science/Biology/Cell Biology.md' })),
     ...mechCards.slice(0, 2).map(c => ({ c, docPath: 'Science/Physics/Classical Mechanics.md' })),
@@ -898,13 +846,9 @@ n = populateDeck(deckDaily, [
 ]);
 console.log(`  "Daily Review"          — ${n} entries`);
 
-// ---------------------------------------------------------------------------
-// ── STEP 5: Review history — seed Leitner levels 1–5 ─────────────────────────
-// ---------------------------------------------------------------------------
 
 console.log('\n── Seeding review history ───────────────────────────────');
 
-// Session history templates per target level
 const sessionsByLevel = {
     5: [
         { daysAgo: 45, outcome: 'again', easeFactor: 2.5, level: 0 },
@@ -934,7 +878,6 @@ const sessionsByLevel = {
     ],
 };
 
-// Map cards → target level
 const reviewPlan = [
     { cards: [cellBioCards[0], mechCards[0], mechCards[1], dsCards[0], calcCards[0], calcCards[1]],          targetLevel: 5 },
     { cards: [cellBioCards[1], geneticsCards[0], mechCards[2], dsCards[1], calcCards[2], netCards[0]],       targetLevel: 4 },
@@ -971,7 +914,6 @@ for (const { cards: planCards, targetLevel } of reviewPlan) {
 
 console.log(`  ${reviewsAdded} review log entries inserted`);
 
-// ---------------------------------------------------------------------------
 
 const totalCards =
     cellBioCards.length + geneticsCards.length + bacteriaCards.length +

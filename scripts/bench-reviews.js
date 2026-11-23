@@ -1,43 +1,8 @@
-/**
- * Review-path benchmark — how many concurrent studiers can one Flashback API sustain?
- *
- * This exists to answer one question with a number instead of an estimate: the data layer
- * serializes every statement through one queue per store (see `sqliteAdapter.js`), so a
- * study group's reviews run back to back rather than in parallel. Is that queue anywhere
- * near being the bottleneck at study-group scale, or is it three orders of magnitude away?
- *
- * The answer decides whether the server needs a concurrent-write database (Postgres) or
- * whether SQLite is fine, so the measurement has to be honest about what it includes:
- *
- *   - It goes over real HTTP against a real `Api` instance, so Express, JSON parsing, the
- *     auth lookup and the route's card-health call are all in the number. That is the
- *     figure a deployment actually gets.
- *   - It runs READER accounts by default. A non-owner's review is the interesting case:
- *     it writes no sidecar and arms no Seal commit (`documents.submitReview` returns early),
- *     so it is pure database work — exactly the traffic a concurrent engine would help.
- *     `--owner` runs the same load as the Author for comparison, which drags the git commit
- *     path in and is expected to be far slower.
- *   - The document is created NESTED (`--depth`, default 4) because `propagatePresence`
- *     walks the folder tree to the root after every review. Benchmarking a document at the
- *     workspace root would hide the cost this is meant to expose.
- *
- * Usage:
- *   node scripts/bench-reviews.js                       # default sweep: 1, 10, 50, 200
- *   node scripts/bench-reviews.js --workers 50          # one concurrency level
- *   node scripts/bench-reviews.js --reviews 400 --depth 6
- *   node scripts/bench-reviews.js --owner               # Author instead of readers
- *   node scripts/bench-reviews.js --label "after fix"   # tag the run in the output
- *
- * It builds a throwaway vault under `data_bench/` and deletes it on the way out, so it
- * never touches `./data` or a real install.
- */
-
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
 import process from 'process';
 
-// ─── Arguments ──────────────────────────────────────────────────────────────
 
 const argv = process.argv.slice(2);
 const flag = (name, fallback) => {
@@ -55,18 +20,11 @@ const WORKER_SWEEP = flag('workers', null)
     ? [Number(flag('workers', null))]
     : [1, 10, 50, 200];
 
-// `--root` matters more than it looks. A vault under a synced folder (OneDrive, Dropbox)
-// pays that sync's cost on every WAL commit, and this repo happens to live in one — so a
-// default-path run measures the developer's filesystem, not the server's. Point it at a
-// plain local disk for any number you intend to quote.
 const ROOT = path.resolve(flag('root', path.join(process.cwd(), 'data_bench')));
 process.env.USER_DATA_PATH = ROOT;
 fs.rmSync(ROOT, { recursive: true, force: true });
 fs.mkdirSync(ROOT, { recursive: true });
 
-// Imports are hoisted, and every one of these resolves its paths from USER_DATA_PATH at
-// import time — so the assignment above has to happen before they load. Dynamic import is
-// what makes that ordering real rather than accidental.
 const { default: validate } = await import('../src/api/config/validate.js');
 if (!await validate()) {
     console.error('Validation failed.');
@@ -81,19 +39,15 @@ const { sealTools, sealEmitter } = await import('../src/api/seal/seal.js');
 const { default: Api } = await import('../src/api/api.js');
 const { ROLES } = await import('../src/shared/roles.js');
 
-// ─── Statistics ─────────────────────────────────────────────────────────────
 
-/** Percentile of an already-sorted array, nearest-rank. */
 const pct = (sorted, p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
 
 const fmt = (n, digits = 1) => n.toFixed(digits).padStart(8);
 
-// ─── Setup ──────────────────────────────────────────────────────────────────
 
 const AUTHOR_TOKEN = 'bench-author-token-0123456789abcdef';
 const docs = new Documents();
 
-/** `Bench/Level1/Level2/...` — a folder chain `depth` deep for presence to walk back up. */
 function folderChain(depth) {
     const parts = ['Bench'];
     for (let i = 1; i < depth; i++) parts.push(`Level${i}`);
@@ -126,11 +80,6 @@ async function seed() {
     return { author, docRel: path.join(parent, 'deck.md'), hashes };
 }
 
-/**
- * One token per worker. Distinct accounts rather than one shared token because the whole
- * point is concurrent WRITERS: sharing an account would have every worker contending on the
- * same CardProgress rows, which measures row contention rather than throughput.
- */
 async function makeReaderTokens(count) {
     const tokens = [];
     for (let i = 0; i < count; i++) {
@@ -145,13 +94,7 @@ async function makeReaderTokens(count) {
     return tokens;
 }
 
-// ─── The load ───────────────────────────────────────────────────────────────
 
-/**
- * Fires `workers` concurrent studiers, each posting `REVIEWS_PER_WORKER` reviews in series.
- * One request in flight per worker is the realistic shape: a person answers a card, waits
- * for the response, sees the next card.
- */
 async function runLoad({ baseUrl, tokens, docRel, hashes, workers }) {
     const latencies = [];
     let failures = 0;
@@ -160,7 +103,6 @@ async function runLoad({ baseUrl, tokens, docRel, hashes, workers }) {
     const worker = async (w) => {
         const token = tokens[w % tokens.length];
         for (let i = 0; i < REVIEWS_PER_WORKER; i++) {
-            // Round-robin offset by worker so concurrent studiers are on different cards.
             const hash = hashes[(w + i * 7) % hashes.length];
             const started = performance.now();
             let res;
@@ -208,12 +150,9 @@ async function runLoad({ baseUrl, tokens, docRel, hashes, workers }) {
     };
 }
 
-// ─── Main ───────────────────────────────────────────────────────────────────
 
 const { docRel, hashes } = await seed();
 
-// morgan accepts a format FUNCTION, and one returning null logs nothing. Per-request
-// logging would be both noise in the table and a measurable share of what we are timing.
 const api = new Api({ port: 0, logFormat: () => null, apiToken: AUTHOR_TOKEN });
 const server = await api.start();
 const baseUrl = `http://localhost:${server.address().port}`;
@@ -248,7 +187,6 @@ console.log('');
 console.log(`  Peak sustained: ${peak.throughput.toFixed(1)} reviews/sec at ${peak.workers} concurrent studiers.`);
 console.log('');
 
-// ─── Teardown ───────────────────────────────────────────────────────────────
 
 await sealEmitter.quiesce();
 await api.stop();
