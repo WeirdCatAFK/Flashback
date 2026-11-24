@@ -1,10 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { addEntry, searchCards, setDeckTags } from '../../api/decks';
 import { frontLine, docTitle } from '../../components/flashcard/cardLineText.js';
 import { getTags } from '../../api/documents';
 import TagChipInput from '../../components/base/TagChipInput';
 import { useSession } from '../../utils/sessionContext.js';
 import { useT } from '../../translations/index';
+import useDebounced from '../../hooks/useDebounced.js';
 
 const SEARCH_DEBOUNCE = 250;
 const SEARCH_LIMIT = 50;
@@ -16,8 +17,6 @@ export function AddCardsPanel({ deckHash, deckName, existingHashes, onAdded, onC
   const [total, setTotal] = useState(0);
   const [adding, setAdding] = useState(new Set());
   const [added, setAdded] = useState(new Set(existingHashes));
-  const debounceRef = useRef(null);
-
   const fetchCards = useCallback((q) => {
     searchCards({ search: q || null, sortBy: 'front', sortDir: 'asc', limit: SEARCH_LIMIT }).then((res) => {
       setResults(res.cards);
@@ -26,12 +25,12 @@ export function AddCardsPanel({ deckHash, deckName, existingHashes, onAdded, onC
   }, []);
 
   useEffect(() => { fetchCards(''); }, [fetchCards]);
+  const fetchSoon = useDebounced(fetchCards, SEARCH_DEBOUNCE);
 
   const onQueryChange = (e) => {
     const val = e.target.value;
     setQuery(val);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => fetchCards(val), SEARCH_DEBOUNCE);
+    fetchSoon(val);
   };
 
   const handleAdd = async (card) => {

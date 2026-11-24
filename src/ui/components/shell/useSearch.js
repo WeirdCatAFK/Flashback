@@ -1,4 +1,5 @@
-import { useState, useRef, useCallback, useMemo } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import useDebounced from '../../hooks/useDebounced.js';
 import { superSearch } from '../../api/search';
 import { parseQuery, isEmptyPrefix, flattenResults, groupResults, navigationFor } from './search.js';
 
@@ -10,7 +11,6 @@ export default function useSearch({ onNavigate, onClose }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
   const [focusIdx, setFocusIdx] = useState(0);
-  const debounceRef = useRef(null);
 
   const flatItems = useMemo(() => flattenResults(results), [results]);
   const groups = useMemo(() => groupResults(results), [results]);
@@ -34,11 +34,12 @@ export default function useSearch({ onNavigate, onClose }) {
     }
   }, []);
 
+  const searchSoon = useDebounced(doSearch, DEBOUNCE);
+
   const change = (val) => {
     setQuery(val);
     setLoading(true);
-    clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => doSearch(val), DEBOUNCE);
+    searchSoon(val);
   };
 
   const navigate = useCallback((item) => {
