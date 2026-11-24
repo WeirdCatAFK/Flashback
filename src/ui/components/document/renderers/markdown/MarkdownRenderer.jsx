@@ -14,6 +14,7 @@ import { useScrollProgress } from '../useScrollProgress';
 import { useT } from '../../../../translations/index';
 import './MarkdownRenderer.css';
 
+/** Priority 50 sorts this after tiptap-markdown's own link mark, so this one wins the schema slot. */
 const MarkdownLink = Link.extend({
   priority: 50,
   renderHTML({ HTMLAttributes }) {

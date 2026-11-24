@@ -1,3 +1,4 @@
+/** The local calendar day, as the server buckets it with date(timestamp, 'localtime'). Never use toISOString(), which gives the UTC day. */
 export const todayIso = (d = new Date()) => {
   const pad = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

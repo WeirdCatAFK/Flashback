@@ -7,6 +7,7 @@ const DRAG_THRESHOLD = 5;
 const SETTLE_MS = 240;
 const AWAY_MARGIN = 48;
 
+/** The iframe never moves in the DOM, because a moved iframe reloads and stops the video. Only its box becomes position: fixed. */
 export default function useFloatingPlayer({ slotRef, frameRef, playing, enabled = true }) {
   const [floating, setFloating] = useState(false);
   const [pos, setPos] = useState(null);

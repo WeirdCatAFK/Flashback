@@ -39,6 +39,7 @@ export const optimizeFsrs = () => request("POST", "/api/srs/optimize");
 
 export const getFsrsInfo = () => request("GET", "/api/srs/fsrs-info");
 
+/** The server returns the queue in presentation order. Never re-sort it, because the review log records each card's position as shown. */
 export const getDue = ({
   algorithm,
   folder,

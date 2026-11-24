@@ -23,6 +23,7 @@ router.get('/commit/:oid/files', catchError(async (req, res) => {
     res.json(files);
 }));
 
+/** Rewinds workspace/ only. Run the Doctor's syncIndex next, because inspect() sees no drift right after a checkout. */
 router.post('/rollback', catchError(async (req, res) => {
     const { ref } = req.body;
     if (!ref) return res.status(400).json({ error: 'ref required' });

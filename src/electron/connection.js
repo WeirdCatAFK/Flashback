@@ -1,3 +1,4 @@
+/** Going to a local vault is one operation, useLocalVault(). switch-vault must call it, or a dead remote leaves no way back. */
 export function createConnectionState({ readConfig, connectionForRemote, apiBaseUrl }) {
     let activeRemoteId = null;
 

@@ -224,6 +224,7 @@ const _MEDIA_REF = /\.\/media\/([^"')\s>]+)/g;
 
 const _IS_HASH = /^[a-f0-9]{64}$/i;
 
+/** shortcut: a write without ifMatch skips this check and the last writer wins, as in the MCP body overwrite. Make ifMatch mandatory once every client sends one. */
 function _assertFresh(relativePath, ifMatch, { isFolder = false, part = 'sidecar' } = {}) {
     if (!ifMatch) return;
     const current = Files.etag(relativePath, isFolder);
@@ -807,6 +808,7 @@ async function _updateMetadataLocked(relativePath, metadata, isFolder = false, {
     return sidecar;
 }
 
+/** Holds the structure lock. Run Decks.rewriteTag only after this returns, because its withDocument waits on this lock. */
 export async function rewriteTag(from, to = null) {
     return await withStructure(async () => {
         const touched = [];
@@ -1629,6 +1631,10 @@ async function _syncTags(nodeId, tagNames) {
     await tagRows.syncNode(nodeId, tagNodeIds);
 }
 
+/**
+ * A sidecar's frozen schedule seeds only a card that has no progress row.
+ * Delete PROGRESS_KEYS from the payload, because cardProgress.write runs on any defined key.
+ */
 async function _syncDocumentFlashcards(documentId, flashcardsData, docNodeId = null) {
     const existing = await flashcardRows.getByDocument(documentId, OWNER_SCOPE);
     const existingMap = new Map(existing.map(f => [f.global_hash, f]));

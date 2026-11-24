@@ -62,6 +62,7 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Pushes the image that booted above, retagged. It is amd64 only, because a multi-arch build cannot load: true and CI could not boot it.
       - name: Push the tested image
         if: ${{ inputs.upload }}
         run: |

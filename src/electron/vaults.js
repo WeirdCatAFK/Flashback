@@ -1,3 +1,4 @@
+/** Main owns vaults[], remotes[], apiToken and user in config.json. The API owns activeVaultId, so a vault switch asks the API over HTTP. */
 import { app, safeStorage } from "electron";
 import path from "path";
 import fs from "fs";

@@ -26,6 +26,7 @@ const NATIVE_PACKAGES = ['better-sqlite3', 'bindings', 'file-uri-to-path'];
 
 const EXTERNAL_TREES = ['jsdom'];
 
+/** pdfjs and jsdom find fonts, a worker and a stylesheet on disk at runtime. They ship as packages, because bundled they break PDF and EPUB reads. */
 const ASSET_PACKAGES = {
     'pdfjs-dist': {
         files: ['package.json'],
@@ -52,6 +53,7 @@ fs.mkdirSync(stage, { recursive: true });
 
 const bundlePath = path.join(stage, 'server.mjs');
 
+/** CommonJS code inside the ESM bundle calls `require()` and `__dirname`. These shims supply them. */
 const BANNER = [
     'import{createRequire as __fbCreateRequire}from"node:module";',
     'import{fileURLToPath as __fbFileURLToPath}from"node:url";',

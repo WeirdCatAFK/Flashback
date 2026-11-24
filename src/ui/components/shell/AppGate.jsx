@@ -6,6 +6,7 @@ import './AppGate.css';
 const POLL_INTERVAL_MS = 400;
 const SLOW_THRESHOLD_MS = 10000;
 
+/** Holds the shell until the API answers GET /. A workspace that renders before its reads succeed can save an empty document over a real file. */
 export default function AppGate({ children }) {
   const { t } = useT();
   const [ready, setReady] = useState(false);

@@ -151,6 +151,7 @@ Every file and card below a folder inherits the folder's tags.
 - `origin` is `ai` for a card that the MCP server created, and `import` for an Anki or Obsidian import. A handmade card has no `origin`.
 - `presence` is a familiarity score that Flashback derives from the owner's schedule.
 - `level`, `easeFactor`, `sm2Reps`, `lastRecall` and the `fsrs*` keys are a frozen schedule. They seed a card that has no progress row. Grading never writes them.
+- The frozen schedule belongs to the owner. It seeds only the `owner` scope, and a reader's progress never comes from a sidecar.
 
 ### Highlights
 
@@ -399,6 +400,8 @@ Flashback can recompute both tables from `ReviewLogs` and the card content.
 - `FlashcardContent.answerText` holds the graded value of a `type_answer` card. It is null on other cards and on `type_answer` cards in the old shape.
 - `Documents.global_hash` comes from the sidecar. The sidecar wins if they differ.
 - `DeckEntries.inline_card` holds the snapshot of a standalone card. It is null for other cards.
+- `relative_path` uses the separator of the platform, so compare it after replacing `\` with `/`. `absolute_path` is stale after a vault moves, until the Doctor syncs the index.
+- The publisher owns the target folder of a subscription. Importing an issue deletes everything under it that the issue does not contain.
 
 ### Knowledge graph
 

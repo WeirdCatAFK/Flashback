@@ -31,6 +31,11 @@ async function appliedVersions(db) {
     );
 }
 
+/**
+ * up() also runs for a version with no SchemaVersion row, as on a rebuilt database, so guard up() itself.
+ * Bare sqlite_master sees main only, and a bare DROP or ALTER hits the attached progress copy.
+ * Update SchemaSQL.js too. A migration that drops what an older build reads is one-way.
+ */
 export default async function runMigrations(db) {
     await ensureVersionTable(db);
     const applied = await appliedVersions(db);

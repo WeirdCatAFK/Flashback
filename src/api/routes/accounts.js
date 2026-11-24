@@ -38,6 +38,7 @@ function grantRefusal(actor, role) {
     return null;
 }
 
+/** The cap lives here, not in createAccount(), because ensureLocalAuthor() calls createAccount() at boot and must never be refused. */
 async function accountLimitRefusal() {
     const limit = getMaxAccounts();
     if (limit == null) return null;

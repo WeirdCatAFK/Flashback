@@ -1,5 +1,9 @@
 export const SCHEMA_NAME = "progress";
 
+/**
+ * Qualify every statement with progress. An unqualified CREATE lands in main, and that empty copy hides the real table.
+ * Write no REFERENCES clause across schemas. SQLite accepts one at CREATE and then fails every insert.
+ */
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS progress.CardProgress (
     account_id      TEXT NOT NULL DEFAULT 'owner',

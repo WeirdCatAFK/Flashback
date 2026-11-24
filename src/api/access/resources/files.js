@@ -239,6 +239,7 @@ export function writeMetadata(relPath, metadata, isFolder = false) {
     }
 }
 
+/** Stamps only a new sidecar. If it stamped an existing file as current, the UpdateRunner would skip data that still needs an update. */
 function _ensureFormatVersion(metadata, metadataPath) {
     if (!metadata || typeof metadata !== 'object') return;
     if (metadata.formatVersion !== undefined) return;

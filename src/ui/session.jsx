@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { getEffectiveIdentity } from "./api/identity.js";
 import { SessionContext, buildSessionValue } from "./utils/sessionContext.js";
 
+/** A failed identity request leaves the role null, so every capability is false. Never fall back to the Author. */
 export function SessionProvider({ connectionId, children }) {
   const [state, setState] = useState({
     account: null,

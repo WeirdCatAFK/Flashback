@@ -1,5 +1,6 @@
 const UNSPECIFIED = new Set(["0.0.0.0", "[::]", "::"]);
 
+/** Node fetch in Electron main reaches 0.0.0.0, and the Chromium renderer refuses it. A passing handshake proves nothing for that address. */
 export function unusableUrlReason(url) {
     let host;
     try {

@@ -27,6 +27,7 @@ export function createSqliteAdapter({ resolvePath, onOpen }) {
         return handle;
     }
 
+    /** The checkpoint names no schema, so it also empties the progress.db WAL. Windows cannot rename a vault folder that holds an open -wal file. */
     function closeDatabase() {
         if (!handle) return;
         try {

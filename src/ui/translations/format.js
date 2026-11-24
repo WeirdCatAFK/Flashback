@@ -7,6 +7,7 @@ const LADDER = [
   ['second',          1,          0],
 ];
 
+/** SQLite writes UTC as "YYYY-MM-DD HH:MM:SS" with no zone marker, so this adds a Z. Parsed raw, it reads as local time. */
 export function toDate(value) {
   if (value == null || value === '') return null;
   if (value instanceof Date) return Number.isNaN(value.getTime()) ? null : value;

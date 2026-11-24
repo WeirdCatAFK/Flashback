@@ -13,6 +13,7 @@ concurrency:
   group: prerelease
   cancel-in-progress: false
 
+# Read-only on purpose. server.yml inherits these permissions, so this workflow can never push an image or write a Release.
 permissions:
   contents: read
 
@@ -26,6 +27,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
+          # The release guards read tags, and a shallow clone has none.
           fetch-depth: 0
 
       - uses: actions/setup-node@v4
@@ -58,6 +60,7 @@ jobs:
             build: npm run dist:linux -- --publish never
             artifact: linux-appimage
             path: dist/*.AppImage
+          # arm64: the runner is Apple Silicon, and better-sqlite3 builds for it. An x64 package would fail at launch.
           - os: macos-latest
             name: macOS (dmg, arm64)
             build: npm run dist:mac -- --publish never

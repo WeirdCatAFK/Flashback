@@ -116,6 +116,7 @@ function resolve(vars, token, depth = 0) {
 }
 
 
+/** --color-fg-tertiary holds only the 3:1 non-text floor, because it never carries a fact alone. Text that is the only carrier uses fg-secondary. */
 const TEXT_PAIRS = [
   ["--color-fg-primary", "--color-bg-base", 4.5, "body text on the window"],
   ["--color-fg-primary", "--color-bg-surface", 4.5, "body text on a panel"],

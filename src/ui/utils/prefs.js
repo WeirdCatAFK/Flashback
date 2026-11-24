@@ -12,6 +12,7 @@ const VAULT_SCOPED_KEYS = new Set([
 
 let activeVaultId = null;
 
+/** useConnection calls this before React renders the new vault, so views read that vault's prefs. A new vault inherits the global value of a scoped key. */
 export function setActiveVaultScope(vaultId) {
   activeVaultId = vaultId || null;
 }
