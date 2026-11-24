@@ -47,10 +47,10 @@ router.get('/', catchError(async (req, res) => {
     res.json(days);
 }));
 
-router.get('/summary/:date', catchError((req, res) => {
+router.get('/summary/:date', catchError(async (req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-    const summary = Diary.getSummary(date);
+    const summary = await Diary.getSummary(date);
     if (!summary) return res.status(404).json({ error: 'no summary for that date' });
     res.json(summary);
 }));

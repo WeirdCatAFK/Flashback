@@ -151,13 +151,13 @@ router.get('/:id/logs', catchError(async (req, res) => {
     if (!target) return;
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    res.json(Diary.list({ from, to, scope: scopeFor(target) }));
+    res.json(await Diary.list({ from, to, scope: scopeFor(target) }));
 }));
 
 router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
     const target = await logsTarget(req, res);
     if (!target) return;
-    const summary = Diary.getSummary(req.params.date, scopeFor(target));
+    const summary = await Diary.getSummary(req.params.date, scopeFor(target));
     if (!summary) return res.status(404).json({ error: 'no summary for that date' });
     res.json(summary);
 }));

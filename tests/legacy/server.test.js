@@ -307,7 +307,7 @@ describe('Flashback Server', () => {
             assert.ok(storage.used > 0, 'a vault that has been written to occupies something');
             assert.ok(typeof storage.measuredAt === 'string');
 
-            for (const key of ['portable', 'progress', 'index', 'accounts', 'diary']) {
+            for (const key of ['portable', 'progress', 'index', 'accounts']) {
                 assert.ok(Number.isInteger(storage.breakdown[key]) && storage.breakdown[key] >= 0, key);
             }
             const sum = Object.values(storage.breakdown).reduce((a, b) => a + b, 0);

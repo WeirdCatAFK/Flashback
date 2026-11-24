@@ -39,7 +39,9 @@ export function ensureRoot() {
     return root;
 }
 
-export function safePath(anyPath) {
+const RESERVED_ENTRIES = new Set(["_decks", "_diary", "_categories.json"]);
+
+function _resolve(anyPath) {
     const resolvedPath = path.resolve(workspaceRoot(), anyPath);
     const relative = path.relative(workspaceRoot(), resolvedPath);
 
@@ -49,8 +51,40 @@ export function safePath(anyPath) {
             { status: 400, code: "path_traversal" },
         );
     }
+    return { resolvedPath, root: relative.split(path.sep)[0] };
+}
 
+/** Resolves a path that a client may name. The reserved roots belong to their own modules, so this refuses them. */
+export function safePath(anyPath) {
+    const { resolvedPath, root } = _resolve(anyPath);
+    if (RESERVED_ENTRIES.has(root)) {
+        throw Object.assign(new Error(`${root} is managed by Flashback and cannot be addressed directly`), {
+            status: 403, code: "reserved_path",
+        });
+    }
     return resolvedPath;
+}
+
+export function reservedPath(relPath) {
+    const { resolvedPath, root } = _resolve(relPath);
+    if (!RESERVED_ENTRIES.has(root)) throw new Error(`Not a reserved path: ${relPath}`);
+    return resolvedPath;
+}
+
+export function writeReserved(relPath, text) {
+    const abs = reservedPath(relPath);
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    _atomicWrite(abs, text, "utf-8");
+}
+
+export function readReserved(relPath) {
+    const abs = reservedPath(relPath);
+    return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
+}
+
+export function listReserved(relPath) {
+    const abs = reservedPath(relPath);
+    return fs.existsSync(abs) ? fs.readdirSync(abs) : [];
 }
 
 function mediaName(name) {
@@ -733,7 +767,7 @@ export function walkWorkspace() {
 
         for (const entry of entries) {
             if (entry.name === ".git") continue;
-            if (!relPath && entry.name === "_decks" && entry.isDirectory()) continue;
+            if (!relPath && RESERVED_ENTRIES.has(entry.name)) continue;
             const entryRel = relPath ? path.join(relPath, entry.name) : entry.name;
 
             if (entry.isDirectory()) {
@@ -781,7 +815,7 @@ export function listFolder(relPath) {
     for (const entry of fs.readdirSync(folderPath, { withFileTypes: true })) {
         if (entry.name === ".flashback" || entry.name.endsWith(".flashback") || entry.name === ".git") continue;
         if (entry.name === "media" && entry.isDirectory()) continue;
-        if (entry.name === "_decks" && entry.isDirectory()) continue;
+        if (!relPath && RESERVED_ENTRIES.has(entry.name)) continue;
         const isDir = entry.isDirectory();
         const meta = getMetadata(path.join(relPath, entry.name), isDir);
         result.push({ name: entry.name, type: isDir ? "folder" : "file", metadata: meta });

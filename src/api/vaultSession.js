@@ -10,6 +10,7 @@ import * as Decks from './access/modules/decks.js';
 import * as CardHealth from './access/modules/cardHealth.js';
 import * as McpReader from './access/modules/mcpReader.js';
 import * as Highlights from './access/modules/highlights.js';
+import * as Diary from './access/modules/diary.js';
 import storage from "./access/primitives/storage.js";
 
 let switching = false;
@@ -56,6 +57,13 @@ export async function openVault({ onFatal } = {}) {
         }
     } catch (err) {
         console.error("Format updates failed (continuing; will retry next launch):", err?.stack || err);
+    }
+
+    try {
+        const moved = await Diary.adoptLegacyFolder();
+        if (moved) console.log(`Moved ${moved} diary entr${moved === 1 ? "y" : "ies"} into the portable files.`);
+    } catch (err) {
+        console.error("Diary move failed (continuing; will retry next launch):", err?.stack || err);
     }
 
     try {

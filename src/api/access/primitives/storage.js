@@ -1,7 +1,7 @@
 import fs from "fs";
 import path from "path";
 import {
-    getBaseDir, getVaultPath, getWorkspacePath, getDatabasePath, getProgressDatabasePath, get,
+    getBaseDir, getWorkspacePath, getDatabasePath, getProgressDatabasePath, get,
 } from "./config.js";
 
 const CACHE_MS = 60_000;
@@ -73,7 +73,6 @@ export function getStorageReport({ fresh = false } = {}) {
             progress: sqliteSize(getProgressDatabasePath()),
             index: sqliteSize(getDatabasePath()),
             accounts: sqliteSize(path.join(getBaseDir(), "accounts.db")),
-            diary: sizeOf(path.join(getVaultPath(), "diary")),
         };
         measured = {
             breakdown,

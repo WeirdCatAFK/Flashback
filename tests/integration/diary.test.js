@@ -4,7 +4,6 @@ import path from 'path';
 import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
-import git from 'isomorphic-git';
 import validate from '../../src/api/config/validate.js';
 import * as Documents from '../../src/api/access/modules/documents.js';
 import * as Decks from '../../src/api/access/modules/decks.js';
@@ -13,8 +12,9 @@ import db from '../../src/api/access/primitives/database.js';
 import * as deckRows from '../../src/api/access/resources/db/decks.js';
 import * as documentRows from '../../src/api/access/resources/db/documents.js';
 import * as statisticsRows from '../../src/api/access/resources/db/statistics.js';
+import * as diaryRows from '../../src/api/access/resources/db/diary.js';
 import * as Diary from '../../src/api/access/modules/diary.js';
-import { sealTools } from '../../src/api/seal/seal.js';
+import { sealTools, sealEmitter } from '../../src/api/seal/seal.js';
 import { getVaultPath, getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { testDataDir } from '../support/testData.js';
 
@@ -30,7 +30,8 @@ const DAY = '2026-06-01';
 const NEXT = '2026-06-02';
 const hashes = [crypto.randomUUID(), crypto.randomUUID(), crypto.randomUUID()];
 
-const diaryRoot = () => path.join(getVaultPath(), 'diary');
+const diaryRoot = () => path.join(getWorkspacePath(), '_diary');
+const ownerEntry = (day) => path.join(diaryRoot(), 'owner', `${day}.md`);
 
 const cleanup = async () => {
     try {
@@ -105,7 +106,8 @@ describe('Diary storage layer', () => {
         assert.equal(s.streak.longest, 1);
         assert.ok(Array.isArray(s.byDeck));
 
-        assert.ok(fs.existsSync(path.join(diaryRoot(), 'summaries', `summary-${DAY}.json`)));
+        assert.ok(await diaryRows.getSummary(DAY, 'owner'), 'a past day is cached in the index');
+        assert.ok(!fs.existsSync(path.join(diaryRoot(), 'owner', 'summaries')), 'no summary file is written');
     });
 
     it('is idempotent: regenerating a past date reproduces the same file (modulo generatedAt)', async () => {
@@ -118,12 +120,13 @@ describe('Diary storage layer', () => {
     it('writes nothing for a day with no reviews', async () => {
         const s = await Diary.generateSummary(NEXT);
         assert.equal(s, null);
-        assert.ok(!fs.existsSync(path.join(diaryRoot(), 'summaries', `summary-${NEXT}.json`)));
+        assert.equal(await diaryRows.getSummary(NEXT, 'owner'), null);
     });
 
-    it('lives outside the workspace and never appears in the graph, index, or search', async () => {
-        const rel = path.relative(getWorkspacePath(), diaryRoot());
-        assert.ok(rel.startsWith('..'), 'diary root is outside the workspace root');
+    it('lives in _diary/, which the walk, the index, search and the documents API never reach', async () => {
+        await Diary.saveEntry('2026-06-03', 'a private note');
+        assert.ok(!Files.listFolder('').some((e) => e.name === '_diary'), 'the explorer listing hides _diary');
+        assert.throws(() => Files.safePath(path.join('_diary', 'owner', `${DAY}.md`)), { code: 'reserved_path' });
 
         const walk = Files.walkWorkspace();
         const walked = [...walk.folders, ...walk.documents].map(e => e.relPath);
@@ -142,21 +145,26 @@ describe('Diary storage layer', () => {
         const res = await Diary.saveEntry(DAY, '# Reflection\nStudied hiragana.');
         assert.equal(res.created, true);
         assert.equal(Diary.getEntry(DAY), '# Reflection\nStudied hiragana.');
-        assert.ok(fs.existsSync(path.join(diaryRoot(), 'entries', `entry-${DAY}.md`)));
+        assert.ok(fs.existsSync(ownerEntry(DAY)));
+        const sidecar = JSON.parse(fs.readFileSync(path.join(diaryRoot(), 'owner', '.flashback'), 'utf-8'));
+        assert.ok(sidecar.createdBy, 'the folder sidecar names who writes in it');
     });
 
     it('does not create an empty entry file for a day the user never wrote', async () => {
         const res = await Diary.saveEntry(NEXT, '   ');
         assert.equal(res.created, false);
         assert.equal(Diary.getEntry(NEXT), null);
-        assert.ok(!fs.existsSync(path.join(diaryRoot(), 'entries', `entry-${NEXT}.md`)));
+        assert.ok(!fs.existsSync(ownerEntry(NEXT)));
     });
 
-    it('versions diary files in its own git repo', async () => {
-        const commits = await git.log({ fs, dir: diaryRoot() });
-        assert.ok(commits.length >= 2, 'summary + entry each produced a commit');
-        assert.ok(commits.some(c => c.commit.message.startsWith('summary:')));
-        assert.ok(commits.some(c => c.commit.message.startsWith('entry:')));
+    it('lets Seal version the entries with the other portable files', async () => {
+        await sealEmitter.flushEdits();
+        const touched = [];
+        for (const c of await sealTools.log(50)) {
+            const diff = await sealTools.commitFiles(c.oid);
+            touched.push(...diff.added, ...diff.modified);
+        }
+        assert.ok(touched.includes(`_diary/owner/${DAY}.md`), 'a Seal commit holds the entry');
     });
 
     it('lists diary dates newest-first with per-kind flags', async () => {
@@ -166,24 +174,18 @@ describe('Diary storage layer', () => {
         for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date);
     });
 
-    it('re-derives the whole day across sessions, and commits only when it changed', async () => {
-        const commits = async () => (await git.log({ fs, dir: diaryRoot() })).length;
+    it('serves a past day from the cache until something regenerates it', async () => {
         const first = await Diary.generateSummary(DAY);
-        const before = await commits();
-
-        const again = await Diary.generateSummary(DAY);
-        assert.equal(await commits(), before, 'an unchanged day is not re-committed');
-        assert.equal(again.totals.reviews, first.totals.reviews);
 
         const fid = await fcId(hashes[0]);
         await db.prepare(
             'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
         ).run(fid, localIso(DAY, 20), 1, 2.5, 1);
         try {
+            assert.equal((await Diary.getSummary(DAY)).totals.reviews, first.totals.reviews, 'the cache still answers');
             const later = await Diary.generateSummary(DAY);
             assert.equal(later.totals.reviews, first.totals.reviews + 1, 'the evening session adds to the morning one');
-            assert.equal(await commits(), before + 1);
-            assert.equal(Diary.getSummary(DAY).totals.reviews, first.totals.reviews + 1, 'and the stored file says so');
+            assert.equal((await Diary.getSummary(DAY)).totals.reviews, first.totals.reviews + 1, 'and the cache says so');
         } finally {
             await db.prepare('DELETE FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND timestamp = ?')
                 .run(fid, localIso(DAY, 20));
@@ -271,5 +273,27 @@ describe('Diary by-deck breakdown', () => {
         assert.equal(real.reviews, 1);
 
         assert.equal((await statisticsRows.getDayReviewTotals(D, 'owner')).reviews, 2);
+    });
+});
+
+describe('Diary from an older build', () => {
+    const legacyRoot = () => path.join(getVaultPath(), 'diary');
+
+    before(() => {
+        fs.rmSync(legacyRoot(), { recursive: true, force: true });
+        fs.rmSync(`${legacyRoot()}.legacy`, { recursive: true, force: true });
+        fs.mkdirSync(path.join(legacyRoot(), 'entries'), { recursive: true });
+        fs.mkdirSync(path.join(legacyRoot(), 'accounts', 'acct-1', 'entries'), { recursive: true });
+        fs.writeFileSync(path.join(legacyRoot(), 'entries', 'entry-2020-01-01.md'), 'owner wrote this');
+        fs.writeFileSync(path.join(legacyRoot(), 'accounts', 'acct-1', 'entries', 'entry-2020-01-02.md'), 'a collaborator wrote this');
+    });
+
+    it('moves every entry into _diary/ once, and keeps the old folder as diary.legacy', async () => {
+        assert.equal(await Diary.adoptLegacyFolder(), 2);
+        assert.equal(Diary.getEntry('2020-01-01', 'owner'), 'owner wrote this');
+        assert.equal(Diary.getEntry('2020-01-02', 'acct-1'), 'a collaborator wrote this');
+        assert.ok(!fs.existsSync(legacyRoot()), 'the old folder moved aside');
+        assert.ok(fs.existsSync(`${legacyRoot()}.legacy`), 'and stays for a manual rollback');
+        assert.equal(await Diary.adoptLegacyFolder(), 0, 'a second run finds nothing to move');
     });
 });

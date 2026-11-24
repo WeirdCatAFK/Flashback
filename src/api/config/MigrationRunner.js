@@ -16,7 +16,8 @@ import * as m015 from './migrations/015_card_progress_to_progress.js';
 import * as m016 from './migrations/016_read_progress_to_progress.js';
 import * as m017 from './migrations/017_card_highlight_hash.js';
 import * as m018 from './migrations/018_format_version_table.js';
-const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018];
+import * as m019 from './migrations/019_diary_summaries.js';
+const MIGRATIONS = [m001, m002, m003, m004, m005, m006, m007, m008, m009, m010, m011, m012, m013, m014, m015, m016, m017, m018, m019];
 
 async function ensureVersionTable(db) {
     await db.exec(`CREATE TABLE IF NOT EXISTS SchemaVersion (

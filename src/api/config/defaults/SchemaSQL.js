@@ -184,6 +184,13 @@ addTable('FormatVersion', (table) => {
     table.text('description');
 });
 
+addTable('DiarySummaries', (table) => {
+    table.string('scope', 100).notNullable();
+    table.string('date', 10).notNullable();
+    table.text('summary').notNullable();
+    table.primary(['scope', 'date']);
+});
+
 addTable('Media', (table) => {
     table.increments('id').primary();
     table.string('hash', 500).unique().index();

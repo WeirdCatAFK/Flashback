@@ -31,7 +31,7 @@ const { default: db } = await import('../../src/api/access/primitives/database.j
 const accounts = await import('../../src/api/access/primitives/accounts.js');
 const { getVaultId, ensureManifest } = await import('../../src/api/access/primitives/vault.js');
 const { sealTools } = await import('../../src/api/seal/seal.js');
-const { getWorkspacePath, getVaultPath } = await import('../../src/api/access/primitives/config.js');
+const { getWorkspacePath } = await import('../../src/api/access/primitives/config.js');
 const { runWithAccount, OWNER_SCOPE } = await import('../../src/api/requestContext.js');
 const { ROLES } = await import('../../src/shared/roles.js');
 const { default: runMigrations } = await import('../../src/api/config/MigrationRunner.js');
@@ -217,18 +217,18 @@ describe('Per-user SRS', () => {
             const pad = (n) => String(n).padStart(2, '0');
             const day = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
-            await asAccount(rita, () => Diary.generateSummary(day));
-            await asAuthor(author, () => Diary.generateSummary(day));
+            await asAccount(rita, () => Diary.saveEntry(day, 'rita'));
+            await asAuthor(author, () => Diary.saveEntry(day, 'owner'));
 
-            const root = path.join(getVaultPath(), 'diary');
-            assert.ok(fs.existsSync(path.join(root, 'summaries', `summary-${day}.json`)),
-                'the owner keeps the unprefixed layout, so no existing file ever moves');
-            assert.ok(fs.existsSync(path.join(root, 'accounts', rita.id, 'summaries', `summary-${day}.json`)),
-                'everyone else gets their own subtree');
+            const root = path.join(getWorkspacePath(), '_diary');
+            assert.equal(fs.readFileSync(path.join(root, 'owner', `${day}.md`), 'utf-8'), 'owner');
+            assert.equal(fs.readFileSync(path.join(root, rita.id, `${day}.md`), 'utf-8'), 'rita',
+                'everyone else writes under their own account folder');
 
-            const ritaSummary = JSON.parse(fs.readFileSync(
-                path.join(root, 'accounts', rita.id, 'summaries', `summary-${day}.json`), 'utf-8'));
+            const ritaSummary = await asAccount(rita, () => Diary.generateSummary(day));
+            const ownerSummary = await asAuthor(author, () => Diary.generateSummary(day));
             assert.ok(ritaSummary.totals.reviews > 0, "and it counts the reader's own reviews");
+            assert.ok(ownerSummary.totals.reviews > 0, "and the owner's counts the owner's reviews");
         });
     });
 

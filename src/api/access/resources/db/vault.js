@@ -18,6 +18,7 @@ export async function wipeDerivedContent() {
         await db.prepare('DELETE FROM Media').run();
         await db.prepare('DELETE FROM Connections').run();
         await db.prepare('DELETE FROM Nodes').run();
+        await db.prepare('DELETE FROM DiarySummaries').run();
     })();
 }
 
