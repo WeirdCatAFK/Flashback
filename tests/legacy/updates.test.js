@@ -37,7 +37,7 @@ const readFolderSidecar = (relPath) => JSON.parse(fs.readFileSync(abs(relPath, '
 const deckFilePath = (hash) => abs('_decks', `${hash}.json`);
 const readDeckFile = (hash) => JSON.parse(fs.readFileSync(deckFilePath(hash), 'utf-8'));
 
-const forgetVaultVersions = async () => await db.prepare('DELETE FROM CanonicalVersion').run();
+const forgetVaultVersions = async () => await db.prepare('DELETE FROM FormatVersion').run();
 
 const deVersion = (relPath) => {
     const meta = readSidecar(relPath);
@@ -61,7 +61,7 @@ const legacyCard = (globalHash, question, answer) => ({
     customData: { html: '' },
 });
 
-describe('Canonical updates', () => {
+describe('Format updates', () => {
 
     before(async () => {
         await sealTools.init();
@@ -152,7 +152,7 @@ describe('Canonical updates', () => {
         });
 
         it('records the vault version and then skips the walk entirely', async () => {
-            assert.deepEqual([...await vaultRows.getCanonicalVersions()].sort(), [1, 2]);
+            assert.deepEqual([...await vaultRows.getFormatVersions()].sort(), [1, 2]);
 
             const r = await runUpdates({ updates, seal: false });
             assert.equal(r.walked, false, 'the steady state costs one indexed read, not a walk');
@@ -184,7 +184,7 @@ describe('Canonical updates', () => {
                 'a failed transform never half-writes the file');
             assert.ok(r.warnings.some(w => w.includes('synthetic failure')), 'the failure is reported');
             assert.equal(r.recorded, false, 'an incomplete pass is not recorded as done');
-            assert.ok(!(await await vaultRows.getCanonicalVersions()).has(9), 'so the next launch tries again');
+            assert.ok(!(await await vaultRows.getFormatVersions()).has(9), 'so the next launch tries again');
         });
 
         it('skips an unparseable sidecar without overwriting it', async () => {
@@ -352,7 +352,7 @@ describe('Canonical updates', () => {
         it('records the vault version and leaves nothing pending', async () => {
             assert.equal(result.recorded, true);
             assert.deepEqual(result.warnings, []);
-            assert.ok((await await vaultRows.getCanonicalVersions()).has(u001.version));
+            assert.ok((await await vaultRows.getFormatVersions()).has(u001.version));
         });
 
         it('is idempotent per card, even forced back over the same files', async () => {

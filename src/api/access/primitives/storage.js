@@ -69,7 +69,7 @@ export function getStorageReport({ fresh = false } = {}) {
 
     if (!measured) {
         const breakdown = {
-            canonical: sizeOf(getWorkspacePath()),
+            portable: sizeOf(getWorkspacePath()),
             progress: sqliteSize(getProgressDatabasePath()),
             index: sqliteSize(getDatabasePath()),
             accounts: sqliteSize(path.join(getBaseDir(), "accounts.db")),

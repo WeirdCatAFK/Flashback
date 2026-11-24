@@ -37,7 +37,7 @@ const { sealTools } = await import('../../src/api/seal/seal.js');
 async function snapshot() {
     return {
         schemaVersion: await vaultRows.getSchemaVersion(),
-        canonicalVersion: Math.max(0, ...await vaultRows.getCanonicalVersions(), 0),
+        formatVersion: Math.max(0, ...await vaultRows.getFormatVersions(), 0),
         documents: (await await db.prepare('SELECT name FROM Documents ORDER BY name').all()).map((r) => r.name),
         cards: (await db.prepare('SELECT COUNT(*) AS n FROM Flashcards').get()).n,
         categories: (await db.prepare('SELECT COUNT(*) AS n FROM PedagogicalCategories').get()).n,
@@ -78,14 +78,14 @@ describe('upgrading an install that predates the vault registry', () => {
         assert.equal(now.schemaVersion, before_.schemaVersion);
     });
 
-    it('runs no canonical update, and does not rewrite the sidecars', async () => {
+    it('runs no format update, and does not rewrite the sidecars', async () => {
         const now = await snapshot();
-        assert.equal(now.canonicalVersion, before_.canonicalVersion);
+        assert.equal(now.formatVersion, before_.formatVersion);
 
         const sidecarAfter = fs.readFileSync(
             path.join(config.getWorkspacePath(), 'kept.md.flashback'), 'utf-8',
         );
-        assert.equal(sidecarAfter, sidecarBefore, 'the canonical layer must be untouched');
+        assert.equal(sidecarAfter, sidecarBefore, 'the portable files must be untouched');
     });
 
     it('keeps the vault\'s data rather than rebuilding the database', async () => {

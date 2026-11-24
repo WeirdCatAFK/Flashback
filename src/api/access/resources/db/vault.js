@@ -21,8 +21,8 @@ export async function wipeDerivedContent() {
     })();
 }
 
-export async function getCanonicalVersions() {
-    return new Set((await db.prepare('SELECT version FROM CanonicalVersion').all()).map(r => r.version));
+export async function getFormatVersions() {
+    return new Set((await db.prepare('SELECT version FROM FormatVersion').all()).map(r => r.version));
 }
 
 export async function getSchemaVersion() {
@@ -30,8 +30,8 @@ export async function getSchemaVersion() {
     return row?.version ?? 0;
 }
 
-export async function recordCanonicalVersion(version, description = null) {
+export async function recordFormatVersion(version, description = null) {
     await db.prepare(
-        'INSERT OR REPLACE INTO CanonicalVersion (version, description) VALUES (?, ?)'
+        'INSERT OR REPLACE INTO FormatVersion (version, description) VALUES (?, ?)'
     ).run(version, description);
 }

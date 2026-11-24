@@ -26,7 +26,7 @@ function upgradeItem(meta, kind, updates, target) {
 
 export default async function runUpdates({ updates = UPDATES, force = false, seal = true } = {}) {
     const target = updates.reduce((max, u) => Math.max(max, u.version), 0);
-    const applied = await vaultRows.getCanonicalVersions();
+    const applied = await vaultRows.getFormatVersions();
     const pending = updates.filter(u => !applied.has(u.version)).map(u => u.version).sort((a, b) => a - b);
 
     const result = {
@@ -97,7 +97,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
 
     if (result.warnings.length === 0) {
         for (const update of updates) {
-            if (!applied.has(update.version)) await vaultRows.recordCanonicalVersion(update.version, update.description);
+            if (!applied.has(update.version)) await vaultRows.recordFormatVersion(update.version, update.description);
         }
         result.recorded = true;
     }

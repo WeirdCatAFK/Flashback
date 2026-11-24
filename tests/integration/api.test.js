@@ -328,7 +328,8 @@ describe('Flashback API', () => {
             assert.ok(body.vaultId, 'a vault must have a stable id');
             assert.equal(typeof body.vaultName, 'string');
             assert.ok(body.schemaVersion > 0);
-            assert.equal(typeof body.canonicalVersion, 'number');
+            assert.equal(typeof body.formatVersion, 'number');
+            assert.equal(body.canonicalVersion, body.formatVersion, 'older remotes still read the old name');
             assert.ok(Array.isArray(body.capabilities));
         });
 
@@ -2705,7 +2706,7 @@ describe('Flashback API', () => {
             assert.ok(typeof diff === 'object' && diff !== null);
         });
 
-        it('POST /api/seal/rollback → 200, rolls canonical layer back', async () => {
+        it('POST /api/seal/rollback → 200, rolls the portable files back', async () => {
             const logRes = await fetch(`${baseUrl}/api/seal/log?limit=10`);
             const log = await logRes.json();
             if (log.length < 2) return;

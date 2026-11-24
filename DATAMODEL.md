@@ -8,10 +8,10 @@ Flashback keeps data in four stores.
 
 | Store | Location | Holds | Durability |
 | --- | --- | --- | --- |
-| Canonical layer | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks and media | Irreplaceable. Seal versions it. |
+| Portable files | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks and media | Irreplaceable. Seal versions it. |
 | Progress store | `{vault}/progress.db` | Schedules, review history, card health, FSRS weights and read positions of each person | Irreplaceable. Not versioned. |
 | Accounts store | `{baseDir}/accounts.db` | The accounts that can reach this install, and their roles | Irreplaceable. Not versioned. |
-| Derived index | `{vault}/{vaultName}.db` | A queryable copy of the canonical layer | The Vault Doctor rebuilds it from the canonical layer. |
+| Derived index | `{vault}/{vaultName}.db` | A queryable copy of the portable files | The Vault Doctor rebuilds it from the portable files. |
 
 A backup needs the three irreplaceable stores. A rebuild reproduces only the derived index.
 
@@ -28,7 +28,7 @@ A vault is a named directory. `config.json` lists the vaults in `vaults[]` and n
   logs/
   {vaultName}/              a direct child of baseDir, or of the vault's custom path
     vault.json              vault identity
-    workspace/              canonical layer, and the root of the Seal repository
+    workspace/              portable files, and the root of the Seal repository
     {vaultName}.db          derived index
     progress.db             progress store
     diary/                  study record, a separate git repository
@@ -58,7 +58,7 @@ The `id` identifies the vault. It stays the same when you rename, move or copy t
 
 The identity of a vault comes from `user.perVault[activeVaultId]` first, then from `user`, then from the OS account. An entry counts only when both its name and its email are present. A new sidecar's `createdBy` and the Seal commit author both use this identity. On a served install, the caller's account supplies them. It is not authentication, and nothing grants access from it.
 
-## Canonical layer
+## Portable files
 
 A file or a folder in `workspace/` can have a `.flashback` sidecar. A file's sidecar is `name.ext.flashback` beside the file. A folder's sidecar is `.flashback` inside the folder.
 
@@ -80,7 +80,7 @@ Each sidecar and each card has a `globalHash`. A `globalHash` never changes. A c
 
 ### Version and revision
 
-Each canonical file has a `formatVersion` integer. It names the canonical updates that the file has had. A file without it is version 0. The `CanonicalVersion` table records the updates that the whole vault completed. The file stamp is the authority. The table only lets a startup skip the walk.
+Each portable file has a `formatVersion` integer. It names the format updates that the file has had. A file without it is version 0. The `FormatVersion` table records the updates that the whole vault completed. The file stamp is the authority. The table only lets a startup skip the walk.
 
 A document has no stored revision number. Flashback computes its etag from the bytes of the body and of the sidecar.
 
@@ -207,7 +207,7 @@ A deck is a file `workspace/_decks/<globalHash>.json`. It lists cards by hash an
 - `cover` has the same shape as a document cover. An image cover lives in `workspace/_decks/covers/`.
 - `tags` pass to every member card.
 
-One deck has `is_system: 1`. It holds every standalone card, which is a card without a source document. Its entry for a standalone card holds the card itself in `inline_card`. That snapshot is the only canonical copy of the card. You cannot delete the system deck, and it always has the kraft color.
+One deck has `is_system: 1`. It holds every standalone card, which is a card without a source document. Its entry for a standalone card holds the card itself in `inline_card`. That snapshot is the only portable copy of the card. You cannot delete the system deck, and it always has the kraft color.
 
 ### Document links
 
@@ -293,7 +293,7 @@ A desktop install has one author account, made from the local identity. Its toke
 
 ### Scope
 
-Every row has an account scope and a canonical hash. The scope is an account id, or the literal `owner` for the vault's author. The value `owner` is not an account id, because account ids do not travel with a copied vault.
+Every row has an account scope and the hash of a card or document. The scope is an account id, or the literal `owner` for the vault's author. The value `owner` is not an account id, because account ids do not travel with a copied vault.
 
 No foreign key crosses from this store to the derived index. A card that leaves a sidecar keeps its progress rows. Only an explicit card delete deletes them. Deleting an account keeps its rows.
 
@@ -377,7 +377,7 @@ Flashback can recompute both tables from `ReviewLogs` and the card content.
 
 ## Derived index
 
-`src/api/config/defaults/SchemaSQL.js` defines the tables, and the migrations in `src/api/config/migrations/` change them. Flashback derives every table from the canonical layer. Row ids change on each rebuild.
+`src/api/config/defaults/SchemaSQL.js` defines the tables, and the migrations in `src/api/config/migrations/` change them. Flashback derives every table from the portable files. Row ids change on each rebuild.
 
 | Table | Holds |
 | --- | --- |
@@ -393,7 +393,7 @@ Flashback can recompute both tables from `ReviewLogs` and the card content.
 | `Nodes`, `NodeTypes`, `Connections`, `ConnectionTypes`, `InheritedTags` | The knowledge graph |
 | `Media` | Media hashes and their files |
 | `Subscriptions` | The last imported issue of each subscribed magazine |
-| `CanonicalVersion` | The canonical updates that the vault finished |
+| `FormatVersion` | The format updates that the vault finished |
 | `SchemaVersion` | The migrations that the index finished |
 
 - `Flashcards.highlight_hash` copies the highlight id from the card's `location`. It can point at a deleted highlight.

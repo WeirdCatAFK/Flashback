@@ -46,16 +46,16 @@ export async function openVault({ onFatal } = {}) {
         const r = await runUpdates();
         if (r.walked) {
             console.log(
-                `Canonical updates ${r.pending.join(", ") || "(re-check)"}: ` +
+                `Format updates ${r.pending.join(", ") || "(re-check)"}: ` +
                 `${r.documents} document(s), ${r.folders} folder(s), ${r.decks} deck file(s)` +
                 (r.derivedRows ? `, ${r.derivedRows} derived row(s)` : "") +
                 (r.sealedOid ? ` — sealed ${r.sealedOid.slice(0, 8)}` : "")
             );
-            for (const w of r.warnings) console.warn(`Canonical update warning: ${w}`);
-            if (!r.recorded) console.warn("Canonical updates incomplete — will run again next launch.");
+            for (const w of r.warnings) console.warn(`Format update warning: ${w}`);
+            if (!r.recorded) console.warn("Format updates incomplete — will run again next launch.");
         }
     } catch (err) {
-        console.error("Canonical updates failed (continuing; will retry next launch):", err?.stack || err);
+        console.error("Format updates failed (continuing; will retry next launch):", err?.stack || err);
     }
 
     try {

@@ -59,7 +59,7 @@ function _shape(row, relPath, { checkStale = true } = {}) {
     };
 }
 
-function _canonicalHash(relPath, doc) {
+function _normalizedHash(relPath, doc) {
     return Files.getMetadata(relPath)?.globalHash || doc?.global_hash || null;
 }
 
@@ -74,7 +74,7 @@ async function _docByPath(relPath) {
     if (!doc) {
         throw Object.assign(new Error(`No document indexed at ${relPath}.`), { status: 404 });
     }
-    const hash = _canonicalHash(relPath, doc);
+    const hash = _normalizedHash(relPath, doc);
     if (!hash) {
         throw Object.assign(
             new Error(`${relPath} has no globalHash, so a reading position cannot be keyed to it.`),

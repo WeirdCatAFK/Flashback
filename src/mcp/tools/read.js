@@ -792,7 +792,7 @@ export function registerReadTools(server) {
     {
       title: 'Get recent changes',
       description:
-        'Recent commits from Seal, the vault\'s built-in versioning of the canonical layer (sidecars and deck ' +
+        'Recent commits from Seal, the vault\'s built-in versioning of the portable files (sidecars and deck ' +
         'files — every card/tag/highlight/deck change, including ones made through these tools). Messages ' +
         'follow "<action>: <sidecar-path>" (create/edit/move/delete/reconcile). Use it to answer "what changed ' +
         'lately" or to show the user what you just modified. Like the app\'s Seal History, a run of identical ' +

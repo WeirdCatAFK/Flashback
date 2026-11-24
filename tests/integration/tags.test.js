@@ -492,7 +492,7 @@ describe('Standalone card tags — correctness', () => {
         assert.ok(all.includes('solo') && all.includes('vocab'), 'tags should exist vault-wide');
     });
 
-    it('writes the tags into the canonical deck snapshot', async () => {
+    it('writes the tags into the portable deck snapshot', async () => {
         assert.deepEqual((await snapshotFor(hash))?.tags?.slice().sort(), ['solo', 'vocab']);
     });
 
@@ -516,7 +516,7 @@ describe('Standalone card tags — correctness', () => {
         assert.deepEqual((await Decks.getCard(hash)).tags?.slice().sort(), ['grammar', 'solo']);
     });
 
-    it('survives a rebuild from the canonical deck files', async () => {
+    it('survives a rebuild from the portable deck files', async () => {
         await db.transaction(async () => {
             await db.prepare('DELETE FROM DeckEntries').run();
             await db.prepare('DELETE FROM Flashcards WHERE document_id IS NULL').run();

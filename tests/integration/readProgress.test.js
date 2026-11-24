@@ -110,7 +110,7 @@ describe('Read progress', () => {
             ));
 
             assert.equal(JSON.stringify(Files.getMetadata(bookRel)), sidecarBefore,
-                'the canonical file is untouched');
+                'the portable file is untouched');
             assert.equal((await sealTools.log()).length, logBefore.length,
                 'reading is not editing — no commit, whoever is reading');
         });

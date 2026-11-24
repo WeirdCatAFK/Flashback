@@ -1,5 +1,5 @@
 /**
- * Serializes canonical writes. withDocument locks one path and withStructure locks the whole tree.
+ * Serializes writes to the portable files. withDocument locks one path and withStructure locks the whole tree.
  * Take the path lock before the database lock. The lock is not reentrant.
  * shortcut: the lock is in-process, so two API processes over one vault corrupt it. Add a file lock before running replicas.
  */

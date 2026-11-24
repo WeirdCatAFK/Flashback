@@ -204,7 +204,7 @@ describe('Seal Integration Tests', () => {
             await sealEmitter.flushEdits();
         });
 
-        it('restores the canonical layer (sidecar) to the snapshot state', async () => {
+        it('restores the portable files (sidecar) to the snapshot state', async () => {
             await sealTools.rollback(snapshotRef);
 
             const sidecar = JSON.parse(fs.readFileSync(sidecarAbsPath, 'utf-8'));

@@ -124,7 +124,7 @@ describe('Per-user SRS', () => {
     });
 
 
-    describe('where each person\'s progress is canonical', () => {
+    describe('where each person\'s progress is kept', () => {
         it('leaves the author\'s sidecar frozen — nobody writes progress to a file now', async () => {
             assert.equal(sidecarCard(cardA).level ?? 0, 0, 'the file did not move');
             assert.equal(await ownerLevel(cardA), 4, 'the schedule did');

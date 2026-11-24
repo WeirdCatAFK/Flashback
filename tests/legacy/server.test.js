@@ -219,12 +219,12 @@ describe('Flashback Server', () => {
         });
 
         it('moves the workspace and the index independently', () => {
-            process.env.FLASHBACK_WORKSPACE_PATH = path.join(ROOT, 'canonical-mount');
+            process.env.FLASHBACK_WORKSPACE_PATH = path.join(ROOT, 'portable-mount');
             process.env.FLASHBACK_INDEX_PATH = path.join(ROOT, 'cache-mount');
             try {
                 applyServerConfig();
 
-                assert.equal(getWorkspacePath(), path.join(ROOT, 'canonical-mount'));
+                assert.equal(getWorkspacePath(), path.join(ROOT, 'portable-mount'));
 
                 assert.equal(getDatabasePath(), path.join(ROOT, 'cache-mount', `${VAULT}.db`));
 
@@ -236,7 +236,7 @@ describe('Flashback Server', () => {
 
         it('refuses a relative path rather than resolving it against the cwd', () => {
             const saved = process.env.FLASHBACK_WORKSPACE_PATH;
-            process.env.FLASHBACK_WORKSPACE_PATH = './canonical';
+            process.env.FLASHBACK_WORKSPACE_PATH = './portable';
             try {
                 assert.throws(() => applyServerConfig(), /FLASHBACK_WORKSPACE_PATH/);
             } finally {
@@ -307,7 +307,7 @@ describe('Flashback Server', () => {
             assert.ok(storage.used > 0, 'a vault that has been written to occupies something');
             assert.ok(typeof storage.measuredAt === 'string');
 
-            for (const key of ['canonical', 'progress', 'index', 'accounts', 'diary']) {
+            for (const key of ['portable', 'progress', 'index', 'accounts', 'diary']) {
                 assert.ok(Number.isInteger(storage.breakdown[key]) && storage.breakdown[key] >= 0, key);
             }
             const sum = Object.values(storage.breakdown).reduce((a, b) => a + b, 0);

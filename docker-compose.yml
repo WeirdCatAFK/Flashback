@@ -22,15 +22,15 @@ services:
       FLASHBACK_AUTHOR_TOKEN: "${FLASHBACK_AUTHOR_TOKEN:-}"
       FLASHBACK_STORAGE_LIMIT: "${FLASHBACK_STORAGE_LIMIT:-}"
       FLASHBACK_MAX_ACCOUNTS: "${FLASHBACK_MAX_ACCOUNTS:-}"
-      # Split mounts: uncomment these two and the two mounts below.
-      # FLASHBACK_WORKSPACE_PATH: "/canonical"
+      # Two roots: the portable files on their own mount, the databases on /data. Uncomment this and the mount below.
+      # FLASHBACK_WORKSPACE_PATH: "/portable"
       # FLASHBACK_INDEX_PATH: "/cache"
 
     volumes:
       - flashback-data:/data
       # Split mounts. Copy the workspace out of flashback-data first, or the server serves an empty one.
       # Run `sudo chown -R 1000:1000 ./workspace` once before the first start.
-      # - ${FLASHBACK_CANONICAL_DIR:-./workspace}:/canonical
+      # - ${FLASHBACK_PORTABLE_DIR:-${FLASHBACK_CANONICAL_DIR:-./workspace}}:/portable
       # - flashback-cache:/cache
 
     # Shutdown flushes Seal and checkpoints the WAL.

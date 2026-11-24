@@ -75,7 +75,7 @@ function YouHere({ info, connection }) {
         <dt>{t('Version')}</dt>
         <dd className="sv-mono sv-dim">
           {info?.appVersion ?? '—'}
-          {info && ` · ${t('schema')} ${info.schemaVersion} · ${t('files')} ${info.canonicalVersion}`}
+          {info && ` · ${t('schema')} ${info.schemaVersion} · ${t('files')} ${info.formatVersion}`}
         </dd>
         <dt>{t('Your role')}</dt>
         <dd>{role ? <RoleLadder role={role} /> : <span className="sv-dim">{error || t('Unknown')}</span>}</dd>

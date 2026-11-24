@@ -323,7 +323,7 @@ describe('Concurrent writes', () => {
             const row = await deckRows.getByHash(deckHash);
             const inDb = (await deckRows.getEntries(row.id, 'owner')).map(e => e.card_hash);
             assert.deepEqual(inDb, [good],
-                'the canonical file and the index must agree about what the deck holds');
+                'the portable file and the index must agree about what the deck holds');
         });
     });
 });

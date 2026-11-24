@@ -178,7 +178,7 @@ addTable('DeckEntries', (table) => {
     table.text('inline_card');
 });
 
-addTable('CanonicalVersion', (table) => {
+addTable('FormatVersion', (table) => {
     table.integer('version').primary();
     table.timestamp('applied_at').defaultTo(k.fn.now());
     table.text('description');
