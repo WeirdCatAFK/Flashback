@@ -93,17 +93,6 @@ describe('vault identity', () => {
         const inWorkspace = path.join(config.getWorkspacePath(), 'vault.json');
         assert.ok(!fs.existsSync(inWorkspace));
     });
-
-    it('recognises a real vault directory and rejects anything else', () => {
-        assert.equal(vault.inspectVaultDir(config.getVaultPath()).ok, true);
-        assert.equal(vault.inspectVaultDir(path.join(ROOT, 'nope')).ok, false);
-
-        const partial = path.join(ROOT, 'partial', 'workspace');
-        fs.mkdirSync(partial, { recursive: true });
-        const verdict = vault.inspectVaultDir(path.join(ROOT, 'partial'));
-        assert.equal(verdict.ok, false);
-        assert.match(verdict.reason, /database/i);
-    });
 });
 
 describe('switching vaults', () => {

@@ -40,17 +40,3 @@ export function ensureManifest() {
 export function getVaultId() {
     return ensureManifest().id;
 }
-
-export function inspectVaultDir(dir) {
-    if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) {
-        return { ok: false, reason: "Not a directory." };
-    }
-    if (!fs.existsSync(path.join(dir, "workspace"))) {
-        return { ok: false, reason: "No workspace/ folder — this is not a Flashback vault." };
-    }
-    const dbFile = fs.readdirSync(dir).find((f) => f.endsWith(".db"));
-    if (!dbFile) {
-        return { ok: false, reason: "No database file — this is not a Flashback vault." };
-    }
-    return { ok: true, dbFile };
-}
