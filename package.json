@@ -37,6 +37,8 @@
     "translations:check": "node scripts/translations.js --check",
     "seed": "node scripts/seed.js",
     "pure-token": "node scripts/pure-token.js",
+    "vault:export": "node scripts/with-system-sqlite.js node scripts/vault-export.js",
+    "vault:import": "node scripts/vault-import.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js",
     "bench:reviews": "node scripts/with-system-sqlite.js node scripts/bench-reviews.js",
