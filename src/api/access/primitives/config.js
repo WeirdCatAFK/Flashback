@@ -115,7 +115,7 @@ export function getMaxAccounts() {
     }
 }
 
-export const CARD_REMOVAL_DEFAULTS = { perHour: 20, perRequest: 10 };
+const CARD_REMOVAL_DEFAULTS = { perHour: 20, perRequest: 10 };
 
 export function getCardRemovalLimits() {
     const positiveInt = (v, fallback) =>

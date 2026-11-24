@@ -1,7 +1,7 @@
 import { resolveToken, getAuthorAccount } from "../access/primitives/accounts.js";
 import { runWithAccount } from "../requestContext.js";
 
-export function extractToken(req) {
+function extractToken(req) {
     const auth = req.headers["authorization"];
     if (auth && auth.startsWith("Bearer ")) return auth.slice(7).trim();
     if (typeof req.query.token === "string") return req.query.token;

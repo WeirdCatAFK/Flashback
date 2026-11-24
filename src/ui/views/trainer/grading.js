@@ -16,7 +16,7 @@ export const FSRS_GRADES = {
 const EASE_MIN = 1.3;
 const EASE_MAX = 3.0;
 
-export const gradeLabels = (t) => ({
+const gradeLabels = (t) => ({
   again: t('Again'), hard: t('Hard'), good: t('Good'), easy: t('Easy'),
 });
 

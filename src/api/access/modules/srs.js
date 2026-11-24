@@ -13,7 +13,7 @@ export { gapBand, GAP_BANDS, LONG_TERM_DAYS } from '../../../shared/intervals.js
 
 export const LEARNING_REVIEWS = 3;
 
-export const MASTERY_LEVEL = 5;
+const MASTERY_LEVEL = 5;
 
 const DEFAULT_ALGORITHM = 'leitner';
 

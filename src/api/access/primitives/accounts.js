@@ -97,13 +97,13 @@ const db = adapter.db;
 
 export const closeAccounts = adapter.closeDatabase;
 
-export const isAccountsOpen = adapter.isOpen;
+const isAccountsOpen = adapter.isOpen;
 
-export function generateToken() {
+function generateToken() {
     return crypto.randomBytes(32).toString("hex");
 }
 
-export function hashToken(token) {
+function hashToken(token) {
     return crypto.createHash("sha256").update(String(token)).digest("hex");
 }
 
@@ -264,7 +264,7 @@ export async function rotatePureToken(label = "Pure token") {
     })();
 }
 
-export const LOCAL_TOKEN_LABEL = "This install";
+const LOCAL_TOKEN_LABEL = "This install";
 
 export async function ensureLocalAuthor(apiToken = null) {
     let author = await getAuthorAccount();
@@ -299,7 +299,7 @@ const PROGRESS_FIELDS = [
 
 const PROGRESS_DEFAULTS = { sm2_reps: 0, fsrs_state: 0, fsrs_reps: 0, fsrs_lapses: 0 };
 
-export async function saveAccountProgress(vaultId, accountId, cardHash, state = {}) {
+async function saveAccountProgress(vaultId, accountId, cardHash, state = {}) {
     const values = PROGRESS_FIELDS.map((f) => state[f] ?? PROGRESS_DEFAULTS[f] ?? null);
     await db.prepare(`
         INSERT INTO AccountProgress
@@ -327,7 +327,7 @@ export async function listAccountProgress(vaultId, accountId = null) {
     `).all(...params);
 }
 
-export async function deleteAccountProgress(vaultId, accountId, cardHash) {
+async function deleteAccountProgress(vaultId, accountId, cardHash) {
     await db.prepare(
         "DELETE FROM AccountProgress WHERE vault_id = ? AND account_id = ? AND card_hash = ?",
     ).run(vaultId, accountId, cardHash);
@@ -335,7 +335,7 @@ export async function deleteAccountProgress(vaultId, accountId, cardHash) {
 
 const READ_FIELDS = ["unit", "total", "pos", "pos_pct", "far", "far_pct", "body_etag"];
 
-export async function saveReadProgress(vaultId, scope, docHash, state = {}) {
+async function saveReadProgress(vaultId, scope, docHash, state = {}) {
     const values = READ_FIELDS.map((f) => state[f] ?? null);
     await db.prepare(`
         INSERT INTO ReadProgress
@@ -347,7 +347,7 @@ export async function saveReadProgress(vaultId, scope, docHash, state = {}) {
     `).run(vaultId, scope, docHash, ...values, now());
 }
 
-export async function getReadProgress(vaultId, scope, docHash) {
+async function getReadProgress(vaultId, scope, docHash) {
     return await db.prepare(
         "SELECT * FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",
     ).get(vaultId, scope, docHash);
@@ -364,7 +364,7 @@ export async function listReadProgress(vaultId, scope = null) {
     `).all(...params);
 }
 
-export async function deleteReadProgress(vaultId, scope, docHash) {
+async function deleteReadProgress(vaultId, scope, docHash) {
     await db.prepare(
         "DELETE FROM ReadProgress WHERE vault_id = ? AND scope = ? AND doc_hash = ?",
     ).run(vaultId, scope, docHash);

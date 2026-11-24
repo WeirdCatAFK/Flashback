@@ -6,10 +6,6 @@ export async function getByDocumentId(documentId) {
     ).all(documentId);
 }
 
-export async function getByHash(hash) {
-    return await db.prepare('SELECT * FROM Highlights WHERE global_hash = ?').get(hash);
-}
-
 export async function insert(data) {
     return await db.prepare(`
         INSERT INTO Highlights (document_id, global_hash, type, start, end, page, bbox, color, note, created_at)

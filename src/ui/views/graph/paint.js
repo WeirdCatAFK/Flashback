@@ -2,8 +2,8 @@ import { haloRadius } from '../graphMetrics.js';
 import { learnedOf, massOf, nodeId } from './graphData.js';
 
 export const NODE_R = 7;
-export const LEARNED_FLOOR = 0.03;
-export const HALO_NODE_BUDGET = 3000;
+const LEARNED_FLOOR = 0.03;
+const HALO_NODE_BUDGET = 3000;
 const ENTRANCE_MS = 700;
 
 export const lerp = (a, b, t) => a + (b - a) * t;

@@ -1,5 +1,5 @@
-export const CORNERS = ['tl', 'tr', 'bl', 'br'];
-export const DEFAULT_CORNER = 'bl';
+const CORNERS = ['tl', 'tr', 'bl', 'br'];
+const DEFAULT_CORNER = 'bl';
 
 export const storedCorner = (raw) => (CORNERS.includes(raw) ? raw : DEFAULT_CORNER);
 

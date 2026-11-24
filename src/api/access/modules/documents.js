@@ -529,7 +529,7 @@ export async function syncDocumentLinks(relPath) {
     if (doc) await _writeLinkConnections(doc, links);
 }
 
-export async function indexDocumentLinks(relPath) {
+async function indexDocumentLinks(relPath) {
     const links = _extractLinks(relPath);
     if (links === null) return;
     const doc = await documentRows.getByPath(relPath);
@@ -1889,7 +1889,7 @@ async function _gatherFolderContents(folderRelPath, folderAbsPath) {
     return paths;
 }
 
-export async function propagatePresence(documentId) {
+async function propagatePresence(documentId) {
     await db.transaction(async () => {
         const stats = await statisticsRows.getAvgLevel(documentId, OWNER_SCOPE);
         await documentRows.updatePresence(documentId, stats.score || 0);

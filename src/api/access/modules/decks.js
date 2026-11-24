@@ -47,7 +47,7 @@ function _ensureDecksDir() {
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
 }
 
-export function decksPath() {
+function decksPath() {
     return path.join(getWorkspacePath(), DECKS_DIR);
 }
 
@@ -606,10 +606,6 @@ export async function searchCards({ search, level = null, cardType = null, origi
     const page = rows.slice(offset, offset + limit).map((r) => r.global_hash);
     const cards = withGap(await flashcardRows.getByHashes(page, scope));
     return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
-}
-
-export async function getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
-    return await flashcardRows.getCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
 }
 
 export async function catalogueSummary({ algorithm = null } = {}) {

@@ -1,8 +1,8 @@
 import { generateHighlightId } from '../highlightId.js';
 import { formatTime } from './time.js';
 
-export const CMD_TYPE = 'fb-yt-cmd';
-export const EVENT_TYPE = 'fb-yt';
+const CMD_TYPE = 'fb-yt-cmd';
+const EVENT_TYPE = 'fb-yt';
 
 export function parseVideoMeta(content, metadata) {
   let body = {};

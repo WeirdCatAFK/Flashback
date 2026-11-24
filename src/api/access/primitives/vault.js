@@ -11,7 +11,7 @@ function manifestPath() {
     return path.join(getVaultPath(), MANIFEST_NAME);
 }
 
-export function readManifest() {
+function readManifest() {
     try {
         const parsed = JSON.parse(fs.readFileSync(manifestPath(), "utf-8"));
         return typeof parsed?.id === "string" && parsed.id ? parsed : null;

@@ -89,7 +89,7 @@ export async function syncNode(nodeId, tagNodeIds) {
     }
 }
 
-export async function deleteIfOrphaned(tagNodeId) {
+async function deleteIfOrphaned(tagNodeId) {
     const { tagConnTypeId } = await nodeRows.typeIds();
     const remaining = await db.prepare(
         "SELECT 1 FROM Connections WHERE destiny_id = ? AND type_id = ? LIMIT 1"

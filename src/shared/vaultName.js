@@ -1,10 +1,10 @@
 /** The characters that Windows rejects in a path component. */
 // eslint-disable-next-line no-control-regex
-export const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
+const INVALID_NAME = /[<>:"/\\|?*\x00-\x1f]/;
 
-export const MAX_NAME_LENGTH = 64;
+const MAX_NAME_LENGTH = 64;
 
-export const RESERVED_NAMES = new Set([
+const RESERVED_NAMES = new Set([
     'config.json', 'accounts.db', 'logs',
     'cache', 'code cache', 'gpucache', 'dawncache', 'shadercache', 'graphitedawncache',
     'local storage', 'session storage', 'shared dictionary', 'network',

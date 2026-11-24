@@ -53,7 +53,7 @@ export function safePath(anyPath) {
     return resolvedPath;
 }
 
-export function mediaName(name) {
+function mediaName(name) {
     const raw = String(name ?? "");
     const bad =
         !raw ||

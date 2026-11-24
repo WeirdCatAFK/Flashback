@@ -1,7 +1,7 @@
 export const REQUEUE_LAG = 4;
 
-export const EMPTY_STATS = Object.freeze({ again: 0, good: 0, easy: 0 });
-export const START_PRESENTED = Object.freeze({ position: 0, prevCardHash: null });
+const EMPTY_STATS = Object.freeze({ again: 0, good: 0, easy: 0 });
+const START_PRESENTED = Object.freeze({ position: 0, prevCardHash: null });
 
 export function startSession(cards) {
   return {

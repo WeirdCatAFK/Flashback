@@ -7,9 +7,9 @@ import { DARK_DEFAULTS, PREVIEW_THEME } from '../views/config/themeDefaults.js';
 const KEYS = { name: 'fb-editor-name', colors: 'fb-editor-colors:v1', editing: 'fb-editor-editing' };
 const PREVIEW_STYLE_ID = 'fb-preview-style';
 
-export const previewRule = (colors) => themeRule(PREVIEW_THEME, colors);
+const previewRule = (colors) => themeRule(PREVIEW_THEME, colors);
 
-export function parseThemeImport(text, t) {
+function parseThemeImport(text, t) {
   const parsed = JSON.parse(text);
   if (typeof parsed.name !== 'string' || !parsed.name.trim()) throw new Error(t('Missing or invalid "name" field.'));
   if (typeof parsed.colors !== 'object' || parsed.colors === null) throw new Error(t('Missing or invalid "colors" field.'));

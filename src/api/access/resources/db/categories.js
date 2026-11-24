@@ -12,12 +12,6 @@ export async function getByName(name) {
     return await db.prepare('SELECT id, name, priority, description FROM PedagogicalCategories WHERE name = ?').get(name);
 }
 
-export async function getUsageCount(id) {
-    return (await db.prepare(
-        'SELECT COUNT(*) as c FROM Flashcards WHERE category_id = ?'
-    ).get(id)).c;
-}
-
 export async function insert({ name, priority = 0, description = '' }) {
     return (await db.prepare(
         'INSERT INTO PedagogicalCategories (name, priority, description) VALUES (?, ?, ?)'

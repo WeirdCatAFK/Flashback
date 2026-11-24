@@ -1,4 +1,4 @@
-export const VAULT_SCOPED_KEYS = new Set([
+const VAULT_SCOPED_KEYS = new Set([
   "fb-srs-algorithm",
   "fb-srs-max-new",
   "fb-fsrs-retention",
@@ -16,11 +16,7 @@ export function setActiveVaultScope(vaultId) {
   activeVaultId = vaultId || null;
 }
 
-export function getActiveVaultScope() {
-  return activeVaultId;
-}
-
-export function prefKey(key) {
+function prefKey(key) {
   if (!activeVaultId || !VAULT_SCOPED_KEYS.has(key)) return key;
   return `${key}@${activeVaultId}`;
 }
@@ -42,10 +38,6 @@ export function getPref(key, fallback = null) {
 
 export function setPref(key, value) {
   localStorage.setItem(prefKey(key), String(value));
-}
-
-export function removePref(key) {
-  localStorage.removeItem(prefKey(key));
 }
 
 export function getBoolPref(key, fallback = false) {

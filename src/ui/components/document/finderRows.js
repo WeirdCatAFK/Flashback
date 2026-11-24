@@ -1,8 +1,8 @@
-export const HL_VAR = { amber: '--color-hl-1', green: '--color-hl-2', blue: '--color-hl-3', pink: '--color-hl-4' };
+const HL_VAR = { amber: '--color-hl-1', green: '--color-hl-2', blue: '--color-hl-3', pink: '--color-hl-4' };
 
 export const hlColor = (name) => `var(${HL_VAR[name] ?? HL_VAR.amber})`;
 
-export function highlightIdOf(card) {
+function highlightIdOf(card) {
   const loc = card?.vanillaData?.location;
   return loc?.type === 'highlight' && loc.id ? loc.id : null;
 }

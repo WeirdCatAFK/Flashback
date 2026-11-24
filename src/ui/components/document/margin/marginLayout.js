@@ -1,6 +1,6 @@
 import { cardsByHighlight } from '../finderRows.js';
 
-export const MARGIN_MIN_WIDTH = 760;
+const MARGIN_MIN_WIDTH = 760;
 
 export const LIFT = 4;
 export const GAP = 10;

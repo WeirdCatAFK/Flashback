@@ -6,7 +6,7 @@ import * as statisticsRows from '../resources/db/statistics.js';
 import { currentScope, isOwnerScope } from "../../requestContext.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
-export const DIARY_SCHEMA_VERSION = 2;
+const DIARY_SCHEMA_VERSION = 2;
 const STRUGGLED_CAP = 10;
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -27,7 +27,7 @@ function todayLocal() {
     return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
-export function firstLineOf(text) {
+function firstLineOf(text) {
     const line = String(text ?? "").split(/\r?\n/)
         .map((l) => l.replace(/^\s*(#{1,6}\s+|[-*+]\s+|>\s*|\d+[.)]\s+)/, "").replace(/[*_`~]/g, "").trim())
         .find(Boolean);
@@ -97,7 +97,7 @@ async function _streakAsOf(date, scope) {
     return { current, longest };
 }
 
-export async function buildSummary(date, scopeArg) {
+async function buildSummary(date, scopeArg) {
     const scope = _scope(scopeArg);
     assertDate(date);
     const totals = await statisticsRows.getDayReviewTotals(date, scope);

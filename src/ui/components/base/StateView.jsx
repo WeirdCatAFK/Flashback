@@ -52,16 +52,4 @@ export function ErrorState({ error, title, onRetry }) {
   );
 }
 
-export function EmptyState({ icon, title, message, action }) {
-  return (
-    <StateView
-      tone="neutral"
-      icon={icon}
-      title={title}
-      message={message}
-      action={action}
-    />
-  );
-}
-
 export default StateView;

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), 'flashback-cards');
 
-export function readMarkdown(file) {
+function readMarkdown(file) {
     const text = fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
     const match = text.match(/^---\n([\s\S]*?)\n---\n\n?([\s\S]*)$/);
     if (!match) return { meta: {}, body: text.trim() };

@@ -1,4 +1,4 @@
-export const HL_VARS = { amber: '--color-hl-1', green: '--color-hl-2', blue: '--color-hl-3', pink: '--color-hl-4' };
+const HL_VARS = { amber: '--color-hl-1', green: '--color-hl-2', blue: '--color-hl-3', pink: '--color-hl-4' };
 export const FONT_MIN = 80;
 export const FONT_MAX = 200;
 export const FONT_STEP = 10;

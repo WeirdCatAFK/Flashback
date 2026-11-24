@@ -459,7 +459,7 @@ function _fingerprint(content) {
     ].join('\u0000')).digest('hex').slice(0, 32);
 }
 
-export async function buildContext(hash, scopeArg) {
+async function buildContext(hash, scopeArg) {
     const scope = _scope(scopeArg);
     const content = await flashcardRows.getContentByHash(hash, scope);
     if (!content) return null;

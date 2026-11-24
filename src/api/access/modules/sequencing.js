@@ -3,12 +3,12 @@ export const FAR_DISTANCE = 4;
 export const MIN_LAG = 4;
 export const WEAK_RUN_MAX = 3;
 export const SATURATION_RATIO = 0.4;
-export const TARGET_DISTANCE = 3;
-export const W_DIST = 1.0;
-export const W_URGENCY = 8.0;
-export const WEAK_LEVEL = 2;
+const TARGET_DISTANCE = 3;
+const W_DIST = 1.0;
+const W_URGENCY = 8.0;
+const WEAK_LEVEL = 2;
 
-export function mulberry32(seed) {
+function mulberry32(seed) {
     let a = seed >>> 0;
     return function next() {
         a |= 0; a = (a + 0x6D2B79F5) | 0;
@@ -18,7 +18,7 @@ export function mulberry32(seed) {
     };
 }
 
-export function shuffled(items, rand) {
+function shuffled(items, rand) {
     const out = [...items];
     for (let i = out.length - 1; i > 0; i--) {
         const j = Math.floor(rand() * (i + 1));
@@ -61,7 +61,7 @@ const isWeak = (card) => card.isNew === true
     || card.level == null
     || Number(card.level) <= WEAK_LEVEL;
 
-export function saturation(cards, facets, includeFolderEdge = true) {
+function saturation(cards, facets, includeFolderEdge = true) {
     if (cards.length < 2) return 0;
     let confusable = 0;
     let pairs = 0;

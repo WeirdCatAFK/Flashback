@@ -101,6 +101,3 @@ export function deriveCardCore(cardType, f) {
   return { name: f.front.trim(), cardType, html: '', frontText: f.front.trim(), backText: f.back.trim() };
 }
 
-export function cardAnswerLine(card) {
-  return (card.card_type === 'type_answer' ? typeAnswerParts(card).answer : card.backText) || '';
-}

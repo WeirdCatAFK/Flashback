@@ -6,10 +6,6 @@ export function getVaultIdentity() {
   return request("GET", "/api/vault");
 }
 
-export function getServerRemotes() {
-  return request("GET", "/api/remotes");
-}
-
 export async function listVaults() {
   return (await ipc()?.listVaults?.()) ?? { activeVaultId: null, vaults: [] };
 }

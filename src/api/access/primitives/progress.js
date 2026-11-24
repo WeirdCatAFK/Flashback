@@ -1,14 +1,5 @@
 export const SCHEMA_NAME = "progress";
 
-export const PROGRESS_TABLES = Object.freeze([
-    "CardProgress",
-    "ReviewLogs",
-    "CardHealth",
-    "CardFlags",
-    "FsrsParameters",
-    "ReadProgress",
-]);
-
 export const SCHEMA = `
 CREATE TABLE IF NOT EXISTS progress.CardProgress (
     account_id      TEXT NOT NULL DEFAULT 'owner',

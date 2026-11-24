@@ -1,6 +1,6 @@
 export const SCALE_MIN = 0.5;
 export const SCALE_MAX = 3.0;
-export const SCALE_STEP = 0.25;
+const SCALE_STEP = 0.25;
 export const SCALE_DEFAULT = 1.2;
 const FIT_MARGIN = 48;
 const MIN_BOX = 5;
@@ -8,7 +8,7 @@ const WHEEL_RATE = 0.002;
 
 const round2 = (n) => parseFloat(n.toFixed(2));
 
-export const clampScale = (s) => round2(Math.min(SCALE_MAX, Math.max(SCALE_MIN, s)));
+const clampScale = (s) => round2(Math.min(SCALE_MAX, Math.max(SCALE_MIN, s)));
 export const zoomedOut = (s) => Math.max(SCALE_MIN, round2(s - SCALE_STEP));
 export const zoomedIn = (s) => Math.min(SCALE_MAX, round2(s + SCALE_STEP));
 

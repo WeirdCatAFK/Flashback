@@ -27,12 +27,6 @@ export async function get(flashcardId, scope) {
     ).get(flashcardId, scoped(scope)) ?? null;
 }
 
-export async function remove(flashcardId, scope) {
-    await db.prepare(
-        `DELETE FROM progress.CardProgress WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND account_id = ?`
-    ).run(flashcardId, scoped(scope));
-}
-
 export async function write(flashcardId, scope, data) {
     if (!PROGRESS_KEYS.some(k => data[k] !== undefined)) return;
 

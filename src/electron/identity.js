@@ -2,7 +2,7 @@ import os from "os";
 import { readConfig, updateConfig } from "./appConfig.js";
 import { identityError, defaultIdentityFrom } from "../shared/identity.js";
 
-export function suggestedIdentity() {
+function suggestedIdentity() {
     let username = "";
     try {
         username = os.userInfo().username || "";

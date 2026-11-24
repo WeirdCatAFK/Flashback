@@ -2,7 +2,7 @@ export const MIN_WIDTH = 180;
 export const MAX_WIDTH = 440;
 export const DEFAULT_WIDTH = 236;
 
-export const SNAPS = [200, 260, 340];
+const SNAPS = [200, 260, 340];
 const SNAP_REACH = 16;
 
 export function snapWidth(w) {

@@ -1,13 +1,13 @@
 /** Characters that break a git author line `Name <email>`. */
 // eslint-disable-next-line no-control-regex
-export const INVALID_IDENTITY = /[<>"\x00-\x1f]/;
+const INVALID_IDENTITY = /[<>"\x00-\x1f]/;
 
 // eslint-disable-next-line no-control-regex
 const INVALID_IDENTITY_ALL = /[<>"\x00-\x1f]/g;
 
-export const MAX_IDENTITY_LENGTH = 128;
+const MAX_IDENTITY_LENGTH = 128;
 
-export function identityNameError(name) {
+function identityNameError(name) {
     const v = (name ?? '').trim();
     if (!v) return 'required';
     if (INVALID_IDENTITY.test(v)) return 'invalid-chars';
@@ -15,7 +15,7 @@ export function identityNameError(name) {
     return null;
 }
 
-export function identityEmailError(email) {
+function identityEmailError(email) {
     const v = (email ?? '').trim();
     if (!v) return 'required';
     if (INVALID_IDENTITY.test(v) || /\s/.test(v)) return 'invalid-chars';
@@ -24,7 +24,7 @@ export function identityEmailError(email) {
     return null;
 }
 
-export const DEFAULT_EMAIL_DOMAIN = 'flashback.local';
+const DEFAULT_EMAIL_DOMAIN = 'flashback.local';
 
 export function defaultIdentityFrom(username) {
     const name = String(username ?? '').replace(INVALID_IDENTITY_ALL, '').trim() || 'flashback';

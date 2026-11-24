@@ -5,7 +5,7 @@ import * as subscriptionRows from '../resources/db/subscriptions.js';
 import * as Files from '../resources/files.js';
 import { currentScope } from "../../requestContext.js";
 
-export const UNITS = new Set(["page", "section", "chars", "segment"]);
+const UNITS = new Set(["page", "section", "chars", "segment"]);
 
 export const FINISHED_PCT = 0.95;
 

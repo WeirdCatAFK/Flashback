@@ -11,7 +11,7 @@ export function isSoundLink(href) {
 
 export const assetName = (href) => href.split('?')[0].split('#')[0].split('/').pop() || null;
 
-export const savedAssetName = (src) => src.match(/^\.?\/?media\/(.+)$/)?.[1] ?? null;
+const savedAssetName = (src) => src.match(/^\.?\/?media\/(.+)$/)?.[1] ?? null;
 
 export function rewriteMedia(root, docPath) {
   root.querySelectorAll('img[src], audio[src], source[src]').forEach((el) => {

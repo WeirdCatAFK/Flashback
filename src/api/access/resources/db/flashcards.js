@@ -25,21 +25,6 @@ export async function getCountsByFolder(folderId) {
     `).all(folderId);
 }
 
-export async function getCountInFolderTree(folderId) {
-    return (await db.prepare(`
-        WITH RECURSIVE folder_tree AS (
-            SELECT id FROM Folders WHERE id = ?
-            UNION ALL
-            SELECT fo.id FROM Folders fo
-            JOIN folder_tree ft ON fo.parent_id = ft.id
-        )
-        SELECT COUNT(fc.id) AS count
-        FROM Documents d
-        JOIN folder_tree ft ON d.folder_id = ft.id
-        LEFT JOIN Flashcards fc ON fc.document_id = d.id
-    `).get(folderId)).count;
-}
-
 export async function getCountsInFolderTrees(folderIds) {
     if (folderIds.length === 0) return new Map();
     const placeholders = folderIds.map(() => '?').join(', ');

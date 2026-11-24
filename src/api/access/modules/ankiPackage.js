@@ -3,9 +3,9 @@ import path from 'path';
 import zlib from 'zlib';
 import AdmZip from 'adm-zip';
 
-export const VERSION_LEGACY_1 = 1;
-export const VERSION_LEGACY_2 = 2;
-export const VERSION_LATEST = 3;
+const VERSION_LEGACY_1 = 1;
+const VERSION_LEGACY_2 = 2;
+const VERSION_LATEST = 3;
 
 const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
 
@@ -255,4 +255,3 @@ function readLegacyCollection(ankiDb) {
     return { decks, models };
 }
 
-export const __testing = { decodeMessage, readVarint, isZstd };

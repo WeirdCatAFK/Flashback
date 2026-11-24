@@ -18,7 +18,6 @@ const SESSION_ROOT = path.join(os.tmpdir(), 'flashback_anki_imports');
 const SESSION_TTL_MS = 60 * 60 * 1000;
 const SESSION_MARKER = '.flashback-session.json';
 
-export const CARD_SLOTS = ['front', 'back', 'answer', 'front_img', 'front_sound', 'back_img', 'back_sound'];
 const MEDIA_SLOTS = { front_img: 'img', front_sound: 'snd', back_img: 'img', back_sound: 'snd' };
 
 const emptySlots = () => ({ front: [], back: [], answer: [], front_img: [], front_sound: [], back_img: [], back_sound: [] });

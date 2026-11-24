@@ -1,7 +1,5 @@
 import { request } from "./client.js";
 
-export const getStats = () => request("GET", "/api/srs/stats");
-
 export const getStatistics = (algorithm) =>
   request(
     "GET",

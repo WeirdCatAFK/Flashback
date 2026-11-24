@@ -1,6 +1,6 @@
 const PATH_KEY = /(^path$|_path$|Path$)/;
 
-export function slashPaths(value) {
+function slashPaths(value) {
   if (Array.isArray(value)) return value.map(slashPaths);
   if (!value || typeof value !== 'object') return value;
   const out = {};

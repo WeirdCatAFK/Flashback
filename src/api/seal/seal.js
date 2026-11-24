@@ -90,7 +90,7 @@ function editLabel(paths) {
     return paths[0];
 }
 
-export class SealEventEmitter {
+class SealEventEmitter {
     constructor() {
         this._commitQueue = Promise.resolve();
     }
@@ -164,7 +164,7 @@ export class SealEventEmitter {
     }
 }
 
-export class SealTools {
+class SealTools {
     async init() {
         const workspace = dir();
         const initialized = await git.resolveRef({ fs, dir: workspace, ref: "HEAD" })

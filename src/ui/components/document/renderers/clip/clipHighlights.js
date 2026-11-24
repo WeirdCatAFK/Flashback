@@ -1,6 +1,6 @@
 import { boundaryOffset, normalizeSpan, spanOps, reanchor } from './ranges.js';
 
-export function textSegments(root) {
+function textSegments(root) {
   const segs = [];
   let offset = 0;
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);

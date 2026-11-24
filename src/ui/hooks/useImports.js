@@ -3,7 +3,7 @@ import { importFileWithProgress, importZipWithProgress, applyAnkiMapping } from 
 import { invalidateData } from '../utils/dataBus';
 import { useT } from '../translations/index';
 
-export const isPackage = (fileName) => /\.(zip|apkg)$/i.test(fileName);
+const isPackage = (fileName) => /\.(zip|apkg)$/i.test(fileName);
 
 export default function useImports() {
   const { t } = useT();

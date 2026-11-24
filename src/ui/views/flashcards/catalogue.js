@@ -97,7 +97,7 @@ export function scopeParts(v, t, typeLabel) {
   return parts.filter(Boolean);
 }
 
-export function groupKeyOf(card, group) {
+function groupKeyOf(card, group) {
   if (group === 'gap') return gapBand(card.gap ?? null);
   if (group === 'source') return slashed(card.document_path) || null;
   return undefined;

@@ -26,11 +26,3 @@ export const clearProgress = (path) =>
 export const listProgress = (folder, folders = []) =>
   request("GET", `/api/progress/list${q({ folder, folders })}`);
 
-export const getRollup = (path) =>
-  request("GET", `/api/progress/rollup${q({ path })}`);
-
-export const listReading = (limit) =>
-  request("GET", `/api/progress/reading${q({ limit })}`);
-
-export const getCoverage = (path) =>
-  request("GET", `/api/progress/coverage${q({ path })}`);

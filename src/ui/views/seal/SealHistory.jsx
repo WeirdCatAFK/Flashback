@@ -23,7 +23,7 @@ const GLYPH_OF = {
   renamed: 'move', moved: 'move', deleted: 'delete', reconcile: 'reconcile',
 };
 
-export function Stamp({ kind }) {
+function Stamp({ kind }) {
   return (
     <span className="sl-stamp" aria-hidden="true">
       <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
@@ -184,7 +184,7 @@ function Run({ run, open, onToggle, indexOf, entryProps }) {
   );
 }
 
-export function Ribbon({ log, onJump }) {
+function Ribbon({ log, onJump }) {
   const tr = useT();
   const { t, formatDateTime } = tr;
   const ticks = log.slice(0, RIBBON_MAX).reverse();

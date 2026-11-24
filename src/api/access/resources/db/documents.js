@@ -24,10 +24,6 @@ export async function updateMetadata(id, data) {
     }
 }
 
-export async function remove(id) {
-    await db.prepare('DELETE FROM Documents WHERE id = ?').run(id);
-}
-
 export async function rename(newName, newRelPath, newAbsPath, oldAbsPath) {
     db.prepare('UPDATE Documents SET name = ?, relative_path = ?, absolute_path = ? WHERE absolute_path = ?')
         .run(newName, newRelPath, newAbsPath, oldAbsPath);
@@ -60,11 +56,6 @@ export async function getInTree(absPrefix) {
 
 export async function getByAbsolutePath(absPath) {
     return await db.prepare('SELECT * FROM Documents WHERE absolute_path = ?').get(absPath);
-}
-
-export async function getNodeIdByAbsPath(absPath) {
-    const row = await db.prepare('SELECT node_id FROM Documents WHERE absolute_path = ?').get(absPath);
-    return row ? row.node_id : null;
 }
 
 export async function getFolderIdById(documentId) {

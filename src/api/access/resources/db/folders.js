@@ -21,10 +21,6 @@ export async function getByAbsolutePath(absPath) {
     return await db.prepare('SELECT * FROM Folders WHERE absolute_path = ?').get(absPath);
 }
 
-export async function getByNodeId(nodeId) {
-    return await db.prepare('SELECT * FROM Folders WHERE node_id = ?').get(nodeId);
-}
-
 export async function getParentId(folderId) {
     return await db.prepare('SELECT parent_id FROM Folders WHERE id = ?').get(folderId);
 }
