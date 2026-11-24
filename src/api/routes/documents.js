@@ -10,7 +10,7 @@ import { cleanTagName } from "../../shared/tagNames.js";
 import { MAX_COVER_BYTES } from "../../shared/covers.js";
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 0 } });
 
 const norm = (p) => (p ? path.normalize(p) : p);
 
@@ -228,7 +228,7 @@ router.put(
   }),
 );
 
-const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES } });
+const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES, fieldNestingDepth: 0 } });
 
 router.post(
   "/cover",

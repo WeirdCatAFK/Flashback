@@ -8,7 +8,7 @@ import { GAP_BANDS } from '../access/modules/srs.js';
 import { isDeckColor } from '../../shared/deckColors.js';
 
 const router = Router();
-const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES } });
+const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES, fieldNestingDepth: 0 } });
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {

@@ -5,7 +5,7 @@ import * as Media from '../access/modules/media.js';
 import * as Documents from '../access/modules/documents.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 0 } });
 
 const norm = (p) => p ? path.normalize(p) : p;
 const isNotFound = (err) => err.message?.toLowerCase().includes('not found');

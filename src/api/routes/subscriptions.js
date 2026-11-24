@@ -3,7 +3,7 @@ import multer from 'multer';
 import * as Subscriptions from '../access/modules/subscriptions.js';
 
 const router = Router();
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fieldNestingDepth: 0 } });
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
 router.post('/import', upload.single('file'), catchError(async (req, res) => {

@@ -792,6 +792,18 @@ describe('Flashback API', () => {
             assert.equal(res.status, 400);
         });
 
+        it('every upload route refuses a nested field name, which could allocate a huge array', async () => {
+            for (const [route, method] of [
+                ['documents/import/zip', 'POST'], ['documents/cover', 'POST'], ['media/custom', 'POST'],
+                ['subscriptions/import', 'POST'], ['decks/any/cover', 'POST'],
+            ]) {
+                const form = new FormData();
+                form.append('path[100000000]', 'x');
+                const res = await fetch(`${baseUrl}/api/${route}`, { method, body: form });
+                assert.match(JSON.stringify(await res.json()), /nesting/i, route);
+            }
+        });
+
         it('POST /api/documents/import/zip (Obsidian) → auto-detects and imports Obsidian vault', async () => {
             const zip = new AdmZip();
             zip.addFile('ObsidianNote.md', Buffer.from('# Obsidian Note\nHello world.\nQuestion :: Answer'));
