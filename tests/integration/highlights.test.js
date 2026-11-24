@@ -29,16 +29,16 @@ const sidecarFile = (rel) => path.join(getWorkspacePath(), `${rel}.flashback`);
 const readSidecar = (rel) => JSON.parse(fs.readFileSync(sidecarFile(rel), 'utf-8'));
 const writeSidecar = (rel, data) => fs.writeFileSync(sidecarFile(rel), JSON.stringify(data, null, 2));
 
+after(async () => {
+    await sealEmitter.quiesce();
+    db.close();
+});
+
 describe('highlights', () => {
     before(async () => {
         await sealTools.init();
         await Documents.createFolder(FOLDER);
         await Documents.importFile('cell.md', FOLDER, Buffer.from(BODY), { globalHash: crypto.randomUUID() });
-    });
-
-    after(async () => {
-        await sealEmitter.quiesce();
-        db.close();
     });
 
     it('writes a new highlight to the sidecar and to the index', async () => {

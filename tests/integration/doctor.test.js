@@ -42,22 +42,22 @@ const abs = (...p) => path.join(workspace, ...p);
 const readSidecar = (relPath) => JSON.parse(fs.readFileSync(abs(relPath + '.flashback'), 'utf-8'));
 const writeSidecar = (relPath, data) => fs.writeFileSync(abs(relPath + '.flashback'), JSON.stringify(data, null, 2));
 
+after(async () => {
+    db.close();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    try {
+        fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
+    } catch (e) {
+        console.warn('Teardown warning (safe to ignore):', e.message);
+    }
+});
+
 describe('Vault Doctor', () => {
 
     before(async () => {
         try { if (Documents.exists(TEST_ROOT, true, true)) await Documents.remove(TEST_ROOT, true); } catch {  }
         await sealTools.init();
         await Documents.createFolder(TEST_ROOT);
-    });
-
-    after(async () => {
-        db.close();
-        await new Promise(resolve => setTimeout(resolve, 50));
-        try {
-            fs.rmSync(process.env.USER_DATA_PATH, { recursive: true, force: true });
-        } catch (e) {
-            console.warn('Teardown warning (safe to ignore):', e.message);
-        }
     });
 
     describe('checkIndex on a clean vault', () => {
