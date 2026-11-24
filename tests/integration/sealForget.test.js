@@ -2,11 +2,14 @@ import { describe, it, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'fs';
 import path from 'path';
+import process from 'process';
+import { createRequire } from 'module';
 import { execFileSync } from 'child_process';
 import * as git from 'isomorphic-git';
 import { testDataDir } from '../support/testData.js';
 import { forgetRoot } from '../../src/api/seal/forget.js';
 
+const electron = createRequire(import.meta.url)('electron');
 const ROOT = testDataDir('sealForget');
 const SECRET = 'SECRET-DIARY-LINE';
 const author = { name: 'Ann', email: 'ann@example.invalid', timestamp: 1700000000, timezoneOffset: 360 };
@@ -74,11 +77,27 @@ describe('erasing a root entry from the Seal history', () => {
         assert.equal(fs.readFileSync(path.join(dir, 'a.md'), 'utf-8'), 'one', 'Seal can still commit and roll back');
     });
 
-    it('erases packed objects too', async () => {
+    it('erases packed objects too, and read-only files, which the git command writes', async () => {
         sys('repack', '-a', '-d', '-q');
         sys('prune-packed', '-q');
+        sys('commit-graph', 'write', '--reachable');
+        sys('-c', 'user.name=A', '-c', 'user.email=a@example.invalid', 'commit', '-q', '--allow-empty', '-m', 'edit: _diary/owner/2026-01-09.md');
+        const gitdir = path.join(dir, '.git');
+        for (const name of fs.readdirSync(gitdir, { recursive: true })) {
+            const file = path.join(gitdir, name);
+            if (name.startsWith('objects') && fs.statSync(file).isFile()) fs.chmodSync(file, 0o444);
+        }
         await forgetRoot(dir, '_diary');
         await assertErased();
+    });
+
+    it('deletes read-only files under the Node that Electron runs', { skip: process.platform !== 'win32' }, () => {
+        sys('repack', '-a', '-d', '-q');
+        sys('prune-packed', '-q');
+        sys('commit-graph', 'write', '--reachable');
+        const script = `import(${JSON.stringify(new URL('../../src/api/seal/forget.js', import.meta.url).href)}).then((m) => m.forgetRoot(process.argv[1], '_diary'))`;
+        execFileSync(electron, ['-e', script, dir], { env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: 'pipe' });
+        assert.ok(!/SECRET|_diary/.test(everyObject()));
     });
 
     it('works on the detached HEAD that a rollback leaves, and on every other branch', async () => {

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { getEffectiveIdentity } from "./api/identity.js";
-import { SessionContext, buildSessionValue } from "./utils/sessionContext.js";
+import { SessionContext, buildSessionValue, triesLeft } from "./utils/sessionContext.js";
 
 /** A failed identity request leaves the role null, so every capability is false. Never fall back to the Author. */
 export function SessionProvider({ connectionId, children }) {
@@ -31,10 +31,9 @@ export function SessionProvider({ connectionId, children }) {
         })
         .catch((err) => {
           if (cancelled) return;
-          const transient =
-            remaining > 0 && !/\b401\b|unauthor/i.test(err?.message ?? "");
-          if (transient) {
-            timer = setTimeout(() => attempt(remaining - 1), 1000);
+          const left = triesLeft(err, remaining);
+          if (left !== null) {
+            timer = setTimeout(() => attempt(left), 1000);
             return;
           }
           setState({

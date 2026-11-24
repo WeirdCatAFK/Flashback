@@ -5,6 +5,7 @@
 import git, { STAGE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
+import { removeTree } from "../access/primitives/removeTree.js";
 
 const OID = /^[0-9a-f]{40}$/;
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904";
@@ -46,16 +47,22 @@ function listObjects(gitdir) {
     return { loose: loose.filter((oid) => OID.test(oid)), packs };
 }
 
+async function treeOf(repo, oid) {
+    return repo.trees.get(oid) ?? (await git.readTree({ ...repo, oid })).tree;
+}
+
 /** Orders every commit in the store after its parents. It includes the commits that no ref reaches, such as those before a rollback. */
 async function commitsOldestFirst(repo, name) {
     const { loose, packs } = listObjects(repo.gitdir);
     const commits = new Map();
     for (const oid of new Set([...loose, ...packs.flatMap((pack) => pack.oids)])) {
-        const { type } = await git.readObject({ ...repo, oid, format: "content" });
-        if (type !== "commit") continue;
-        const { commit } = await git.readCommit({ ...repo, oid });
-        const { tree } = await git.readTree({ ...repo, oid: commit.tree });
-        commits.set(oid, { oid, commit, tree, held: tree.find((entry) => entry.path === name)?.oid ?? null });
+        const { type, object } = await git.readObject({ ...repo, oid, format: "parsed" });
+        if (type === "tree") repo.trees.set(oid, object);
+        if (type === "commit") commits.set(oid, { oid, commit: object });
+    }
+    for (const entry of commits.values()) {
+        entry.tree = await treeOf(repo, entry.commit.tree);
+        entry.held = entry.tree.find((child) => child.path === name)?.oid ?? null;
     }
     const order = new Set();
     const stack = [...commits.keys()];
@@ -105,11 +112,11 @@ async function moveRefs(repo, moved) {
         else await git.deleteRef({ ...repo, ref });
     }
     for (const file of ["packed-refs", "ORIG_HEAD", "FETCH_HEAD", "COMMIT_EDITMSG", "logs"]) {
-        fs.rmSync(path.join(repo.gitdir, file), { recursive: true, force: true });
+        removeTree(path.join(repo.gitdir, file));
     }
 }
 
-async function stillUsed(repo, commitOids) {
+async function stillUsed(repo, commitOids, commitTrees) {
     const used = new Set();
     const stack = [];
     await git.walk({
@@ -121,13 +128,13 @@ async function stillUsed(repo, commitOids) {
     });
     for (const oid of commitOids) {
         used.add(oid);
-        stack.push((await git.readCommit({ ...repo, oid })).commit.tree);
+        stack.push(commitTrees.get(oid) ?? (await git.readCommit({ ...repo, oid })).commit.tree);
     }
     while (stack.length) {
         const oid = stack.pop();
         if (used.has(oid)) continue;
         used.add(oid);
-        for (const entry of (await git.readTree({ ...repo, oid })).tree) {
+        for (const entry of await treeOf(repo, oid)) {
             if (entry.type === "tree") stack.push(entry.oid);
             else used.add(entry.oid);
         }
@@ -146,18 +153,18 @@ async function prune(repo, used) {
         }
         const packDir = path.dirname(stem);
         for (const file of fs.readdirSync(packDir)) {
-            if (file.startsWith(path.basename(stem)) || file.startsWith("multi-pack-index")) fs.rmSync(path.join(packDir, file), { force: true });
+            if (file.startsWith(path.basename(stem)) || file.startsWith("multi-pack-index")) removeTree(path.join(packDir, file));
         }
     }
-    for (const file of ["commit-graph", "commit-graphs"]) fs.rmSync(path.join(objects, "info", file), { recursive: true, force: true });
+    for (const file of ["commit-graph", "commit-graphs"]) removeTree(path.join(objects, "info", file));
     for (const oid of listObjects(repo.gitdir).loose) {
-        if (!used.has(oid)) fs.rmSync(path.join(objects, oid.slice(0, 2), oid.slice(2)), { force: true });
+        if (!used.has(oid)) removeTree(path.join(objects, oid.slice(0, 2), oid.slice(2)));
     }
 }
 
 /** Returns the number of commits that held the entry. The files in the workspace stay as they are. */
 export async function forgetRoot(dir, name) {
-    const repo = { fs, dir, gitdir: path.join(dir, ".git"), cache: {} };
+    const repo = { fs, dir, gitdir: path.join(dir, ".git"), cache: {}, trees: new Map() };
     const staged = await git.listFiles(repo);
     for (const filepath of staged.filter((file) => file.startsWith(`${name}/`))) await git.remove({ ...repo, filepath });
 
@@ -165,8 +172,9 @@ export async function forgetRoot(dir, name) {
     const holding = commits.filter(({ held }) => held).length;
     if (!holding) return 0;
 
+    const commitTrees = new Map(commits.map(({ oid, commit }) => [oid, commit.tree]));
     const moved = await rewrite(repo, commits, name);
     await moveRefs(repo, moved);
-    await prune(repo, await stillUsed(repo, new Set([...moved.values()].filter(Boolean))));
+    await prune(repo, await stillUsed(repo, new Set([...moved.values()].filter(Boolean)), commitTrees));
     return holding;
 }

@@ -6,6 +6,7 @@ import * as Files from "../resources/files.js";
 import * as diaryRows from '../resources/db/diary.js';
 import * as statisticsRows from '../resources/db/statistics.js';
 import { getVaultPath } from "../primitives/config.js";
+import { removeTree } from "../primitives/removeTree.js";
 import { currentScope, OWNER_SCOPE } from "../../requestContext.js";
 import { sealTools } from "../../seal/seal.js";
 import { LEARNING_REVIEWS } from "./srs.js";
@@ -231,5 +232,5 @@ export async function adoptFiles() {
 function _setAside(dir, legacy) {
     const name = `${legacy}.legacy`;
     fs.cpSync(dir, fs.existsSync(name) ? `${name}-${crypto.randomUUID().slice(0, 8)}` : name, { recursive: true });
-    fs.rmSync(dir, { recursive: true, force: true });
+    removeTree(dir);
 }
