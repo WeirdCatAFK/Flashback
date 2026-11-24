@@ -92,6 +92,16 @@ describe('erasing a root entry from the Seal history', () => {
         sys('fsck', '--strict');
     });
 
+    it('leaves no message that names a file of the entry', async () => {
+        await commit({ '_diary/owner/2026-01-03.md': SECRET }, 'edit: _diary/owner/2026-01-03.md');
+        await commit({}, 'edit: _diary/owner/2026-01-03.md');
+        await commit({ 'd.md': 'd', '_diary/owner/2026-01-04.md': SECRET }, 'edit: _diary/owner/2026-01-04.md');
+        await commit({}, 'reconcile: nothing');
+        await forgetRoot(dir, '_diary');
+        assert.deepEqual((await messages()).slice(0, 3), ['reconcile: nothing', 'edit: _diary', 'edit: a.md']);
+        assert.ok(!/2026-01-0|SECRET/.test(everyObject()));
+    });
+
     it('keeps the commits that no ref reaches, without the entry', async () => {
         const orphan = await commit({ '_diary/owner/2026-01-02.md': SECRET, 'lost.md': 'lost' }, 'reconcile: 2 files');
         await git.writeRef({ fs, dir, ref: 'refs/heads/master', value: (await git.readCommit({ fs, dir, oid: orphan })).commit.parent[0], force: true });

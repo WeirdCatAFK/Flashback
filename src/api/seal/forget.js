@@ -77,18 +77,20 @@ async function rewrite(repo, commits, name) {
     const moved = new Map();
     const heldBy = new Map();
     const treeAfter = new Map();
+    const fileOfEntry = new RegExp(`${name}/\\S*`, "g");
     for (const { oid, commit, tree, held } of commits) {
         const [first] = commit.parent;
         const parent = commit.parent.map((p) => moved.get(p)).filter(Boolean);
         const newTree = held ? await git.writeTree({ ...repo, tree: tree.filter((entry) => entry.path !== name) }) : commit.tree;
+        const message = commit.message.replace(fileOfEntry, name);
         const nothingElse = commit.parent.length <= 1
-            && held !== (heldBy.get(first) ?? null)
+            && (held !== (heldBy.get(first) ?? null) || message !== commit.message)
             && newTree === (treeAfter.get(first) ?? EMPTY_TREE);
-        const same = newTree === commit.tree && parent.join() === commit.parent.join();
+        const same = newTree === commit.tree && message === commit.message && parent.join() === commit.parent.join();
 
         if (nothingElse) moved.set(oid, parent[0] ?? null);
         else if (same) moved.set(oid, oid);
-        else moved.set(oid, await git.writeCommit({ ...repo, commit: { ...commit, tree: newTree, parent } }));
+        else moved.set(oid, await git.writeCommit({ ...repo, commit: { ...commit, message, tree: newTree, parent } }));
         heldBy.set(oid, held);
         treeAfter.set(oid, newTree);
     }
