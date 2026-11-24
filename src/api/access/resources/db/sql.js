@@ -59,11 +59,11 @@ export function carriesTagSql(op = '=') {
 export function cardMatchSql(text) {
     const term = `%${text}%`;
     return {
-        sql: `(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR f.name LIKE ?
+        sql: `(c.frontText LIKE ? OR c.backText LIKE ? OR c.answerText LIKE ? OR c.custom_html LIKE ? OR f.name LIKE ?
             OR f.global_hash IN (SELECT de.card_hash FROM DeckEntries de JOIN Decks dk ON dk.id = de.deck_id WHERE dk.name LIKE ?)
             OR f.document_id IN (SELECT id FROM Documents WHERE name LIKE ?)
             OR ${carriesTagSql('LIKE')})`,
-        params: [term, term, term, term, term, term, term, term],
+        params: [term, term, term, term, term, term, term, term, term],
     };
 }
 
