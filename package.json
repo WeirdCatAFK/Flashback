@@ -39,6 +39,7 @@
     "pure-token": "node scripts/pure-token.js",
     "vault:export": "node scripts/with-system-sqlite.js node scripts/vault-export.js",
     "vault:import": "node scripts/vault-import.js",
+    "vault:scrub-diary": "node scripts/vault-scrub-diary.js",
     "doctor": "react-doctor",
     "mcp": "node src/mcp/server.js",
     "bench:reviews": "node scripts/with-system-sqlite.js node scripts/bench-reviews.js",
