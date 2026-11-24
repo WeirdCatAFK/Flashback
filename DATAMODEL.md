@@ -8,12 +8,14 @@ Flashback keeps data in four stores.
 
 | Store | Location | Holds | Durability |
 | --- | --- | --- | --- |
-| Portable files | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks and media | Irreplaceable. Seal versions it. |
+| Portable files | `{vault}/workspace/` | Documents, `.flashback` sidecars, decks, media, diary entries and categories | Irreplaceable. Seal versions it. |
 | Progress store | `{vault}/progress.db` | Schedules, review history, card health, FSRS weights and read positions of each person | Irreplaceable. Not versioned. |
 | Accounts store | `{baseDir}/accounts.db` | The accounts that can reach this install, and their roles | Irreplaceable. Not versioned. |
 | Derived index | `{vault}/{vaultName}.db` | A queryable copy of the portable files | The Vault Doctor rebuilds it from the portable files. |
 
 A backup needs the three irreplaceable stores. A rebuild reproduces only the derived index.
+
+The stores fall into two roots. The portable root holds the portable files, which people can read without Flashback. It needs a filesystem with file locks, because Seal is a git repository. The data root holds the databases on a local disk, because SQLite needs local locks. `FLASHBACK_WORKSPACE_PATH` moves the portable root to its own mount.
 
 Each database has its own schema version table. The derived index uses `SchemaVersion`. The progress store uses `ProgressSchemaVersion`. The accounts store uses `AccountsSchemaVersion`.
 
@@ -29,9 +31,11 @@ A vault is a named directory. `config.json` lists the vaults in `vaults[]` and n
   {vaultName}/              a direct child of baseDir, or of the vault's custom path
     vault.json              vault identity
     workspace/              portable files, and the root of the Seal repository
+      _decks/               deck files
+      _diary/               diary entries
+      _categories.json      the categories
     {vaultName}.db          derived index
     progress.db             progress store
-    diary/                  study record, a separate git repository
 ```
 
 A vault is always a direct child of `baseDir` or of its custom path. There is no `vaults/` container. `RESERVED_NAMES` in `src/shared/vaultName.js` lists the names that a vault cannot take.
@@ -193,6 +197,8 @@ A category is the teaching role of a card. Its priority sets the review order, l
 | 1 | Concept, Example |
 | 2 | Exercise, Procedure |
 
+`workspace/_categories.json` holds every category as `{ "name", "priority", "description" }`. The `PedagogicalCategories` table mirrors the file, and the Vault Doctor restores the table from it.
+
 ### Media and covers
 
 Each folder keeps its card media and cover images in its own `media/` directory. Card media stays in the folder when a document moves to another folder.
@@ -215,7 +221,7 @@ A Markdown document links to another document with `[text](flashback://<globalHa
 
 ## Seal
 
-Seal is the git history of `workspace/`. It tracks documents, sidecars, media and decks. It does not track the derived index, the progress store, `vault.json` or `config.json`.
+Seal is the git history of `workspace/`. It tracks documents, sidecars, media, decks, diary entries and categories. It does not track the derived index, the progress store, `vault.json` or `config.json`.
 
 A commit message has the form `<action>: <path>`. One user action makes one commit.
 
@@ -231,21 +237,22 @@ Grading a card writes no file and makes no commit. A rollback rewinds `workspace
 
 ## Diary
 
-The diary is an optional daily record of study. It sits outside `workspace/`, so it never carries cards and never appears in search or in the graph.
+The diary is an optional daily record of study. Its entries are portable files. Flashback derives its summaries.
 
 ```
-{vault}/diary/
-  summaries/summary-YYYY-MM-DD.json     the owner's daily summary
-  entries/entry-YYYY-MM-DD.md           the owner's optional notes
-  accounts/<accountId>/summaries/       the same files for each other account
-  accounts/<accountId>/entries/
+workspace/_diary/
+  owner/YYYY-MM-DD.md               the owner's notes for a day
+  <accountId>/YYYY-MM-DD.md         the notes of each other account
+  <accountId>/.flashback            the folder sidecar: createdBy and accountId
 ```
 
-The diary is its own git repository. Its commit actions are `summary` and `entry`. A summary and an entry for the same date are independent files.
+- The explorer, search, the graph and the documents API never reach `_diary/`, `_decks/` or `_categories.json`. Only their own modules read them, and the diary routes check access.
+- An account id belongs to the install's accounts store. After a vault moves to another install, `owner/` maps to the new owner, and the `createdBy` line still names the writer of every other folder.
+- An older build kept the diary in `{vault}/diary/`, as its own git repository. The first start of a newer build copies the entries into `_diary/` and renames the old folder to `diary.legacy`.
 
 ### Summary
 
-Flashback derives a summary from `ReviewLogs`. Regenerating it for a date gives the same file, apart from `generatedAt`.
+Flashback derives a summary from `ReviewLogs`. The `DiarySummaries` table in the derived index caches the summary of each past day. Flashback computes today's summary on every request.
 
 ```json
 {
@@ -394,6 +401,7 @@ Flashback can recompute both tables from `ReviewLogs` and the card content.
 | `Media` | Media hashes and their files |
 | `Subscriptions` | The last imported issue of each subscribed magazine |
 | `FormatVersion` | The format updates that the vault finished |
+| `DiarySummaries` | The cached daily summary of each account, for past days |
 | `SchemaVersion` | The migrations that the index finished |
 
 - `Flashcards.highlight_hash` copies the highlight id from the card's `location`. It can point at a deleted highlight.
