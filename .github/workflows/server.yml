@@ -109,7 +109,7 @@ jobs:
         run: |
           node --input-type=module -e "
             import fs from 'fs';
-            const { buildPdf, buildEpub } = await import('./tests/fixtures.js');
+            const { buildPdf, buildEpub } = await import('./tests/support/fixtures.js');
             fs.writeFileSync('/tmp/t.pdf', buildPdf([['Hello Flashback','page one']]));
             fs.writeFileSync('/tmp/t.epub', buildEpub([
               { href: 'c1.xhtml', title: 'Chapter One', body: '<h1>Chapter One</h1><p>readable</p>' },
@@ -217,7 +217,7 @@ jobs:
           New-Item -ItemType Directory -Force dist-server/app/data/ci/workspace | Out-Null
           node --input-type=module -e "
             import fs from 'fs';
-            const { buildPdf, buildEpub } = await import('./tests/fixtures.js');
+            const { buildPdf, buildEpub } = await import('./tests/support/fixtures.js');
             const dir = 'dist-server/app/data/ci/workspace/';
             fs.writeFileSync(dir + 't.pdf', buildPdf([['Hello Flashback','page one']]));
             fs.writeFileSync(dir + 't.epub', buildEpub([
