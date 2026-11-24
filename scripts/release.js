@@ -2,11 +2,13 @@
 /**
  * Pass the bump after npm's argument separator: patch, minor, major or an exact version.
  * The default is patch. The --dry-run flag prints the plan and changes nothing.
+ * A real release needs a successful Prerelease run for HEAD. --skip-prerelease overrides that in an emergency.
  */
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, appendFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import { prereleasePassed } from './releaseChecks.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const pkgPath = path.join(root, 'package.json');
@@ -87,6 +89,22 @@ if (dryRun) {
 
   console.log('\n✓ Release checks passed. Nothing was changed.');
   process.exit(0);
+}
+
+if (!args.includes('--skip-prerelease')) {
+  const sha = run('git rev-parse HEAD');
+  let runs = null;
+  try {
+    runs = JSON.parse(run('gh run list --workflow prerelease.yml --limit 50 --json headSha,conclusion'));
+  } catch {
+    problems.push('Could not ask GitHub for Prerelease runs. Install the gh CLI and run `gh auth login`.');
+  }
+  if (runs && !prereleasePassed(runs, sha)) {
+    problems.push(
+      `No successful Prerelease run for ${sha.slice(0, 8)}. ` +
+      `Run it first: gh workflow run prerelease.yml --ref ${run('git rev-parse --abbrev-ref HEAD')} -f version=${kind}`
+    );
+  }
 }
 
 if (problems.length) {
