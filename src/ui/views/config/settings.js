@@ -63,7 +63,6 @@ export function settingRows(t, ctx = {}) {
     add('server', 'vault', t('Active vault'), t('Switch vaults from the title bar.'), 'vault');
     add('server', 'port', t('Port'), '', 'api network restart');
     add('server', 'host', t('Host'), '', 'api network localhost restart');
-    add('server', 'logFormat', t('Log format'), '', 'logs restart');
     if (ctx.customPath) add('server', 'workspacePath', t('Workspace path'), '', 'folder location');
 
     add('about', 'version', t('Version'), '', 'release');

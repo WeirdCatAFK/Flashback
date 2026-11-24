@@ -17,7 +17,7 @@ export default async function main() {
   });
   if (!opened) process.exit(1);
 
-  const api = new Api(await getConfig());
+  const api = new Api({ ...(await getConfig()), logFormat: 'dev' });
 
   api.start();
   process.on('SIGINT', async () => {

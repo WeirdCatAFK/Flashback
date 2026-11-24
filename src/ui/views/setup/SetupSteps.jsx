@@ -100,7 +100,7 @@ export function StepWelcome({ onNext }) {
 
 export function StepVault({ state, onChange, onNext, onBack }) {
   const { t } = useT();
-  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm } = state;
+  const { vaultName, isCustomPath, customPath, port, algorithm } = state;
   const [touched, setTouched] = useState(false);
   const dataPath = useDataPath();
 
@@ -191,15 +191,6 @@ export function StepVault({ state, onChange, onNext, onBack }) {
               onChange={(e) => onChange('port', Number(e.target.value))}
             />
           </label>
-          <label className="ob-row" htmlFor="ob-log">
-            <span>{t('Log format')}</span>
-            <select id="ob-log" className="field" value={logFormat} onChange={(e) => onChange('logFormat', e.target.value)}>
-              <option value="dev">dev</option>
-              <option value="combined">combined</option>
-              <option value="tiny">tiny</option>
-              <option value="short">short</option>
-            </select>
-          </label>
         </div>
       </details>
 
@@ -283,7 +274,7 @@ export function StepIdentity({ state, onChange, onNext, onBack }) {
 
 export function StepReady({ state, onBack, onSubmit, submitting, submitError, preview }) {
   const { t } = useT();
-  const { vaultName, isCustomPath, customPath, port, logFormat, algorithm, userName, userEmail } = state;
+  const { vaultName, isCustomPath, customPath, port, algorithm, userName, userEmail } = state;
   const dataPath = useDataPath();
   const suggested = useSuggestedIdentity();
 
@@ -316,8 +307,6 @@ export function StepReady({ state, onBack, onSubmit, submitting, submitError, pr
         <dd>{scheduler}</dd>
         <dt>{t('API port')}</dt>
         <dd className="ob-mono">{port}</dd>
-        <dt>{t('Log format')}</dt>
-        <dd className="ob-mono">{logFormat}</dd>
       </dl>
 
       {submitError && <p className="ob-error" role="alert">{submitError}</p>}

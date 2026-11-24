@@ -200,7 +200,7 @@ ipcMain.handle('complete-setup', (_event, config) => {
 ipcMain.handle('get-config', () => readConfig());
 
 const RENDERER_WRITABLE_FIELDS = [
-  'port', 'host', 'logFormat', 'isLocalhost', 'mcpDiaryAccess',
+  'port', 'host', 'isLocalhost', 'mcpDiaryAccess',
 ];
 
 ipcMain.handle('set-config', (_event, newConfig) => {

@@ -1,6 +1,6 @@
 import { get } from "../../access/primitives/config.js";
 
-const required = ["port", "logFormat", "host", "isLocalhost"];
+const required = ["port", "host", "isLocalhost"];
 
 function validateConfig() {
     const config = get();

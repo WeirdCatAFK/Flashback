@@ -8,7 +8,6 @@ const FALLBACK = {
     isLocalhost: true,
     isCustomPath: false,
     customPath: '',
-    logFormat: 'dev',
     vaultName: 'default',
 };
 

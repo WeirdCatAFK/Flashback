@@ -7,7 +7,7 @@ export default function useSetupWizard(onComplete) {
   const { t } = useT();
   const [step, setStep] = useState(0);
   const [form, setForm] = useState({
-    vaultName: 'dreams', isCustomPath: false, customPath: '', port: 50500, logFormat: 'dev', algorithm: 'sm2', userName: '', userEmail: '',
+    vaultName: 'dreams', isCustomPath: false, customPath: '', port: 50500, algorithm: 'sm2', userName: '', userEmail: '',
   });
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState(null);

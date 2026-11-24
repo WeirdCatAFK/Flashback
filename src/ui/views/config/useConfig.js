@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { getConfig, setConfig as writeConfig, isDesktop } from '../../api/desktop';
 
-const RESTART_FIELDS = ['port', 'host', 'logFormat'];
+const RESTART_FIELDS = ['port', 'host'];
 const SAVED_FLASH_MS = 2000;
 
 export default function useConfig() {

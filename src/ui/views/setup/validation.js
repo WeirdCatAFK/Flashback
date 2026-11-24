@@ -41,7 +41,6 @@ export function bothBlank({ name, email }) {
 export function configFromForm(form) {
   const config = {
     port: form.port,
-    logFormat: form.logFormat,
     host: 'localhost',
     isLocalhost: true,
     isCustomPath: form.isCustomPath,

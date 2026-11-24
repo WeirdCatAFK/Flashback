@@ -3,8 +3,6 @@ import { useT } from '../../translations/index';
 import ConfigRow from './ConfigRow';
 import { useSearching } from './rowsContext.js';
 
-const LOG_FORMATS = ['dev', 'combined', 'tiny', 'short'];
-
 export default function ServerSection({ cfg }) {
   const { t } = useT();
   const searching = useSearching();
@@ -24,11 +22,6 @@ export default function ServerSection({ cfg }) {
       </ConfigRow>
       <ConfigRow id="host" htmlFor="cf-host" restart>
         <input id="cf-host" className="field field--sm cf-in" value={form.host ?? 'localhost'} onChange={(e) => cfg.change('host', e.target.value)} />
-      </ConfigRow>
-      <ConfigRow id="logFormat" htmlFor="cf-log" restart>
-        <select id="cf-log" className="field field--sm cf-select" value={form.logFormat ?? 'dev'} onChange={(e) => cfg.change('logFormat', e.target.value)}>
-          {LOG_FORMATS.map((f) => <option key={f} value={f}>{f}</option>)}
-        </select>
       </ConfigRow>
       {form.isCustomPath && (
         <ConfigRow id="workspacePath">
