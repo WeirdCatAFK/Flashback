@@ -21,5 +21,5 @@ export function statusForError(err) {
 
 /** An OS error message names absolute paths and the account's home folder, so only the server log keeps it. */
 function isSystemError(err) {
-    return typeof err?.syscall === 'string' || typeof err?.path === 'string' || /^E[A-Z]+$/.test(err?.code ?? '');
+    return typeof err?.syscall === 'string' || Number.isInteger(err?.errno);
 }
