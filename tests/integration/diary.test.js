@@ -316,14 +316,30 @@ describe('Diary from an older build', () => {
         assert.equal(await Diary.getEntry('2020-01-05'), 'the newer text', 'a file never replaces an entry');
     });
 
-    it('takes the files out of the workspace and out of the Seal tree, and keeps a copy', async () => {
+    it('takes the files out of the workspace and out of the Seal history, and keeps a copy', async () => {
         assert.ok(!fs.existsSync(diaryRoot()) && !fs.existsSync(legacyRoot()));
-        const { deleted } = await sealTools.commitFiles((await sealTools.log(1))[0].oid);
-        assert.ok(deleted.includes('_diary/owner/2020-01-03.md') && deleted.includes('_diary/acct-1/2020-01-04.md'));
+        const log = await sealTools.log(500);
+        assert.ok(log.length > 1, 'the rest of the history stays');
+        for (const { oid, commit } of log) {
+            assert.ok(!commit.message.includes('_diary'));
+            const { added, modified, deleted } = await sealTools.commitFiles(oid);
+            assert.ok(![...added, ...modified, ...deleted].some((file) => file.startsWith('_diary')));
+        }
 
         const kept = keptFolders().flatMap((n) => fs.readdirSync(path.join(getVaultPath(), n), { recursive: true }));
         for (const name of ['entry-2020-01-01.md', '2020-01-05.md']) {
             assert.ok(kept.some((f) => f.endsWith(name)), `${name} stays for a manual rollback`);
+        }
+    });
+
+    it('never lets the Doctor commit a diary file that is still on disk', async () => {
+        fs.mkdirSync(path.join(diaryRoot(), 'owner'), { recursive: true });
+        fs.writeFileSync(path.join(diaryRoot(), 'owner', '2020-01-06.md'), 'restored by hand');
+        try {
+            await sealTools.commitDrift();
+            assert.ok(!(await sealTools.log(1))[0].commit.message.includes('_diary'));
+        } finally {
+            fs.rmSync(diaryRoot(), { recursive: true, force: true });
         }
     });
 

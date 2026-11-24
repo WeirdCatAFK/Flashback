@@ -1,6 +1,7 @@
 import git, { TREE } from "isomorphic-git";
 import fs from "fs";
 import path from "path";
+import { forgetRoot } from "./forget.js";
 import { getWorkspacePath, getIdentity } from "../access/primitives/config.js";
 import { currentAuthor } from "../requestContext.js";
 
@@ -21,6 +22,7 @@ function normPath(p) {
 }
 
 const SIDECAR_SUFFIX = ".flashback";
+const PRIVATE_ROOT = "_diary/";
 
 function isSidecar(p) {
     return p.endsWith(SIDECAR_SUFFIX);
@@ -211,6 +213,11 @@ class SealTools {
         await git.checkout({ fs, dir: dir(), ref, force: true });
     }
 
+    /** Rewrites the history, so call it only while nothing else writes to the repository. */
+    async forget(rootEntry) {
+        return forgetRoot(dir(), rootEntry);
+    }
+
     async commitDrift() {
         const workspace = dir();
         const matrix = await git.statusMatrix({ fs, dir: workspace });
@@ -218,6 +225,7 @@ class SealTools {
         const staged = [];
         const removed = [];
         for (const [filepath, head, workdir] of matrix) {
+            if (filepath.startsWith(PRIVATE_ROOT)) continue;
             if (workdir === MODIFIED) staged.push(filepath);
             else if (head === UNCHANGED && workdir === ABSENT) removed.push(filepath);
         }

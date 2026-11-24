@@ -7,7 +7,7 @@ import * as diaryRows from '../resources/db/diary.js';
 import * as statisticsRows from '../resources/db/statistics.js';
 import { getVaultPath } from "../primitives/config.js";
 import { currentScope, OWNER_SCOPE } from "../../requestContext.js";
-import { sealEmitter } from "../../seal/seal.js";
+import { sealTools } from "../../seal/seal.js";
 import { LEARNING_REVIEWS } from "./srs.js";
 
 const DIARY_SCHEMA_VERSION = 2;
@@ -197,6 +197,7 @@ const _foldersIn = (dir) => (fs.existsSync(dir)
 /**
  * Older builds kept entries as files in {vault}/diary/, and then in workspace/_diary/.
  * Copies each entry into the progress store, never over one that is there, and keeps the files as diary.legacy.
+ * It deletes _diary/ from the Seal history, and the folder last, so an interrupted run happens again at the next start.
  */
 export async function adoptFiles() {
     const legacy = path.join(getVaultPath(), "diary");
@@ -218,11 +219,9 @@ export async function adoptFiles() {
     })();
 
     if (fs.existsSync(shared)) {
-        const tracked = fs.readdirSync(shared, { recursive: true })
-            .filter((name) => fs.statSync(path.join(shared, name)).isFile())
-            .map((name) => path.join("_diary", name));
+        console.log("Deleting the diary from the Seal history. This runs once and can take a minute.");
+        await sealTools.forget("_diary");
         _setAside(shared, legacy);
-        if (tracked.length) await sealEmitter.edit(tracked[0], [], tracked);
     }
     if (fs.existsSync(legacy)) _setAside(legacy, legacy);
     return adopted;

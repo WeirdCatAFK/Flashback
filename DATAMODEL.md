@@ -241,7 +241,7 @@ The diary is an optional daily record of study. Its entries are personal data, s
 - The `DiaryEntries` table holds one row for each account and day. The `content` column is Markdown.
 - Only the writer reads an entry. The vault's author reads the daily summaries of other people, and no entry.
 - A vault export puts the progress store in its own zip, apart from the portable files.
-- Older builds kept the entries as files, in `{vault}/diary/` and then in `workspace/_diary/`. The first start of a newer build copies them into the table and keeps the files in `{vault}/diary.legacy`. The Seal history of a vault that had `workspace/_diary/` still holds the old text.
+- Older builds kept the entries as files, in `{vault}/diary/` and then in `workspace/_diary/`. The first start of a newer build copies them into the table and keeps the files in `{vault}/diary.legacy`. It also deletes `_diary/` from the Seal history, so the ids of the commits that followed it change.
 - The explorer, search, the graph and the documents API never reach `_diary/`, `_decks/`, `_categories.json` or `.git` in the workspace, under any spelling of the name.
 
 ### Summary
