@@ -337,7 +337,8 @@ describe('Diary from an older build', () => {
         fs.writeFileSync(path.join(diaryRoot(), 'owner', '2020-01-06.md'), 'restored by hand');
         try {
             await sealTools.commitDrift();
-            assert.ok(!(await sealTools.log(1))[0].commit.message.includes('_diary'));
+            const { added } = await sealTools.commitFiles((await sealTools.log(1))[0].oid);
+            assert.ok(!added.some((file) => file.startsWith('_diary')));
         } finally {
             fs.rmSync(diaryRoot(), { recursive: true, force: true });
         }
