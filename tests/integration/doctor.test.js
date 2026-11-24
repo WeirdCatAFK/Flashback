@@ -19,6 +19,7 @@ if (!await validate()) {
 const Documents = await import('../../src/api/access/modules/documents.js');
 const Doctor = await import('../../src/api/access/modules/doctor.js');
 const Decks = await import('../../src/api/access/modules/decks.js');
+const Categories = await import('../../src/api/access/modules/categories.js');
 const cardProgressRows = await import('../../src/api/access/resources/db/cardProgress.js');
 const categoryRows = await import('../../src/api/access/resources/db/categories.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
@@ -618,5 +619,30 @@ describe('Vault Doctor', () => {
             }
             assert.deepEqual(shadows, [], 'an empty copy in main would shadow the real one silently');
         });
+    });
+});
+
+describe('categories in _categories.json', () => {
+    before(async () => {
+        await sealTools.init();
+    });
+
+    it('restores a category, with its priority and description, after the index loses it', async () => {
+        await Categories.create({ name: 'Formulas', priority: 7, description: 'derivations to rehearse' });
+        const file = JSON.parse(fs.readFileSync(abs('_categories.json'), 'utf-8'));
+        assert.ok(file.categories.some((c) => c.name === 'Formulas' && c.priority === 7), 'the file holds the category');
+
+        await db.prepare("DELETE FROM PedagogicalCategories WHERE name = 'Formulas'").run();
+        await Doctor.rebuildIndex();
+
+        const restored = await categoryRows.getByName('Formulas');
+        assert.equal(restored?.priority, 7);
+        assert.equal(restored?.description, 'derivations to rehearse');
+    });
+
+    it('keeps the file out of the explorer listing', async () => {
+        const Files = await import('../../src/api/access/resources/files.js');
+        assert.ok(fs.existsSync(abs('_categories.json')), 'precondition: the file exists');
+        assert.ok(!Files.listFolder('').some((e) => e.name === '_categories.json'));
     });
 });

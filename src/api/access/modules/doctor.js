@@ -13,6 +13,7 @@ import * as tagRows from '../resources/db/tags.js';
 import * as vaultRows from '../resources/db/vault.js';
 import * as Documents from './documents.js';
 import * as Decks from './decks.js';
+import * as Categories from './categories.js';
 import { sealEmitter, sealTools } from '../../seal/seal.js';
 import { OWNER_SCOPE } from '../../requestContext.js';
 
@@ -299,6 +300,7 @@ async function _rebuildIndexLocked() {
 }
 
 async function _ensureCategories(walk, warnings) {
+    await Categories.syncFromFile();
     const wanted = new Set();
     for (const d of walk.documents) {
         for (const fc of d.meta?.flashcards ?? []) {
