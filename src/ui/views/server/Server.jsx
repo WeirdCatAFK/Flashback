@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { getVaultIdentity } from '../../api/vaults';
 import { createAccount, updateAccount, issueToken, revokeToken, rotatePureToken } from '../../api/accounts';
 import { roleLabels, roleBlurbs, signedInAs, nowRole, addedAs, fmtDate, grantable, grantableRoles } from './roles.js';
+import { storageShare } from './storage.js';
 import useAccounts from './useAccounts';
 import './Server.css';
 import { LoadingState } from '../../components/base/StateView';
@@ -61,6 +62,25 @@ function RoleLadder({ role }) {
   );
 }
 
+function StorageUse({ storage }) {
+  const { t } = useT();
+  const share = storageShare(storage);
+  if (!share) return <span className="sv-dim">—</span>;
+  if (share.limit === null) {
+    return (
+      <span className="sv-mono" title={t('Set FLASHBACK_STORAGE_LIMIT on the server to see how much room is left.')}>
+        {t('{used} used', { used: share.used })} <span className="sv-dim">{t('· no limit set')}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="sv-seats" title={t('{remaining} free of {limit}', { remaining: share.remaining, limit: share.limit })}>
+      <span className="sv-mono"><b>{share.used}</b> {t('of {limit}', { limit: share.limit })} · {t('{remaining} free', { remaining: share.remaining })}</span>
+      <span className="sv-line"><i style={{ width: `${share.percent}%` }} /></span>
+    </span>
+  );
+}
+
 function YouHere({ info, connection }) {
   const { t } = useT();
   const { account, role, error } = useSession();
@@ -77,6 +97,8 @@ function YouHere({ info, connection }) {
           {info?.appVersion ?? '—'}
           {info && ` · ${t('schema')} ${info.schemaVersion} · ${t('files')} ${info.formatVersion}`}
         </dd>
+        <dt>{t('Storage')}</dt>
+        <dd><StorageUse storage={info?.storage} /></dd>
         <dt>{t('Your role')}</dt>
         <dd>{role ? <RoleLadder role={role} /> : <span className="sv-dim">{error || t('Unknown')}</span>}</dd>
       </dl>

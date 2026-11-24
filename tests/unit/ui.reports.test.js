@@ -9,6 +9,7 @@ import {
 import { cleanTagName, swapTag } from '../../src/shared/tagNames.js';
 import { grantable, grantableRoles, signedInAs, roleLabels } from '../../src/ui/views/server/roles.js';
 import { ROLE_ORDER } from '../../src/shared/roles.js';
+import { byteSize, storageShare } from '../../src/ui/views/server/storage.js';
 
 describe('heatLevel', () => {
   test('none is 0, then quarters of the busiest day', () => {
@@ -212,4 +213,22 @@ describe('server roles', () => {
     }
     assert.equal(signedInAs(t, null), 'You’re signed in as {name}.');
   });
+});
+
+describe('server storage', () => {
+    test('byteSize uses powers of 1024, like FLASHBACK_STORAGE_LIMIT', () => {
+        assert.equal(byteSize(512), '512 B');
+        assert.equal(byteSize(1536), '1.5 KB');
+        assert.equal(byteSize(10 * 1024 ** 3), '10.0 GB');
+        assert.equal(byteSize(250 * 1024 ** 2), '250 MB');
+        assert.equal(byteSize(-1), '—');
+    });
+
+    test('storageShare reports a share only when a limit is set', () => {
+        assert.deepEqual(storageShare({ used: 1024 ** 3, limit: 4 * 1024 ** 3, remaining: 3 * 1024 ** 3 }),
+            { used: '1.0 GB', limit: '4.0 GB', remaining: '3.0 GB', percent: 25 });
+        assert.deepEqual(storageShare({ used: 2048, limit: null, remaining: null }),
+            { used: '2.0 KB', limit: null, remaining: null, percent: null });
+        assert.equal(storageShare(null), null);
+    });
 });
