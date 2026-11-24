@@ -3,7 +3,6 @@
 
 services:
   flashback:
-    build: .
     image: ghcr.io/weirdcatafk/flashback-server:${FLASHBACK_VERSION:-latest}
     restart: unless-stopped
 
