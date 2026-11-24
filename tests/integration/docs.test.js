@@ -2,7 +2,8 @@ import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
 import crypto from 'crypto';
-import Documents from '../../src/api/access/modules/documents.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Srs from '../../src/api/access/modules/srs.js';
 import db from '../../src/api/access/primitives/database.js';
 import fs from 'fs';
 import validate from '../../src/api/config/validate.js';
@@ -14,6 +15,7 @@ import * as flashcardRows from '../../src/api/access/resources/db/flashcards.js'
 import * as linkRows from '../../src/api/access/resources/db/links.js';
 import * as nodeRows from '../../src/api/access/resources/db/nodes.js';
 import { testDataDir } from '../support/testData.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
 process.env.USER_DATA_PATH = testDataDir('docs');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
@@ -22,7 +24,6 @@ if (!await validate()) {
     console.error('Validation failed.');
     process.exit(1);
 }
-const docs = new Documents();
 const TEST_ROOT = "TestWorkspace";
 
 const genHash = () => crypto.randomUUID();
@@ -39,7 +40,7 @@ describe('Documents Orchestrator Integration Tests', () => {
     before(async () => {
         cleanup();
         await sealTools.init();
-        await docs.createFolder(TEST_ROOT);
+        await Documents.createFolder(TEST_ROOT);
     });
 
     after(async () => {
@@ -56,13 +57,13 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should create nested folders correctly', async () => {
             const folderPath = path.join(TEST_ROOT, 'Math', 'Algebra');
-            await docs.createFolder('Math', TEST_ROOT);
-            await docs.createFolder('Algebra', path.join(TEST_ROOT, 'Math'));
+            await Documents.createFolder('Math', TEST_ROOT);
+            await Documents.createFolder('Algebra', path.join(TEST_ROOT, 'Math'));
 
-            const existsDB = await docs.exists(folderPath, true, true);
+            const existsDB = await Documents.exists(folderPath, true, true);
             assert.ok(existsDB, 'Folder should exist in DB');
 
-            const existsFS = await docs.exists(folderPath, false, true);
+            const existsFS = await Documents.exists(folderPath, false, true);
             assert.ok(existsFS, 'Folder should exist in FileSystem');
         });
 
@@ -70,10 +71,10 @@ describe('Documents Orchestrator Integration Tests', () => {
             const fileName = 'LinearEquations.md';
             const relPath = path.join(TEST_ROOT, 'Math', 'Algebra');
 
-            await docs.createFile(fileName, relPath);
+            await Documents.createFile(fileName, relPath);
 
             const fullPath = path.join(relPath, fileName);
-            const doc = await docs.exists(fullPath, true, false);
+            const doc = await Documents.exists(fullPath, true, false);
 
             assert.ok(doc, 'File should exist in DB');
             assert.equal(doc.name, fileName);
@@ -83,23 +84,23 @@ describe('Documents Orchestrator Integration Tests', () => {
             const oldPath = path.join(TEST_ROOT, 'Math', 'Algebra', 'LinearEquations.md');
             const newName = 'LinEq.md';
 
-            await docs.rename(oldPath, newName, false);
+            await Documents.rename(oldPath, newName, false);
 
             const newPath = path.join(TEST_ROOT, 'Math', 'Algebra', newName);
-            assert.ok(await docs.exists(newPath, true, false), 'New path should exist in DB');
-            assert.ok(!await docs.exists(oldPath, true, false), 'Old path should NOT exist in DB');
+            assert.ok(await Documents.exists(newPath, true, false), 'New path should exist in DB');
+            assert.ok(!await Documents.exists(oldPath, true, false), 'Old path should NOT exist in DB');
         });
 
         it('should move a folder and cascade path updates to children', async () => {
             const oldPath = path.join(TEST_ROOT, 'Math', 'Algebra');
             const newPath = path.join(TEST_ROOT, 'Algebra');
 
-            await docs.move(oldPath, newPath, true);
+            await Documents.move(oldPath, newPath, true);
 
-            assert.ok(await docs.exists(newPath, true, true), 'Folder should exist at new location');
+            assert.ok(await Documents.exists(newPath, true, true), 'Folder should exist at new location');
 
             const childPath = path.join(newPath, 'LinEq.md');
-            assert.ok(await docs.exists(childPath, true, false), 'Child file path should be updated in DB');
+            assert.ok(await Documents.exists(childPath, true, false), 'Child file path should be updated in DB');
         });
     });
 
@@ -109,10 +110,10 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should sync tags and propagate from folder to document', async () => {
             const folderMeta = { tags: ['Math', 'Hard'] };
-            await docs.updateMetadata(folderPath, folderMeta, true);
+            await Documents.updateMetadata(folderPath, folderMeta, true);
 
             const docMeta = { tags: ['Equations'], globalHash: genHash() };
-            await docs.updateMetadata(docPath, docMeta, false);
+            await Documents.updateMetadata(docPath, docMeta, false);
 
             const docNode = await db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(docPath);
 
@@ -159,7 +160,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 ]
             };
 
-            await docs.updateFile(docPath, content, metadata);
+            await Documents.updateFile(docPath, content, metadata);
 
             const count = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards').get()).c;
             assert.ok(count >= 2, 'Should have at least 2 flashcards in DB');
@@ -189,7 +190,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 ]
             };
 
-            await docs.updateFile(docPath, "# Test Content", metadata);
+            await Documents.updateFile(docPath, "# Test Content", metadata);
 
             const fc1 = await db.prepare(`
                 SELECT p.level FROM CardProgress p
@@ -210,7 +211,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         const docPath = path.join(TEST_ROOT, 'Algebra', 'TypedCards.md');
 
         before(async () => {
-            await docs.createFile('TypedCards.md', path.join(TEST_ROOT, 'Algebra'));
+            await Documents.createFile('TypedCards.md', path.join(TEST_ROOT, 'Algebra'));
         });
 
         const makeCard = (cardType, overrides = {}) => ({
@@ -231,7 +232,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 makeCard('custom', { vanillaData: { frontText: '', backText: '', media: {} }, customData: { html: '<b>Hi</b>' } }),
             ];
 
-            await docs.updateFile(docPath, '# Typed Cards', { globalHash: genHash(), flashcards: cards });
+            await Documents.updateFile(docPath, '# Typed Cards', { globalHash: genHash(), flashcards: cards });
 
             for (const card of cards) {
                 const row = await db.prepare('SELECT card_type FROM Flashcards WHERE global_hash = ?').get(card.globalHash);
@@ -242,12 +243,12 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should preserve card_type on flashcard update', async () => {
             const hash = genHash();
-            await docs.updateFile(docPath, '# Typed Cards', {
+            await Documents.updateFile(docPath, '# Typed Cards', {
                 globalHash: genHash(),
                 flashcards: [makeCard('cloze', { globalHash: hash, vanillaData: { frontText: 'The {{sun}} is a star.', backText: 'The {{sun}} is a star.', media: {} } })],
             });
 
-            await docs.updateFile(docPath, '# Typed Cards updated', {
+            await Documents.updateFile(docPath, '# Typed Cards updated', {
                 globalHash: genHash(),
                 flashcards: [makeCard('cloze', { globalHash: hash, vanillaData: { frontText: 'The {{moon}} orbits Earth.', backText: 'The {{moon}} orbits Earth.', media: {} } })],
             });
@@ -261,7 +262,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should store a type_answer card\'s answer and notes separately', async () => {
             const hash = genHash();
-            await docs.updateFile(docPath, '# Kana', {
+            await Documents.updateFile(docPath, '# Kana', {
                 globalHash: genHash(),
                 flashcards: [makeCard('type_answer', {
                     globalHash: hash,
@@ -277,7 +278,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should leave a pre-split type_answer card without an answerText', async () => {
             const hash = genHash();
-            await docs.updateFile(docPath, '# Kana legacy', {
+            await Documents.updateFile(docPath, '# Kana legacy', {
                 globalHash: genHash(),
                 flashcards: [makeCard('type_answer', {
                     globalHash: hash,
@@ -293,7 +294,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should not invent an answerText when editing a pre-split card', async () => {
             const hash = genHash();
-            await docs.updateFile(docPath, '# Kana legacy edit', {
+            await Documents.updateFile(docPath, '# Kana legacy edit', {
                 globalHash: genHash(),
                 flashcards: [makeCard('type_answer', {
                     globalHash: hash,
@@ -301,7 +302,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 })],
             });
 
-            const updated = await docs.updateFlashcard(docPath, hash, { frontText: 'け (edited)' });
+            const updated = await Documents.updateFlashcard(docPath, hash, { frontText: 'け (edited)' });
             assert.equal(updated.vanillaData.answerText, undefined, 'still reads as pre-split');
             assert.equal(updated.vanillaData.backText, 'ke', 'the answer stays where it is');
 
@@ -313,7 +314,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should update a type_answer card\'s notes without touching its answer', async () => {
             const hash = genHash();
-            await docs.updateFile(docPath, '# Kana edit', {
+            await Documents.updateFile(docPath, '# Kana edit', {
                 globalHash: genHash(),
                 flashcards: [makeCard('type_answer', {
                     globalHash: hash,
@@ -321,7 +322,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 })],
             });
 
-            const updated = await docs.updateFlashcard(docPath, hash, { backText: 'A coo-coo bird.' });
+            const updated = await Documents.updateFlashcard(docPath, hash, { backText: 'A coo-coo bird.' });
             assert.equal(updated.vanillaData.answerText, 'ku');
             assert.equal(updated.vanillaData.backText, 'A coo-coo bird.');
 
@@ -347,7 +348,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should submit a review and update the flashcard level', async () => {
-            await docs.submitReview(docPath, fcHash, 5, 2.5, 5);
+            await Documents.submitReview(docPath, fcHash, 5, 2.5, 5);
 
             const fc = await db.prepare(`
                 SELECT p.level FROM CardProgress p
@@ -360,7 +361,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('should write a ReviewLog entry on each review', async () => {
             const before = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
 
-            await docs.submitReview(docPath, fcHash, 3, 2.0, 4);
+            await Documents.submitReview(docPath, fcHash, 3, 2.0, 4);
 
             const after = (await db.prepare('SELECT COUNT(*) as c FROM ReviewLogs WHERE card_hash = ?').get(fcHash)).c;
             assert.equal(after, before + 1, 'A new ReviewLog entry should be created for each review');
@@ -375,7 +376,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should return valid Leitner box statistics', async () => {
-            const stats = await docs.srs.getLeitnerStats();
+            const stats = await Srs.getLeitnerStats();
 
             assert.ok(typeof stats.total === 'number', 'total should be a number');
             assert.ok(stats.total > 0, 'Should have at least one card from prior tests');
@@ -390,13 +391,13 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     describe('Search & Graph', () => {
         it('should find the flashcard by text', async () => {
-            const results = await docs.search('Q1 Modified');
+            const results = await Documents.search('Q1 Modified');
             assert.ok(results.length > 0, 'Should return search results');
             assert.equal(results[0].type, 'flashcard');
         });
 
         it('should return valid graph data', async () => {
-            const graph = await docs.getGraphData();
+            const graph = await Documents.getGraphData();
             assert.ok(Array.isArray(graph.nodes), 'Nodes should be an array');
             assert.ok(Array.isArray(graph.edges), 'Edges should be an array');
             assert.ok(graph.nodes.length > 0, 'Should have nodes');
@@ -420,10 +421,10 @@ describe('Documents Orchestrator Integration Tests', () => {
                 ]
             };
 
-            await docs.importFile(importName, TEST_ROOT, importContent, importMeta);
+            await Documents.importFile(importName, TEST_ROOT, importContent, importMeta);
 
             const docRelPath = path.join(TEST_ROOT, importName);
-            const docEntry = await docs.exists(docRelPath, true, false);
+            const docEntry = await Documents.exists(docRelPath, true, false);
             assert.ok(docEntry, "Imported document should exist in DB");
             assert.equal(docEntry.name, importName);
 
@@ -486,16 +487,16 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should import a package, preserve structure, and sanitize learning progress', async () => {
-            await docs.importPackage(externalPath, TEST_ROOT);
+            await Documents.importPackage(externalPath, TEST_ROOT);
 
             const importedRootRel = path.join(TEST_ROOT, pkgName);
 
-            const folderEntry = await docs.exists(importedRootRel, true, true);
+            const folderEntry = await Documents.exists(importedRootRel, true, true);
             assert.ok(folderEntry, "Imported root folder should exist in DB");
             assert.notEqual(folderEntry.globalHash, "original-root-hash", "Root hash should be regenerated");
 
             const docRel = path.join(importedRootRel, 'Lecture1.md');
-            const docEntry = await docs.exists(docRel, true, false);
+            const docEntry = await Documents.exists(docRel, true, false);
             assert.ok(docEntry, "Lecture1.md should be indexed");
 
             const flashcard = await db.prepare(`
@@ -508,12 +509,12 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.equal(flashcard.level, 0, "Flashcard level should be reset to 0");
             assert.notEqual(flashcard.global_hash, "original-card-hash", "Flashcard hash should be regenerated");
 
-            const importedMeta = docs.files.getMetadata(docRel);
+            const importedMeta = Files.getMetadata(docRel);
             assert.strictEqual(importedMeta.flashcards[0].lastRecall, undefined, "lastRecall should be stripped from file metadata");
 
             const mediaRel = path.join(importedRootRel, "media", "cell_diagram.png");
             
-            assert.ok(await docs.files.exists(mediaRel), "Media file should be copied to workspace");
+            assert.ok(await Files.exists(mediaRel), "Media file should be copied to workspace");
             const mediaEntry = await db.prepare('SELECT * FROM Media WHERE relative_path = ?').get(mediaRel);
             assert.ok(mediaEntry, "Media file should be registered in the Media table");
         });
@@ -549,15 +550,15 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should unzip, import, and sanitize a zip package', async () => {
-            await docs.processZipPackage(zipPath, TEST_ROOT);
+            await Documents.processZipPackage(zipPath, TEST_ROOT);
 
             const expectedRoot = path.join(TEST_ROOT, "CourseArchive");
 
-            const rootExists = await docs.exists(expectedRoot, true, true);
+            const rootExists = await Documents.exists(expectedRoot, true, true);
             assert.ok(rootExists, "Unzipped root folder should exist in DB");
 
             const fileRel = path.join(expectedRoot, "Chapter1", "Lesson1.md");
-            const fileExists = await docs.exists(fileRel, true, false);
+            const fileExists = await Documents.exists(fileRel, true, false);
             assert.ok(fileExists, "Nested file from zip should be indexed");
 
             const dbCard = await db.prepare(`
@@ -574,19 +575,19 @@ describe('Documents Orchestrator Integration Tests', () => {
 
     describe('Search — extended', () => {
         it('should find a document by name', async () => {
-            const results = await docs.search('LinEq');
+            const results = await Documents.search('LinEq');
             const docResult = results.find(r => r.type === 'document');
             assert.ok(docResult, 'Should return at least one document result');
         });
 
         it('should find a tag by name', async () => {
-            const results = await docs.search('Equations');
+            const results = await Documents.search('Equations');
             const tagResult = results.find(r => r.type === 'tag');
             assert.ok(tagResult, 'Should return at least one tag result');
         });
 
         it('should return graph nodes with recognised type labels', async () => {
-            const { nodes } = await docs.getGraphData();
+            const { nodes } = await Documents.getGraphData();
             const types = new Set(nodes.map(n => n.type));
             const expected = ['Document', 'Folder', 'Flashcard', 'Tag'];
             for (const t of expected) {
@@ -607,10 +608,10 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         before(async () => {
             cleanupExport();
-            await docs.createFolder(exportFolder);
-            await docs.createFile("Notes.md", exportFolder);
+            await Documents.createFolder(exportFolder);
+            await Documents.createFile("Notes.md", exportFolder);
 
-            await docs.updateMetadata(path.join(exportFolder, "Notes.md"), {
+            await Documents.updateMetadata(path.join(exportFolder, "Notes.md"), {
                 tags: ["ExportedTag"],
                 globalHash: "export-test-hash"
             });
@@ -621,7 +622,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('should zip a workspace folder and return a valid file path', () => {
-            const zipPath = docs.exportPackage(exportFolder);
+            const zipPath = Documents.exportPackage(exportFolder);
 
             assert.ok(fs.existsSync(zipPath), "Export zip file should exist");
             assert.ok(zipPath.endsWith('.zip'), "File should be a zip");
@@ -646,10 +647,10 @@ describe('Documents Orchestrator Integration Tests', () => {
             .filter((n) => n.includes('.flashback.tmp-'));
 
         it('leaves no temporary sibling behind after a successful write', () => {
-            const meta = docs.files.getMetadata(docRel, false);
+            const meta = Files.getMetadata(docRel, false);
             meta.description = 'written atomically';
-            docs.files.writeMetadata(docRel, meta, false);
-            assert.equal(docs.files.getMetadata(docRel, false).description, 'written atomically');
+            Files.writeMetadata(docRel, meta, false);
+            assert.equal(Files.getMetadata(docRel, false).description, 'written atomically');
             assert.deepEqual(tmpSiblings(docRel), []);
         });
 
@@ -666,7 +667,7 @@ describe('Documents Orchestrator Integration Tests', () => {
                 return realWrite(file, ...rest);
             };
             try {
-                assert.throws(() => docs.files.writeMetadata(docRel, meta, false), (err) => err.code === 'ENOSPC',
+                assert.throws(() => Files.writeMetadata(docRel, meta, false), (err) => err.code === 'ENOSPC',
                     'the raw errno travels up so the HTTP layer can answer 507');
             } finally {
                 fs.writeFileSync = realWrite;
@@ -685,34 +686,34 @@ describe('Documents Orchestrator Integration Tests', () => {
         const fcHash = crypto.randomUUID();
 
         before(async () => {
-            await docs.createFolder(subFolder, TEST_ROOT);
-            await docs.createFile(fileName, subFolderPath);
-            await docs.updateFile(filePath, '# Delete me', {
+            await Documents.createFolder(subFolder, TEST_ROOT);
+            await Documents.createFile(fileName, subFolderPath);
+            await Documents.updateFile(filePath, '# Delete me', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'Q', backText: 'A' } }]
             });
         });
 
         it('should delete a file from both filesystem and DB', async () => {
-            await docs.delete(filePath, false);
-            assert.ok(!await docs.files.exists(filePath), 'File should not exist on filesystem');
-            assert.ok(!await docs.exists(filePath, true, false), 'File should not exist in DB');
+            await Documents.remove(filePath, false);
+            assert.ok(!await Files.exists(filePath), 'File should not exist on filesystem');
+            assert.ok(!await Documents.exists(filePath, true, false), 'File should not exist in DB');
         });
 
         it('should cascade-delete documents and flashcards when a folder is deleted', async () => {
-            await docs.createFile(fileName, subFolderPath);
-            await docs.updateFile(filePath, '# Delete me', {
+            await Documents.createFile(fileName, subFolderPath);
+            await Documents.updateFile(filePath, '# Delete me', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: crypto.randomUUID(), vanillaData: { frontText: 'Q', backText: 'A' } }]
             });
 
-            const docEntry = await docs.exists(filePath, true, false);
+            const docEntry = await Documents.exists(filePath, true, false);
             assert.ok(docEntry, 'Document should exist before folder deletion');
 
-            await docs.delete(subFolderPath, true);
+            await Documents.remove(subFolderPath, true);
 
-            assert.ok(!await docs.files.exists(subFolderPath), 'Folder should not exist on filesystem');
-            assert.ok(!await docs.exists(subFolderPath, true, true), 'Folder should not exist in DB');
+            assert.ok(!await Files.exists(subFolderPath), 'Folder should not exist on filesystem');
+            assert.ok(!await Documents.exists(subFolderPath, true, true), 'Folder should not exist in DB');
 
             const orphanedDoc = await db.prepare('SELECT id FROM Documents WHERE id = ?').get(docEntry.id);
             assert.strictEqual(orphanedDoc, undefined, 'Document should be cascade-deleted with its folder');
@@ -723,7 +724,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should not delete a non-existent file without throwing silently', async () => {
             await assert.rejects(
-                async () => await docs.delete('nonexistent/path/file.md', false),
+                async () => await Documents.remove('nonexistent/path/file.md', false),
                 'Deleting a non-existent path should throw'
             );
         });
@@ -733,7 +734,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         const existingDoc = path.join(TEST_ROOT, 'Algebra', 'LinEq.md');
 
         it('should read a file and return content with detected encoding', () => {
-            const result = docs.files.readFile(existingDoc);
+            const result = Files.readFile(existingDoc);
             assert.ok(typeof result.content === 'string', 'content should be a string');
             assert.ok(typeof result.encoding === 'string', 'encoding should be detected and returned');
             assert.equal(result.binary, false, 'a markdown file is not binary');
@@ -743,28 +744,28 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('should flag a binary file instead of decoding it, and refuse a text overwrite', async () => {
             const binRel = path.join(TEST_ROOT, 'Algebra', 'scan.pdf');
             const bytes = Buffer.concat([Buffer.from('%PDF-1.4\n'), Buffer.from([0x00, 0x01]), Buffer.alloc(512, 0xa7)]);
-            await docs.importFile('scan.pdf', path.join(TEST_ROOT, 'Algebra'), bytes, {});
+            await Documents.importFile('scan.pdf', path.join(TEST_ROOT, 'Algebra'), bytes, {});
 
-            const result = docs.files.readFile(binRel);
+            const result = Files.readFile(binRel);
             assert.equal(result.binary, true, 'flagged as binary');
             assert.equal(result.content, null, 'no decoded content');
             assert.equal(result.encoding, 'binary');
             assert.equal(result.size, bytes.length);
-            assert.equal(docs.files.isBinaryFile(binRel), true);
-            assert.equal(docs.files.isBinaryFile(existingDoc), false);
+            assert.equal(Files.isBinaryFile(binRel), true);
+            assert.equal(Files.isBinaryFile(existingDoc), false);
 
             await assert.rejects(
-                async () => await docs.updateFile(binRel, 'plain text', null),
+                async () => await Documents.updateFile(binRel, 'plain text', null),
                 /Cannot overwrite the binary file/,
                 'a text write over a binary file is refused',
             );
-            assert.equal(docs.files.readFile(binRel).size, bytes.length, 'file untouched');
+            assert.equal(Files.readFile(binRel).size, bytes.length, 'file untouched');
 
-            await docs.delete(binRel, false);
+            await Documents.remove(binRel, false);
         });
 
         it('should list folder contents including type and metadata', async () => {
-            const items = await docs.files.listFolder(TEST_ROOT);
+            const items = await Files.listFolder(TEST_ROOT);
             assert.ok(Array.isArray(items), 'listFolder should return an array');
             assert.ok(items.length > 0, 'TestWorkspace should have items after all prior tests');
             assert.ok(items.every(i => i.type === 'file' || i.type === 'folder'), 'Every item should have a recognised type');
@@ -773,20 +774,20 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('should copy a file and assign a new globalHash to the copy (Files layer)', async () => {
             const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy.md');
-            const srcMeta = docs.files.getMetadata(existingDoc);
+            const srcMeta = Files.getMetadata(existingDoc);
 
-            const result = await docs.files.copy(existingDoc, destPath, false);
+            const result = await Files.copy(existingDoc, destPath, false);
 
-            assert.ok(await docs.files.exists(existingDoc), 'Original should still exist after copy');
-            assert.ok(await docs.files.exists(destPath), 'Copy should exist on filesystem');
+            assert.ok(await Files.exists(existingDoc), 'Original should still exist after copy');
+            assert.ok(await Files.exists(destPath), 'Copy should exist on filesystem');
 
-            const destMeta = docs.files.getMetadata(destPath);
+            const destMeta = Files.getMetadata(destPath);
             assert.notEqual(destMeta.globalHash, srcMeta.globalHash, 'Copy must have a different globalHash');
             assert.equal(destMeta.copiedFrom, srcMeta.globalHash, 'Copy should record the source globalHash');
             assert.ok(Array.isArray(result), 'copy() should return an array of created items');
             assert.equal(result[0].globalHash, destMeta.globalHash, 'Returned item globalHash should match the new sidecar');
 
-            await docs.files.delete(destPath, false);
+            await Files.remove(destPath, false);
         });
     });
 
@@ -795,23 +796,23 @@ describe('Documents Orchestrator Integration Tests', () => {
         const destPath = path.join(TEST_ROOT, 'Algebra', 'LinEqCopy_Orchestrated.md');
 
         before(async () => {
-            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch {}
+            try { if (await Files.exists(destPath)) await Files.remove(destPath, false); } catch {}
         });
 
         after(async () => {
-            try { if (await docs.files.exists(destPath)) await docs.files.delete(destPath, false); } catch {}
+            try { if (await Files.exists(destPath)) await Files.remove(destPath, false); } catch {}
         });
 
         it('should register the copy in DB with a new globalHash and fire a Seal commit', async () => {
-            const srcMeta = docs.files.getMetadata(srcPath);
+            const srcMeta = Files.getMetadata(srcPath);
             const beforeHead = (await sealTools.log(1))[0]?.oid;
 
-            await docs.copy(srcPath, destPath, false);
+            await Documents.copy(srcPath, destPath, false);
 
-            assert.ok(await docs.files.exists(destPath), 'Copy should exist on filesystem');
-            assert.ok(await docs.files.exists(srcPath), 'Original should still exist');
+            assert.ok(await Files.exists(destPath), 'Copy should exist on filesystem');
+            assert.ok(await Files.exists(srcPath), 'Original should still exist');
 
-            const destDoc = await docs.exists(destPath, true, false);
+            const destDoc = await Documents.exists(destPath, true, false);
             assert.ok(destDoc, 'Copy should be registered in the DB');
             assert.notEqual(destDoc.global_hash, srcMeta.globalHash, 'Copy must have a distinct globalHash in DB');
 
@@ -829,20 +830,20 @@ describe('Documents Orchestrator Integration Tests', () => {
         let sourceHash, targetHash, sourceRelPath, targetRelPath;
 
         before(async () => {
-            await docs.createFolder('LinksTest', TEST_ROOT);
-            await docs.createFile('source.md', linksRoot);
-            await docs.createFile('target.md', linksRoot);
+            await Documents.createFolder('LinksTest', TEST_ROOT);
+            await Documents.createFile('source.md', linksRoot);
+            await Documents.createFile('target.md', linksRoot);
 
             sourceRelPath = path.join(linksRoot, 'source.md');
             targetRelPath = path.join(linksRoot, 'target.md');
 
-            sourceHash = docs.files.getMetadata(sourceRelPath).globalHash;
-            targetHash = docs.files.getMetadata(targetRelPath).globalHash;
+            sourceHash = Files.getMetadata(sourceRelPath).globalHash;
+            targetHash = Files.getMetadata(targetRelPath).globalHash;
         });
 
         it('creates a link Connection when source references a known target hash', async () => {
             const content = `# Source\n\nSee also [target](flashback://${targetHash}).`;
-            await docs.updateFile(sourceRelPath, content, null);
+            await Documents.updateFile(sourceRelPath, content, null);
 
             const sourceDoc = await documentRows.getByPath(sourceRelPath);
             const targetDoc = await documentRows.getByHash(targetHash);
@@ -856,7 +857,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('updates the sidecar links array after sync', () => {
-            const sidecar = docs.files.getMetadata(sourceRelPath);
+            const sidecar = Files.getMetadata(sourceRelPath);
             assert.ok(Array.isArray(sidecar.links), 'sidecar.links should be an array');
             assert.equal(sidecar.links.length, 1, 'sidecar should record one outbound link');
             assert.equal(sidecar.links[0].targetHash, targetHash);
@@ -865,7 +866,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('queues unresolved links for future import', async () => {
             const unknownHash = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee';
             const content = `# Source\n\nSee [unknown](flashback://${unknownHash}).`;
-            await docs.updateFile(sourceRelPath, content, null);
+            await Documents.updateFile(sourceRelPath, content, null);
 
             const pending = await linkRows.getPendingForTarget(unknownHash);
             assert.equal(pending.length, 1, 'Unresolved link should land in DocumentLinks queue');
@@ -873,7 +874,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         });
 
         it('removes a link Connection when the link is removed from the file', async () => {
-            await docs.updateFile(sourceRelPath, `See [target](flashback://${targetHash}).`, null);
+            await Documents.updateFile(sourceRelPath, `See [target](flashback://${targetHash}).`, null);
             const sourceDoc = await documentRows.getByPath(sourceRelPath);
             const targetDoc = await documentRows.getByHash(targetHash);
             const linkTypeId = (await nodeRows.typeIds()).linkConnTypeId;
@@ -882,7 +883,7 @@ describe('Documents Orchestrator Integration Tests', () => {
             ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
             assert.ok(connBefore, 'Connection should exist before removal');
 
-            await docs.updateFile(sourceRelPath, '# No links here.', null);
+            await Documents.updateFile(sourceRelPath, '# No links here.', null);
             const connAfter = await db.prepare(
                 'SELECT * FROM Connections WHERE origin_id = ? AND destiny_id = ? AND type_id = ?'
             ).get(sourceDoc.node_id, targetDoc.node_id, linkTypeId);
@@ -891,20 +892,20 @@ describe('Documents Orchestrator Integration Tests', () => {
 
         it('link edges appear in getGraphData()', async () => {
             const content = `# Source\n\nSee [target](flashback://${targetHash}).`;
-            await docs.updateFile(sourceRelPath, content, null);
+            await Documents.updateFile(sourceRelPath, content, null);
 
-            const { edges } = await docs.getGraphData();
+            const { edges } = await Documents.getGraphData();
             const linkEdge = edges.find(e => e.relation === 'link');
             assert.ok(linkEdge, 'getGraphData() should include at least one link-type edge');
         });
 
         it('leaves no out-of-band drift after importing a linked document', async () => {
-            await docs.importFile('linktarget.md', linksRoot, '# Target', {});
-            const tHash = docs.files.getMetadata(path.join(linksRoot, 'linktarget.md')).globalHash;
-            await docs.importFile('linksource.md', linksRoot, `See [t](flashback://${tHash}).`, {});
+            await Documents.importFile('linktarget.md', linksRoot, '# Target', {});
+            const tHash = Files.getMetadata(path.join(linksRoot, 'linktarget.md')).globalHash;
+            await Documents.importFile('linksource.md', linksRoot, `See [t](flashback://${tHash}).`, {});
             await sealEmitter.flushEdits();
 
-            const sidecar = docs.files.getMetadata(path.join(linksRoot, 'linksource.md'));
+            const sidecar = Files.getMetadata(path.join(linksRoot, 'linksource.md'));
             assert.equal(sidecar.links?.[0]?.targetHash, tHash, 'imported sidecar should record the link');
 
             const drift = await sealTools.inspect();
@@ -925,15 +926,15 @@ describe('Documents Orchestrator Integration Tests', () => {
         let runWithAccount, budget;
         let cards;
 
-        const sidecarCards = () => docs.files.getMetadata(DOC)?.flashcards ?? [];
+        const sidecarCards = () => Files.getMetadata(DOC)?.flashcards ?? [];
         const withoutFirst = (n) => sidecarCards().slice(n);
 
         before(async () => {
             ({ runWithAccount } = await import('../../src/api/requestContext.js'));
             budget = (await import('../../src/api/access/resources/cardRemovalBudget.js')).default;
 
-            await docs.createFolder('BudgetTest', TEST_ROOT);
-            await docs.importFile('deck.md', BUDGET_ROOT, '# Deck', {
+            await Documents.createFolder('BudgetTest', TEST_ROOT);
+            await Documents.importFile('deck.md', BUDGET_ROOT, '# Deck', {
                 globalHash: genHash(),
                 flashcards: Array.from({ length: 30 }, (_, i) => ({
                     globalHash: genHash(),
@@ -948,7 +949,7 @@ describe('Documents Orchestrator Integration Tests', () => {
         it('lets a collaborator remove a few cards', async () => {
             budget.reset();
             await runWithAccount(collaborator, () =>
-                docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(3) }));
+                Documents.updateMetadata(DOC, { ...Files.getMetadata(DOC), flashcards: withoutFirst(3) }));
             assert.equal(sidecarCards().length, 27);
         });
 
@@ -958,7 +959,7 @@ describe('Documents Orchestrator Integration Tests', () => {
 
             await assert.rejects(
                 () => runWithAccount(collaborator, () =>
-                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: [] })),
+                    Documents.updateMetadata(DOC, { ...Files.getMetadata(DOC), flashcards: [] })),
                 (err) => {
                     assert.equal(err.status, 429);
                     assert.equal(err.code, 'removal_budget');
@@ -976,11 +977,11 @@ describe('Documents Orchestrator Integration Tests', () => {
             budget.reset();
             for (let i = 0; i < 4; i++) {
                 await runWithAccount(collaborator, () =>
-                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(5) }));
+                    Documents.updateMetadata(DOC, { ...Files.getMetadata(DOC), flashcards: withoutFirst(5) }));
             }
             await assert.rejects(
                 () => runWithAccount(collaborator, () =>
-                    docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: withoutFirst(1) })),
+                    Documents.updateMetadata(DOC, { ...Files.getMetadata(DOC), flashcards: withoutFirst(1) })),
                 (err) => err.status === 429,
             );
         });
@@ -991,21 +992,21 @@ describe('Documents Orchestrator Integration Tests', () => {
             assert.ok(before > 0, 'precondition: cards remain');
 
             await runWithAccount(admin, () =>
-                docs.updateMetadata(DOC, { ...docs.files.getMetadata(DOC), flashcards: [] }));
+                Documents.updateMetadata(DOC, { ...Files.getMetadata(DOC), flashcards: [] }));
             assert.equal(sidecarCards().length, 0, 'an admin may clear a document');
         });
 
         it('keeps globalHash and createdBy as the server assigned them', async () => {
             budget.reset();
-            const real = docs.files.getMetadata(DOC);
-            await runWithAccount(collaborator, () => docs.updateMetadata(DOC, {
+            const real = Files.getMetadata(DOC);
+            await runWithAccount(collaborator, () => Documents.updateMetadata(DOC, {
                 ...real,
                 globalHash: 'forged-hash',
                 createdBy: 'somebody else',
                 tags: ['annotated'],
             }));
 
-            const after = docs.files.getMetadata(DOC);
+            const after = Files.getMetadata(DOC);
             assert.equal(after.globalHash, real.globalHash, 'globalHash is immutable once assigned');
             assert.equal(after.createdBy, real.createdBy, 'createdBy mirrors disk, absent included');
             assert.notEqual(after.createdBy, 'somebody else');

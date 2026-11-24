@@ -58,11 +58,12 @@ console.log(`\nUsing data path: ${appDataPath}\n`);
 
 const { default: validate }  = await import('../src/api/config/validate.js');
 const { sealTools }          = await import('../src/api/seal/seal.js');
-const { default: Documents } = await import('../src/api/access/modules/documents.js');
-const { default: Decks }     = await import('../src/api/access/modules/decks.js');
+const Documents = await import('../src/api/access/modules/documents.js');
+const Decks = await import('../src/api/access/modules/decks.js');
 const cardProgressRows = await import('../src/api/access/resources/db/cardProgress.js');
 const flashcardRows = await import('../src/api/access/resources/db/flashcards.js');
 const reviewRows = await import('../src/api/access/resources/db/reviews.js');
+const Files = await import('../src/api/access/resources/files.js');
 
 if (!await validate()) {
     console.error('Validation failed — check your data directory.');
@@ -70,8 +71,6 @@ if (!await validate()) {
 }
 await sealTools.init();
 
-const docs  = new Documents();
-const decks = new Decks();
 
 
 function uuid() { return crypto.randomUUID(); }
@@ -136,7 +135,7 @@ function hl(opts = {}) {
 
 async function mkFolder(name, parent = '') {
     try {
-        await docs.createFolder(name, parent);
+        await Documents.createFolder(name, parent);
         console.log(`  folder  ${parent ? parent + '/' : ''}${name}`);
     } catch (e) {
         if (e.message?.includes('already exists') || e.code === 'EEXIST') {
@@ -147,7 +146,7 @@ async function mkFolder(name, parent = '') {
 
 async function mkFile(name, folder, content, metadata) {
     try {
-        await docs.importFile(name, folder, content, metadata);
+        await Documents.importFile(name, folder, content, metadata);
         const c = metadata.flashcards?.length ?? 0;
         const h = metadata.highlights?.length ?? 0;
         console.log(`  file    ${folder}/${name}  (${c} cards${h ? ', ' + h + ' highlights' : ''})`);
@@ -160,14 +159,14 @@ async function mkFile(name, folder, content, metadata) {
 
 async function setFolderTags(folderPath, tags, excludedTags = []) {
     const normPath = path.normalize(folderPath);
-    const existing = docs.files.getMetadata(normPath, true) || {};
-    await docs.updateMetadata(normPath, { ...existing, tags, excludedTags }, true);
+    const existing = Files.getMetadata(normPath, true) || {};
+    await Documents.updateMetadata(normPath, { ...existing, tags, excludedTags }, true);
     const note = excludedTags.length ? ` (excl: ${excludedTags.join(', ')})` : '';
     console.log(`  tags    ${folderPath}  [${tags.join(', ')}]${note}`);
 }
 
 function mkDeck(name, description) {
-    const hash = decks.createDeck(name, description);
+    const hash = Decks.createDeck(name, description);
     console.log(`  deck    "${name}"`);
     return hash;
 }
@@ -176,7 +175,7 @@ function populateDeck(deckHash, entries) {
     let n = 0;
     for (const { c, docPath } of entries) {
         try {
-            decks.addEntry(deckHash, { cardHash: c.globalHash, documentPath: docPath });
+            Decks.addEntry(deckHash, { cardHash: c.globalHash, documentPath: docPath });
             n++;
         } catch (e) {
             if (!e.message?.includes('already in deck')) console.warn(`    warn: ${e.message}`);

@@ -62,4 +62,37 @@ export default [
       "line-comment-position": ["error", { position: "above" }],
     },
   },
+  {
+    files: ["src/api/**/*.js"],
+    rules: {
+      "import-x/no-restricted-paths": ["error", {
+        zones: [
+          {
+            target: "./src/api/access/primitives",
+            from: ["./src/api/access/resources", "./src/api/access/modules"],
+            message: "primitives/ is the bottom tier.",
+          },
+          {
+            target: "./src/api/access/resources",
+            from: "./src/api/access/modules",
+            message: "resources/ never imports modules/.",
+          },
+          {
+            target: "./src/api/routes",
+            from: "./src/api/access/resources",
+            message: "Routes call modules/, never resources/.",
+          },
+        ],
+      }],
+    },
+  },
+  {
+    files: ["src/api/access/modules/**/*.js", "src/api/routes/**/*.js"],
+    rules: {
+      "no-restricted-syntax": ["error", {
+        selector: "CallExpression[callee.object.name='db'][callee.property.name=/^(prepare|exec)$/]",
+        message: "Only resources/db/ queries the vault database.",
+      }],
+    },
+  },
 ];

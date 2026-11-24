@@ -45,195 +45,191 @@ function assertDate(date) {
     return date;
 }
 
-class Diary {
-    _scope(explicit) {
-        return explicit ?? currentScope();
+function _scope(explicit) {
+    return explicit ?? currentScope();
+}
+
+function _author() {
+    const config = getConfig();
+    return { name: config?.vaultName || "flashback", email: "diary@flashback.local" };
+}
+
+async function _ensureInit(scope) {
+    fs.mkdirSync(summariesDir(scope), { recursive: true });
+    fs.mkdirSync(entriesDir(scope), { recursive: true });
+    const root = diaryRoot();
+    const initialized = await git.resolveRef({ fs, dir: root, ref: "HEAD" })
+        .then(() => true)
+        .catch(() => false);
+    if (!initialized) await git.init({ fs, dir: root });
+}
+
+function _atomicWrite(absFile, content) {
+    const tmp = `${absFile}.tmp-${process.pid}-${Date.now()}`;
+    fs.writeFileSync(tmp, content);
+    fs.renameSync(tmp, absFile);
+}
+
+async function _commit(relPaths, message) {
+    const root = diaryRoot();
+    for (const p of relPaths) await git.add({ fs, dir: root, filepath: p });
+    await git.commit({ fs, dir: root, message, author: _author() });
+}
+
+async function _streakAsOf(date, scope) {
+    const DAY = 86400000;
+    const days = (await statisticsRows.getReviewActivityDays(scope)).filter(d => d <= date);
+    const daySet = new Set(days);
+    const dateMs = Date.parse(`${date}T00:00:00Z`);
+    const asStr = (ms) => new Date(ms).toISOString().slice(0, 10);
+
+    let current = 0;
+    let cursor = dateMs;
+    while (daySet.has(asStr(cursor))) { current++; cursor -= DAY; }
+
+    let longest = 0, run = 0, prev = null;
+    for (const d of days) {
+        const ms = Date.parse(`${d}T00:00:00Z`);
+        run = (prev !== null && ms - prev === DAY) ? run + 1 : 1;
+        prev = ms;
+        if (run > longest) longest = run;
     }
+    return { current, longest };
+}
 
-    _author() {
-        const config = getConfig();
-        return { name: config?.vaultName || "flashback", email: "diary@flashback.local" };
+export async function buildSummary(date, scopeArg) {
+    const scope = _scope(scopeArg);
+    assertDate(date);
+    const totals = await statisticsRows.getDayReviewTotals(date, scope);
+    const reviews = totals?.reviews ?? 0;
+    if (reviews === 0) return null;
+
+    const failed = totals.failed ?? 0;
+    const passRate = reviews > 0 ? (reviews - failed) / reviews : null;
+
+    const phase = await statisticsRows.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date, scope);
+    const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
+
+    const byDeck = (await statisticsRows.getDayByDeck(date, scope)).map(r => ({
+        deck: r.deck, reviews: r.reviews, failed: r.failed ?? 0,
+    }));
+    const byDocument = (await statisticsRows.getDayByDocument(date, scope)).map(r => ({
+        path: r.path ? r.path.replace(/\\/g, "/") : r.path, reviews: r.reviews,
+    }));
+    const struggledCards = (await statisticsRows.getDayStruggledCards(date, STRUGGLED_CAP, scope)).map(r => ({
+        globalHash: r.globalHash,
+        front: r.front ?? "(custom card)",
+        failCount: r.failCount,
+    }));
+
+    return {
+        schemaVersion: DIARY_SCHEMA_VERSION,
+        date,
+        generatedAt: new Date().toISOString(),
+        totals: {
+            reviews,
+            uniqueCards: totals.uniqueCards ?? 0,
+            newCards: await statisticsRows.getDayNewCards(date, scope),
+            failed,
+        },
+        retention: {
+            passRate,
+            reviewPassRate: rate(phase.review),
+            learningPassRate: rate(phase.learning),
+            reviewCount: phase.review.total,
+            learningCount: phase.learning.total,
+        },
+        byDeck,
+        byDocument,
+        struggledCards,
+        streak: await _streakAsOf(date, scope),
+    };
+}
+
+export async function generateSummary(date = todayLocal(), scopeArg) {
+    const scope = _scope(scopeArg);
+    assertDate(date);
+    const summary = await buildSummary(date, scope);
+    if (!summary) return null;
+    const stored = getSummary(date, scope);
+    if (stored && sameSummary(stored, summary)) return stored;
+    await _ensureInit(scope);
+    _atomicWrite(summaryAbs(date, scope), JSON.stringify(summary, null, 2) + "\n");
+    await _commit([summaryRel(date, scope)], `summary: ${summaryRel(date, scope)}`);
+    return summary;
+}
+
+export async function rebuildAll(scopeArg) {
+    const scope = _scope(scopeArg);
+    const days = await statisticsRows.getReviewActivityDays(scope);
+    let count = 0;
+    for (const day of days) {
+        const summary = await buildSummary(day, scope);
+        if (!summary) continue;
+        await _ensureInit(scope);
+        _atomicWrite(summaryAbs(day, scope), JSON.stringify(summary, null, 2) + "\n");
+        await _commit([summaryRel(day, scope)], `summary: ${summaryRel(day, scope)}`);
+        count++;
     }
+    return count;
+}
 
-    async _ensureInit(scope) {
-        fs.mkdirSync(summariesDir(scope), { recursive: true });
-        fs.mkdirSync(entriesDir(scope), { recursive: true });
-        const root = diaryRoot();
-        const initialized = await git.resolveRef({ fs, dir: root, ref: "HEAD" })
-            .then(() => true)
-            .catch(() => false);
-        if (!initialized) await git.init({ fs, dir: root });
-    }
-
-    _atomicWrite(absFile, content) {
-        const tmp = `${absFile}.tmp-${process.pid}-${Date.now()}`;
-        fs.writeFileSync(tmp, content);
-        fs.renameSync(tmp, absFile);
-    }
-
-    async _commit(relPaths, message) {
-        const root = diaryRoot();
-        for (const p of relPaths) await git.add({ fs, dir: root, filepath: p });
-        await git.commit({ fs, dir: root, message, author: this._author() });
-    }
-
-    async _streakAsOf(date, scope) {
-        const DAY = 86400000;
-        const days = (await statisticsRows.getReviewActivityDays(scope)).filter(d => d <= date);
-        const daySet = new Set(days);
-        const dateMs = Date.parse(`${date}T00:00:00Z`);
-        const asStr = (ms) => new Date(ms).toISOString().slice(0, 10);
-
-        let current = 0;
-        let cursor = dateMs;
-        while (daySet.has(asStr(cursor))) { current++; cursor -= DAY; }
-
-        let longest = 0, run = 0, prev = null;
-        for (const d of days) {
-            const ms = Date.parse(`${d}T00:00:00Z`);
-            run = (prev !== null && ms - prev === DAY) ? run + 1 : 1;
-            prev = ms;
-            if (run > longest) longest = run;
-        }
-        return { current, longest };
-    }
-
-    async buildSummary(date, scopeArg) {
-        const scope = this._scope(scopeArg);
-        assertDate(date);
-        const totals = await statisticsRows.getDayReviewTotals(date, scope);
-        const reviews = totals?.reviews ?? 0;
-        if (reviews === 0) return null;
-
-        const failed = totals.failed ?? 0;
-        const passRate = reviews > 0 ? (reviews - failed) / reviews : null;
-
-        const phase = await statisticsRows.getDayReviewTotalsByPhase(LEARNING_REVIEWS, date, scope);
-        const rate = (t) => (t.total > 0 ? t.correct / t.total : null);
-
-        const byDeck = (await statisticsRows.getDayByDeck(date, scope)).map(r => ({
-            deck: r.deck, reviews: r.reviews, failed: r.failed ?? 0,
-        }));
-        const byDocument = (await statisticsRows.getDayByDocument(date, scope)).map(r => ({
-            path: r.path ? r.path.replace(/\\/g, "/") : r.path, reviews: r.reviews,
-        }));
-        const struggledCards = (await statisticsRows.getDayStruggledCards(date, STRUGGLED_CAP, scope)).map(r => ({
-            globalHash: r.globalHash,
-            front: r.front ?? "(custom card)",
-            failCount: r.failCount,
-        }));
-
-        return {
-            schemaVersion: DIARY_SCHEMA_VERSION,
-            date,
-            generatedAt: new Date().toISOString(),
-            totals: {
-                reviews,
-                uniqueCards: totals.uniqueCards ?? 0,
-                newCards: await statisticsRows.getDayNewCards(date, scope),
-                failed,
-            },
-            retention: {
-                passRate,
-                reviewPassRate: rate(phase.review),
-                learningPassRate: rate(phase.learning),
-                reviewCount: phase.review.total,
-                learningCount: phase.learning.total,
-            },
-            byDeck,
-            byDocument,
-            struggledCards,
-            streak: await this._streakAsOf(date, scope),
-        };
-    }
-
-    async generateSummary(date = todayLocal(), scopeArg) {
-        const scope = this._scope(scopeArg);
-        assertDate(date);
-        const summary = await this.buildSummary(date, scope);
-        if (!summary) return null;
-        const stored = this.getSummary(date, scope);
-        if (stored && sameSummary(stored, summary)) return stored;
-        await this._ensureInit(scope);
-        this._atomicWrite(summaryAbs(date, scope), JSON.stringify(summary, null, 2) + "\n");
-        await this._commit([summaryRel(date, scope)], `summary: ${summaryRel(date, scope)}`);
-        return summary;
-    }
-
-    async rebuildAll(scopeArg) {
-        const scope = this._scope(scopeArg);
-        const days = await statisticsRows.getReviewActivityDays(scope);
-        let count = 0;
-        for (const day of days) {
-            const summary = await this.buildSummary(day, scope);
-            if (!summary) continue;
-            await this._ensureInit(scope);
-            this._atomicWrite(summaryAbs(day, scope), JSON.stringify(summary, null, 2) + "\n");
-            await this._commit([summaryRel(day, scope)], `summary: ${summaryRel(day, scope)}`);
-            count++;
-        }
-        return count;
-    }
-
-    getSummary(date, scopeArg) {
-        const scope = this._scope(scopeArg);
-        assertDate(date);
-        const abs = summaryAbs(date, scope);
-        if (!fs.existsSync(abs)) return null;
-        try {
-            return JSON.parse(fs.readFileSync(abs, "utf-8"));
-        } catch {
-            return null;
-        }
-    }
-
-    getEntry(date, scopeArg) {
-        const scope = this._scope(scopeArg);
-        assertDate(date);
-        const abs = entryAbs(date, scope);
-        return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
-    }
-
-    async saveEntry(date, content, scopeArg) {
-        const scope = this._scope(scopeArg);
-        assertDate(date);
-        const abs = entryAbs(date, scope);
-        const existed = fs.existsSync(abs);
-        const text = content ?? "";
-
-        if (text.trim() === "" && !existed) return { created: false, empty: true };
-
-        await this._ensureInit(scope);
-        this._atomicWrite(abs, text);
-        await this._commit([entryRel(date, scope)], `entry: ${entryRel(date, scope)}`);
-        return { created: !existed, empty: text.trim() === "" };
-    }
-
-    list({ from = null, to = null, scope: scopeArg = null } = {}) {
-        const scope = this._scope(scopeArg);
-        const dates = new Map();
-        const collect = (dir, re, key) => {
-            if (!fs.existsSync(dir)) return;
-            for (const name of fs.readdirSync(dir)) {
-                const m = name.match(re);
-                if (!m) continue;
-                const d = m[1];
-                if (from && d < from) continue;
-                if (to && d > to) continue;
-                const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null };
-                entry[key] = true;
-                try {
-                    const text = fs.readFileSync(path.join(dir, name), "utf8");
-                    if (key === "hasSummary") entry.reviews = JSON.parse(text)?.totals?.reviews ?? 0;
-                    else entry.firstLine = firstLineOf(text);
-                } catch { }
-                dates.set(d, entry);
-            }
-        };
-        collect(summariesDir(scope), /^summary-(\d{4}-\d{2}-\d{2})\.json$/, "hasSummary");
-        collect(entriesDir(scope), /^entry-(\d{4}-\d{2}-\d{2})\.md$/, "hasEntry");
-        return [...dates.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+export function getSummary(date, scopeArg) {
+    const scope = _scope(scopeArg);
+    assertDate(date);
+    const abs = summaryAbs(date, scope);
+    if (!fs.existsSync(abs)) return null;
+    try {
+        return JSON.parse(fs.readFileSync(abs, "utf-8"));
+    } catch {
+        return null;
     }
 }
 
-export default new Diary();
+export function getEntry(date, scopeArg) {
+    const scope = _scope(scopeArg);
+    assertDate(date);
+    const abs = entryAbs(date, scope);
+    return fs.existsSync(abs) ? fs.readFileSync(abs, "utf-8") : null;
+}
+
+export async function saveEntry(date, content, scopeArg) {
+    const scope = _scope(scopeArg);
+    assertDate(date);
+    const abs = entryAbs(date, scope);
+    const existed = fs.existsSync(abs);
+    const text = content ?? "";
+
+    if (text.trim() === "" && !existed) return { created: false, empty: true };
+
+    await _ensureInit(scope);
+    _atomicWrite(abs, text);
+    await _commit([entryRel(date, scope)], `entry: ${entryRel(date, scope)}`);
+    return { created: !existed, empty: text.trim() === "" };
+}
+
+export function list({ from = null, to = null, scope: scopeArg = null } = {}) {
+    const scope = _scope(scopeArg);
+    const dates = new Map();
+    const collect = (dir, re, key) => {
+        if (!fs.existsSync(dir)) return;
+        for (const name of fs.readdirSync(dir)) {
+            const m = name.match(re);
+            if (!m) continue;
+            const d = m[1];
+            if (from && d < from) continue;
+            if (to && d > to) continue;
+            const entry = dates.get(d) || { date: d, hasSummary: false, hasEntry: false, reviews: 0, firstLine: null };
+            entry[key] = true;
+            try {
+                const text = fs.readFileSync(path.join(dir, name), "utf8");
+                if (key === "hasSummary") entry.reviews = JSON.parse(text)?.totals?.reviews ?? 0;
+                else entry.firstLine = firstLineOf(text);
+            } catch { }
+            dates.set(d, entry);
+        }
+    };
+    collect(summariesDir(scope), /^summary-(\d{4}-\d{2}-\d{2})\.json$/, "hasSummary");
+    collect(entriesDir(scope), /^entry-(\d{4}-\d{2}-\d{2})\.md$/, "hasEntry");
+    return [...dates.values()].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0));
+}

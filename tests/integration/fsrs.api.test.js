@@ -5,15 +5,16 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../../src/api/config/validate.js';
-import Documents from '../../src/api/access/modules/documents.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
 import db from '../../src/api/access/primitives/database.js';
 import * as reviewRows from '../../src/api/access/resources/db/reviews.js';
 import * as sessionRows from '../../src/api/access/resources/db/sessions.js';
-import SRS from '../../src/api/access/modules/srs.js';
+import * as Srs from '../../src/api/access/modules/srs.js';
 import * as fsrs from '../../src/api/access/modules/fsrs.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { testDataDir } from '../support/testData.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
 process.env.USER_DATA_PATH = testDataDir('fsrs.api');
 
@@ -22,7 +23,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
 const ROOT = 'FsrsTestWorkspace';
 const docRel = path.join(ROOT, 'deck.md');
 
@@ -39,9 +39,9 @@ describe('FSRS review loop', () => {
     before(async () => {
         rmWorkspace();
         await sealTools.init();
-        await docs.createFolder(ROOT);
+        await Documents.createFolder(ROOT);
         hash = crypto.randomUUID();
-        await docs.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
+        await Documents.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
             globalHash: crypto.randomUUID(),
             flashcards: [{ globalHash: hash, level: 0, vanillaData: { frontText: 'Q', backText: 'A' } }],
         });
@@ -75,7 +75,7 @@ describe('FSRS review loop', () => {
     });
 
     it('a first FSRS review populates stability/difficulty/due and logs the rating', async () => {
-        await docs.submitReview(docRel, hash, null, null, null, 'fsrs', { rating: 3, requestRetention: 0.9 });
+        await Documents.submitReview(docRel, hash, null, null, null, 'fsrs', { rating: 3, requestRetention: 0.9 });
         const c = await cardRow();
         assert.ok(c.fsrs_stability > 0, 'stability set');
         assert.ok(c.fsrs_difficulty >= 1 && c.fsrs_difficulty <= 10, 'difficulty in range');
@@ -94,7 +94,7 @@ describe('FSRS review loop', () => {
     });
 
     it('leaves the sidecar alone — it no longer mirrors the FSRS state', () => {
-        const meta = docs.files.getMetadata(docRel);
+        const meta = Files.getMetadata(docRel);
         const card = meta.flashcards.find(f => f.globalHash === hash);
         assert.ok(!card.fsrsStability, 'no FSRS state was written to the file');
         assert.ok(!card.fsrsState);
@@ -119,9 +119,9 @@ describe('FSRS review loop', () => {
     });
 
     it('optimizeParameters keeps defaults (and does not persist) below the data threshold', async () => {
-        const info = await SRS.getFsrsInfo();
+        const info = await Srs.getFsrsInfo();
         assert.ok(info.reviewCount < info.minReviews, 'test vault has < 400 rated reviews');
-        const res = await SRS.optimizeParameters();
+        const res = await Srs.optimizeParameters();
         assert.equal(res.optimized, false);
         assert.equal(res.reason, 'insufficient-data');
         assert.equal(await reviewRows.getFsrsWeights('owner'), null, 'no FsrsParameters row persisted');
@@ -129,13 +129,13 @@ describe('FSRS review loop', () => {
     });
 
     it('the card curve is the same model that scheduled the card', async () => {
-        const insights = await SRS.getCardInsights(hash, { algorithm: 'fsrs' });
+        const insights = await Srs.getCardInsights(hash, { algorithm: 'fsrs' });
         assert.equal(insights.curve.model, 'fsrs');
         assert.equal(insights.curve.stabilityDays, (await cardRow()).fsrs_stability);
 
         const target = insights.curve.requestRetention;
-        const dueT = fsrs.intervalFromStability(insights.curve.stabilityDays, target, await SRS.getWeights());
-        const r = fsrs.retrievability(dueT, insights.curve.stabilityDays, await SRS.getWeights());
+        const dueT = fsrs.intervalFromStability(insights.curve.stabilityDays, target, await Srs.getWeights());
+        const r = fsrs.retrievability(dueT, insights.curve.stabilityDays, await Srs.getWeights());
         assert.ok(Math.abs(r - target) < 0.02, `retention at the due date should be ~${target}, got ${r}`);
         assert.ok(Math.abs(insights.curve.intervalDays - dueT) < 0.51,
             'the drawn due marker is the interval FSRS actually scheduled');
@@ -143,7 +143,7 @@ describe('FSRS review loop', () => {
     });
 
     it('undo restores the prior FSRS state (back to new after the only review)', async () => {
-        await docs.undoReview(docRel, hash, 'fsrs');
+        await Documents.undoReview(docRel, hash, 'fsrs');
         const c = await cardRow();
         assert.equal(c.fsrs_state, 0, 'reverted to new');
         assert.equal(c.fsrs_stability, null, 'stability cleared');

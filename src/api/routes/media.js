@@ -1,12 +1,10 @@
 import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
-import Media from '../access/modules/media.js';
-import Documents from '../access/modules/documents.js';
+import * as Media from '../access/modules/media.js';
+import * as Documents from '../access/modules/documents.js';
 
 const router = Router();
-const media = new Media();
-const docs = new Documents();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => p ? path.normalize(p) : p;
@@ -22,13 +20,13 @@ const catchError = fn => (req, res, next) =>
 router.get('/', catchError(async (req, res) => {
     const { hash } = req.query;
     if (!hash) return res.status(400).json({ error: 'hash required' });
-    const entry = await media.serve(hash);
+    const entry = await Media.serve(hash);
     res.sendFile(entry.absolute_path);
 }));
 
 router.get('/list', catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? '');
-    const items = await media.list(folderPath);
+    const items = await Media.list(folderPath);
     // eslint-disable-next-line no-unused-vars
     res.json(items.map(({ absolutePath, ...rest }) => rest));
 }));
@@ -37,7 +35,7 @@ router.get('/file', catchError((req, res) => {
     const docPath = norm(req.query.docPath);
     const { name } = req.query;
     if (!docPath || !name) return res.status(400).json({ error: 'docPath and name required' });
-    res.sendFile(media.serveByPath(docPath, name));
+    res.sendFile(Media.serveByPath(docPath, name));
 }));
 
 const VANILLA_MEDIA_FIELDS = {
@@ -68,7 +66,7 @@ router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
             if (f) mediaItems.push({ buffer: f.buffer, originalName: f.originalname, ...meta });
         }
 
-        const card = await docs.createFlashcard(norm(docPath), cardData, mediaItems);
+        const card = await Documents.createFlashcard(norm(docPath), cardData, mediaItems);
         return res.status(201).json({ ok: true, card });
     }
 
@@ -77,7 +75,7 @@ router.post('/vanilla', vanillaUpload, catchError(async (req, res) => {
     if (!file || !flashcardHash || !name || !type || !position) {
         return res.status(400).json({ error: 'file, docPath, flashcardHash, name, type, and position required' });
     }
-    await media.addVanillaMedia(norm(docPath), flashcardHash, file.buffer, name, type, position);
+    await Media.addVanillaMedia(norm(docPath), flashcardHash, file.buffer, name, type, position);
     res.status(201).json({ ok: true });
 }));
 
@@ -86,20 +84,20 @@ router.post('/custom', upload.single('file'), catchError(async (req, res) => {
     if (!req.file || !docPath || !flashcardHash || !name) {
         return res.status(400).json({ error: 'file, docPath, flashcardHash, and name required' });
     }
-    await docs.addMediaToFlashcard(norm(docPath), flashcardHash, req.file.buffer, name);
+    await Documents.addMediaToFlashcard(norm(docPath), flashcardHash, req.file.buffer, name);
     res.status(201).json({ ok: true });
 }));
 
 router.delete('/', catchError(async (req, res) => {
     const { docPath, mediaName } = req.body;
     if (!docPath || !mediaName) return res.status(400).json({ error: 'docPath and mediaName required' });
-    await media.removeMedia(norm(docPath), mediaName);
+    await Media.removeMedia(norm(docPath), mediaName);
     res.json({ ok: true });
 }));
 
 router.post('/reconcile', catchError(async (req, res) => {
     const folderPath = norm(req.body.folderPath ?? '');
-    const orphans = await media.reconcile(folderPath);
+    const orphans = await Media.reconcile(folderPath);
     res.json({ removed: orphans.length, orphans });
 }));
 

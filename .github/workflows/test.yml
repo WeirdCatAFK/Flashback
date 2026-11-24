@@ -27,7 +27,7 @@ jobs:
       - run: npm run tests
 
   lint:
-    name: Lint (advisory)
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,4 +38,3 @@ jobs:
       - run: npm ci
 
       - run: npm run lint
-        continue-on-error: true

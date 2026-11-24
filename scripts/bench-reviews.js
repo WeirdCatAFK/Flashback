@@ -31,7 +31,7 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../src/api/access/modules/documents.js');
+const Documents = await import('../src/api/access/modules/documents.js');
 const { default: db } = await import('../src/api/access/primitives/database.js');
 const accounts = await import('../src/api/access/primitives/accounts.js');
 const { ensureManifest } = await import('../src/api/access/primitives/vault.js');
@@ -46,7 +46,6 @@ const fmt = (n, digits = 1) => n.toFixed(digits).padStart(8);
 
 
 const AUTHOR_TOKEN = 'bench-author-token-0123456789abcdef';
-const docs = new Documents();
 
 function folderChain(depth) {
     const parts = ['Bench'];
@@ -63,12 +62,12 @@ async function seed() {
     const parts = folderChain(DEPTH);
     let parent = '';
     for (const part of parts) {
-        await docs.createFolder(part, parent);
+        await Documents.createFolder(part, parent);
         parent = parent ? path.join(parent, part) : part;
     }
 
     const hashes = Array.from({ length: CARDS }, () => crypto.randomUUID());
-    await docs.importFile('deck.md', parent, Buffer.from('# Bench'), {
+    await Documents.importFile('deck.md', parent, Buffer.from('# Bench'), {
         globalHash: crypto.randomUUID(),
         flashcards: hashes.map((h, i) => ({
             globalHash: h,

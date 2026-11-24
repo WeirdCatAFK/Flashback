@@ -1,16 +1,14 @@
 import { Router } from 'express';
 import multer from 'multer';
-import Decks from '../access/modules/decks.js';
+import * as Decks from '../access/modules/decks.js';
 import { COVER_TYPES, MAX_COVER_BYTES } from '../../shared/covers.js';
-import Documents from '../access/modules/documents.js';
+import * as Documents from '../access/modules/documents.js';
 import { FLAG_KINDS } from '../access/modules/cardHealth.js';
 import { GAP_BANDS } from '../access/modules/srs.js';
 import { isDeckColor } from '../../shared/deckColors.js';
 
 const router = Router();
 const coverUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_COVER_BYTES } });
-const decks = new Decks();
-const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
@@ -40,13 +38,13 @@ const sourceFrom = (q) => {
 const algorithmFrom = (q) => (['leitner', 'sm2', 'fsrs'].includes(q.algorithm) ? q.algorithm : null);
 
 router.get('/', catchError(async (req, res) => {
-    res.json(await decks.listDecks({ algorithm: algorithmFrom(req.query) }));
+    res.json(await Decks.listDecks({ algorithm: algorithmFrom(req.query) }));
 }));
 
 router.post('/', catchError(async (req, res) => {
     const { name, description = '' } = req.body;
     if (!name) return res.status(400).json({ error: 'name required' });
-    const globalHash = await decks.createDeck(name, description);
+    const globalHash = await Decks.createDeck(name, description);
     res.status(201).json({ globalHash });
 }));
 
@@ -69,17 +67,17 @@ router.get('/cards', catchError(async (req, res) => {
     const groupBy = ['gap', 'source'].includes(req.query.groupBy) ? req.query.groupBy : null;
     const anchor = ['highlight', 'missing', 'none'].includes(req.query.anchor) ? req.query.anchor : null;
     const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
-    const { cards, total, groups } = await decks.searchCards({ ...filters, band, algorithm, groupBy, sortBy, sortDir, limit, offset });
+    const { cards, total, groups } = await Decks.searchCards({ ...filters, band, algorithm, groupBy, sortBy, sortDir, limit, offset });
     res.json({ cards, total, limit, offset, ...(groups ? { groups } : {}) });
 }));
 
 router.get('/cards/summary', catchError(async (req, res) => {
     const algorithm = ['leitner', 'sm2', 'fsrs'].includes(req.query.algorithm) ? req.query.algorithm : null;
-    res.json(await decks.catalogueSummary({ algorithm }));
+    res.json(await Decks.catalogueSummary({ algorithm }));
 }));
 
 router.get('/:hash', catchError(async (req, res) => {
-    res.json(await decks.getDeck(req.params.hash, { algorithm: algorithmFrom(req.query) }));
+    res.json(await Decks.getDeck(req.params.hash, { algorithm: algorithmFrom(req.query) }));
 }));
 
 router.put('/:hash', catchError(async (req, res) => {
@@ -87,12 +85,12 @@ router.put('/:hash', catchError(async (req, res) => {
     if (color !== undefined && color !== null && !isDeckColor(color)) {
         return res.status(400).json({ error: `Unknown deck colour: ${color}` });
     }
-    await decks.updateDeck(req.params.hash, { name, description, color });
+    await Decks.updateDeck(req.params.hash, { name, description, color });
     res.json({ ok: true });
 }));
 
 router.get('/:hash/cover', catchError(async (req, res) => {
-    const { absPath, mime } = await decks.coverImage(req.params.hash);
+    const { absPath, mime } = await Decks.coverImage(req.params.hash);
     res.type(mime).sendFile(absPath);
 }));
 
@@ -102,62 +100,62 @@ router.post('/:hash/cover', (req, res, next) => coverUpload.single('file')(req, 
 }), catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: 'file required' });
     if (!COVER_TYPES[req.file.mimetype]) return res.status(400).json({ error: `Unsupported cover type: ${req.file.mimetype}` });
-    res.status(201).json({ cover: await decks.uploadCover(req.params.hash, req.file.buffer, req.file.mimetype) });
+    res.status(201).json({ cover: await Decks.uploadCover(req.params.hash, req.file.buffer, req.file.mimetype) });
 }));
 
 router.put('/:hash/cover', catchError(async (req, res) => {
     const { pattern, y } = req.body ?? {};
     if (pattern === undefined && y === undefined) return res.status(400).json({ error: 'pattern or y required' });
-    res.json({ cover: await decks.setCover(req.params.hash, pattern !== undefined ? { pattern } : { y }) });
+    res.json({ cover: await Decks.setCover(req.params.hash, pattern !== undefined ? { pattern } : { y }) });
 }));
 
 router.delete('/:hash/cover', catchError(async (req, res) => {
-    await decks.setCover(req.params.hash, null);
+    await Decks.setCover(req.params.hash, null);
     res.json({ ok: true });
 }));
 
 router.delete('/:hash', catchError(async (req, res) => {
-    await decks.deleteDeck(req.params.hash);
+    await Decks.deleteDeck(req.params.hash);
     res.json({ ok: true });
 }));
 
 router.get('/:hash/contents', catchError(async (req, res) => {
-    res.json(await decks.getContentsSummary(req.params.hash));
+    res.json(await Decks.getContentsSummary(req.params.hash));
 }));
 
 router.post('/:hash/purge', catchError(async (req, res) => {
     const includeShared = req.body?.includeShared === true;
     const { hash } = req.params;
 
-    const { standalone, anchored, kept } = await decks.getPurgeTargets(hash, { includeShared });
+    const { standalone, anchored, kept } = await Decks.getPurgeTargets(hash, { includeShared });
 
     for (const cardHash of standalone) {
-        await decks.deleteStandaloneCard(cardHash);
+        await Decks.deleteStandaloneCard(cardHash);
     }
     for (const { hash: cardHash, documentPath } of anchored) {
-        await decks.removeCardEverywhere(cardHash);
-        await docs.deleteFlashcard(documentPath, cardHash);
+        await Decks.removeCardEverywhere(cardHash);
+        await Documents.deleteFlashcard(documentPath, cardHash);
     }
 
-    await decks.deleteDeck(hash);
+    await Decks.deleteDeck(hash);
     res.json({ ok: true, deleted: standalone.length + anchored.length, kept });
 }));
 
 router.put('/:hash/tags', catchError(async (req, res) => {
     const tags = Array.isArray(req.body?.tags) ? req.body.tags : [];
-    const saved = await decks.setTags(req.params.hash, tags);
+    const saved = await Decks.setTags(req.params.hash, tags);
     res.json({ ok: true, tags: saved });
 }));
 
 router.post('/:hash/entries', catchError(async (req, res) => {
     const { cardHash, documentPath, inlineCard } = req.body;
     if (!cardHash) return res.status(400).json({ error: 'cardHash required' });
-    await decks.addEntry(req.params.hash, { cardHash, documentPath, inlineCard });
+    await Decks.addEntry(req.params.hash, { cardHash, documentPath, inlineCard });
     res.status(201).json({ ok: true });
 }));
 
 router.delete('/:hash/entries/:cardHash', catchError(async (req, res) => {
-    await decks.removeEntry(req.params.hash, req.params.cardHash);
+    await Decks.removeEntry(req.params.hash, req.params.cardHash);
     res.json({ ok: true });
 }));
 

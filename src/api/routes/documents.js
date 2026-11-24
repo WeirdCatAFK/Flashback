@@ -4,23 +4,17 @@ import os from "os";
 import path from "path";
 import fs from "fs/promises";
 import crypto from "crypto";
-import Documents from "../access/modules/documents.js";
-import Decks from "../access/modules/decks.js";
+import * as Documents from '../access/modules/documents.js';
+import * as Decks from '../access/modules/decks.js';
 import { cleanTagName } from "../../shared/tagNames.js";
-import { EDITABLE_BODY_EXTENSIONS } from "../access/resources/files.js";
 import { MAX_COVER_BYTES } from "../../shared/covers.js";
-import * as documentRows from '../access/resources/db/documents.js';
-import * as folderRows from '../access/resources/db/folders.js';
-import * as tagRows from '../access/resources/db/tags.js';
 
 const router = Router();
-const docs = new Documents();
 const upload = multer({ storage: multer.memoryStorage() });
 
 const norm = (p) => (p ? path.normalize(p) : p);
 
-const EDITABLE_EXTENSIONS = EDITABLE_BODY_EXTENSIONS;
-const isEditableBody = (relPath) => EDITABLE_EXTENSIONS.has(path.extname(relPath).toLowerCase());
+const isEditableBody = (relPath) => Documents.EDITABLE_BODY_EXTENSIONS.has(path.extname(relPath).toLowerCase());
 
 const CONFLICT_PHRASES = ['already exists', 'already in use'];
 const CLIENT_ERROR_PHRASES = ['Cannot create .flashback', 'Cannot overwrite the binary file', 'Invalid YouTube URL', 'Invalid URL', 'Failed to fetch', 'File not found'];
@@ -45,7 +39,7 @@ router.get(
   "/list",
   catchError(async (req, res) => {
     const folderPath = norm(req.query.path ?? "");
-    res.json(await docs.listFolder(folderPath));
+    res.json(await Documents.listFolder(folderPath));
   }),
 );
 
@@ -54,9 +48,7 @@ router.get(
   catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const { content, encoding, binary, size } = docs.files.readFile(relPath);
-    const metadata = docs.files.getMetadata(relPath);
-    res.json({ content, encoding, binary, size, metadata, etag: docs.files.etag(relPath) });
+    res.json(Documents.readEntry(relPath));
   }),
 );
 
@@ -65,8 +57,7 @@ router.get(
   catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const absPath = docs.files.safePath(relPath);
-    res.sendFile(absPath);
+    res.sendFile(Documents.absolutePath(relPath));
   }),
 );
 
@@ -75,7 +66,7 @@ router.get(
   catchError(async (req, res) => {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: "q required" });
-    res.json(await docs.search(q));
+    res.json(await Documents.search(q));
   }),
 );
 
@@ -85,7 +76,7 @@ router.get(
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: "q required" });
     const limit = Math.min(parseInt(req.query.limit ?? "20", 10), 100);
-    res.json(await docs.searchContent(q, limit));
+    res.json(await Documents.searchContent(q, limit));
   }),
 );
 
@@ -95,7 +86,7 @@ router.get(
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     try {
-      res.json(await docs.getLinks(relPath));
+      res.json(await Documents.getLinks(relPath));
     } catch (err) {
       if (err.message?.includes("not found")) return res.status(404).json({ error: err.message });
       throw err;
@@ -106,21 +97,21 @@ router.get(
 router.get(
   "/graph",
   catchError(async (req, res) => {
-    res.json(await docs.getGraphData());
+    res.json(await Documents.getGraphData());
   }),
 );
 
 router.get(
   "/tags",
   catchError(async (req, res) => {
-    res.json({ tags: await tagRows.getAll() });
+    res.json({ tags: await Documents.listTags() });
   }),
 );
 
 router.get(
   "/tags/overview",
   catchError(async (req, res) => {
-    res.json({ tags: await tagRows.getOverview() });
+    res.json({ tags: await Documents.tagOverview() });
   }),
 );
 
@@ -132,8 +123,8 @@ router.post(
     if (!from) return res.status(400).json({ error: "from required" });
     if (to === "") return res.status(400).json({ error: "to must not be empty" });
     if (to === from) return res.json({ from, to, sidecars: 0, decks: 0 });
-    const sidecars = await docs.rewriteTag(from, to);
-    const decks = await new Decks().rewriteTag(from, to);
+    const sidecars = await Documents.rewriteTag(from, to);
+    const decks = await Decks.rewriteTag(from, to);
     res.json({ from, to, sidecars, decks });
   }),
 );
@@ -141,7 +132,7 @@ router.post(
 router.get(
   "/tags/usage",
   catchError(async (req, res) => {
-    res.json({ tags: await tagRows.getWithCounts() });
+    res.json({ tags: await Documents.tagUsage() });
   }),
 );
 
@@ -152,17 +143,9 @@ router.get(
     if (!relPath) return res.status(400).json({ error: "path required" });
     const isFolder = req.query.isFolder === "true";
 
-    const entity = isFolder
-      ? await folderRows.getByPath(relPath)
-      : await documentRows.getByPath(relPath);
-    if (!entity) return res.status(404).json({ error: "entity not found" });
-
-    const inherited = await tagRows.getInheritedNames(entity.node_id);
-    const direct    = await tagRows.getDirectNames(entity.node_id);
-    const sidecar   = docs.files.getMetadata(relPath, isFolder) || {};
-    const excluded  = sidecar.excludedTags || [];
-
-    res.json({ direct, inherited, excluded });
+    const tags = await Documents.entityTags(relPath, isFolder);
+    if (!tags) return res.status(404).json({ error: "entity not found" });
+    res.json(tags);
   }),
 );
 
@@ -172,11 +155,10 @@ router.get(
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     const isFolder = req.query.isFolder === "true";
-    const sidecar = docs.files.getMetadata(relPath, isFolder);
-    if (!sidecar) return res.status(404).json({ error: "sidecar not found" });
-    const etag = docs.files.etag(relPath, isFolder);
-    if (etag) res.set("ETag", etag);
-    res.json(sidecar);
+    const found = Documents.readSidecar(relPath, isFolder);
+    if (!found) return res.status(404).json({ error: "sidecar not found" });
+    if (found.etag) res.set("ETag", found.etag);
+    res.json(found.sidecar);
   }),
 );
 
@@ -185,7 +167,7 @@ router.get(
   catchError((req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const zipPath = docs.exportPackage(relPath);
+    const zipPath = Documents.exportPackage(relPath);
     res.download(zipPath, path.basename(zipPath));
   }),
 );
@@ -195,7 +177,7 @@ router.post(
   catchError(async (req, res) => {
     const { name, parentPath = "" } = req.body;
     if (!name) return res.status(400).json({ error: "name required" });
-    await docs.createFolder(name, norm(parentPath));
+    await Documents.createFolder(name, norm(parentPath));
     res.status(201).json({ ok: true });
   }),
 );
@@ -205,7 +187,7 @@ router.post(
   catchError(async (req, res) => {
     const { name, parentPath = "" } = req.body;
     if (!name) return res.status(400).json({ error: "name required" });
-    await docs.createFile(name, norm(parentPath));
+    await Documents.createFile(name, norm(parentPath));
     res.status(201).json({ ok: true });
   }),
 );
@@ -217,12 +199,12 @@ router.put(
     if (!relPath) return res.status(400).json({ error: "path required" });
     if (req.body.content != null && !isEditableBody(relPath)) {
       return res.status(400).json({
-        error: `Only ${[...EDITABLE_EXTENSIONS].join(', ')} documents have editable bodies; ` +
+        error: `Only ${[...Documents.EDITABLE_BODY_EXTENSIONS].join(', ')} documents have editable bodies; ` +
           `${path.extname(relPath) || 'this format'} is read-only in the app. ` +
           `Its flashcards, tags and highlights are edited through its sidecar (PUT /api/documents/metadata).`,
       });
     }
-    const { etag } = await docs.updateFile(
+    const { etag } = await Documents.updateFile(
       relPath, req.body.content, req.body.metadata, { ifMatch: req.body.ifMatch });
     res.json({ ok: true, etag });
   }),
@@ -233,7 +215,7 @@ router.put(
   catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const { etag } = await docs.updateMetadata(
+    const { etag } = await Documents.updateMetadata(
       relPath,
       req.body.metadata,
       req.body.isFolder ?? false,
@@ -255,7 +237,7 @@ router.post(
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
     if (!req.file) return res.status(400).json({ error: "file required" });
-    const cover = await docs.uploadCover(relPath, req.file.buffer, req.file.mimetype);
+    const cover = await Documents.uploadCover(relPath, req.file.buffer, req.file.mimetype);
     res.status(201).json({ cover });
   }),
 );
@@ -267,7 +249,7 @@ router.put(
     const { pattern, y } = req.body;
     if (!relPath) return res.status(400).json({ error: "path required" });
     if (pattern === undefined && y === undefined) return res.status(400).json({ error: "pattern or y required" });
-    res.json({ cover: await docs.setCover(relPath, pattern !== undefined ? { pattern } : { y }) });
+    res.json({ cover: await Documents.setCover(relPath, pattern !== undefined ? { pattern } : { y }) });
   }),
 );
 
@@ -276,7 +258,7 @@ router.delete(
   catchError(async (req, res) => {
     const relPath = norm(req.body?.path ?? req.query.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    await docs.setCover(relPath, null);
+    await Documents.setCover(relPath, null);
     res.json({ ok: true });
   }),
 );
@@ -286,7 +268,7 @@ router.delete(
   catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: "path required" });
-    await docs.delete(relPath, req.body.isFolder ?? false);
+    await Documents.remove(relPath, req.body.isFolder ?? false);
     res.json({ ok: true });
   }),
 );
@@ -298,7 +280,7 @@ router.post(
     const destPath = norm(req.body.destPath);
     if (!srcPath || !destPath)
       return res.status(400).json({ error: "srcPath and destPath required" });
-    await docs.move(srcPath, destPath, req.body.isFolder ?? false);
+    await Documents.move(srcPath, destPath, req.body.isFolder ?? false);
     res.json({ ok: true });
   }),
 );
@@ -310,7 +292,7 @@ router.post(
     const destPath = norm(req.body.destPath);
     if (!srcPath || !destPath)
       return res.status(400).json({ error: "srcPath and destPath required" });
-    await docs.copy(srcPath, destPath, req.body.isFolder ?? false);
+    await Documents.copy(srcPath, destPath, req.body.isFolder ?? false);
     res.json({ ok: true });
   }),
 );
@@ -322,7 +304,7 @@ router.post(
     const { newName, isFolder = false } = req.body;
     if (!relPath || !newName)
       return res.status(400).json({ error: "path and newName required" });
-    await docs.rename(relPath, newName, isFolder);
+    await Documents.rename(relPath, newName, isFolder);
     res.json({ ok: true });
   }),
 );
@@ -334,7 +316,7 @@ router.post(
     const { name, parentPath = "" } = req.body;
     if (!req.file || !name)
       return res.status(400).json({ error: "file and name required" });
-    await docs.importFile(name, norm(parentPath), req.file.buffer, {});
+    await Documents.importFile(name, norm(parentPath), req.file.buffer, {});
     res.status(201).json({ ok: true });
   }),
 );
@@ -344,7 +326,7 @@ router.post(
   catchError(async (req, res) => {
     const { url, parentPath = "" } = req.body ?? {};
     if (!url) return res.status(400).json({ error: "url required" });
-    const result = await docs.createYoutube(url, norm(parentPath));
+    const result = await Documents.createYoutube(url, norm(parentPath));
     res.status(201).json(result);
   }),
 );
@@ -354,7 +336,7 @@ router.post(
   catchError(async (req, res) => {
     const { url, parentPath = "" } = req.body ?? {};
     if (!url) return res.status(400).json({ error: "url required" });
-    const result = await docs.createClip(url, norm(parentPath));
+    const result = await Documents.createClip(url, norm(parentPath));
     res.status(201).json(result);
   }),
 );
@@ -364,7 +346,7 @@ router.put(
   catchError(async (req, res) => {
     const { path: relPath, url } = req.body ?? {};
     if (!relPath || !url) return res.status(400).json({ error: "path and url required" });
-    const result = await docs.setYoutubeSource(norm(relPath), url);
+    const result = await Documents.setYoutubeSource(norm(relPath), url);
     res.json(result);
   }),
 );
@@ -374,7 +356,7 @@ router.post(
   catchError(async (req, res) => {
     const { path: relPath, lang } = req.body ?? {};
     if (!relPath) return res.status(400).json({ error: "path required" });
-    const result = await docs.fetchYoutubeTranscript(norm(relPath), { lang });
+    const result = await Documents.fetchYoutubeTranscript(norm(relPath), { lang });
     res.json(result);
   }),
 );
@@ -384,7 +366,7 @@ router.put(
   catchError(async (req, res) => {
     const { path: relPath, url } = req.body ?? {};
     if (!relPath || !url) return res.status(400).json({ error: "path and url required" });
-    const result = await docs.setClipSource(norm(relPath), url);
+    const result = await Documents.setClipSource(norm(relPath), url);
     res.json(result);
   }),
 );
@@ -394,7 +376,7 @@ router.post(
   catchError(async (req, res) => {
     const { path: relPath, href } = req.body ?? {};
     if (!relPath || !href) return res.status(400).json({ error: "path and href required" });
-    const result = await docs.saveClipAsset(norm(relPath), href);
+    const result = await Documents.saveClipAsset(norm(relPath), href);
     res.json(result);
   }),
 );
@@ -430,9 +412,8 @@ router.post(
       }
 
       if (isAnki) {
-        const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
-        const importer = new AnkiImport();
-        const report = await importer.analyze(req.file.buffer);
+        const AnkiImport = await import('../access/modules/ankiImport.js');
+        const report = await AnkiImport.analyze(req.file.buffer);
         return res.status(200).json({ ...report, needsMapping: true });
       }
 
@@ -444,13 +425,12 @@ router.post(
       }
 
       if (isObsidian) {
-        const { default: ObsidianImport } = await import("../access/modules/obsidianImport.js");
-        const importer = new ObsidianImport();
-        const result = await importer.importVault(req.file.buffer, targetPath);
+        const ObsidianImport = await import('../access/modules/obsidianImport.js');
+        const result = await ObsidianImport.importVault(req.file.buffer, targetPath);
         return res.status(201).json(result);
       }
 
-      await docs.processZipPackage(tempPath, targetPath);
+      await Documents.processZipPackage(tempPath, targetPath);
       res.status(201).json({ ok: true });
     } finally {
       await fs.rm(tempPath, { force: true });
@@ -463,9 +443,8 @@ router.post(
   upload.single("file"),
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
-    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
-    const importer = new AnkiImport();
-    res.status(200).json(await importer.analyze(req.file.buffer));
+    const AnkiImport = await import('../access/modules/ankiImport.js');
+    res.status(200).json(await AnkiImport.analyze(req.file.buffer));
   }),
 );
 
@@ -475,8 +454,8 @@ router.get(
     const { sessionId, name } = req.query;
     if (!sessionId || !name) return res.status(400).json({ error: "sessionId and name required" });
 
-    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
-    const asset = new AnkiImport().readSessionMedia(String(sessionId), String(name));
+    const AnkiImport = await import('../access/modules/ankiImport.js');
+    const asset = AnkiImport.readSessionMedia(String(sessionId), String(name));
     if (!asset) return res.status(404).json({ error: "asset not found in import session" });
 
     res.type(path.extname(asset.filename) || "application/octet-stream").send(asset.buffer);
@@ -500,9 +479,8 @@ router.post(
       }
     }
 
-    const { default: AnkiImport } = await import("../access/modules/ankiImport.js");
-    const importer = new AnkiImport();
-    const result = await importer.importApkg(req.file?.buffer ?? null, targetPath, mapping, sessionId);
+    const AnkiImport = await import('../access/modules/ankiImport.js');
+    const result = await AnkiImport.importApkg(req.file?.buffer ?? null, targetPath, mapping, sessionId);
     res.status(201).json(result);
   }),
 );
@@ -513,9 +491,8 @@ router.post(
   catchError(async (req, res) => {
     if (!req.file) return res.status(400).json({ error: "file required" });
     const targetPath = norm(req.body.targetPath ?? "");
-    const { default: ObsidianImport } = await import("../access/modules/obsidianImport.js");
-    const importer = new ObsidianImport();
-    const result = await importer.importVault(req.file.buffer, targetPath);
+    const ObsidianImport = await import('../access/modules/obsidianImport.js');
+    const result = await ObsidianImport.importVault(req.file.buffer, targetPath);
     res.status(201).json(result);
   }),
 );
@@ -523,7 +500,7 @@ router.post(
 router.get(
   '/by-hash/:hash',
   catchError(async (req, res) => {
-    const doc = await documentRows.getByHash(req.params.hash);
+    const doc = await Documents.getByHash(req.params.hash);
     if (!doc) return res.status(404).json({ error: 'Document not found' });
     res.json({ relativePath: doc.relative_path, name: doc.name });
   }),
@@ -534,7 +511,7 @@ router.post(
   catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    await docs.syncDocumentLinks(relPath);
+    await Documents.syncDocumentLinks(relPath);
     res.json({ ok: true });
   }),
 );

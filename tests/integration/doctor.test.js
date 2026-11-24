@@ -16,9 +16,9 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
-const { default: Doctor } = await import('../../src/api/access/modules/doctor.js');
-const { default: Decks } = await import('../../src/api/access/modules/decks.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
+const Doctor = await import('../../src/api/access/modules/doctor.js');
+const Decks = await import('../../src/api/access/modules/decks.js');
 const cardProgressRows = await import('../../src/api/access/resources/db/cardProgress.js');
 const categoryRows = await import('../../src/api/access/resources/db/categories.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
@@ -34,9 +34,6 @@ const { default: db } = await import('../../src/api/access/primitives/database.j
 const { sealTools, sealEmitter } = await import('../../src/api/seal/seal.js');
 const { getWorkspacePath } = await import('../../src/api/access/primitives/config.js');
 
-const docs = new Documents();
-const doctor = new Doctor();
-const decks = new Decks();
 const workspace = getWorkspacePath();
 const TEST_ROOT = 'DoctorTests';
 
@@ -47,9 +44,9 @@ const writeSidecar = (relPath, data) => fs.writeFileSync(abs(relPath + '.flashba
 describe('Vault Doctor', () => {
 
     before(async () => {
-        try { if (docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch {  }
+        try { if (Documents.exists(TEST_ROOT, true, true)) await Documents.remove(TEST_ROOT, true); } catch {  }
         await sealTools.init();
-        await docs.createFolder(TEST_ROOT);
+        await Documents.createFolder(TEST_ROOT);
     });
 
     after(async () => {
@@ -64,7 +61,7 @@ describe('Vault Doctor', () => {
 
     describe('checkIndex on a clean vault', () => {
         it('reports integrity ok and no issues', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.equal(report.db.integrity, 'ok');
             assert.deepEqual(report.documents.missingInDb, []);
             assert.deepEqual(report.documents.orphanedInDb, []);
@@ -92,7 +89,7 @@ describe('Vault Doctor', () => {
         });
 
         it('checkIndex reports the document and ghost folder as missing from the index', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.documents.missingInDb.some(p => p.includes('Added.md')));
             assert.ok(report.folders.missingInDb.some(p => p.includes('OobFolder')));
             assert.ok(report.folders.ghostDirs.some(p => p.includes('OobFolder')));
@@ -100,7 +97,7 @@ describe('Vault Doctor', () => {
 
         it('syncIndex indexes it with cards, tags, and parent folder, and seals one reconcile commit', async () => {
             const logBefore = (await sealTools.log()).length;
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
 
             assert.ok(result.actions.documentsIndexed >= 1, 'document should be indexed');
             assert.ok(result.actions.foldersIndexed >= 1, 'ghost folder should be indexed');
@@ -131,8 +128,8 @@ describe('Vault Doctor', () => {
         const newHash = crypto.randomUUID();
 
         before(async () => {
-            await docs.createFile('Modified.md', TEST_ROOT);
-            await docs.updateFile(rel, '# Modified', {
+            await Documents.createFile('Modified.md', TEST_ROOT);
+            await Documents.updateFile(rel, '# Modified', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [
                     { globalHash: keepHash, level: 1, vanillaData: { frontText: 'keep', backText: 'a' } },
@@ -149,7 +146,7 @@ describe('Vault Doctor', () => {
         });
 
         it('checkIndex flags it as modified with reasons', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             const entry = report.documents.modified.find(m => m.relPath.includes('Modified.md'));
             assert.ok(entry, 'document flagged as modified');
             assert.ok(entry.reasons.includes('cardSetChanged'));
@@ -157,7 +154,7 @@ describe('Vault Doctor', () => {
         });
 
         it('ignores the sidecar for a card that already has a schedule, and seeds the new one', async () => {
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             assert.ok(result.actions.documentsReindexed >= 1);
 
             const doc = await documentRows.getByPath(rel);
@@ -177,9 +174,9 @@ describe('Vault Doctor', () => {
         const nestedRel = path.join(folderRel, 'Nested.md');
 
         before(async () => {
-            await docs.createFile('Doomed.md', TEST_ROOT);
-            await docs.createFolder('DoomedFolder', TEST_ROOT);
-            await docs.importFile('Nested.md', folderRel, '# nested', {
+            await Documents.createFile('Doomed.md', TEST_ROOT);
+            await Documents.createFolder('DoomedFolder', TEST_ROOT);
+            await Documents.importFile('Nested.md', folderRel, '# nested', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: crypto.randomUUID(), vanillaData: { frontText: 'q', backText: 'a' } }],
             });
@@ -191,7 +188,7 @@ describe('Vault Doctor', () => {
         });
 
         it('checkIndex reports the orphaned rows', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.documents.orphanedInDb.some(p => p.includes('Doomed.md')));
             assert.ok(report.folders.orphanedInDb.some(p => p.includes('DoomedFolder')));
         });
@@ -200,7 +197,7 @@ describe('Vault Doctor', () => {
             const nestedDocId = (await documentRows.getByPath(nestedRel))?.id;
             assert.ok(nestedDocId, 'nested doc indexed before sync');
 
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             assert.ok(result.actions.documentsRemoved >= 1 || result.actions.foldersRemoved >= 1);
 
             assert.equal(await documentRows.getByPath(fileRel), undefined);
@@ -221,8 +218,8 @@ describe('Vault Doctor', () => {
         let snapshotRef;
 
         before(async () => {
-            await docs.createFile('Rollback.md', TEST_ROOT);
-            await docs.updateFile(rel, '# v1', {
+            await Documents.createFile('Rollback.md', TEST_ROOT);
+            await Documents.updateFile(rel, '# v1', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: v1Hash, vanillaData: { frontText: 'v1', backText: 'a' } }],
             });
@@ -230,7 +227,7 @@ describe('Vault Doctor', () => {
             snapshotRef = (await sealTools.log())[0].oid;
 
             const sidecar = readSidecar(rel);
-            await docs.updateFile(rel, '# v2', {
+            await Documents.updateFile(rel, '# v2', {
                 ...sidecar,
                 flashcards: [...sidecar.flashcards, { globalHash: v2Hash, vanillaData: { frontText: 'v2', backText: 'b' } }],
             });
@@ -242,7 +239,7 @@ describe('Vault Doctor', () => {
             const drift = await sealTools.inspect();
             assert.deepEqual(drift, { added: [], modified: [], deleted: [] }, 'HEAD == workdir after rollback');
 
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             const entry = report.documents.modified.find(m => m.relPath.includes('Rollback.md'));
             assert.ok(entry, 'checkIndex detects the DB is ahead of the rolled-back sidecar');
             assert.ok(entry.reasons.includes('cardSetChanged'));
@@ -250,7 +247,7 @@ describe('Vault Doctor', () => {
 
         it('syncIndex fixes the index without creating any commit', async () => {
             const logBefore = (await sealTools.log()).length;
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
 
             const doc = await documentRows.getByPath(rel);
             const cards = await flashcardRows.getByDocument(doc.id, 'owner');
@@ -272,10 +269,10 @@ describe('Vault Doctor', () => {
         });
 
         it('syncIndex registers an unregistered media file with its sha256', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.media.unregistered.some(p => p.includes('loose.png')));
 
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             assert.ok(result.actions.mediaRegistered >= 1);
 
             const expected = crypto.createHash('sha256').update(Buffer.from('fake-png-bytes')).digest('hex');
@@ -284,10 +281,10 @@ describe('Vault Doctor', () => {
 
         it('syncIndex drops the row once the file disappears', async () => {
             fs.unlinkSync(abs(fileRel));
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.media.missingOnDisk.some(p => p.includes('loose.png')));
 
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             assert.ok(result.actions.mediaRowsRemoved >= 1);
             const expected = crypto.createHash('sha256').update(Buffer.from('fake-png-bytes')).digest('hex');
             assert.equal(await mediaRows.getByHash(expected), undefined);
@@ -296,46 +293,46 @@ describe('Vault Doctor', () => {
 
     describe('deck reconciliation', () => {
         it('reimports a deck whose DB row vanished (file wins)', async () => {
-            const hash = await decks.createDeck('LostRow', 'db row will vanish');
+            const hash = await Decks.createDeck('LostRow', 'db row will vanish');
             await deckRows.remove((await deckRows.getByHash(hash)).id);
             assert.equal(await deckRows.getByHash(hash), undefined);
 
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.decks.fileWithoutDb.includes(hash));
 
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
             assert.ok(await deckRows.getByHash(hash), 'deck row restored from file');
             assert.equal((await deckRows.getByHash(hash)).name, 'LostRow');
         });
 
         it('self-heals a deck file that vanished (DB is next-best truth)', async () => {
-            const hash = await decks.createDeck('LostFile', 'json will vanish');
+            const hash = await Decks.createDeck('LostFile', 'json will vanish');
             const filePath = path.join(workspace, '_decks', `${hash}.json`);
             fs.unlinkSync(filePath);
 
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.decks.dbWithoutFile.includes(hash));
 
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
             assert.ok(fs.existsSync(filePath), 'deck file rebuilt');
             assert.equal(JSON.parse(fs.readFileSync(filePath, 'utf-8')).name, 'LostFile');
         });
 
         it('resolves entry mismatches in the file\'s favor', async () => {
-            const cardHash = await decks.createStandaloneCard({ frontText: 'standalone-q', backText: 'standalone-a' });
-            const deckHash = await decks.createDeck('Mismatch', '');
-            await decks.addEntry(deckHash, { cardHash });
+            const cardHash = await Decks.createStandaloneCard({ frontText: 'standalone-q', backText: 'standalone-a' });
+            const deckHash = await Decks.createDeck('Mismatch', '');
+            await Decks.addEntry(deckHash, { cardHash });
 
             const filePath = path.join(workspace, '_decks', `${deckHash}.json`);
             const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
             data.entries = [];
             fs.writeFileSync(filePath, JSON.stringify(data, null, 2));
 
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             const mm = report.decks.entryMismatches.find(m => m.deckHash === deckHash);
             assert.ok(mm && mm.missingInFile.includes(cardHash));
 
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
             const deck = await deckRows.getByHash(deckHash);
             assert.equal((await deckRows.getEntries(deck.id, 'owner')).length, 0, 'DB entry removed to match file');
         });
@@ -358,11 +355,11 @@ describe('Vault Doctor', () => {
                 fs.unlinkSync(abs(rel));
                 fs.unlinkSync(abs(rel + '.flashback'));
             }
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
         });
 
         it('reports the conflict, skips both files, and still completes', async () => {
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             const conflict = result.skipped.hashConflicts.find(c => c.hash === sharedHash);
             assert.ok(conflict, 'conflict reported');
             assert.equal(conflict.paths.length, 2);
@@ -382,14 +379,14 @@ describe('Vault Doctor', () => {
         after(async () => {
             fs.unlinkSync(abs(rel));
             fs.unlinkSync(abs(rel + '.flashback'));
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
         });
 
         it('is reported and skipped without crashing', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.ok(report.documents.corruptSidecars.some(p => p.includes('Corrupt.md')));
 
-            const result = await doctor.syncIndex();
+            const result = await Doctor.syncIndex();
             assert.ok(result.skipped.corruptSidecars.some(p => p.includes('Corrupt.md')));
             assert.equal(await documentRows.getByPath(rel), undefined);
         });
@@ -397,8 +394,8 @@ describe('Vault Doctor', () => {
 
     describe('syncIndex idempotence', () => {
         it('a second run performs zero actions and seals nothing', async () => {
-            await doctor.syncIndex();
-            const second = await doctor.syncIndex();
+            await Doctor.syncIndex();
+            const second = await Doctor.syncIndex();
             const a = second.actions;
             assert.equal(a.foldersIndexed + a.documentsIndexed + a.documentsReindexed
                 + a.foldersRemoved + a.documentsRemoved
@@ -426,10 +423,10 @@ describe('Vault Doctor', () => {
 
             await categoryRows.insert({ name: 'doctor-test-cat', priority: 2, description: 'test' });
 
-            await docs.createFolder('RebuildZone', TEST_ROOT);
-            await docs.updateMetadata(folderRel, { ...readFolderSidecar(folderRel), tags: ['inherited-tag'] }, true);
+            await Documents.createFolder('RebuildZone', TEST_ROOT);
+            await Documents.updateMetadata(folderRel, { ...readFolderSidecar(folderRel), tags: ['inherited-tag'] }, true);
 
-            await docs.importFile('TargetDoc.md', folderRel, '# target', {
+            await Documents.importFile('TargetDoc.md', folderRel, '# target', {
                 tags: ['direct-tag'],
                 flashcards: [{
                     globalHash: cardHash, level: 6, easeFactor: 2.7, category: 'doctor-test-cat',
@@ -445,20 +442,20 @@ describe('Vault Doctor', () => {
                 highlights: [{ id: crypto.randomUUID(), type: 'text_offset', start: 0, end: 5, color: 'amber', note: '' }],
             });
             targetHash = readSidecar(docARel).globalHash;
-            await docs.importFile('LinkSource.md', folderRel, `See [target](flashback://${targetHash})`, {});
+            await Documents.importFile('LinkSource.md', folderRel, `See [target](flashback://${targetHash})`, {});
 
-            standaloneHash = await decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
-            typedStandaloneHash = await decks.createStandaloneCard({
+            standaloneHash = await Decks.createStandaloneCard({ frontText: 'standalone-rebuild', backText: 'sa', cardType: 'basic' });
+            typedStandaloneHash = await Decks.createStandaloneCard({
                 frontText: 'standalone-typed-q', answerText: 'standalone-typed-answer',
                 backText: 'standalone-typed-notes', cardType: 'type_answer',
             });
-            deckHash = await decks.createDeck('RebuildDeck', 'survives rebuilds');
-            await decks.addEntry(deckHash, { cardHash });
+            deckHash = await Decks.createDeck('RebuildDeck', 'survives rebuilds');
+            await Decks.addEntry(deckHash, { cardHash });
 
             fs.mkdirSync(abs(folderRel, 'media'), { recursive: true });
             fs.writeFileSync(abs(folderRel, 'media', 'art.png'), Buffer.from('art-bytes'));
             await sealEmitter.flushEdits();
-            await doctor.syncIndex();
+            await Doctor.syncIndex();
 
             snapshot = {
                 documents: (await documentRows.getAll()).length,
@@ -477,7 +474,7 @@ describe('Vault Doctor', () => {
         }
 
         it('restores documents, folders, cards, levels, and counts', async () => {
-            const { summary, warnings } = await doctor.rebuildIndex();
+            const { summary, warnings } = await Doctor.rebuildIndex();
             assert.deepEqual(warnings.filter(w => !w.includes('System deck')), [], `unexpected warnings: ${warnings}`);
 
             assert.equal((await documentRows.getAll()).length, snapshot.documents, 'document count restored');
@@ -559,7 +556,7 @@ describe('Vault Doctor', () => {
         });
 
         it('leaves a clean bill of health afterward', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.deepEqual(report.documents.missingInDb, []);
             assert.deepEqual(report.documents.orphanedInDb, []);
             assert.deepEqual(report.documents.modified, []);

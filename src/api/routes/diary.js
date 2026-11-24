@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import diary from '../access/modules/diary.js';
+import * as Diary from '../access/modules/diary.js';
 import { getMcpDiaryAccess } from '../access/primitives/config.js';
 import { normalizePath } from '../auth/permissions.js';
 
@@ -28,19 +28,19 @@ router.post('/summary', catchError(async (req, res) => {
     if (date != null && !DATE_RE.test(date)) {
         return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
     }
-    const summary = await diary.generateSummary(date || undefined);
+    const summary = await Diary.generateSummary(date || undefined);
     res.json({ ok: true, summary });
 }));
 
 router.post('/rebuild', catchError(async (req, res) => {
-    const count = await diary.rebuildAll();
+    const count = await Diary.rebuildAll();
     res.json({ ok: true, count });
 }));
 
 router.get('/', catchError(async (req, res) => {
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    const days = await diary.list({ from, to });
+    const days = await Diary.list({ from, to });
     if (req.get('X-Flashback-Client') === 'mcp' && getMcpDiaryAccess() !== 'full') {
         for (const d of days) delete d.firstLine;
     }
@@ -50,7 +50,7 @@ router.get('/', catchError(async (req, res) => {
 router.get('/summary/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-    const summary = diary.getSummary(date);
+    const summary = Diary.getSummary(date);
     if (!summary) return res.status(404).json({ error: 'no summary for that date' });
     res.json(summary);
 }));
@@ -58,13 +58,13 @@ router.get('/summary/:date', catchError((req, res) => {
 router.get('/entry/:date', catchError((req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-    res.json({ date, content: diary.getEntry(date) ?? '' });
+    res.json({ date, content: Diary.getEntry(date) ?? '' });
 }));
 
 router.put('/entry/:date', catchError(async (req, res) => {
     const { date } = req.params;
     if (!DATE_RE.test(date)) return res.status(400).json({ error: 'date must be YYYY-MM-DD' });
-    const result = await diary.saveEntry(date, String(req.body?.content ?? ''));
+    const result = await Diary.saveEntry(date, String(req.body?.content ?? ''));
     res.json({ ok: true, ...result });
 }));
 

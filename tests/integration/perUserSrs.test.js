@@ -18,11 +18,11 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
-const { default: Doctor } = await import('../../src/api/access/modules/doctor.js');
-const { default: SRS } = await import('../../src/api/access/modules/srs.js');
-const { default: diary } = await import('../../src/api/access/modules/diary.js');
-const { default: cardHealth } = await import('../../src/api/access/modules/cardHealth.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
+const Doctor = await import('../../src/api/access/modules/doctor.js');
+const Srs = await import('../../src/api/access/modules/srs.js');
+const Diary = await import('../../src/api/access/modules/diary.js');
+const CardHealth = await import('../../src/api/access/modules/cardHealth.js');
 const cardHealthRows = await import('../../src/api/access/resources/db/cardHealth.js');
 const cardProgressRows = await import('../../src/api/access/resources/db/cardProgress.js');
 const flashcardRows = await import('../../src/api/access/resources/db/flashcards.js');
@@ -35,9 +35,8 @@ const { getWorkspacePath, getVaultPath } = await import('../../src/api/access/pr
 const { runWithAccount, OWNER_SCOPE } = await import('../../src/api/requestContext.js');
 const { ROLES } = await import('../../src/shared/roles.js');
 const { default: runMigrations } = await import('../../src/api/config/MigrationRunner.js');
+const Files = await import('../../src/api/access/resources/files.js');
 
-const docs = new Documents();
-const doctor = new Doctor();
 const WORKSPACE_ROOT = 'PerUser';
 const docRel = path.join(WORKSPACE_ROOT, 'shared.md');
 
@@ -45,7 +44,7 @@ const asAccount = (account, fn) => runWithAccount(account, fn);
 const asAuthor = (author, fn) => runWithAccount(author, fn);
 
 const ownerLevel = async (hash) => (await cardProgressRows.getSrsStateByHash(hash, OWNER_SCOPE))?.level ?? 0;
-const sidecarCard = (hash) => docs.files.getMetadata(docRel).flashcards.find(c => c.globalHash === hash);
+const sidecarCard = (hash) => Files.getMetadata(docRel).flashcards.find(c => c.globalHash === hash);
 
 const DOOMED_AFTER_010 = [
     'level', 'sm2_reps', 'last_recall',
@@ -67,11 +66,11 @@ describe('Per-user SRS', () => {
 
         const abs = path.join(getWorkspacePath(), WORKSPACE_ROOT);
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        await docs.createFolder(WORKSPACE_ROOT);
+        await Documents.createFolder(WORKSPACE_ROOT);
 
         cardA = crypto.randomUUID();
         cardB = crypto.randomUUID();
-        await docs.importFile('shared.md', WORKSPACE_ROOT, Buffer.from('# Shared'), {
+        await Documents.importFile('shared.md', WORKSPACE_ROOT, Buffer.from('# Shared'), {
             globalHash: crypto.randomUUID(),
             flashcards: [
                 { globalHash: cardA, level: 0, vanillaData: { frontText: 'Qa', backText: 'Aa' } },
@@ -90,8 +89,8 @@ describe('Per-user SRS', () => {
 
     describe('two people, one card', () => {
         it('keeps each person on their own schedule', async () => {
-            await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
-            await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 1));
+            await asAuthor(author, () => Documents.submitReview(docRel, cardA, 1, 2.5, 4));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardA, 1, 2.5, 1));
 
             assert.equal(await ownerLevel(cardA), 4, "the author's own grade");
             const ritaState = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
@@ -106,19 +105,19 @@ describe('Per-user SRS', () => {
         });
 
         it('does not let one person\'s review move another\'s due list', async () => {
-            await asAccount(rita, () => docs.submitReview(docRel, cardB, 1, 2.5, 3));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardB, 1, 2.5, 3));
 
             const isNew = (result, hash) => result.new.some(c => c.global_hash === hash);
-            const ownerDue = await asAuthor(author, () => SRS.getDue({ algorithm: 'leitner', maxNew: 50 }));
-            const ritaDue = await asAccount(rita, () => SRS.getDue({ algorithm: 'leitner', maxNew: 50 }));
+            const ownerDue = await asAuthor(author, () => Srs.getDue({ algorithm: 'leitner', maxNew: 50 }));
+            const ritaDue = await asAccount(rita, () => Srs.getDue({ algorithm: 'leitner', maxNew: 50 }));
 
             assert.ok(isNew(ownerDue, cardB), 'still unseen material for the author');
             assert.ok(!isNew(ritaDue, cardB), 'and no longer new for the reader who studied it');
         });
 
         it('counts only your own reviews in your own statistics', async () => {
-            const mine = await asAccount(rita, () => SRS.getStatistics({ algorithm: 'leitner' }));
-            const theirs = await asAuthor(author, () => SRS.getStatistics({ algorithm: 'leitner' }));
+            const mine = await asAccount(rita, () => Srs.getStatistics({ algorithm: 'leitner' }));
+            const theirs = await asAuthor(author, () => Srs.getStatistics({ algorithm: 'leitner' }));
             assert.equal(mine.totals.reviews, 2);
             assert.equal(theirs.totals.reviews, 1);
         });
@@ -133,8 +132,8 @@ describe('Per-user SRS', () => {
 
         it('seals nothing when anyone studies, reader or author', async () => {
             const before = await sealTools.log();
-            await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 2));
-            await asAuthor(author, () => docs.submitReview(docRel, cardB, 1, 2.5, 1));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardA, 1, 2.5, 2));
+            await asAuthor(author, () => Documents.submitReview(docRel, cardB, 1, 2.5, 1));
 
             const after = await sealTools.log();
             assert.equal(after.length, before.length,
@@ -160,7 +159,7 @@ describe('Per-user SRS', () => {
         it('restores everyone, because the progress store is not what a rebuild wipes', async () => {
             const beforeSnapshots = (await accounts.listAccountProgress(getVaultId())).length;
 
-            await asAuthor(author, () => doctor.rebuildIndex());
+            await asAuthor(author, () => Doctor.rebuildIndex());
 
             assert.equal(await ownerLevel(cardA), 4, "author's schedule back from the sidecar");
             const ritaState = await cardProgressRows.getSrsStateByHash(cardA, rita.id);
@@ -193,8 +192,8 @@ describe('Per-user SRS', () => {
                 score: 0.9, evidence: {}, levelAtDetection: 2, reviewLogId: null,
             }, rita.id);
 
-            assert.equal((await cardHealth.getFlags(cardA, rita.id)).length, 1);
-            assert.equal((await cardHealth.getFlags(cardA, OWNER_SCOPE)).length, 0);
+            assert.equal((await CardHealth.getFlags(cardA, rita.id)).length, 1);
+            assert.equal((await CardHealth.getFlags(cardA, OWNER_SCOPE)).length, 0);
         });
 
         it('clears every account\'s flags when the card itself is rewritten', async () => {
@@ -204,22 +203,22 @@ describe('Per-user SRS', () => {
                 score: 0.9, evidence: {}, levelAtDetection: 4, reviewLogId: null,
             }, OWNER_SCOPE);
 
-            await cardHealth.onCardEdited(cardA);
+            await CardHealth.onCardEdited(cardA);
 
-            assert.equal((await cardHealth.getFlags(cardA, rita.id)).length, 0);
-            assert.equal((await cardHealth.getFlags(cardA, OWNER_SCOPE)).length, 0);
+            assert.equal((await CardHealth.getFlags(cardA, rita.id)).length, 0);
+            assert.equal((await CardHealth.getFlags(cardA, OWNER_SCOPE)).length, 0);
         });
 
         it('files a reader\'s diary under their own account, leaving the owner\'s in place', async () => {
-            await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 5));
-            await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 3));
+            await asAuthor(author, () => Documents.submitReview(docRel, cardA, 1, 2.5, 5));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardA, 1, 2.5, 3));
 
             const today = new Date();
             const pad = (n) => String(n).padStart(2, '0');
             const day = `${today.getFullYear()}-${pad(today.getMonth() + 1)}-${pad(today.getDate())}`;
 
-            await asAccount(rita, () => diary.generateSummary(day));
-            await asAuthor(author, () => diary.generateSummary(day));
+            await asAccount(rita, () => Diary.generateSummary(day));
+            await asAuthor(author, () => Diary.generateSummary(day));
 
             const root = path.join(getVaultPath(), 'diary');
             assert.ok(fs.existsSync(path.join(root, 'summaries', `summary-${day}.json`)),
@@ -319,11 +318,11 @@ describe('Per-user SRS', () => {
         });
 
         it('does not move Documents.presence or any ancestor folder', async () => {
-            await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 5));
+            await asAuthor(author, () => Documents.submitReview(docRel, cardA, 1, 2.5, 5));
             const before = await snapshot();
 
-            await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 1));
-            await asAccount(rita, () => docs.submitReview(docRel, cardB, 1, 2.5, 5));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardA, 1, 2.5, 1));
+            await asAccount(rita, () => Documents.submitReview(docRel, cardB, 1, 2.5, 5));
 
             assert.deepEqual(await snapshot(), before,
                 "a reader's grade rewrote a number that belongs to the owner's document");
@@ -335,16 +334,16 @@ describe('Per-user SRS', () => {
         });
 
         it('does not read the sidecar on ANYONE\'s path', async () => {
-            const abs = docs.files.safePath(docRel) + '.flashback';
+            const abs = Files.safePath(docRel) + '.flashback';
             const saved = fs.readFileSync(abs);
             fs.rmSync(abs);
             try {
-                await asAccount(rita, () => docs.submitReview(docRel, cardA, 1, 2.5, 4));
+                await asAccount(rita, () => Documents.submitReview(docRel, cardA, 1, 2.5, 4));
                 assert.equal(
                     (await cardProgressRows.getSrsStateByHash(cardA, rita.id)).level, 4,
                     'the reader\'s review does not depend on the sidecar',
                 );
-                await asAuthor(author, () => docs.submitReview(docRel, cardA, 1, 2.5, 6));
+                await asAuthor(author, () => Documents.submitReview(docRel, cardA, 1, 2.5, 6));
                 assert.equal(
                     (await cardProgressRows.getSrsStateByHash(cardA, OWNER_SCOPE)).level, 6,
                     'and neither does the author\'s',

@@ -15,9 +15,9 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
-const { default: Decks } = await import('../../src/api/access/modules/decks.js');
-const { default: Doctor } = await import('../../src/api/access/modules/doctor.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
+const Decks = await import('../../src/api/access/modules/decks.js');
+const Doctor = await import('../../src/api/access/modules/doctor.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
 const flashcardRows = await import('../../src/api/access/resources/db/flashcards.js');
 const vaultRows = await import('../../src/api/access/resources/db/vault.js');
@@ -27,10 +27,8 @@ const { getWorkspacePath } = await import('../../src/api/access/primitives/confi
 const { default: runUpdates } = await import('../../src/api/config/UpdateRunner.js');
 const { LATEST_VERSION, pendingFor } = await import('../../src/api/config/updates/registry.js');
 const u001 = await import('../../src/api/config/updates/001_type_answer_split.js');
+const Files = await import('../../src/api/access/resources/files.js');
 
-const docs = new Documents();
-const decks = new Decks();
-const doctor = new Doctor();
 const workspace = getWorkspacePath();
 
 const abs = (...p) => path.join(workspace, ...p);
@@ -97,9 +95,9 @@ describe('Canonical updates', () => {
         const updates = [mkUpdate(1), mkUpdate(2)];
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
-            await docs.createFolder(ROOT);
-            await docs.createFile('Note.md', ROOT);
+            try { if (Documents.exists(ROOT, true, true)) await Documents.remove(ROOT, true); } catch {  }
+            await Documents.createFolder(ROOT);
+            await Documents.createFile('Note.md', ROOT);
             await forgetVaultVersions();
         });
 
@@ -220,8 +218,8 @@ describe('Canonical updates', () => {
         const COUNT = 300;
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
-            await docs.createFolder(ROOT);
+            try { if (Documents.exists(ROOT, true, true)) await Documents.remove(ROOT, true); } catch {  }
+            await Documents.createFolder(ROOT);
             for (let i = 0; i < COUNT; i++) {
                 const rel = path.join(ROOT, `note-${i}.md`);
                 fs.writeFileSync(abs(rel), `# Note ${i}`);
@@ -269,7 +267,7 @@ describe('Canonical updates', () => {
         });
 
         after(async () => {
-            try { await docs.delete(ROOT, true); } catch {  }
+            try { await Documents.remove(ROOT, true); } catch {  }
             fs.rmSync(abs(ROOT), { recursive: true, force: true });
             await forgetVaultVersions();
         });
@@ -285,17 +283,17 @@ describe('Canonical updates', () => {
         let result;
 
         before(async () => {
-            try { if (docs.exists(ROOT, true, true)) await docs.delete(ROOT, true); } catch {  }
-            await docs.createFolder(ROOT);
+            try { if (Documents.exists(ROOT, true, true)) await Documents.remove(ROOT, true); } catch {  }
+            await Documents.createFolder(ROOT);
 
-            await docs.createFile('Kana.md', ROOT);
-            const meta = docs.files.getMetadata(docRel) || {};
+            await Documents.createFile('Kana.md', ROOT);
+            const meta = Files.getMetadata(docRel) || {};
             meta.flashcards = [legacyCard(docCardHash, 'か', 'ka')];
             delete meta.formatVersion;
             fs.writeFileSync(abs(docRel + '.flashback'), JSON.stringify(meta, null, 2));
-            await docs.reindexDocument(docRel);
+            await Documents.reindexDocument(docRel);
 
-            standaloneHash = await decks.createStandaloneCard({
+            standaloneHash = await Decks.createStandaloneCard({
                 frontText: 'き', backText: 'ki', cardType: 'type_answer', name: 'き',
             });
             systemDeckHash = (await deckRows.getSystem()).global_hash;
@@ -387,7 +385,7 @@ describe('Canonical updates', () => {
         });
 
         it('leaves the Vault Doctor with no drift afterwards', async () => {
-            const report = await doctor.checkIndex();
+            const report = await Doctor.checkIndex();
             assert.deepEqual(report.documents.modified, [], 'the two layers agree');
             assert.deepEqual(report.documents.missingInDb, []);
             assert.deepEqual(report.documents.orphanedInDb, []);

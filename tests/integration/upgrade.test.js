@@ -30,10 +30,9 @@ const config = await import('../../src/api/access/primitives/config.js');
 const { openVault } = await import('../../src/api/vaultSession.js');
 const { default: db, closeDatabase } = await import('../../src/api/access/primitives/database.js');
 const vaultRows = await import('../../src/api/access/resources/db/vault.js');
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
 const { sealTools } = await import('../../src/api/seal/seal.js');
 
-const docs = new Documents();
 
 async function snapshot() {
     return {
@@ -53,8 +52,8 @@ describe('upgrading an install that predates the vault registry', () => {
     before(async () => {
         assert.ok(await openVault(), 'the legacy config should open a vault');
 
-        await docs.createFile('kept.md', '');
-        await docs.createFile('also-kept.md', '');
+        await Documents.createFile('kept.md', '');
+        await Documents.createFile('also-kept.md', '');
 
         before_ = await snapshot();
         sidecarBefore = fs.readFileSync(

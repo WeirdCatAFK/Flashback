@@ -18,9 +18,9 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
-const { default: highlightsService } = await import('../../src/api/access/modules/highlights.js');
-const { default: Decks } = await import('../../src/api/access/modules/decks.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
+const Highlights = await import('../../src/api/access/modules/highlights.js');
+const Decks = await import('../../src/api/access/modules/decks.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
 const documentRows = await import('../../src/api/access/resources/db/documents.js');
 const { default: db } = await import('../../src/api/access/primitives/database.js');
@@ -28,15 +28,15 @@ const { PathLock, isIdle } = await import('../../src/api/access/resources/pathLo
 const { sealTools, sealEmitter } = await import('../../src/api/seal/seal.js');
 const { getWorkspacePath } = await import('../../src/api/access/primitives/config.js');
 const { ensureManifest } = await import('../../src/api/access/primitives/vault.js');
+const Files = await import('../../src/api/access/resources/files.js');
 
-const docs = new Documents();
 const FOLDER = 'Conflicts';
 const docRel = path.join(FOLDER, 'shared.md');
 
 const tick = (ms = 1) => new Promise(r => setTimeout(r, ms));
 const LOG_DEPTH = 500;
 const commitCount = async () => (await sealTools.log(LOG_DEPTH)).length;
-const sidecar = (rel = docRel) => docs.files.getMetadata(rel) ?? {};
+const sidecar = (rel = docRel) => Files.getMetadata(rel) ?? {};
 const cardIn = (hash, rel = docRel) => (sidecar(rel).flashcards ?? []).find(c => c.globalHash === hash);
 
 describe('Concurrent writes', () => {
@@ -48,11 +48,11 @@ describe('Concurrent writes', () => {
 
         const abs = path.join(getWorkspacePath(), FOLDER);
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        await docs.createFolder(FOLDER);
+        await Documents.createFolder(FOLDER);
 
         cardA = crypto.randomUUID();
         cardB = crypto.randomUUID();
-        await docs.importFile('shared.md', FOLDER, Buffer.from('# Shared\n\noriginal body\n'), {
+        await Documents.importFile('shared.md', FOLDER, Buffer.from('# Shared\n\noriginal body\n'), {
             globalHash: crypto.randomUUID(),
             flashcards: [
                 { globalHash: cardA, level: 0, vanillaData: { frontText: 'Qa', backText: 'Aa' } },
@@ -117,18 +117,18 @@ describe('Concurrent writes', () => {
 
     describe('a write that lost the race', () => {
         it('is refused, and changes nothing', async () => {
-            const stale = docs.files.etag(docRel);
+            const stale = Files.etag(docRel);
 
-            await docs.updateFile(docRel, '# Shared\n\nfirst writer\n', sidecar(), { ifMatch: stale });
-            const body = () => fs.readFileSync(docs.files.safePath(docRel), 'utf-8');
+            await Documents.updateFile(docRel, '# Shared\n\nfirst writer\n', sidecar(), { ifMatch: stale });
+            const body = () => fs.readFileSync(Files.safePath(docRel), 'utf-8');
             assert.match(body(), /first writer/);
 
             await assert.rejects(
-                () => docs.updateFile(docRel, '# Shared\n\nsecond writer\n', sidecar(), { ifMatch: stale }),
+                () => Documents.updateFile(docRel, '# Shared\n\nsecond writer\n', sidecar(), { ifMatch: stale }),
                 (err) => {
                     assert.equal(err.status, 409);
                     assert.equal(err.code, 'stale');
-                    assert.equal(err.etag, docs.files.etag(docRel), 'the refusal carries the version the caller needs');
+                    assert.equal(err.etag, Files.etag(docRel), 'the refusal carries the version the caller needs');
                     return true;
                 },
             );
@@ -136,41 +136,41 @@ describe('Concurrent writes', () => {
         });
 
         it('succeeds once the caller re-reads', async () => {
-            const fresh = docs.files.etag(docRel);
-            const { etag } = await docs.updateFile(docRel, '# Shared\n\nsecond writer\n', sidecar(), { ifMatch: fresh });
-            assert.match(fs.readFileSync(docs.files.safePath(docRel), 'utf-8'), /second writer/);
-            assert.equal(etag, docs.files.etag(docRel), 'the write reports the version it produced');
+            const fresh = Files.etag(docRel);
+            const { etag } = await Documents.updateFile(docRel, '# Shared\n\nsecond writer\n', sidecar(), { ifMatch: fresh });
+            assert.match(fs.readFileSync(Files.safePath(docRel), 'utf-8'), /second writer/);
+            assert.equal(etag, Files.etag(docRel), 'the write reports the version it produced');
         });
 
         it('is not checked at all when the caller sends no version', async () => {
-            await docs.updateFile(docRel, '# Shared\n\nunversioned writer\n', sidecar());
-            assert.match(fs.readFileSync(docs.files.safePath(docRel), 'utf-8'), /unversioned writer/);
+            await Documents.updateFile(docRel, '# Shared\n\nunversioned writer\n', sidecar());
+            assert.match(fs.readFileSync(Files.safePath(docRel), 'utf-8'), /unversioned writer/);
         });
 
         it('does not fail an editor because somebody added a card', async () => {
-            const loaded = docs.files.etag(docRel);
-            await docs.updateFlashcard(docRel, cardB, { frontText: 'added-by-someone-else' });
-            assert.notEqual(docs.files.etag(docRel), loaded, 'the sidecar half moved');
+            const loaded = Files.etag(docRel);
+            await Documents.updateFlashcard(docRel, cardB, { frontText: 'added-by-someone-else' });
+            assert.notEqual(Files.etag(docRel), loaded, 'the sidecar half moved');
 
-            await docs.updateFile(docRel, '# Shared\n\nthe editor saves anyway\n', sidecar(), { ifMatch: loaded });
-            assert.match(fs.readFileSync(docs.files.safePath(docRel), 'utf-8'), /the editor saves anyway/);
+            await Documents.updateFile(docRel, '# Shared\n\nthe editor saves anyway\n', sidecar(), { ifMatch: loaded });
+            assert.match(fs.readFileSync(Files.safePath(docRel), 'utf-8'), /the editor saves anyway/);
             assert.equal(cardIn(cardB).vanillaData.frontText, 'added-by-someone-else',
                 'and the change it merged is still there');
         });
 
         it('does fail when the body itself moved on', async () => {
-            const loaded = docs.files.etag(docRel);
-            await docs.updateFile(docRel, '# Shared\n\nsomeone else typed here\n', sidecar());
+            const loaded = Files.etag(docRel);
+            await Documents.updateFile(docRel, '# Shared\n\nsomeone else typed here\n', sidecar());
             await assert.rejects(
-                () => docs.updateFile(docRel, '# Shared\n\nmy stale draft\n', sidecar(), { ifMatch: loaded }),
+                () => Documents.updateFile(docRel, '# Shared\n\nmy stale draft\n', sidecar(), { ifMatch: loaded }),
                 (err) => err.status === 409 && err.code === 'stale',
             );
         });
 
         it('tracks the body as well as the sidecar', async () => {
-            const before = docs.files.etag(docRel);
-            fs.writeFileSync(docs.files.safePath(docRel), '# Shared\n\nchanged outside the app\n');
-            assert.notEqual(docs.files.etag(docRel), before,
+            const before = Files.etag(docRel);
+            fs.writeFileSync(Files.safePath(docRel), '# Shared\n\nchanged outside the app\n');
+            assert.notEqual(Files.etag(docRel), before,
                 'an edit made outside the app must still invalidate a client\'s version');
         });
     });
@@ -179,8 +179,8 @@ describe('Concurrent writes', () => {
     describe('two people patching one document', () => {
         it('both land when they touch different cards', async () => {
             await Promise.all([
-                docs.updateFlashcard(docRel, cardA, { frontText: 'Qa-alice' }),
-                docs.updateFlashcard(docRel, cardB, { frontText: 'Qb-bob' }),
+                Documents.updateFlashcard(docRel, cardA, { frontText: 'Qa-alice' }),
+                Documents.updateFlashcard(docRel, cardB, { frontText: 'Qb-bob' }),
             ]);
 
             assert.equal(cardIn(cardA).vanillaData.frontText, 'Qa-alice');
@@ -189,11 +189,11 @@ describe('Concurrent writes', () => {
         });
 
         it('conflict only when they touch the same card', async () => {
-            const stale = docs.cardEtag(docRel, cardA);
-            await docs.updateFlashcard(docRel, cardA, { frontText: 'Qa-first' }, { ifMatch: stale });
+            const stale = Documents.cardEtag(docRel, cardA);
+            await Documents.updateFlashcard(docRel, cardA, { frontText: 'Qa-first' }, { ifMatch: stale });
 
             await assert.rejects(
-                () => docs.updateFlashcard(docRel, cardA, { frontText: 'Qa-second' }, { ifMatch: stale }),
+                () => Documents.updateFlashcard(docRel, cardA, { frontText: 'Qa-second' }, { ifMatch: stale }),
                 (err) => {
                     assert.equal(err.status, 409);
                     assert.equal(err.code, 'stale');
@@ -202,16 +202,16 @@ describe('Concurrent writes', () => {
             );
             assert.equal(cardIn(cardA).vanillaData.frontText, 'Qa-first');
 
-            await docs.updateFlashcard(docRel, cardB, { frontText: 'Qb-later' });
+            await Documents.updateFlashcard(docRel, cardB, { frontText: 'Qb-later' });
             assert.equal(cardIn(cardB).vanillaData.frontText, 'Qb-later');
         });
 
         it('applies concurrent highlights to the same document without losing any', async () => {
             const before = (sidecar().highlights ?? []).length;
             await Promise.all([
-                highlightsService.createHighlight(docRel, { start: 0, end: 5, color: 'amber' }),
-                highlightsService.createHighlight(docRel, { start: 6, end: 9, color: 'green' }),
-                highlightsService.createHighlight(docRel, { start: 10, end: 14, color: 'blue' }),
+                Highlights.createHighlight(docRel, { start: 0, end: 5, color: 'amber' }),
+                Highlights.createHighlight(docRel, { start: 6, end: 9, color: 'green' }),
+                Highlights.createHighlight(docRel, { start: 10, end: 14, color: 'blue' }),
             ]);
             assert.equal((sidecar().highlights ?? []).length, before + 3,
                 'a read-modify-write of one sidecar must not drop concurrent siblings');
@@ -225,11 +225,11 @@ describe('Concurrent writes', () => {
             const meta = sidecar();
             const finished = [];
 
-            const moving = docs.move(docRel, movedRel, false)
+            const moving = Documents.move(docRel, movedRel, false)
                 .then(() => finished.push('move'), () => finished.push('move'));
             assert.equal(isIdle(), false, 'a move in flight must be holding the tree');
 
-            const editing = docs.updateFile(docRel, '# Shared\n\nedited while moving\n', meta)
+            const editing = Documents.updateFile(docRel, '# Shared\n\nedited while moving\n', meta)
                 .then(() => finished.push('edit'), () => finished.push('edit'));
 
             await Promise.allSettled([moving, editing]);
@@ -237,18 +237,18 @@ describe('Concurrent writes', () => {
             assert.ok(isIdle(), 'both operations must have released the tree');
             await sealEmitter.quiesce();
 
-            const oldExists = fs.existsSync(docs.files.safePath(docRel));
-            const newExists = fs.existsSync(docs.files.safePath(movedRel));
+            const oldExists = fs.existsSync(Files.safePath(docRel));
+            const newExists = fs.existsSync(Files.safePath(movedRel));
             assert.ok(oldExists !== newExists, 'the document must be at exactly one of the two paths');
 
             const rel = newExists ? movedRel : docRel;
             const row = await documentRows.getByPath(rel);
             assert.ok(row, `the index must know the document at ${rel}`);
             assert.ok(fs.existsSync(row.absolute_path), 'the indexed path must exist on disk');
-            assert.ok(fs.existsSync(docs.files.safePath(rel + '.flashback')),
+            assert.ok(fs.existsSync(Files.safePath(rel + '.flashback')),
                 'the sidecar must have travelled with the document');
 
-            if (newExists) await docs.move(movedRel, docRel, false);
+            if (newExists) await Documents.move(movedRel, docRel, false);
         });
     });
 
@@ -256,7 +256,7 @@ describe('Concurrent writes', () => {
     describe('the Seal history', () => {
         it('records a content edit immediately, without waiting for a timer', async () => {
             const before = await commitCount();
-            await docs.updateFile(docRel, '# Shared\n\ncommitted at once\n', sidecar());
+            await Documents.updateFile(docRel, '# Shared\n\ncommitted at once\n', sidecar());
             assert.equal(await commitCount(), before + 1,
                 'an edit must be committed by the time its request resolves');
         });
@@ -266,7 +266,7 @@ describe('Concurrent writes', () => {
             const before = await commitCount();
 
             for (const hash of [cardA, cardB, cardA]) {
-                await docs.submitReview(docRel, hash, 1, 2.5, 1);
+                await Documents.submitReview(docRel, hash, 1, 2.5, 1);
             }
             await sealEmitter.flushEdits();
 
@@ -278,12 +278,11 @@ describe('Concurrent writes', () => {
 
     describe('deck files', () => {
         it("keeps a failed add from erasing a concurrent successful one", async () => {
-            const decks = new Decks();
-            await decks.onVaultOpened();
+            await Decks.onVaultOpened();
 
-            const deckHash = await decks.createDeck('Rollback Race', '');
-            const good = await decks.createStandaloneCard({ frontText: 'survivor', backText: 'b' });
-            const bad  = await decks.createStandaloneCard({ frontText: 'doomed',   backText: 'b' });
+            const deckHash = await Decks.createDeck('Rollback Race', '');
+            const good = await Decks.createStandaloneCard({ frontText: 'survivor', backText: 'b' });
+            const bad  = await Decks.createStandaloneCard({ frontText: 'doomed',   backText: 'b' });
 
             await db.exec(`CREATE TEMP TRIGGER fail_doomed_entry BEFORE INSERT ON DeckEntries
                 WHEN NEW.card_hash = '${bad}' BEGIN SELECT RAISE(ABORT, 'simulated DB failure'); END`);
@@ -291,8 +290,8 @@ describe('Concurrent writes', () => {
             let settled;
             try {
                 settled = await Promise.allSettled([
-                    decks.addEntry(deckHash, { cardHash: bad }),
-                    decks.addEntry(deckHash, { cardHash: good }),
+                    Decks.addEntry(deckHash, { cardHash: bad }),
+                    Decks.addEntry(deckHash, { cardHash: good }),
                 ]);
             } finally {
                 await db.exec('DROP TRIGGER IF EXISTS fail_doomed_entry');

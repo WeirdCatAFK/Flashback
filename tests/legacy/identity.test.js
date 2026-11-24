@@ -33,10 +33,9 @@ const config = await import('../../src/api/access/primitives/config.js');
 const { identityError, defaultIdentityFrom } = await import('../../src/shared/identity.js');
 const { openVault, switchVault } = await import('../../src/api/vaultSession.js');
 const { closeDatabase } = await import('../../src/api/access/primitives/database.js');
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
 const { sealTools, sealEmitter } = await import('../../src/api/seal/seal.js');
 
-const docs = new Documents();
 
 after(() => {
     closeDatabase();
@@ -165,7 +164,7 @@ describe('what reaches disk', () => {
         writeConfig({ user: { name: 'Daniel', email: 'daniel@example.com' } });
         assert.ok(await openVault());
 
-        await docs.createFile('legacy.md', '');
+        await Documents.createFile('legacy.md', '');
         legacySidecarPath = path.join(config.getWorkspacePath(), 'legacy.md.flashback');
         const legacy = JSON.parse(fs.readFileSync(legacySidecarPath, 'utf-8'));
         legacy.createdBy = 'alpha';
@@ -178,7 +177,7 @@ describe('what reaches disk', () => {
     });
 
     it('stamps a new sidecar with the git author string', async () => {
-        await docs.createFile('stamped.md', '');
+        await Documents.createFile('stamped.md', '');
         const sidecar = JSON.parse(
             fs.readFileSync(path.join(config.getWorkspacePath(), 'stamped.md.flashback'), 'utf-8'),
         );
@@ -186,7 +185,7 @@ describe('what reaches disk', () => {
     });
 
     it('never rewrites an existing createdBy — the no-migration claim', async () => {
-        await docs.updateFile('legacy.md', '# edited');
+        await Documents.updateFile('legacy.md', '# edited');
 
         const after = JSON.parse(fs.readFileSync(legacySidecarPath, 'utf-8'));
         assert.equal(after.createdBy, 'alpha', 'a vault-name stamp must survive untouched');
@@ -197,7 +196,7 @@ describe('what reaches disk', () => {
     });
 
     it('authors a Seal commit as the identity, not as the vault', async () => {
-        await docs.createFile('committed.md', '');
+        await Documents.createFile('committed.md', '');
         await sealEmitter.flushEdits();
 
         const [head] = await sealTools.log(1);
@@ -219,7 +218,7 @@ describe('what reaches disk', () => {
         assert.ok(switched.ok, switched.error);
         assert.equal(config.getAuthorString(), 'D. Pineda <d@acme.test>');
 
-        await docs.createFile('in-beta.md', '');
+        await Documents.createFile('in-beta.md', '');
         const sidecar = JSON.parse(
             fs.readFileSync(path.join(config.getWorkspacePath(), 'in-beta.md.flashback'), 'utf-8'),
         );

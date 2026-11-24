@@ -6,8 +6,8 @@ import process from 'process';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import db from '../../src/api/access/primitives/database.js';
-import Documents from '../../src/api/access/modules/documents.js';
-import highlightsService from '../../src/api/access/modules/highlights.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Highlights from '../../src/api/access/modules/highlights.js';
 import Api from '../../src/api/api.js';
 import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { buildPdf, buildEpub, buildPng } from '../support/fixtures.js';
@@ -57,7 +57,7 @@ const userHighlight = async (relPath, snippet, extra = {}) => {
 const userStandaloneCard = async (fields) => (await request('POST', '/api/flashcards', fields)).globalHash;
 
 const rmWorkspace = async () => {
-    try { await new Documents().delete(ROOT, true); } catch {  }
+    try { await Documents.remove(ROOT, true); } catch {  }
     try {
         const absPath = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absPath)) fs.rmSync(absPath, { recursive: true, force: true });
@@ -78,7 +78,7 @@ describe('MCP tools', () => {
         const server = await api.start();
         process.env.FLASHBACK_API_URL = `http://localhost:${server.address().port}`;
         process.env.FLASHBACK_API_TOKEN = API_TOKEN;
-        await new Documents().createFolder(ROOT);
+        await Documents.createFolder(ROOT);
     });
 
     after(async () => {
@@ -623,11 +623,11 @@ describe('MCP tools', () => {
             const card = await call('create_flashcard', { path: docRel, highlightHash: docHighlight, frontText: 'backfill Q', backText: 'A' });
             await db.prepare('UPDATE Flashcards SET highlight_hash = NULL WHERE global_hash = ?').run(card.data.globalHash);
 
-            const filled = await highlightsService.backfillCardAnchors();
+            const filled = await Highlights.backfillCardAnchors();
             assert.ok(filled >= 1, `filled ${filled}`);
             const row = await db.prepare('SELECT highlight_hash FROM Flashcards WHERE global_hash = ?').get(card.data.globalHash);
             assert.equal(row.highlight_hash, docHighlight);
-            assert.equal(await highlightsService.backfillCardAnchors(), 0, 'nothing left to do the second time');
+            assert.equal(await Highlights.backfillCardAnchors(), 0, 'nothing left to do the second time');
             await call('delete_flashcard', { globalHash: card.data.globalHash });
         });
 
@@ -809,16 +809,15 @@ describe('MCP tools', () => {
         ]);
 
         before(async () => {
-            const d = new Documents();
-            await d.importFile('scan.pdf', ROOT, scanBytes, {});
-            await d.importFile('book.pdf', ROOT, buildPdf([
+            await Documents.importFile('scan.pdf', ROOT, scanBytes, {});
+            await Documents.importFile('book.pdf', ROOT, buildPdf([
                 ['Page one about mitochondria.'],
                 ['Page two about chloroplasts.'],
             ]), {});
-            await d.importFile('book.epub', ROOT, buildEpub([
+            await Documents.importFile('book.epub', ROOT, buildEpub([
                 { href: 'ch1.xhtml', title: 'Chapter One', body: '<p>The cell is the unit of life.</p>' },
             ]), {});
-            await d.importFile('illustrated.epub', ROOT, buildEpub([
+            await Documents.importFile('illustrated.epub', ROOT, buildEpub([
                 {
                     href: 'ch1.xhtml', title: 'Cells',
                     body: '<p>The cell is the unit of life.</p>'
@@ -831,7 +830,7 @@ describe('MCP tools', () => {
                 { href: 'images/fig2.png' },
             ]), {});
             const ytFiller = 'detail '.repeat(80);
-            await d.importFile('talk.youtube', ROOT, Buffer.from(JSON.stringify({
+            await Documents.importFile('talk.youtube', ROOT, Buffer.from(JSON.stringify({
                 url: 'https://youtu.be/xyz', videoId: 'xyz', title: 'Cells Talk',
             })), {
                 source: {
@@ -843,11 +842,11 @@ describe('MCP tools', () => {
                     transcriptMeta: { lang: 'en', kind: 'asr' },
                 },
             });
-            await d.importFile('bare.youtube', ROOT, Buffer.from(JSON.stringify({
+            await Documents.importFile('bare.youtube', ROOT, Buffer.from(JSON.stringify({
                 url: 'https://youtu.be/bare', videoId: 'bare', title: 'No Captions',
             })), {});
 
-            await d.importFile('article.clip', ROOT, Buffer.from(
+            await Documents.importFile('article.clip', ROOT, Buffer.from(
                 '<h1>Birdsong</h1><p>Prose about calls.</p>'
                 + '<figure><img src="./media/clip-aaaaaaaaaaaa.png" alt="A wren"/>'
                 + '<figcaption>Figure 1. A wren.</figcaption></figure>'

@@ -5,8 +5,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../../src/api/config/validate.js';
-import Documents from '../../src/api/access/modules/documents.js';
-import Decks from '../../src/api/access/modules/decks.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Decks from '../../src/api/access/modules/decks.js';
 import db from '../../src/api/access/primitives/database.js';
 import * as deckRows from '../../src/api/access/resources/db/decks.js';
 import * as documentRows from '../../src/api/access/resources/db/documents.js';
@@ -26,8 +26,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
-const decks = new Decks();
 
 const makeCards = (n) => Array.from({ length: n }, (_, i) => ({
     globalHash: crypto.randomUUID(),
@@ -49,23 +47,23 @@ describe('Tag propagation — correctness', () => {
     before(async () => {
         rmWorkspace(ROOT);
         await sealTools.init();
-        await docs.createFolder(ROOT);
+        await Documents.createFolder(ROOT);
     });
 
     after(() => rmWorkspace(ROOT));
 
     it('folder tag propagates to child documents and their flashcards via updateMetadata', async () => {
-        await docs.createFolder('Science', ROOT);
+        await Documents.createFolder('Science', ROOT);
         const folderPath = path.join(ROOT, 'Science');
-        await docs.createFolder('Biology', folderPath);
+        await Documents.createFolder('Biology', folderPath);
         const subFolderPath = path.join(folderPath, 'Biology');
 
-        await docs.importFile('cells.md', subFolderPath, Buffer.from('# Cells'), {
+        await Documents.importFile('cells.md', subFolderPath, Buffer.from('# Cells'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(3),
         });
 
-        await docs.updateMetadata(folderPath, { tags: ['biology', 'science'] }, true);
+        await Documents.updateMetadata(folderPath, { tags: ['biology', 'science'] }, true);
 
         const docEntity = await documentRows.getByPath(path.join(subFolderPath, 'cells.md'));
         assert.ok(docEntity, 'Document should exist');
@@ -109,17 +107,17 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('excluded tag on subfolder blocks propagation to its children', async () => {
-        await docs.createFolder('History', ROOT);
+        await Documents.createFolder('History', ROOT);
         const histPath = path.join(ROOT, 'History');
-        await docs.createFolder('Blocked', histPath);
+        await Documents.createFolder('Blocked', histPath);
         const blockedPath = path.join(histPath, 'Blocked');
 
-        await docs.importFile('knights.md', blockedPath, Buffer.from('# Knights'), {
+        await Documents.importFile('knights.md', blockedPath, Buffer.from('# Knights'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(2),
         });
 
-        await docs.updateMetadata(histPath, { tags: ['history'] }, true);
+        await Documents.updateMetadata(histPath, { tags: ['history'] }, true);
 
         const docBefore = await documentRows.getByPath(path.join(blockedPath, 'knights.md'));
         const fcsBefore = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docBefore.id);
@@ -128,7 +126,7 @@ describe('Tag propagation — correctness', () => {
             assert.ok(tags.includes('history'), 'Should have history before exclusion');
         }
 
-        await docs.updateMetadata(blockedPath, { tags: [], excludedTags: ['history'] }, true);
+        await Documents.updateMetadata(blockedPath, { tags: [], excludedTags: ['history'] }, true);
 
         const docAfter = await documentRows.getByPath(path.join(blockedPath, 'knights.md'));
         const fcsAfter = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docAfter.id);
@@ -141,15 +139,15 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('document-level tag propagates to its own flashcards', async () => {
-        await docs.createFolder('Physics', ROOT);
+        await Documents.createFolder('Physics', ROOT);
         const physPath = path.join(ROOT, 'Physics');
 
-        await docs.importFile('quantum.md', physPath, Buffer.from('# Quantum'), {
+        await Documents.importFile('quantum.md', physPath, Buffer.from('# Quantum'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(4),
         });
 
-        await docs.updateMetadata(path.join(physPath, 'quantum.md'), { tags: ['quantum', 'physics'] }, false);
+        await Documents.updateMetadata(path.join(physPath, 'quantum.md'), { tags: ['quantum', 'physics'] }, false);
 
         const docEntity = await documentRows.getByPath(path.join(physPath, 'quantum.md'));
         const flashcards = await db.prepare('SELECT node_id FROM Flashcards WHERE document_id = ?').all(docEntity.id);
@@ -165,16 +163,16 @@ describe('Tag propagation — correctness', () => {
 
 
     it('a flashcard created after its document was tagged inherits at creation', async () => {
-        await docs.createFolder('LateCards', ROOT);
+        await Documents.createFolder('LateCards', ROOT);
         const base = path.join(ROOT, 'LateCards');
 
-        await docs.importFile('late.md', base, Buffer.from('# Late'), {
+        await Documents.importFile('late.md', base, Buffer.from('# Late'), {
             globalHash: crypto.randomUUID(),
         });
         const docRel = path.join(base, 'late.md');
 
-        await docs.updateMetadata(docRel, { tags: ['chemistry'] }, false);
-        const saved = await docs.createFlashcard(docRel, {
+        await Documents.updateMetadata(docRel, { tags: ['chemistry'] }, false);
+        const saved = await Documents.createFlashcard(docRel, {
             cardType: 'basic',
             vanillaData: { frontText: 'Q-late', backText: 'A-late' },
         });
@@ -189,16 +187,16 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('a flashcard created after a FOLDER was tagged inherits through the document', async () => {
-        await docs.createFolder('LateFolderCards', ROOT);
+        await Documents.createFolder('LateFolderCards', ROOT);
         const folderRel = path.join(ROOT, 'LateFolderCards');
 
-        await docs.importFile('host.md', folderRel, Buffer.from('# Host'), {
+        await Documents.importFile('host.md', folderRel, Buffer.from('# Host'), {
             globalHash: crypto.randomUUID(),
         });
         const docRel = path.join(folderRel, 'host.md');
 
-        await docs.updateMetadata(folderRel, { tags: ['geology'] }, true);
-        const saved = await docs.createFlashcard(docRel, {
+        await Documents.updateMetadata(folderRel, { tags: ['geology'] }, true);
+        const saved = await Documents.createFlashcard(docRel, {
             cardType: 'basic',
             vanillaData: { frontText: 'Q-geo', backText: 'A-geo' },
         });
@@ -212,12 +210,12 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('a document imported into an already-tagged folder inherits at creation', async () => {
-        await docs.createFolder('PreTagged', ROOT);
+        await Documents.createFolder('PreTagged', ROOT);
         const folderRel = path.join(ROOT, 'PreTagged');
 
-        await docs.updateMetadata(folderRel, { tags: ['astronomy'] }, true);
+        await Documents.updateMetadata(folderRel, { tags: ['astronomy'] }, true);
 
-        await docs.importFile('stars.md', folderRel, Buffer.from('# Stars'), {
+        await Documents.importFile('stars.md', folderRel, Buffer.from('# Stars'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(2),
         });
@@ -237,18 +235,18 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('a folder created inside an already-tagged folder inherits, and passes it on', async () => {
-        await docs.createFolder('PreTaggedParent', ROOT);
+        await Documents.createFolder('PreTaggedParent', ROOT);
         const parentRel = path.join(ROOT, 'PreTaggedParent');
-        await docs.updateMetadata(parentRel, { tags: ['literature'] }, true);
+        await Documents.updateMetadata(parentRel, { tags: ['literature'] }, true);
 
-        await docs.createFolder('Child', parentRel);
+        await Documents.createFolder('Child', parentRel);
         const childRel = path.join(parentRel, 'Child');
 
         const childFolder = await folderRows.getByPath(childRel);
         assert.ok((await tagRows.getInheritedNames(childFolder.node_id)).includes('literature'),
             'subfolder created under a tagged folder should inherit at creation');
 
-        await docs.importFile('poems.md', childRel, Buffer.from('# Poems'), {
+        await Documents.importFile('poems.md', childRel, Buffer.from('# Poems'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
         });
@@ -259,15 +257,15 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('an exclusion on the parent still blocks a newly created child', async () => {
-        await docs.createFolder('ExcludeParent', ROOT);
+        await Documents.createFolder('ExcludeParent', ROOT);
         const parentRel = path.join(ROOT, 'ExcludeParent');
-        await docs.updateMetadata(parentRel, { tags: ['blocked-tag'] }, true);
+        await Documents.updateMetadata(parentRel, { tags: ['blocked-tag'] }, true);
 
-        await docs.createFolder('Shielded', parentRel);
+        await Documents.createFolder('Shielded', parentRel);
         const shieldedRel = path.join(parentRel, 'Shielded');
-        await docs.updateMetadata(shieldedRel, { tags: [], excludedTags: ['blocked-tag'] }, true);
+        await Documents.updateMetadata(shieldedRel, { tags: [], excludedTags: ['blocked-tag'] }, true);
 
-        await docs.importFile('quiet.md', shieldedRel, Buffer.from('# Quiet'), {
+        await Documents.importFile('quiet.md', shieldedRel, Buffer.from('# Quiet'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
         });
@@ -282,13 +280,13 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('moving a document into a tagged folder re-inherits for it and its cards', async () => {
-        await docs.createFolder('MoveSource', ROOT);
-        await docs.createFolder('MoveTarget', ROOT);
+        await Documents.createFolder('MoveSource', ROOT);
+        await Documents.createFolder('MoveTarget', ROOT);
         const sourceRel = path.join(ROOT, 'MoveSource');
         const targetRel = path.join(ROOT, 'MoveTarget');
-        await docs.updateMetadata(targetRel, { tags: ['archived'] }, true);
+        await Documents.updateMetadata(targetRel, { tags: ['archived'] }, true);
 
-        await docs.importFile('wanderer.md', sourceRel, Buffer.from('# Wanderer'), {
+        await Documents.importFile('wanderer.md', sourceRel, Buffer.from('# Wanderer'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(2),
         });
@@ -299,7 +297,7 @@ describe('Tag propagation — correctness', () => {
         assert.ok(!(await tagRows.getInheritedNames(before.node_id)).includes('archived'),
             'precondition: not tagged before the move');
 
-        await docs.move(fromRel, toRel, false);
+        await Documents.move(fromRel, toRel, false);
 
         const after = await documentRows.getByPath(toRel);
         assert.ok((await tagRows.getInheritedNames(after.node_id)).includes('archived'),
@@ -314,18 +312,18 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('tag with no remaining references disappears from getAllTags', async () => {
-        await docs.createFolder('Orphans', ROOT);
+        await Documents.createFolder('Orphans', ROOT);
         const orphPath = path.join(ROOT, 'Orphans');
 
-        await docs.importFile('lonely.md', orphPath, Buffer.from('# Lonely'), {
+        await Documents.importFile('lonely.md', orphPath, Buffer.from('# Lonely'), {
             globalHash: crypto.randomUUID(),
         });
         const docRel = path.join(orphPath, 'lonely.md');
 
-        await docs.updateMetadata(docRel, { tags: ['ephemeral', 'kept'] }, false);
+        await Documents.updateMetadata(docRel, { tags: ['ephemeral', 'kept'] }, false);
         assert.ok((await tagRows.getAll()).includes('ephemeral'), 'tag should exist after being added');
 
-        await docs.updateMetadata(docRel, { tags: ['kept'] }, false);
+        await Documents.updateMetadata(docRel, { tags: ['kept'] }, false);
         const tags = await tagRows.getAll();
         assert.ok(!tags.includes('ephemeral'), '"ephemeral" should be pruned once unreferenced');
         assert.ok(tags.includes('kept'), '"kept" should remain');
@@ -333,21 +331,21 @@ describe('Tag propagation — correctness', () => {
     });
 
     it('shared tag survives while any reference remains', async () => {
-        await docs.createFolder('SharedTag', ROOT);
+        await Documents.createFolder('SharedTag', ROOT);
         const base = path.join(ROOT, 'SharedTag');
 
-        await docs.importFile('a.md', base, Buffer.from('# A'), { globalHash: crypto.randomUUID() });
-        await docs.importFile('b.md', base, Buffer.from('# B'), { globalHash: crypto.randomUUID() });
+        await Documents.importFile('a.md', base, Buffer.from('# A'), { globalHash: crypto.randomUUID() });
+        await Documents.importFile('b.md', base, Buffer.from('# B'), { globalHash: crypto.randomUUID() });
         const aRel = path.join(base, 'a.md');
         const bRel = path.join(base, 'b.md');
 
-        await docs.updateMetadata(aRel, { tags: ['shared'] }, false);
-        await docs.updateMetadata(bRel, { tags: ['shared'] }, false);
+        await Documents.updateMetadata(aRel, { tags: ['shared'] }, false);
+        await Documents.updateMetadata(bRel, { tags: ['shared'] }, false);
 
-        await docs.updateMetadata(aRel, { tags: [] }, false);
+        await Documents.updateMetadata(aRel, { tags: [] }, false);
         assert.ok((await tagRows.getAll()).includes('shared'), 'shared tag should survive while b references it');
 
-        await docs.updateMetadata(bRel, { tags: [] }, false);
+        await Documents.updateMetadata(bRel, { tags: [] }, false);
         assert.ok(!(await tagRows.getAll()).includes('shared'), 'shared tag should be pruned once fully unreferenced');
         console.log('  Shared tag pruned only after last reference removed');
     });
@@ -369,31 +367,31 @@ describe('Deck tag propagation — correctness', () => {
     before(async () => {
         rmWorkspace(ROOT);
         await sealTools.init();
-        await docs.createFolder(ROOT);
+        await Documents.createFolder(ROOT);
 
-        await docs.importFile('deck-cards.md', ROOT, Buffer.from('# Deck cards'), {
+        await Documents.importFile('deck-cards.md', ROOT, Buffer.from('# Deck cards'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(3),
         });
         docRel = path.join(ROOT, 'deck-cards.md');
         cardRows = await cardsForDoc(docRel);
 
-        await docs.importFile('late-card.md', ROOT, Buffer.from('# Late'), {
+        await Documents.importFile('late-card.md', ROOT, Buffer.from('# Late'), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(1),
         });
         [extraCard] = await cardsForDoc(path.join(ROOT, 'late-card.md'));
 
-        deckHash = await decks.createDeck('Study Deck');
+        deckHash = await Decks.createDeck('Study Deck');
         for (const c of cardRows) {
-            await decks.addEntry(deckHash, { cardHash: c.global_hash, documentPath: docRel });
+            await Decks.addEntry(deckHash, { cardHash: c.global_hash, documentPath: docRel });
         }
     });
 
     after(() => rmWorkspace(ROOT));
 
     it('deck tags flow down to member cards', async () => {
-        await decks.setTags(deckHash, ['exam2026']);
+        await Decks.setTags(deckHash, ['exam2026']);
 
         const deck = await deckRows.getByHash(deckHash);
         assert.deepEqual(await tagRows.getDirectNames(deck.node_id), ['exam2026'],
@@ -407,7 +405,7 @@ describe('Deck tag propagation — correctness', () => {
     });
 
     it('deck tags compose with document tags (union, no clobber)', async () => {
-        await docs.updateMetadata(docRel, { tags: ['sourcedoc'] }, false);
+        await Documents.updateMetadata(docRel, { tags: ['sourcedoc'] }, false);
 
         for (const c of cardRows) {
             const tags = await tagRows.getInheritedNames(c.node_id);
@@ -418,7 +416,7 @@ describe('Deck tag propagation — correctness', () => {
     });
 
     it('a card added after tagging inherits the deck tags immediately', async () => {
-        await decks.addEntry(deckHash, { cardHash: extraCard.global_hash, documentPath: path.join(ROOT, 'late-card.md') });
+        await Decks.addEntry(deckHash, { cardHash: extraCard.global_hash, documentPath: path.join(ROOT, 'late-card.md') });
         assert.ok((await tagRows.getInheritedNames(extraCard.node_id)).includes('exam2026'),
             'late-added card should inherit the deck tag on entry');
         console.log('  Late-added card inherited "exam2026"');
@@ -445,7 +443,7 @@ describe('Deck tag propagation — correctness', () => {
 
     it('removing a card from the deck drops the deck tag but keeps document tags', async () => {
         const target = cardRows[0];
-        await decks.removeEntry(deckHash, target.global_hash);
+        await Decks.removeEntry(deckHash, target.global_hash);
 
         const tags = await tagRows.getInheritedNames(target.node_id);
         assert.ok(!tags.includes('exam2026'), 'removed card should lose the deck tag');
@@ -454,7 +452,7 @@ describe('Deck tag propagation — correctness', () => {
     });
 
     it('deleting the deck removes the deck tag from remaining cards and prunes it', async () => {
-        await decks.deleteDeck(deckHash);
+        await Decks.deleteDeck(deckHash);
 
         for (const c of cardRows.slice(1)) {
             assert.ok(!(await tagRows.getInheritedNames(c.node_id)).includes('exam2026'),
@@ -470,7 +468,7 @@ describe('Standalone card tags — correctness', () => {
     let hash;
 
     const snapshotFor = async (cardHash) => {
-        for (const f of await decks.listDeckFiles()) {
+        for (const f of await Decks.listDeckFiles()) {
             const entry = (f.data?.entries ?? []).find(e => e.cardHash === cardHash);
             if (entry) return entry.card ?? null;
         }
@@ -482,7 +480,7 @@ describe('Standalone card tags — correctness', () => {
 
     before(async () => {
         await sealTools.init();
-        hash = await decks.createStandaloneCard({
+        hash = await Decks.createStandaloneCard({
             name: 'Tagged standalone', cardType: 'basic',
             frontText: 'Q', backText: 'A', tags: ['solo', 'vocab'],
         });
@@ -505,17 +503,17 @@ describe('Standalone card tags — correctness', () => {
     });
 
     it('replaces tags on edit, and leaves them alone when the field is omitted', async () => {
-        await decks.updateStandaloneCard(hash, { tags: ['solo', 'grammar'] });
+        await Decks.updateStandaloneCard(hash, { tags: ['solo', 'grammar'] });
         assert.deepEqual(await directTags(hash), ['grammar', 'solo']);
         assert.deepEqual((await snapshotFor(hash))?.tags?.slice().sort(), ['grammar', 'solo']);
 
-        await decks.updateStandaloneCard(hash, { name: 'Renamed only' });
+        await Decks.updateStandaloneCard(hash, { name: 'Renamed only' });
         assert.deepEqual(await directTags(hash), ['grammar', 'solo'],
             'a name-only edit must not wipe the card\u2019s tags');
     });
 
     it('getCard reports the tags, so an editor can show what it is about to replace', async () => {
-        assert.deepEqual((await decks.getCard(hash)).tags?.slice().sort(), ['grammar', 'solo']);
+        assert.deepEqual((await Decks.getCard(hash)).tags?.slice().sort(), ['grammar', 'solo']);
     });
 
     it('survives a rebuild from the canonical deck files', async () => {
@@ -524,7 +522,7 @@ describe('Standalone card tags — correctness', () => {
             await db.prepare('DELETE FROM Flashcards WHERE document_id IS NULL').run();
             await db.prepare('DELETE FROM Decks').run();
         })();
-        await decks.rebuildFromFiles();
+        await Decks.rebuildFromFiles();
         assert.deepEqual(await directTags(hash), ['grammar', 'solo'],
             'a Doctor rebuild must restore a standalone card\u2019s tags from its snapshot');
     });
@@ -542,7 +540,7 @@ describe('Tag propagation — performance', () => {
     before(async () => {
         rmWorkspace(ROOT);
         await sealTools.init();
-        await docs.createFolder(ROOT);
+        await Documents.createFolder(ROOT);
 
         const totalCards = FOLDERS * DOCS_PER * CARDS_PER;
         const expectedInherited = totalCards * TAGS.length;
@@ -552,17 +550,17 @@ describe('Tag propagation — performance', () => {
         const t0 = performance.now();
         for (let f = 0; f < FOLDERS; f++) {
             const folderName = `Folder${f}`;
-            await docs.createFolder(folderName, ROOT);
+            await Documents.createFolder(folderName, ROOT);
             const folderPath = path.join(ROOT, folderName);
 
             for (let d = 0; d < DOCS_PER; d++) {
-                await docs.importFile(`doc${d}.md`, folderPath, Buffer.from(`# Doc ${d}`), {
+                await Documents.importFile(`doc${d}.md`, folderPath, Buffer.from(`# Doc ${d}`), {
                     globalHash: crypto.randomUUID(),
                     flashcards: makeCards(CARDS_PER),
                 });
             }
 
-            await docs.updateMetadata(folderPath, { tags: TAGS }, true);
+            await Documents.updateMetadata(folderPath, { tags: TAGS }, true);
         }
 
         console.log(`  Seeded in ${(performance.now() - t0).toFixed(0)}ms`);

@@ -13,7 +13,8 @@ import { sealEmitter } from '../../seal/seal.js';
 import { withDocument } from '../resources/pathLock.js';
 import { LATEST_VERSION } from '../../config/updates/registry.js';
 import { OWNER_SCOPE, currentScope } from '../../requestContext.js';
-import SRS, { gapBand, GAP_BANDS, LONG_TERM_DAYS } from './srs.js';
+import * as Srs from './srs.js';
+import { gapBand, GAP_BANDS, LONG_TERM_DAYS } from './srs.js';
 import { swapTag } from '../../../shared/tagNames.js';
 import { isDeckColor, deckColor, nextDeckColor } from '../../../shared/deckColors.js';
 import { COVER_TYPES, COVER_PATTERNS, MAX_COVER_BYTES, cleanCover, coverMime, clampCoverY } from '../../../shared/covers.js';
@@ -41,1014 +42,1008 @@ function dueAt(lastRecall, gap) {
 
 const cleanTagNames = (tags) => [...new Set((tags || []).map(t => String(t).trim()).filter(Boolean))];
 
-export default class Decks {
-    constructor() {
-        this._ensureDecksDir();
-    }
+function _ensureDecksDir() {
+    const dir = decksPath();
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+}
 
-    _ensureDecksDir() {
-        const dir = this.decksPath;
-        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    }
+export function decksPath() {
+    return path.join(getWorkspacePath(), DECKS_DIR);
+}
 
-    get decksPath() {
-        return path.join(getWorkspacePath(), DECKS_DIR);
-    }
+export async function onVaultOpened() {
+    _ensureDecksDir();
+    await _ensureSystemDeckFile();
+}
 
-    async onVaultOpened() {
-        this._ensureDecksDir();
-        await this._ensureSystemDeckFile();
-    }
+async function _ensureSystemDeckFile() {
+    if (!await deckRows.hasSystemColumn()) return;
+    const systemDeck = await deckRows.getSystem();
+    if (!systemDeck) return;
+    await _readOrRebuild(systemDeck.global_hash, systemDeck);
+}
 
-    async _ensureSystemDeckFile() {
-        const cols = await db.prepare("PRAGMA table_info(Decks)").all();
-        if (!cols.find(c => c.name === 'is_system')) return;
-        const systemDeck = await deckRows.getSystem();
-        if (!systemDeck) return;
-        await this._readOrRebuild(systemDeck.global_hash, systemDeck);
-    }
+function _filePath(globalHash) {
+    return path.join(decksPath(), `${globalHash}.json`);
+}
 
-    _filePath(globalHash) {
-        return path.join(this.decksPath, `${globalHash}.json`);
-    }
+function _sealRelPath(globalHash) {
+    return `${DECKS_DIR}/${globalHash}.json`;
+}
 
-    _sealRelPath(globalHash) {
-        return `${DECKS_DIR}/${globalHash}.json`;
-    }
+function _coverRelPath(name) {
+    return `${DECKS_DIR}/${COVERS_DIR}/${name}`;
+}
 
-    _coverRelPath(name) {
-        return `${DECKS_DIR}/${COVERS_DIR}/${name}`;
-    }
+function _coverAbsPath(name) {
+    return path.join(decksPath(), COVERS_DIR, name);
+}
 
-    _coverAbsPath(name) {
-        return path.join(this.decksPath, COVERS_DIR, name);
-    }
+function _cleanCover(cover) {
+    return cleanCover(cover);
+}
 
-    _cleanCover(cover) {
-        return cleanCover(cover);
-    }
+export async function coverImage(globalHash) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+    let cover = null;
+    try { cover = _cleanCover(_read(globalHash).cover); } catch { }
+    if (cover?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
+    const absPath = _coverAbsPath(cover.file);
+    if (!fs.existsSync(absPath)) throw new Error(`Cover not found for deck ${globalHash}`);
+    return { absPath, mime: coverMime(cover.file) };
+}
 
-    async coverImage(globalHash) {
+export async function uploadCover(globalHash, buffer, mime) {
+    const ext = COVER_TYPES[mime];
+    if (!ext) throw new Error(`Unsupported cover type: ${mime}`);
+    if (buffer.length > MAX_COVER_BYTES) throw new Error('Cover image too large');
+    return await _withDeckFile(globalHash, async () => {
         const deck = await deckRows.getByHash(globalHash);
         if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        let cover = null;
-        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
-        if (cover?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
-        const absPath = this._coverAbsPath(cover.file);
-        if (!fs.existsSync(absPath)) throw new Error(`Cover not found for deck ${globalHash}`);
-        return { absPath, mime: coverMime(cover.file) };
-    }
+        const file = await _readOrRebuild(globalHash, deck);
+        const before = _cleanCover(file.cover);
+        const name = `${globalHash}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
+        fs.mkdirSync(path.join(decksPath(), COVERS_DIR), { recursive: true });
+        fs.writeFileSync(_coverAbsPath(name), buffer);
+        file.cover = { kind: 'image', file: name, y: 0.5 };
+        file.modified = new Date().toISOString();
+        _write(globalHash, file);
+        const removed = _dropCoverFile(before);
+        await sealEmitter.edit(_sealRelPath(globalHash), [_coverRelPath(name)], removed);
+        return file.cover;
+    });
+}
 
-    async uploadCover(globalHash, buffer, mime) {
-        const ext = COVER_TYPES[mime];
-        if (!ext) throw new Error(`Unsupported cover type: ${mime}`);
-        if (buffer.length > MAX_COVER_BYTES) throw new Error('Cover image too large');
-        return await this._withDeckFile(globalHash, async () => {
-            const deck = await deckRows.getByHash(globalHash);
-            if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-            const file = await this._readOrRebuild(globalHash, deck);
-            const before = this._cleanCover(file.cover);
-            const name = `${globalHash}-${crypto.randomBytes(4).toString('hex')}.${ext}`;
-            fs.mkdirSync(path.join(this.decksPath, COVERS_DIR), { recursive: true });
-            fs.writeFileSync(this._coverAbsPath(name), buffer);
-            file.cover = { kind: 'image', file: name, y: 0.5 };
-            file.modified = new Date().toISOString();
-            this._write(globalHash, file);
-            const removed = this._dropCoverFile(before);
-            await sealEmitter.edit(this._sealRelPath(globalHash), [this._coverRelPath(name)], removed);
-            return file.cover;
-        });
-    }
+export async function setCover(globalHash, change) {
+    return await _withDeckFile(globalHash, async () => {
+        const deck = await deckRows.getByHash(globalHash);
+        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+        const file = await _readOrRebuild(globalHash, deck);
+        const before = _cleanCover(file.cover);
+        let removed = [];
+        if (change === null) {
+            delete file.cover;
+            removed = _dropCoverFile(before);
+        } else if (change.pattern !== undefined) {
+            if (!COVER_PATTERNS.includes(change.pattern)) throw new Error(`Unknown cover pattern: ${change.pattern}`);
+            file.cover = { kind: 'pattern', pattern: change.pattern };
+            removed = _dropCoverFile(before);
+        } else if (change.y !== undefined) {
+            if (before?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
+            file.cover = { ...before, y: clampCoverY(change.y) };
+        }
+        file.modified = new Date().toISOString();
+        _write(globalHash, file);
+        await sealEmitter.edit(_sealRelPath(globalHash), [], removed);
+        return _cleanCover(file.cover);
+    });
+}
 
-    async setCover(globalHash, change) {
-        return await this._withDeckFile(globalHash, async () => {
-            const deck = await deckRows.getByHash(globalHash);
-            if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-            const file = await this._readOrRebuild(globalHash, deck);
-            const before = this._cleanCover(file.cover);
-            let removed = [];
-            if (change === null) {
-                delete file.cover;
-                removed = this._dropCoverFile(before);
-            } else if (change.pattern !== undefined) {
-                if (!COVER_PATTERNS.includes(change.pattern)) throw new Error(`Unknown cover pattern: ${change.pattern}`);
-                file.cover = { kind: 'pattern', pattern: change.pattern };
-                removed = this._dropCoverFile(before);
-            } else if (change.y !== undefined) {
-                if (before?.kind !== 'image') throw new Error(`Cover not found for deck ${globalHash}`);
-                file.cover = { ...before, y: clampCoverY(change.y) };
+function _dropCoverFile(cover) {
+    if (cover?.kind !== 'image') return [];
+    const abs = _coverAbsPath(cover.file);
+    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+    return [_coverRelPath(cover.file)];
+}
+
+function _withDeckFile(globalHash, fn) {
+    return withDocument(_sealRelPath(globalHash), fn);
+}
+
+function _read(globalHash) {
+    return JSON.parse(fs.readFileSync(_filePath(globalHash), 'utf-8'));
+}
+
+async function _readOrRebuild(globalHash, deckRow) {
+    try {
+        return _read(globalHash);
+    } catch (err) {
+        if (err.code !== 'ENOENT') throw err;
+        const entries = (await deckRows.getEntries(deckRow.id, currentScope())).map((e) => {
+            const entry = { cardHash: e.card_hash, documentPath: e.document_path };
+            if (e.inline_card) {
+                try { entry.card = JSON.parse(e.inline_card); } catch { }
             }
-            file.modified = new Date().toISOString();
-            this._write(globalHash, file);
-            await sealEmitter.edit(this._sealRelPath(globalHash), [], removed);
-            return this._cleanCover(file.cover);
+            return entry;
         });
-    }
-
-    _dropCoverFile(cover) {
-        if (cover?.kind !== 'image') return [];
-        const abs = this._coverAbsPath(cover.file);
-        if (fs.existsSync(abs)) fs.unlinkSync(abs);
-        return [this._coverRelPath(cover.file)];
-    }
-
-    _withDeckFile(globalHash, fn) {
-        return withDocument(this._sealRelPath(globalHash), fn);
-    }
-
-    _read(globalHash) {
-        return JSON.parse(fs.readFileSync(this._filePath(globalHash), 'utf-8'));
-    }
-
-    async _readOrRebuild(globalHash, deckRow) {
-        try {
-            return this._read(globalHash);
-        } catch (err) {
-            if (err.code !== 'ENOENT') throw err;
-            const entries = (await deckRows.getEntries(deckRow.id, currentScope())).map((e) => {
-                const entry = { cardHash: e.card_hash, documentPath: e.document_path };
-                if (e.inline_card) {
-                    try { entry.card = JSON.parse(e.inline_card); } catch { }
-                }
-                return entry;
-            });
-            const rebuilt = {
-                formatVersion: LATEST_VERSION,
-                globalHash,
-                name: deckRow.name,
-                description: deckRow.description ?? '',
-                tags: deckRow.node_id ? await tagRows.getDirectNames(deckRow.node_id) : [],
-                isSystem: !!deckRow.is_system,
-                created: deckRow.created_at ?? new Date().toISOString(),
-                modified: new Date().toISOString(),
-                entries,
-            };
-            this._write(globalHash, rebuilt);
-            return rebuilt;
-        }
-    }
-
-    _write(globalHash, data) {
-        fs.writeFileSync(this._filePath(globalHash), JSON.stringify(data, null, 2));
-    }
-
-    _remove(globalHash) {
-        const p = this._filePath(globalHash);
-        if (fs.existsSync(p)) fs.unlinkSync(p);
-    }
-
-    _colorOf(globalHash) {
-        try {
-            const { color } = this._read(globalHash);
-            return isDeckColor(color) ? color : null;
-        } catch {
-            return null;
-        }
-    }
-
-    _standing(hashes, schedule, now = Date.now()) {
-        let due = 0;
-        let fresh = 0;
-        let longTerm = 0;
-        for (const hash of hashes) {
-            const s = schedule.get(hash);
-            if (!s) continue;
-            if (s.gap == null) { fresh += 1; continue; }
-            if (dueAt(s.lastRecall, s.gap) <= now) due += 1;
-            if (s.gap >= LONG_TERM_DAYS) longTerm += 1;
-        }
-        return { due, fresh, longTerm };
-    }
-
-    async listDecks({ algorithm = null } = {}) {
-        const rows = await deckRows.getAll();
-        const schedule = await SRS.cardSchedule({ algorithm, scope: currentScope() });
-        const byDeck = new Map();
-        for (const { deck_id: id, card_hash: hash } of await deckRows.getAllEntryHashes()) {
-            if (!byDeck.has(id)) byDeck.set(id, []);
-            byDeck.get(id).push(hash);
-        }
-        return rows.map((d) => ({
-            ...d,
-            color: this._colorOf(d.global_hash),
-            standing: this._standing(byDeck.get(d.id) ?? [], schedule),
-        }));
-    }
-
-    async createDeck(name, description = '') {
-        const globalHash = crypto.randomUUID();
-        const used = (await deckRows.getAll())
-            .filter((d) => !d.is_system)
-            .map((d) => deckColor({ ...d, color: this._colorOf(d.global_hash) }));
-        const color = nextDeckColor(used);
-        return await this._withDeckFile(globalHash, () => this._createDeckLocked(globalHash, name, description, color));
-    }
-
-    async _createDeckLocked(globalHash, name, description, color) {
-        const now = new Date().toISOString();
-        const file = {
+        const rebuilt = {
             formatVersion: LATEST_VERSION,
-            globalHash, name, description, color, tags: [], created: now, modified: now, entries: [],
-        };
-
-        this._write(globalHash, file);
-        try {
-            await db.transaction(async () => {
-                await deckRows.insert({ globalHash, name, description });
-            })();
-        } catch (err) {
-            this._remove(globalHash);
-            throw err;
-        }
-        await sealEmitter.create(this._sealRelPath(globalHash));
-        return globalHash;
-    }
-
-    async getDeck(globalHash, { algorithm = null } = {}) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        const scope = currentScope();
-        const rows = await deckRows.getEntries(deck.id, scope);
-        const schedule = await SRS.cardSchedule({ algorithm, scope });
-        const entries = rows.map((e) => ({ ...e, gap: schedule.get(e.card_hash)?.gap ?? null }));
-        const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
-        let cover = null;
-        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
-        return {
-            ...deck,
-            color: this._colorOf(globalHash),
-            cover,
+            globalHash,
+            name: deckRow.name,
+            description: deckRow.description ?? '',
+            tags: deckRow.node_id ? await tagRows.getDirectNames(deckRow.node_id) : [],
+            isSystem: !!deckRow.is_system,
+            created: deckRow.created_at ?? new Date().toISOString(),
+            modified: new Date().toISOString(),
             entries,
-            entry_count: entries.length,
-            tags,
-            standing: this._standing(rows.map((e) => e.card_hash), schedule),
         };
+        _write(globalHash, rebuilt);
+        return rebuilt;
     }
+}
 
-    async _tagIdsForNames(tagNames) {
-        const ids = [];
-        for (const name of tagNames) {
-            const tag = await tagRows.getByName(name);
-            if (tag) ids.push(tag.id);
+function _write(globalHash, data) {
+    _ensureDecksDir();
+    fs.writeFileSync(_filePath(globalHash), JSON.stringify(data, null, 2));
+}
+
+function _remove(globalHash) {
+    const p = _filePath(globalHash);
+    if (fs.existsSync(p)) fs.unlinkSync(p);
+}
+
+function _colorOf(globalHash) {
+    try {
+        const { color } = _read(globalHash);
+        return isDeckColor(color) ? color : null;
+    } catch {
+        return null;
+    }
+}
+
+function _standing(hashes, schedule, now = Date.now()) {
+    let due = 0;
+    let fresh = 0;
+    let longTerm = 0;
+    for (const hash of hashes) {
+        const s = schedule.get(hash);
+        if (!s) continue;
+        if (s.gap == null) { fresh += 1; continue; }
+        if (dueAt(s.lastRecall, s.gap) <= now) due += 1;
+        if (s.gap >= LONG_TERM_DAYS) longTerm += 1;
+    }
+    return { due, fresh, longTerm };
+}
+
+export async function listDecks({ algorithm = null } = {}) {
+    const rows = await deckRows.getAll();
+    const schedule = await Srs.cardSchedule({ algorithm, scope: currentScope() });
+    const byDeck = new Map();
+    for (const { deck_id: id, card_hash: hash } of await deckRows.getAllEntryHashes()) {
+        if (!byDeck.has(id)) byDeck.set(id, []);
+        byDeck.get(id).push(hash);
+    }
+    return rows.map((d) => ({
+        ...d,
+        color: _colorOf(d.global_hash),
+        standing: _standing(byDeck.get(d.id) ?? [], schedule),
+    }));
+}
+
+export async function createDeck(name, description = '') {
+    const globalHash = crypto.randomUUID();
+    const used = (await deckRows.getAll())
+        .filter((d) => !d.is_system)
+        .map((d) => deckColor({ ...d, color: _colorOf(d.global_hash) }));
+    const color = nextDeckColor(used);
+    return await _withDeckFile(globalHash, () => _createDeckLocked(globalHash, name, description, color));
+}
+
+async function _createDeckLocked(globalHash, name, description, color) {
+    const now = new Date().toISOString();
+    const file = {
+        formatVersion: LATEST_VERSION,
+        globalHash, name, description, color, tags: [], created: now, modified: now, entries: [],
+    };
+
+    _write(globalHash, file);
+    try {
+        await db.transaction(async () => {
+            await deckRows.insert({ globalHash, name, description });
+        })();
+    } catch (err) {
+        _remove(globalHash);
+        throw err;
+    }
+    await sealEmitter.create(_sealRelPath(globalHash));
+    return globalHash;
+}
+
+export async function getDeck(globalHash, { algorithm = null } = {}) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+    const scope = currentScope();
+    const rows = await deckRows.getEntries(deck.id, scope);
+    const schedule = await Srs.cardSchedule({ algorithm, scope });
+    const entries = rows.map((e) => ({ ...e, gap: schedule.get(e.card_hash)?.gap ?? null }));
+    const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
+    let cover = null;
+    try { cover = _cleanCover(_read(globalHash).cover); } catch { }
+    return {
+        ...deck,
+        color: _colorOf(globalHash),
+        cover,
+        entries,
+        entry_count: entries.length,
+        tags,
+        standing: _standing(rows.map((e) => e.card_hash), schedule),
+    };
+}
+
+async function _tagIdsForNames(tagNames) {
+    const ids = [];
+    for (const name of tagNames) {
+        const tag = await tagRows.getByName(name);
+        if (tag) ids.push(tag.id);
+    }
+    return ids;
+}
+
+async function _syncNodeTags(nodeId, tagNames) {
+    const tagNodeIds = [];
+    for (const name of tagNames) {
+        let tag = await tagRows.getByName(name);
+        if (!tag) {
+            const tNodeId = await nodeRows.create('Tag');
+            await tagRows.insert(name, tNodeId);
+            tagNodeIds.push(tNodeId);
+        } else {
+            tagNodeIds.push(tag.node_id);
         }
-        return ids;
+    }
+    await tagRows.syncNode(nodeId, tagNodeIds);
+}
+
+async function _propagateTagsToCards(deck, tagNames) {
+    if (!deck.node_id) return;
+    const tagIds = await _tagIdsForNames(tagNames);
+    for (const e of await deckRows.getEntries(deck.id, currentScope())) {
+        const cardNodeId = await flashcardRows.getNodeIdByHash(e.card_hash);
+        if (cardNodeId) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+    }
+}
+
+export async function rewriteTag(from, to = null) {
+    let changed = 0;
+    for (const deck of await deckRows.getAll()) {
+        const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
+        const next = swapTag(tags, from, to);
+        if (!next) continue;
+        await setTags(deck.global_hash, next);
+        changed++;
+    }
+    const system = await deckRows.getSystem();
+    if (system) {
+        const file = await _readOrRebuild(system.global_hash, system);
+        for (const entry of file?.entries ?? []) {
+            const next = swapTag(entry?.card?.tags, from, to);
+            if (!next || !entry.cardHash) continue;
+            await updateStandaloneCard(entry.cardHash, { tags: next });
+            changed++;
+        }
+    }
+    return changed;
+}
+
+export async function rewriteCategory(from, to = null) {
+    const system = await deckRows.getSystem();
+    if (!system) return 0;
+    let changed = 0;
+    const file = await _readOrRebuild(system.global_hash, system);
+    for (const entry of file?.entries ?? []) {
+        if (entry?.card?.category !== from || !entry.cardHash) continue;
+        await updateStandaloneCard(entry.cardHash, { category: to });
+        changed++;
+    }
+    return changed;
+}
+
+export async function setTags(globalHash, tags) {
+    return await _withDeckFile(globalHash, () => _setTagsLocked(globalHash, tags));
+}
+
+async function _setTagsLocked(globalHash, tags) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+    const clean = cleanTagNames(tags);
+
+    const file = await _readOrRebuild(globalHash, deck);
+    file.tags = clean;
+    file.modified = new Date().toISOString();
+    _write(globalHash, file);
+
+    await db.transaction(async () => {
+        await _syncNodeTags(deck.node_id, clean);
+        await _propagateTagsToCards(deck, clean);
+    })();
+    await sealEmitter.edit(_sealRelPath(globalHash));
+    return clean;
+}
+
+export async function updateDeck(globalHash, { name, description, color }) {
+    return await _withDeckFile(globalHash, () => _updateDeckLocked(globalHash, { name, description, color }));
+}
+
+async function _updateDeckLocked(globalHash, { name, description, color }) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+    if (color !== undefined && deck.is_system) throw new Error('The system deck is always kraft');
+
+    const file = await _readOrRebuild(globalHash, deck);
+    if (name !== undefined) file.name = name;
+    if (description !== undefined) file.description = description;
+    if (color === null) delete file.color;
+    else if (color !== undefined) file.color = color;
+    file.modified = new Date().toISOString();
+
+    _write(globalHash, file);
+    await db.transaction(async () => {
+        await deckRows.update(deck.id, {
+            name: name ?? deck.name,
+            description: description !== undefined ? description : deck.description,
+        });
+    })();
+    await sealEmitter.edit(_sealRelPath(globalHash));
+}
+
+export async function deleteDeck(globalHash) {
+    return await _withDeckFile(globalHash, () => _deleteDeckLocked(globalHash));
+}
+
+async function _deleteDeckLocked(globalHash) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+    if (deck.is_system) throw new Error('Cannot delete the system deck');
+
+    let cover = null;
+    try { cover = _cleanCover(_read(globalHash).cover); } catch { }
+    _remove(globalHash);
+    await db.transaction(async () => {
+        if (deck.node_id) await _syncNodeTags(deck.node_id, []);
+        await deckRows.remove(deck.id);
+    })();
+    await sealEmitter.delete(_sealRelPath(globalHash), _dropCoverFile(cover));
+}
+
+export async function addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
+    return await _withDeckFile(deckHash, () =>
+        _addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }));
+}
+
+async function _addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }) {
+    const deck = await deckRows.getByHash(deckHash);
+    if (!deck) throw new Error(`Deck not found: ${deckHash}`);
+
+    const existing = await deckRows.getEntryByCardHash(deck.id, cardHash);
+    if (existing) throw new Error('Card already in deck');
+
+    const position = await deckRows.getEntryCount(deck.id);
+
+    const file = await _readOrRebuild(deckHash, deck);
+    const entry = { cardHash, documentPath };
+    if (inlineCard) entry.card = inlineCard;
+    file.entries.push(entry);
+    file.modified = new Date().toISOString();
+
+    _write(deckHash, file);
+    try {
+        await db.transaction(async () => {
+            await deckRows.insertEntry({
+                deckId: deck.id, cardHash, documentPath, position,
+                inlineCard: inlineCard ? JSON.stringify(inlineCard) : null,
+            });
+            if (deck.node_id) {
+                const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
+                if (cardNodeId) {
+                    await deckRows.insertConnection(deck.node_id, cardNodeId);
+                    const tagIds = await _tagIdsForNames(await tagRows.getDirectNames(deck.node_id));
+                    if (tagIds.length) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+                }
+            }
+        })();
+    } catch (err) {
+        file.entries.pop();
+        _write(deckHash, file);
+        throw err;
+    }
+    await sealEmitter.edit(_sealRelPath(deckHash));
+}
+
+export async function removeEntry(deckHash, cardHash) {
+    return await _withDeckFile(deckHash, () => _removeEntryLocked(deckHash, cardHash));
+}
+
+async function _removeEntryLocked(deckHash, cardHash) {
+    const deck = await deckRows.getByHash(deckHash);
+    if (!deck) throw new Error(`Deck not found: ${deckHash}`);
+
+    const file = await _readOrRebuild(deckHash, deck);
+    const before = [...file.entries];
+    file.entries = file.entries.filter(e => e.cardHash !== cardHash);
+    file.modified = new Date().toISOString();
+
+    _write(deckHash, file);
+    try {
+        await db.transaction(async () => {
+            if (deck.node_id) {
+                const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
+                if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
+            }
+            await deckRows.deleteEntry(deck.id, cardHash);
+        })();
+    } catch (err) {
+        file.entries = before;
+        _write(deckHash, file);
+        throw err;
+    }
+    await sealEmitter.edit(_sealRelPath(deckHash));
+}
+
+export async function getContentsSummary(globalHash) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+
+    const entries = await deckRows.getEntries(deck.id, currentScope());
+    const documents = new Set();
+    const otherDecks = new Set();
+    let standalone = 0;
+    let documentAnchored = 0;
+    let shared = 0;
+    let sharedStandalone = 0;
+    let sharedDocumentAnchored = 0;
+
+    for (const entry of entries) {
+        const documentPath = await _cardDocumentPath(entry.card_hash);
+        if (documentPath) {
+            documentAnchored++;
+            documents.add(documentPath);
+        } else {
+            standalone++;
+        }
+
+        const others = (await deckRows.getContainingCard(entry.card_hash))
+            .filter(d => !d.is_system && d.id !== deck.id);
+        if (others.length) {
+            shared++;
+            if (documentPath) sharedDocumentAnchored++; else sharedStandalone++;
+            for (const d of others) otherDecks.add(d.name);
+        }
     }
 
-    async _syncNodeTags(nodeId, tagNames) {
-        const tagNodeIds = [];
-        for (const name of tagNames) {
-            let tag = await tagRows.getByName(name);
-            if (!tag) {
-                const tNodeId = await nodeRows.create('Tag');
-                await tagRows.insert(name, tNodeId);
-                tagNodeIds.push(tNodeId);
-            } else {
-                tagNodeIds.push(tag.node_id);
+    return {
+        deckName: deck.name,
+        total: entries.length,
+        standalone,
+        documentAnchored,
+        documents: [...documents],
+        shared,
+        sharedStandalone,
+        sharedDocumentAnchored,
+        otherDecks: [...otherDecks],
+    };
+}
+
+export async function getPurgeTargets(globalHash, { includeShared = false } = {}) {
+    const deck = await deckRows.getByHash(globalHash);
+    if (!deck) throw new Error(`Deck not found: ${globalHash}`);
+
+    const standalone = [];
+    const anchored = [];
+    let kept = 0;
+
+    for (const entry of await deckRows.getEntries(deck.id, currentScope())) {
+        const isShared = (await deckRows.getContainingCard(entry.card_hash))
+            .some(d => !d.is_system && d.id !== deck.id);
+        if (isShared && !includeShared) { kept++; continue; }
+
+        const documentPath = await _cardDocumentPath(entry.card_hash);
+        if (documentPath) anchored.push({ hash: entry.card_hash, documentPath });
+        else standalone.push(entry.card_hash);
+    }
+
+    return { standalone, anchored, kept };
+}
+
+async function _cardDocumentPath(cardHash) {
+    return (await flashcardRows.getContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
+}
+
+export async function removeCardEverywhere(cardHash) {
+    const holders = await deckRows.getContainingCard(cardHash);
+    for (const deck of holders) {
+        await removeEntry(deck.global_hash, cardHash);
+    }
+    return holders.length;
+}
+
+export async function searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
+    const scope = currentScope();
+    const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
+    const gaps = await Srs.cardGaps({ algorithm, scope });
+    const gapOf = (hash) => gaps.get(hash) ?? null;
+    const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));
+
+    if (!band && !groupBy && sortBy !== 'gap' && sortBy !== 'due') {
+        const cards = await flashcardRows.getAll({ ...filters, sortBy, sortDir, limit, offset }, scope);
+        const total = await flashcardRows.getCountFiltered(filters, scope);
+        return { cards: withGap(cards), total };
+    }
+
+    let rows = await flashcardRows.getHashesFiltered(filters, scope, { sortBy, sortDir });
+    if (band) rows = rows.filter((r) => gapBand(gapOf(r.global_hash)) === band);
+    const dir = sortDir === 'desc' ? -1 : 1;
+    if (sortBy === 'gap') rows = sortStable(rows, (r) => gapOf(r.global_hash) ?? -1, dir);
+    if (sortBy === 'due') rows = sortStable(rows, (r) => dueAt(r.last_recall, gapOf(r.global_hash)), dir);
+
+    let groups;
+    if (groupBy === 'gap' || groupBy === 'source') {
+        const keyOf = groupBy === 'gap'
+            ? (r) => gapBand(gapOf(r.global_hash))
+            : (r) => r.document_path ?? null;
+        const order = groupBy === 'gap'
+            ? (r) => GAP_BANDS.findIndex((b) => b.id === keyOf(r))
+            : (r) => r.document_path ?? '\uffff';
+        rows = sortStable(rows, order, 1);
+        groups = [];
+        for (const r of rows) {
+            const key = keyOf(r);
+            if (groups.at(-1)?.key === key) groups.at(-1).count += 1;
+            else groups.push({ key, count: 1 });
+        }
+    }
+
+    const page = rows.slice(offset, offset + limit).map((r) => r.global_hash);
+    const cards = withGap(await flashcardRows.getByHashes(page, scope));
+    return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
+}
+
+export async function getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
+    return await flashcardRows.getCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
+}
+
+export async function catalogueSummary({ algorithm = null } = {}) {
+    const scope = currentScope();
+    const gaps = await Srs.cardGaps({ algorithm, scope });
+    const paths = await flashcardRows.getDocumentPaths();
+    const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
+    const documents = new Map();
+    const standalone = { cards: 0, longTerm: 0 };
+    for (const { global_hash: hash, document_path: docPath } of paths) {
+        const gap = gaps.get(hash) ?? null;
+        bands[gapBand(gap)] += 1;
+        const long = gap != null && gap >= LONG_TERM_DAYS ? 1 : 0;
+        const slot = docPath ? documents.get(docPath) ?? { path: docPath, cards: 0, longTerm: 0 } : standalone;
+        slot.cards += 1;
+        slot.longTerm += long;
+        if (docPath) documents.set(docPath, slot);
+    }
+    const count = (f) => flashcardRows.getCountFiltered(f, scope);
+    return {
+        total: paths.length,
+        standalone,
+        documents: [...documents.values()].sort((a, b) => a.path.localeCompare(b.path)),
+        bands,
+        flags: {
+            any: await count({ flagged: true }),
+            mouthful: await count({ flagKind: 'mouthful' }),
+            probe: await count({ flagKind: 'probe' }),
+        },
+    };
+}
+
+function _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
+    const cleanTags = cleanTagNames(tags);
+    return {
+        name: name ?? null,
+        cardType,
+        category,
+        ...(origin ? { origin } : {}),
+        ...(cleanTags.length ? { tags: cleanTags } : {}),
+        vanillaData: {
+            frontText: frontText || null,
+            backText: backText || null,
+            ...(cardType === 'type_answer' ? { answerText: answerText ?? '' } : {}),
+            media: media || {},
+        },
+        customData: customHtml ? { html: customHtml } : null,
+    };
+}
+
+export async function createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
+    const systemDeck = await deckRows.getSystem();
+    if (!systemDeck) throw new Error('System deck not initialised — run migrations');
+    return await _withDeckFile(systemDeck.global_hash, () => _createStandaloneCardLocked(
+        systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }));
+}
+
+async function _createStandaloneCardLocked(systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }) {
+    if (category && !await categoryRows.getByName(category)) {
+        throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
+    }
+
+    const globalHash = crypto.randomUUID();
+    const snapshot = _standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags });
+
+    await db.transaction(async () => {
+        const nodeId = await nodeRows.create('Flashcard');
+        await flashcardRows.insert({
+            globalHash, nodeId, documentId: null,
+            vanillaData: snapshot.vanillaData,
+            customData: snapshot.customData,
+            category, cardType, name, origin,
+            level: 0, sm2Reps: 0, fileIndex: 0,
+        }, OWNER_SCOPE);
+        if (snapshot.tags) await _syncNodeTags(nodeId, snapshot.tags);
+        const position = await deckRows.getEntryCount(systemDeck.id);
+        await deckRows.insertEntry({
+            deckId: systemDeck.id, cardHash: globalHash,
+            documentPath: null, position, inlineCard: JSON.stringify(snapshot),
+        });
+        if (systemDeck.node_id) {
+            const cardNodeId = await flashcardRows.getNodeIdByHash(globalHash);
+            if (cardNodeId) {
+                await deckRows.insertConnection(systemDeck.node_id, cardNodeId);
+                const tagIds = await _tagIdsForNames(await tagRows.getDirectNames(systemDeck.node_id));
+                if (tagIds.length) await deckRows.setConnectionInheritedTags(systemDeck.node_id, cardNodeId, tagIds);
             }
         }
-        await tagRows.syncNode(nodeId, tagNodeIds);
+    })();
+
+    const file = await _readOrRebuild(systemDeck.global_hash, systemDeck);
+    file.entries.push({ cardHash: globalHash, documentPath: null, card: snapshot });
+    file.modified = new Date().toISOString();
+    _write(systemDeck.global_hash, file);
+
+    await sealEmitter.edit(_sealRelPath(systemDeck.global_hash));
+    return globalHash;
+}
+
+export async function getCard(hash) {
+    const card = await flashcardRows.getContentByHash(hash, currentScope());
+    if (!card) throw new Error(`Card not found: ${hash}`);
+    return {
+        globalHash: hash,
+        name: card.name,
+        cardType: card.card_type,
+        level: card.level,
+        origin: card.origin ?? null,
+        frontText: card.frontText,
+        backText: card.backText,
+        answerText: card.answerText ?? null,
+        customHtml: card.custom_html,
+        category: card.category,
+        documentPath: card.document_path ?? null,
+        tags: card.node_id ? await tagRows.getDirectNames(card.node_id) : [],
+        media: {
+            front_img: card.front_img ?? null,
+            back_img: card.back_img ?? null,
+            front_sound: card.front_sound ?? null,
+            back_sound: card.back_sound ?? null,
+        },
+    };
+}
+
+export async function updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
+    const systemDeck = await deckRows.getSystem();
+    const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
+    if (!systemDeck) return await _updateStandaloneCardLocked(hash, fields, null);
+    return await _withDeckFile(systemDeck.global_hash, () =>
+        _updateStandaloneCardLocked(hash, fields, systemDeck));
+}
+
+async function _updateStandaloneCardLocked(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags }, systemDeck) {
+    const card = await flashcardRows.getByHash(hash);
+    if (!card) throw new Error(`Card not found: ${hash}`);
+    if (card.document_id !== null && card.document_id !== undefined) {
+        throw new Error('Card is linked to a document — edit from the document instead');
+    }
+    if (category && !await categoryRows.getByName(category)) {
+        throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
+    }
+    const existing = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
+    const merged = {
+        frontText: frontText !== undefined ? frontText : existing.frontText,
+        backText: backText !== undefined ? backText : existing.backText,
+        answerText: answerText !== undefined ? answerText : existing.answerText,
+        name: name !== undefined ? name : existing.name,
+        cardType: cardType !== undefined ? cardType : existing.card_type,
+        category: category !== undefined ? category : existing.category,
+        customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
+        origin: existing.origin ?? null,
+        tags: tags !== undefined ? cleanTagNames(tags) : await tagRows.getDirectNames(existing.node_id),
+        media: {
+            front_img: existing.front_img || null,
+            back_img: existing.back_img || null,
+            front_sound: existing.front_sound || null,
+            back_sound: existing.back_sound || null,
+        },
+    };
+    const snapshot = _standaloneSnapshot(merged);
+    await db.transaction(async () => {
+        await flashcardRows.updateContentByHash(hash, merged);
+        if (tags !== undefined) await _syncNodeTags(existing.node_id, merged.tags);
+        if (systemDeck) await deckRows.updateEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
+    })();
+
+    if (systemDeck) {
+        try {
+            const file = await _readOrRebuild(systemDeck.global_hash, systemDeck);
+            const entry = file.entries.find(e => e.cardHash === hash);
+            if (entry) {
+                entry.card = snapshot;
+                file.modified = new Date().toISOString();
+                _write(systemDeck.global_hash, file);
+            }
+        } catch { }
+        await sealEmitter.edit(_sealRelPath(systemDeck.global_hash));
+    }
+}
+
+export async function deleteStandaloneCard(hash) {
+    const systemDeck = await deckRows.getSystem();
+    if (!systemDeck) return await _deleteStandaloneCardLocked(hash, null);
+    return await _withDeckFile(systemDeck.global_hash, () =>
+        _deleteStandaloneCardLocked(hash, systemDeck));
+}
+
+async function _deleteStandaloneCardLocked(hash, systemDeck) {
+    const card = await flashcardRows.getByHash(hash);
+    if (!card) throw new Error(`Card not found: ${hash}`);
+    if (card.document_id !== null && card.document_id !== undefined) {
+        throw new Error('Card is linked to a document — delete from the document instead');
     }
 
-    async _propagateTagsToCards(deck, tagNames) {
-        if (!deck.node_id) return;
-        const tagIds = await this._tagIdsForNames(tagNames);
-        for (const e of await deckRows.getEntries(deck.id, currentScope())) {
-            const cardNodeId = await flashcardRows.getNodeIdByHash(e.card_hash);
-            if (cardNodeId) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
+    await db.transaction(async () => {
+        await deckRows.deleteCardEntries(hash);
+        await flashcardRows.remove(card.id);
+        await cardProgressRows.purgeCardBehaviour(hash);
+    })();
+
+    if (systemDeck) {
+        try {
+            const file = _read(systemDeck.global_hash);
+            file.entries = file.entries.filter(e => e.cardHash !== hash);
+            file.modified = new Date().toISOString();
+            _write(systemDeck.global_hash, file);
+        } catch { }
+        await sealEmitter.edit(_sealRelPath(systemDeck.global_hash));
+    }
+}
+
+export async function listDeckFiles() {
+    if (!fs.existsSync(decksPath())) return [];
+    return await fs.readdirSync(decksPath())
+        .filter(f => f.endsWith('.json'))
+        .map(f => {
+            const globalHash = path.basename(f, '.json');
+            try {
+                return { globalHash, data: _read(globalHash) };
+            } catch {
+                return { globalHash, data: null };
+            }
+        });
+}
+
+export async function mapDeckFiles(transform) {
+    const result = { filesRewritten: 0, corruptFiles: [], failed: [] };
+
+    for (const { globalHash, data } of await listDeckFiles()) {
+        if (!data) { result.corruptFiles.push(globalHash); continue; }
+
+        let changed = false;
+        try {
+            changed = transform(data) === true;
+        } catch (err) {
+            result.failed.push({ hash: globalHash, error: err.message });
+            continue;
+        }
+        if (!changed) continue;
+
+        data.modified = new Date().toISOString();
+        _write(globalHash, data);
+
+        const deck = await deckRows.getByHash(globalHash);
+        if (deck) {
+            await db.transaction(async () => {
+                for (const entry of data.entries ?? []) {
+                    if (!entry?.card) continue;
+                    await deckRows.updateEntryInlineCard(deck.id, entry.cardHash, JSON.stringify(entry.card));
+                }
+            })();
+        }
+        result.filesRewritten++;
+    }
+
+    return result;
+}
+
+export async function diagnoseDecks() {
+    const files = await listDeckFiles();
+    const dbDecks = await deckRows.getAll();
+    const fileByHash = new Map(files.map(f => [f.globalHash, f]));
+    const dbByHash = new Map(dbDecks.map(d => [d.global_hash, d]));
+
+    const fileWithoutDb = [];
+    const dbWithoutFile = [];
+    const corruptFiles = [];
+    const entryMismatches = [];
+    const danglingEntries = [];
+
+    for (const f of files) {
+        if (f.data === null) { corruptFiles.push(f.globalHash); continue; }
+        if (!dbByHash.has(f.globalHash)) fileWithoutDb.push(f.globalHash);
+    }
+    for (const d of dbDecks) {
+        if (!fileByHash.has(d.global_hash)) { dbWithoutFile.push(d.global_hash); continue; }
+
+        const f = fileByHash.get(d.global_hash);
+        if (f.data === null) continue;
+        const fileHashes = new Set((f.data.entries ?? []).map(e => e.cardHash));
+        const dbEntries = await deckRows.getEntries(d.id, currentScope());
+        const dbHashes = new Set(dbEntries.map(e => e.card_hash));
+
+        const missingInDb = [...fileHashes].filter(h => !dbHashes.has(h));
+        const missingInFile = [...dbHashes].filter(h => !fileHashes.has(h));
+        if (missingInDb.length || missingInFile.length) {
+            entryMismatches.push({ deckHash: d.global_hash, missingInDb, missingInFile });
+        }
+        for (const e of dbEntries) {
+            if (!await flashcardRows.getByHash(e.card_hash)) {
+                danglingEntries.push({ deckHash: d.global_hash, cardHash: e.card_hash });
+            }
         }
     }
+    return { fileWithoutDb, dbWithoutFile, corruptFiles, entryMismatches, danglingEntries };
+}
 
-    async rewriteTag(from, to = null) {
-        let changed = 0;
+async function _importDeckFile(globalHash, data) {
+    await db.transaction(async () => {
+        const isSystem = data.isSystem && !await deckRows.getSystem() ? 1 : 0;
+        const deckId = await deckRows.insert({
+            globalHash,
+            name: data.name ?? 'Recovered deck',
+            description: data.description ?? '',
+            isSystem,
+        });
+        const deck = await deckRows.getByHash(globalHash);
+        for (const [i, e] of (data.entries ?? []).entries()) {
+            await deckRows.insertEntry({
+                deckId, cardHash: e.cardHash,
+                documentPath: e.documentPath ?? null,
+                position: i,
+                inlineCard: e.card ? JSON.stringify(e.card) : null,
+            });
+            if (deck.node_id) {
+                const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
+                if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
+            }
+        }
+        if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
+            await _syncNodeTags(deck.node_id, data.tags);
+        }
+    })();
+}
+
+async function _propagateAllDeckTags() {
+    await db.transaction(async () => {
         for (const deck of await deckRows.getAll()) {
             const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
-            const next = swapTag(tags, from, to);
-            if (!next) continue;
-            await this.setTags(deck.global_hash, next);
-            changed++;
+            if (tags.length) await _propagateTagsToCards(deck, tags);
         }
-        const system = await deckRows.getSystem();
-        if (system) {
-            const file = await this._readOrRebuild(system.global_hash, system);
-            for (const entry of file?.entries ?? []) {
-                const next = swapTag(entry?.card?.tags, from, to);
-                if (!next || !entry.cardHash) continue;
-                await this.updateStandaloneCard(entry.cardHash, { tags: next });
-                changed++;
-            }
-        }
-        return changed;
+    })();
+}
+
+export async function repairFromFiles() {
+    const diag = await diagnoseDecks();
+    const actions = { decksImported: 0, deckFilesRebuilt: 0, entriesAdded: 0, entriesRemoved: 0 };
+
+    for (const hash of diag.fileWithoutDb) {
+        await _importDeckFile(hash, _read(hash));
+        actions.decksImported++;
     }
-
-    async rewriteCategory(from, to = null) {
-        const system = await deckRows.getSystem();
-        if (!system) return 0;
-        let changed = 0;
-        const file = await this._readOrRebuild(system.global_hash, system);
-        for (const entry of file?.entries ?? []) {
-            if (entry?.card?.category !== from || !entry.cardHash) continue;
-            await this.updateStandaloneCard(entry.cardHash, { category: to });
-            changed++;
-        }
-        return changed;
+    for (const hash of diag.dbWithoutFile) {
+        await _readOrRebuild(hash, await deckRows.getByHash(hash));
+        actions.deckFilesRebuilt++;
     }
-
-    async setTags(globalHash, tags) {
-        return await this._withDeckFile(globalHash, () => this._setTagsLocked(globalHash, tags));
-    }
-
-    async _setTagsLocked(globalHash, tags) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        const clean = cleanTagNames(tags);
-
-        const file = await this._readOrRebuild(globalHash, deck);
-        file.tags = clean;
-        file.modified = new Date().toISOString();
-        this._write(globalHash, file);
-
+    for (const mm of diag.entryMismatches) {
+        const deck = await deckRows.getByHash(mm.deckHash);
+        const data = _read(mm.deckHash);
         await db.transaction(async () => {
-            await this._syncNodeTags(deck.node_id, clean);
-            await this._propagateTagsToCards(deck, clean);
-        })();
-        await sealEmitter.edit(this._sealRelPath(globalHash));
-        return clean;
-    }
-
-    async updateDeck(globalHash, { name, description, color }) {
-        return await this._withDeckFile(globalHash, () => this._updateDeckLocked(globalHash, { name, description, color }));
-    }
-
-    async _updateDeckLocked(globalHash, { name, description, color }) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        if (color !== undefined && deck.is_system) throw new Error('The system deck is always kraft');
-
-        const file = await this._readOrRebuild(globalHash, deck);
-        if (name !== undefined) file.name = name;
-        if (description !== undefined) file.description = description;
-        if (color === null) delete file.color;
-        else if (color !== undefined) file.color = color;
-        file.modified = new Date().toISOString();
-
-        this._write(globalHash, file);
-        await db.transaction(async () => {
-            await deckRows.update(deck.id, {
-                name: name ?? deck.name,
-                description: description !== undefined ? description : deck.description,
-            });
-        })();
-        await sealEmitter.edit(this._sealRelPath(globalHash));
-    }
-
-    async deleteDeck(globalHash) {
-        return await this._withDeckFile(globalHash, () => this._deleteDeckLocked(globalHash));
-    }
-
-    async _deleteDeckLocked(globalHash) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-        if (deck.is_system) throw new Error('Cannot delete the system deck');
-
-        let cover = null;
-        try { cover = this._cleanCover(this._read(globalHash).cover); } catch { }
-        this._remove(globalHash);
-        await db.transaction(async () => {
-            if (deck.node_id) await this._syncNodeTags(deck.node_id, []);
-            await deckRows.remove(deck.id);
-        })();
-        await sealEmitter.delete(this._sealRelPath(globalHash), this._dropCoverFile(cover));
-    }
-
-    async addEntry(deckHash, { cardHash, documentPath = null, inlineCard = null }) {
-        return await this._withDeckFile(deckHash, () =>
-            this._addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }));
-    }
-
-    async _addEntryLocked(deckHash, { cardHash, documentPath, inlineCard }) {
-        const deck = await deckRows.getByHash(deckHash);
-        if (!deck) throw new Error(`Deck not found: ${deckHash}`);
-
-        const existing = await deckRows.getEntryByCardHash(deck.id, cardHash);
-        if (existing) throw new Error('Card already in deck');
-
-        const position = await deckRows.getEntryCount(deck.id);
-
-        const file = await this._readOrRebuild(deckHash, deck);
-        const entry = { cardHash, documentPath };
-        if (inlineCard) entry.card = inlineCard;
-        file.entries.push(entry);
-        file.modified = new Date().toISOString();
-
-        this._write(deckHash, file);
-        try {
-            await db.transaction(async () => {
+            for (const h of mm.missingInDb) {
+                const entry = (data.entries ?? []).find(e => e.cardHash === h);
                 await deckRows.insertEntry({
-                    deckId: deck.id, cardHash, documentPath, position,
-                    inlineCard: inlineCard ? JSON.stringify(inlineCard) : null,
+                    deckId: deck.id, cardHash: h,
+                    documentPath: entry?.documentPath ?? null,
+                    position: await deckRows.getEntryCount(deck.id),
+                    inlineCard: entry?.card ? JSON.stringify(entry.card) : null,
                 });
                 if (deck.node_id) {
-                    const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
-                    if (cardNodeId) {
-                        await deckRows.insertConnection(deck.node_id, cardNodeId);
-                        const tagIds = await this._tagIdsForNames(await tagRows.getDirectNames(deck.node_id));
-                        if (tagIds.length) await deckRows.setConnectionInheritedTags(deck.node_id, cardNodeId, tagIds);
-                    }
-                }
-            })();
-        } catch (err) {
-            file.entries.pop();
-            this._write(deckHash, file);
-            throw err;
-        }
-        await sealEmitter.edit(this._sealRelPath(deckHash));
-    }
-
-    async removeEntry(deckHash, cardHash) {
-        return await this._withDeckFile(deckHash, () => this._removeEntryLocked(deckHash, cardHash));
-    }
-
-    async _removeEntryLocked(deckHash, cardHash) {
-        const deck = await deckRows.getByHash(deckHash);
-        if (!deck) throw new Error(`Deck not found: ${deckHash}`);
-
-        const file = await this._readOrRebuild(deckHash, deck);
-        const before = [...file.entries];
-        file.entries = file.entries.filter(e => e.cardHash !== cardHash);
-        file.modified = new Date().toISOString();
-
-        this._write(deckHash, file);
-        try {
-            await db.transaction(async () => {
-                if (deck.node_id) {
-                    const cardNodeId = await flashcardRows.getNodeIdByHash(cardHash);
-                    if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
-                }
-                await deckRows.deleteEntry(deck.id, cardHash);
-            })();
-        } catch (err) {
-            file.entries = before;
-            this._write(deckHash, file);
-            throw err;
-        }
-        await sealEmitter.edit(this._sealRelPath(deckHash));
-    }
-
-    async getContentsSummary(globalHash) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-
-        const entries = await deckRows.getEntries(deck.id, currentScope());
-        const documents = new Set();
-        const otherDecks = new Set();
-        let standalone = 0;
-        let documentAnchored = 0;
-        let shared = 0;
-        let sharedStandalone = 0;
-        let sharedDocumentAnchored = 0;
-
-        for (const entry of entries) {
-            const documentPath = await this._cardDocumentPath(entry.card_hash);
-            if (documentPath) {
-                documentAnchored++;
-                documents.add(documentPath);
-            } else {
-                standalone++;
-            }
-
-            const others = (await deckRows.getContainingCard(entry.card_hash))
-                .filter(d => !d.is_system && d.id !== deck.id);
-            if (others.length) {
-                shared++;
-                if (documentPath) sharedDocumentAnchored++; else sharedStandalone++;
-                for (const d of others) otherDecks.add(d.name);
-            }
-        }
-
-        return {
-            deckName: deck.name,
-            total: entries.length,
-            standalone,
-            documentAnchored,
-            documents: [...documents],
-            shared,
-            sharedStandalone,
-            sharedDocumentAnchored,
-            otherDecks: [...otherDecks],
-        };
-    }
-
-    async getPurgeTargets(globalHash, { includeShared = false } = {}) {
-        const deck = await deckRows.getByHash(globalHash);
-        if (!deck) throw new Error(`Deck not found: ${globalHash}`);
-
-        const standalone = [];
-        const anchored = [];
-        let kept = 0;
-
-        for (const entry of await deckRows.getEntries(deck.id, currentScope())) {
-            const isShared = (await deckRows.getContainingCard(entry.card_hash))
-                .some(d => !d.is_system && d.id !== deck.id);
-            if (isShared && !includeShared) { kept++; continue; }
-
-            const documentPath = await this._cardDocumentPath(entry.card_hash);
-            if (documentPath) anchored.push({ hash: entry.card_hash, documentPath });
-            else standalone.push(entry.card_hash);
-        }
-
-        return { standalone, anchored, kept };
-    }
-
-    async _cardDocumentPath(cardHash) {
-        return (await flashcardRows.getContentByHash(cardHash, OWNER_SCOPE))?.document_path ?? null;
-    }
-
-    async removeCardEverywhere(cardHash) {
-        const holders = await deckRows.getContainingCard(cardHash);
-        for (const deck of holders) {
-            await this.removeEntry(deck.global_hash, cardHash);
-        }
-        return holders.length;
-    }
-
-    async searchCards({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null, tag = null, categoryId = null, anchor = null, band = null, algorithm = null, groupBy = null, sortBy = 'level', sortDir = 'desc', limit = 50, offset = 0 } = {}) {
-        const scope = currentScope();
-        const filters = { search, level, cardType, origin, flagged, flagKind, source, tag, categoryId, anchor };
-        const gaps = await SRS.cardGaps({ algorithm, scope });
-        const gapOf = (hash) => gaps.get(hash) ?? null;
-        const withGap = (rows) => rows.map((r) => ({ ...r, gap: gapOf(r.global_hash) }));
-
-        if (!band && !groupBy && sortBy !== 'gap' && sortBy !== 'due') {
-            const cards = await flashcardRows.getAll({ ...filters, sortBy, sortDir, limit, offset }, scope);
-            const total = await flashcardRows.getCountFiltered(filters, scope);
-            return { cards: withGap(cards), total };
-        }
-
-        let rows = await flashcardRows.getHashesFiltered(filters, scope, { sortBy, sortDir });
-        if (band) rows = rows.filter((r) => gapBand(gapOf(r.global_hash)) === band);
-        const dir = sortDir === 'desc' ? -1 : 1;
-        if (sortBy === 'gap') rows = sortStable(rows, (r) => gapOf(r.global_hash) ?? -1, dir);
-        if (sortBy === 'due') rows = sortStable(rows, (r) => dueAt(r.last_recall, gapOf(r.global_hash)), dir);
-
-        let groups;
-        if (groupBy === 'gap' || groupBy === 'source') {
-            const keyOf = groupBy === 'gap'
-                ? (r) => gapBand(gapOf(r.global_hash))
-                : (r) => r.document_path ?? null;
-            const order = groupBy === 'gap'
-                ? (r) => GAP_BANDS.findIndex((b) => b.id === keyOf(r))
-                : (r) => r.document_path ?? '\uffff';
-            rows = sortStable(rows, order, 1);
-            groups = [];
-            for (const r of rows) {
-                const key = keyOf(r);
-                if (groups.at(-1)?.key === key) groups.at(-1).count += 1;
-                else groups.push({ key, count: 1 });
-            }
-        }
-
-        const page = rows.slice(offset, offset + limit).map((r) => r.global_hash);
-        const cards = withGap(await flashcardRows.getByHashes(page, scope));
-        return groups ? { cards, total: rows.length, groups } : { cards, total: rows.length };
-    }
-
-    async getCardCount({ search, level = null, cardType = null, origin = null, flagged = false, flagKind = null, source = null } = {}) {
-        return await flashcardRows.getCountFiltered({ search, level, cardType, origin, flagged, flagKind, source }, currentScope());
-    }
-
-    async catalogueSummary({ algorithm = null } = {}) {
-        const scope = currentScope();
-        const gaps = await SRS.cardGaps({ algorithm, scope });
-        const paths = await flashcardRows.getDocumentPaths();
-        const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
-        const documents = new Map();
-        const standalone = { cards: 0, longTerm: 0 };
-        for (const { global_hash: hash, document_path: docPath } of paths) {
-            const gap = gaps.get(hash) ?? null;
-            bands[gapBand(gap)] += 1;
-            const long = gap != null && gap >= LONG_TERM_DAYS ? 1 : 0;
-            const slot = docPath ? documents.get(docPath) ?? { path: docPath, cards: 0, longTerm: 0 } : standalone;
-            slot.cards += 1;
-            slot.longTerm += long;
-            if (docPath) documents.set(docPath, slot);
-        }
-        const count = (f) => flashcardRows.getCountFiltered(f, scope);
-        return {
-            total: paths.length,
-            standalone,
-            documents: [...documents.values()].sort((a, b) => a.path.localeCompare(b.path)),
-            bands,
-            flags: {
-                any: await count({ flagged: true }),
-                mouthful: await count({ flagKind: 'mouthful' }),
-                probe: await count({ flagKind: 'probe' }),
-            },
-        };
-    }
-
-    _standaloneSnapshot({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
-        const cleanTags = cleanTagNames(tags);
-        return {
-            name: name ?? null,
-            cardType,
-            category,
-            ...(origin ? { origin } : {}),
-            ...(cleanTags.length ? { tags: cleanTags } : {}),
-            vanillaData: {
-                frontText: frontText || null,
-                backText: backText || null,
-                ...(cardType === 'type_answer' ? { answerText: answerText ?? '' } : {}),
-                media: media || {},
-            },
-            customData: customHtml ? { html: customHtml } : null,
-        };
-    }
-
-    async createStandaloneCard({ frontText, backText, answerText = null, name, cardType = 'basic', category = null, customHtml = null, media = null, origin = null, tags = null } = {}) {
-        const systemDeck = await deckRows.getSystem();
-        if (!systemDeck) throw new Error('System deck not initialised — run migrations');
-        return await this._withDeckFile(systemDeck.global_hash, () => this._createStandaloneCardLocked(
-            systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }));
-    }
-
-    async _createStandaloneCardLocked(systemDeck, { frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags }) {
-        if (category && !await categoryRows.getByName(category)) {
-            throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
-        }
-
-        const globalHash = crypto.randomUUID();
-        const snapshot = this._standaloneSnapshot({ frontText, backText, answerText, name, cardType, category, customHtml, media, origin, tags });
-
-        await db.transaction(async () => {
-            const nodeId = await nodeRows.create('Flashcard');
-            await flashcardRows.insert({
-                globalHash, nodeId, documentId: null,
-                vanillaData: snapshot.vanillaData,
-                customData: snapshot.customData,
-                category, cardType, name, origin,
-                level: 0, sm2Reps: 0, fileIndex: 0,
-            }, OWNER_SCOPE);
-            if (snapshot.tags) await this._syncNodeTags(nodeId, snapshot.tags);
-            const position = await deckRows.getEntryCount(systemDeck.id);
-            await deckRows.insertEntry({
-                deckId: systemDeck.id, cardHash: globalHash,
-                documentPath: null, position, inlineCard: JSON.stringify(snapshot),
-            });
-            if (systemDeck.node_id) {
-                const cardNodeId = await flashcardRows.getNodeIdByHash(globalHash);
-                if (cardNodeId) {
-                    await deckRows.insertConnection(systemDeck.node_id, cardNodeId);
-                    const tagIds = await this._tagIdsForNames(await tagRows.getDirectNames(systemDeck.node_id));
-                    if (tagIds.length) await deckRows.setConnectionInheritedTags(systemDeck.node_id, cardNodeId, tagIds);
-                }
-            }
-        })();
-
-        const file = await this._readOrRebuild(systemDeck.global_hash, systemDeck);
-        file.entries.push({ cardHash: globalHash, documentPath: null, card: snapshot });
-        file.modified = new Date().toISOString();
-        this._write(systemDeck.global_hash, file);
-
-        await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
-        return globalHash;
-    }
-
-    async getCard(hash) {
-        const card = await flashcardRows.getContentByHash(hash, currentScope());
-        if (!card) throw new Error(`Card not found: ${hash}`);
-        return {
-            globalHash: hash,
-            name: card.name,
-            cardType: card.card_type,
-            level: card.level,
-            origin: card.origin ?? null,
-            frontText: card.frontText,
-            backText: card.backText,
-            answerText: card.answerText ?? null,
-            customHtml: card.custom_html,
-            category: card.category,
-            documentPath: card.document_path ?? null,
-            tags: card.node_id ? await tagRows.getDirectNames(card.node_id) : [],
-            media: {
-                front_img: card.front_img ?? null,
-                back_img: card.back_img ?? null,
-                front_sound: card.front_sound ?? null,
-                back_sound: card.back_sound ?? null,
-            },
-        };
-    }
-
-    async updateStandaloneCard(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags } = {}) {
-        const systemDeck = await deckRows.getSystem();
-        const fields = { frontText, backText, answerText, name, cardType, category, customHtml, tags };
-        if (!systemDeck) return await this._updateStandaloneCardLocked(hash, fields, null);
-        return await this._withDeckFile(systemDeck.global_hash, () =>
-            this._updateStandaloneCardLocked(hash, fields, systemDeck));
-    }
-
-    async _updateStandaloneCardLocked(hash, { frontText, backText, answerText, name, cardType, category, customHtml, tags }, systemDeck) {
-        const card = await flashcardRows.getByHash(hash);
-        if (!card) throw new Error(`Card not found: ${hash}`);
-        if (card.document_id !== null && card.document_id !== undefined) {
-            throw new Error('Card is linked to a document — edit from the document instead');
-        }
-        if (category && !await categoryRows.getByName(category)) {
-            throw new Error(`Unknown category: "${category}". Call GET /api/categories for valid values.`);
-        }
-        const existing = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
-        const merged = {
-            frontText: frontText !== undefined ? frontText : existing.frontText,
-            backText: backText !== undefined ? backText : existing.backText,
-            answerText: answerText !== undefined ? answerText : existing.answerText,
-            name: name !== undefined ? name : existing.name,
-            cardType: cardType !== undefined ? cardType : existing.card_type,
-            category: category !== undefined ? category : existing.category,
-            customHtml: customHtml !== undefined ? customHtml : existing.custom_html,
-            origin: existing.origin ?? null,
-            tags: tags !== undefined ? cleanTagNames(tags) : await tagRows.getDirectNames(existing.node_id),
-            media: {
-                front_img: existing.front_img || null,
-                back_img: existing.back_img || null,
-                front_sound: existing.front_sound || null,
-                back_sound: existing.back_sound || null,
-            },
-        };
-        const snapshot = this._standaloneSnapshot(merged);
-        await db.transaction(async () => {
-            await flashcardRows.updateContentByHash(hash, merged);
-            if (tags !== undefined) await this._syncNodeTags(existing.node_id, merged.tags);
-            if (systemDeck) await deckRows.updateEntryInlineCard(systemDeck.id, hash, JSON.stringify(snapshot));
-        })();
-
-        if (systemDeck) {
-            try {
-                const file = await this._readOrRebuild(systemDeck.global_hash, systemDeck);
-                const entry = file.entries.find(e => e.cardHash === hash);
-                if (entry) {
-                    entry.card = snapshot;
-                    file.modified = new Date().toISOString();
-                    this._write(systemDeck.global_hash, file);
-                }
-            } catch { }
-            await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
-        }
-    }
-
-    async deleteStandaloneCard(hash) {
-        const systemDeck = await deckRows.getSystem();
-        if (!systemDeck) return await this._deleteStandaloneCardLocked(hash, null);
-        return await this._withDeckFile(systemDeck.global_hash, () =>
-            this._deleteStandaloneCardLocked(hash, systemDeck));
-    }
-
-    async _deleteStandaloneCardLocked(hash, systemDeck) {
-        const card = await flashcardRows.getByHash(hash);
-        if (!card) throw new Error(`Card not found: ${hash}`);
-        if (card.document_id !== null && card.document_id !== undefined) {
-            throw new Error('Card is linked to a document — delete from the document instead');
-        }
-
-        await db.transaction(async () => {
-            await deckRows.deleteCardEntries(hash);
-            await flashcardRows.remove(card.id);
-            await cardProgressRows.purgeCardBehaviour(hash);
-        })();
-
-        if (systemDeck) {
-            try {
-                const file = this._read(systemDeck.global_hash);
-                file.entries = file.entries.filter(e => e.cardHash !== hash);
-                file.modified = new Date().toISOString();
-                this._write(systemDeck.global_hash, file);
-            } catch { }
-            await sealEmitter.edit(this._sealRelPath(systemDeck.global_hash));
-        }
-    }
-
-    async listDeckFiles() {
-        if (!fs.existsSync(this.decksPath)) return [];
-        return await fs.readdirSync(this.decksPath)
-            .filter(f => f.endsWith('.json'))
-            .map(f => {
-                const globalHash = path.basename(f, '.json');
-                try {
-                    return { globalHash, data: this._read(globalHash) };
-                } catch {
-                    return { globalHash, data: null };
-                }
-            });
-    }
-
-    async mapDeckFiles(transform) {
-        const result = { filesRewritten: 0, corruptFiles: [], failed: [] };
-
-        for (const { globalHash, data } of await this.listDeckFiles()) {
-            if (!data) { result.corruptFiles.push(globalHash); continue; }
-
-            let changed = false;
-            try {
-                changed = transform(data) === true;
-            } catch (err) {
-                result.failed.push({ hash: globalHash, error: err.message });
-                continue;
-            }
-            if (!changed) continue;
-
-            data.modified = new Date().toISOString();
-            this._write(globalHash, data);
-
-            const deck = await deckRows.getByHash(globalHash);
-            if (deck) {
-                await db.transaction(async () => {
-                    for (const entry of data.entries ?? []) {
-                        if (!entry?.card) continue;
-                        await deckRows.updateEntryInlineCard(deck.id, entry.cardHash, JSON.stringify(entry.card));
-                    }
-                })();
-            }
-            result.filesRewritten++;
-        }
-
-        return result;
-    }
-
-    async diagnoseDecks() {
-        const files = await this.listDeckFiles();
-        const dbDecks = await deckRows.getAll();
-        const fileByHash = new Map(files.map(f => [f.globalHash, f]));
-        const dbByHash = new Map(dbDecks.map(d => [d.global_hash, d]));
-
-        const fileWithoutDb = [];
-        const dbWithoutFile = [];
-        const corruptFiles = [];
-        const entryMismatches = [];
-        const danglingEntries = [];
-
-        for (const f of files) {
-            if (f.data === null) { corruptFiles.push(f.globalHash); continue; }
-            if (!dbByHash.has(f.globalHash)) fileWithoutDb.push(f.globalHash);
-        }
-        for (const d of dbDecks) {
-            if (!fileByHash.has(d.global_hash)) { dbWithoutFile.push(d.global_hash); continue; }
-
-            const f = fileByHash.get(d.global_hash);
-            if (f.data === null) continue;
-            const fileHashes = new Set((f.data.entries ?? []).map(e => e.cardHash));
-            const dbEntries = await deckRows.getEntries(d.id, currentScope());
-            const dbHashes = new Set(dbEntries.map(e => e.card_hash));
-
-            const missingInDb = [...fileHashes].filter(h => !dbHashes.has(h));
-            const missingInFile = [...dbHashes].filter(h => !fileHashes.has(h));
-            if (missingInDb.length || missingInFile.length) {
-                entryMismatches.push({ deckHash: d.global_hash, missingInDb, missingInFile });
-            }
-            for (const e of dbEntries) {
-                if (!await flashcardRows.getByHash(e.card_hash)) {
-                    danglingEntries.push({ deckHash: d.global_hash, cardHash: e.card_hash });
-                }
-            }
-        }
-        return { fileWithoutDb, dbWithoutFile, corruptFiles, entryMismatches, danglingEntries };
-    }
-
-    async _importDeckFile(globalHash, data) {
-        await db.transaction(async () => {
-            const isSystem = data.isSystem && !await deckRows.getSystem() ? 1 : 0;
-            const deckId = await deckRows.insert({
-                globalHash,
-                name: data.name ?? 'Recovered deck',
-                description: data.description ?? '',
-                isSystem,
-            });
-            const deck = await deckRows.getByHash(globalHash);
-            for (const [i, e] of (data.entries ?? []).entries()) {
-                await deckRows.insertEntry({
-                    deckId, cardHash: e.cardHash,
-                    documentPath: e.documentPath ?? null,
-                    position: i,
-                    inlineCard: e.card ? JSON.stringify(e.card) : null,
-                });
-                if (deck.node_id) {
-                    const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
+                    const cardNodeId = await flashcardRows.getNodeIdByHash(h);
                     if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
                 }
+                actions.entriesAdded++;
             }
-            if (Array.isArray(data.tags) && data.tags.length && deck.node_id) {
-                await this._syncNodeTags(deck.node_id, data.tags);
-            }
-        })();
-    }
-
-    async _propagateAllDeckTags() {
-        await db.transaction(async () => {
-            for (const deck of await deckRows.getAll()) {
-                const tags = deck.node_id ? await tagRows.getDirectNames(deck.node_id) : [];
-                if (tags.length) await this._propagateTagsToCards(deck, tags);
+            for (const h of mm.missingInFile) {
+                if (deck.node_id) {
+                    const cardNodeId = await flashcardRows.getNodeIdByHash(h);
+                    if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
+                }
+                await deckRows.deleteEntry(deck.id, h);
+                actions.entriesRemoved++;
             }
         })();
     }
+    await _propagateAllDeckTags();
+    return actions;
+}
 
-    async repairFromFiles() {
-        const diag = await this.diagnoseDecks();
-        const actions = { decksImported: 0, deckFilesRebuilt: 0, entriesAdded: 0, entriesRemoved: 0 };
+export async function rebuildFromFiles() {
+    const warnings = [];
+    let decksImported = 0;
+    let restoredCards = 0;
 
-        for (const hash of diag.fileWithoutDb) {
-            await this._importDeckFile(hash, this._read(hash));
-            actions.decksImported++;
+    for (const f of await listDeckFiles()) {
+        if (f.data === null) {
+            warnings.push(`Corrupt deck file skipped: _decks/${f.globalHash}.json`);
+            continue;
         }
-        for (const hash of diag.dbWithoutFile) {
-            await this._readOrRebuild(hash, await deckRows.getByHash(hash));
-            actions.deckFilesRebuilt++;
+        try {
+            await _importDeckFile(f.globalHash, f.data);
+            decksImported++;
+        } catch (err) {
+            warnings.push(`Failed to import deck ${f.globalHash}: ${err.message}`);
+            continue;
         }
-        for (const mm of diag.entryMismatches) {
-            const deck = await deckRows.getByHash(mm.deckHash);
-            const data = this._read(mm.deckHash);
-            await db.transaction(async () => {
-                for (const h of mm.missingInDb) {
-                    const entry = (data.entries ?? []).find(e => e.cardHash === h);
-                    await deckRows.insertEntry({
-                        deckId: deck.id, cardHash: h,
-                        documentPath: entry?.documentPath ?? null,
-                        position: await deckRows.getEntryCount(deck.id),
-                        inlineCard: entry?.card ? JSON.stringify(entry.card) : null,
-                    });
-                    if (deck.node_id) {
-                        const cardNodeId = await flashcardRows.getNodeIdByHash(h);
+
+        for (const e of f.data.entries ?? []) {
+            if (!e.card || e.documentPath || await flashcardRows.getByHash(e.cardHash)) continue;
+            try {
+                await db.transaction(async () => {
+                    const nodeId = await nodeRows.create('Flashcard');
+                    await flashcardRows.insert({
+                        globalHash: e.cardHash, nodeId, documentId: null,
+                        vanillaData: e.card.vanillaData ?? null,
+                        customData: e.card.customData ?? null,
+                        category: e.card.category ?? null,
+                        cardType: e.card.cardType ?? 'basic',
+                        name: e.card.name ?? null,
+                        origin: e.card.origin ?? null,
+                        level: 0, sm2Reps: 0, fileIndex: 0,
+                    }, OWNER_SCOPE);
+                    if (e.card.tags?.length) await _syncNodeTags(nodeId, e.card.tags);
+                    const deck = await deckRows.getByHash(f.globalHash);
+                    if (deck?.node_id) {
+                        const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
                         if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
                     }
-                    actions.entriesAdded++;
-                }
-                for (const h of mm.missingInFile) {
-                    if (deck.node_id) {
-                        const cardNodeId = await flashcardRows.getNodeIdByHash(h);
-                        if (cardNodeId) await deckRows.deleteConnection(deck.node_id, cardNodeId);
-                    }
-                    await deckRows.deleteEntry(deck.id, h);
-                    actions.entriesRemoved++;
-                }
-            })();
-        }
-        await this._propagateAllDeckTags();
-        return actions;
-    }
-
-    async rebuildFromFiles() {
-        const warnings = [];
-        let decksImported = 0;
-        let restoredCards = 0;
-
-        for (const f of await this.listDeckFiles()) {
-            if (f.data === null) {
-                warnings.push(`Corrupt deck file skipped: _decks/${f.globalHash}.json`);
-                continue;
-            }
-            try {
-                await this._importDeckFile(f.globalHash, f.data);
-                decksImported++;
+                })();
+                restoredCards++;
             } catch (err) {
-                warnings.push(`Failed to import deck ${f.globalHash}: ${err.message}`);
-                continue;
-            }
-
-            for (const e of f.data.entries ?? []) {
-                if (!e.card || e.documentPath || await flashcardRows.getByHash(e.cardHash)) continue;
-                try {
-                    await db.transaction(async () => {
-                        const nodeId = await nodeRows.create('Flashcard');
-                        await flashcardRows.insert({
-                            globalHash: e.cardHash, nodeId, documentId: null,
-                            vanillaData: e.card.vanillaData ?? null,
-                            customData: e.card.customData ?? null,
-                            category: e.card.category ?? null,
-                            cardType: e.card.cardType ?? 'basic',
-                            name: e.card.name ?? null,
-                            origin: e.card.origin ?? null,
-                            level: 0, sm2Reps: 0, fileIndex: 0,
-                        }, OWNER_SCOPE);
-                        if (e.card.tags?.length) await this._syncNodeTags(nodeId, e.card.tags);
-                        const deck = await deckRows.getByHash(f.globalHash);
-                        if (deck?.node_id) {
-                            const cardNodeId = await flashcardRows.getNodeIdByHash(e.cardHash);
-                            if (cardNodeId) await deckRows.insertConnection(deck.node_id, cardNodeId);
-                        }
-                    })();
-                    restoredCards++;
-                } catch (err) {
-                    warnings.push(`Failed to restore standalone card ${e.cardHash}: ${err.message}`);
-                }
+                warnings.push(`Failed to restore standalone card ${e.cardHash}: ${err.message}`);
             }
         }
-
-        if (!await deckRows.getSystem()) {
-            const globalHash = crypto.randomUUID();
-            await deckRows.insert({ globalHash, name: 'Cards', description: '', isSystem: 1 });
-            await this._readOrRebuild(globalHash, await deckRows.getByHash(globalHash));
-            warnings.push('System deck file was missing — recreated empty.');
-            decksImported++;
-        }
-
-        await this._propagateAllDeckTags();
-
-        return { decks: decksImported, restoredCards, warnings };
     }
+
+    if (!await deckRows.getSystem()) {
+        const globalHash = crypto.randomUUID();
+        await deckRows.insert({ globalHash, name: 'Cards', description: '', isSystem: 1 });
+        await _readOrRebuild(globalHash, await deckRows.getByHash(globalHash));
+        warnings.push('System deck file was missing — recreated empty.');
+        decksImported++;
+    }
+
+    await _propagateAllDeckTags();
+
+    return { decks: decksImported, restoredCards, warnings };
 }

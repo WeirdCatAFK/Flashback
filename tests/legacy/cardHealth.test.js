@@ -1,21 +1,8 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import process from 'process';
-import cardHealth, {
-    analyzeStructure,
-    answerBody,
-    structuralPrior,
-    buildReviewRecords,
-    segmentSessions,
-    lapseCycles,
-    classifyTrajectory,
-    onSchedule,
-    hasWithinSessionRepeatFailure,
-    levelInterval,
-    plainText,
-    FLAG_KINDS,
-    PRESENTATION,
-} from '../../src/api/access/modules/cardHealth.js';
+import * as CardHealth from '../../src/api/access/modules/cardHealth.js';
+import { analyzeStructure, answerBody, structuralPrior, buildReviewRecords, segmentSessions, lapseCycles, classifyTrajectory, onSchedule, hasWithinSessionRepeatFailure, levelInterval, plainText, FLAG_KINDS, PRESENTATION } from '../../src/api/access/modules/cardHealth.js';
 import { testDataDir } from '../support/testData.js';
 
 process.env.USER_DATA_PATH = testDataDir('cardHealth');
@@ -258,7 +245,7 @@ describe('classifyTrajectory', () => {
 
 describe('detectors — the core discrimination', () => {
     it('classifies a converging card as a probe, not a mouthful', () => {
-        const flags = cardHealth.runDetectors(
+        const flags = CardHealth.runDetectors(
             ctxFrom(ladder([2, 6, 18, 45], { difficultyStep: -0.3 }), { prior: 'neutral' })
         );
         assert.deepEqual(kinds(flags), ['probe']);
@@ -266,7 +253,7 @@ describe('detectors — the core discrimination', () => {
     });
 
     it('classifies an oscillating card with a long answer as a mouthful', () => {
-        const flags = cardHealth.runDetectors(
+        const flags = CardHealth.runDetectors(
             ctxFrom(ladder([3, 3, 2, 3], { difficultyStep: 0.5 }), { prior: 'overloaded', tokens: 60 })
         );
         assert.deepEqual(kinds(flags), ['mouthful']);
@@ -275,8 +262,8 @@ describe('detectors — the core discrimination', () => {
 
     it('THE CASE THIS EXISTS FOR: the same oscillating history with a compact answer is a probe', () => {
         const history = ladder([3, 3, 2, 3], { difficultyStep: 0.5 });
-        const asMouthful = cardHealth.runDetectors(ctxFrom(history, { prior: 'overloaded', tokens: 60 }));
-        const asProbe = cardHealth.runDetectors(ctxFrom(history, { prior: 'compact', tokens: 3 }));
+        const asMouthful = CardHealth.runDetectors(ctxFrom(history, { prior: 'overloaded', tokens: 60 }));
+        const asProbe = CardHealth.runDetectors(ctxFrom(history, { prior: 'compact', tokens: 3 }));
 
         assert.deepEqual(kinds(asMouthful), ['mouthful']);
         assert.deepEqual(kinds(asProbe), ['probe'], 'nothing to split ⇒ not a mouthful');
@@ -286,7 +273,7 @@ describe('detectors — the core discrimination', () => {
     it('never emits both signatures for one card', () => {
         for (const prior of ['overloaded', 'neutral', 'compact']) {
             for (const peaks of [[1, 1, 2, 1], [2, 6, 18, 45], [3]]) {
-                const flags = cardHealth.runDetectors(ctxFrom(ladder(peaks), { prior }));
+                const flags = CardHealth.runDetectors(ctxFrom(ladder(peaks), { prior }));
                 const sigs = flags.filter(f => f.kind === 'mouthful' || f.kind === 'probe');
                 assert.ok(sigs.length <= 1, `${prior}/${peaks}: got ${kinds(flags)}`);
             }
@@ -296,7 +283,7 @@ describe('detectors — the core discrimination', () => {
 
 describe('confidence gates', () => {
     it('says nothing below the gates — three lapses is not a trajectory', () => {
-        const flags = cardHealth.runDetectors(ctxFrom(ladder([1, 1, 1]), { prior: 'overloaded' }));
+        const flags = CardHealth.runDetectors(ctxFrom(ladder([1, 1, 1]), { prior: 'overloaded' }));
         assert.deepEqual(flags, []);
     });
 
@@ -305,14 +292,14 @@ describe('confidence gates', () => {
             log({ day: d, pass: false, level: 1, stability: 1, difficulty: 5 }),
             log({ day: d, minute: 30, pass: true, level: 1, stability: 1, difficulty: 5 }),
         ]);
-        const flags = cardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded' }));
+        const flags = CardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded' }));
         assert.equal(flags.filter(f => f.confidence === 'high').length, 0);
     });
 
     it('caps confidence one step lower without a difficulty signal (Leitner/SM-2)', () => {
         const opts = { prior: 'overloaded', tokens: 60 };
-        const withFsrs = cardHealth.runDetectors(ctxFrom(ladder([3, 3, 2, 3], { difficultyStep: 0.5 }), opts));
-        const withoutFsrs = cardHealth.runDetectors(ctxFrom(ladder([3, 3, 2, 3], { fsrs: false }), opts));
+        const withFsrs = CardHealth.runDetectors(ctxFrom(ladder([3, 3, 2, 3], { difficultyStep: 0.5 }), opts));
+        const withoutFsrs = CardHealth.runDetectors(ctxFrom(ladder([3, 3, 2, 3], { fsrs: false }), opts));
 
         assert.equal(withFsrs[0].confidence, 'high');
         assert.equal(withoutFsrs[0].confidence, 'moderate');
@@ -321,8 +308,8 @@ describe('confidence gates', () => {
 
     it('downgrades a neutral answer below an overloaded one on the same trajectory', () => {
         const history = ladder([3, 3, 2, 3], { difficultyStep: 0.5 });
-        const overloaded = cardHealth.runDetectors(ctxFrom(history, { prior: 'overloaded', tokens: 60 }));
-        const neutral = cardHealth.runDetectors(ctxFrom(history, { prior: 'neutral' }));
+        const overloaded = CardHealth.runDetectors(ctxFrom(history, { prior: 'overloaded', tokens: 60 }));
+        const neutral = CardHealth.runDetectors(ctxFrom(history, { prior: 'neutral' }));
         assert.equal(overloaded[0].confidence, 'high');
         assert.equal(neutral[0].confidence, 'moderate');
     });
@@ -338,7 +325,7 @@ describe('guards suppress the signatures', () => {
             logs.push(log({ day, pass: false, level: 1 }));
             day += 1;
         }
-        const flags = cardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded', tokens: 60 }));
+        const flags = CardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded', tokens: 60 }));
         assert.deepEqual(kinds(flags), ['overdue_drift']);
         assert.ok(flags[0].evidence.worstOverdueRatio >= 2);
     });
@@ -360,7 +347,7 @@ describe('guards suppress the signatures', () => {
             }
         }
         const sessionIndex = segmentSessions(rows);
-        const flags = cardHealth.runDetectors(
+        const flags = CardHealth.runDetectors(
             ctxFrom(mine, { prior: 'overloaded', tokens: 60, sessionIndex })
         );
         assert.ok(kinds(flags).includes('session_fatigue'));
@@ -368,7 +355,7 @@ describe('guards suppress the signatures', () => {
     });
 
     it('leaves the signatures alone when neither guard fires', () => {
-        const flags = cardHealth.runDetectors(ctxFrom(ladder([2, 6, 18, 45])));
+        const flags = CardHealth.runDetectors(ctxFrom(ladder([2, 6, 18, 45])));
         assert.ok(!flags.some(f => ['overdue_drift', 'session_fatigue'].includes(f.kind)));
     });
 
@@ -386,7 +373,7 @@ describe('guards suppress the signatures', () => {
         assert.equal(onSchedule(withLate).length, withLate.length - 1, 'the late review is dropped');
 
         assert.equal(classifyTrajectory(withLate).shape, 'converging');
-        assert.deepEqual(kinds(cardHealth.runDetectors(ctxFrom(polluted, { prior: 'neutral' }))), ['probe']);
+        assert.deepEqual(kinds(CardHealth.runDetectors(ctxFrom(polluted, { prior: 'neutral' }))), ['probe']);
     });
 });
 
@@ -424,7 +411,7 @@ describe('within-session repeat failure', () => {
             { ...log({ day: 0, minute: 0, pass: false }), id: 1 },
             { ...log({ day: 0, minute: 5, pass: false }), id: 2 },
         ];
-        const flags = cardHealth.runDetectors(
+        const flags = CardHealth.runDetectors(
             ctxFrom(logs, { prior: 'overloaded', tokens: 60, sessionIndex: idx })
         );
         assert.deepEqual(kinds(flags), ['mouthful']);
@@ -439,20 +426,20 @@ describe('within-session repeat failure', () => {
             { ...log({ day: 0, minute: 0, pass: false }), id: 1 },
             { ...log({ day: 0, minute: 5, pass: false }), id: 2 },
         ];
-        assert.deepEqual(cardHealth.runDetectors(ctxFrom(logs, { prior: 'compact', sessionIndex: idx })), []);
+        assert.deepEqual(CardHealth.runDetectors(ctxFrom(logs, { prior: 'compact', sessionIndex: idx })), []);
     });
 });
 
 describe('epoch — addressing a card restarts the analysis', () => {
     it('drops a card below the gates once the window moves past its history', () => {
         const logs = ladder([3, 3, 2, 3], { difficultyStep: 0.5 });
-        const before = cardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded', tokens: 60 }));
+        const before = CardHealth.runDetectors(ctxFrom(logs, { prior: 'overloaded', tokens: 60 }));
         assert.deepEqual(kinds(before), ['mouthful']);
 
         const lastDay = (Date.parse(logs.at(-1).timestamp) - T0) / DAY;
         const after = buildReviewRecords(logs, { epochAt: at(lastDay + 0.001) });
         assert.equal(after.length, 0);
-        assert.deepEqual(cardHealth.runDetectors({
+        assert.deepEqual(CardHealth.runDetectors({
             ...ctxFrom(logs, { prior: 'overloaded', tokens: 60 }),
             reviews: after,
             trajectory: classifyTrajectory(after),
@@ -495,7 +482,7 @@ describe('flag presentation', () => {
             ctxFrom(ladder([3, 3, 2, 3], { difficultyStep: 0.5 }), { prior: 'overloaded', tokens: 60 }),
             ctxFrom(overdue, { prior: 'overloaded', tokens: 60 }),
         ]) {
-            for (const f of cardHealth.runDetectors(ctx)) seen.add(f.kind);
+            for (const f of CardHealth.runDetectors(ctx)) seen.add(f.kind);
         }
         assert.deepEqual([...seen].sort(), ['mouthful', 'overdue_drift', 'probe']);
     });

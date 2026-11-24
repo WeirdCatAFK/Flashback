@@ -86,500 +86,500 @@ function dueDateOfCard(card, algorithm, easeFactor = 2.5) {
         + intervalOfCard(card, algorithm, easeFactor) * DAY_MS);
 }
 
-class SRSService {
-    _scope(explicit) {
-        return explicit ?? currentScope();
-    }
+function _scope(explicit) {
+    return explicit ?? currentScope();
+}
 
-    async detectAlgorithm(scope) {
-        const last = await reviewRows.getLatestAlgorithm(this._scope(scope));
-        if (!last) return DEFAULT_ALGORITHM;
-        if (last.algorithm) return last.algorithm;
-        return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
-    }
+export async function detectAlgorithm(scope) {
+    const last = await reviewRows.getLatestAlgorithm(_scope(scope));
+    if (!last) return DEFAULT_ALGORITHM;
+    if (last.algorithm) return last.algorithm;
+    return last.rating != null ? 'fsrs' : DEFAULT_ALGORITHM;
+}
 
-    async getWeights(scope) {
-        return (await reviewRows.getFsrsWeights(this._scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
-    }
+export async function getWeights(scope) {
+    return (await reviewRows.getFsrsWeights(_scope(scope)))?.weights ?? fsrs.DEFAULT_WEIGHTS;
+}
 
-    async _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}, scope) {
-        const current = await cardProgressRows.getFsrsState(cardId, scope);
-        const next = fsrs.nextState(current, rating, new Date(timestamp), await this.getWeights(scope), requestRetention);
-        next.level = intervalToLeitnerLevel(next.interval);
-        await cardProgressRows.updateFsrs(cardId, next, scope);
+async function _applyFsrs(cardId, rating, timestamp, requestRetention = 0.9, ordering = {}, scope) {
+    const current = await cardProgressRows.getFsrsState(cardId, scope);
+    const next = fsrs.nextState(current, rating, new Date(timestamp), await getWeights(scope), requestRetention);
+    next.level = intervalToLeitnerLevel(next.interval);
+    await cardProgressRows.updateFsrs(cardId, next, scope);
+    await reviewRows.insertLog({
+        flashcardId: cardId,
+        accountId: scope,
+        timestamp,
+        outcome: rating > 1 ? 1 : 0,
+        easeFactor: null,
+        level: next.level,
+        algorithm: 'fsrs',
+        rating,
+        fsrsStability: next.stability,
+        fsrsDifficulty: next.difficulty,
+        fsrsDue: next.due,
+        fsrsState: next.state,
+        ...ordering,
+    });
+    return next;
+}
+
+export async function submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
+    const timestamp = new Date().toISOString();
+    const ordering = opts.ordering ?? {};
+    const scope = _scope(opts.scope);
+
+    return await db.transaction(async () => {
+        const fc = await flashcardRows.getByHash(flashcardHash);
+        if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
+        const before = await cardProgressRows.get(fc.id, scope);
+
+        if (algorithm === 'fsrs') {
+            const retention = opts.requestRetention ?? DEFAULT_REQUEST_RETENTION;
+            const next = await _applyFsrs(
+                fc.id, opts.rating, timestamp, opts.requestRetention, ordering, scope,
+            );
+            const interval = {
+                before: before?.fsrs_stability != null && (before.fsrs_state ?? 0) !== 0
+                    ? fsrs.intervalFromStability(before.fsrs_stability, retention, await getWeights(scope))
+                    : null,
+                after: next.interval,
+            };
+            return { documentId: fc.document_id, fsrs: next, scope, interval };
+        }
+
+        const prevEase = algorithm === 'sm2'
+            ? (await reviewRows.getLatestLog(fc.id, scope))?.ease_factor ?? 2.5
+            : null;
+
+        await cardProgressRows.updateReview(fc.id, timestamp, newLevel, algorithm, scope);
         await reviewRows.insertLog({
-            flashcardId: cardId,
+            flashcardId: fc.id,
             accountId: scope,
             timestamp,
-            outcome: rating > 1 ? 1 : 0,
-            easeFactor: null,
-            level: next.level,
-            algorithm: 'fsrs',
-            rating,
-            fsrsStability: next.stability,
-            fsrsDifficulty: next.difficulty,
-            fsrsDue: next.due,
-            fsrsState: next.state,
+            outcome,
+            easeFactor,
+            level: newLevel,
+            algorithm,
             ...ordering,
         });
-        return next;
-    }
+        const interval = algorithm === 'sm2'
+            ? { before: before?.last_recall ? sm2Interval(before.sm2_reps ?? 0, prevEase) : null, after: sm2Interval(newLevel, easeFactor) }
+            : { before: before?.last_recall ? leitnerInterval(before.level ?? 0) : null, after: leitnerInterval(newLevel) };
+        return { documentId: fc.document_id, fsrs: null, scope, interval };
+    })();
+}
 
-    async submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm = 'leitner', opts = {}) {
-        const timestamp = new Date().toISOString();
-        const ordering = opts.ordering ?? {};
-        const scope = this._scope(opts.scope);
+export async function fsrsPreview(hashes, requestRetention = DEFAULT_REQUEST_RETENTION, scopeArg) {
+    const scope = _scope(scopeArg);
+    if (!hashes.length) return {};
+    const weights = await getWeights(scope);
+    const states = await cardProgressRows.getFsrsStatesByHash(hashes, scope);
+    const now = new Date();
+    const gap = (state, rating) => fsrs.nextState(state ?? null, rating, now, weights, requestRetention).interval;
+    return Object.fromEntries(hashes.map((hash) => {
+        const state = states.get(hash);
+        return [hash, { again: gap(state, 1), hard: gap(state, 2), good: gap(state, 3), easy: gap(state, 4) }];
+    }));
+}
 
-        return await db.transaction(async () => {
-            const fc = await flashcardRows.getByHash(flashcardHash);
-            if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
-            const before = await cardProgressRows.get(fc.id, scope);
+export async function undoReview(flashcardHash, algorithm = 'leitner', scopeArg) {
+    const scope = _scope(scopeArg);
+    return await db.transaction(async () => {
+        const fc = await flashcardRows.getByHash(flashcardHash);
+        if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
 
-            if (algorithm === 'fsrs') {
-                const retention = opts.requestRetention ?? DEFAULT_REQUEST_RETENTION;
-                const next = await this._applyFsrs(
-                    fc.id, opts.rating, timestamp, opts.requestRetention, ordering, scope,
-                );
-                const interval = {
-                    before: before?.fsrs_stability != null && (before.fsrs_state ?? 0) !== 0
-                        ? fsrs.intervalFromStability(before.fsrs_stability, retention, await this.getWeights(scope))
-                        : null,
-                    after: next.interval,
-                };
-                return { documentId: fc.document_id, fsrs: next, scope, interval };
-            }
+        const removed = await reviewRows.deleteLatestLog(fc.id, scope);
+        if (!removed) return { document_id: fc.document_id, restored: null, scope };
 
-            const prevEase = algorithm === 'sm2'
-                ? (await reviewRows.getLatestLog(fc.id, scope))?.ease_factor ?? 2.5
-                : null;
+        const prev = await reviewRows.getLatestLog(fc.id, scope);
 
-            await cardProgressRows.updateReview(fc.id, timestamp, newLevel, algorithm, scope);
-            await reviewRows.insertLog({
-                flashcardId: fc.id,
-                accountId: scope,
-                timestamp,
-                outcome,
-                easeFactor,
-                level: newLevel,
-                algorithm,
-                ...ordering,
-            });
-            const interval = algorithm === 'sm2'
-                ? { before: before?.last_recall ? sm2Interval(before.sm2_reps ?? 0, prevEase) : null, after: sm2Interval(newLevel, easeFactor) }
-                : { before: before?.last_recall ? leitnerInterval(before.level ?? 0) : null, after: leitnerInterval(newLevel) };
-            return { documentId: fc.document_id, fsrs: null, scope, interval };
-        })();
-    }
-
-    async fsrsPreview(hashes, requestRetention = DEFAULT_REQUEST_RETENTION, scopeArg) {
-        const scope = this._scope(scopeArg);
-        if (!hashes.length) return {};
-        const weights = await this.getWeights(scope);
-        const states = await cardProgressRows.getFsrsStatesByHash(hashes, scope);
-        const now = new Date();
-        const gap = (state, rating) => fsrs.nextState(state ?? null, rating, now, weights, requestRetention).interval;
-        return Object.fromEntries(hashes.map((hash) => {
-            const state = states.get(hash);
-            return [hash, { again: gap(state, 1), hard: gap(state, 2), good: gap(state, 3), easy: gap(state, 4) }];
-        }));
-    }
-
-    async undoReview(flashcardHash, algorithm = 'leitner', scopeArg) {
-        const scope = this._scope(scopeArg);
-        return await db.transaction(async () => {
-            const fc = await flashcardRows.getByHash(flashcardHash);
-            if (!fc) throw new Error(`Flashcard ${flashcardHash} not found.`);
-
-            const removed = await reviewRows.deleteLatestLog(fc.id, scope);
-            if (!removed) return { document_id: fc.document_id, restored: null, scope };
-
-            const prev = await reviewRows.getLatestLog(fc.id, scope);
-
-            if (algorithm === 'fsrs') {
-                const cur = await cardProgressRows.getFsrsState(fc.id, scope);
-                const reps = Math.max(0, (cur?.reps ?? 1) - 1);
-                const restored = prev ? {
-                    stability: prev.fsrs_stability,
-                    difficulty: prev.fsrs_difficulty,
-                    due: prev.fsrs_due,
-                    state: prev.fsrs_state,
-                    reps,
-                    lapses: cur?.lapses ?? 0,
-                    level: prev.level ?? 0,
-                    lastRecall: prev.timestamp,
-                } : null;
-                await cardProgressRows.updateFsrs(fc.id, restored
-                    ? { ...restored, last_review: restored.lastRecall }
-                    : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null },
-                    scope);
-                return { document_id: fc.document_id, restored, scope };
-            }
-
-            const restored = {
-                value: prev ? prev.level : 0,
-                easeFactor: prev ? prev.ease_factor : 2.5,
-                lastRecall: prev ? prev.timestamp : null,
-            };
-            await cardProgressRows.undoReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
+        if (algorithm === 'fsrs') {
+            const cur = await cardProgressRows.getFsrsState(fc.id, scope);
+            const reps = Math.max(0, (cur?.reps ?? 1) - 1);
+            const restored = prev ? {
+                stability: prev.fsrs_stability,
+                difficulty: prev.fsrs_difficulty,
+                due: prev.fsrs_due,
+                state: prev.fsrs_state,
+                reps,
+                lapses: cur?.lapses ?? 0,
+                level: prev.level ?? 0,
+                lastRecall: prev.timestamp,
+            } : null;
+            await cardProgressRows.updateFsrs(fc.id, restored
+                ? { ...restored, last_review: restored.lastRecall }
+                : { stability: null, difficulty: null, due: null, state: 0, reps: 0, lapses: 0, level: 0, last_review: null },
+                scope);
             return { document_id: fc.document_id, restored, scope };
-        })();
-    }
-
-    async getLeitnerStats(scopeArg) {
-        const scope = this._scope(scopeArg);
-        const boxes = await statisticsRows.getLeitnerBoxes(scope);
-        const total = await flashcardRows.getCount();
-        const mastered = await statisticsRows.getMasteredCount(MASTERY_LEVEL, scope);
-
-        return {
-            boxes,
-            total,
-            mastered,
-            masteryLevel: MASTERY_LEVEL,
-            masteryPercentage: total > 0 ? (mastered / total) * 100 : 0,
-        };
-    }
-
-    async optimizeParameters(scopeArg) {
-        const scope = this._scope(scopeArg);
-        const histories = await reviewRows.getAllHistories(scope);
-        const result = fsrs.optimize(histories);
-        if (result.optimized) {
-            await reviewRows.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount, scope);
-        }
-        return result;
-    }
-
-    async getFsrsInfo(scopeArg) {
-        const scope = this._scope(scopeArg);
-        const stored = await reviewRows.getFsrsWeights(scope);
-        return {
-            optimized: !!stored?.optimizedAt,
-            optimizedAt: stored?.optimizedAt ?? null,
-            weightReviewCount: stored?.reviewCount ?? null,
-            reviewCount: (await reviewRows.getAllHistories(scope)).length,
-            minReviews: fsrs.MIN_OPTIMIZE_REVIEWS,
-        };
-    }
-
-    async cardSchedule({ algorithm: requested = null, scope: scopeArg = null } = {}) {
-        const scope = this._scope(scopeArg);
-        const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const cards = await cardProgressRows.getAllSrsState(scope);
-        const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
-        return new Map(cards.map((c) => [c.global_hash, {
-            gap: isReviewedCard(c, algorithm) ? intervalOfCard(c, algorithm, efMap?.get(c.global_hash) ?? 2.5) : null,
-            lastRecall: c.last_recall ?? null,
-        }]));
-    }
-
-    async cardGaps(opts = {}) {
-        const schedule = await this.cardSchedule(opts);
-        return new Map([...schedule].map(([hash, s]) => [hash, s.gap]));
-    }
-
-    async getStatistics({ algorithm: requested = null, scope: scopeArg = null } = {}) {
-        const scope = this._scope(scopeArg);
-        const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const DAY = 86400000;
-        const MATURE_DAYS = 21;
-        const FORECAST_DAYS = 14;
-
-        const cards = await cardProgressRows.getAllSrsState(scope);
-        const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
-
-        const efOf = (c) => efMap?.get(c.global_hash) ?? 2.5;
-        const intervalOf = (c) => intervalOfCard(c, algorithm, efOf(c));
-        const isReviewed = (c) => isReviewedCard(c, algorithm);
-        const dueDateOf = (c) => dueDateOfCard(c, algorithm, efOf(c));
-
-        const now = new Date();
-        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-        const todayMs = startOfToday.getTime();
-        const pad = (n) => String(n).padStart(2, '0');
-        const dayStr = (offsetDays) => {
-            const d = new Date(startOfToday.getFullYear(), startOfToday.getMonth(),
-                startOfToday.getDate() + offsetDays);
-            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
-        };
-
-        let neu = 0, young = 0, mature = 0, overdue = 0;
-        const forecast = new Array(FORECAST_DAYS).fill(0);
-        const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
-        for (const c of cards) {
-            bands[gapBand(isReviewed(c) ? intervalOf(c) : null)] += 1;
-            if (!isReviewed(c)) { neu++; continue; }
-            if (intervalOf(c) >= MATURE_DAYS) mature++; else young++;
-
-            const due = dueDateOf(c);
-            if (!due) continue;
-            const offset = Math.floor((due.getTime() - todayMs) / DAY);
-            if (offset < 0) overdue++;
-            else if (offset < FORECAST_DAYS) forecast[offset]++;
         }
 
-        const since30 = dayStr(-30);
-        const since365 = dayStr(-364);
-        const allTotals = await statisticsRows.getReviewTotals(null, scope);
-        const activity = await statisticsRows.getReviewActivity(since365, scope);
-        const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
-
-        const phaseAll = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, null, scope);
-        const phase30 = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, since30, scope);
-        const firstAll = await statisticsRows.getFirstExposureTotals(null, scope);
-        const first30 = await statisticsRows.getFirstExposureTotals(since30, scope);
-
-        const attempts = (await statisticsRows.getReviewsToFirstRecall(scope)).map(r => r.attempts).sort((a, b) => a - b);
-        const median = attempts.length === 0 ? null
-            : attempts.length % 2
-                ? attempts[(attempts.length - 1) / 2]
-                : (attempts[attempts.length / 2 - 1] + attempts[attempts.length / 2]) / 2;
-        const reviewsToRecall = {
-            avg: attempts.length ? attempts.reduce((a, b) => a + b, 0) / attempts.length : null,
-            median,
-            cards: attempts.length,
+        const restored = {
+            value: prev ? prev.level : 0,
+            easeFactor: prev ? prev.ease_factor : 2.5,
+            lastRecall: prev ? prev.timestamp : null,
         };
+        await cardProgressRows.undoReview(fc.id, restored.value, restored.lastRecall, algorithm, scope);
+        return { document_id: fc.document_id, restored, scope };
+    })();
+}
 
-        const daySet = new Set(activity.filter(a => a.total > 0).map(a => a.day));
-        let current = 0;
-        let cursor = daySet.has(dayStr(0)) ? 0 : -1;
-        while (daySet.has(dayStr(cursor))) { current++; cursor -= 1; }
-        let longest = 0, run = 0, prev = null;
-        for (const a of activity) {
-            if (a.total <= 0) continue;
-            const ms = Date.parse(a.day);
-            run = (prev !== null && ms - prev === DAY) ? run + 1 : 1;
-            prev = ms;
-            if (run > longest) longest = run;
-        }
+export async function getLeitnerStats(scopeArg) {
+    const scope = _scope(scopeArg);
+    const boxes = await statisticsRows.getLeitnerBoxes(scope);
+    const total = await flashcardRows.getCount();
+    const mastered = await statisticsRows.getMasteredCount(MASTERY_LEVEL, scope);
 
-        return {
-            algorithm,
-            totals: {
-                cards: cards.length,
-                reviews: allTotals.total ?? 0,
-                reviewsToday: activity.find(a => a.day === dayStr(0))?.total ?? 0,
-                retentionAll: retention(phaseAll.review),
-                retention30: retention(phase30.review),
-                retentionReviews: phaseAll.review.total,
-                daysStudied: daySet.size,
-            },
-            acquisition: {
-                learningReviews: LEARNING_REVIEWS,
-                retentionAll: retention(phaseAll.learning),
-                retention30: retention(phase30.learning),
-                reviews: phaseAll.learning.total,
-                firstExposureAll: retention(firstAll),
-                firstExposure30: retention(first30),
-                firstExposureCards: firstAll.total,
-                reviewsToRecall,
-            },
-            maturity: { new: neu, young, mature },
-            bands,
-            forecast: forecast.map((due, i) => ({ date: dayStr(i), due })),
-            overdue,
-            activity,
-            streak: { current, longest },
-        };
+    return {
+        boxes,
+        total,
+        mastered,
+        masteryLevel: MASTERY_LEVEL,
+        masteryPercentage: total > 0 ? (mastered / total) * 100 : 0,
+    };
+}
+
+export async function optimizeParameters(scopeArg) {
+    const scope = _scope(scopeArg);
+    const histories = await reviewRows.getAllHistories(scope);
+    const result = fsrs.optimize(histories);
+    if (result.optimized) {
+        await reviewRows.setFsrsWeights(JSON.stringify(result.weights), result.reviewCount, scope);
+    }
+    return result;
+}
+
+export async function getFsrsInfo(scopeArg) {
+    const scope = _scope(scopeArg);
+    const stored = await reviewRows.getFsrsWeights(scope);
+    return {
+        optimized: !!stored?.optimizedAt,
+        optimizedAt: stored?.optimizedAt ?? null,
+        weightReviewCount: stored?.reviewCount ?? null,
+        reviewCount: (await reviewRows.getAllHistories(scope)).length,
+        minReviews: fsrs.MIN_OPTIMIZE_REVIEWS,
+    };
+}
+
+export async function cardSchedule({ algorithm: requested = null, scope: scopeArg = null } = {}) {
+    const scope = _scope(scopeArg);
+    const algorithm = requested ?? await detectAlgorithm(scope);
+    const cards = await cardProgressRows.getAllSrsState(scope);
+    const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
+    return new Map(cards.map((c) => [c.global_hash, {
+        gap: isReviewedCard(c, algorithm) ? intervalOfCard(c, algorithm, efMap?.get(c.global_hash) ?? 2.5) : null,
+        lastRecall: c.last_recall ?? null,
+    }]));
+}
+
+export async function cardGaps(opts = {}) {
+    const schedule = await cardSchedule(opts);
+    return new Map([...schedule].map(([hash, s]) => [hash, s.gap]));
+}
+
+export async function getStatistics({ algorithm: requested = null, scope: scopeArg = null } = {}) {
+    const scope = _scope(scopeArg);
+    const algorithm = requested ?? await detectAlgorithm(scope);
+    const DAY = 86400000;
+    const MATURE_DAYS = 21;
+    const FORECAST_DAYS = 14;
+
+    const cards = await cardProgressRows.getAllSrsState(scope);
+    const efMap = algorithm === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
+
+    const efOf = (c) => efMap?.get(c.global_hash) ?? 2.5;
+    const intervalOf = (c) => intervalOfCard(c, algorithm, efOf(c));
+    const isReviewed = (c) => isReviewedCard(c, algorithm);
+    const dueDateOf = (c) => dueDateOfCard(c, algorithm, efOf(c));
+
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const todayMs = startOfToday.getTime();
+    const pad = (n) => String(n).padStart(2, '0');
+    const dayStr = (offsetDays) => {
+        const d = new Date(startOfToday.getFullYear(), startOfToday.getMonth(),
+            startOfToday.getDate() + offsetDays);
+        return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    };
+
+    let neu = 0, young = 0, mature = 0, overdue = 0;
+    const forecast = new Array(FORECAST_DAYS).fill(0);
+    const bands = Object.fromEntries(GAP_BANDS.map((b) => [b.id, 0]));
+    for (const c of cards) {
+        bands[gapBand(isReviewed(c) ? intervalOf(c) : null)] += 1;
+        if (!isReviewed(c)) { neu++; continue; }
+        if (intervalOf(c) >= MATURE_DAYS) mature++; else young++;
+
+        const due = dueDateOf(c);
+        if (!due) continue;
+        const offset = Math.floor((due.getTime() - todayMs) / DAY);
+        if (offset < 0) overdue++;
+        else if (offset < FORECAST_DAYS) forecast[offset]++;
     }
 
-    async getCardInsights(hash, { algorithm: requested = null, scope: scopeArg = null } = {}) {
-        const scope = this._scope(scopeArg);
-        const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const state = await cardProgressRows.getSrsStateByHash(hash, scope);
-        if (!state) throw new Error(`Card not found: ${hash}`);
+    const since30 = dayStr(-30);
+    const since365 = dayStr(-364);
+    const allTotals = await statisticsRows.getReviewTotals(null, scope);
+    const activity = await statisticsRows.getReviewActivity(since365, scope);
+    const retention = (t) => (t && t.total > 0 ? t.correct / t.total : null);
 
-        const easeFactor = state.ease_factor != null && state.ease_factor >= 1.3
-            ? state.ease_factor : 2.5;
+    const phaseAll = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, null, scope);
+    const phase30 = await statisticsRows.getReviewTotalsByPhase(LEARNING_REVIEWS, since30, scope);
+    const firstAll = await statisticsRows.getFirstExposureTotals(null, scope);
+    const first30 = await statisticsRows.getFirstExposureTotals(since30, scope);
 
-        const history = (await reviewRows.getCardHistory(state.id, scope)).map(r => ({
-            id: r.id,
-            at: r.timestamp,
-            algorithm: r.algorithm ?? (r.rating != null ? 'fsrs' : null),
-            outcome: r.outcome,
-            rating: r.rating,
-            easeFactor: r.ease_factor,
-            level: r.level,
-            stability: r.fsrs_stability,
-            difficulty: r.fsrs_difficulty,
-            due: r.fsrs_due,
-            state: r.fsrs_state,
-            synthetic: r.outcome === null,
-        }));
+    const attempts = (await statisticsRows.getReviewsToFirstRecall(scope)).map(r => r.attempts).sort((a, b) => a - b);
+    const median = attempts.length === 0 ? null
+        : attempts.length % 2
+            ? attempts[(attempts.length - 1) / 2]
+            : (attempts[attempts.length / 2 - 1] + attempts[attempts.length / 2]) / 2;
+    const reviewsToRecall = {
+        avg: attempts.length ? attempts.reduce((a, b) => a + b, 0) / attempts.length : null,
+        median,
+        cards: attempts.length,
+    };
 
-        const real = history.filter(h => !h.synthetic);
-        const correct = real.filter(h => h.outcome === 1).length;
-        const reviewed = isReviewedCard(state, algorithm);
-        const dueAt = dueDateOfCard(state, algorithm, easeFactor);
-        const intervalDays = intervalOfCard(state, algorithm, easeFactor);
-        const overdueMs = dueAt ? Date.now() - dueAt.getTime() : 0;
-
-        return {
-            algorithm,
-            srs: {
-                state: reviewed ? 'review' : 'new',
-                level: state.level ?? 0,
-                sm2Reps: state.sm2_reps ?? 0,
-                easeFactor,
-                lastRecall: state.last_recall ?? null,
-                dueAt: dueAt ? dueAt.toISOString() : null,
-                intervalDays,
-                overdueDays: overdueMs > 0 ? overdueMs / DAY_MS : 0,
-                fsrs: state.fsrs_stability != null ? {
-                    stability: state.fsrs_stability,
-                    difficulty: state.fsrs_difficulty,
-                    state: state.fsrs_state ?? 0,
-                    reps: state.fsrs_reps ?? 0,
-                    lapses: state.fsrs_lapses ?? 0,
-                } : null,
-                reviews: real.length,
-                correct,
-                lapses: real.length - correct,
-                retention: real.length ? correct / real.length : null,
-                syntheticEntries: history.length - real.length,
-            },
-            history,
-            curve: await this._buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope),
-        };
+    const daySet = new Set(activity.filter(a => a.total > 0).map(a => a.day));
+    let current = 0;
+    let cursor = daySet.has(dayStr(0)) ? 0 : -1;
+    while (daySet.has(dayStr(cursor))) { current++; cursor -= 1; }
+    let longest = 0, run = 0, prev = null;
+    for (const a of activity) {
+        if (a.total <= 0) continue;
+        const ms = Date.parse(a.day);
+        run = (prev !== null && ms - prev === DAY) ? run + 1 : 1;
+        prev = ms;
+        if (run > longest) longest = run;
     }
 
-    async _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope) {
-        if (!reviewed) return null;
+    return {
+        algorithm,
+        totals: {
+            cards: cards.length,
+            reviews: allTotals.total ?? 0,
+            reviewsToday: activity.find(a => a.day === dayStr(0))?.total ?? 0,
+            retentionAll: retention(phaseAll.review),
+            retention30: retention(phase30.review),
+            retentionReviews: phaseAll.review.total,
+            daysStudied: daySet.size,
+        },
+        acquisition: {
+            learningReviews: LEARNING_REVIEWS,
+            retentionAll: retention(phaseAll.learning),
+            retention30: retention(phase30.learning),
+            reviews: phaseAll.learning.total,
+            firstExposureAll: retention(firstAll),
+            firstExposure30: retention(first30),
+            firstExposureCards: firstAll.total,
+            reviewsToRecall,
+        },
+        maturity: { new: neu, young, mature },
+        bands,
+        forecast: forecast.map((due, i) => ({ date: dayStr(i), due })),
+        overdue,
+        activity,
+        streak: { current, longest },
+    };
+}
 
-        const originAt = state.last_recall
-            ?? (dueAt ? new Date(dueAt.getTime() - intervalDays * DAY_MS).toISOString() : null);
-        if (!originAt) return null;
+export async function getCardInsights(hash, { algorithm: requested = null, scope: scopeArg = null } = {}) {
+    const scope = _scope(scopeArg);
+    const algorithm = requested ?? await detectAlgorithm(scope);
+    const state = await cardProgressRows.getSrsStateByHash(hash, scope);
+    if (!state) throw new Error(`Card not found: ${hash}`);
 
-        const stabilityDays = algorithm === 'fsrs'
-            ? state.fsrs_stability
-            : Math.max(intervalDays, 1);
-        if (!(stabilityDays > 0)) return null;
+    const easeFactor = state.ease_factor != null && state.ease_factor >= 1.3
+        ? state.ease_factor : 2.5;
 
-        const weights = await this.getWeights(scope);
-        const elapsedNow = Math.max(0, (Date.now() - new Date(originAt).getTime()) / DAY_MS);
-        const horizonDays = Math.max(intervalDays * 2, elapsedNow * 1.15, 1);
+    const history = (await reviewRows.getCardHistory(state.id, scope)).map(r => ({
+        id: r.id,
+        at: r.timestamp,
+        algorithm: r.algorithm ?? (r.rating != null ? 'fsrs' : null),
+        outcome: r.outcome,
+        rating: r.rating,
+        easeFactor: r.ease_factor,
+        level: r.level,
+        stability: r.fsrs_stability,
+        difficulty: r.fsrs_difficulty,
+        due: r.fsrs_due,
+        state: r.fsrs_state,
+        synthetic: r.outcome === null,
+    }));
 
-        const SAMPLES = 64;
-        const points = [];
-        for (let i = 0; i < SAMPLES; i++) {
-            const t = (horizonDays * i) / (SAMPLES - 1);
-            points.push({
-                t: Math.round(t * 1000) / 1000,
-                r: Math.round(fsrs.retrievability(t, stabilityDays, weights) * 10000) / 10000,
-            });
-        }
+    const real = history.filter(h => !h.synthetic);
+    const correct = real.filter(h => h.outcome === 1).length;
+    const reviewed = isReviewedCard(state, algorithm);
+    const dueAt = dueDateOfCard(state, algorithm, easeFactor);
+    const intervalDays = intervalOfCard(state, algorithm, easeFactor);
+    const overdueMs = dueAt ? Date.now() - dueAt.getTime() : 0;
 
-        return {
-            model: algorithm === 'fsrs' ? 'fsrs' : 'approximated',
-            requestRetention: DEFAULT_REQUEST_RETENTION,
-            stabilityDays,
-            originAt,
+    return {
+        algorithm,
+        srs: {
+            state: reviewed ? 'review' : 'new',
+            level: state.level ?? 0,
+            sm2Reps: state.sm2_reps ?? 0,
+            easeFactor,
+            lastRecall: state.last_recall ?? null,
             dueAt: dueAt ? dueAt.toISOString() : null,
             intervalDays,
-            horizonDays,
-            nowT: Math.round(elapsedNow * 1000) / 1000,
-            nowR: Math.round(fsrs.retrievability(elapsedNow, stabilityDays, weights) * 10000) / 10000,
-            points,
-        };
+            overdueDays: overdueMs > 0 ? overdueMs / DAY_MS : 0,
+            fsrs: state.fsrs_stability != null ? {
+                stability: state.fsrs_stability,
+                difficulty: state.fsrs_difficulty,
+                state: state.fsrs_state ?? 0,
+                reps: state.fsrs_reps ?? 0,
+                lapses: state.fsrs_lapses ?? 0,
+            } : null,
+            reviews: real.length,
+            correct,
+            lapses: real.length - correct,
+            retention: real.length ? correct / real.length : null,
+            syntheticEntries: history.length - real.length,
+        },
+        history,
+        curve: await _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope),
+    };
+}
+
+async function _buildCurve(state, algorithm, easeFactor, reviewed, intervalDays, dueAt, scope) {
+    if (!reviewed) return null;
+
+    const originAt = state.last_recall
+        ?? (dueAt ? new Date(dueAt.getTime() - intervalDays * DAY_MS).toISOString() : null);
+    if (!originAt) return null;
+
+    const stabilityDays = algorithm === 'fsrs'
+        ? state.fsrs_stability
+        : Math.max(intervalDays, 1);
+    if (!(stabilityDays > 0)) return null;
+
+    const weights = await getWeights(scope);
+    const elapsedNow = Math.max(0, (Date.now() - new Date(originAt).getTime()) / DAY_MS);
+    const horizonDays = Math.max(intervalDays * 2, elapsedNow * 1.15, 1);
+
+    const SAMPLES = 64;
+    const points = [];
+    for (let i = 0; i < SAMPLES; i++) {
+        const t = (horizonDays * i) / (SAMPLES - 1);
+        points.push({
+            t: Math.round(t * 1000) / 1000,
+            r: Math.round(fsrs.retrievability(t, stabilityDays, weights) * 10000) / 10000,
+        });
     }
 
-    async migrateProgress(from, to, scopeArg) {
-        const scope = this._scope(scopeArg);
-        if (from === to) return 0;
+    return {
+        model: algorithm === 'fsrs' ? 'fsrs' : 'approximated',
+        requestRetention: DEFAULT_REQUEST_RETENTION,
+        stabilityDays,
+        originAt,
+        dueAt: dueAt ? dueAt.toISOString() : null,
+        intervalDays,
+        horizonDays,
+        nowT: Math.round(elapsedNow * 1000) / 1000,
+        nowR: Math.round(fsrs.retrievability(elapsedNow, stabilityDays, weights) * 10000) / 10000,
+        points,
+    };
+}
 
-        const cards = await cardProgressRows.getAllSrsState(scope);
-        if (cards.length === 0) return 0;
+export async function migrateProgress(from, to, scopeArg) {
+    const scope = _scope(scopeArg);
+    if (from === to) return 0;
 
-        if (from === 'leitner' && to === 'sm2') {
+    const cards = await cardProgressRows.getAllSrsState(scope);
+    if (cards.length === 0) return 0;
+
+    if (from === 'leitner' && to === 'sm2') {
+        const translated = cards.map(c => ({
+            global_hash: c.global_hash,
+            sm2_reps: leitnerToSm2Reps(c.level ?? 0),
+        }));
+        await cardProgressRows.batchSetSm2Reps(translated, scope);
+        return translated.length;
+    }
+
+    if (from === 'sm2' && to === 'leitner') {
+        const efMap = await cardProgressRows.getLatestEaseFactors(scope);
+        const translated = cards.map(c => ({
+            global_hash: c.global_hash,
+            level: sm2RepsToLeitnerLevel(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5),
+        }));
+        await cardProgressRows.batchSetLeitnerLevel(translated, scope);
+        return translated.length;
+    }
+
+    if (to === 'fsrs') {
+        const efMap = from === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
+        const seeded = cards.map(c => {
+            const interval = from === 'sm2'
+                ? sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5)
+                : leitnerInterval(c.level ?? 0);
+            const reviewed = interval > 0 && !!c.last_recall;
+            const dueBase = c.last_recall ? new Date(c.last_recall) : new Date();
+            return {
+                global_hash: c.global_hash,
+                fsrsStability: reviewed ? Math.max(0.01, interval) : null,
+                fsrsDifficulty: reviewed ? 5 : null,
+                fsrsDue: reviewed ? new Date(dueBase.getTime() + interval * 86400000).toISOString() : null,
+                fsrsState: reviewed ? 2 : 0,
+                fsrsReps: reviewed ? 1 : 0,
+                fsrsLapses: 0,
+                level: reviewed ? intervalToLeitnerLevel(interval) : 0,
+                lastRecall: c.last_recall ?? null,
+            };
+        });
+        await cardProgressRows.batchSetFsrsState(seeded, scope);
+        return seeded.length;
+    }
+
+    if (from === 'fsrs') {
+        const toInterval = (c) => (c.fsrs_stability != null
+            ? fsrs.intervalFromStability(c.fsrs_stability, 0.9)
+            : 0);
+        if (to === 'leitner') {
             const translated = cards.map(c => ({
                 global_hash: c.global_hash,
-                sm2_reps: leitnerToSm2Reps(c.level ?? 0),
-            }));
-            await cardProgressRows.batchSetSm2Reps(translated, scope);
-            return translated.length;
-        }
-
-        if (from === 'sm2' && to === 'leitner') {
-            const efMap = await cardProgressRows.getLatestEaseFactors(scope);
-            const translated = cards.map(c => ({
-                global_hash: c.global_hash,
-                level: sm2RepsToLeitnerLevel(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5),
+                level: intervalToLeitnerLevel(toInterval(c)),
             }));
             await cardProgressRows.batchSetLeitnerLevel(translated, scope);
             return translated.length;
         }
-
-        if (to === 'fsrs') {
-            const efMap = from === 'sm2' ? await cardProgressRows.getLatestEaseFactors(scope) : null;
-            const seeded = cards.map(c => {
-                const interval = from === 'sm2'
-                    ? sm2Interval(c.sm2_reps ?? 0, efMap.get(c.global_hash) ?? 2.5)
-                    : leitnerInterval(c.level ?? 0);
-                const reviewed = interval > 0 && !!c.last_recall;
-                const dueBase = c.last_recall ? new Date(c.last_recall) : new Date();
-                return {
-                    global_hash: c.global_hash,
-                    fsrsStability: reviewed ? Math.max(0.01, interval) : null,
-                    fsrsDifficulty: reviewed ? 5 : null,
-                    fsrsDue: reviewed ? new Date(dueBase.getTime() + interval * 86400000).toISOString() : null,
-                    fsrsState: reviewed ? 2 : 0,
-                    fsrsReps: reviewed ? 1 : 0,
-                    fsrsLapses: 0,
-                    level: reviewed ? intervalToLeitnerLevel(interval) : 0,
-                    lastRecall: c.last_recall ?? null,
-                };
-            });
-            await cardProgressRows.batchSetFsrsState(seeded, scope);
-            return seeded.length;
+        if (to === 'sm2') {
+            const translated = cards.map(c => ({
+                global_hash: c.global_hash,
+                sm2_reps: intervalToSm2Reps(toInterval(c)),
+            }));
+            await cardProgressRows.batchSetSm2Reps(translated, scope);
+            return translated.length;
         }
-
-        if (from === 'fsrs') {
-            const toInterval = (c) => (c.fsrs_stability != null
-                ? fsrs.intervalFromStability(c.fsrs_stability, 0.9)
-                : 0);
-            if (to === 'leitner') {
-                const translated = cards.map(c => ({
-                    global_hash: c.global_hash,
-                    level: intervalToLeitnerLevel(toInterval(c)),
-                }));
-                await cardProgressRows.batchSetLeitnerLevel(translated, scope);
-                return translated.length;
-            }
-            if (to === 'sm2') {
-                const translated = cards.map(c => ({
-                    global_hash: c.global_hash,
-                    sm2_reps: intervalToSm2Reps(toInterval(c)),
-                }));
-                await cardProgressRows.batchSetSm2Reps(translated, scope);
-                return translated.length;
-            }
-        }
-
-        return 0;
     }
 
-    async getDue({
-        algorithm: requested = null, folder = null, document = null, deck = null, tags = null,
-        maxNew = 20, minPriority = 0, readGate = null,
-        excludeFolders = null, excludeDocuments = null, excludeDecks = null, excludeTags = null,
-        scope: scopeArg = null,
-    } = {}) {
-        const scope = this._scope(scopeArg);
-        const algorithm = requested ?? await this.detectAlgorithm(scope);
-        const result = await sessionRows.getDue({
-            algorithm, folder, document, deck, tags, maxNew, minPriority,
-            readDocuments: readGate?.documents ?? null,
-            readExcludeCards: readGate?.excludeCards ?? null,
-            excludeFolders, excludeDocuments, excludeDecks, excludeTags,
-        }, scope);
-        return {
-            algorithm,
-            due: result.due,
-            new: result.newCards,
-            counts: { due: result.due.length, new: result.newCards.length },
-            nextDue: result.nextDue
-        };
-    }
+    return 0;
 }
 
-export default new SRSService();
+export async function getDue({
+    algorithm: requested = null, folder = null, document = null, deck = null, tags = null,
+    maxNew = 20, minPriority = 0, readGate = null,
+    excludeFolders = null, excludeDocuments = null, excludeDecks = null, excludeTags = null,
+    scope: scopeArg = null,
+} = {}) {
+    const scope = _scope(scopeArg);
+    const algorithm = requested ?? await detectAlgorithm(scope);
+    const result = await sessionRows.getDue({
+        algorithm, folder, document, deck, tags, maxNew, minPriority,
+        readDocuments: readGate?.documents ?? null,
+        readExcludeCards: readGate?.excludeCards ?? null,
+        excludeFolders, excludeDocuments, excludeDecks, excludeTags,
+    }, scope);
+    return {
+        algorithm,
+        due: result.due,
+        new: result.newCards,
+        counts: { due: result.due.length, new: result.newCards.length },
+        nextDue: result.nextDue
+    };
+}
+
+export async function getVaultLearned(scope) {
+    return await statisticsRows.getVaultLearned(scope);
+}

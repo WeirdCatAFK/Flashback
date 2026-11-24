@@ -1,5 +1,5 @@
-import Files from '../access/resources/files.js';
-import Decks from '../access/modules/decks.js';
+import * as Files from '../access/resources/files.js';
+import * as Decks from '../access/modules/decks.js';
 import * as vaultRows from '../access/resources/db/vault.js';
 import { sealTools } from '../seal/seal.js';
 import { UPDATES, LATEST_VERSION, pendingFor } from './updates/registry.js';
@@ -37,11 +37,9 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
     if (pending.length === 0 && !force) return result;
 
     result.walked = true;
-    const files = new Files();
-    const decks = new Decks();
-    await decks.onVaultOpened();
+    await Decks.onVaultOpened();
 
-    const walk = files.walkWorkspace();
+    const walk = Files.walkWorkspace();
 
     for (const doc of walk.documents) {
         if (doc.sidecarCorrupt || !doc.meta) {
@@ -51,7 +49,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
         try {
             const { changed } = upgradeItem(doc.meta, 'document', updates, target);
             if (changed) {
-                files.writeMetadata(doc.relPath, doc.meta, false);
+                Files.writeMetadata(doc.relPath, doc.meta, false);
                 result.documents++;
             }
         } catch (err) {
@@ -67,7 +65,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
         try {
             const { changed } = upgradeItem(folder.meta, 'folder', updates, target);
             if (changed) {
-                files.writeMetadata(folder.relPath, folder.meta, true);
+                Files.writeMetadata(folder.relPath, folder.meta, true);
                 result.folders++;
             }
         } catch (err) {
@@ -75,7 +73,7 @@ export default async function runUpdates({ updates = UPDATES, force = false, sea
         }
     }
 
-    const deckResult = await decks.mapDeckFiles((file) => upgradeItem(file, 'deck', updates, target).changed);
+    const deckResult = await Decks.mapDeckFiles((file) => upgradeItem(file, 'deck', updates, target).changed);
     result.decks = deckResult.filesRewritten;
     for (const hash of deckResult.corruptFiles) {
         result.warnings.push(`Unreadable deck file, left untouched: _decks/${hash}.json`);

@@ -41,6 +41,8 @@ try {
   process.exit(1);
 }
 
+fs.rmSync(path.join(root, "test-data"), { recursive: true, force: true });
+
 let failed = false;
 for (const testFile of tests) {
   const fullPath = path.join(root, testFile);

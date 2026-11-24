@@ -6,14 +6,14 @@ import fs from 'fs';
 import process from 'process';
 import git from 'isomorphic-git';
 import validate from '../../src/api/config/validate.js';
-import Documents from '../../src/api/access/modules/documents.js';
-import Decks from '../../src/api/access/modules/decks.js';
-import Files from '../../src/api/access/resources/files.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Decks from '../../src/api/access/modules/decks.js';
+import * as Files from '../../src/api/access/resources/files.js';
 import db from '../../src/api/access/primitives/database.js';
 import * as deckRows from '../../src/api/access/resources/db/decks.js';
 import * as documentRows from '../../src/api/access/resources/db/documents.js';
 import * as statisticsRows from '../../src/api/access/resources/db/statistics.js';
-import diary from '../../src/api/access/modules/diary.js';
+import * as Diary from '../../src/api/access/modules/diary.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import { getVaultPath, getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { testDataDir } from '../support/testData.js';
@@ -25,9 +25,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
-const decks = new Decks();
-const files = new Files();
 const ROOT = 'StudyLogTestWs';
 const DAY = '2026-06-01';
 const NEXT = '2026-06-02';
@@ -63,8 +60,8 @@ describe('Diary storage layer', () => {
     before(async () => {
         await cleanup();
         await sealTools.init();
-        await docs.createFolder(ROOT);
-        await docs.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
+        await Documents.createFolder(ROOT);
+        await Documents.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
             globalHash: crypto.randomUUID(),
             flashcards: hashes.map((h, i) => ({
                 globalHash: h, level: 0, vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
@@ -79,7 +76,7 @@ describe('Diary storage layer', () => {
     after(async () => await cleanup());
 
     it('derives the day summary from ReviewLogs with the v2 schema', async () => {
-        const s = await diary.generateSummary(DAY);
+        const s = await Diary.generateSummary(DAY);
         assert.ok(s, 'summary written');
         assert.equal(s.schemaVersion, 2);
         assert.equal(s.date, DAY);
@@ -112,14 +109,14 @@ describe('Diary storage layer', () => {
     });
 
     it('is idempotent: regenerating a past date reproduces the same file (modulo generatedAt)', async () => {
-        const a = await diary.generateSummary(DAY);
-        const b = await diary.generateSummary(DAY);
+        const a = await Diary.generateSummary(DAY);
+        const b = await Diary.generateSummary(DAY);
         delete a.generatedAt; delete b.generatedAt;
         assert.deepEqual(a, b);
     });
 
     it('writes nothing for a day with no reviews', async () => {
-        const s = await diary.generateSummary(NEXT);
+        const s = await Diary.generateSummary(NEXT);
         assert.equal(s, null);
         assert.ok(!fs.existsSync(path.join(diaryRoot(), 'summaries', `summary-${NEXT}.json`)));
     });
@@ -128,7 +125,7 @@ describe('Diary storage layer', () => {
         const rel = path.relative(getWorkspacePath(), diaryRoot());
         assert.ok(rel.startsWith('..'), 'diary root is outside the workspace root');
 
-        const walk = files.walkWorkspace();
+        const walk = Files.walkWorkspace();
         const walked = [...walk.folders, ...walk.documents].map(e => e.relPath);
         assert.ok(walked.every(p => !p.toLowerCase().includes('diary')), 'walkWorkspace excludes diary');
 
@@ -137,21 +134,21 @@ describe('Diary storage layer', () => {
         const under = (await documentRows.getAll()).filter(d => norm(d.absolute_path).startsWith(diaryAbs));
         assert.equal(under.length, 0, 'no Documents rows point under diary/');
 
-        const results = await docs.search('summary');
+        const results = await Documents.search('summary');
         assert.ok(results.every(r => !norm(r.relative_path).startsWith(diaryAbs)));
     });
 
     it('saves and reads back a markdown entry, and commits it', async () => {
-        const res = await diary.saveEntry(DAY, '# Reflection\nStudied hiragana.');
+        const res = await Diary.saveEntry(DAY, '# Reflection\nStudied hiragana.');
         assert.equal(res.created, true);
-        assert.equal(diary.getEntry(DAY), '# Reflection\nStudied hiragana.');
+        assert.equal(Diary.getEntry(DAY), '# Reflection\nStudied hiragana.');
         assert.ok(fs.existsSync(path.join(diaryRoot(), 'entries', `entry-${DAY}.md`)));
     });
 
     it('does not create an empty entry file for a day the user never wrote', async () => {
-        const res = await diary.saveEntry(NEXT, '   ');
+        const res = await Diary.saveEntry(NEXT, '   ');
         assert.equal(res.created, false);
-        assert.equal(diary.getEntry(NEXT), null);
+        assert.equal(Diary.getEntry(NEXT), null);
         assert.ok(!fs.existsSync(path.join(diaryRoot(), 'entries', `entry-${NEXT}.md`)));
     });
 
@@ -163,7 +160,7 @@ describe('Diary storage layer', () => {
     });
 
     it('lists diary dates newest-first with per-kind flags', async () => {
-        const list = await diary.list();
+        const list = await Diary.list();
         const day = list.find(d => d.date === DAY);
         assert.ok(day && day.hasSummary && day.hasEntry);
         for (let i = 1; i < list.length; i++) assert.ok(list[i - 1].date >= list[i].date);
@@ -171,10 +168,10 @@ describe('Diary storage layer', () => {
 
     it('re-derives the whole day across sessions, and commits only when it changed', async () => {
         const commits = async () => (await git.log({ fs, dir: diaryRoot() })).length;
-        const first = await diary.generateSummary(DAY);
+        const first = await Diary.generateSummary(DAY);
         const before = await commits();
 
-        const again = await diary.generateSummary(DAY);
+        const again = await Diary.generateSummary(DAY);
         assert.equal(await commits(), before, 'an unchanged day is not re-committed');
         assert.equal(again.totals.reviews, first.totals.reviews);
 
@@ -183,14 +180,14 @@ describe('Diary storage layer', () => {
             'INSERT INTO ReviewLogs (card_hash, timestamp, outcome, ease_factor, level) VALUES ((SELECT global_hash FROM Flashcards WHERE id = ?), ?, ?, ?, ?)'
         ).run(fid, localIso(DAY, 20), 1, 2.5, 1);
         try {
-            const later = await diary.generateSummary(DAY);
+            const later = await Diary.generateSummary(DAY);
             assert.equal(later.totals.reviews, first.totals.reviews + 1, 'the evening session adds to the morning one');
             assert.equal(await commits(), before + 1);
-            assert.equal(diary.getSummary(DAY).totals.reviews, first.totals.reviews + 1, 'and the stored file says so');
+            assert.equal(Diary.getSummary(DAY).totals.reviews, first.totals.reviews + 1, 'and the stored file says so');
         } finally {
             await db.prepare('DELETE FROM ReviewLogs WHERE card_hash = (SELECT global_hash FROM Flashcards WHERE id = ?) AND timestamp = ?')
                 .run(fid, localIso(DAY, 20));
-            await diary.generateSummary(DAY);
+            await Diary.generateSummary(DAY);
         }
     });
 
@@ -238,20 +235,20 @@ describe('Diary by-deck breakdown', () => {
     before(async () => {
         await cleanup2();
         await sealTools.init();
-        await docs.createFolder(ROOT2);
+        await Documents.createFolder(ROOT2);
 
         docCardHash = crypto.randomUUID();
-        await docs.importFile('cards.md', ROOT2, Buffer.from('# Cards'), {
+        await Documents.importFile('cards.md', ROOT2, Buffer.from('# Cards'), {
             globalHash: crypto.randomUUID(),
             flashcards: [{ globalHash: docCardHash, level: 0, vanillaData: { frontText: 'Qd', backText: 'Ad' } }],
         });
 
-        standaloneHash = await decks.createStandaloneCard({
+        standaloneHash = await Decks.createStandaloneCard({
             frontText: 'Q-standalone', backText: 'A-standalone', cardType: 'basic',
         });
 
-        deckHash = await decks.createDeck('Real Deck');
-        await decks.addEntry(deckHash, { cardHash: docCardHash, documentPath: path.join(ROOT2, 'cards.md') });
+        deckHash = await Decks.createDeck('Real Deck');
+        await Decks.addEntry(deckHash, { cardHash: docCardHash, documentPath: path.join(ROOT2, 'cards.md') });
 
         await insertLog(await fcId(standaloneHash), 1, D, 9);
         await insertLog(await fcId(docCardHash), 1, D, 9);

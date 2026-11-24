@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import path from 'path';
-import reader from '../access/modules/mcpReader.js';
-import readProgress from '../access/modules/readProgress.js';
+import * as McpReader from '../access/modules/mcpReader.js';
+import * as ReadProgress from '../access/modules/readProgress.js';
 
 const router = Router();
 const norm = (p) => (p ? path.normalize(p) : p);
@@ -15,7 +15,7 @@ const catchError = (fn) => (req, res, next) =>
 router.get('/info', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await reader.info(relPath));
+    res.json(await McpReader.info(relPath));
 }));
 
 router.get('/read', catchError(async (req, res) => {
@@ -33,7 +33,7 @@ router.get('/read', catchError(async (req, res) => {
 
     let bound = null;
     if (req.query.upTo === 'progress') {
-        bound = await readProgress.readingBound(relPath, { readerInfo: await reader.info(relPath) });
+        bound = await ReadProgress.readingBound(relPath, { readerInfo: await McpReader.info(relPath) });
         if (bound.maxOffset != null) {
             const from = Number(opts.offset ?? 0);
             if (from >= bound.maxOffset) {
@@ -57,7 +57,7 @@ router.get('/read', catchError(async (req, res) => {
         }
     }
 
-    const data = await reader.read(relPath, opts);
+    const data = await McpReader.read(relPath, opts);
     if (bound) {
         data.boundedBy = bound;
         const reached = bound.maxOffset != null
@@ -71,14 +71,14 @@ router.get('/read', catchError(async (req, res) => {
 router.get('/images', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await reader.images(relPath));
+    res.json(await McpReader.images(relPath));
 }));
 
 router.get('/image', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     const { href } = req.query;
     if (!relPath || !href) return res.status(400).json({ error: 'path and href required' });
-    const { buffer, mediaType, name } = await reader.imageBuffer(relPath, href);
+    const { buffer, mediaType, name } = await McpReader.imageBuffer(relPath, href);
     res.type(mediaType || 'application/octet-stream');
     res.set('Cache-Control', 'private, max-age=3600');
     res.set('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);
@@ -88,14 +88,14 @@ router.get('/image', catchError(async (req, res) => {
 router.get('/media', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await reader.media(relPath));
+    res.json(await McpReader.media(relPath));
 }));
 
 router.get('/media-file', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     const { href } = req.query;
     if (!relPath || !href) return res.status(400).json({ error: 'path and href required' });
-    const { buffer, mediaType, name } = await reader.mediaBuffer(relPath, href);
+    const { buffer, mediaType, name } = await McpReader.mediaBuffer(relPath, href);
     res.type(mediaType || 'application/octet-stream');
     res.set('Cache-Control', 'private, max-age=3600');
     res.set('Content-Disposition', `inline; filename="${encodeURIComponent(name)}"`);

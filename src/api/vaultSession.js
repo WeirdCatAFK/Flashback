@@ -5,11 +5,11 @@ import * as config from "./access/primitives/config.js";
 import { closeDatabase } from "./access/primitives/database.js";
 import { ensureManifest } from "./access/primitives/vault.js";
 import * as nodeRows from './access/resources/db/nodes.js';
-import Files from "./access/resources/files.js";
-import Decks from "./access/modules/decks.js";
-import cardHealth from "./access/modules/cardHealth.js";
-import mcpReader from "./access/modules/mcpReader.js";
-import highlights from "./access/modules/highlights.js";
+import * as Files from './access/resources/files.js';
+import * as Decks from './access/modules/decks.js';
+import * as CardHealth from './access/modules/cardHealth.js';
+import * as McpReader from './access/modules/mcpReader.js';
+import * as Highlights from './access/modules/highlights.js';
 import storage from "./access/primitives/storage.js";
 
 let switching = false;
@@ -20,14 +20,14 @@ export function isSwitching() {
 
 async function resetVaultScopedCaches() {
     await nodeRows.onVaultOpened();
-    await cardHealth.onVaultOpened();
-    await mcpReader.onVaultOpened();
+    await CardHealth.onVaultOpened();
+    await McpReader.onVaultOpened();
     storage.onVaultOpened();
 }
 
 async function ensureVaultDirs() {
-    new Files();
-    await new Decks().onVaultOpened();
+    Files.ensureRoot();
+    await Decks.onVaultOpened();
 }
 
 export async function openVault({ onFatal } = {}) {
@@ -59,7 +59,7 @@ export async function openVault({ onFatal } = {}) {
     }
 
     try {
-        const filled = await highlights.backfillCardAnchors();
+        const filled = await Highlights.backfillCardAnchors();
         if (filled) console.log(`Recorded the source highlight of ${filled} card(s) in the index.`);
     } catch (err) {
         console.error("Card highlight backfill failed (continuing; will retry next launch):", err?.stack || err);

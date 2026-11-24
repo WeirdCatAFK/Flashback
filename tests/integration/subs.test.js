@@ -5,16 +5,17 @@ import fs from 'fs/promises';
 import fsSync from 'fs';
 import AdmZip from 'adm-zip';
 import db from '../../src/api/access/primitives/database.js';
-import Subscriptions from '../../src/api/access/modules/subscriptions.js';
+import * as Subscriptions from '../../src/api/access/modules/subscriptions.js';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { testDataDir } from '../support/testData.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
 process.env.USER_DATA_PATH = testDataDir('subs');
 console.log('USER_DATA_PATH:', process.env.USER_DATA_PATH);
 
-const subscriptions = new Subscriptions();
 const TEST_ROOT = "SubscriptionTest";
 const MAGAZINE_ID = "test-magazine-123";
 const doc1Hash = "a1b9b418-e67c-446c-9a4a-2e6988c5a2df";
@@ -46,7 +47,7 @@ describe('Subscriptions Integration Tests', () => {
             if (fsSync.existsSync(absRoot)) {
                 await fs.rm(absRoot, { recursive: true, force: true });
             }
-            await subscriptions.documents.createFolder(TEST_ROOT);
+            await Documents.createFolder(TEST_ROOT);
             
         } catch (e) {
             console.error("Cleanup error:", e);
@@ -121,7 +122,7 @@ describe('Subscriptions Integration Tests', () => {
 
         const issueZip = createIssueZip(issueId, version, issueContent);
         
-        await subscriptions.importIssue(issueId, issueZip, TEST_ROOT);
+        await Subscriptions.importIssue(issueId, issueZip, TEST_ROOT);
 
         const doc = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         assert.ok(doc, "Document should be imported");
@@ -129,7 +130,7 @@ describe('Subscriptions Integration Tests', () => {
         const fc = await db.prepare('SELECT * FROM Flashcards WHERE document_id = ?').get(doc.id);
         assert.ok(fc, "Flashcard should be imported");
 
-        const folderMeta = subscriptions.documents.files.getMetadata(TEST_ROOT, true);
+        const folderMeta = Files.getMetadata(TEST_ROOT, true);
         assert.equal(folderMeta.subscription.issueId, issueId);
         assert.equal(folderMeta.subscription.version, version);
 
@@ -152,7 +153,7 @@ describe('Subscriptions Integration Tests', () => {
             }
         }];
         const initialZip = createIssueZip("issue-2", "v1.0.0", initialContent);
-        await subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
         
         const doc = await db.prepare('SELECT id FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         const fcInitial = await db.prepare('SELECT id FROM Flashcards WHERE document_id = ?').get(doc.id);
@@ -173,7 +174,7 @@ describe('Subscriptions Integration Tests', () => {
             }
         }];
         const updatedZip = createIssueZip("issue-3", "v1.1.0", updatedContent);
-        await subscriptions.importIssue("issue-3", updatedZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-3", updatedZip, TEST_ROOT);
 
         const fc = await db.prepare(`
             SELECT fc.*, COALESCE(p.level, 0) AS level
@@ -185,7 +186,7 @@ describe('Subscriptions Integration Tests', () => {
         assert.equal(fc.level, 5, "Flashcard level should be preserved");
         assert.equal(fc.frontText, "Q1 Updated", "Flashcard content should be updated");
 
-        const folderMeta = subscriptions.documents.files.getMetadata(TEST_ROOT, true);
+        const folderMeta = Files.getMetadata(TEST_ROOT, true);
         assert.equal(folderMeta.subscription.version, "v1.1.0");
     });
 
@@ -201,7 +202,7 @@ describe('Subscriptions Integration Tests', () => {
             }
         }];
         const initialZip = createIssueZip("issue-2", "v1.0.0", initialContent);
-        await subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-2", initialZip, TEST_ROOT);
 
         const newContent = [
         {
@@ -224,7 +225,7 @@ describe('Subscriptions Integration Tests', () => {
         }];
 
         const issueZip = createIssueZip("issue-3", "v1.2.0", newContent);
-        await subscriptions.importIssue("issue-3", issueZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-3", issueZip, TEST_ROOT);
 
         const doc2 = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc2.md"));
         assert.ok(doc2, "New document should be added");
@@ -253,7 +254,7 @@ describe('Subscriptions Integration Tests', () => {
             }
         ];
         const initialZip = createIssueZip("issue-4", "v1.0.0", initialContent);
-        await subscriptions.importIssue("issue-4", initialZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-4", initialZip, TEST_ROOT);
 
         const newContent = [{
             path: "Doc2.md",
@@ -265,7 +266,7 @@ describe('Subscriptions Integration Tests', () => {
             }
         }];
         const issueZip = createIssueZip("issue-5", "v1.3.0", newContent);
-        await subscriptions.importIssue("issue-5", issueZip, TEST_ROOT);
+        await Subscriptions.importIssue("issue-5", issueZip, TEST_ROOT);
 
         const oldDoc = await db.prepare('SELECT * FROM Documents WHERE relative_path = ?').get(path.join(TEST_ROOT, "Doc1.md"));
         assert.strictEqual(oldDoc, undefined, "Doc1.md should have been removed");

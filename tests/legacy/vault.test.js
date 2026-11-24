@@ -25,7 +25,7 @@ const vault = await import('../../src/api/access/primitives/vault.js');
 const deckRows = await import('../../src/api/access/resources/db/decks.js');
 const nodeRows = await import('../../src/api/access/resources/db/nodes.js');
 const vaultRows = await import('../../src/api/access/resources/db/vault.js');
-const { default: Documents } = await import('../../src/api/access/modules/documents.js');
+const Documents = await import('../../src/api/access/modules/documents.js');
 const { default: db, closeDatabase } = await import('../../src/api/access/primitives/database.js');
 
 after(() => {
@@ -36,10 +36,9 @@ after(() => {
 const ALPHA = { id: 'id-alpha', name: 'alpha', isCustomPath: false, customPath: '' };
 const BETA = { id: 'id-beta', name: 'beta', isCustomPath: false, customPath: '' };
 
-const docs = new Documents();
 
 async function createDoc(name) {
-    await docs.createFile(name, '');
+    await Documents.createFile(name, '');
 }
 
 async function documentNames() {

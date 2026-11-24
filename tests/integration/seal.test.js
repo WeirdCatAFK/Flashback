@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import path from 'path';
 import fs from 'fs';
 import crypto from 'crypto';
-import Documents from '../../src/api/access/modules/documents.js';
-import Decks from '../../src/api/access/modules/decks.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Decks from '../../src/api/access/modules/decks.js';
 import db from '../../src/api/access/primitives/database.js';
 import validate from '../../src/api/config/validate.js';
 import { sealTools, sealEmitter } from '../../src/api/seal/seal.js';
@@ -19,7 +19,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
 const TEST_ROOT = 'SealTests';
 const workspace = getWorkspacePath();
 
@@ -28,9 +27,9 @@ const LOG_DEPTH = 500;
 describe('Seal Integration Tests', () => {
 
     before(async () => {
-        try { if (await docs.exists(TEST_ROOT, true, true)) await docs.delete(TEST_ROOT, true); } catch {}
+        try { if (await Documents.exists(TEST_ROOT, true, true)) await Documents.remove(TEST_ROOT, true); } catch {}
         await sealTools.init();
-        await docs.createFolder(TEST_ROOT);
+        await Documents.createFolder(TEST_ROOT);
     });
 
     after(async () => {
@@ -50,7 +49,7 @@ describe('Seal Integration Tests', () => {
 
         it('createFile fires a create commit', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await docs.createFile(fileName, TEST_ROOT);
+            await Documents.createFile(fileName, TEST_ROOT);
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('create:'), 'Commit message should start with create:');
@@ -59,7 +58,7 @@ describe('Seal Integration Tests', () => {
 
         it('updateFile fires an edit commit', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await docs.updateFile(filePath, '# Notes', {
+            await Documents.updateFile(filePath, '# Notes', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'Q', backText: 'A' } }]
             });
@@ -71,17 +70,17 @@ describe('Seal Integration Tests', () => {
 
         it('rename fires a move commit with old and new paths', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await docs.rename(filePath, 'Notes_v2.md', false);
+            await Documents.rename(filePath, 'Notes_v2.md', false);
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('move:'), 'Commit message should start with move:');
             assert.ok(commits[0].commit.message.includes('->'), 'Move commit should include arrow separator');
-            await docs.rename(path.join(TEST_ROOT, 'Notes_v2.md'), fileName, false);
+            await Documents.rename(path.join(TEST_ROOT, 'Notes_v2.md'), fileName, false);
         });
 
         it('submitReview fires no commit at all — a schedule is not in the workspace', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await docs.submitReview(filePath, fcHash, 5, 2.5, 3);
+            await Documents.submitReview(filePath, fcHash, 5, 2.5, 3);
             await sealEmitter.flushEdits();
             assert.equal((await sealTools.log(LOG_DEPTH)).length, before,
                 'grading writes no file, so there is nothing to seal');
@@ -89,9 +88,9 @@ describe('Seal Integration Tests', () => {
 
         it('delete fires a delete commit', async () => {
             const tempFile = 'Temp.md';
-            await docs.createFile(tempFile, TEST_ROOT);
+            await Documents.createFile(tempFile, TEST_ROOT);
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await docs.delete(path.join(TEST_ROOT, tempFile), false);
+            await Documents.remove(path.join(TEST_ROOT, tempFile), false);
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('delete:'), 'Commit message should start with delete:');
@@ -146,8 +145,8 @@ describe('Seal Integration Tests', () => {
             const rel = path.join(TEST_ROOT, name);
             const cardHash = crypto.randomUUID();
 
-            await docs.createFile(name, TEST_ROOT);
-            await docs.updateFile(rel, '# Body', {
+            await Documents.createFile(name, TEST_ROOT);
+            await Documents.updateFile(rel, '# Body', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: cardHash, vanillaData: { frontText: 'Q', backText: 'A' } }],
             });
@@ -156,7 +155,7 @@ describe('Seal Integration Tests', () => {
             const contentCommit = (await sealTools.log(1))[0];
             assert.ok(contentCommit.stats.content > 0, 'Writing the document body should count as content');
 
-            await docs.updateMetadata(rel, {
+            await Documents.updateMetadata(rel, {
                 globalHash: crypto.randomUUID(),
                 tags: ['metadata-only'],
                 flashcards: [{ globalHash: cardHash, vanillaData: { frontText: 'Q', backText: 'A' } }],
@@ -189,19 +188,19 @@ describe('Seal Integration Tests', () => {
         let snapshotRef;
 
         before(async () => {
-            await docs.createFile(rollbackFile, TEST_ROOT);
-            await docs.updateFile(rollbackPath, '# v1', {
+            await Documents.createFile(rollbackFile, TEST_ROOT);
+            await Documents.updateFile(rollbackPath, '# v1', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v1 question', backText: 'v1 answer' } }]
             });
             await sealEmitter.flushEdits();
             snapshotRef = (await sealTools.log(LOG_DEPTH))[0].oid;
 
-            await docs.updateFile(rollbackPath, '# v2', {
+            await Documents.updateFile(rollbackPath, '# v2', {
                 globalHash: crypto.randomUUID(),
                 flashcards: [{ globalHash: fcHash, vanillaData: { frontText: 'v2 question', backText: 'v2 answer' } }]
             });
-            await docs.submitReview(rollbackPath, fcHash, 5, 2.5, 7);
+            await Documents.submitReview(rollbackPath, fcHash, 5, 2.5, 7);
             await sealEmitter.flushEdits();
         });
 
@@ -261,7 +260,7 @@ describe('Seal Integration Tests', () => {
 
         it('detects an out-of-band deleted sidecar', async () => {
             const deletionFile = 'DeletionDetect.md';
-            await docs.createFile(deletionFile, TEST_ROOT);
+            await Documents.createFile(deletionFile, TEST_ROOT);
             const sidecarAbs = path.join(workspace, TEST_ROOT, deletionFile + '.flashback');
 
             fs.unlinkSync(sidecarAbs);
@@ -272,11 +271,10 @@ describe('Seal Integration Tests', () => {
     });
 
     describe('Deck writes are versioned', () => {
-        const decks = new Decks();
 
         it('createDeck fires a create commit referencing the _decks path', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            const hash = await decks.createDeck('SealDeck', 'versioned deck');
+            const hash = await Decks.createDeck('SealDeck', 'versioned deck');
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('create:'), 'Commit message should start with create:');
@@ -285,7 +283,7 @@ describe('Seal Integration Tests', () => {
 
         it('createStandaloneCard fires an edit commit on the system deck file', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await decks.createStandaloneCard({ frontText: 'seal-q', backText: 'seal-a' });
+            await Decks.createStandaloneCard({ frontText: 'seal-q', backText: 'seal-a' });
             await sealEmitter.flushEdits();
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit after flush');
@@ -296,7 +294,7 @@ describe('Seal Integration Tests', () => {
         it('authoring five cards produces five edit commits, one per card', async () => {
             const before = (await sealTools.log(LOG_DEPTH)).length;
             for (let i = 0; i < 5; i++) {
-                await decks.createStandaloneCard({ frontText: `batch-q${i}`, backText: `batch-a${i}` });
+                await Decks.createStandaloneCard({ frontText: `batch-q${i}`, backText: `batch-a${i}` });
             }
             await sealEmitter.flushEdits();
             const commits = await sealTools.log(LOG_DEPTH);
@@ -305,9 +303,9 @@ describe('Seal Integration Tests', () => {
         });
 
         it('deleteDeck fires a delete commit', async () => {
-            const hash = await decks.createDeck('DeleteMe', '');
+            const hash = await Decks.createDeck('DeleteMe', '');
             const before = (await sealTools.log(LOG_DEPTH)).length;
-            await decks.deleteDeck(hash);
+            await Decks.deleteDeck(hash);
             const commits = await sealTools.log(LOG_DEPTH);
             assert.equal(commits.length, before + 1, 'Should add one commit');
             assert.ok(commits[0].commit.message.startsWith('delete:'), 'Commit message should start with delete:');

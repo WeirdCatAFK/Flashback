@@ -1,7 +1,7 @@
 import { describe, it, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'path';
-import Documents from '../../src/api/access/modules/documents.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
 import db from '../../src/api/access/primitives/database.js';
 import fs from 'fs';
 import validate from '../../src/api/config/validate.js';
@@ -10,6 +10,7 @@ import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
 import { aggregateMass, haloRadius, HALO_BASE, HALO_MAX } from '../../src/ui/views/graphMetrics.js';
 import * as graphRows from '../../src/api/access/resources/db/graph.js';
 import { testDataDir } from '../support/testData.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
 process.env.USER_DATA_PATH = testDataDir('graph');
 
@@ -18,7 +19,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
 const ROOT = 'GraphTestWorkspace';
 
 const getInheritanceEdges = async () =>
@@ -39,9 +39,9 @@ const docNodeId = async (relPath) =>
     (await db.prepare('SELECT node_id FROM Documents WHERE relative_path = ?').get(relPath))?.node_id;
 
 const addCards = async (docRel, name, folderRel, levels) => {
-    await docs.createFile(name, folderRel);
+    await Documents.createFile(name, folderRel);
     for (const [i, level] of levels.entries()) {
-        const saved = await docs.createFlashcard(docRel, {
+        const saved = await Documents.createFlashcard(docRel, {
             cardType: 'basic',
             vanillaData: { frontText: `${name}-Q${i}`, backText: `${name}-A${i}` },
         });
@@ -59,7 +59,7 @@ describe('Graph hierarchy — inheritance edges', () => {
         const absRoot = path.join(getWorkspacePath(), ROOT);
         if (fs.existsSync(absRoot)) fs.rmSync(absRoot, { recursive: true, force: true });
         await sealTools.init();
-        await docs.createFolder(ROOT);
+        await Documents.createFolder(ROOT);
     });
 
     after(async () => {
@@ -73,8 +73,8 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('creating a file in a folder adds an inheritance edge folder→file', async () => {
-        await docs.createFolder('Animals', ROOT);
-        await docs.createFile('dog', path.join(ROOT, 'Animals'));
+        await Documents.createFolder('Animals', ROOT);
+        await Documents.createFile('dog', path.join(ROOT, 'Animals'));
 
         const edges = await getInheritanceEdges();
         const parentNode = await folderNodeId(path.join(ROOT, 'Animals'));
@@ -86,7 +86,7 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('creating a subfolder adds an inheritance edge parent→subfolder', async () => {
-        await docs.createFolder('Mammals', path.join(ROOT, 'Animals'));
+        await Documents.createFolder('Mammals', path.join(ROOT, 'Animals'));
 
         const edges = await getInheritanceEdges();
         const parentNode = await folderNodeId(path.join(ROOT, 'Animals'));
@@ -98,8 +98,8 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('moving a file updates the inheritance edge to the new parent', async () => {
-        await docs.createFolder('Plants', ROOT);
-        await docs.createFile('rose', path.join(ROOT, 'Plants'));
+        await Documents.createFolder('Plants', ROOT);
+        await Documents.createFile('rose', path.join(ROOT, 'Plants'));
 
         const roseNode    = await docNodeId(path.join(ROOT, 'Plants', 'rose.md'));
         const plantsNode  = await folderNodeId(path.join(ROOT, 'Plants'));
@@ -107,7 +107,7 @@ describe('Graph hierarchy — inheritance edges', () => {
 
         assert.ok(hasEdge(await getInheritanceEdges(), plantsNode, roseNode), 'edge Plants→rose exists before move');
 
-        await docs.move(
+        await Documents.move(
             path.join(ROOT, 'Plants', 'rose.md'),
             path.join(ROOT, 'Animals', 'rose.md'),
             false
@@ -119,8 +119,8 @@ describe('Graph hierarchy — inheritance edges', () => {
     });
 
     it('moving a folder updates its inheritance edge to the new parent', async () => {
-        await docs.createFolder('Oceans', ROOT);
-        await docs.createFolder('Pacific', path.join(ROOT, 'Oceans'));
+        await Documents.createFolder('Oceans', ROOT);
+        await Documents.createFolder('Pacific', path.join(ROOT, 'Oceans'));
 
         const pacificNode = await folderNodeId(path.join(ROOT, 'Oceans', 'Pacific'));
         const oceansNode  = await folderNodeId(path.join(ROOT, 'Oceans'));
@@ -128,7 +128,7 @@ describe('Graph hierarchy — inheritance edges', () => {
 
         assert.ok(hasEdge(await getInheritanceEdges(), oceansNode, pacificNode), 'edge Oceans→Pacific exists before move');
 
-        await docs.move(
+        await Documents.move(
             path.join(ROOT, 'Oceans', 'Pacific'),
             path.join(ROOT, 'Animals', 'Pacific'),
             true
@@ -148,11 +148,11 @@ describe('Graph hierarchy — inheritance edges', () => {
     it('graph nodes carry a learned scalar and a card count', async () => {
         const studiedRel = path.join(ROOT, 'Animals', 'studied.md');
         const emptyRel   = path.join(ROOT, 'Animals', 'empty.md');
-        await docs.createFile('studied', path.join(ROOT, 'Animals'));
-        await docs.createFile('empty',   path.join(ROOT, 'Animals'));
+        await Documents.createFile('studied', path.join(ROOT, 'Animals'));
+        await Documents.createFile('empty',   path.join(ROOT, 'Animals'));
 
         for (const [i, level] of [3, 3, 0].entries()) {
-            const saved = await docs.createFlashcard(studiedRel, {
+            const saved = await Documents.createFlashcard(studiedRel, {
                 cardType: 'basic',
                 vanillaData: { frontText: `Q${i}`, backText: `A${i}` },
             });
@@ -163,7 +163,7 @@ describe('Graph hierarchy — inheritance edges', () => {
             `).run(level, saved.globalHash);
         }
 
-        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const byId = new Map((await await Documents.getGraphData()).nodes.map(n => [n.id, n]));
         const studied = byId.get(await docNodeId(studiedRel));
         const empty   = byId.get(await docNodeId(emptyRel));
 
@@ -194,13 +194,13 @@ describe('Graph hierarchy — inheritance edges', () => {
     it('a folder rolls up the cards of its whole subtree', async () => {
         const rollupRel = path.join(ROOT, 'Rollup');
         const deepRel   = path.join(rollupRel, 'Deep');
-        await docs.createFolder('Rollup', ROOT);
-        await docs.createFolder('Deep', rollupRel);
+        await Documents.createFolder('Rollup', ROOT);
+        await Documents.createFolder('Deep', rollupRel);
 
         await addCards(path.join(rollupRel, 'shallow.md'), 'shallow', rollupRel, [6, 6]);
         await addCards(path.join(deepRel, 'deep.md'),      'deep',    deepRel,   [3, 3, 3, 3]);
 
-        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const byId = new Map((await await Documents.getGraphData()).nodes.map(n => [n.id, n]));
         const rollup = byId.get(await folderNodeId(rollupRel));
         const deep   = byId.get(await folderNodeId(deepRel));
 
@@ -218,13 +218,13 @@ describe('Graph hierarchy — inheritance edges', () => {
 
     it('a folder\'s learned rate is card-weighted, not an average of documents', async () => {
         const weightedRel = path.join(ROOT, 'Weighted');
-        await docs.createFolder('Weighted', ROOT);
+        await Documents.createFolder('Weighted', ROOT);
 
         await addCards(path.join(weightedRel, 'tiny.md'), 'tiny', weightedRel, [6, 6]);
         await addCards(path.join(weightedRel, 'big.md'),  'big',  weightedRel,
             Array(10).fill(3));
 
-        const byId = new Map((await await docs.getGraphData()).nodes.map(n => [n.id, n]));
+        const byId = new Map((await await Documents.getGraphData()).nodes.map(n => [n.id, n]));
         const weighted = byId.get(await folderNodeId(weightedRel));
 
         assert.equal(weighted.cardCount, 12, 'folder counts all twelve cards');
@@ -236,13 +236,13 @@ describe('Graph hierarchy — inheritance edges', () => {
 
     it('tag mass sums its documents without double-counting inherited members', async () => {
         const taggedRel = path.join(ROOT, 'Tagged');
-        await docs.createFolder('Tagged', ROOT);
+        await Documents.createFolder('Tagged', ROOT);
         await addCards(path.join(taggedRel, 'td.md'), 'td', taggedRel, [6, 6]);
 
-        const meta = docs.files.getMetadata(taggedRel, true) || {};
-        await docs.updateMetadata(taggedRel, { ...meta, tags: ['physics'] }, true);
+        const meta = Files.getMetadata(taggedRel, true) || {};
+        await Documents.updateMetadata(taggedRel, { ...meta, tags: ['physics'] }, true);
 
-        const { nodes, edges } = await docs.getGraphData();
+        const { nodes, edges } = await Documents.getGraphData();
         const tagNode = nodes.find(n => n.type === 'Tag' && n.label === 'physics');
         assert.ok(tagNode, 'the physics tag is a graph node');
 

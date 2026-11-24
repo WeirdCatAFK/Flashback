@@ -16,13 +16,12 @@ if (!await validate()) {
     process.exit(1);
 }
 
-import Documents from '../../src/api/access/modules/documents.js';
-import Media from '../../src/api/access/modules/media.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Media from '../../src/api/access/modules/media.js';
 import db from '../../src/api/access/primitives/database.js';
 import { testDataDir } from '../support/testData.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
-const docs = new Documents();
-const media = new Media();
 const TEST_ROOT = "MediaTestWorkspace";
 
 describe('Media & Binary Operations', () => {
@@ -59,7 +58,7 @@ describe('Media & Binary Operations', () => {
             fs.rmSync(gitDir, { recursive: true, force: true });
         }
         await sealTools.init();
-        await docs.createFolder(TEST_ROOT);
+        await Documents.createFolder(TEST_ROOT);
     });
 
     after(() => {
@@ -69,14 +68,14 @@ describe('Media & Binary Operations', () => {
         const docName = "VisualNotes_LowLevel.md";
         const imgName = "blue_pixel_ll.png";
 
-        await docs.createFile(docName, TEST_ROOT);
-        await docs.updateFile(path.join(TEST_ROOT, docName), "# Art", {
+        await Documents.createFile(docName, TEST_ROOT);
+        await Documents.updateFile(path.join(TEST_ROOT, docName), "# Art", {
             tags: ["Art"],
             flashcards: [{ globalHash: "card-1", level: 0, vanillaData: {} }]
         });
 
         const imageBuffer = Buffer.from('89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000a49444154789c63000100000500010d0a2d600000000049454e44ae426082', 'hex');
-        docs.files.addCustomMedia(path.join(TEST_ROOT, docName), imageBuffer, imgName, 0);
+        Files.addCustomMedia(path.join(TEST_ROOT, docName), imageBuffer, imgName, 0);
 
         const mediaPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', imgName);
         assert.ok(fs.existsSync(mediaPath), "Media file should exist on disk");
@@ -87,7 +86,7 @@ describe('Media & Binary Operations', () => {
         const fcHash = "unique-hash-999";
         const mediaName = "diagram.png";
 
-        await docs.createFile(docName, TEST_ROOT);
+        await Documents.createFile(docName, TEST_ROOT);
         const metadata = {
             tags: ["Science"],
             flashcards: [
@@ -99,13 +98,13 @@ describe('Media & Binary Operations', () => {
             ]
         };
         const relPath = path.join(TEST_ROOT, docName);
-        await docs.updateFile(relPath, "# Science", metadata);
+        await Documents.updateFile(relPath, "# Science", metadata);
 
         const mediaBuffer = Buffer.from("fake-image-data-integrity-check");
         const expectedHash = crypto.createHash('sha256').update(mediaBuffer).digest('hex');
         const beforeCommits = (await sealTools.log(1000)).length;
 
-        await docs.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
+        await Documents.addMediaToFlashcard(relPath, fcHash, mediaBuffer, mediaName);
 
         const fullPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.ok(fs.existsSync(fullPath), "File should be created in the media folder");
@@ -117,7 +116,7 @@ describe('Media & Binary Operations', () => {
         assert.equal(mediaEntry.hash, expectedHash, "DB Hash should match the SHA256 of the buffer");
         assert.ok(mediaEntry.relative_path.includes(mediaName), "Relative path in DB should be correct");
 
-        const updatedMeta = docs.files.getMetadata(relPath);
+        const updatedMeta = Files.getMetadata(relPath);
         const card = updatedMeta.flashcards.find(f => f.globalHash === fcHash);
         const trimmedName = mediaName.split('.')[0];
         assert.ok(card.customData.media[trimmedName], "Metadata should reference the new media");
@@ -130,12 +129,12 @@ describe('Media & Binary Operations', () => {
 
     it('should not write file when flashcard hash is not found in sidecar', async () => {
         const docName = "FailTest.md";
-        await docs.createFile(docName, TEST_ROOT);
+        await Documents.createFile(docName, TEST_ROOT);
 
         const buffer = Buffer.from("data");
 
         await assert.rejects(
-            async () => await docs.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png"),
+            async () => await Documents.addMediaToFlashcard(path.join(TEST_ROOT, docName), "non-existent-hash", buffer, "fail.png"),
             /Flashcard non-existent-hash not found/
         );
 
@@ -148,8 +147,8 @@ describe('Media & Binary Operations', () => {
         const fcHash = "traversal-card-1";
         const relPath = path.join(TEST_ROOT, docName);
 
-        await docs.createFile(docName, TEST_ROOT);
-        await docs.updateFile(relPath, "# Guard", {
+        await Documents.createFile(docName, TEST_ROOT);
+        await Documents.updateFile(relPath, "# Guard", {
             tags: [],
             flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }],
         });
@@ -167,12 +166,12 @@ describe('Media & Binary Operations', () => {
 
         for (const name of attempts) {
             await assert.rejects(
-                async () => await docs.addMediaToFlashcard(relPath, fcHash, buffer, name),
+                async () => await Documents.addMediaToFlashcard(relPath, fcHash, buffer, name),
                 /Invalid media name/,
                 `custom media should refuse ${JSON.stringify(name)}`,
             );
             await assert.rejects(
-                async () => await media.addVanillaMedia(relPath, fcHash, buffer, name, 'image', 'front'),
+                async () => await Media.addVanillaMedia(relPath, fcHash, buffer, name, 'image', 'front'),
                 /Invalid media name/,
                 `vanilla media should refuse ${JSON.stringify(name)}`,
             );
@@ -184,13 +183,13 @@ describe('Media & Binary Operations', () => {
     it('refuses an absolute media name on the delete path', async () => {
         const docName = "DeleteGuard.md";
         const relPath = path.join(TEST_ROOT, docName);
-        await docs.createFile(docName, TEST_ROOT);
+        await Documents.createFile(docName, TEST_ROOT);
 
         const bystander = path.join(path.dirname(getWorkspacePath()), 'delete-guard-bystander.txt');
         fs.writeFileSync(bystander, 'do not delete me');
         try {
             await assert.rejects(
-                async () => await media.removeMedia(relPath, bystander),
+                async () => await Media.removeMedia(relPath, bystander),
                 /Invalid media name/,
             );
             assert.ok(fs.existsSync(bystander), "a file outside the workspace must survive");
@@ -204,18 +203,18 @@ describe('Media & Binary Operations', () => {
         const fcHash = "vanilla-audio-hash";
         const relPath = path.join(TEST_ROOT, docName);
 
-        await docs.createFile(docName, TEST_ROOT);
-        await docs.updateFile(relPath, '# Audio test', {
+        await Documents.createFile(docName, TEST_ROOT);
+        await Documents.updateFile(relPath, '# Audio test', {
             flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
         });
 
         const audioBuffer = Buffer.from("fake-audio-data");
-        docs.files.addVanillaData(relPath, audioBuffer, "narration.mp3", "sound", "front", 0);
+        Files.addVanillaData(relPath, audioBuffer, "narration.mp3", "sound", "front", 0);
 
         const audioPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', 'narration.mp3');
         assert.ok(fs.existsSync(audioPath), "Audio file should be written to the media folder");
 
-        const meta = docs.files.getMetadata(relPath);
+        const meta = Files.getMetadata(relPath);
         assert.equal(
             meta.flashcards[0].vanillaData.media.front_sound,
             './media/narration.mp3',
@@ -228,18 +227,18 @@ describe('Media & Binary Operations', () => {
         const fcHash = "vanilla-image-hash";
         const relPath = path.join(TEST_ROOT, docName);
 
-        await docs.createFile(docName, TEST_ROOT);
-        await docs.updateFile(relPath, '# Image test', {
+        await Documents.createFile(docName, TEST_ROOT);
+        await Documents.updateFile(relPath, '# Image test', {
             flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
         });
 
         const imgBuffer = Buffer.from("fake-image-data");
-        docs.files.addVanillaData(relPath, imgBuffer, "back-figure.png", "image", "back", 0);
+        Files.addVanillaData(relPath, imgBuffer, "back-figure.png", "image", "back", 0);
 
         const imgPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', 'back-figure.png');
         assert.ok(fs.existsSync(imgPath), "Image file should be written to the media folder");
 
-        const meta = docs.files.getMetadata(relPath);
+        const meta = Files.getMetadata(relPath);
         assert.equal(
             meta.flashcards[0].vanillaData.media.back_img,
             './media/back-figure.png',
@@ -250,12 +249,12 @@ describe('Media & Binary Operations', () => {
     it('should create a flashcard with attached media in one call (no client sequencing)', async () => {
         const docName = "CreateWithMedia.md";
         const relPath = path.join(TEST_ROOT, docName);
-        await docs.createFile(docName, TEST_ROOT);
+        await Documents.createFile(docName, TEST_ROOT);
 
         const imgBuffer = Buffer.from("inline-front-image");
         const expectedHash = crypto.createHash('sha256').update(imgBuffer).digest('hex');
 
-        const card = await docs.createFlashcard(
+        const card = await Documents.createFlashcard(
             relPath,
             { vanillaData: { frontText: "Q?", backText: "A." }, tags: ["Inline"], category: "Concept" },
             [{ buffer: imgBuffer, originalName: "front.png", type: "image", position: "front" }]
@@ -278,16 +277,16 @@ describe('Media & Binary Operations', () => {
         const relPath = path.join(TEST_ROOT, "OrchestratedMedia.md");
         const mediaName = "diagram.png";
 
-        const metaBefore = docs.files.getMetadata(relPath);
+        const metaBefore = Files.getMetadata(relPath);
         const cardBefore = metaBefore.flashcards[0];
         assert.ok(cardBefore.customData?.media?.diagram, "Precondition: sidecar should reference diagram before removal");
 
-        docs.files.removeCustomMedia(relPath, mediaName);
+        Files.removeCustomMedia(relPath, mediaName);
 
         const fullPath = path.join(getWorkspacePath(),TEST_ROOT, 'media', mediaName);
         assert.equal(fs.existsSync(fullPath), false, "Media file should be deleted from disk");
 
-        const metaAfter = docs.files.getMetadata(relPath);
+        const metaAfter = Files.getMetadata(relPath);
         const cardAfter = metaAfter.flashcards[0];
         const stillReferenced = cardAfter.customData?.media?.diagram;
         assert.ok(!stillReferenced, "Sidecar should no longer reference the removed media file");
@@ -298,7 +297,7 @@ describe('Media Orchestrator', () => {
     const ORCH_ROOT = path.join(TEST_ROOT, "OrchestratorSuite");
 
     before(async () => {
-        await docs.createFolder("OrchestratorSuite", TEST_ROOT);
+        await Documents.createFolder("OrchestratorSuite", TEST_ROOT);
     });
 
     after(() => {
@@ -309,8 +308,8 @@ describe('Media Orchestrator', () => {
         const fcHash = "vo-hash-001";
         const relPath = path.join(ORCH_ROOT, docName);
 
-        await docs.createFile(docName, ORCH_ROOT);
-        await docs.updateFile(relPath, '# Vanilla Orch', {
+        await Documents.createFile(docName, ORCH_ROOT);
+        await Documents.updateFile(relPath, '# Vanilla Orch', {
             flashcards: [{ globalHash: fcHash, level: 0, vanillaData: {} }]
         });
 
@@ -319,12 +318,12 @@ describe('Media Orchestrator', () => {
         const expectedHash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
         const beforeHead = (await sealTools.log(1))[0]?.oid;
 
-        await media.addVanillaMedia(relPath, fcHash, audioBuffer, audioName, "sound", "front");
+        await Media.addVanillaMedia(relPath, fcHash, audioBuffer, audioName, "sound", "front");
 
         const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.ok(fs.existsSync(audioPath), "Audio file should be written to disk");
 
-        const meta = docs.files.getMetadata(relPath);
+        const meta = Files.getMetadata(relPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_sound, `./media/${audioName}`, "Sidecar front_sound should be set");
 
         const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(expectedHash);
@@ -342,7 +341,7 @@ describe('Media Orchestrator', () => {
         const audioBuffer = Buffer.from("orchestrated-audio-data");
         const hash = crypto.createHash('sha256').update(audioBuffer).digest('hex');
 
-        const entry = await media.serve(hash);
+        const entry = await Media.serve(hash);
         assert.ok(entry, "serve() should return a DB entry");
         assert.equal(entry.hash, hash, "Returned entry hash must match");
         assert.ok(fs.existsSync(entry.absolute_path), "serve() should only return entries whose file exists on disk");
@@ -350,13 +349,13 @@ describe('Media Orchestrator', () => {
 
     it('should throw from serve() when the hash is unknown', async () => {
         await assert.rejects(
-            async () => await media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
+            async () => await Media.serve("0000000000000000000000000000000000000000000000000000000000000000"),
             /Media not found/
         );
     });
 
     it('should list media files in a folder, including hash for DB-registered files', async () => {
-        const items = await media.list(ORCH_ROOT);
+        const items = await Media.list(ORCH_ROOT);
         assert.ok(Array.isArray(items), "list() should return an array");
         assert.ok(items.length > 0, "list() should find the audio file added earlier");
 
@@ -376,12 +375,12 @@ describe('Media Orchestrator', () => {
 
         const beforeHead = (await sealTools.log(1))[0]?.oid;
 
-        await media.removeMedia(relPath, audioName);
+        await Media.removeMedia(relPath, audioName);
 
         const audioPath = path.join(getWorkspacePath(),ORCH_ROOT, 'media', audioName);
         assert.equal(fs.existsSync(audioPath), false, "Media file should be deleted from disk");
 
-        const meta = docs.files.getMetadata(relPath);
+        const meta = Files.getMetadata(relPath);
         assert.ok(!meta.flashcards[0].vanillaData?.media?.front_sound, "Sidecar front_sound reference should be removed");
 
         const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
@@ -402,9 +401,9 @@ describe('Media Orchestrator', () => {
         const realBuffer = Buffer.from("real-media-data");
         const realName = "real-for-reconcile.png";
         const realRelPath = path.join(ORCH_ROOT, "VanillaOrchestrated.md");
-        await media.addVanillaMedia(realRelPath, "vo-hash-001", realBuffer, realName, "image", "back");
+        await Media.addVanillaMedia(realRelPath, "vo-hash-001", realBuffer, realName, "image", "back");
 
-        const orphans = await media.reconcile(ORCH_ROOT);
+        const orphans = await Media.reconcile(ORCH_ROOT);
 
         assert.ok(orphans.some(o => o.name === 'ghost.png'), "reconcile() should report the phantom file as an orphan");
 
@@ -427,20 +426,20 @@ describe('Media follows its document across a move or copy', () => {
 
     const makeCardWithImage = async (folderRel, docName, cardHash, name, buffer) => {
         const relPath = path.join(folderRel, docName);
-        await docs.createFile(docName, folderRel);
-        await docs.updateFile(relPath, '# doc', {
+        await Documents.createFile(docName, folderRel);
+        await Documents.updateFile(relPath, '# doc', {
             flashcards: [{ globalHash: cardHash, level: 0, vanillaData: {} }]
         });
-        await media.addVanillaMedia(relPath, cardHash, buffer, name, "image", "front");
+        await Media.addVanillaMedia(relPath, cardHash, buffer, name, "image", "front");
         return relPath;
     };
 
     before(async () => {
         const abs = path.join(getWorkspacePath(), MOVE_ROOT);
         if (fs.existsSync(abs)) fs.rmSync(abs, { recursive: true, force: true });
-        await docs.createFolder(MOVE_ROOT);
-        await docs.createFolder("src", MOVE_ROOT);
-        await docs.createFolder("dest", MOVE_ROOT);
+        await Documents.createFolder(MOVE_ROOT);
+        await Documents.createFolder("src", MOVE_ROOT);
+        await Documents.createFolder("dest", MOVE_ROOT);
     });
 
     after(async () => {
@@ -461,7 +460,7 @@ describe('Media follows its document across a move or copy', () => {
         assert.ok(fs.existsSync(absMedia(SRC, name)), "precondition: media starts in the source folder");
 
         const destPath = path.join(DEST, "Solo.md");
-        await docs.move(relPath, destPath);
+        await Documents.move(relPath, destPath);
 
         assert.ok(
             fs.existsSync(absMedia(DEST, name)),
@@ -472,7 +471,7 @@ describe('Media follows its document across a move or copy', () => {
             "carried media must keep its bytes"
         );
 
-        const meta = docs.files.getMetadata(destPath);
+        const meta = Files.getMetadata(destPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
     });
 
@@ -480,7 +479,7 @@ describe('Media follows its document across a move or copy', () => {
         const name = "lonely.png";
         const relPath = await makeCardWithImage(SRC, "Lonely.md", "move-lonely-1", name, Buffer.from("lonely-bytes"));
 
-        await docs.move(relPath, path.join(DEST, "Lonely.md"));
+        await Documents.move(relPath, path.join(DEST, "Lonely.md"));
 
         assert.equal(
             fs.existsSync(absMedia(SRC, name)), false,
@@ -494,15 +493,15 @@ describe('Media follows its document across a move or copy', () => {
         const movingPath = await makeCardWithImage(SRC, "Mover.md", "move-shared-1", name, buffer);
 
         const stayingPath = path.join(SRC, "Stayer.md");
-        await docs.createFile("Stayer.md", SRC);
-        await docs.updateFile(stayingPath, '# stays', {
+        await Documents.createFile("Stayer.md", SRC);
+        await Documents.updateFile(stayingPath, '# stays', {
             flashcards: [{
                 globalHash: "move-shared-2", level: 0,
                 vanillaData: { media: { front_img: `./media/${name}` } }
             }]
         });
 
-        await docs.move(movingPath, path.join(DEST, "Mover.md"));
+        await Documents.move(movingPath, path.join(DEST, "Mover.md"));
 
         assert.ok(
             fs.existsSync(absMedia(SRC, name)),
@@ -519,7 +518,7 @@ describe('Media follows its document across a move or copy', () => {
         const buffer = Buffer.from("copyable-bytes");
         const relPath = await makeCardWithImage(SRC, "Copyable.md", "copy-1", name, buffer);
 
-        await docs.copy(relPath, path.join(DEST, "Copyable.md"));
+        await Documents.copy(relPath, path.join(DEST, "Copyable.md"));
 
         assert.ok(
             fs.existsSync(absMedia(DEST, name)),
@@ -535,22 +534,22 @@ describe('Media follows its document across a move or copy', () => {
         const name = "original-stays.png";
         const relPath = await makeCardWithImage(SRC, "OriginalStays.md", "copy-2", name, Buffer.from("stay-bytes"));
 
-        await docs.copy(relPath, path.join(DEST, "OriginalStays.md"));
+        await Documents.copy(relPath, path.join(DEST, "OriginalStays.md"));
 
         assert.ok(
             fs.existsSync(absMedia(SRC, name)),
             "a copy must never remove media from the source folder"
         );
-        const meta = docs.files.getMetadata(relPath);
+        const meta = Files.getMetadata(relPath);
         assert.equal(meta.flashcards[0].vanillaData.media.front_img, `./media/${name}`);
     });
 
     it('copies media for a document duplicated under an auto-renamed name', async () => {
         const name = "collide.png";
         const relPath = await makeCardWithImage(SRC, "Collide.md", "copy-3", name, Buffer.from("collide-bytes"));
-        await docs.createFile("Collide.md", DEST);
+        await Documents.createFile("Collide.md", DEST);
 
-        await docs.copy(relPath, path.join(DEST, "Collide.md"));
+        await Documents.copy(relPath, path.join(DEST, "Collide.md"));
 
         assert.ok(
             fs.existsSync(absMedia(DEST, name)),
@@ -561,12 +560,12 @@ describe('Media follows its document across a move or copy', () => {
     it('carries media for every document in a copied folder tree', async () => {
         const name = "tree-figure.png";
         const buffer = Buffer.from("tree-figure-bytes");
-        await docs.createFolder("treesrc", MOVE_ROOT);
+        await Documents.createFolder("treesrc", MOVE_ROOT);
         const treeRel = path.join(MOVE_ROOT, "treesrc");
         await makeCardWithImage(treeRel, "Leaf.md", "copy-tree-1", name, buffer);
 
         const destTreeRel = path.join(DEST, "treecopy");
-        await docs.copy(treeRel, destTreeRel, true);
+        await Documents.copy(treeRel, destTreeRel, true);
 
         assert.ok(
             fs.existsSync(absMedia(destTreeRel, name)),
@@ -583,12 +582,12 @@ describe('Media follows its document across a move or copy', () => {
         const buffer = Buffer.from("in-folder-bytes");
         const hash = crypto.createHash('sha256').update(buffer).digest('hex');
 
-        await docs.createFolder("movable", MOVE_ROOT);
+        await Documents.createFolder("movable", MOVE_ROOT);
         const folderRel = path.join(MOVE_ROOT, "movable");
         await makeCardWithImage(folderRel, "Inside.md", "move-folder-1", name, buffer);
 
         const destFolderRel = path.join(DEST, "movable");
-        await docs.move(folderRel, destFolderRel, true);
+        await Documents.move(folderRel, destFolderRel, true);
 
         assert.ok(
             fs.existsSync(absMedia(destFolderRel, name)),
@@ -607,7 +606,7 @@ describe('Media follows its document across a move or copy', () => {
         const hash = crypto.createHash('sha256').update(buffer).digest('hex');
         const relPath = await makeCardWithImage(SRC, "Indexed.md", "move-indexed-1", name, buffer);
 
-        await docs.move(relPath, path.join(DEST, "Indexed.md"));
+        await Documents.move(relPath, path.join(DEST, "Indexed.md"));
 
         const entry = await db.prepare('SELECT * FROM Media WHERE hash = ?').get(hash);
         assert.ok(entry, "media must remain registered after the move");

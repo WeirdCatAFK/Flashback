@@ -7,7 +7,7 @@ import AdmZip from 'adm-zip';
 import validate from '../../src/api/config/validate.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import db from '../../src/api/access/primitives/database.js';
-import cardHealth from '../../src/api/access/modules/cardHealth.js';
+import * as CardHealth from '../../src/api/access/modules/cardHealth.js';
 import { sequence } from '../../src/api/access/modules/sequencer.js';
 import Api from '../../src/api/api.js';
 
@@ -2820,7 +2820,7 @@ describe('Flashback API', () => {
                 DO UPDATE SET level = excluded.level, last_recall = excluded.last_recall
             `)
                 .run(cardHash, ago(4));
-            cardHealth.resetCaches();
+            CardHealth.resetCaches();
         };
 
         const fail = () => post(`${baseUrl}/api/srs/review`, {
@@ -2931,10 +2931,10 @@ describe('Flashback API', () => {
             hash = (await res.json()).globalHash;
 
             await fail();
-            cardHealth.resetCaches();
+            CardHealth.resetCaches();
             assert.deepEqual((await (await fail()).json()).flags.map(f => f.kind), ['mouthful']);
 
-            cardHealth.resetCaches();
+            CardHealth.resetCaches();
             await post(`${baseUrl}/api/srs/undo`, { flashcardHash: hash, algorithm: 'leitner' });
             assert.deepEqual(await flagsOf(), [], 'one failure is not a diagnosis');
         });

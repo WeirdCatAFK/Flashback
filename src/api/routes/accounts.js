@@ -5,14 +5,13 @@ import {
 } from '../access/primitives/accounts.js';
 import { ROLES, isRole, atLeast } from '../../shared/roles.js';
 import { getMaxAccounts } from '../access/primitives/config.js';
-import SRS from '../access/modules/srs.js';
-import Documents from '../access/modules/documents.js';
-import diary from '../access/modules/diary.js';
+import * as Srs from '../access/modules/srs.js';
+import * as Documents from '../access/modules/documents.js';
+import * as Diary from '../access/modules/diary.js';
 import { vaultCompleteness } from './srs.js';
 import { OWNER_SCOPE } from '../requestContext.js';
 
 const router = Router();
-const docs = new Documents();
 
 const catchError = (fn) => (req, res, next) =>
     Promise.resolve().then(() => fn(req, res, next)).catch((err) => {
@@ -111,7 +110,7 @@ router.get('/:id/progress', catchError(async (req, res) => {
     if (!target) return res.status(404).json({ error: 'No such account.' });
 
     const scope = scopeFor(target);
-    const statistics = await SRS.getStatistics({ algorithm: req.query.algorithm ?? null, scope });
+    const statistics = await Srs.getStatistics({ algorithm: req.query.algorithm ?? null, scope });
     statistics.completeness = await vaultCompleteness(statistics, { scope });
 
     res.json({ account: publicTarget(target), scope, statistics });
@@ -122,7 +121,7 @@ router.get('/:id/graph', catchError(async (req, res) => {
     if (!target) return res.status(404).json({ error: 'No such account.' });
 
     const scope = scopeFor(target);
-    const graph = await docs.getGraphData(scope);
+    const graph = await Documents.getGraphData(scope);
 
     res.json({ account: publicTarget(target), scope, ...graph });
 }));
@@ -151,13 +150,13 @@ router.get('/:id/logs', catchError(async (req, res) => {
     if (!target) return;
     const from = req.query.from && DATE_RE.test(req.query.from) ? req.query.from : null;
     const to = req.query.to && DATE_RE.test(req.query.to) ? req.query.to : null;
-    res.json(diary.list({ from, to, scope: scopeFor(target) }));
+    res.json(Diary.list({ from, to, scope: scopeFor(target) }));
 }));
 
 router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
     const target = await logsTarget(req, res);
     if (!target) return;
-    const summary = diary.getSummary(req.params.date, scopeFor(target));
+    const summary = Diary.getSummary(req.params.date, scopeFor(target));
     if (!summary) return res.status(404).json({ error: 'no summary for that date' });
     res.json(summary);
 }));
@@ -165,7 +164,7 @@ router.get('/:id/logs/summary/:date', catchError(async (req, res) => {
 router.get('/:id/logs/entry/:date', catchError(async (req, res) => {
     const target = await logsTarget(req, res);
     if (!target) return;
-    res.json({ date: req.params.date, content: diary.getEntry(req.params.date, scopeFor(target)) ?? '' });
+    res.json({ date: req.params.date, content: Diary.getEntry(req.params.date, scopeFor(target)) ?? '' });
 }));
 
 router.post('/:id/tokens', catchError(async (req, res) => {

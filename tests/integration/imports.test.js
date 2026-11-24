@@ -7,8 +7,8 @@ import validate from '../../src/api/config/validate.js';
 import db from '../../src/api/access/primitives/database.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
-import AnkiImport from '../../src/api/access/modules/ankiImport.js';
-import ObsidianImport from '../../src/api/access/modules/obsidianImport.js';
+import * as AnkiImport from '../../src/api/access/modules/ankiImport.js';
+import * as ObsidianImport from '../../src/api/access/modules/obsidianImport.js';
 import BetterSQLite from 'better-sqlite3';
 import AdmZip from 'adm-zip';
 import zlib from 'node:zlib';
@@ -18,6 +18,7 @@ import * as documentRows from '../../src/api/access/resources/db/documents.js';
 import * as flashcardRows from '../../src/api/access/resources/db/flashcards.js';
 import * as tagRows from '../../src/api/access/resources/db/tags.js';
 import { testDataDir } from '../support/testData.js';
+import * as Files from '../../src/api/access/resources/files.js';
 
 process.env.USER_DATA_PATH = testDataDir('imports');
 
@@ -204,8 +205,7 @@ describe('Importers Integration Tests', () => {
         fs.unlinkSync(dbPath);
         fs.unlinkSync(pngPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
         assert.ok(result.path.includes('Anki_Import_'));
 
@@ -254,8 +254,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
         const deck = await db.prepare("SELECT * FROM Decks WHERE name = ?").get('Geography');
@@ -289,8 +288,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
         const deck = await db.prepare("SELECT * FROM Decks WHERE name = ?").get('TypeAnswer_Deck');
@@ -329,8 +327,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        assert.ok((await importer.importApkg(zipBuffer, '')).ok);
+        assert.ok((await AnkiImport.importApkg(zipBuffer, '')).ok);
 
         const deck = await db.prepare('SELECT * FROM Decks WHERE name = ?').get('Kana_Deck');
         const entry = (await deckRows.getEntries(deck.id, 'owner'))[0];
@@ -362,8 +359,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
         const deck = await db.prepare("SELECT * FROM Decks WHERE name = ?").get('Biology_Cloze');
@@ -399,8 +395,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
         const deck = await db.prepare("SELECT * FROM Decks WHERE name = ?").get('Wrapped_Cloze');
@@ -431,8 +426,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildModernApkg(dbPath, [{ name: 'taberu.png', data: png }]);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '');
+        const result = await AnkiImport.importApkg(zipBuffer, '');
         assert.ok(result.ok);
 
         const deck = await db.prepare('SELECT * FROM Decks WHERE name = ?').get('Japanese_Vocabulary');
@@ -479,8 +473,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildModernApkg(dbPath);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        assert.ok((await importer.importApkg(zipBuffer, '')).ok);
+        assert.ok((await AnkiImport.importApkg(zipBuffer, '')).ok);
 
         const deck = await db.prepare('SELECT * FROM Decks WHERE name = ?').get('Modern_Types');
         const entries = await deckRows.getEntries(deck.id, 'owner');
@@ -498,7 +491,6 @@ describe('Importers Integration Tests', () => {
 
     it('should dedupe one asset across a legacy and a zstd package to a single Media row', async () => {
         const payload = Buffer.from(`shared_asset_${Date.now()}`);
-        const importer = new AnkiImport();
 
         const legacyDb = path.join(testDataDir(), `temp_anki_dedupe_legacy_${Date.now()}.db`);
         const assetPath = path.join(testDataDir(), `temp_shared_${Date.now()}.png`);
@@ -519,7 +511,7 @@ describe('Importers Integration Tests', () => {
         legacyZip.addLocalFile(legacyDb, '', 'collection.anki21');
         legacyZip.addLocalFile(assetPath, '', '0');
         legacyZip.addFile('media', Buffer.from(JSON.stringify({ '0': 'shared.png' })));
-        await importer.importApkg(legacyZip.toBuffer(), '');
+        await AnkiImport.importApkg(legacyZip.toBuffer(), '');
         fs.unlinkSync(legacyDb);
         fs.unlinkSync(assetPath);
 
@@ -534,7 +526,7 @@ describe('Importers Integration Tests', () => {
             notes: [{ id: 9501, guid: 'dg2', mid: 1101, flds: 'A <img src="shared.png">\x1fB' }],
             cards: [{ id: 9601, nid: 9501, did: 601, ord: 0 }],
         });
-        await importer.importApkg(buildModernApkg(modernDb, [{ name: 'shared.png', data: payload }]), '');
+        await AnkiImport.importApkg(buildModernApkg(modernDb, [{ name: 'shared.png', data: payload }]), '');
         fs.unlinkSync(modernDb);
 
         const sha = crypto.createHash('sha256').update(payload).digest('hex');
@@ -564,8 +556,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildModernApkg(dbPath, [{ name: 'taberu.mp3', data: Buffer.from('mp3') }]);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const report = await importer.analyze(zipBuffer);
+        const report = await AnkiImport.analyze(zipBuffer);
 
         assert.ok(report.sessionId, 'analyze must hand back a session id');
         assert.equal(report.version, 3);
@@ -588,7 +579,7 @@ describe('Importers Integration Tests', () => {
             'Unreferenced fields stay unassigned'
         );
 
-        const applied = await importer.importApkg(null, '', {
+        const applied = await AnkiImport.importApkg(null, '', {
             1200: { cardType: 'basic', slots: { front: ['Expression'], back: ['Meaning', 'Notes'], front_sound: ['Audio'] } },
         }, report.sessionId);
         assert.ok(applied.ok);
@@ -623,20 +614,19 @@ describe('Importers Integration Tests', () => {
         ]);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const report = await importer.analyze(zipBuffer);
+        const report = await AnkiImport.analyze(zipBuffer);
 
-        const audio = importer.readSessionMedia(report.sessionId, 'neko.mp3');
+        const audio = AnkiImport.readSessionMedia(report.sessionId, 'neko.mp3');
         assert.ok(audio, 'session audio should resolve by its original filename');
         assert.deepEqual(audio.buffer, mp3, 'bytes must be decompressed, not the zstd frame');
 
-        const image = importer.readSessionMedia(report.sessionId, 'cat.png');
+        const image = AnkiImport.readSessionMedia(report.sessionId, 'cat.png');
         assert.ok(image);
         assert.deepEqual(image.buffer, png);
 
-        assert.equal(importer.readSessionMedia(report.sessionId, 'nope.mp3'), null);
-        assert.equal(importer.readSessionMedia('../../etc', 'neko.mp3'), null);
-        assert.equal(importer.readSessionMedia('does-not-exist', 'neko.mp3'), null);
+        assert.equal(AnkiImport.readSessionMedia(report.sessionId, 'nope.mp3'), null);
+        assert.equal(AnkiImport.readSessionMedia('../../etc', 'neko.mp3'), null);
+        assert.equal(AnkiImport.readSessionMedia('does-not-exist', 'neko.mp3'), null);
 
         assert.equal(
             (await db.prepare('SELECT COUNT(*) AS n FROM Media WHERE hash = ?')
@@ -645,7 +635,7 @@ describe('Importers Integration Tests', () => {
             'analyze + preview must not write to the vault'
         );
 
-        const applied = await importer.importApkg(null, '', null, report.sessionId);
+        const applied = await AnkiImport.importApkg(null, '', null, report.sessionId);
         assert.ok(applied.ok);
         assert.equal(applied.imported, 1);
     });
@@ -671,8 +661,7 @@ describe('Importers Integration Tests', () => {
         const zipBuffer = buildModernApkg(dbPath, [{ name: 'pic.jpg', data: jpg }]);
         fs.unlinkSync(dbPath);
 
-        const importer = new AnkiImport();
-        const result = await importer.importApkg(zipBuffer, '', {
+        const result = await AnkiImport.importApkg(zipBuffer, '', {
             1300: {
                 cardType: 'basic',
                 slots: {
@@ -724,8 +713,7 @@ This is the boundary. ![[boundary.png]]
 
         const zipBuffer = zip.toBuffer();
 
-        const importer = new ObsidianImport();
-        const result = await importer.importVault(zipBuffer, '');
+        const result = await ObsidianImport.importVault(zipBuffer, '');
         assert.ok(result.ok);
 
         const docA = await documentRows.getByPath(path.join(result.path, 'Mitochondria.md'));
@@ -733,7 +721,7 @@ This is the boundary. ![[boundary.png]]
         assert.ok(docA, 'Mitochondria.md should be imported');
         assert.ok(docB, 'Cell Membrane.md should be imported');
 
-        const contentA = importer.files.readFile(path.join(result.path, 'Mitochondria.md')).content;
+        const contentA = Files.readFile(path.join(result.path, 'Mitochondria.md')).content;
         assert.ok(contentA.includes('flashback://'), 'Wiki links should be converted to flashback://');
 
         const cardsA = await flashcardRows.getByDocument(docA.id, 'owner');

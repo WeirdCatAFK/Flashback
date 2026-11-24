@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import path from 'path';
-import * as searchRows from '../access/resources/db/search.js';
-import { currentScope } from '../requestContext.js';
+import * as Documents from '../access/modules/documents.js';
 
 const router = Router();
 const norm = (p) => p ? path.normalize(p) : p;
@@ -17,14 +16,14 @@ router.get('/', async (req, res) => {
         return res.status(400).json({ error: 'q or at least one filter required' });
     }
 
-    const results = await searchRows.superSearch({
+    const results = await Documents.superSearch({
         q: q || null,
         tag: tag || null,
         deck: deck || null,
         document: docQ || null,
         folder: folder || null,
         limit,
-    }, currentScope());
+    });
 
     res.json(results);
 });

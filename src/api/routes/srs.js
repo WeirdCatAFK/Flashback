@@ -1,15 +1,13 @@
 import { Router } from 'express';
 import path from 'path';
-import Documents from '../access/modules/documents.js';
-import SRS from '../access/modules/srs.js';
-import cardHealth from '../access/modules/cardHealth.js';
+import * as Documents from '../access/modules/documents.js';
+import * as Srs from '../access/modules/srs.js';
+import * as CardHealth from '../access/modules/cardHealth.js';
 import sequencer from '../access/modules/sequencer.js';
-import readProgress from '../access/modules/readProgress.js';
-import * as statisticsRows from '../access/resources/db/statistics.js';
+import * as ReadProgress from '../access/modules/readProgress.js';
 import { currentScope } from '../requestContext.js';
 
 const router = Router();
-const docs = new Documents();
 const norm = (p) => p ? path.normalize(p) : p;
 const catchError = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 
@@ -38,12 +36,12 @@ router.post('/review', catchError(async (req, res) => {
 
     const opts = { rating, requestRetention, ordering };
     const { interval = null } = relPath
-        ? await docs.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts)
-        : await SRS.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
+        ? await Documents.submitReview(relPath, flashcardHash, outcome, easeFactor, newLevel, algorithm, opts)
+        : await Srs.submitReview(flashcardHash, outcome, easeFactor, newLevel, algorithm, opts);
 
     let flags = [];
     try {
-        flags = await cardHealth.onReview(flashcardHash, { outcome, rating });
+        flags = await CardHealth.onReview(flashcardHash, { outcome, rating });
     } catch (err) {
         console.error('card health evaluation failed:', err);
     }
@@ -58,13 +56,13 @@ router.post('/undo', catchError(async (req, res) => {
     }
     let restored;
     if (relPath) {
-        restored = await docs.undoReview(relPath, flashcardHash, algorithm);
+        restored = await Documents.undoReview(relPath, flashcardHash, algorithm);
     } else {
-        ({ restored } = await SRS.undoReview(flashcardHash, algorithm));
+        ({ restored } = await Srs.undoReview(flashcardHash, algorithm));
     }
 
     try {
-        await cardHealth.evaluate(flashcardHash);
+        await CardHealth.evaluate(flashcardHash);
     } catch (err) {
         console.error('card health re-evaluation failed:', err);
     }
@@ -72,7 +70,7 @@ router.post('/undo', catchError(async (req, res) => {
 }));
 
 router.get('/stats', catchError(async (req, res) => {
-    res.json(await SRS.getLeitnerStats(currentScope()));
+    res.json(await Srs.getLeitnerStats(currentScope()));
 }));
 
 router.post('/migrate', catchError(async (req, res) => {
@@ -84,24 +82,24 @@ router.post('/migrate', catchError(async (req, res) => {
     if (!ALGS.includes(from) || !ALGS.includes(to)) {
         return res.status(400).json({ error: 'from and to must be leitner, sm2, or fsrs' });
     }
-    const count = await SRS.migrateProgress(from, to);
+    const count = await Srs.migrateProgress(from, to);
     res.json({ ok: true, count });
 }));
 
 router.post('/optimize', catchError(async (req, res) => {
-    const result = await SRS.optimizeParameters();
+    const result = await Srs.optimizeParameters();
     res.json({ ok: true, ...result });
 }));
 
 router.get('/fsrs-info', catchError(async (req, res) => {
-    res.json(await SRS.getFsrsInfo());
+    res.json(await Srs.getFsrsInfo());
 }));
 
 export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
     const scope = scopeArg ?? currentScope();
     const [rollup, learned] = await Promise.all([
-        readProgress.rollup('', { scope }),
-        statisticsRows.getVaultLearned(scope),
+        ReadProgress.rollup('', { scope }),
+        Srs.getVaultLearned(scope),
     ]);
 
     const documents = rollup.total ?? 0;
@@ -135,7 +133,7 @@ export async function vaultCompleteness(stats, { scope: scopeArg } = {}) {
 
 router.get('/statistics', catchError(async (req, res) => {
     const algorithm = req.query.algorithm || undefined;
-    const stats = await SRS.getStatistics({ algorithm });
+    const stats = await Srs.getStatistics({ algorithm });
     stats.completeness = await vaultCompleteness(stats);
     res.json(stats);
 }));
@@ -162,10 +160,10 @@ router.get('/due', catchError(async (req, res) => {
     const excludeTags = list(req.query.excludeTag);
 
     const readGate = req.query.read === 'only'
-        ? await readProgress.studyFilter({ scope: currentScope() })
+        ? await ReadProgress.studyFilter({ scope: currentScope() })
         : null;
 
-    const result = await SRS.getDue({
+    const result = await Srs.getDue({
         algorithm, folder, document, deck, tags: tags?.length ? tags : null, maxNew, minPriority,
         readGate, excludeFolders, excludeDocuments, excludeDecks, excludeTags,
     });
@@ -178,7 +176,7 @@ router.get('/due', catchError(async (req, res) => {
 
     const retention = Number.parseFloat(req.query.retention);
     const preview = result.algorithm === 'fsrs'
-        ? await SRS.fsrsPreview(
+        ? await Srs.fsrsPreview(
             sequenced.queue.map((c) => c.global_hash),
             Number.isFinite(retention) ? Math.min(0.97, Math.max(0.7, retention)) : undefined,
         )

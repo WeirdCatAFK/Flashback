@@ -121,3 +121,8 @@ export async function updateEntryInlineCard(deckId, cardHash, inlineCard) {
     db.prepare('UPDATE DeckEntries SET inline_card = ? WHERE deck_id = ? AND card_hash = ?')
         .run(inlineCard, deckId, cardHash);
 }
+
+export async function hasSystemColumn() {
+    const cols = await db.prepare('PRAGMA table_info(Decks)').all();
+    return cols.some((c) => c.name === 'is_system');
+}

@@ -397,210 +397,207 @@ function probe(ctx) {
 
 const DETECTORS = [overdueDrift, sessionFatigue, mouthful, probe];
 
-class CardHealthService {
-    constructor() {
-        this._sessionCache = new Map();
-        this._baselineCache = null;
+let _sessionCache = new Map();
+
+let _baselineCache = null;
+
+export function onVaultOpened() {
+    _sessionCache.clear();
+    _baselineCache = null;
+}
+
+function _scope(explicit) {
+    return explicit ?? currentScope();
+}
+
+export function runDetectors(ctx) {
+    const raised = [];
+    for (const detect of DETECTORS) {
+        const flag = detect(ctx);
+        if (flag) raised.push(flag);
     }
+    const guarded = raised.some(f => GUARD_KINDS.includes(f.kind));
+    return guarded ? raised.filter(f => GUARD_KINDS.includes(f.kind)) : raised;
+}
 
-    onVaultOpened() {
-        this._sessionCache.clear();
-        this._baselineCache = null;
+async function _sessionIndex(scope) {
+    const now = Date.now();
+    const cached = _sessionCache.get(scope);
+    if (cached && now - cached.at < SESSION_CACHE_MS) return cached.index;
+
+    const since = new Date(now - SESSION_WINDOW_DAYS * DAY_MS).toISOString();
+    const index = segmentSessions(await reviewRows.getRecentSessionRows(since, scope));
+    _sessionCache.set(scope, { at: now, index });
+    return index;
+}
+
+async function _medianAnswerTokens() {
+    const now = Date.now();
+    if (_baselineCache && now - _baselineCache.at < SESSION_CACHE_MS) {
+        return _baselineCache.medianTokens;
     }
+    const samples = await flashcardRows.getAnswerSamples();
+    const counts = samples
+        .map(s => analyzeStructure({
+            cardType: s.card_type, backText: answerBody(s), customHtml: s.custom_html,
+        }).tokens)
+        .filter(n => n > 0);
+    const medianTokens = median(counts);
+    _baselineCache = { at: now, medianTokens };
+    return medianTokens;
+}
 
-    _scope(explicit) {
-        return explicit ?? currentScope();
-    }
+export function resetCaches() {
+    _sessionCache.clear();
+    _baselineCache = null;
+}
 
-    runDetectors(ctx) {
-        const raised = [];
-        for (const detect of DETECTORS) {
-            const flag = detect(ctx);
-            if (flag) raised.push(flag);
-        }
-        const guarded = raised.some(f => GUARD_KINDS.includes(f.kind));
-        return guarded ? raised.filter(f => GUARD_KINDS.includes(f.kind)) : raised;
-    }
+function _fingerprint(content) {
+    return crypto.createHash('sha256').update([
+        content?.frontText ?? '', content?.backText ?? '', content?.answerText ?? '',
+        content?.custom_html ?? '', content?.card_type ?? '',
+    ].join('\u0000')).digest('hex').slice(0, 32);
+}
 
-    async _sessionIndex(scope) {
-        const now = Date.now();
-        const cached = this._sessionCache.get(scope);
-        if (cached && now - cached.at < SESSION_CACHE_MS) return cached.index;
+export async function buildContext(hash, scopeArg) {
+    const scope = _scope(scopeArg);
+    const content = await flashcardRows.getContentByHash(hash, scope);
+    if (!content) return null;
 
-        const since = new Date(now - SESSION_WINDOW_DAYS * DAY_MS).toISOString();
-        const index = segmentSessions(await reviewRows.getRecentSessionRows(since, scope));
-        this._sessionCache.set(scope, { at: now, index });
-        return index;
-    }
+    const fingerprint = _fingerprint(content);
+    let health = await cardHealthRows.get(content.id, scope);
 
-    async _medianAnswerTokens() {
-        const now = Date.now();
-        if (this._baselineCache && now - this._baselineCache.at < SESSION_CACHE_MS) {
-            return this._baselineCache.medianTokens;
-        }
-        const samples = await flashcardRows.getAnswerSamples();
-        const counts = samples
-            .map(s => analyzeStructure({
-                cardType: s.card_type, backText: answerBody(s), customHtml: s.custom_html,
-            }).tokens)
-            .filter(n => n > 0);
-        const medianTokens = median(counts);
-        this._baselineCache = { at: now, medianTokens };
-        return medianTokens;
-    }
-
-    resetCaches() {
-        this._sessionCache.clear();
-        this._baselineCache = null;
-    }
-
-    _fingerprint(content) {
-        return crypto.createHash('sha256').update([
-            content?.frontText ?? '', content?.backText ?? '', content?.answerText ?? '',
-            content?.custom_html ?? '', content?.card_type ?? '',
-        ].join('\u0000')).digest('hex').slice(0, 32);
-    }
-
-    async buildContext(hash, scopeArg) {
-        const scope = this._scope(scopeArg);
-        const content = await flashcardRows.getContentByHash(hash, scope);
-        if (!content) return null;
-
-        const fingerprint = this._fingerprint(content);
-        let health = await cardHealthRows.get(content.id, scope);
-
-        if (health && health.content_fingerprint && health.content_fingerprint !== fingerprint) {
-            await cardHealthRows.deleteFlags(content.id, { includeDismissed: true }, scope);
-            await cardHealthRows.upsert(content.id, {
-                epochAt: new Date().toISOString(), epochReason: 'edit', contentFingerprint: fingerprint,
-            }, scope);
-            health = await cardHealthRows.get(content.id, scope);
-        } else if (!health) {
-            await cardHealthRows.upsert(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint }, scope);
-            health = await cardHealthRows.get(content.id, scope);
-        } else if (health.content_fingerprint !== fingerprint) {
-            await cardHealthRows.setFingerprint(content.id, fingerprint, scope);
-        }
-
-        const logs = await reviewRows.getCardHistory(content.id, scope);
-        const reviews = buildReviewRecords(logs, {
-            epochAt: health?.epoch_at ?? null,
-            sessionIndex: await this._sessionIndex(scope),
-        });
-
-        const structure = structuralPrior(
-            analyzeStructure({
-                cardType: content.card_type, backText: answerBody(content),
-                customHtml: content.custom_html, frontText: content.frontText,
-            }),
-            await this._medianAnswerTokens(),
-        );
-
-        return {
-            cardId: content.id,
-            hash,
-            scope,
-            content,
-            epoch: { at: health?.epoch_at ?? null, reason: health?.epoch_reason ?? null },
-            reviews,
-            structure,
-            trajectory: classifyTrajectory(reviews),
-            repeatFailure: hasWithinSessionRepeatFailure(reviews),
-            lastReviewId: reviews.length ? reviews[reviews.length - 1].id : null,
-            level: (await cardProgressRows.getSrsStateByHash(hash, scope))?.level ?? 0,
-        };
-    }
-
-    async evaluate(hash, scopeArg) {
-        const ctx = await this.buildContext(hash, scopeArg);
-        if (!ctx) return [];
-
-        const raised = this.runDetectors(ctx);
-        const raisedKinds = raised.map(f => f.kind);
-
-        const stale = FLAG_KINDS.filter(k => !raisedKinds.includes(k));
-        if (stale.length) await cardHealthRows.deleteFlags(ctx.cardId, { kinds: stale }, ctx.scope);
-
-        for (const flag of raised) {
-            await cardHealthRows.upsertFlag({
-                flashcardId: ctx.cardId,
-                kind: flag.kind,
-                confidence: flag.confidence,
-                score: flag.score,
-                evidence: flag.evidence,
-                levelAtDetection: ctx.level,
-                reviewLogId: ctx.lastReviewId,
-            }, ctx.scope);
-        }
-
-        return await this.getFlags(hash, ctx.scope);
-    }
-
-    async onReview(hash, { outcome = null, rating = null } = {}, scopeArg) {
-        const scope = this._scope(scopeArg);
-        const failed = rating != null ? rating <= 1 : outcome === 0;
-        if (failed) return await this.evaluate(hash, scope);
-
-        const state = await cardProgressRows.getSrsStateByHash(hash, scope);
-        if (!state) return [];
-        if ((state.level ?? 0) >= RECOVERY_LEVEL) await this._address(state.id, 'recovered', scope);
-
-        return [];
-    }
-
-    async onCardEdited(hash) {
-        const content = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
-        if (!content) return;
-        await cardHealthRows.deleteAllFlags(content.id);
-        await cardHealthRows.resetAll(content.id, {
-            epochAt: new Date().toISOString(),
-            epochReason: 'edit',
-            contentFingerprint: this._fingerprint(content),
-        });
-    }
-
-    async dismiss(hash, kind, scopeArg) {
-        if (!FLAG_KINDS.includes(kind)) throw new Error(`Unknown flag kind: ${kind}`);
-        const scope = this._scope(scopeArg);
-        const content = await flashcardRows.getContentByHash(hash, scope);
-        if (!content) throw new Error(`Card not found: ${hash}`);
-        const changed = await cardHealthRows.dismissFlag(content.id, kind, scope);
-        if (changed) await this._setEpoch(content.id, 'dismissed', scope);
-        return changed > 0;
-    }
-
-    async _setEpoch(cardId, reason, scope) {
-        const existing = await cardHealthRows.get(cardId, scope);
-        await cardHealthRows.upsert(cardId, {
-            epochAt: new Date().toISOString(),
-            epochReason: reason,
-            contentFingerprint: existing?.content_fingerprint ?? null,
+    if (health && health.content_fingerprint && health.content_fingerprint !== fingerprint) {
+        await cardHealthRows.deleteFlags(content.id, { includeDismissed: true }, scope);
+        await cardHealthRows.upsert(content.id, {
+            epochAt: new Date().toISOString(), epochReason: 'edit', contentFingerprint: fingerprint,
         }, scope);
+        health = await cardHealthRows.get(content.id, scope);
+    } else if (!health) {
+        await cardHealthRows.upsert(content.id, { epochAt: null, epochReason: null, contentFingerprint: fingerprint }, scope);
+        health = await cardHealthRows.get(content.id, scope);
+    } else if (health.content_fingerprint !== fingerprint) {
+        await cardHealthRows.setFingerprint(content.id, fingerprint, scope);
     }
 
-    async _address(cardId, reason, scope) {
-        await cardHealthRows.deleteFlags(cardId, {}, scope);
-        await this._setEpoch(cardId, reason, scope);
+    const logs = await reviewRows.getCardHistory(content.id, scope);
+    const reviews = buildReviewRecords(logs, {
+        epochAt: health?.epoch_at ?? null,
+        sessionIndex: await _sessionIndex(scope),
+    });
+
+    const structure = structuralPrior(
+        analyzeStructure({
+            cardType: content.card_type, backText: answerBody(content),
+            customHtml: content.custom_html, frontText: content.frontText,
+        }),
+        await _medianAnswerTokens(),
+    );
+
+    return {
+        cardId: content.id,
+        hash,
+        scope,
+        content,
+        epoch: { at: health?.epoch_at ?? null, reason: health?.epoch_reason ?? null },
+        reviews,
+        structure,
+        trajectory: classifyTrajectory(reviews),
+        repeatFailure: hasWithinSessionRepeatFailure(reviews),
+        lastReviewId: reviews.length ? reviews[reviews.length - 1].id : null,
+        level: (await cardProgressRows.getSrsStateByHash(hash, scope))?.level ?? 0,
+    };
+}
+
+export async function evaluate(hash, scopeArg) {
+    const ctx = await buildContext(hash, scopeArg);
+    if (!ctx) return [];
+
+    const raised = runDetectors(ctx);
+    const raisedKinds = raised.map(f => f.kind);
+
+    const stale = FLAG_KINDS.filter(k => !raisedKinds.includes(k));
+    if (stale.length) await cardHealthRows.deleteFlags(ctx.cardId, { kinds: stale }, ctx.scope);
+
+    for (const flag of raised) {
+        await cardHealthRows.upsertFlag({
+            flashcardId: ctx.cardId,
+            kind: flag.kind,
+            confidence: flag.confidence,
+            score: flag.score,
+            evidence: flag.evidence,
+            levelAtDetection: ctx.level,
+            reviewLogId: ctx.lastReviewId,
+        }, ctx.scope);
     }
 
-    async getFlags(hash, scopeArg) {
-        const scope = this._scope(scopeArg);
-        const content = await flashcardRows.getContentByHash(hash, scope);
-        if (!content) return [];
-        return (await cardHealthRows.getFlags(content.id, {}, scope)).map(row => {
-            const evidence = row.evidence_json ? JSON.parse(row.evidence_json) : {};
-            return {
-                id: `${row.kind}:${row.card_hash}`,
-                kind: row.kind,
-                confidence: row.confidence,
-                score: row.score,
-                detectedAt: row.detected_at,
-                levelAtDetection: row.level_at_detection,
-                evidence,
-                ...PRESENTATION[row.kind],
-            };
-        });
-    }
+    return await getFlags(hash, ctx.scope);
+}
+
+export async function onReview(hash, { outcome = null, rating = null } = {}, scopeArg) {
+    const scope = _scope(scopeArg);
+    const failed = rating != null ? rating <= 1 : outcome === 0;
+    if (failed) return await evaluate(hash, scope);
+
+    const state = await cardProgressRows.getSrsStateByHash(hash, scope);
+    if (!state) return [];
+    if ((state.level ?? 0) >= RECOVERY_LEVEL) await _address(state.id, 'recovered', scope);
+
+    return [];
+}
+
+export async function onCardEdited(hash) {
+    const content = await flashcardRows.getContentByHash(hash, OWNER_SCOPE);
+    if (!content) return;
+    await cardHealthRows.deleteAllFlags(content.id);
+    await cardHealthRows.resetAll(content.id, {
+        epochAt: new Date().toISOString(),
+        epochReason: 'edit',
+        contentFingerprint: _fingerprint(content),
+    });
+}
+
+export async function dismiss(hash, kind, scopeArg) {
+    if (!FLAG_KINDS.includes(kind)) throw new Error(`Unknown flag kind: ${kind}`);
+    const scope = _scope(scopeArg);
+    const content = await flashcardRows.getContentByHash(hash, scope);
+    if (!content) throw new Error(`Card not found: ${hash}`);
+    const changed = await cardHealthRows.dismissFlag(content.id, kind, scope);
+    if (changed) await _setEpoch(content.id, 'dismissed', scope);
+    return changed > 0;
+}
+
+async function _setEpoch(cardId, reason, scope) {
+    const existing = await cardHealthRows.get(cardId, scope);
+    await cardHealthRows.upsert(cardId, {
+        epochAt: new Date().toISOString(),
+        epochReason: reason,
+        contentFingerprint: existing?.content_fingerprint ?? null,
+    }, scope);
+}
+
+async function _address(cardId, reason, scope) {
+    await cardHealthRows.deleteFlags(cardId, {}, scope);
+    await _setEpoch(cardId, reason, scope);
+}
+
+export async function getFlags(hash, scopeArg) {
+    const scope = _scope(scopeArg);
+    const content = await flashcardRows.getContentByHash(hash, scope);
+    if (!content) return [];
+    return (await cardHealthRows.getFlags(content.id, {}, scope)).map(row => {
+        const evidence = row.evidence_json ? JSON.parse(row.evidence_json) : {};
+        return {
+            id: `${row.kind}:${row.card_hash}`,
+            kind: row.kind,
+            confidence: row.confidence,
+            score: row.score,
+            detectedAt: row.detected_at,
+            levelAtDetection: row.level_at_detection,
+            evidence,
+            ...PRESENTATION[row.kind],
+        };
+    });
 }
 
 const PRESENTATION = {
@@ -631,4 +628,3 @@ const PRESENTATION = {
 };
 
 export { PRESENTATION, RECOVERY_LEVEL };
-export default new CardHealthService();

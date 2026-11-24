@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import path from 'path';
-import readProgress from '../access/modules/readProgress.js';
+import * as ReadProgress from '../access/modules/readProgress.js';
 
 const router = Router();
 const norm = (p) => (p ? path.normalize(p) : p);
@@ -14,11 +14,11 @@ const catchError = (fn) => (req, res, next) =>
 router.get('/', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await readProgress.get(relPath));
+    res.json(await ReadProgress.get(relPath));
 }));
 
 router.get('/reading', catchError(async (req, res) => {
-    res.json(await readProgress.listInProgress({
+    res.json(await ReadProgress.listInProgress({
         limit: req.query.limit ? Number(req.query.limit) : undefined,
         includeFinished: req.query.includeFinished === 'true',
     }));
@@ -27,24 +27,24 @@ router.get('/reading', catchError(async (req, res) => {
 router.get('/list', catchError(async (req, res) => {
     const folder = norm(req.query.folder) ?? '';
     const folders = [].concat(req.query.folders ?? []).map(norm).filter(Boolean);
-    res.json(await readProgress.listForFolder(folder, { folders }));
+    res.json(await ReadProgress.listForFolder(folder, { folders }));
 }));
 
 router.get('/rollup', catchError(async (req, res) => {
     const relPath = norm(req.query.path) ?? '';
-    res.json(await readProgress.folderRollup(relPath));
+    res.json(await ReadProgress.folderRollup(relPath));
 }));
 
 router.get('/coverage', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    res.json(await readProgress.coverage(relPath));
+    res.json(await ReadProgress.coverage(relPath));
 }));
 
 router.put('/', catchError(async (req, res) => {
     const relPath = norm(req.body.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    const progress = await readProgress.set(relPath, {
+    const progress = await ReadProgress.set(relPath, {
         unit: req.body.unit,
         position: req.body.position,
         percent: req.body.percent,
@@ -57,7 +57,7 @@ router.put('/', catchError(async (req, res) => {
 router.delete('/', catchError(async (req, res) => {
     const relPath = norm(req.query.path);
     if (!relPath) return res.status(400).json({ error: 'path required' });
-    await readProgress.clear(relPath);
+    await ReadProgress.clear(relPath);
     res.json({ ok: true });
 }));
 

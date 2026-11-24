@@ -5,8 +5,8 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../../src/api/config/validate.js';
-import Documents from '../../src/api/access/modules/documents.js';
-import SRS from '../../src/api/access/modules/srs.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
+import * as Srs from '../../src/api/access/modules/srs.js';
 import * as flashcardRows from '../../src/api/access/resources/db/flashcards.js';
 import * as statisticsRows from '../../src/api/access/resources/db/statistics.js';
 import db from '../../src/api/access/primitives/database.js';
@@ -21,7 +21,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
 const ROOT = 'StatsTestWorkspace';
 
 const rmWorkspace = () => {
@@ -46,8 +45,8 @@ describe('SRS statistics', () => {
     before(async () => {
         rmWorkspace();
         await sealTools.init();
-        await docs.createFolder(ROOT);
-        await docs.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
+        await Documents.createFolder(ROOT);
+        await Documents.importFile('deck.md', ROOT, Buffer.from('# Deck'), {
             globalHash: crypto.randomUUID(),
             flashcards: [
                 { globalHash: hashA, level: 0, vanillaData: { frontText: 'Qa', backText: 'Aa' } },
@@ -59,7 +58,7 @@ describe('SRS statistics', () => {
     after(() => rmWorkspace());
 
     it('returns a well-formed stats shape', async () => {
-        const s = await SRS.getStatistics({ algorithm: 'leitner' });
+        const s = await Srs.getStatistics({ algorithm: 'leitner' });
         assert.equal(s.algorithm, 'leitner');
         assert.ok(s.totals && typeof s.totals.cards === 'number');
         assert.ok(s.acquisition && s.acquisition.learningReviews > 0);
@@ -71,12 +70,12 @@ describe('SRS statistics', () => {
     });
 
     it('counts new cards and a review, and schedules the reviewed card', async () => {
-        const before = await SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await Srs.getStatistics({ algorithm: 'leitner' });
 
         assert.ok(before.maturity.new >= 2, 'both new cards counted');
 
-        await docs.submitReview(docRel, hashA, 1, 2.5, 1, 'leitner');
-        const after = await SRS.getStatistics({ algorithm: 'leitner' });
+        await Documents.submitReview(docRel, hashA, 1, 2.5, 1, 'leitner');
+        const after = await Srs.getStatistics({ algorithm: 'leitner' });
 
         assert.equal(after.totals.cards - before.totals.cards, 0, 'no cards added by a review');
         assert.equal(after.totals.reviews - before.totals.reviews, 1, 'one more review logged');
@@ -96,19 +95,19 @@ describe('SRS statistics', () => {
     });
 
     it('counts a card toward retention only once it is past the learning phase', async () => {
-        const before = await SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await Srs.getStatistics({ algorithm: 'leitner' });
         const n = before.acquisition.learningReviews;
 
         for (let i = 1; i < n; i++) {
-            await docs.submitReview(docRel, hashA, 1, 2.5, i + 1, 'leitner');
+            await Documents.submitReview(docRel, hashA, 1, 2.5, i + 1, 'leitner');
         }
-        const atThreshold = await SRS.getStatistics({ algorithm: 'leitner' });
+        const atThreshold = await Srs.getStatistics({ algorithm: 'leitner' });
         assert.equal(atThreshold.acquisition.reviews - before.acquisition.reviews, n - 1,
             'reviews up to the threshold all land in the learning bucket');
         assert.equal(atThreshold.totals.retentionReviews - before.totals.retentionReviews, 0);
 
-        await docs.submitReview(docRel, hashA, 1, 2.5, n + 1, 'leitner');
-        const after = await SRS.getStatistics({ algorithm: 'leitner' });
+        await Documents.submitReview(docRel, hashA, 1, 2.5, n + 1, 'leitner');
+        const after = await Srs.getStatistics({ algorithm: 'leitner' });
         assert.equal(after.acquisition.reviews - atThreshold.acquisition.reviews, 0,
             'past the threshold the learning bucket stops growing');
         assert.equal(after.totals.retentionReviews - atThreshold.totals.retentionReviews, 1);
@@ -117,22 +116,22 @@ describe('SRS statistics', () => {
     });
 
     it('measures acquisition cost as attempts to the first correct recall', async () => {
-        const before = await SRS.getStatistics({ algorithm: 'leitner' });
+        const before = await Srs.getStatistics({ algorithm: 'leitner' });
         const attemptSum = (s) => (s.acquisition.reviewsToRecall.avg ?? 0) * s.acquisition.reviewsToRecall.cards;
         const firstCorrect = (s) => (s.acquisition.firstExposureAll ?? 0) * s.acquisition.firstExposureCards;
 
-        await docs.submitReview(docRel, hashB, 0, 2.4, 1, 'leitner');
-        await docs.submitReview(docRel, hashB, 0, 2.3, 1, 'leitner');
+        await Documents.submitReview(docRel, hashB, 0, 2.4, 1, 'leitner');
+        await Documents.submitReview(docRel, hashB, 0, 2.3, 1, 'leitner');
 
-        const failing = await SRS.getStatistics({ algorithm: 'leitner' });
+        const failing = await Srs.getStatistics({ algorithm: 'leitner' });
         assert.equal(failing.acquisition.reviewsToRecall.cards - before.acquisition.reviewsToRecall.cards, 0,
             'a card never yet recalled contributes no acquisition-cost sample');
         assert.equal(Math.round(firstCorrect(failing) - firstCorrect(before)), 0,
             'a failed first exposure does not count as a first-sight recall');
         assert.equal(failing.acquisition.firstExposureCards - before.acquisition.firstExposureCards, 1);
 
-        await docs.submitReview(docRel, hashB, 1, 2.4, 2, 'leitner');
-        const after = await SRS.getStatistics({ algorithm: 'leitner' });
+        await Documents.submitReview(docRel, hashB, 1, 2.4, 2, 'leitner');
+        const after = await Srs.getStatistics({ algorithm: 'leitner' });
         assert.equal(after.acquisition.reviewsToRecall.cards - failing.acquisition.reviewsToRecall.cards, 1);
         assert.equal(Math.round(attemptSum(after) - attemptSum(failing)), 3,
             'the card took three attempts before it was first recalled');
@@ -156,8 +155,8 @@ describe('SRS algorithm detection', () => {
     before(async () => {
         rm2();
         await sealTools.init();
-        await docs.createFolder(ROOT2);
-        await docs.importFile('deck.md', ROOT2, Buffer.from('# Deck'), {
+        await Documents.createFolder(ROOT2);
+        await Documents.importFile('deck.md', ROOT2, Buffer.from('# Deck'), {
             globalHash: crypto.randomUUID(),
             flashcards: [
                 { globalHash: hashL, level: 0, vanillaData: { frontText: 'Ql', backText: 'Al' } },
@@ -169,33 +168,33 @@ describe('SRS algorithm detection', () => {
     after(() => rm2());
 
     it('reports the algorithm of the most recent review', async () => {
-        await docs.submitReview(docRel, hashL, 1, 2.5, 1, 'leitner');
-        assert.equal(await SRS.detectAlgorithm(), 'leitner');
+        await Documents.submitReview(docRel, hashL, 1, 2.5, 1, 'leitner');
+        assert.equal(await Srs.detectAlgorithm(), 'leitner');
 
-        await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
-        assert.equal(await SRS.detectAlgorithm(), 'fsrs',
+        await Documents.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
+        assert.equal(await Srs.detectAlgorithm(), 'fsrs',
             'switching to FSRS must be visible to the server without being told');
 
-        await docs.submitReview(docRel, hashL, 1, 2.6, 2, 'sm2');
-        assert.equal(await SRS.detectAlgorithm(), 'sm2',
+        await Documents.submitReview(docRel, hashL, 1, 2.6, 2, 'sm2');
+        assert.equal(await Srs.detectAlgorithm(), 'sm2',
             'sm2 is distinguishable from leitner now that the log records it');
     });
 
     it('getStatistics with no algorithm uses the detected one, not a hardcoded default', async () => {
-        await docs.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
-        assert.equal(await SRS.detectAlgorithm(), 'fsrs');
+        await Documents.submitReview(docRel, hashF, null, null, null, 'fsrs', { rating: 3 });
+        assert.equal(await Srs.detectAlgorithm(), 'fsrs');
 
-        const inferred = await SRS.getStatistics();
+        const inferred = await Srs.getStatistics();
         assert.equal(inferred.algorithm, 'fsrs',
             'an MCP client reading `algorithm` back must not be told "leitner"');
 
-        assert.equal((await SRS.getStatistics({ algorithm: 'sm2' })).algorithm, 'sm2');
+        assert.equal((await Srs.getStatistics({ algorithm: 'sm2' })).algorithm, 'sm2');
     });
 
     it('getDue with no algorithm uses the detected one', async () => {
-        assert.equal(await SRS.detectAlgorithm(), 'fsrs');
-        assert.equal((await SRS.getDue({ folder: ROOT2 })).algorithm, 'fsrs');
-        assert.equal((await SRS.getDue({ folder: ROOT2, algorithm: 'leitner' })).algorithm, 'leitner');
+        assert.equal(await Srs.detectAlgorithm(), 'fsrs');
+        assert.equal((await Srs.getDue({ folder: ROOT2 })).algorithm, 'fsrs');
+        assert.equal((await Srs.getDue({ folder: ROOT2, algorithm: 'leitner' })).algorithm, 'leitner');
     });
 });
 
@@ -215,8 +214,8 @@ describe('Card insights', () => {
     before(async () => {
         rm3();
         await sealTools.init();
-        await docs.createFolder(ROOT3);
-        await docs.importFile('deck.md', ROOT3, Buffer.from('# Deck'), {
+        await Documents.createFolder(ROOT3);
+        await Documents.importFile('deck.md', ROOT3, Buffer.from('# Deck'), {
             globalHash: crypto.randomUUID(),
             flashcards: [
                 { globalHash: hashC, level: 0, vanillaData: { frontText: 'Qc', backText: 'Ac' } },
@@ -227,15 +226,15 @@ describe('Card insights', () => {
     after(() => rm3());
 
     it('separates real reviews from rows a vault rebuild synthesised', async () => {
-        await docs.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
-        await docs.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
+        await Documents.submitReview(docRel, hashC, 1, 2.5, 1, 'leitner');
+        await Documents.submitReview(docRel, hashC, 0, 2.4, 1, 'leitner');
 
         await db.prepare(`
             INSERT INTO progress.ReviewLogs (card_hash, account_id, timestamp, outcome, ease_factor, level)
             VALUES (?, 'owner', datetime('now'), NULL, 2.5, 1)
         `).run(hashC);
 
-        const insights = await SRS.getCardInsights(hashC, { algorithm: 'leitner' });
+        const insights = await Srs.getCardInsights(hashC, { algorithm: 'leitner' });
         assert.equal(insights.history.length, 3, 'the ledger shows every stored row');
         assert.equal(insights.history.filter(h => h.synthetic).length, 1);
         assert.equal(insights.srs.syntheticEntries, 1);
@@ -247,7 +246,7 @@ describe('Card insights', () => {
     });
 
     it('throws for an unknown card', async () => {
-        await assert.rejects(async () => await SRS.getCardInsights('no-such-card'), /not found/);
+        await assert.rejects(async () => await Srs.getCardInsights('no-such-card'), /not found/);
     });
 });
 
@@ -265,12 +264,12 @@ describe('vault learned aggregate', () => {
 
     before(async () => {
         rm2();
-        await docs.createFolder(ROOT2);
-        await docs.importFile('many.md', ROOT2, Buffer.from('# Many'), {
+        await Documents.createFolder(ROOT2);
+        await Documents.importFile('many.md', ROOT2, Buffer.from('# Many'), {
             globalHash: crypto.randomUUID(),
             flashcards: big.map(h => ({ globalHash: h, vanillaData: { frontText: 'q', backText: 'a' } })),
         });
-        await docs.importFile('one.md', ROOT2, Buffer.from('# One'), {
+        await Documents.importFile('one.md', ROOT2, Buffer.from('# One'), {
             globalHash: crypto.randomUUID(),
             flashcards: [{ globalHash: lone, vanillaData: { frontText: 'q', backText: 'a' } }],
         });
@@ -289,7 +288,7 @@ describe('vault learned aggregate', () => {
         const before = await statisticsRows.getVaultLearned('owner');
         const extraDoc = path.join(ROOT2, 'fresh.md');
         const fresh = crypto.randomUUID();
-        await docs.importFile('fresh.md', ROOT2, Buffer.from('# Fresh'), {
+        await Documents.importFile('fresh.md', ROOT2, Buffer.from('# Fresh'), {
             globalHash: crypto.randomUUID(),
             flashcards: [{ globalHash: fresh, vanillaData: { frontText: 'q', backText: 'a' } }],
         });
@@ -305,7 +304,7 @@ describe('vault learned aggregate', () => {
 
     it('is card-weighted, so one mastered card cannot outvote twenty unstudied ones', async () => {
         const before = await statisticsRows.getVaultLearned('owner');
-        await docs.submitReview(path.join(ROOT2, 'one.md'), lone, 1, 2.5, 6, 'leitner');
+        await Documents.submitReview(path.join(ROOT2, 'one.md'), lone, 1, 2.5, 6, 'leitner');
         const after_ = await statisticsRows.getVaultLearned('owner');
 
         assert.ok(after_.learnedSum - before.learnedSum > 0.99,

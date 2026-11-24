@@ -5,7 +5,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import process from 'process';
 import validate from '../../src/api/config/validate.js';
-import Documents from '../../src/api/access/modules/documents.js';
+import * as Documents from '../../src/api/access/modules/documents.js';
 import db from '../../src/api/access/primitives/database.js';
 import { sealTools } from '../../src/api/seal/seal.js';
 import { getWorkspacePath } from '../../src/api/access/primitives/config.js';
@@ -18,7 +18,6 @@ if (!await validate()) {
     process.exit(1);
 }
 
-const docs = new Documents();
 const TEST_ROOT = "PerfTestWorkspace";
 
 const OVERHEAD_FACTOR = 5;
@@ -41,7 +40,7 @@ describe('Performance: Import Throughput', () => {
     before(async () => {
         cleanup();
         await sealTools.init();
-        await docs.createFolder(TEST_ROOT);
+        await Documents.createFolder(TEST_ROOT);
     });
 
     after(async () => {
@@ -59,7 +58,7 @@ describe('Performance: Import Throughput', () => {
         const LARGE_MB = 100;
 
         const t0 = performance.now();
-        await docs.importFile('cal_size.bin', TEST_ROOT, Buffer.allocUnsafe(SMALL_MB * 1024 * 1024), {
+        await Documents.importFile('cal_size.bin', TEST_ROOT, Buffer.allocUnsafe(SMALL_MB * 1024 * 1024), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(10)
         });
@@ -67,7 +66,7 @@ describe('Performance: Import Throughput', () => {
 
         const beforeHead = (await sealTools.log(1))[0]?.oid;
         const t1 = performance.now();
-        await docs.importFile('large_size.bin', TEST_ROOT, Buffer.allocUnsafe(LARGE_MB * 1024 * 1024), {
+        await Documents.importFile('large_size.bin', TEST_ROOT, Buffer.allocUnsafe(LARGE_MB * 1024 * 1024), {
             globalHash: crypto.randomUUID(),
             tags: ['Performance'],
             flashcards: makeCards(100)
@@ -90,7 +89,7 @@ describe('Performance: Import Throughput', () => {
         const afterHead = (await sealTools.log(1))[0]?.oid;
         assert.notEqual(afterHead, beforeHead, 'importFile should produce a Seal commit');
 
-        const doc = await docs.exists(path.join(TEST_ROOT, 'large_size.bin'), true, false);
+        const doc = await Documents.exists(path.join(TEST_ROOT, 'large_size.bin'), true, false);
         assert.ok(doc, 'Document should be in DB');
         const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;
         assert.equal(fcCount, 100, 'All 100 flashcards should be stored');
@@ -102,14 +101,14 @@ describe('Performance: Import Throughput', () => {
         const FILE_SIZE = 100 * 1024;
 
         const t0 = performance.now();
-        await docs.importFile('cal_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
+        await Documents.importFile('cal_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(SMALL_CARDS)
         });
         const baseMs = performance.now() - t0;
 
         const t1 = performance.now();
-        await docs.importFile('large_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
+        await Documents.importFile('large_cards.md', TEST_ROOT, Buffer.allocUnsafe(FILE_SIZE), {
             globalHash: crypto.randomUUID(),
             flashcards: makeCards(LARGE_CARDS)
         });
@@ -128,7 +127,7 @@ describe('Performance: Import Throughput', () => {
             `${(largeMs / baseMs / (LARGE_CARDS / SMALL_CARDS)).toFixed(1)}× overhead (max ${OVERHEAD_FACTOR}×)`
         );
 
-        const doc = await docs.exists(path.join(TEST_ROOT, 'large_cards.md'), true, false);
+        const doc = await Documents.exists(path.join(TEST_ROOT, 'large_cards.md'), true, false);
         assert.ok(doc, 'Document should be in DB');
         const fcCount = (await db.prepare('SELECT COUNT(*) as c FROM Flashcards WHERE document_id = ?').get(doc.id)).c;
         assert.equal(fcCount, LARGE_CARDS, `All ${LARGE_CARDS} flashcards should be stored`);
